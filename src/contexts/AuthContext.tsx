@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { User } from '@/lib/types';
-import { getUser, setUser as saveUser, removeUser } from '@/lib/storage';
+import { getUser, setUser as saveSession, removeUser } from '@/lib/storage';
+import { getAllUsers, saveUser as saveToDB } from '@/lib/database';
 
 interface AuthContextType {
   user: User | null;
@@ -27,15 +28,25 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const login = async (email: string, password: string): Promise<boolean> => {
     // Simulated login - in production, this would call an API
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     if (email && password.length >= 6) {
-      const newUser: User = {
-        id: `user-${Date.now()}`,
-        username: email.split('@')[0],
-        email,
-      };
-      setUser(newUser);
-      saveUser(newUser);
+      // Check if user exists in our global DB
+      let existingUser = getAllUsers().find(u => u.email === email);
+
+      if (!existingUser) {
+        // If they don't exist (e.g. they were only in local session), add them now
+        existingUser = {
+          id: `user-${Date.now()}`,
+          username: email.split('@')[0],
+          email,
+          createdAt: new Date().toISOString(),
+          role: 'user'
+        };
+        saveToDB(existingUser);
+      }
+
+      setUser(existingUser);
+      saveSession(existingUser);
       return true;
     }
     return false;
@@ -44,15 +55,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const register = async (username: string, email: string, password: string): Promise<boolean> => {
     // Simulated registration
     await new Promise(resolve => setTimeout(resolve, 500));
-    
+
     if (username && email && password.length >= 6) {
-      const newUser: User = {
+      // Check if user already exists in DB
+      const existingUser = getAllUsers().find(u => u.email === email);
+
+      const newUser: User = existingUser || {
         id: `user-${Date.now()}`,
         username,
         email,
+        createdAt: new Date().toISOString(),
+        role: 'user'
       };
+
       setUser(newUser);
-      saveUser(newUser);
+      saveSession(newUser);
+      saveToDB(newUser); // Save to the global admin-visible list
       return true;
     }
     return false;

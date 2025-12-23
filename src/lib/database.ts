@@ -9,6 +9,7 @@ const DB_KEYS = {
     USERS: 'db_users',
     COMMENTS: 'db_comments',
     ADMIN_USERS: 'db_admin_users',
+    CURRENT_USER: 'manga_user', // Sync with storage.ts
 };
 
 // Comment Interface
@@ -258,6 +259,43 @@ export const toggleCommentLike = (commentId: string, userId: string): boolean =>
     return true;
 };
 
+// ==================== USER OPERATIONS ====================
+
+export const getAllUsers = (): User[] => {
+    const data = localStorage.getItem(DB_KEYS.USERS);
+    return data ? JSON.parse(data) : [];
+};
+
+export const saveUser = (user: User): void => {
+    const users = getAllUsers();
+    const existingIndex = users.findIndex(u => u.id === user.id || u.email === user.email);
+
+    if (existingIndex >= 0) {
+        users[existingIndex] = { ...users[existingIndex], ...user };
+    } else {
+        users.push({
+            ...user,
+            createdAt: user.createdAt || new Date().toISOString(),
+            role: user.role || 'user'
+        });
+    }
+
+    localStorage.setItem(DB_KEYS.USERS, JSON.stringify(users));
+};
+
+export const deleteUser = (userId: string): boolean => {
+    const users = getAllUsers();
+    const filtered = users.filter(u => u.id !== userId);
+
+    if (filtered.length === users.length) return false;
+
+    localStorage.setItem(DB_KEYS.USERS, JSON.stringify(filtered));
+
+    // Also delete user related data (bookmarks, favorites, reading progress, etc. if needed)
+    // For now, just the user record
+    return true;
+};
+
 // ==================== ADMIN OPERATIONS ====================
 
 export const getAdminUsers = (): AdminUser[] => {
@@ -322,12 +360,14 @@ export const filterMangasByStatus = (status: 'ongoing' | 'completed' | 'hiatus')
 export const getStatistics = () => {
     const mangas = getAllMangas();
     const comments = getAllComments();
+    const users = getAllUsers();
 
     return {
         totalMangas: mangas.length,
         totalChapters: mangas.reduce((acc, m) => acc + m.chapters.length, 0),
         totalViews: mangas.reduce((acc, m) => acc + (m.views || 0), 0),
         totalComments: comments.length,
+        totalUsers: users.length,
         mangasByType: {
             manga: mangas.filter(m => m.type === 'manga').length,
             manhwa: mangas.filter(m => m.type === 'manhwa').length,

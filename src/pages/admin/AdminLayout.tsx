@@ -12,6 +12,7 @@ import {
     ChevronRight,
     Plus,
     BarChart3,
+    UserCircle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getAdminSession, removeAdminSession } from '@/lib/storage';
@@ -45,6 +46,7 @@ const AdminLayout: React.FC = () => {
         { icon: BookOpen, label: 'Mangalar', path: '/admin/mangas' },
         { icon: Plus, label: 'Manga Ekle', path: '/admin/mangas/new' },
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
+        { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
         { icon: Users, label: 'Adminler', path: '/admin/users' },
         { icon: Settings, label: 'Ayarlar', path: '/admin/settings' },
     ];

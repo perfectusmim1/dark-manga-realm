@@ -8,6 +8,7 @@ import {
     Clock,
     Plus,
     ArrowUpRight,
+    Users as UsersIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getStatistics, getAllMangas } from '@/lib/database';
@@ -56,6 +57,13 @@ const AdminDashboard: React.FC = () => {
             color: 'text-orange-500',
             bgColor: 'bg-orange-500/10',
         },
+        {
+            title: 'Toplam Kullanıcı',
+            value: stats.totalUsers,
+            icon: UsersIcon,
+            color: 'text-blue-500',
+            bgColor: 'bg-blue-500/10',
+        },
     ];
 
     return (
@@ -74,7 +82,7 @@ const AdminDashboard: React.FC = () => {
             </div>
 
             {/* Stat Cards */}
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 {statCards.map((stat) => (
                     <div
                         key={stat.title}
