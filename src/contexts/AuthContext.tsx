@@ -25,55 +25,67 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setIsLoading(false);
   }, []);
 
-  const login = async (email: string, password: string): Promise<boolean> => {
+  const login = async (emailOrUsername: string, password: string): Promise<boolean> => {
     // Simulated login - in production, this would call an API
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    if (email && password.length >= 6) {
-      // Check if user exists in our global DB
-      let existingUser = getAllUsers().find(u => u.email === email);
-
-      if (!existingUser) {
-        // If they don't exist (e.g. they were only in local session), add them now
-        existingUser = {
-          id: `user-${Date.now()}`,
-          username: email.split('@')[0],
-          email,
-          createdAt: new Date().toISOString(),
-          role: 'user'
-        };
-        saveToDB(existingUser);
-      }
-
-      setUser(existingUser);
-      saveSession(existingUser);
-      return true;
+    if (!emailOrUsername || !password) {
+      return false;
     }
-    return false;
+
+    // Check if user exists in our global DB by email OR username
+    const existingUser = getAllUsers().find(
+      u => u.email === emailOrUsername || u.username === emailOrUsername
+    );
+
+    // If user doesn't exist, login fails - no auto-registration!
+    if (!existingUser) {
+      return false;
+    }
+
+    // Check password
+    if (existingUser.password !== password) {
+      return false;
+    }
+
+    // Success - user exists and password matches
+    setUser(existingUser);
+    saveSession(existingUser);
+    return true;
   };
 
   const register = async (username: string, email: string, password: string): Promise<boolean> => {
     // Simulated registration
     await new Promise(resolve => setTimeout(resolve, 500));
 
-    if (username && email && password.length >= 6) {
-      // Check if user already exists in DB
-      const existingUser = getAllUsers().find(u => u.email === email);
-
-      const newUser: User = existingUser || {
-        id: `user-${Date.now()}`,
-        username,
-        email,
-        createdAt: new Date().toISOString(),
-        role: 'user'
-      };
-
-      setUser(newUser);
-      saveSession(newUser);
-      saveToDB(newUser); // Save to the global admin-visible list
-      return true;
+    if (!username || !email || password.length < 6) {
+      return false;
     }
-    return false;
+
+    // Check if user already exists in DB (by email or username)
+    const allUsers = getAllUsers();
+    const existingByEmail = allUsers.find(u => u.email === email);
+    const existingByUsername = allUsers.find(u => u.username === username);
+
+    // If already exists, registration fails
+    if (existingByEmail || existingByUsername) {
+      return false;
+    }
+
+    // Create new user WITH password
+    const newUser: User = {
+      id: `user-${Date.now()}`,
+      username,
+      email,
+      password, // Store for authentication
+      createdAt: new Date().toISOString(),
+      role: 'user'
+    };
+
+    setUser(newUser);
+    saveSession(newUser);
+    saveToDB(newUser); // Save to the global admin-visible list
+    return true;
   };
 
   const logout = () => {

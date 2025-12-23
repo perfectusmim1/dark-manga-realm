@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useNavigate, Link } from 'react-router-dom';
-import { Eye, EyeOff, Mail, Lock, User } from 'lucide-react';
+import { Eye, EyeOff, Mail, Lock, User, AtSign } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -14,6 +14,7 @@ const Auth: React.FC = () => {
   const [formData, setFormData] = useState({
     username: '',
     email: '',
+    emailOrUsername: '', // For login - can be email or username
     password: '',
   });
 
@@ -26,12 +27,12 @@ const Auth: React.FC = () => {
 
     try {
       if (isLogin) {
-        const success = await login(formData.email, formData.password);
+        const success = await login(formData.emailOrUsername, formData.password);
         if (success) {
           toast.success('Giriş başarılı!');
           navigate('/');
         } else {
-          toast.error('Geçersiz e-posta veya şifre');
+          toast.error('Kullanıcı bulunamadı veya şifre hatalı');
         }
       } else {
         if (formData.password.length < 6) {
@@ -44,7 +45,7 @@ const Auth: React.FC = () => {
           toast.success('Kayıt başarılı!');
           navigate('/');
         } else {
-          toast.error('Kayıt sırasında bir hata oluştu');
+          toast.error('Bu e-posta veya kullanıcı adı zaten kullanılıyor');
         }
       }
     } catch (error) {
@@ -98,21 +99,39 @@ const Auth: React.FC = () => {
               </div>
             )}
 
-            <div className="space-y-2">
-              <Label htmlFor="email">E-posta</Label>
-              <div className="relative">
-                <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  id="email"
-                  type="email"
-                  placeholder="ornek@email.com"
-                  value={formData.email}
-                  onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-                  className="pl-10"
-                  required
-                />
+            {isLogin ? (
+              <div className="space-y-2">
+                <Label htmlFor="emailOrUsername">E-posta veya Kullanıcı Adı</Label>
+                <div className="relative">
+                  <AtSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="emailOrUsername"
+                    type="text"
+                    placeholder="E-posta veya kullanıcı adı"
+                    value={formData.emailOrUsername}
+                    onChange={(e) => setFormData({ ...formData, emailOrUsername: e.target.value })}
+                    className="pl-10"
+                    required
+                  />
+                </div>
               </div>
-            </div>
+            ) : (
+              <div className="space-y-2">
+                <Label htmlFor="email">E-posta</Label>
+                <div className="relative">
+                  <Mail className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                  <Input
+                    id="email"
+                    type="email"
+                    placeholder="ornek@email.com"
+                    value={formData.email}
+                    onChange={(e) => setFormData({ ...formData, email: e.target.value })}
+                    className="pl-10"
+                    required
+                  />
+                </div>
+              </div>
+            )}
 
             <div className="space-y-2">
               <Label htmlFor="password">Şifre</Label>
