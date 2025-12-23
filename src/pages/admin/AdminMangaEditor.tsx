@@ -25,6 +25,7 @@ import {
     DialogContent,
     DialogHeader,
     DialogTitle,
+    DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
 import { getMangaById, saveManga, addChapterToManga, deleteChapter } from '@/lib/database';
@@ -66,19 +67,29 @@ const AdminMangaEditor: React.FC = () => {
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
-        if (isEditing) {
-            const existingManga = getMangaById(mangaId);
-            if (existingManga) {
-                setManga(existingManga);
-                setNewChapter(prev => ({
-                    ...prev,
-                    number: existingManga.chapters.length + 1,
-                }));
-            } else {
-                toast.error('Manga bulunamadı');
-                navigate('/admin/mangas');
+        const loadManga = async () => {
+            if (isEditing) {
+                try {
+                    setLoading(true);
+                    const existingManga = await getMangaById(mangaId);
+                    if (existingManga) {
+                        setManga(existingManga);
+                        setNewChapter(prev => ({
+                            ...prev,
+                            number: existingManga.chapters.length + 1,
+                        }));
+                    } else {
+                        toast.error('Manga bulunamadı');
+                        navigate('/admin/mangas');
+                    }
+                } catch (err) {
+                    toast.error('Veri yüklenemedi');
+                } finally {
+                    setLoading(false);
+                }
             }
-        }
+        };
+        loadManga();
     }, [mangaId, isEditing, navigate]);
 
     const handleChange = (field: keyof Manga, value: any) => {
@@ -122,7 +133,7 @@ const AdminMangaEditor: React.FC = () => {
         }));
     };
 
-    const handleAddChapter = () => {
+    const handleAddChapter = async () => {
         if (!newChapter.title.trim()) {
             toast.error('Bölüm başlığı gerekli');
             return;
@@ -142,20 +153,27 @@ const AdminMangaEditor: React.FC = () => {
         };
 
         if (isEditing && manga.id) {
-            addChapterToManga(manga.id, chapter);
-            const updatedManga = getMangaById(manga.id);
-            if (updatedManga) {
-                setManga(updatedManga);
-                // Send notifications to followers
-                createNotificationForFollowers(
-                    manga.id,
-                    updatedManga.title,
-                    updatedManga.cover,
-                    chapter.id,
-                    chapter.number
-                );
+            setLoading(true);
+            try {
+                await addChapterToManga(manga.id, chapter);
+                const updatedManga = await getMangaById(manga.id);
+                if (updatedManga) {
+                    setManga(updatedManga);
+                    // Send notifications to followers
+                    createNotificationForFollowers(
+                        manga.id,
+                        updatedManga.title,
+                        updatedManga.cover,
+                        chapter.id,
+                        chapter.number
+                    );
+                }
+                toast.success('Bölüm eklendi ve takipçilere bildirim gönderildi');
+            } catch (err) {
+                toast.error('Bölüm eklenemedi');
+            } finally {
+                setLoading(false);
             }
-            toast.success('Bölüm eklendi ve takipçilere bildirim gönderildi');
         } else {
             handleChange('chapters', [...(manga.chapters || []), chapter]);
             toast.success('Bölüm listeye eklendi');
@@ -169,17 +187,25 @@ const AdminMangaEditor: React.FC = () => {
         setShowChapterDialog(false);
     };
 
-    const handleDeleteChapter = (chapterId: string) => {
+    const handleDeleteChapter = async (chapterId: string) => {
         if (isEditing && manga.id) {
-            deleteChapter(manga.id, chapterId);
-            const updatedManga = getMangaById(manga.id);
-            if (updatedManga) {
-                setManga(updatedManga);
+            setLoading(true);
+            try {
+                await deleteChapter(manga.id, chapterId);
+                const updatedManga = await getMangaById(manga.id);
+                if (updatedManga) {
+                    setManga(updatedManga);
+                }
+                toast.success('Bölüm silindi');
+            } catch (err) {
+                toast.error('Bölüm silinemedi');
+            } finally {
+                setLoading(false);
             }
         } else {
             handleChange('chapters', (manga.chapters || []).filter(c => c.id !== chapterId));
+            toast.success('Bölüm silindi');
         }
-        toast.success('Bölüm silindi');
     };
 
     const handleSave = async () => {
@@ -198,33 +224,36 @@ const AdminMangaEditor: React.FC = () => {
 
         setLoading(true);
 
-        const mangaToSave: Manga = {
-            id: manga.id || `manga-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-            title: manga.title!,
-            alternativeTitles: manga.alternativeTitles || [],
-            cover: manga.cover!,
-            banner: manga.banner || manga.cover!,
-            author: manga.author!,
-            artist: manga.artist || manga.author!,
-            status: manga.status as 'ongoing' | 'completed' | 'hiatus',
-            type: manga.type as 'manga' | 'manhwa' | 'manhua',
-            genres: manga.genres || [],
-            description: manga.description || '',
-            ratings: manga.ratings || [],
-            views: manga.views || 0,
-            chapters: manga.chapters || [],
-            lastUpdated: new Date().toISOString(),
-            createdAt: manga.createdAt || new Date().toISOString(),
-            releaseYear: manga.releaseYear,
-        };
+        try {
+            const mangaToSave: Manga = {
+                id: manga.id || `manga-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                title: manga.title!,
+                alternativeTitles: manga.alternativeTitles || [],
+                cover: manga.cover!,
+                banner: manga.banner || manga.cover!,
+                author: manga.author!,
+                artist: manga.artist || manga.author!,
+                status: manga.status as 'ongoing' | 'completed' | 'hiatus',
+                type: manga.type as 'manga' | 'manhwa' | 'manhua',
+                genres: manga.genres || [],
+                description: manga.description || '',
+                ratings: manga.ratings || [],
+                views: manga.views || 0,
+                chapters: manga.chapters || [],
+                lastUpdated: new Date().toISOString(),
+                createdAt: manga.createdAt || new Date().toISOString(),
+                releaseYear: manga.releaseYear,
+            };
 
-        saveManga(mangaToSave);
-
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        setLoading(false);
-        toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
-        navigate('/admin/mangas');
+            await saveManga(mangaToSave);
+            toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
+            navigate('/admin/mangas');
+        } catch (err) {
+            toast.error('Kaydedilirken bir hata oluştu');
+            console.error(err);
+        } finally {
+            setLoading(false);
+        }
     };
 
     return (
@@ -252,7 +281,7 @@ const AdminMangaEditor: React.FC = () => {
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Başlık *</label>
                             <Input
-                                value={manga.title}
+                                value={manga.title || ''}
                                 onChange={(e) => handleChange('title', e.target.value)}
                                 placeholder="Manga başlığı"
                             />
@@ -289,7 +318,7 @@ const AdminMangaEditor: React.FC = () => {
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Yazar *</label>
                                 <Input
-                                    value={manga.author}
+                                    value={manga.author || ''}
                                     onChange={(e) => handleChange('author', e.target.value)}
                                     placeholder="Yazar adı"
                                 />
@@ -297,7 +326,7 @@ const AdminMangaEditor: React.FC = () => {
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Çizer</label>
                                 <Input
-                                    value={manga.artist}
+                                    value={manga.artist || ''}
                                     onChange={(e) => handleChange('artist', e.target.value)}
                                     placeholder="Çizer adı"
                                 />
@@ -307,7 +336,7 @@ const AdminMangaEditor: React.FC = () => {
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Açıklama</label>
                             <Textarea
-                                value={manga.description}
+                                value={manga.description || ''}
                                 onChange={(e) => handleChange('description', e.target.value)}
                                 placeholder="Manga açıklaması..."
                                 className="min-h-[120px]"
@@ -351,7 +380,7 @@ const AdminMangaEditor: React.FC = () => {
                                 <label className="text-sm font-medium">Yayın Yılı</label>
                                 <Input
                                     type="number"
-                                    value={manga.releaseYear}
+                                    value={manga.releaseYear || ''}
                                     onChange={(e) => handleChange('releaseYear', parseInt(e.target.value))}
                                     min={1900}
                                     max={new Date().getFullYear() + 1}
@@ -426,7 +455,7 @@ const AdminMangaEditor: React.FC = () => {
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Kapak Resmi URL *</label>
                             <Input
-                                value={manga.cover}
+                                value={manga.cover || ''}
                                 onChange={(e) => handleChange('cover', e.target.value)}
                                 placeholder="https://example.com/cover.jpg"
                             />
@@ -445,7 +474,7 @@ const AdminMangaEditor: React.FC = () => {
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Banner URL</label>
                             <Input
-                                value={manga.banner}
+                                value={manga.banner || ''}
                                 onChange={(e) => handleChange('banner', e.target.value)}
                                 placeholder="https://example.com/banner.jpg"
                             />
@@ -481,6 +510,9 @@ const AdminMangaEditor: React.FC = () => {
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
                         <DialogTitle>Yeni Bölüm Ekle</DialogTitle>
+                        <DialogDescription>
+                            Manga için yeni bir bölüm ve içindeki sayfaları ekleyin.
+                        </DialogDescription>
                     </DialogHeader>
 
                     <div className="space-y-4">
@@ -497,7 +529,7 @@ const AdminMangaEditor: React.FC = () => {
                             <div className="space-y-2">
                                 <label className="text-sm font-medium">Bölüm Başlığı</label>
                                 <Input
-                                    value={newChapter.title}
+                                    value={newChapter.title || ''}
                                     onChange={(e) => setNewChapter(prev => ({ ...prev, title: e.target.value }))}
                                     placeholder="Bölüm başlığı"
                                 />

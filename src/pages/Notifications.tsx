@@ -42,19 +42,25 @@ const Notifications: React.FC = () => {
     const [filter, setFilter] = useState<FilterType>('all');
     const [unreadCount, setUnreadCount] = useState(0);
 
-    const loadNotifications = () => {
+    const loadNotifications = async () => {
         if (!user) return;
-        setNotifications(getNotifications());
-        setUnreadCount(getUnreadNotificationCount());
+        try {
+            const allNotifications = await getNotifications(user.id);
+            setNotifications(allNotifications);
+            const count = await getUnreadNotificationCount(user.id);
+            setUnreadCount(count);
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+        }
     };
 
     useEffect(() => {
         loadNotifications();
-    }, [user]);
+    }, [user?.id]);
 
-    const handleNotificationClick = (notification: Notification) => {
-        if (!notification.read) {
-            markNotificationAsRead(notification.id);
+    const handleNotificationClick = async (notification: Notification) => {
+        if (!notification.read && user) {
+            await markNotificationAsRead(user.id, notification.id);
             loadNotifications();
         }
         if (notification.link) {
@@ -62,14 +68,16 @@ const Notifications: React.FC = () => {
         }
     };
 
-    const handleMarkAllRead = () => {
-        markAllNotificationsAsRead();
+    const handleMarkAllRead = async () => {
+        if (!user) return;
+        await markAllNotificationsAsRead(user.id);
         loadNotifications();
         toast.success('Tüm bildirimler okundu olarak işaretlendi');
     };
 
-    const handleClearAll = () => {
-        clearNotifications();
+    const handleClearAll = async () => {
+        if (!user) return;
+        await clearNotifications(user.id);
         loadNotifications();
         toast.success('Tüm bildirimler silindi');
     };
@@ -231,8 +239,8 @@ const Notifications: React.FC = () => {
                                 key={notification.id}
                                 onClick={() => handleNotificationClick(notification)}
                                 className={`w-full text-left rounded-xl border transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 flex gap-4 p-4 group animate-fade-up opacity-0 ${!notification.read
-                                        ? 'bg-primary/5 border-primary/20'
-                                        : 'bg-card/50 border-border'
+                                    ? 'bg-primary/5 border-primary/20'
+                                    : 'bg-card/50 border-border'
                                     }`}
                                 style={{ animationDelay: `${0.1 + index * 0.05}s`, animationFillMode: 'forwards' }}
                             >
@@ -240,12 +248,12 @@ const Notifications: React.FC = () => {
                                 <div className="flex-shrink-0">
                                     <div
                                         className={`flex h-12 w-12 items-center justify-center rounded-xl transition-transform group-hover:scale-110 ${notification.type === 'new_chapter'
-                                                ? 'bg-primary/10'
-                                                : notification.type === 'reply'
-                                                    ? 'bg-blue-500/10'
-                                                    : notification.type === 'like'
-                                                        ? 'bg-pink-500/10'
-                                                        : 'bg-yellow-500/10'
+                                            ? 'bg-primary/10'
+                                            : notification.type === 'reply'
+                                                ? 'bg-blue-500/10'
+                                                : notification.type === 'like'
+                                                    ? 'bg-pink-500/10'
+                                                    : 'bg-yellow-500/10'
                                             }`}
                                     >
                                         {getNotificationIcon(notification.type)}
@@ -258,12 +266,12 @@ const Notifications: React.FC = () => {
                                         <Badge
                                             variant="outline"
                                             className={`text-xs ${notification.type === 'new_chapter'
-                                                    ? 'border-primary/50 text-primary'
-                                                    : notification.type === 'reply'
-                                                        ? 'border-blue-400/50 text-blue-400'
-                                                        : notification.type === 'like'
-                                                            ? 'border-pink-400/50 text-pink-400'
-                                                            : 'border-yellow-400/50 text-yellow-400'
+                                                ? 'border-primary/50 text-primary'
+                                                : notification.type === 'reply'
+                                                    ? 'border-blue-400/50 text-blue-400'
+                                                    : notification.type === 'like'
+                                                        ? 'border-pink-400/50 text-pink-400'
+                                                        : 'border-yellow-400/50 text-yellow-400'
                                                 }`}
                                         >
                                             {getNotificationTypeLabel(notification.type)}

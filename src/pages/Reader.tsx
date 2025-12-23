@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
 import { getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
-import { getChapterById } from '@/lib/mockData';
 import {
   getReaderSettings,
   setReaderSettings,
@@ -24,62 +23,82 @@ const Reader: React.FC = () => {
   const { user } = useAuth();
   const viewTracked = useRef(false);
 
-  const manga = getMangaById(mangaId || '');
-  const chapter = getChapterById(mangaId || '', chapterId || '');
-
-  // Compute initial page synchronously from URL or saved progress
-  const getInitialPage = (): number => {
-    // First check URL param
-    const urlPage = searchParams.get('page');
-    if (urlPage && parseInt(urlPage) > 0) {
-      return parseInt(urlPage);
-    }
-    // Fall back to saved progress
-    if (mangaId) {
-      const progress = getLatestProgress(mangaId);
-      if (progress && progress.chapterId === chapterId && progress.page > 1) {
-        return progress.page;
-      }
-    }
-    return 1;
-  };
-
+  const [manga, setManga] = useState<any>(null);
+  const [chapter, setChapter] = useState<any>(null);
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
-  const [currentPage, setCurrentPage] = useState(() => getInitialPage());
+  const [currentPage, setCurrentPage] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
-  const [lastTap, setLastTap] = useState(0);
   const [initialized, setInitialized] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // Initialize and track views
+  // Load Manga and Chapter
   useEffect(() => {
-    if (!manga || !chapter) {
-      navigate('/');
-      return;
-    }
+    const loadContent = async () => {
+      if (!mangaId || !chapterId) return;
 
-    if (!initialized && mangaId && chapterId) {
-      setInitialized(true);
+      try {
+        setIsLoading(true);
+        const mData = await getMangaById(mangaId);
+        if (!mData) {
+          navigate('/');
+          return;
+        }
+        setManga(mData);
 
-      // Track views only once per chapter visit
-      if (!viewTracked.current) {
-        incrementMangaViews(mangaId);
-        incrementChapterViews(mangaId, chapterId);
-        viewTracked.current = true;
+        const ch = mData.chapters.find(c => c.id === chapterId);
+        if (!ch) {
+          navigate(`/manga/${mangaId}`);
+          return;
+        }
+        setChapter(ch);
+
+        // Determine initial page
+        const urlPage = searchParams.get('page');
+        if (urlPage && parseInt(urlPage) > 0) {
+          setCurrentPage(parseInt(urlPage));
+        } else if (user) {
+          const progress = await getLatestProgress(user.id, mangaId);
+          if (progress && progress.chapterId === chapterId && progress.page > 1) {
+            setCurrentPage(progress.page);
+          }
+        }
+
+        setInitialized(true);
+
+        // Track views
+        if (!viewTracked.current) {
+          incrementMangaViews(mangaId);
+          incrementChapterViews(mangaId, chapterId);
+          viewTracked.current = true;
+        }
+      } catch (err) {
+        console.error('Reader load error:', err);
+      } finally {
+        setIsLoading(false);
       }
-    }
-  }, [manga, chapter, navigate, mangaId, chapterId, initialized]);
+    };
+
+    loadContent();
+  }, [mangaId, chapterId, user, navigate, searchParams]);
 
   // Save reading progress when page changes
   useEffect(() => {
-    if (mangaId && chapterId && chapter && initialized) {
-      updateReadingProgress({
-        mangaId,
-        chapterId,
-        chapterNumber: chapter.number,
-        page: currentPage,
-      });
-    }
-  }, [mangaId, chapterId, chapter, currentPage, initialized]);
+    const saveProgress = async () => {
+      if (mangaId && chapterId && chapter && initialized && user) {
+        try {
+          await updateReadingProgress(user.id, {
+            mangaId,
+            chapterId,
+            chapterNumber: chapter.number,
+            page: currentPage,
+          });
+        } catch (error) {
+          console.error('Error updating reading progress:', error);
+        }
+      }
+    };
+    saveProgress();
+  }, [mangaId, chapterId, chapter, currentPage, initialized, user]);
 
   const handleSettingsChange = useCallback((newSettings: ReaderSettings) => {
     setSettings(newSettings);
@@ -126,14 +145,18 @@ const Reader: React.FC = () => {
       return;
     }
 
-    if (mangaId && chapterId && chapter) {
-      addBookmark({
+    if (mangaId && chapterId && chapter && user) {
+      addBookmark(user.id, {
         mangaId,
         chapterId,
         chapterNumber: chapter.number,
         page: currentPage,
+      }).then(() => {
+        toast.success(`Yer imi eklendi: Sayfa ${currentPage}`);
+      }).catch((error) => {
+        console.error('Error adding bookmark:', error);
+        toast.error('Yer imi eklenemedi');
       });
-      toast.success(`Yer imi eklendi: Sayfa ${currentPage}`);
     }
   }, [user, mangaId, chapterId, chapter, currentPage]);
 
@@ -163,6 +186,14 @@ const Reader: React.FC = () => {
   }, [toggleControls]);
 
 
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   if (!manga || !chapter) {
     return null;

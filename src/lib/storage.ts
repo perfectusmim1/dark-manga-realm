@@ -1,259 +1,157 @@
 import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow } from './types';
-import { getMangaById } from './database';
+import { supabase } from './supabase';
 
 const STORAGE_KEYS = {
-    USER: 'manga_user',
-    FAVORITES: 'manga_favorites',
-    READING_PROGRESS: 'manga_reading_progress',
-    BOOKMARKS: 'manga_bookmarks',
     READER_SETTINGS: 'manga_reader_settings',
-    NOTIFICATIONS: 'manga_notifications',
-    FOLLOWS: 'manga_follows',
-    ADMIN_SESSION: 'manga_admin_session',
-};
-
-// ==================== USER MANAGEMENT ====================
-
-export const getUser = (): User | null => {
-    const data = localStorage.getItem(STORAGE_KEYS.USER);
-    return data ? JSON.parse(data) : null;
-};
-
-export const setUser = (user: User): void => {
-    localStorage.setItem(STORAGE_KEYS.USER, JSON.stringify(user));
-};
-
-export const removeUser = (): void => {
-    localStorage.removeItem(STORAGE_KEYS.USER);
-};
-
-// ==================== ADMIN SESSION ====================
-
-export const getAdminSession = (): { adminId: string; username: string; role: string } | null => {
-    const data = localStorage.getItem(STORAGE_KEYS.ADMIN_SESSION);
-    return data ? JSON.parse(data) : null;
-};
-
-export const setAdminSession = (session: { adminId: string; username: string; role: string }): void => {
-    localStorage.setItem(STORAGE_KEYS.ADMIN_SESSION, JSON.stringify(session));
-};
-
-export const removeAdminSession = (): void => {
-    localStorage.removeItem(STORAGE_KEYS.ADMIN_SESSION);
+    // We still keep local reader settings because they are device-specific and often don't need to be in DB
 };
 
 // ==================== FAVORITES (USER-SPECIFIC) ====================
 
-const getAllFavorites = (): Favorite[] => {
-    const data = localStorage.getItem(STORAGE_KEYS.FAVORITES);
-    return data ? JSON.parse(data) : [];
+export const getFavorites = async (userId: string): Promise<Favorite[]> => {
+    const { data, error } = await supabase
+        .from('favorites')
+        .select(`
+            *,
+            manga:mangas (*)
+        `)
+        .eq('user_id', userId);
+
+    if (error) return [];
+    return data.map(f => ({
+        userId: f.user_id,
+        mangaId: f.manga_id,
+        category: f.category as LibraryCategory,
+        addedAt: f.added_at,
+        mangaTitle: f.manga?.title,
+        mangaCover: f.manga?.cover
+    }));
 };
 
-const saveFavorites = (favorites: Favorite[]): void => {
-    localStorage.setItem(STORAGE_KEYS.FAVORITES, JSON.stringify(favorites));
+export const addFavorite = async (userId: string, mangaId: string, category: LibraryCategory = 'reading'): Promise<void> => {
+    await supabase.from('favorites').upsert({
+        user_id: userId,
+        manga_id: mangaId,
+        category,
+        added_at: new Date().toISOString()
+    });
 };
 
-export const getFavorites = (userId?: string): Favorite[] => {
-    const user = getUser();
-    const currentUserId = userId || user?.id;
-    if (!currentUserId) return [];
-
-    return getAllFavorites().filter(f => f.userId === currentUserId);
+export const updateFavoriteCategory = async (userId: string, mangaId: string, category: LibraryCategory): Promise<void> => {
+    await supabase
+        .from('favorites')
+        .update({ category })
+        .eq('user_id', userId)
+        .eq('manga_id', mangaId);
 };
 
-export const addFavorite = (mangaId: string, category: LibraryCategory = 'reading'): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allFavorites = getAllFavorites();
-    if (!allFavorites.find(f => f.mangaId === mangaId && f.userId === user.id)) {
-        allFavorites.push({
-            userId: user.id,
-            mangaId,
-            addedAt: new Date().toISOString(),
-            category
-        });
-        saveFavorites(allFavorites);
-    }
+export const removeFavorite = async (userId: string, mangaId: string): Promise<void> => {
+    await supabase
+        .from('favorites')
+        .delete()
+        .eq('user_id', userId)
+        .eq('manga_id', mangaId);
 };
 
-export const updateFavoriteCategory = (mangaId: string, category: LibraryCategory): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allFavorites = getAllFavorites();
-    const index = allFavorites.findIndex(f => f.mangaId === mangaId && f.userId === user.id);
-    if (index >= 0) {
-        allFavorites[index].category = category;
-        saveFavorites(allFavorites);
-    }
-};
-
-export const removeFavorite = (mangaId: string): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allFavorites = getAllFavorites().filter(
-        f => !(f.mangaId === mangaId && f.userId === user.id)
-    );
-    saveFavorites(allFavorites);
-};
-
-export const isFavorite = (mangaId: string): boolean => {
-    const user = getUser();
-    if (!user) return false;
-
-    return getAllFavorites().some(f => f.mangaId === mangaId && f.userId === user.id);
-};
-
-export const getFavoriteCategory = (mangaId: string): LibraryCategory | undefined => {
-    const user = getUser();
-    if (!user) return undefined;
-
-    const favorite = getAllFavorites().find(f => f.mangaId === mangaId && f.userId === user.id);
-    return favorite?.category;
-};
-
-export const getFavoritesByCategory = (category: LibraryCategory): Favorite[] => {
-    const user = getUser();
-    if (!user) return [];
-
-    return getAllFavorites().filter(f => f.category === category && f.userId === user.id);
+export const isFavorite = async (userId: string, mangaId: string): Promise<boolean> => {
+    const { count } = await supabase
+        .from('favorites')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('manga_id', mangaId);
+    return !!count;
 };
 
 // ==================== READING PROGRESS (USER-SPECIFIC) ====================
 
-const getAllReadingProgress = (): ReadingProgress[] => {
-    const data = localStorage.getItem(STORAGE_KEYS.READING_PROGRESS);
-    return data ? JSON.parse(data) : [];
+export const getReadingHistory = async (userId: string): Promise<ReadingProgress[]> => {
+    const { data, error } = await supabase
+        .from('reading_progress')
+        .select(`
+            *,
+            manga:mangas (*)
+        `)
+        .eq('user_id', userId)
+        .order('last_read', { ascending: false });
+
+    if (error) return [];
+    return data.map(p => ({
+        userId: p.user_id,
+        mangaId: p.manga_id,
+        chapterId: p.chapter_id,
+        chapterNumber: Number(p.chapter_number),
+        page: p.page,
+        lastRead: p.last_read,
+        mangaTitle: p.manga?.title,
+        mangaCover: p.manga?.cover
+    }));
 };
 
-const saveReadingProgress = (progress: ReadingProgress[]): void => {
-    localStorage.setItem(STORAGE_KEYS.READING_PROGRESS, JSON.stringify(progress));
+export const updateReadingProgress = async (userId: string, progress: Omit<ReadingProgress, 'lastRead' | 'userId'>): Promise<void> => {
+    await supabase.from('reading_progress').upsert({
+        user_id: userId,
+        manga_id: progress.mangaId,
+        chapter_id: progress.chapterId,
+        chapter_number: progress.chapterNumber,
+        page: progress.page,
+        last_read: new Date().toISOString()
+    }, { onConflict: 'user_id,manga_id' });
 };
 
-export const getReadingProgress = (userId?: string): ReadingProgress[] => {
-    const user = getUser();
-    const currentUserId = userId || user?.id;
-    if (!currentUserId) return [];
+export const getLatestProgress = async (userId: string, mangaId: string): Promise<ReadingProgress | undefined> => {
+    const { data, error } = await supabase
+        .from('reading_progress')
+        .select('*')
+        .eq('user_id', userId)
+        .eq('manga_id', mangaId)
+        .maybeSingle();
 
-    return getAllReadingProgress().filter(p => p.userId === currentUserId);
-};
-
-export const updateReadingProgress = (progress: Omit<ReadingProgress, 'lastRead' | 'userId'>): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allProgress = getAllReadingProgress();
-    const existingIndex = allProgress.findIndex(
-        p => p.mangaId === progress.mangaId && p.userId === user.id
-    );
-
-    const manga = getMangaById(progress.mangaId);
-
-    const newProgress: ReadingProgress = {
-        ...progress,
-        userId: user.id,
-        lastRead: new Date().toISOString(),
-        mangaTitle: manga?.title,
-        mangaCover: manga?.cover,
+    if (error || !data) return undefined;
+    return {
+        ...data,
+        userId: data.user_id,
+        mangaId: data.manga_id,
+        chapterId: data.chapter_id,
+        chapterNumber: Number(data.chapter_number),
+        lastRead: data.last_read
     };
-
-    if (existingIndex >= 0) {
-        allProgress[existingIndex] = newProgress;
-    } else {
-        allProgress.push(newProgress);
-    }
-
-    saveReadingProgress(allProgress);
 };
 
-export const getLatestProgress = (mangaId: string): ReadingProgress | undefined => {
-    const user = getUser();
-    if (!user) return undefined;
-
-    return getAllReadingProgress()
-        .filter(p => p.mangaId === mangaId && p.userId === user.id)
-        .sort((a, b) => new Date(b.lastRead).getTime() - new Date(a.lastRead).getTime())[0];
-};
-
-export const getReadingHistory = (): ReadingProgress[] => {
-    const user = getUser();
-    if (!user) return [];
-
-    return getAllReadingProgress()
-        .filter(p => p.userId === user.id)
-        .sort((a, b) => new Date(b.lastRead).getTime() - new Date(a.lastRead).getTime());
-};
-
-export const clearReadingHistory = (): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allProgress = getAllReadingProgress().filter(p => p.userId !== user.id);
-    saveReadingProgress(allProgress);
-};
-
-export const removeFromHistory = (mangaId: string): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allProgress = getAllReadingProgress().filter(
-        p => !(p.mangaId === mangaId && p.userId === user.id)
-    );
-    saveReadingProgress(allProgress);
+export const removeFromHistory = async (userId: string, mangaId: string): Promise<void> => {
+    await supabase.from('reading_progress').delete().eq('user_id', userId).eq('manga_id', mangaId);
 };
 
 // ==================== BOOKMARKS (USER-SPECIFIC) ====================
 
-const getAllBookmarks = (): Bookmark[] => {
-    const data = localStorage.getItem(STORAGE_KEYS.BOOKMARKS);
-    return data ? JSON.parse(data) : [];
+export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
+    const { data } = await supabase.from('bookmarks').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    return (data || []).map(b => ({
+        ...b,
+        userId: b.user_id,
+        mangaId: b.manga_id,
+        chapterId: b.chapter_id,
+        chapterNumber: Number(b.chapter_number),
+        createdAt: b.created_at
+    }));
 };
 
-const saveBookmarks = (bookmarks: Bookmark[]): void => {
-    localStorage.setItem(STORAGE_KEYS.BOOKMARKS, JSON.stringify(bookmarks));
-};
-
-export const getBookmarks = (): Bookmark[] => {
-    const user = getUser();
-    if (!user) return [];
-
-    return getAllBookmarks().filter(b => b.userId === user.id);
-};
-
-export const addBookmark = (bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'userId'>): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allBookmarks = getAllBookmarks();
-    allBookmarks.push({
-        ...bookmark,
-        id: `bookmark-${Date.now()}`,
-        userId: user.id,
-        createdAt: new Date().toISOString(),
+export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'userId'>): Promise<void> => {
+    await supabase.from('bookmarks').insert({
+        user_id: userId,
+        manga_id: bookmark.mangaId,
+        chapter_id: bookmark.chapterId,
+        chapter_number: bookmark.chapterNumber,
+        page: bookmark.page,
+        note: bookmark.note,
+        created_at: new Date().toISOString()
     });
-    saveBookmarks(allBookmarks);
 };
 
-export const removeBookmark = (id: string): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allBookmarks = getAllBookmarks().filter(
-        b => !(b.id === id && b.userId === user.id)
-    );
-    saveBookmarks(allBookmarks);
+export const removeBookmark = async (userId: string, id: string): Promise<void> => {
+    await supabase.from('bookmarks').delete().eq('id', id).eq('user_id', userId);
 };
 
-export const getBookmarksForManga = (mangaId: string): Bookmark[] => {
-    const user = getUser();
-    if (!user) return [];
-
-    return getAllBookmarks().filter(b => b.mangaId === mangaId && b.userId === user.id);
-};
-
-// ==================== READER SETTINGS ====================
+// ==================== READER SETTINGS (KEEP LOCAL) ====================
 
 export const getReaderSettings = (): ReaderSettings => {
     const data = localStorage.getItem(STORAGE_KEYS.READER_SETTINGS);
@@ -271,172 +169,66 @@ export const setReaderSettings = (settings: ReaderSettings): void => {
     localStorage.setItem(STORAGE_KEYS.READER_SETTINGS, JSON.stringify(settings));
 };
 
-// ==================== NOTIFICATIONS (USER-SPECIFIC) ====================
+// ==================== NOTIFICATIONS ====================
 
-const getAllNotifications = (): Notification[] => {
-    const data = localStorage.getItem(STORAGE_KEYS.NOTIFICATIONS);
-    return data ? JSON.parse(data) : [];
+export const getNotifications = async (userId: string): Promise<Notification[]> => {
+    const { data } = await supabase.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false });
+    return (data || []).map(n => ({
+        ...n,
+        userId: n.user_id,
+        mangaId: n.manga_id,
+        chapterId: n.chapter_id,
+        chapterNumber: Number(n.chapter_number),
+        createdAt: n.created_at,
+        fromUserId: n.from_user_id
+    }));
 };
 
-const saveNotifications = (notifications: Notification[]): void => {
-    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifications));
+export const markNotificationAsRead = async (userId: string, id: string): Promise<void> => {
+    await supabase.from('notifications').update({ read: true }).eq('id', id).eq('user_id', userId);
 };
 
-export const getNotifications = (): Notification[] => {
-    const user = getUser();
-    if (!user) return [];
+export const getUnreadNotificationCount = async (userId: string): Promise<number> => {
+    const { count, error } = await supabase
+        .from('notifications')
+        .select('*', { count: 'exact', head: true })
+        .eq('user_id', userId)
+        .eq('read', false);
 
-    return getAllNotifications().filter(n => n.userId === user.id);
+    if (error) return 0;
+    return count || 0;
 };
 
-export const addNotification = (notification: Omit<Notification, 'id' | 'read' | 'createdAt' | 'userId'>): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allNotifications = getAllNotifications();
-    allNotifications.unshift({
-        ...notification,
-        id: `notif-${Date.now()}`,
-        userId: user.id,
-        read: false,
-        createdAt: new Date().toISOString(),
-    });
-
-    if (allNotifications.length > 100) {
-        allNotifications.pop();
-    }
-    saveNotifications(allNotifications);
+export const markAllNotificationsAsRead = async (userId: string): Promise<void> => {
+    await supabase.from('notifications').update({ read: true }).eq('user_id', userId);
 };
 
-export const markNotificationAsRead = (id: string): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allNotifications = getAllNotifications();
-    const index = allNotifications.findIndex(n => n.id === id && n.userId === user.id);
-    if (index >= 0) {
-        allNotifications[index].read = true;
-        saveNotifications(allNotifications);
-    }
+export const clearNotifications = async (userId: string): Promise<void> => {
+    await supabase.from('notifications').delete().eq('user_id', userId);
 };
 
-export const markAllNotificationsAsRead = (): void => {
-    const user = getUser();
-    if (!user) return;
+// ==================== FOLLOWS ====================
 
-    const allNotifications = getAllNotifications().map(n =>
-        n.userId === user.id ? { ...n, read: true } : n
-    );
-    saveNotifications(allNotifications);
+export const followManga = async (userId: string, mangaId: string): Promise<void> => {
+    await supabase.from('follows').upsert({ user_id: userId, manga_id: mangaId });
 };
 
-export const getUnreadNotificationCount = (): number => {
-    const user = getUser();
-    if (!user) return 0;
-
-    return getAllNotifications().filter(n => !n.read && n.userId === user.id).length;
+export const unfollowManga = async (userId: string, mangaId: string): Promise<void> => {
+    await supabase.from('follows').delete().eq('user_id', userId).eq('manga_id', mangaId);
 };
 
-export const clearNotifications = (): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allNotifications = getAllNotifications().filter(n => n.userId !== user.id);
-    saveNotifications(allNotifications);
+export const isFollowingManga = async (userId: string, mangaId: string): Promise<boolean> => {
+    const { count } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('manga_id', mangaId);
+    return !!count;
 };
 
-// ==================== MANGA FOLLOW SYSTEM (USER-SPECIFIC) ====================
-
-const getAllFollows = (): MangaFollow[] => {
-    const data = localStorage.getItem(STORAGE_KEYS.FOLLOWS);
-    return data ? JSON.parse(data) : [];
+// Legacy auth functions - these are now in AuthContext but some components might still call them
+export const getUserLocal = (): any => {
+    const data = localStorage.getItem('manga_user');
+    return data ? JSON.parse(data) : null;
 };
 
-const saveFollows = (follows: MangaFollow[]): void => {
-    localStorage.setItem(STORAGE_KEYS.FOLLOWS, JSON.stringify(follows));
-};
-
-export const getFollowedMangas = (userId?: string): MangaFollow[] => {
-    const user = getUser();
-    const currentUserId = userId || user?.id;
-    if (!currentUserId) return [];
-
-    return getAllFollows().filter(f => f.userId === currentUserId);
-};
-
-export const followManga = (mangaId: string): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allFollows = getAllFollows();
-    if (!allFollows.find(f => f.mangaId === mangaId && f.userId === user.id)) {
-        allFollows.push({
-            userId: user.id,
-            mangaId,
-            followedAt: new Date().toISOString(),
-        });
-        saveFollows(allFollows);
-    }
-};
-
-export const unfollowManga = (mangaId: string): void => {
-    const user = getUser();
-    if (!user) return;
-
-    const allFollows = getAllFollows().filter(
-        f => !(f.mangaId === mangaId && f.userId === user.id)
-    );
-    saveFollows(allFollows);
-};
-
-export const isFollowingManga = (mangaId: string): boolean => {
-    const user = getUser();
-    if (!user) return false;
-
-    return getAllFollows().some(f => f.mangaId === mangaId && f.userId === user.id);
-};
-
-export const getFollowersOfManga = (mangaId: string): string[] => {
-    return getAllFollows()
-        .filter(f => f.mangaId === mangaId)
-        .map(f => f.userId);
-};
-
-// Create notifications for all followers of a manga when a new chapter is released
-export const createNotificationForFollowers = (
-    mangaId: string,
-    mangaTitle: string,
-    mangaCover: string,
-    chapterId: string,
-    chapterNumber: number
-): void => {
-    const followers = getFollowersOfManga(mangaId);
-    const allNotifications = getAllNotifications();
-
-    followers.forEach(userId => {
-        const notification: Notification = {
-            id: `notif-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-            userId,
-            type: 'new_chapter',
-            title: 'Yeni Bölüm!',
-            message: `${mangaTitle} - Bölüm ${chapterNumber} yayınlandı!`,
-            link: `/manga/${mangaId}/chapter/${chapterId}`,
-            read: false,
-            createdAt: new Date().toISOString(),
-            mangaId,
-            mangaTitle,
-            mangaCover,
-            chapterId,
-            chapterNumber,
-        };
-        allNotifications.unshift(notification);
-    });
-
-    saveNotifications(allNotifications);
-};
-
-// Create notification for comment interactions
-export const createCommentNotification = (
+export const createCommentNotification = async (
     targetUserId: string,
     type: 'reply' | 'like',
     fromUserId: string,
@@ -445,37 +237,69 @@ export const createCommentNotification = (
     mangaTitle: string,
     commentId: string,
     chapterId?: string
-): void => {
-    // Don't notify yourself
-    if (targetUserId === fromUserId) return;
+) => {
+    const title = type === 'reply' ? 'Yeni Yanıt' : 'Yorum Beğenisi';
+    const message = type === 'reply'
+        ? `${fromUsername} yorumunuza yanıt verdi.`
+        : `${fromUsername} yorumunuzu beğendi.`;
 
-    const allNotifications = getAllNotifications();
-
-    const notification: Notification = {
-        id: `notif-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-        userId: targetUserId,
+    const { error } = await supabase.from('notifications').insert({
+        user_id: targetUserId,
         type,
-        title: type === 'reply' ? 'Yeni Yanıt' : 'Yorum Beğenildi',
-        message: type === 'reply'
-            ? `${fromUsername} yorumunuza yanıt verdi`
-            : `${fromUsername} yorumunuzu beğendi`,
-        link: chapterId
-            ? `/manga/${mangaId}/chapter/${chapterId}#comment-${commentId}`
-            : `/manga/${mangaId}#comment-${commentId}`,
+        title,
+        message,
+        manga_id: mangaId,
+        chapter_id: chapterId,
+        from_user_id: fromUserId,
+        link: `/manga/${mangaId}${chapterId ? `/chapter/${chapterId}` : ''}#comment-${commentId}`,
         read: false,
-        createdAt: new Date().toISOString(),
-        fromUserId,
-        fromUsername,
-        mangaId,
-        mangaTitle,
-        commentId,
-    };
+        created_at: new Date().toISOString()
+    });
 
-    allNotifications.unshift(notification);
-
-    if (allNotifications.length > 100) {
-        allNotifications.pop();
-    }
-
-    saveNotifications(allNotifications);
+    if (error) console.error('Notification creation error:', error);
 };
+
+export const createNotificationForFollowers = async (
+    mangaId: string,
+    mangaTitle: string,
+    mangaCover: string,
+    chapterId: string,
+    chapterNumber: number
+) => {
+    // Get all followers for this manga
+    const { data: followers } = await supabase.from('follows').select('user_id').eq('manga_id', mangaId);
+
+    if (!followers || followers.length === 0) return;
+
+    // Create notifications for each follower
+    const notifications = followers.map(f => ({
+        user_id: f.user_id,
+        type: 'new_chapter',
+        title: 'Yeni Bölüm',
+        message: `${mangaTitle} - Bölüm ${chapterNumber} yayınlandı.`,
+        manga_id: mangaId,
+        chapter_id: chapterId,
+        link: `/manga/${mangaId}/chapter/${chapterId}`,
+        read: false,
+        created_at: new Date().toISOString()
+    }));
+
+    const { error } = await supabase.from('notifications').insert(notifications);
+    if (error) console.error('Follower notification error:', error);
+};
+
+// ==================== ADMIN SESSION (LOCAL) ====================
+
+export const getAdminSession = () => {
+    const data = localStorage.getItem('manga_admin_session');
+    return data ? JSON.parse(data) : null;
+};
+
+export const setAdminSession = (session: any) => {
+    localStorage.setItem('manga_admin_session', JSON.stringify(session));
+};
+
+export const removeAdminSession = () => {
+    localStorage.removeItem('manga_admin_session');
+};
+

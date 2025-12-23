@@ -6,21 +6,44 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getReadingHistory } from '@/lib/storage';
-import { getMangaById, getChapterById } from '@/lib/mockData';
+import { getMangaById } from '@/lib/database';
 
 const History: React.FC = () => {
   const { user } = useAuth();
-  const history = getReadingHistory();
+  const [historyItems, setHistoryItems] = React.useState<any[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
 
-  // Group history by manga
-  const groupedHistory = history.reduce((acc, item) => {
-    if (!acc[item.mangaId]) {
-      acc[item.mangaId] = item;
-    }
-    return acc;
-  }, {} as Record<string, typeof history[0]>);
+  React.useEffect(() => {
+    const fetchHistory = async () => {
+      if (user) {
+        try {
+          setIsLoading(true);
+          const history = await getReadingHistory(user.id);
+          // Group by mangaId to show latest per manga
+          const unique = history.reduce((acc: any, item: any) => {
+            if (!acc[item.mangaId]) {
+              acc[item.mangaId] = item;
+            }
+            return acc;
+          }, {});
+          setHistoryItems(Object.values(unique).slice(0, 50));
+        } catch (err) {
+          console.error('History fetch error:', err);
+        } finally {
+          setIsLoading(false);
+        }
+      }
+    };
+    fetchHistory();
+  }, [user]);
 
-  const historyItems = Object.values(groupedHistory).slice(0, 20);
+  if (isLoading && user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -71,32 +94,27 @@ const History: React.FC = () => {
         {historyItems.length > 0 ? (
           <div className="space-y-4">
             {historyItems.map((item, index) => {
-              const manga = getMangaById(item.mangaId);
-              const chapter = getChapterById(item.mangaId, item.chapterId);
-
-              if (!manga || !chapter) return null;
-
               return (
                 <div
                   key={`${item.mangaId}-${item.chapterId}`}
                   className="flex gap-4 rounded-xl border border-border bg-card/50 p-4 transition-colors hover:bg-card animate-fade-up opacity-0"
                   style={{ animationDelay: `${0.1 + index * 0.05}s`, animationFillMode: 'forwards' }}
                 >
-                  <Link to={`/manga/${manga.id}`} className="shrink-0">
+                  <Link to={`/manga/${item.mangaId}`} className="shrink-0">
                     <img
-                      src={manga.cover}
-                      alt={manga.title}
+                      src={item.mangaCover}
+                      alt={item.mangaTitle}
                       className="h-24 w-16 rounded-lg object-cover"
                     />
                   </Link>
 
                   <div className="flex flex-1 flex-col justify-between">
                     <div>
-                      <Link to={`/manga/${manga.id}`}>
-                        <h3 className="font-semibold hover:text-primary">{manga.title}</h3>
+                      <Link to={`/manga/${item.mangaId}`}>
+                        <h3 className="font-semibold hover:text-primary">{item.mangaTitle}</h3>
                       </Link>
                       <p className="text-sm text-muted-foreground">
-                        Bölüm {chapter.number} • Sayfa {item.page}
+                        Bölüm {item.chapterNumber} • Sayfa {item.page}
                       </p>
                     </div>
 
@@ -105,7 +123,7 @@ const History: React.FC = () => {
                         {formatDate(item.lastRead)}
                       </Badge>
                       <Button asChild size="sm">
-                        <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
+                        <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`}>
                           <Play className="mr-1 h-3 w-3" />
                           Devam Et
                         </Link>

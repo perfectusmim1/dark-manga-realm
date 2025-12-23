@@ -48,7 +48,6 @@ const AdminLayout: React.FC = () => {
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
         { icon: Users, label: 'Adminler', path: '/admin/users' },
-        { icon: Settings, label: 'Ayarlar', path: '/admin/settings' },
     ];
 
     const isActive = (path: string) => {

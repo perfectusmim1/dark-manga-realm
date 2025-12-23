@@ -28,7 +28,11 @@ const Browse: React.FC = () => {
   const [mangas, setMangas] = useState<Manga[]>([]);
 
   useEffect(() => {
-    setMangas(getAllMangas());
+    const fetchMangas = async () => {
+      const data = await getAllMangas();
+      setMangas(data);
+    };
+    fetchMangas();
   }, []);
 
   const filteredManga = useMemo(() => {

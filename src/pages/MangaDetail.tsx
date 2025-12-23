@@ -30,11 +30,11 @@ import {
   removeFavorite,
   isFavorite,
   getLatestProgress,
-  getFavoriteCategory,
   updateFavoriteCategory,
   followManga,
   unfollowManga,
   isFollowingManga,
+  getFavorites,
 } from '../lib/storage';
 import { LibraryCategory, Manga } from '@/lib/types';
 import { toast } from 'sonner';
@@ -58,23 +58,65 @@ const MangaDetail: React.FC = () => {
   const [userRating, setUserRating] = useState<number | undefined>();
   const [averageRating, setAverageRating] = useState({ average: 0, count: 0 });
   const [hoverRating, setHoverRating] = useState(0);
-  const latestProgress = mangaId ? getLatestProgress(mangaId) : undefined;
+  const [latestProgress, setLatestProgress] = useState<any>(null);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    if (mangaId) {
-      const m = getMangaById(mangaId);
-      setManga(m);
-      setFavorite(isFavorite(mangaId));
-      setIsFollowing(isFollowingManga(mangaId));
-      setCategory(getFavoriteCategory(mangaId));
+    const loadMangaData = async () => {
+      if (!mangaId) return;
 
-      // Get rating info
-      setAverageRating(getAverageRating(mangaId));
-      if (user) {
-        setUserRating(getUserRating(mangaId, user.id));
+      try {
+        setIsLoading(true);
+        const [mData, avgRating] = await Promise.all([
+          getMangaById(mangaId),
+          getAverageRating(mangaId)
+        ]);
+
+        if (mData) {
+          setManga(mData);
+          setAverageRating(avgRating);
+
+          // Increment views
+          incrementMangaViews(mangaId);
+
+          if (user) {
+            const [favorited, following, cat, rating, progress] = await Promise.all([
+              isFavorite(user.id, mangaId),
+              isFollowingManga(user.id, mangaId),
+              // We'll get category from the favorites check or a separate call
+              null as any,
+              getUserRating(mangaId, user.id),
+              getLatestProgress(user.id, mangaId)
+            ]);
+
+            setFavorite(favorited);
+            setIsFollowing(following);
+            setUserRating(rating);
+            setLatestProgress(progress);
+
+            // To get category, we'll fetch favorites specifically
+            const userFavorites = await getFavorites(user.id);
+            const thisFav = userFavorites.find(f => f.mangaId === mangaId);
+            if (thisFav) setCategory(thisFav.category);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading manga detail:', err);
+      } finally {
+        setIsLoading(false);
       }
-    }
+    };
+
+    loadMangaData();
   }, [mangaId, user]);
+
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   if (!manga) {
     return (
@@ -93,68 +135,85 @@ const MangaDetail: React.FC = () => {
     );
   }
 
-  const toggleFavorite = () => {
+  const toggleFavorite = async () => {
     if (!user) {
       toast.error('Favorilere eklemek için giriş yapmalısınız');
       return;
     }
 
-    if (favorite) {
-      removeFavorite(manga.id);
-      setFavorite(false);
-      setCategory(undefined);
-      toast.success('Favorilerden kaldırıldı');
-    } else {
-      addFavorite(manga.id, 'reading');
-      setFavorite(true);
-      setCategory('reading');
-      toast.success('Favorilere eklendi');
+    try {
+      if (favorite) {
+        await removeFavorite(user.id, manga.id);
+        setFavorite(false);
+        setCategory(undefined);
+        toast.success('Favorilerden kaldırıldı');
+      } else {
+        await addFavorite(user.id, manga.id, 'reading');
+        setFavorite(true);
+        setCategory('reading');
+        toast.success('Favorilere eklendi');
+      }
+    } catch (err) {
+      toast.error('İşlem başarısız oldu');
     }
   };
 
-  const handleCategoryChange = (newCategory: LibraryCategory) => {
+  const handleCategoryChange = async (newCategory: LibraryCategory) => {
     if (!user) {
       toast.error('Giriş yapmalısınız');
       return;
     }
 
-    if (!favorite) {
-      addFavorite(manga.id, newCategory);
-      setFavorite(true);
-    } else {
-      updateFavoriteCategory(manga.id, newCategory);
+    try {
+      if (!favorite) {
+        await addFavorite(user.id, manga.id, newCategory);
+        setFavorite(true);
+      } else {
+        await updateFavoriteCategory(user.id, manga.id, newCategory);
+      }
+      setCategory(newCategory);
+      toast.success(`Kategori: ${categoryLabels[newCategory]}`);
+    } catch (err) {
+      toast.error('Kategori güncellenemedi');
     }
-    setCategory(newCategory);
-    toast.success(`Kategori: ${categoryLabels[newCategory]}`);
   };
 
-  const toggleFollow = () => {
+  const toggleFollow = async () => {
     if (!user) {
       toast.error('Takip etmek için giriş yapmalısınız');
       return;
     }
 
-    if (isFollowing) {
-      unfollowManga(manga!.id);
-      setIsFollowing(false);
-      toast.success('Takibi bıraktınız');
-    } else {
-      followManga(manga!.id);
-      setIsFollowing(true);
-      toast.success('Manga takip ediliyor! Yeni bölümlerden haberdar olacaksınız.');
+    try {
+      if (isFollowing) {
+        await unfollowManga(user.id, manga!.id);
+        setIsFollowing(false);
+        toast.success('Takibi bıraktınız');
+      } else {
+        await followManga(user.id, manga!.id);
+        setIsFollowing(true);
+        toast.success('Manga takip ediliyor! Yeni bölümlerden haberdar olacaksınız.');
+      }
+    } catch (err) {
+      toast.error('İşlem başarısız oldu');
     }
   };
 
-  const handleRating = (rating: number) => {
+  const handleRating = async (rating: number) => {
     if (!user) {
       toast.error('Puan vermek için giriş yapmalısınız');
       return;
     }
 
-    rateManga(manga.id, user.id, rating);
-    setUserRating(rating);
-    setAverageRating(getAverageRating(manga.id));
-    toast.success(`${rating}/10 puan verildi!`);
+    try {
+      await rateManga(manga.id, user.id, rating);
+      setUserRating(rating);
+      const newAvg = await getAverageRating(manga.id);
+      setAverageRating(newAvg);
+      toast.success(`${rating}/10 puan verildi!`);
+    } catch (err) {
+      toast.error('Puan kaydedilemedi');
+    }
   };
 
   const formatDate = (dateString: string) => {

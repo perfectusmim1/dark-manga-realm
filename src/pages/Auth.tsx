@@ -27,12 +27,12 @@ const Auth: React.FC = () => {
 
     try {
       if (isLogin) {
-        const success = await login(formData.emailOrUsername, formData.password);
-        if (success) {
+        const result = await login(formData.emailOrUsername, formData.password);
+        if (result.success) {
           toast.success('Giriş başarılı!');
           navigate('/');
         } else {
-          toast.error('Kullanıcı bulunamadı veya şifre hatalı');
+          toast.error(result.error || 'Giriş başarısız');
         }
       } else {
         if (formData.password.length < 6) {
@@ -40,12 +40,12 @@ const Auth: React.FC = () => {
           setIsLoading(false);
           return;
         }
-        const success = await register(formData.username, formData.email, formData.password);
-        if (success) {
-          toast.success('Kayıt başarılı!');
+        const result = await register(formData.username, formData.email, formData.password);
+        if (result.success) {
+          toast.success('Kayıt başarılı! Hoş geldiniz.');
           navigate('/');
         } else {
-          toast.error('Bu e-posta veya kullanıcı adı zaten kullanılıyor');
+          toast.error(result.error || 'Kayıt başarısız');
         }
       }
     } catch (error) {

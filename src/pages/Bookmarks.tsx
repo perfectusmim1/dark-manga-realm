@@ -6,18 +6,60 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getBookmarks, removeBookmark } from '../lib/storage';
-import { getMangaById, getChapterById } from '@/lib/mockData';
+import { getMangaById } from '@/lib/database';
 import { toast } from 'sonner';
+import { Manga, Bookmark } from '@/lib/types';
 
 const Bookmarks: React.FC = () => {
   const { user } = useAuth();
-  const [bookmarks, setBookmarks] = React.useState(getBookmarks());
+  const [bookmarks, setBookmarks] = React.useState<any[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
 
-  const handleRemoveBookmark = (id: string) => {
-    removeBookmark(id);
-    setBookmarks(getBookmarks());
-    toast.success('Yer imi silindi');
+  const loadBookmarks = React.useCallback(async () => {
+    if (!user) return;
+    try {
+      setIsLoading(true);
+      const bks = await getBookmarks(user.id);
+
+      const enrichedBookmarks = await Promise.all(bks.map(async (b) => {
+        const manga = await getMangaById(b.mangaId);
+        if (manga) {
+          const chapter = manga.chapters.find(c => c.id === b.chapterId);
+          return { ...b, manga, chapter };
+        }
+        return null;
+      }));
+
+      setBookmarks(enrichedBookmarks.filter(Boolean));
+    } catch (err) {
+      console.error('Bookmarks load error:', err);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user]);
+
+  React.useEffect(() => {
+    loadBookmarks();
+  }, [loadBookmarks]);
+
+  const handleRemoveBookmark = async (id: string) => {
+    if (!user) return;
+    try {
+      await removeBookmark(user.id, id);
+      toast.success('Yer imi silindi');
+      loadBookmarks();
+    } catch (err) {
+      toast.error('Yer imi silinemedi');
+    }
   };
+
+  if (isLoading && user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -63,15 +105,14 @@ const Bookmarks: React.FC = () => {
 
         {bookmarks.length > 0 ? (
           <div className="space-y-4">
-            {bookmarks.map((bookmark, index) => {
-              const manga = getMangaById(bookmark.mangaId);
-              const chapter = getChapterById(bookmark.mangaId, bookmark.chapterId);
+            {bookmarks.map((item, index) => {
+              const { manga, chapter } = item;
 
               if (!manga || !chapter) return null;
 
               return (
                 <div
-                  key={bookmark.id}
+                  key={item.id}
                   className="flex gap-4 rounded-xl border border-border bg-card/50 p-4 transition-colors hover:bg-card animate-fade-up opacity-0"
                   style={{ animationDelay: `${0.1 + index * 0.05}s`, animationFillMode: 'forwards' }}
                 >
@@ -89,29 +130,29 @@ const Bookmarks: React.FC = () => {
                         <h3 className="font-semibold hover:text-primary">{manga.title}</h3>
                       </Link>
                       <p className="text-sm text-muted-foreground">
-                        Bölüm {chapter.number} • Sayfa {bookmark.page}
+                        Bölüm {chapter.number} • Sayfa {item.page}
                       </p>
-                      {bookmark.note && (
+                      {item.note && (
                         <p className="mt-1 text-sm text-foreground/70">
-                          "{bookmark.note}"
+                          "{item.note}"
                         </p>
                       )}
                     </div>
 
                     <div className="flex items-center justify-between">
                       <Badge variant="outline" className="text-xs">
-                        {formatDate(bookmark.createdAt)}
+                        {formatDate(item.createdAt)}
                       </Badge>
                       <div className="flex gap-2">
                         <Button asChild size="sm">
-                          <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${bookmark.page}`}>
-                            Sayfa {bookmark.page}'e Git
+                          <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
+                            Sayfa {item.page}'e Git
                           </Link>
                         </Button>
                         <Button
                           variant="ghost"
                           size="icon"
-                          onClick={() => handleRemoveBookmark(bookmark.id)}
+                          onClick={() => handleRemoveBookmark(item.id)}
                           className="text-destructive hover:bg-destructive/10"
                         >
                           <Trash2 className="h-4 w-4" />

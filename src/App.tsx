@@ -29,9 +29,14 @@ import AdminMangaEditor from "./pages/admin/AdminMangaEditor";
 import AdminComments from "./pages/admin/AdminComments";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminUserManagement from "./pages/admin/AdminUserManagement";
-import AdminSettings from "./pages/admin/AdminSettings";
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: {
+      refetchOnWindowFocus: false,
+    },
+  },
+});
 
 // Initialize data on app load
 const AppInitializer = ({ children }: { children: React.ReactNode }) => {
@@ -73,7 +78,6 @@ const App = () => (
                 <Route path="comments" element={<AdminComments />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="user-management" element={<AdminUserManagement />} />
-                <Route path="settings" element={<AdminSettings />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

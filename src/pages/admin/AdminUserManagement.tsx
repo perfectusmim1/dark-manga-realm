@@ -35,15 +35,20 @@ const AdminUserManagement: React.FC = () => {
         loadUsers();
     }, []);
 
-    const loadUsers = () => {
-        setUsers(getAllUsers());
+    const loadUsers = async () => {
+        const data = await getAllUsers();
+        setUsers(data);
     };
 
-    const handleDeleteUser = () => {
+    const handleDeleteUser = async () => {
         if (deleteId) {
-            deleteUser(deleteId);
-            loadUsers();
-            toast.success('Kullanıcı başarıyla silindi');
+            try {
+                await deleteUser(deleteId);
+                await loadUsers();
+                toast.success('Kullanıcı başarıyla silindi');
+            } catch (error) {
+                toast.error('Kullanıcı silinemedi');
+            }
             setDeleteId(null);
         }
     };

@@ -28,8 +28,8 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
+import { Comment, Manga } from '@/lib/types';
 import {
-    Comment,
     getCommentsForManga,
     addComment,
     updateComment,
@@ -66,8 +66,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         loadComments();
     }, [mangaId, chapterId]);
 
-    const loadComments = () => {
-        const loadedComments = getCommentsForManga(mangaId, chapterId);
+    const loadComments = async () => {
+        const loadedComments = await getCommentsForManga(mangaId, chapterId);
         setComments(loadedComments);
     };
 
@@ -100,7 +100,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         }
     };
 
-    const handleSubmitComment = () => {
+    const handleSubmitComment = async () => {
         if (!user) {
             toast.error('Yorum yapmak için giriş yapmalısınız');
             return;
@@ -111,7 +111,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             return;
         }
 
-        addComment({
+        await addComment({
             mangaId,
             chapterId,
             userId: user.id,
@@ -123,31 +123,31 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
 
         setNewComment('');
         setSelectedGif(null);
-        loadComments();
+        await loadComments();
         toast.success('Yorum eklendi');
     };
 
-    const handleEditComment = (commentId: string) => {
+    const handleEditComment = async (commentId: string) => {
         if (!editContent.trim() && !editGif) {
             toast.error('Lütfen bir yorum yazın veya GIF seçin');
             return;
         }
 
-        updateComment(commentId, editContent, editGif || undefined);
+        await updateComment(commentId, editContent, editGif || undefined);
         setEditingId(null);
         setEditContent('');
         setEditGif(null);
-        loadComments();
+        await loadComments();
         toast.success('Yorum güncellendi');
     };
 
-    const handleDeleteComment = (commentId: string) => {
-        deleteComment(commentId);
-        loadComments();
+    const handleDeleteComment = async (commentId: string) => {
+        await deleteComment(commentId);
+        await loadComments();
         toast.success('Yorum silindi');
     };
 
-    const handleReply = (parentId: string) => {
+    const handleReply = async (parentId: string) => {
         if (!user) {
             toast.error('Yanıt vermek için giriş yapmalısınız');
             return;
@@ -160,7 +160,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
 
         const parentComment = comments.find(c => c.id === parentId);
 
-        const newCommentObj = addComment({
+        const newCommentObj = await addComment({
             mangaId,
             chapterId,
             userId: user.id,
@@ -171,8 +171,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         });
 
         if (parentComment && parentComment.userId !== user.id) {
-            const manga = getMangaById(mangaId);
-            createCommentNotification(
+            const manga = await getMangaById(mangaId);
+            await createCommentNotification(
                 parentComment.userId,
                 'reply',
                 user.id,
@@ -186,11 +186,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
 
         setReplyingTo(null);
         setReplyContent('');
-        loadComments();
+        await loadComments();
         toast.success('Yanıt eklendi');
     };
 
-    const handleLike = (commentId: string) => {
+    const handleLike = async (commentId: string) => {
         if (!user) {
             toast.error('Beğenmek için giriş yapmalısınız');
             return;
@@ -199,11 +199,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         const comment = comments.find(c => c.id === commentId);
         const wasLiked = comment?.likedBy.includes(user.id);
 
-        toggleCommentLike(commentId, user.id);
+        await toggleCommentLike(commentId, user.id);
 
         if (!wasLiked && comment && comment.userId !== user.id) {
-            const manga = getMangaById(mangaId);
-            createCommentNotification(
+            const manga = await getMangaById(mangaId);
+            await createCommentNotification(
                 comment.userId,
                 'like',
                 user.id,
@@ -215,7 +215,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             );
         }
 
-        loadComments();
+        await loadComments();
     };
 
     const selectGif = (gifUrl: string) => {
@@ -333,7 +333,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                             </span>
                                         </div>
 
-                                        {user?.id === comment.userId && (
+                                        {(user?.id === comment.userId || user?.role === 'admin' || user?.role === 'moderator') && (
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
                                                     <Button variant="ghost" size="icon" className="h-8 w-8">
@@ -477,7 +477,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                                                     {reply.updatedAt && ' (düzenlendi)'}
                                                                 </span>
                                                             </div>
-                                                            {user?.id === reply.userId && (
+                                                            {(user?.id === reply.userId || user?.role === 'admin' || user?.role === 'moderator') && (
                                                                 <DropdownMenu>
                                                                     <DropdownMenuTrigger asChild>
                                                                         <Button variant="ghost" size="icon" className="h-7 w-7">

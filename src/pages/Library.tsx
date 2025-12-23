@@ -23,7 +23,6 @@ import {
 import { useAuth } from '@/contexts/AuthContext';
 import {
     getFavorites,
-    getFavoritesByCategory,
     updateFavoriteCategory,
     removeFavorite,
     getLatestProgress
@@ -49,35 +48,60 @@ const categoryConfig: { key: LibraryCategory; label: string; icon: React.Element
 const Library: React.FC = () => {
     const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<LibraryCategory | 'all'>('all');
-    const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
+    const [libraryItems, setLibraryItems] = useState<any[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        loadLibrary();
-    }, [activeTab]);
+        fetchLibrary();
+    }, [activeTab, user]);
 
-    const loadLibrary = () => {
-        const favorites = activeTab === 'all'
-            ? getFavorites()
-            : getFavoritesByCategory(activeTab);
+    const fetchLibrary = async () => {
+        if (!user) return;
 
-        const items: LibraryItem[] = favorites.map(fav => ({
-            favorite: fav,
-            manga: getMangaById(fav.mangaId),
-            progress: getLatestProgress(fav.mangaId),
-        })).filter(item => item.manga);
+        try {
+            setIsLoading(true);
+            const favorites = await getFavorites(user.id);
 
-        setLibraryItems(items);
+            let filtered = favorites;
+            if (activeTab !== 'all') {
+                filtered = favorites.filter(f => f.category === activeTab);
+            }
+
+            const items = await Promise.all(filtered.map(async fav => {
+                const progress = await getLatestProgress(user.id, fav.mangaId);
+                // The manga details are already in fav due to our new getFavorites join
+                return {
+                    favorite: fav,
+                    manga: {
+                        id: fav.mangaId,
+                        title: fav.mangaTitle,
+                        cover: fav.mangaCover,
+                        author: '', // Basic info
+                        chapters: [] // We'll handle links differently
+                    },
+                    progress: progress,
+                };
+            }));
+
+            setLibraryItems(items);
+        } catch (err) {
+            console.error('Library fetch error:', err);
+        } finally {
+            setIsLoading(false);
+        }
     };
 
-    const handleCategoryChange = (mangaId: string, category: LibraryCategory) => {
-        updateFavoriteCategory(mangaId, category);
-        loadLibrary();
+    const handleCategoryChange = async (mangaId: string, category: LibraryCategory) => {
+        if (!user) return;
+        await updateFavoriteCategory(user.id, mangaId, category);
+        fetchLibrary();
         toast.success('Kategori güncellendi');
     };
 
-    const handleRemove = (mangaId: string) => {
-        removeFavorite(mangaId);
-        loadLibrary();
+    const handleRemove = async (mangaId: string) => {
+        if (!user) return;
+        await removeFavorite(user.id, mangaId);
+        fetchLibrary();
         toast.success('Kütüphaneden kaldırıldı');
     };
 
@@ -92,6 +116,14 @@ const Library: React.FC = () => {
             </Badge>
         );
     };
+
+    if (isLoading && user) {
+        return (
+            <div className="flex min-h-screen items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+            </div>
+        );
+    }
 
     if (!user) {
         return (

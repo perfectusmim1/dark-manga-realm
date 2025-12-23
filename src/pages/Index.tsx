@@ -15,29 +15,50 @@ const Index: React.FC = () => {
   const { user } = useAuth();
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [continueReading, setContinueReading] = useState<{ manga: Manga; chapterId: string; chapterNumber: number }[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const allMangas = getAllMangas();
-    setMangas(allMangas);
+    const loadData = async () => {
+      try {
+        setIsLoading(true);
+        const allMangas = await getAllMangas();
+        setMangas(allMangas);
 
-    // Get continue reading list
-    if (user) {
-      const history = getReadingHistory();
-      const uniqueMangaIds = [...new Set(history.map(h => h.mangaId))].slice(0, 6);
-      const continueList = uniqueMangaIds.map(mangaId => {
-        const manga = allMangas.find(m => m.id === mangaId);
-        const progress = getLatestProgress(mangaId);
-        if (manga && progress) {
-          return { manga, chapterId: progress.chapterId, chapterNumber: progress.chapterNumber };
+        if (user) {
+          const history = await getReadingHistory(user.id);
+          const uniqueMangaIds = [...new Set(history.map(h => h.mangaId))].slice(0, 6);
+
+          const continueList = await Promise.all(uniqueMangaIds.map(async (mangaId) => {
+            const manga = allMangas.find(m => m.id === mangaId);
+            const progress = await getLatestProgress(user.id, mangaId);
+            if (manga && progress) {
+              return { manga, chapterId: progress.chapterId, chapterNumber: progress.chapterNumber };
+            }
+            return null;
+          }));
+
+          setContinueReading(continueList.filter(Boolean) as { manga: Manga; chapterId: string; chapterNumber: number }[]);
         }
-        return null;
-      }).filter(Boolean) as { manga: Manga; chapterId: string; chapterNumber: number }[];
-      setContinueReading(continueList);
-    }
+      } catch (err) {
+        console.error('Data loading error:', err);
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadData();
   }, [user]);
 
+  if (isLoading) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
+
   const featuredManga = mangas[0];
-  const trendingManga = mangas.slice(0, 8);
+  const trendingManga = mangas.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8);
   const recentlyUpdated = [...mangas]
     .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
     .slice(0, 12);

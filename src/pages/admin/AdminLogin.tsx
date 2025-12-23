@@ -18,10 +18,7 @@ const AdminLogin: React.FC = () => {
         e.preventDefault();
         setLoading(true);
 
-        // Simulate network delay
-        await new Promise(resolve => setTimeout(resolve, 500));
-
-        const admin = authenticateAdmin(email, password);
+        const admin = await authenticateAdmin(email, password);
 
         if (admin) {
             setAdminSession({
@@ -95,11 +92,7 @@ const AdminLogin: React.FC = () => {
                         </Button>
                     </form>
 
-                    <div className="mt-6 rounded-lg bg-secondary/50 p-4 text-sm">
-                        <p className="font-medium text-foreground">Varsayılan Giriş Bilgileri:</p>
-                        <p className="mt-1 text-muted-foreground">E-posta: admin@mangaverse.com</p>
-                        <p className="text-muted-foreground">Şifre: admin123</p>
-                    </div>
+
 
                     <div className="mt-6 text-center">
                         <a href="/" className="text-sm text-muted-foreground hover:text-primary">

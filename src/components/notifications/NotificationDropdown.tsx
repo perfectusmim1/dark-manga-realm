@@ -34,11 +34,16 @@ const NotificationDropdown: React.FC = () => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [isOpen, setIsOpen] = useState(false);
 
-    const loadNotifications = () => {
+    const loadNotifications = async () => {
         if (!user) return;
-        const allNotifications = getNotifications();
-        setNotifications(allNotifications.slice(0, 8)); // Show max 8 in dropdown
-        setUnreadCount(getUnreadNotificationCount());
+        try {
+            const allNotifications = await getNotifications(user.id);
+            setNotifications(allNotifications.slice(0, 8)); // Show max 8 in dropdown
+            const count = await getUnreadNotificationCount(user.id);
+            setUnreadCount(count);
+        } catch (error) {
+            console.error('Error loading notifications:', error);
+        }
     };
 
     useEffect(() => {
@@ -46,7 +51,7 @@ const NotificationDropdown: React.FC = () => {
         // Poll for new notifications every 30 seconds
         const interval = setInterval(loadNotifications, 30000);
         return () => clearInterval(interval);
-    }, [user]);
+    }, [user?.id]);
 
     useEffect(() => {
         if (isOpen) {
@@ -54,9 +59,9 @@ const NotificationDropdown: React.FC = () => {
         }
     }, [isOpen]);
 
-    const handleNotificationClick = (notification: Notification) => {
-        if (!notification.read) {
-            markNotificationAsRead(notification.id);
+    const handleNotificationClick = async (notification: Notification) => {
+        if (!notification.read && user) {
+            await markNotificationAsRead(user.id, notification.id);
             loadNotifications();
         }
         setIsOpen(false);
@@ -143,9 +148,9 @@ const NotificationDropdown: React.FC = () => {
                                     {/* Icon */}
                                     <div className="flex-shrink-0 mt-0.5">
                                         <div className={`flex h-8 w-8 items-center justify-center rounded-full ${notification.type === 'new_chapter' ? 'bg-primary/10' :
-                                                notification.type === 'reply' ? 'bg-blue-500/10' :
-                                                    notification.type === 'like' ? 'bg-pink-500/10' :
-                                                        'bg-yellow-500/10'
+                                            notification.type === 'reply' ? 'bg-blue-500/10' :
+                                                notification.type === 'like' ? 'bg-pink-500/10' :
+                                                    'bg-yellow-500/10'
                                             }`}>
                                             {getNotificationIcon(notification.type)}
                                         </div>

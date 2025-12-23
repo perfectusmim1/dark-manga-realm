@@ -14,22 +14,37 @@ interface FeaturedMangaProps {
 
 const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
   const { user } = useAuth();
-  const [favorite, setFavorite] = React.useState(isFavorite(manga.id));
+  const [favorite, setFavorite] = React.useState(false);
 
-  const toggleFavorite = () => {
+  React.useEffect(() => {
+    setFavorite(false); // Reset state immediately when user or manga changes
+    const checkFavorite = async () => {
+      if (user && manga.id) {
+        const favorited = await isFavorite(user.id, manga.id);
+        setFavorite(favorited);
+      }
+    };
+    checkFavorite();
+  }, [user, manga.id]);
+
+  const toggleFavorite = async () => {
     if (!user) {
       toast.error('Favorilere eklemek için giriş yapmalısınız');
       return;
     }
 
-    if (favorite) {
-      removeFavorite(manga.id);
-      setFavorite(false);
-      toast.success('Favorilerden kaldırıldı');
-    } else {
-      addFavorite(manga.id);
-      setFavorite(true);
-      toast.success('Favorilere eklendi');
+    try {
+      if (favorite) {
+        await removeFavorite(user.id, manga.id);
+        setFavorite(false);
+        toast.success('Favorilerden kaldırıldı');
+      } else {
+        await addFavorite(user.id, manga.id);
+        setFavorite(true);
+        toast.success('Favorilere eklendi');
+      }
+    } catch (error) {
+      toast.error('İşlem başarısız oldu');
     }
   };
 

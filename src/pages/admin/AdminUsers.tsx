@@ -56,11 +56,12 @@ const AdminUsers: React.FC = () => {
         loadAdmins();
     }, []);
 
-    const loadAdmins = () => {
-        setAdmins(getAdminUsers());
+    const loadAdmins = async () => {
+        const data = await getAdminUsers();
+        setAdmins(data);
     };
 
-    const handleAddAdmin = () => {
+    const handleAddAdmin = async () => {
         if (!newAdmin.username.trim() || !newAdmin.email.trim() || !newAdmin.password.trim()) {
             toast.error('Tüm alanları doldurun');
             return;
@@ -71,24 +72,32 @@ const AdminUsers: React.FC = () => {
             return;
         }
 
-        addAdminUser(newAdmin);
-        loadAdmins();
-        setShowAddDialog(false);
-        setNewAdmin({ username: '', email: '', password: '', role: 'moderator' });
-        toast.success('Admin eklendi');
+        try {
+            await addAdminUser(newAdmin);
+            await loadAdmins();
+            setShowAddDialog(false);
+            setNewAdmin({ username: '', email: '', password: '', role: 'moderator' });
+            toast.success('Admin eklendi');
+        } catch (error) {
+            toast.error('Admin eklenemedi');
+        }
     };
 
-    const handleDeleteAdmin = () => {
+    const handleDeleteAdmin = async () => {
         if (deleteId) {
             if (admins.length <= 1) {
                 toast.error('Son admin silinemez');
                 return;
             }
 
-            deleteAdminUser(deleteId);
-            loadAdmins();
-            toast.success('Admin silindi');
-            setDeleteId(null);
+            try {
+                await deleteAdminUser(deleteId);
+                await loadAdmins();
+                toast.success('Admin silindi');
+                setDeleteId(null);
+            } catch (error) {
+                toast.error('Admin silinemedi');
+            }
         }
     };
 
@@ -124,7 +133,7 @@ const AdminUsers: React.FC = () => {
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-3">
                                             <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                                {admin.username[0].toUpperCase()}
+                                                {admin.username ? admin.username[0].toUpperCase() : 'A'}
                                             </div>
                                             <div>
                                                 <p className="font-medium">{admin.username}</p>
@@ -149,7 +158,9 @@ const AdminUsers: React.FC = () => {
                                         )}
                                     </td>
                                     <td className="px-4 py-3 text-muted-foreground">
-                                        {formatDistanceToNow(new Date(admin.createdAt), { addSuffix: true, locale: tr })}
+                                        {admin.createdAt
+                                            ? formatDistanceToNow(new Date(admin.createdAt), { addSuffix: true, locale: tr })
+                                            : 'Bilinmiyor'}
                                     </td>
                                     <td className="px-4 py-3 text-right">
                                         <Button

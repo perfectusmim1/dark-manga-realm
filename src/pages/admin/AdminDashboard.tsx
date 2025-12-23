@@ -11,20 +11,45 @@ import {
     Users as UsersIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getStatistics, getAllMangas } from '@/lib/database';
+import { getStatistics, getAllMangas, syncAllToSupabase } from '@/lib/database';
 import { Manga } from '@/lib/types';
+import { toast } from 'sonner';
 
 const AdminDashboard: React.FC = () => {
-    const [stats, setStats] = useState<ReturnType<typeof getStatistics> | null>(null);
+    const [stats, setStats] = useState<any | null>(null);
     const [recentMangas, setRecentMangas] = useState<Manga[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
 
     useEffect(() => {
-        setStats(getStatistics());
-        const mangas = getAllMangas()
-            .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
-            .slice(0, 5);
-        setRecentMangas(mangas);
+        const loadData = async () => {
+            try {
+                setIsLoading(true);
+                const [statistics, allMangas] = await Promise.all([
+                    getStatistics(),
+                    getAllMangas()
+                ]);
+
+                setStats(statistics);
+                setRecentMangas(allMangas
+                    .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
+                    .slice(0, 5)
+                );
+            } catch (err) {
+                toast.error('İstatistikler yüklenemedi');
+            } finally {
+                setIsLoading(false);
+            }
+        };
+        loadData();
     }, []);
+
+    if (isLoading) {
+        return (
+            <div className="flex min-h-[400px] items-center justify-center">
+                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+            </div>
+        );
+    }
 
     if (!stats) return null;
 
@@ -73,12 +98,26 @@ const AdminDashboard: React.FC = () => {
                     <h1 className="text-3xl font-bold">Dashboard</h1>
                     <p className="text-muted-foreground">Site istatistiklerine genel bakış</p>
                 </div>
-                <Button asChild>
-                    <Link to="/admin/mangas/new">
-                        <Plus className="mr-2 h-4 w-4" />
-                        Yeni Manga Ekle
-                    </Link>
-                </Button>
+                <div className="flex gap-2">
+                    <Button
+                        variant="outline"
+                        onClick={async () => {
+                            const toastId = toast.loading('Veriler Supabase\'e senkronize ediliyor...');
+                            const result = await syncAllToSupabase();
+                            toast.dismiss(toastId);
+                            toast.success(`${result.success}/${result.total} manga başarıyla senkronize edildi!`);
+                        }}
+                    >
+                        <TrendingUp className="mr-2 h-4 w-4" />
+                        Supabase'e Senkronize Et
+                    </Button>
+                    <Button asChild>
+                        <Link to="/admin/mangas/new">
+                            <Plus className="mr-2 h-4 w-4" />
+                            Yeni Manga Ekle
+                        </Link>
+                    </Button>
+                </div>
             </div>
 
             {/* Stat Cards */}

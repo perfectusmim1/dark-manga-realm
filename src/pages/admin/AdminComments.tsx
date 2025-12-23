@@ -27,7 +27,8 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { getAllComments, deleteComment, Comment, getMangaById } from '@/lib/database';
+import { getAllComments, deleteComment, getMangaById } from '@/lib/database';
+import { Comment } from '@/lib/types';
 import { toast } from 'sonner';
 
 const AdminComments: React.FC = () => {
@@ -36,29 +37,45 @@ const AdminComments: React.FC = () => {
     const [selectedComments, setSelectedComments] = useState<Set<string>>(new Set());
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+    const [mangaCache, setMangaCache] = useState<Record<string, string>>({});
 
     useEffect(() => {
         loadComments();
     }, []);
 
-    const loadComments = () => {
-        const allComments = getAllComments().sort(
-            (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        setComments(allComments);
+    const loadComments = async () => {
+        const data = await getAllComments();
+        setComments(data);
+
+        // Load manga titles for unique mangaIds
+        const uniqueMangaIds = [...new Set(data.map(c => c.mangaId))];
+        const newCache = { ...mangaCache };
+        let cacheUpdated = false;
+
+        for (const id of uniqueMangaIds) {
+            if (!newCache[id]) {
+                const manga = await getMangaById(id);
+                if (manga) {
+                    newCache[id] = manga.title;
+                    cacheUpdated = true;
+                }
+            }
+        }
+
+        if (cacheUpdated) setMangaCache(newCache);
     };
 
-    const handleDelete = (id: string) => {
-        deleteComment(id);
-        loadComments();
+    const handleDelete = async (id: string) => {
+        await deleteComment(id);
+        await loadComments();
         toast.success('Yorum silindi');
         setDeleteId(null);
     };
 
-    const handleBulkDelete = () => {
-        selectedComments.forEach(id => deleteComment(id));
+    const handleBulkDelete = async () => {
+        await Promise.all(Array.from(selectedComments).map(id => deleteComment(id)));
         setSelectedComments(new Set());
-        loadComments();
+        await loadComments();
         toast.success(`${selectedComments.size} yorum silindi`);
         setBulkDeleteConfirm(false);
     };
@@ -87,8 +104,7 @@ const AdminComments: React.FC = () => {
     );
 
     const getMangaTitle = (mangaId: string) => {
-        const manga = getMangaById(mangaId);
-        return manga?.title || 'Bilinmeyen Manga';
+        return mangaCache[mangaId] || 'Yükleniyor...';
     };
 
     return (

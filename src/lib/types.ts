@@ -71,6 +71,8 @@ export interface Favorite {
   mangaId: string;
   addedAt: string;
   category?: LibraryCategory;
+  mangaTitle?: string;
+  mangaCover?: string;
 }
 
 export type ReadingMode = 'vertical' | 'horizontal' | 'webtoon';
@@ -118,4 +120,20 @@ export interface Notification {
   chapterId?: string;
   chapterNumber?: number;
   commentId?: string;
+}
+
+export interface Comment {
+  id: string;
+  mangaId: string;
+  chapterId?: string;
+  userId: string;
+  username: string;
+  userAvatar?: string;
+  content: string;
+  gifUrl?: string;
+  createdAt: string;
+  updatedAt?: string;
+  parentId?: string;
+  likes: number;
+  likedBy: string[];
 }

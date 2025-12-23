@@ -6,14 +6,46 @@ import MangaGrid from '@/components/manga/MangaGrid';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFavorites } from '@/lib/storage';
-import { getMangaById } from '@/lib/mockData';
+import { getMangaById } from '@/lib/database';
+import { Manga } from '@/lib/types';
+import { toast } from 'sonner';
 
 const Favorites: React.FC = () => {
   const { user } = useAuth();
-  const favorites = getFavorites();
-  const favoriteManga = favorites
-    .map(f => getMangaById(f.mangaId))
-    .filter(Boolean) as NonNullable<ReturnType<typeof getMangaById>>[];
+  const [favoriteManga, setFavoriteManga] = React.useState<Manga[]>([]);
+  const [isLoading, setIsLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const loadFavorites = async () => {
+      if (!user) {
+        setIsLoading(false);
+        return;
+      }
+
+      try {
+        setIsLoading(true);
+        const favorites = await getFavorites(user.id);
+        const mangaPromises = favorites.map(f => getMangaById(f.mangaId));
+        const mangas = await Promise.all(mangaPromises);
+        setFavoriteManga(mangas.filter(Boolean) as Manga[]);
+      } catch (err) {
+        console.error('Favorites load error:', err);
+        toast.error('Favoriler yüklenemedi');
+      } finally {
+        setIsLoading(false);
+      }
+    };
+
+    loadFavorites();
+  }, [user]);
+
+  if (isLoading && user) {
+    return (
+      <div className="flex min-h-screen items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
+      </div>
+    );
+  }
 
   if (!user) {
     return (
@@ -38,7 +70,7 @@ const Favorites: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="container pb-12 pt-20">
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
           <h1 className="text-3xl font-bold tracking-tight">Favorilerim</h1>

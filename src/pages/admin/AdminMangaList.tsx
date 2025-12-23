@@ -39,20 +39,35 @@ const AdminMangaList: React.FC = () => {
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [deleteId, setDeleteId] = useState<string | null>(null);
 
+    const [isLoading, setIsLoading] = useState(true);
+
     useEffect(() => {
         loadMangas();
     }, []);
 
-    const loadMangas = () => {
-        setMangas(getAllMangas());
+    const loadMangas = async () => {
+        try {
+            setIsLoading(true);
+            const data = await getAllMangas();
+            setMangas(data);
+        } catch (err) {
+            toast.error('Mangalar yüklenemedi');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
-    const handleDelete = () => {
+    const handleDelete = async () => {
         if (deleteId) {
-            deleteManga(deleteId);
-            loadMangas();
-            toast.success('Manga silindi');
-            setDeleteId(null);
+            try {
+                await deleteManga(deleteId);
+                await loadMangas();
+                toast.success('Manga silindi');
+            } catch (err) {
+                toast.error('Manga silinemedi');
+            } finally {
+                setDeleteId(null);
+            }
         }
     };
 
