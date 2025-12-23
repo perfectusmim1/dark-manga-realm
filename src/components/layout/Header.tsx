@@ -54,7 +54,7 @@ const Header: React.FC = () => {
           to="/"
           className="flex items-center gap-2 text-xl font-bold tracking-tight"
         >
-          <span className="bg-gradient-to-r from-primary to-cyan-400 bg-clip-text text-transparent">
+          <span className="bg-gradient-to-r from-primary to-[#2994FF] bg-clip-text text-transparent">
             MangaVerse
           </span>
         </Link>

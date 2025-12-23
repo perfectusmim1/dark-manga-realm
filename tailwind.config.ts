@@ -93,7 +93,7 @@ export default {
       },
       backgroundImage: {
         "gradient-radial": "radial-gradient(var(--tw-gradient-stops))",
-        "gradient-manga": "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(199 89% 48%) 100%)",
+        "gradient-manga": "linear-gradient(135deg, hsl(var(--primary)) 0%, hsl(210 100% 58%) 100%)",
       },
     },
   },

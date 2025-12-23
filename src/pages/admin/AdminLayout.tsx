@@ -64,7 +64,7 @@ const AdminLayout: React.FC = () => {
                 <div className="flex h-16 items-center justify-between border-b border-border px-4">
                     {sidebarOpen && (
                         <Link to="/" className="text-xl font-bold">
-                            <span className="bg-gradient-to-r from-primary to-cyan-400 bg-clip-text text-transparent">
+                            <span className="bg-gradient-to-r from-primary to-[#2994FF] bg-clip-text text-transparent">
                                 MangaVerse
                             </span>
                         </Link>
@@ -84,8 +84,8 @@ const AdminLayout: React.FC = () => {
                             key={item.path}
                             to={item.path}
                             className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isActive(item.path)
-                                    ? 'bg-primary text-primary-foreground'
-                                    : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                                ? 'bg-primary text-primary-foreground'
+                                : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
                                 }`}
                         >
                             <item.icon className="h-5 w-5 shrink-0" />

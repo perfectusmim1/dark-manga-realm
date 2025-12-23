@@ -69,7 +69,7 @@ const AdminMangaList: React.FC = () => {
             case 'ongoing':
                 return <Badge className="bg-green-500/20 text-green-500">Devam Ediyor</Badge>;
             case 'completed':
-                return <Badge className="bg-blue-500/20 text-blue-500">Tamamlandı</Badge>;
+                return <Badge className="bg-primary/20 text-primary">Tamamlandı</Badge>;
             case 'hiatus':
                 return <Badge className="bg-orange-500/20 text-orange-500">Ara Verildi</Badge>;
             default:

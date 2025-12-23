@@ -32,8 +32,8 @@ const AdminDashboard: React.FC = () => {
             title: 'Toplam Manga',
             value: stats.totalMangas,
             icon: BookOpen,
-            color: 'text-blue-500',
-            bgColor: 'bg-blue-500/10',
+            color: 'text-primary',
+            bgColor: 'bg-primary/10',
         },
         {
             title: 'Toplam Bölüm',
@@ -113,8 +113,8 @@ const AdminDashboard: React.FC = () => {
                                     </div>
                                     <div className="h-2 overflow-hidden rounded-full bg-secondary">
                                         <div
-                                            className={`h-full rounded-full transition-all ${type === 'manga' ? 'bg-blue-500' :
-                                                    type === 'manhwa' ? 'bg-purple-500' : 'bg-green-500'
+                                            className={`h-full rounded-full transition-all ${type === 'manga' ? 'bg-primary' :
+                                                type === 'manhwa' ? 'bg-purple-500' : 'bg-green-500'
                                                 }`}
                                             style={{ width: `${percentage}%` }}
                                         />
@@ -130,7 +130,7 @@ const AdminDashboard: React.FC = () => {
                     <div className="space-y-4">
                         {([
                             { key: 'ongoing', label: 'Devam Ediyor', color: 'bg-green-500' },
-                            { key: 'completed', label: 'Tamamlandı', color: 'bg-blue-500' },
+                            { key: 'completed', label: 'Tamamlandı', color: 'bg-primary' },
                             { key: 'hiatus', label: 'Ara Verildi', color: 'bg-orange-500' },
                         ] as const).map(({ key, label, color }) => {
                             const count = stats.mangasByStatus[key];

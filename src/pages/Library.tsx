@@ -40,7 +40,7 @@ interface LibraryItem {
 
 const categoryConfig: { key: LibraryCategory; label: string; icon: React.ElementType; color: string }[] = [
     { key: 'reading', label: 'Okuyorum', icon: BookOpen, color: 'text-green-500' },
-    { key: 'plan_to_read', label: 'Okuyacağım', icon: Clock, color: 'text-blue-500' },
+    { key: 'plan_to_read', label: 'Okuyacağım', icon: Clock, color: 'text-primary' },
     { key: 'completed', label: 'Tamamladım', icon: CheckCircle, color: 'text-purple-500' },
     { key: 'on_hold', label: 'Beklemede', icon: PauseCircle, color: 'text-orange-500' },
     { key: 'dropped', label: 'Bıraktım', icon: XCircle, color: 'text-red-500' },

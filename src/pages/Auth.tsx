@@ -16,7 +16,7 @@ const Auth: React.FC = () => {
     email: '',
     password: '',
   });
-  
+
   const { login, register } = useAuth();
   const navigate = useNavigate();
 
@@ -59,13 +59,13 @@ const Auth: React.FC = () => {
       {/* Background Effects */}
       <div className="fixed inset-0 overflow-hidden">
         <div className="absolute -left-1/4 top-0 h-96 w-96 rounded-full bg-primary/10 blur-3xl" />
-        <div className="absolute -right-1/4 bottom-0 h-96 w-96 rounded-full bg-cyan-500/10 blur-3xl" />
+        <div className="absolute -right-1/4 bottom-0 h-96 w-96 rounded-full bg-[#2994FF]/10 blur-3xl" />
       </div>
 
       <div className="relative z-10 w-full max-w-md animate-scale-in">
         {/* Logo */}
         <Link to="/" className="mb-8 flex justify-center">
-          <span className="bg-gradient-to-r from-primary to-cyan-400 bg-clip-text text-3xl font-bold text-transparent">
+          <span className="bg-gradient-to-r from-primary to-[#2994FF] bg-clip-text text-3xl font-bold text-transparent">
             MangaVerse
           </span>
         </Link>
@@ -76,8 +76,8 @@ const Auth: React.FC = () => {
             {isLogin ? 'Hoş Geldiniz' : 'Hesap Oluştur'}
           </h1>
           <p className="mt-2 text-center text-sm text-muted-foreground">
-            {isLogin 
-              ? 'Hesabınıza giriş yapın' 
+            {isLogin
+              ? 'Hesabınıza giriş yapın'
               : 'Hemen ücretsiz hesap oluşturun'}
           </p>
 

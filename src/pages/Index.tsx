@@ -133,8 +133,8 @@ const Index: React.FC = () => {
                     <Badge
                       variant="secondary"
                       className={`mb-2 text-xs ${manga.type === 'manhwa' ? 'bg-purple-500/20 text-purple-400' :
-                          manga.type === 'manhua' ? 'bg-green-500/20 text-green-400' :
-                            'bg-blue-500/20 text-blue-400'
+                        manga.type === 'manhua' ? 'bg-green-500/20 text-green-400' :
+                          'bg-primary/20 text-primary'
                         }`}
                     >
                       {manga.type.toUpperCase()}
@@ -210,7 +210,7 @@ const Index: React.FC = () => {
           <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
             <div className="text-center md:text-left">
               <h3 className="text-lg font-bold">
-                <span className="bg-gradient-to-r from-primary to-cyan-400 bg-clip-text text-transparent">
+                <span className="bg-gradient-to-r from-primary to-[#2994FF] bg-clip-text text-transparent">
                   MangaVerse
                 </span>
               </h3>
