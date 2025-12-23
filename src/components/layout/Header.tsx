@@ -1,9 +1,21 @@
 import React, { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Search, Menu, X, User, Heart, History, BookMarked, LogOut } from 'lucide-react';
+import { Link, useNavigate, useLocation } from 'react-router-dom';
+import {
+  Search,
+  Menu,
+  X,
+  User,
+  Heart,
+  History,
+  BookMarked,
+  LogOut,
+  Library,
+  Shield,
+} from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
+import { getAdminSession } from '@/lib/storage';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,6 +29,8 @@ const Header: React.FC = () => {
   const [searchQuery, setSearchQuery] = useState('');
   const { user, logout } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const adminSession = getAdminSession();
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -26,12 +40,21 @@ const Header: React.FC = () => {
     }
   };
 
+  const isActive = (path: string) => location.pathname === path;
+
+  const navLinks = [
+    { path: '/browse', label: 'Keşfet' },
+    { path: '/browse?type=manhwa', label: 'Manhwa' },
+    { path: '/browse?type=manga', label: 'Manga' },
+    { path: '/browse?type=manhua', label: 'Manhua' },
+  ];
+
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
       <div className="container flex h-16 items-center justify-between gap-4">
         {/* Logo */}
-        <Link 
-          to="/" 
+        <Link
+          to="/"
           className="flex items-center gap-2 text-xl font-bold tracking-tight"
         >
           <span className="bg-gradient-to-r from-primary to-cyan-400 bg-clip-text text-transparent">
@@ -40,16 +63,19 @@ const Header: React.FC = () => {
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden items-center gap-6 md:flex">
-          <Link to="/browse" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-            Keşfet
-          </Link>
-          <Link to="/browse?type=manhwa" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-            Manhwa
-          </Link>
-          <Link to="/browse?type=manga" className="text-sm font-medium text-muted-foreground transition-colors hover:text-foreground">
-            Manga
-          </Link>
+        <nav className="hidden items-center gap-6 lg:flex">
+          {navLinks.map((link) => (
+            <Link
+              key={link.path}
+              to={link.path}
+              className={`text-sm font-medium transition-colors ${location.pathname + location.search === link.path
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+                }`}
+            >
+              {link.label}
+            </Link>
+          ))}
         </nav>
 
         {/* Search Bar */}
@@ -68,10 +94,20 @@ const Header: React.FC = () => {
 
         {/* User Actions */}
         <div className="flex items-center gap-2">
+          {/* Admin Link */}
+          {adminSession && (
+            <Button asChild variant="ghost" size="sm" className="hidden md:flex">
+              <Link to="/admin">
+                <Shield className="mr-2 h-4 w-4" />
+                Admin
+              </Link>
+            </Button>
+          )}
+
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="icon" size="icon" className="rounded-full">
+                <Button variant="ghost" size="icon" className="rounded-full">
                   <User className="h-5 w-5" />
                 </Button>
               </DropdownMenuTrigger>
@@ -81,6 +117,12 @@ const Header: React.FC = () => {
                   <p className="text-xs text-muted-foreground">{user.email}</p>
                 </div>
                 <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to="/library" className="flex items-center gap-2">
+                    <Library className="h-4 w-4" />
+                    Kütüphanem
+                  </Link>
+                </DropdownMenuItem>
                 <DropdownMenuItem asChild>
                   <Link to="/favorites" className="flex items-center gap-2">
                     <Heart className="h-4 w-4" />
@@ -99,6 +141,17 @@ const Header: React.FC = () => {
                     Yer İmleri
                   </Link>
                 </DropdownMenuItem>
+                {adminSession && (
+                  <>
+                    <DropdownMenuSeparator />
+                    <DropdownMenuItem asChild>
+                      <Link to="/admin" className="flex items-center gap-2">
+                        <Shield className="h-4 w-4" />
+                        Admin Paneli
+                      </Link>
+                    </DropdownMenuItem>
+                  </>
+                )}
                 <DropdownMenuSeparator />
                 <DropdownMenuItem onClick={logout} className="text-destructive">
                   <LogOut className="mr-2 h-4 w-4" />
@@ -116,7 +169,7 @@ const Header: React.FC = () => {
           <Button
             variant="ghost"
             size="icon"
-            className="md:hidden"
+            className="lg:hidden"
             onClick={() => setIsMenuOpen(!isMenuOpen)}
           >
             {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
@@ -126,7 +179,7 @@ const Header: React.FC = () => {
 
       {/* Mobile Menu */}
       {isMenuOpen && (
-        <div className="animate-fade-in border-t border-border bg-background p-4 md:hidden">
+        <div className="animate-fade-in border-t border-border bg-background p-4 lg:hidden">
           <form onSubmit={handleSearch} className="mb-4">
             <div className="relative">
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -140,44 +193,49 @@ const Header: React.FC = () => {
             </div>
           </form>
           <nav className="flex flex-col gap-2">
-            <Link 
-              to="/browse" 
-              onClick={() => setIsMenuOpen(false)}
-              className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-            >
-              Keşfet
-            </Link>
-            <Link 
-              to="/browse?type=manhwa" 
-              onClick={() => setIsMenuOpen(false)}
-              className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-            >
-              Manhwa
-            </Link>
-            <Link 
-              to="/browse?type=manga" 
-              onClick={() => setIsMenuOpen(false)}
-              className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-            >
-              Manga
-            </Link>
+            {navLinks.map((link) => (
+              <Link
+                key={link.path}
+                to={link.path}
+                onClick={() => setIsMenuOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+              >
+                {link.label}
+              </Link>
+            ))}
             {user && (
               <>
-                <Link 
-                  to="/favorites" 
+                <Link
+                  to="/library"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+                >
+                  Kütüphanem
+                </Link>
+                <Link
+                  to="/favorites"
                   onClick={() => setIsMenuOpen(false)}
                   className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
                 >
                   Favorilerim
                 </Link>
-                <Link 
-                  to="/history" 
+                <Link
+                  to="/history"
                   onClick={() => setIsMenuOpen(false)}
                   className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
                 >
                   Okuma Geçmişi
                 </Link>
               </>
+            )}
+            {adminSession && (
+              <Link
+                to="/admin"
+                onClick={() => setIsMenuOpen(false)}
+                className="rounded-lg px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-secondary"
+              >
+                Admin Paneli
+              </Link>
             )}
           </nav>
         </div>

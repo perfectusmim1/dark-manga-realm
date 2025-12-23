@@ -1,8 +1,9 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { getMangaById, getChapterById } from '@/lib/mockData';
-import { 
-  getReaderSettings, 
+import { getMangaById } from '@/lib/database';
+import { getChapterById } from '@/lib/mockData';
+import {
+  getReaderSettings,
   setReaderSettings,
   updateReadingProgress,
   addBookmark
@@ -18,10 +19,10 @@ const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
-  
+
   const manga = getMangaById(mangaId || '');
   const chapter = getChapterById(mangaId || '', chapterId || '');
-  
+
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
   const [currentPage, setCurrentPage] = useState(1);
   const [controlsVisible, setControlsVisible] = useState(true);
@@ -34,10 +35,11 @@ const Reader: React.FC = () => {
     }
 
     // Save reading progress
-    if (mangaId && chapterId) {
+    if (mangaId && chapterId && chapter) {
       updateReadingProgress({
         mangaId,
         chapterId,
+        chapterNumber: chapter.number,
         page: currentPage,
       });
     }
@@ -80,7 +82,7 @@ const Reader: React.FC = () => {
   // Hide controls after inactivity
   useEffect(() => {
     let timeout: NodeJS.Timeout;
-    
+
     const handleMouseMove = () => {
       setControlsVisible(true);
       clearTimeout(timeout);
@@ -106,7 +108,7 @@ const Reader: React.FC = () => {
   }
 
   return (
-    <div 
+    <div
       className="min-h-screen bg-background"
       onClick={handleTap}
     >
@@ -123,7 +125,7 @@ const Reader: React.FC = () => {
         visible={controlsVisible}
       />
 
-      {settings.mode === 'vertical' ? (
+      {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
         <VerticalReader
           pages={chapter.pages}
           settings={settings}

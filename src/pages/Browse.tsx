@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Filter, X } from 'lucide-react';
 import Header from '@/components/layout/Header';
@@ -6,7 +6,9 @@ import MangaGrid from '@/components/manga/MangaGrid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { mockMangaList, allGenres } from '@/lib/mockData';
+import { allGenres } from '@/lib/mockData';
+import { getAllMangas } from '@/lib/database';
+import { Manga } from '@/lib/types';
 import {
   Select,
   SelectContent,
@@ -23,9 +25,14 @@ const Browse: React.FC = () => {
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'popular');
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || 'all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [mangas, setMangas] = useState<Manga[]>([]);
+
+  useEffect(() => {
+    setMangas(getAllMangas());
+  }, []);
 
   const filteredManga = useMemo(() => {
-    let result = [...mockMangaList];
+    let result = [...mangas];
 
     // Search filter
     if (searchQuery) {
@@ -73,7 +80,7 @@ const Browse: React.FC = () => {
     }
 
     return result;
-  }, [searchQuery, typeFilter, statusFilter, selectedGenres, sortBy]);
+  }, [searchQuery, typeFilter, statusFilter, selectedGenres, sortBy, mangas]);
 
   const toggleGenre = (genre: string) => {
     setSelectedGenres(prev =>
@@ -97,7 +104,7 @@ const Browse: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="container pb-12 pt-20">
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
           <h1 className="text-3xl font-bold tracking-tight">Keşfet</h1>
@@ -191,8 +198,8 @@ const Browse: React.FC = () => {
         </p>
 
         {/* Manga Grid */}
-        <MangaGrid 
-          manga={filteredManga} 
+        <MangaGrid
+          manga={filteredManga}
           emptyMessage="Arama kriterlerinize uygun manga bulunamadı"
         />
       </main>

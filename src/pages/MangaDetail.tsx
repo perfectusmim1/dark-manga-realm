@@ -1,40 +1,61 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { 
-  Heart, 
-  Star, 
-  Eye, 
-  BookOpen, 
-  Calendar, 
+import {
+  Heart,
+  Star,
+  Eye,
+  BookOpen,
+  Calendar,
   Play,
   Share2,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  Library,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import CommentSection from '@/components/comments/CommentSection';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getMangaById } from '@/lib/mockData';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import { getMangaById } from '@/lib/database';
 import { useAuth } from '@/contexts/AuthContext';
-import { 
-  addFavorite, 
-  removeFavorite, 
+import {
+  addFavorite,
+  removeFavorite,
   isFavorite,
-  getLatestProgress 
+  getLatestProgress,
+  getFavoriteCategory,
+  updateFavoriteCategory,
 } from '@/lib/storage';
+import { LibraryCategory } from '@/lib/types';
 import { toast } from 'sonner';
+
+const categoryLabels: Record<LibraryCategory, string> = {
+  reading: 'Okuyorum',
+  plan_to_read: 'Okuyacağım',
+  completed: 'Tamamladım',
+  on_hold: 'Beklemede',
+  dropped: 'Bıraktım',
+};
 
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
   const manga = getMangaById(mangaId || '');
   const { user } = useAuth();
   const [favorite, setFavorite] = useState(false);
+  const [category, setCategory] = useState<LibraryCategory | undefined>();
   const [showAllChapters, setShowAllChapters] = useState(false);
   const latestProgress = mangaId ? getLatestProgress(mangaId) : undefined;
 
   useEffect(() => {
     if (mangaId) {
       setFavorite(isFavorite(mangaId));
+      setCategory(getFavoriteCategory(mangaId));
     }
   }, [mangaId]);
 
@@ -64,12 +85,30 @@ const MangaDetail: React.FC = () => {
     if (favorite) {
       removeFavorite(manga.id);
       setFavorite(false);
+      setCategory(undefined);
       toast.success('Favorilerden kaldırıldı');
     } else {
-      addFavorite(manga.id);
+      addFavorite(manga.id, 'reading');
       setFavorite(true);
+      setCategory('reading');
       toast.success('Favorilere eklendi');
     }
+  };
+
+  const handleCategoryChange = (newCategory: LibraryCategory) => {
+    if (!user) {
+      toast.error('Giriş yapmalısınız');
+      return;
+    }
+
+    if (!favorite) {
+      addFavorite(manga.id, newCategory);
+      setFavorite(true);
+    } else {
+      updateFavoriteCategory(manga.id, newCategory);
+    }
+    setCategory(newCategory);
+    toast.success(`Kategori: ${categoryLabels[newCategory]}`);
   };
 
   const formatDate = (dateString: string) => {
@@ -86,18 +125,18 @@ const MangaDetail: React.FC = () => {
     return views.toString();
   };
 
-  const displayedChapters = showAllChapters 
+  const displayedChapters = showAllChapters
     ? manga.chapters.slice().reverse()
     : manga.chapters.slice().reverse().slice(0, 20);
 
-  const continueChapter = latestProgress 
+  const continueChapter = latestProgress
     ? manga.chapters.find(ch => ch.id === latestProgress.chapterId)
     : null;
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="pt-16">
         {/* Hero Section */}
         <div className="relative">
@@ -135,7 +174,7 @@ const MangaDetail: React.FC = () => {
                 </div>
 
                 <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{manga.title}</h1>
-                
+
                 <p className="text-muted-foreground">
                   {manga.author} {manga.artist && `• ${manga.artist}`}
                 </p>
@@ -181,8 +220,9 @@ const MangaDetail: React.FC = () => {
                       </Link>
                     </Button>
                   )}
-                  <Button 
-                    variant={favorite ? 'default' : 'outline'} 
+
+                  <Button
+                    variant={favorite ? 'default' : 'outline'}
                     size="lg"
                     onClick={toggleFavorite}
                     className={favorite ? 'bg-destructive hover:bg-destructive/90' : ''}
@@ -190,6 +230,29 @@ const MangaDetail: React.FC = () => {
                     <Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} />
                     {favorite ? 'Favorilerde' : 'Favorilere Ekle'}
                   </Button>
+
+                  {favorite && (
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="outline" size="lg">
+                          <Library className="h-4 w-4" />
+                          {category ? categoryLabels[category] : 'Kategori'}
+                          <ChevronDown className="ml-1 h-4 w-4" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent>
+                        {(Object.entries(categoryLabels) as [LibraryCategory, string][]).map(([key, label]) => (
+                          <DropdownMenuItem
+                            key={key}
+                            onClick={() => handleCategoryChange(key)}
+                            className={category === key ? 'bg-secondary' : ''}
+                          >
+                            {label}
+                          </DropdownMenuItem>
+                        ))}
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  )}
                 </div>
               </div>
             </div>
@@ -203,7 +266,7 @@ const MangaDetail: React.FC = () => {
               <h2 className="text-xl font-bold">Bölümler</h2>
               <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
             </div>
-            
+
             <div className="divide-y divide-border">
               {displayedChapters.map((chapter) => (
                 <Link
@@ -254,6 +317,13 @@ const MangaDetail: React.FC = () => {
                 </Button>
               </div>
             )}
+          </div>
+        </div>
+
+        {/* Comments Section */}
+        <div className="container pb-12">
+          <div className="rounded-xl border border-border bg-card/50 p-6 animate-fade-up opacity-0" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
+            <CommentSection mangaId={manga.id} />
           </div>
         </div>
       </main>
