@@ -15,7 +15,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAdminSession } from '@/lib/storage';
+import { getAdminSession } from '../../lib/storage';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -44,9 +44,6 @@ const Header: React.FC = () => {
 
   const navLinks = [
     { path: '/browse', label: 'Keşfet' },
-    { path: '/browse?type=manhwa', label: 'Manhwa' },
-    { path: '/browse?type=manga', label: 'Manga' },
-    { path: '/browse?type=manhua', label: 'Manhua' },
   ];
 
   return (
@@ -69,8 +66,8 @@ const Header: React.FC = () => {
               key={link.path}
               to={link.path}
               className={`text-sm font-medium transition-colors ${location.pathname + location.search === link.path
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
+                ? 'text-primary'
+                : 'text-muted-foreground hover:text-foreground'
                 }`}
             >
               {link.label}

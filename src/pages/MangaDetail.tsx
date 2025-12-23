@@ -7,7 +7,6 @@ import {
   BookOpen,
   Calendar,
   Play,
-  Share2,
   ChevronDown,
   ChevronUp,
   Library,
@@ -22,7 +21,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { getMangaById } from '@/lib/database';
+import { getMangaById, getAverageRating, rateManga, getUserRating, incrementMangaViews } from '@/lib/database';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   addFavorite,
@@ -31,8 +30,8 @@ import {
   getLatestProgress,
   getFavoriteCategory,
   updateFavoriteCategory,
-} from '@/lib/storage';
-import { LibraryCategory } from '@/lib/types';
+} from '../lib/storage';
+import { LibraryCategory, Manga } from '@/lib/types';
 import { toast } from 'sonner';
 
 const categoryLabels: Record<LibraryCategory, string> = {
@@ -45,19 +44,30 @@ const categoryLabels: Record<LibraryCategory, string> = {
 
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
-  const manga = getMangaById(mangaId || '');
+  const [manga, setManga] = useState<Manga | undefined>();
   const { user } = useAuth();
   const [favorite, setFavorite] = useState(false);
   const [category, setCategory] = useState<LibraryCategory | undefined>();
   const [showAllChapters, setShowAllChapters] = useState(false);
+  const [userRating, setUserRating] = useState<number | undefined>();
+  const [averageRating, setAverageRating] = useState({ average: 0, count: 0 });
+  const [hoverRating, setHoverRating] = useState(0);
   const latestProgress = mangaId ? getLatestProgress(mangaId) : undefined;
 
   useEffect(() => {
     if (mangaId) {
+      const m = getMangaById(mangaId);
+      setManga(m);
       setFavorite(isFavorite(mangaId));
       setCategory(getFavoriteCategory(mangaId));
+
+      // Get rating info
+      setAverageRating(getAverageRating(mangaId));
+      if (user) {
+        setUserRating(getUserRating(mangaId, user.id));
+      }
     }
-  }, [mangaId]);
+  }, [mangaId, user]);
 
   if (!manga) {
     return (
@@ -109,6 +119,18 @@ const MangaDetail: React.FC = () => {
     }
     setCategory(newCategory);
     toast.success(`Kategori: ${categoryLabels[newCategory]}`);
+  };
+
+  const handleRating = (rating: number) => {
+    if (!user) {
+      toast.error('Puan vermek için giriş yapmalısınız');
+      return;
+    }
+
+    rateManga(manga.id, user.id, rating);
+    setUserRating(rating);
+    setAverageRating(getAverageRating(manga.id));
+    toast.success(`${rating}/10 puan verildi!`);
   };
 
   const formatDate = (dateString: string) => {
@@ -180,13 +202,16 @@ const MangaDetail: React.FC = () => {
                 </p>
 
                 <div className="flex flex-wrap items-center gap-4 text-sm">
-                  <div className="flex items-center gap-1 text-primary">
-                    <Star className="h-4 w-4 fill-primary" />
-                    <span className="font-semibold">{manga.rating}</span>
-                  </div>
+                  {averageRating.count > 0 && (
+                    <div className="flex items-center gap-1 text-primary">
+                      <Star className="h-4 w-4 fill-primary" />
+                      <span className="font-semibold">{averageRating.average}/10</span>
+                      <span className="text-muted-foreground">({averageRating.count})</span>
+                    </div>
+                  )}
                   <div className="flex items-center gap-1 text-muted-foreground">
                     <Eye className="h-4 w-4" />
-                    <span>{formatViews(manga.views)} görüntülenme</span>
+                    <span>{formatViews(manga.views || 0)} görüntülenme</span>
                   </div>
                   <div className="flex items-center gap-1 text-muted-foreground">
                     <BookOpen className="h-4 w-4" />
@@ -207,19 +232,19 @@ const MangaDetail: React.FC = () => {
                 <div className="flex flex-wrap gap-3 pt-4">
                   {continueChapter ? (
                     <Button asChild variant="glow" size="lg">
-                      <Link to={`/manga/${manga.id}/chapter/${continueChapter.id}`}>
+                      <Link to={`/manga/${manga.id}/chapter/${continueChapter.id}?page=${latestProgress?.page || 1}`}>
                         <Play className="h-4 w-4" />
-                        Devam Et (Bölüm {continueChapter.number})
+                        Devam Et (Bölüm {continueChapter.number}, Sayfa {latestProgress?.page || 1})
                       </Link>
                     </Button>
-                  ) : (
+                  ) : manga.chapters.length > 0 ? (
                     <Button asChild variant="glow" size="lg">
                       <Link to={`/manga/${manga.id}/chapter/${manga.chapters[0]?.id}`}>
                         <Play className="h-4 w-4" />
                         Okumaya Başla
                       </Link>
                     </Button>
-                  )}
+                  ) : null}
 
                   <Button
                     variant={favorite ? 'default' : 'outline'}
@@ -259,6 +284,45 @@ const MangaDetail: React.FC = () => {
           </div>
         </div>
 
+        {/* Rating Section */}
+        <div className="container py-6">
+          <div className="rounded-xl border border-border bg-card/50 p-6 animate-fade-up opacity-0" style={{ animationDelay: '0.25s', animationFillMode: 'forwards' }}>
+            <h2 className="text-lg font-semibold mb-4">Puan Ver</h2>
+            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
+              <div className="flex gap-1">
+                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
+                  <button
+                    key={star}
+                    onClick={() => handleRating(star)}
+                    onMouseEnter={() => setHoverRating(star)}
+                    onMouseLeave={() => setHoverRating(0)}
+                    className="p-1 transition-transform hover:scale-110"
+                  >
+                    <Star
+                      className={`h-6 w-6 transition-colors ${star <= (hoverRating || userRating || 0)
+                        ? 'fill-yellow-400 text-yellow-400'
+                        : 'text-muted-foreground'
+                        }`}
+                    />
+                  </button>
+                ))}
+              </div>
+              <div className="text-sm text-muted-foreground">
+                {userRating ? (
+                  <span>Puanınız: <strong className="text-foreground">{userRating}/10</strong></span>
+                ) : (
+                  <span>Henüz puan vermediniz</span>
+                )}
+                {averageRating.count > 0 && (
+                  <span className="ml-4">
+                    Ortalama: <strong className="text-foreground">{averageRating.average}/10</strong> ({averageRating.count} oy)
+                  </span>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+
         {/* Chapters List */}
         <div className="container py-8">
           <div className="rounded-xl border border-border bg-card/50 animate-fade-up opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
@@ -267,54 +331,62 @@ const MangaDetail: React.FC = () => {
               <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
             </div>
 
-            <div className="divide-y divide-border">
-              {displayedChapters.map((chapter) => (
-                <Link
-                  key={chapter.id}
-                  to={`/manga/${manga.id}/chapter/${chapter.id}`}
-                  className="flex items-center justify-between p-4 transition-colors hover:bg-secondary/50"
-                >
-                  <div>
-                    <h3 className="font-medium">
-                      Bölüm {chapter.number}: {chapter.title}
-                    </h3>
-                    <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                      <span className="flex items-center gap-1">
-                        <Calendar className="h-3 w-3" />
-                        {formatDate(chapter.releaseDate)}
-                      </span>
-                      <span className="flex items-center gap-1">
-                        <Eye className="h-3 w-3" />
-                        {formatViews(chapter.views)}
-                      </span>
-                    </div>
-                  </div>
-                  <Badge variant="outline" className="text-xs">
-                    {chapter.pages.length} sayfa
-                  </Badge>
-                </Link>
-              ))}
-            </div>
+            {manga.chapters.length > 0 ? (
+              <>
+                <div className="divide-y divide-border">
+                  {displayedChapters.map((chapter) => (
+                    <Link
+                      key={chapter.id}
+                      to={`/manga/${manga.id}/chapter/${chapter.id}`}
+                      className="flex items-center justify-between p-4 transition-colors hover:bg-secondary/50"
+                    >
+                      <div>
+                        <h3 className="font-medium">
+                          Bölüm {chapter.number}: {chapter.title}
+                        </h3>
+                        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+                          <span className="flex items-center gap-1">
+                            <Calendar className="h-3 w-3" />
+                            {formatDate(chapter.releaseDate)}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Eye className="h-3 w-3" />
+                            {formatViews(chapter.views || 0)}
+                          </span>
+                        </div>
+                      </div>
+                      <Badge variant="outline" className="text-xs">
+                        {chapter.pages.length} sayfa
+                      </Badge>
+                    </Link>
+                  ))}
+                </div>
 
-            {manga.chapters.length > 20 && (
-              <div className="border-t border-border p-4">
-                <Button
-                  variant="ghost"
-                  className="w-full"
-                  onClick={() => setShowAllChapters(!showAllChapters)}
-                >
-                  {showAllChapters ? (
-                    <>
-                      <ChevronUp className="mr-2 h-4 w-4" />
-                      Daha Az Göster
-                    </>
-                  ) : (
-                    <>
-                      <ChevronDown className="mr-2 h-4 w-4" />
-                      Tüm Bölümleri Göster ({manga.chapters.length - 20} daha)
-                    </>
-                  )}
-                </Button>
+                {manga.chapters.length > 20 && (
+                  <div className="border-t border-border p-4">
+                    <Button
+                      variant="ghost"
+                      className="w-full"
+                      onClick={() => setShowAllChapters(!showAllChapters)}
+                    >
+                      {showAllChapters ? (
+                        <>
+                          <ChevronUp className="mr-2 h-4 w-4" />
+                          Daha Az Göster
+                        </>
+                      ) : (
+                        <>
+                          <ChevronDown className="mr-2 h-4 w-4" />
+                          Tüm Bölümleri Göster ({manga.chapters.length - 20} daha)
+                        </>
+                      )}
+                    </Button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="p-8 text-center text-muted-foreground">
+                Henüz bölüm eklenmemiş
               </div>
             )}
           </div>

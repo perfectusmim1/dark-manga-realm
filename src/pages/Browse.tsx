@@ -64,7 +64,15 @@ const Browse: React.FC = () => {
     // Sort
     switch (sortBy) {
       case 'rating':
-        result.sort((a, b) => b.rating - a.rating);
+        result.sort((a, b) => {
+          const ratingA = a.ratings && a.ratings.length > 0
+            ? a.ratings.reduce((sum, r) => sum + r.rating, 0) / a.ratings.length
+            : 0;
+          const ratingB = b.ratings && b.ratings.length > 0
+            ? b.ratings.reduce((sum, r) => sum + r.rating, 0) / b.ratings.length
+            : 0;
+          return ratingB - ratingA;
+        });
         break;
       case 'updated':
         result.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());

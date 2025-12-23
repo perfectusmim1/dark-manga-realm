@@ -4,7 +4,7 @@ import { Lock, Mail, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authenticateAdmin } from '@/lib/database';
-import { setAdminSession } from '@/lib/storage';
+import { setAdminSession } from '../../lib/storage';
 import { toast } from 'sonner';
 
 const AdminLogin: React.FC = () => {

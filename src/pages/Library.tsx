@@ -27,7 +27,7 @@ import {
     updateFavoriteCategory,
     removeFavorite,
     getLatestProgress
-} from '@/lib/storage';
+} from '../lib/storage';
 import { getMangaById } from '@/lib/database';
 import { Manga, LibraryCategory, Favorite, ReadingProgress } from '@/lib/types';
 import { toast } from 'sonner';

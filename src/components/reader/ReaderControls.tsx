@@ -1,9 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { 
-  ChevronLeft, 
-  ChevronRight, 
-  Settings, 
+import {
+  ChevronLeft,
+  ChevronRight,
+  Settings,
   BookmarkPlus,
   Rows,
   Columns,
@@ -20,6 +20,7 @@ import {
 } from '@/components/ui/popover';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import { Slider } from '@/components/ui/slider';
 
 interface ReaderControlsProps {
   mangaId: string;
@@ -32,6 +33,7 @@ interface ReaderControlsProps {
   currentPage: number;
   totalPages: number;
   visible: boolean;
+  onPageChange?: (page: number) => void;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -45,6 +47,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   currentPage,
   totalPages,
   visible,
+  onPageChange,
 }) => {
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
@@ -53,10 +56,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   return (
     <>
       {/* Top Bar */}
-      <div 
-        className={`fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${
-          visible ? 'translate-y-0' : '-translate-y-full'
-        }`}
+      <div
+        className={`fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : '-translate-y-full'
+          }`}
       >
         <div className="container flex h-14 items-center justify-between gap-4">
           <div className="flex items-center gap-2">
@@ -91,9 +93,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     <Link
                       key={ch.id}
                       to={`/manga/${mangaId}/chapter/${ch.id}`}
-                      className={`rounded-lg px-3 py-2 text-sm transition-colors hover:bg-secondary ${
-                        ch.id === currentChapter.id ? 'bg-primary text-primary-foreground' : ''
-                      }`}
+                      className={`rounded-lg px-3 py-2 text-sm transition-colors hover:bg-secondary ${ch.id === currentChapter.id ? 'bg-primary text-primary-foreground' : ''
+                        }`}
                     >
                       Bölüm {ch.number}
                     </Link>
@@ -130,6 +131,26 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       </Button>
                     </div>
                   </div>
+                  <div className="flex flex-col gap-2">
+                    <div className="flex items-center justify-between">
+                      <Label>Zoom (%{settings.zoom || 100})</Label>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-6 px-2 text-[10px]"
+                        onClick={() => onSettingsChange({ ...settings, zoom: 100 })}
+                      >
+                        Sıfırla
+                      </Button>
+                    </div>
+                    <Slider
+                      value={[settings.zoom || 100]}
+                      min={10}
+                      max={300}
+                      step={5}
+                      onValueChange={([val]) => onSettingsChange({ ...settings, zoom: val })}
+                    />
+                  </div>
                   <div className="flex items-center justify-between">
                     <Label>Genişliğe Sığdır</Label>
                     <Switch
@@ -152,10 +173,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
       </div>
 
       {/* Bottom Bar */}
-      <div 
-        className={`fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${
-          visible ? 'translate-y-0' : 'translate-y-full'
-        }`}
+      <div
+        className={`fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : 'translate-y-full'
+          }`}
       >
         <div className="container flex h-14 items-center justify-between gap-4">
           <Button
@@ -177,15 +197,54 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           </Button>
 
           {settings.showProgress && (
-            <div className="flex items-center gap-2">
-              <span className="text-sm text-muted-foreground">
+            <div className="flex flex-1 items-center justify-center gap-4 px-4 overflow-hidden">
+              <span className="text-sm font-medium tabular-nums min-w-[3rem] text-center">
                 {currentPage} / {totalPages}
               </span>
-              <div className="h-1 w-24 overflow-hidden rounded-full bg-secondary md:w-48">
-                <div 
-                  className="reading-progress-bar h-full transition-all duration-200"
+              <div className="relative h-2 flex-1 max-w-[600px] group">
+                {/* Progress Background */}
+                <div className="absolute inset-0 rounded-full bg-secondary/30" />
+
+                {/* Active Progress Fill */}
+                <div
+                  className="absolute inset-y-0 left-0 reading-progress-bar rounded-full transition-all duration-300 pointer-events-none"
                   style={{ width: `${(currentPage / totalPages) * 100}%` }}
                 />
+
+                {/* Interactive Dots Container */}
+                <div className="absolute inset-x-0 h-full flex items-center justify-between px-[1px]">
+                  {Array.from({ length: totalPages }).map((_, i) => {
+                    const pageNum = i + 1;
+                    const isActive = pageNum <= currentPage;
+                    const isCurrent = pageNum === currentPage;
+
+                    return (
+                      <button
+                        key={pageNum}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onPageChange?.(pageNum);
+                        }}
+                        className={`group/dot relative z-10 flex h-4 w-4 transform items-center justify-center transition-all hover:scale-150 ${isCurrent ? 'scale-125' : 'scale-100'
+                          }`}
+                        title={`Sayfa ${pageNum}`}
+                      >
+                        <div
+                          className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${isCurrent
+                              ? 'h-2 w-2 bg-primary shadow-[0_0_8px_rgba(var(--primary),0.6)]'
+                              : isActive
+                                ? 'bg-primary/80 group-hover/dot:bg-primary'
+                                : 'bg-muted-foreground/40 group-hover/dot:bg-muted-foreground'
+                            }`}
+                        />
+                        {/* Tooltip on hover */}
+                        <div className="absolute -top-8 hidden rounded bg-popover px-2 py-0.5 text-[10px] text-popover-foreground shadow-md group-hover/dot:block">
+                          {pageNum}
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             </div>
           )}

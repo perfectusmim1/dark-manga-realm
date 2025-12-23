@@ -48,7 +48,7 @@ const AdminMangaEditor: React.FC = () => {
         type: 'manga',
         genres: [],
         description: '',
-        rating: 0,
+        ratings: [],
         views: 0,
         chapters: [],
         releaseYear: new Date().getFullYear(),
@@ -201,7 +201,7 @@ const AdminMangaEditor: React.FC = () => {
             type: manga.type as 'manga' | 'manhwa' | 'manhua',
             genres: manga.genres || [],
             description: manga.description || '',
-            rating: manga.rating || 0,
+            ratings: manga.ratings || [],
             views: manga.views || 0,
             chapters: manga.chapters || [],
             lastUpdated: new Date().toISOString(),
@@ -445,27 +445,17 @@ const AdminMangaEditor: React.FC = () => {
 
                     <div className="rounded-xl border border-border bg-card p-6 space-y-4">
                         <h2 className="text-lg font-semibold">İstatistikler</h2>
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <div className="space-y-1">
-                                <label className="text-sm text-muted-foreground">Rating</label>
-                                <Input
-                                    type="number"
-                                    value={manga.rating}
-                                    onChange={(e) => handleChange('rating', parseFloat(e.target.value))}
-                                    min={0}
-                                    max={5}
-                                    step={0.1}
-                                />
+                        <p className="text-sm text-muted-foreground">
+                            Görüntülenme ve puanlama otomatik olarak hesaplanır.
+                        </p>
+                        <div className="grid grid-cols-2 gap-4 text-center">
+                            <div className="rounded-lg bg-secondary p-3">
+                                <p className="text-2xl font-bold">{manga.views || 0}</p>
+                                <p className="text-xs text-muted-foreground">Görüntülenme</p>
                             </div>
-                            <div className="space-y-1">
-                                <label className="text-sm text-muted-foreground">Görüntülenme</label>
-                                <Input
-                                    type="number"
-                                    value={manga.views}
-                                    onChange={(e) => handleChange('views', parseInt(e.target.value))}
-                                    min={0}
-                                />
+                            <div className="rounded-lg bg-secondary p-3">
+                                <p className="text-2xl font-bold">{manga.ratings?.length || 0}</p>
+                                <p className="text-xs text-muted-foreground">Değerlendirme</p>
                             </div>
                         </div>
                     </div>

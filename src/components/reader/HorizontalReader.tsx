@@ -10,11 +10,11 @@ interface HorizontalReaderProps {
   onPageChange: (page: number) => void;
 }
 
-const HorizontalReader: React.FC<HorizontalReaderProps> = ({ 
-  pages, 
+const HorizontalReader: React.FC<HorizontalReaderProps> = ({
+  pages,
   settings,
   currentPage,
-  onPageChange 
+  onPageChange
 }) => {
   const goToPrevPage = useCallback(() => {
     if (currentPage > 1) {
@@ -58,7 +58,12 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
         <img
           src={pages[currentPage - 1]}
           alt={`Sayfa ${currentPage}`}
-          className={`max-h-full select-none object-contain ${settings.fitWidth ? 'w-full max-w-4xl' : 'h-full'}`}
+          className={`max-h-full select-none object-contain transition-transform duration-200`}
+          style={{
+            transform: `scale(${settings.zoom / 100})`,
+            width: settings.fitWidth ? '100%' : 'auto',
+            maxWidth: settings.fitWidth ? '896px' : 'none'
+          }}
           draggable={false}
         />
       </div>

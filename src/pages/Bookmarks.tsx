@@ -5,7 +5,7 @@ import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { getBookmarks, removeBookmark } from '@/lib/storage';
+import { getBookmarks, removeBookmark } from '../lib/storage';
 import { getMangaById, getChapterById } from '@/lib/mockData';
 import { toast } from 'sonner';
 
@@ -52,7 +52,7 @@ const Bookmarks: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="container pb-12 pt-20">
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
           <h1 className="text-3xl font-bold tracking-tight">Yer İmleri</h1>
@@ -66,7 +66,7 @@ const Bookmarks: React.FC = () => {
             {bookmarks.map((bookmark, index) => {
               const manga = getMangaById(bookmark.mangaId);
               const chapter = getChapterById(bookmark.mangaId, bookmark.chapterId);
-              
+
               if (!manga || !chapter) return null;
 
               return (
@@ -82,7 +82,7 @@ const Bookmarks: React.FC = () => {
                       className="h-24 w-16 rounded-lg object-cover"
                     />
                   </Link>
-                  
+
                   <div className="flex flex-1 flex-col justify-between">
                     <div>
                       <Link to={`/manga/${manga.id}`}>
@@ -97,19 +97,19 @@ const Bookmarks: React.FC = () => {
                         </p>
                       )}
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <Badge variant="outline" className="text-xs">
                         {formatDate(bookmark.createdAt)}
                       </Badge>
                       <div className="flex gap-2">
                         <Button asChild size="sm">
-                          <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
-                            Git
+                          <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${bookmark.page}`}>
+                            Sayfa {bookmark.page}'e Git
                           </Link>
                         </Button>
-                        <Button 
-                          variant="ghost" 
+                        <Button
+                          variant="ghost"
                           size="icon"
                           onClick={() => handleRemoveBookmark(bookmark.id)}
                           className="text-destructive hover:bg-destructive/10"

@@ -1,26 +1,39 @@
 import React from 'react';
-import { Settings, Database, Shield } from 'lucide-react';
+import { Settings, Database, Shield, Trash2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
 import { initializeMockData } from '@/lib/mockData';
 import { getAllMangas } from '@/lib/database';
 
 const AdminSettings: React.FC = () => {
-    const handleResetData = () => {
-        localStorage.clear();
-        initializeMockData();
-        toast.success('Veriler sıfırlandı ve mock data yüklendi');
-        window.location.reload();
+    const handleResetDatabase = () => {
+        if (confirm('Tüm manga verilerini, yorumları ve görüntülenmeleri silmek istediğinize emin misiniz? (Admin kullanıcıları silinmez)')) {
+            const adminUsers = localStorage.getItem('db_admin_users');
+            const adminSession = localStorage.getItem('manga_admin_session');
+
+            localStorage.clear();
+
+            // Restore admin data
+            if (adminUsers) localStorage.setItem('db_admin_users', adminUsers);
+            if (adminSession) localStorage.setItem('manga_admin_session', adminSession);
+
+            initializeMockData();
+            toast.success('Veritabanı temizlendi');
+            window.location.reload();
+        }
     };
 
-    const handleLoadMockData = () => {
-        const currentMangas = getAllMangas();
-        if (currentMangas.length > 0) {
-            toast.error('Zaten manga mevcut. Önce verileri sıfırlayın.');
-            return;
+    const handleClearUserSpecificData = () => {
+        if (confirm('Tüm kullanıcıların okuma geçmişini, yer imlerini ve favorilerini silmek istediğinize emin misiniz?')) {
+            const keysToRemove = [
+                'manga_favorites',
+                'manga_reading_progress',
+                'manga_bookmarks',
+                'manga_notifications'
+            ];
+            keysToRemove.forEach(key => localStorage.removeItem(key));
+            toast.success('Kullanıcı verileri temizlendi');
         }
-        initializeMockData();
-        toast.success('Mock data yüklendi');
     };
 
     return (
@@ -39,69 +52,45 @@ const AdminSettings: React.FC = () => {
                         </div>
                         <div>
                             <h2 className="text-lg font-semibold">Veritabanı</h2>
-                            <p className="text-sm text-muted-foreground">Veritabanı işlemleri</p>
+                            <p className="text-sm text-muted-foreground">Verisiz başlangıç ve temizlik</p>
                         </div>
                     </div>
 
                     <div className="space-y-4">
-                        <div className="flex items-center justify-between rounded-lg border border-border p-4">
+                        <div className="flex items-center justify-between rounded-lg border border-destructive/30 p-4">
                             <div>
-                                <p className="font-medium">Mock Data Yükle</p>
+                                <p className="font-medium text-destructive">Tüm Mangaları Sil</p>
                                 <p className="text-sm text-muted-foreground">
-                                    Örnek manga verileri yükler (veritabanı boşsa)
+                                    Veritabanındaki tüm mangaları, bölümleri ve yorumları temizler.
                                 </p>
                             </div>
-                            <Button variant="outline" onClick={handleLoadMockData}>
-                                Yükle
+                            <Button variant="destructive" onClick={handleResetDatabase}>
+                                <Trash2 className="mr-2 h-4 w-4" />
+                                Mangaları Temizle
                             </Button>
                         </div>
 
-                        <div className="flex items-center justify-between rounded-lg border border-destructive/50 p-4">
+                        <div className="flex items-center justify-between rounded-lg border border-orange-500/30 p-4">
                             <div>
-                                <p className="font-medium text-destructive">Tüm Verileri Sıfırla</p>
+                                <p className="font-medium text-orange-500">Kullanıcı Verilerini Temizle</p>
                                 <p className="text-sm text-muted-foreground">
-                                    Tüm verileri siler ve mock data yükler
+                                    Tüm kullanıcıların favorilerini, geçmişlerini ve yer imlerini siler.
                                 </p>
                             </div>
-                            <Button variant="destructive" onClick={handleResetData}>
-                                Sıfırla
+                            <Button variant="secondary" onClick={handleClearUserSpecificData}>
+                                <Trash2 className="mr-2 h-4 w-4 text-orange-500" />
+                                Kullanıcı Verilerini Sil
                             </Button>
                         </div>
                     </div>
                 </div>
 
-                {/* Site Settings */}
-                <div className="rounded-xl border border-border bg-card p-6">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-green-500/10">
-                            <Settings className="h-5 w-5 text-green-500" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-semibold">Site Ayarları</h2>
-                            <p className="text-sm text-muted-foreground">Genel site yapılandırması</p>
-                        </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border p-4 text-center text-muted-foreground">
-                        <p>Site ayarları yakında eklenecek</p>
-                    </div>
-                </div>
-
-                {/* Security Settings */}
-                <div className="rounded-xl border border-border bg-card p-6">
-                    <div className="flex items-center gap-3 mb-4">
-                        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-purple-500/10">
-                            <Shield className="h-5 w-5 text-purple-500" />
-                        </div>
-                        <div>
-                            <h2 className="text-lg font-semibold">Güvenlik</h2>
-                            <p className="text-sm text-muted-foreground">Güvenlik ayarları</p>
-                        </div>
-                    </div>
-
-                    <div className="rounded-lg border border-border p-4 text-center text-muted-foreground">
-                        <p>Güvenlik ayarları yakında eklenecek</p>
-                    </div>
+                {/* Info Card */}
+                <div className="rounded-xl border border-blue-500/20 bg-blue-500/5 p-6">
+                    <p className="text-sm text-blue-400">
+                        <strong>Not:</strong> Gerçek veri kullanmaya başladığınızda bu panelden sahte mangaları temizleyebilirsiniz.
+                        Şu anki sistemde tüm veriler tarayıcınızın LocalStorage'ında saklanmaktadır.
+                    </p>
                 </div>
             </div>
         </div>

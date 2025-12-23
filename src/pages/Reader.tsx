@@ -1,13 +1,14 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { useParams, useNavigate } from 'react-router-dom';
-import { getMangaById } from '@/lib/database';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import { useParams, useNavigate, useSearchParams } from 'react-router-dom';
+import { getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
 import { getChapterById } from '@/lib/mockData';
 import {
   getReaderSettings,
   setReaderSettings,
   updateReadingProgress,
-  addBookmark
-} from '@/lib/storage';
+  addBookmark,
+  getLatestProgress,
+} from '../lib/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import ReaderControls from '@/components/reader/ReaderControls';
@@ -17,25 +18,59 @@ import { ReaderSettings } from '@/lib/types';
 
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const viewTracked = useRef(false);
 
   const manga = getMangaById(mangaId || '');
   const chapter = getChapterById(mangaId || '', chapterId || '');
 
+  // Compute initial page synchronously from URL or saved progress
+  const getInitialPage = (): number => {
+    // First check URL param
+    const urlPage = searchParams.get('page');
+    if (urlPage && parseInt(urlPage) > 0) {
+      return parseInt(urlPage);
+    }
+    // Fall back to saved progress
+    if (mangaId) {
+      const progress = getLatestProgress(mangaId);
+      if (progress && progress.chapterId === chapterId && progress.page > 1) {
+        return progress.page;
+      }
+    }
+    return 1;
+  };
+
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(() => getInitialPage());
   const [controlsVisible, setControlsVisible] = useState(true);
   const [lastTap, setLastTap] = useState(0);
+  const [initialized, setInitialized] = useState(false);
 
+  // Initialize and track views
   useEffect(() => {
     if (!manga || !chapter) {
       navigate('/');
       return;
     }
 
-    // Save reading progress
-    if (mangaId && chapterId && chapter) {
+    if (!initialized && mangaId && chapterId) {
+      setInitialized(true);
+
+      // Track views only once per chapter visit
+      if (!viewTracked.current) {
+        incrementMangaViews(mangaId);
+        incrementChapterViews(mangaId, chapterId);
+        viewTracked.current = true;
+      }
+    }
+  }, [manga, chapter, navigate, mangaId, chapterId, initialized]);
+
+  // Save reading progress when page changes
+  useEffect(() => {
+    if (mangaId && chapterId && chapter && initialized) {
       updateReadingProgress({
         mangaId,
         chapterId,
@@ -43,7 +78,7 @@ const Reader: React.FC = () => {
         page: currentPage,
       });
     }
-  }, [manga, chapter, navigate, mangaId, chapterId, currentPage]);
+  }, [mangaId, chapterId, chapter, currentPage, initialized]);
 
   const handleSettingsChange = useCallback((newSettings: ReaderSettings) => {
     setSettings(newSettings);
@@ -60,15 +95,16 @@ const Reader: React.FC = () => {
       return;
     }
 
-    if (mangaId && chapterId) {
+    if (mangaId && chapterId && chapter) {
       addBookmark({
         mangaId,
         chapterId,
+        chapterNumber: chapter.number,
         page: currentPage,
       });
       toast.success(`Yer imi eklendi: Sayfa ${currentPage}`);
     }
-  }, [user, mangaId, chapterId, currentPage]);
+  }, [user, mangaId, chapterId, chapter, currentPage]);
 
   const handleTap = useCallback(() => {
     const now = Date.now();
@@ -123,6 +159,7 @@ const Reader: React.FC = () => {
         currentPage={currentPage}
         totalPages={chapter.pages.length}
         visible={controlsVisible}
+        onPageChange={handlePageChange}
       />
 
       {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
@@ -130,6 +167,7 @@ const Reader: React.FC = () => {
           pages={chapter.pages}
           settings={settings}
           onPageChange={handlePageChange}
+          initialPage={currentPage}
         />
       ) : (
         <HorizontalReader

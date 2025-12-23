@@ -59,7 +59,7 @@ const History: React.FC = () => {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      
+
       <main className="container pb-12 pt-20">
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
           <h1 className="text-3xl font-bold tracking-tight">Okuma Geçmişi</h1>
@@ -73,7 +73,7 @@ const History: React.FC = () => {
             {historyItems.map((item, index) => {
               const manga = getMangaById(item.mangaId);
               const chapter = getChapterById(item.mangaId, item.chapterId);
-              
+
               if (!manga || !chapter) return null;
 
               return (
@@ -89,7 +89,7 @@ const History: React.FC = () => {
                       className="h-24 w-16 rounded-lg object-cover"
                     />
                   </Link>
-                  
+
                   <div className="flex flex-1 flex-col justify-between">
                     <div>
                       <Link to={`/manga/${manga.id}`}>
@@ -99,13 +99,13 @@ const History: React.FC = () => {
                         Bölüm {chapter.number} • Sayfa {item.page}
                       </p>
                     </div>
-                    
+
                     <div className="flex items-center justify-between">
                       <Badge variant="outline" className="text-xs">
                         {formatDate(item.lastRead)}
                       </Badge>
                       <Button asChild size="sm">
-                        <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
+                        <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
                           <Play className="mr-1 h-3 w-3" />
                           Devam Et
                         </Link>

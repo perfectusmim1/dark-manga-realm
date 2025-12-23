@@ -9,13 +9,20 @@ export interface Manga {
   status: 'ongoing' | 'completed' | 'hiatus';
   genres: string[];
   description: string;
-  rating: number;
+  // Rating is now calculated from user votes
+  ratings: MangaRating[];
   views: number;
   chapters: Chapter[];
   lastUpdated: string;
   createdAt: string;
   type: 'manga' | 'manhwa' | 'manhua';
   releaseYear?: number;
+}
+
+export interface MangaRating {
+  userId: string;
+  rating: number; // 1-10
+  createdAt: string;
 }
 
 export interface Chapter {
@@ -37,6 +44,7 @@ export interface User {
 }
 
 export interface ReadingProgress {
+  userId: string; // User ID
   mangaId: string;
   chapterId: string;
   chapterNumber: number;
@@ -48,17 +56,20 @@ export interface ReadingProgress {
 
 export interface Bookmark {
   id: string;
+  userId: string; // User ID
   mangaId: string;
   chapterId: string;
+  chapterNumber: number;
   page: number;
   createdAt: string;
   note?: string;
 }
 
 export interface Favorite {
+  userId: string; // User ID
   mangaId: string;
   addedAt: string;
-  category?: 'reading' | 'plan_to_read' | 'completed' | 'on_hold' | 'dropped';
+  category?: LibraryCategory;
 }
 
 export type ReadingMode = 'vertical' | 'horizontal' | 'webtoon';
@@ -69,6 +80,7 @@ export interface ReaderSettings {
   showProgress: boolean;
   backgroundColor: 'dark' | 'light' | 'sepia';
   preloadPages: number;
+  zoom: number; // 10-300
 }
 
 // Library categories
@@ -82,6 +94,7 @@ export interface LibraryItem extends Favorite {
 // Notification types
 export interface Notification {
   id: string;
+  userId: string;
   type: 'new_chapter' | 'reply' | 'like' | 'system';
   title: string;
   message: string;
