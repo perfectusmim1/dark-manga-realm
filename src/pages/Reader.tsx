@@ -85,8 +85,38 @@ const Reader: React.FC = () => {
     setReaderSettings(newSettings);
   }, []);
 
+  const isScrollingRef = useRef(false);
+  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
   const handlePageChange = useCallback((page: number) => {
+    // If we are programmatically scrolling, ignore updates from the observer
+    if (isScrollingRef.current) return;
     setCurrentPage(page);
+  }, []);
+
+  // Scroll to a specific page (called when user clicks on progress bar)
+  const scrollToPage = useCallback((page: number, smooth = true) => {
+    const targetIndex = page - 1;
+    const targetElement = document.querySelector(`[data-page-index="${targetIndex}"]`);
+
+    if (targetElement) {
+      if (smooth) {
+        isScrollingRef.current = true;
+        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = setTimeout(() => {
+          isScrollingRef.current = false;
+        }, 800);
+      } else {
+        isScrollingRef.current = false;
+      }
+
+      const elementTop = (targetElement as HTMLElement).offsetTop;
+      window.scrollTo({
+        top: elementTop - 80,
+        behavior: smooth ? 'smooth' : 'auto'
+      });
+      setCurrentPage(page);
+    }
   }, []);
 
   const handleAddBookmark = useCallback(() => {
@@ -106,38 +136,32 @@ const Reader: React.FC = () => {
     }
   }, [user, mangaId, chapterId, chapter, currentPage]);
 
-  const handleTap = useCallback(() => {
-    const now = Date.now();
-    if (now - lastTap < 300) {
-      // Double tap - toggle controls
-      setControlsVisible(prev => !prev);
+  const toggleControls = useCallback(() => {
+    setControlsVisible(prev => !prev);
+  }, []);
+
+  const handleTap = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    // Only toggle if clicking the main container, not interactive elements
+    const target = e.target as HTMLElement;
+    if (target.closest('button') || target.closest('a') || target.closest('.popover-content')) {
+      return;
     }
-    setLastTap(now);
-  }, [lastTap]);
+    toggleControls();
+  }, [toggleControls]);
 
-  // Hide controls after inactivity
+  // Keyboard shortcut listener
   useEffect(() => {
-    let timeout: NodeJS.Timeout;
-
-    const handleMouseMove = () => {
-      setControlsVisible(true);
-      clearTimeout(timeout);
-      timeout = setTimeout(() => {
-        if (settings.mode === 'horizontal') {
-          setControlsVisible(false);
-        }
-      }, 3000);
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key.toLowerCase() === 'h') {
+        toggleControls();
+      }
     };
 
-    window.addEventListener('mousemove', handleMouseMove);
-    window.addEventListener('touchstart', handleMouseMove);
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [toggleControls]);
 
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('touchstart', handleMouseMove);
-      clearTimeout(timeout);
-    };
-  }, [settings.mode]);
+
 
   if (!manga || !chapter) {
     return null;
@@ -159,7 +183,7 @@ const Reader: React.FC = () => {
         currentPage={currentPage}
         totalPages={chapter.pages.length}
         visible={controlsVisible}
-        onPageChange={handlePageChange}
+        onPageChange={scrollToPage}
       />
 
       {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (

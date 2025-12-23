@@ -65,9 +65,7 @@ const Auth: React.FC = () => {
       <div className="relative z-10 w-full max-w-md animate-scale-in">
         {/* Logo */}
         <Link to="/" className="mb-8 flex justify-center">
-          <span className="bg-gradient-to-r from-primary to-[#2994FF] bg-clip-text text-3xl font-bold text-transparent">
-            MangaVerse
-          </span>
+          <img src="/logo.png" alt="Logo" className="h-20 w-auto object-contain" />
         </Link>
 
         {/* Card */}

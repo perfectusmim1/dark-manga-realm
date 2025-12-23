@@ -210,9 +210,7 @@ const Index: React.FC = () => {
           <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
             <div className="text-center md:text-left">
               <h3 className="text-lg font-bold">
-                <span className="bg-gradient-to-r from-primary to-[#2994FF] bg-clip-text text-transparent">
-                  MangaVerse
-                </span>
+                <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
               </h3>
               <p className="text-sm text-muted-foreground mt-1">
                 En iyi manga, manhwa ve manhua okuma deneyimi
@@ -227,7 +225,7 @@ const Index: React.FC = () => {
           </div>
           <div className="mt-6 pt-6 border-t border-border text-center">
             <p className="text-sm text-muted-foreground">
-              © {new Date().getFullYear()} MangaVerse. Tüm hakları saklıdır.
+              © {new Date().getFullYear()} ToonParrot. Tüm hakları saklıdır.
             </p>
           </div>
         </div>

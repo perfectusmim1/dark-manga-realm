@@ -30,26 +30,25 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
           loading="lazy"
         />
-        
+
         {/* Gradient Overlay */}
         <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
-        
+
         {/* Type Badge */}
-        <Badge 
-          variant="secondary" 
+        <Badge
+          variant="secondary"
           className="absolute left-2 top-2 bg-background/80 backdrop-blur-sm text-xs"
         >
           {manga.type.toUpperCase()}
         </Badge>
 
         {/* Status Badge */}
-        <Badge 
+        <Badge
           variant={manga.status === 'completed' ? 'default' : 'outline'}
-          className={`absolute right-2 top-2 text-xs ${
-            manga.status === 'completed' 
-              ? 'bg-primary/90 text-primary-foreground' 
+          className={`absolute right-2 top-2 text-xs ${manga.status === 'completed'
+              ? 'bg-primary/90 text-primary-foreground'
               : 'border-foreground/30 bg-background/80 backdrop-blur-sm'
-          }`}
+            }`}
         >
           {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara'}
         </Badge>
@@ -59,7 +58,9 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
           <div className="flex items-center gap-3 text-xs text-foreground/80">
             <span className="flex items-center gap-1">
               <Star className="h-3 w-3 fill-primary text-primary" />
-              {manga.rating}
+              {manga.ratings && manga.ratings.length > 0
+                ? (manga.ratings.reduce((acc, curr) => acc + curr.rating, 0) / manga.ratings.length).toFixed(1)
+                : '0.0'}
             </span>
             <span className="flex items-center gap-1">
               <Eye className="h-3 w-3" />
@@ -83,8 +84,8 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
         </p>
         <div className="mt-2 flex flex-wrap gap-1">
           {manga.genres.slice(0, 2).map((genre) => (
-            <span 
-              key={genre} 
+            <span
+              key={genre}
               className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground"
             >
               {genre}

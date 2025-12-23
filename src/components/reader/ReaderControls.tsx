@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useRef, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -33,7 +33,7 @@ interface ReaderControlsProps {
   currentPage: number;
   totalPages: number;
   visible: boolean;
-  onPageChange?: (page: number) => void;
+  onPageChange?: (page: number, smooth?: boolean) => void;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -52,6 +52,72 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
   const nextChapter = chapters[currentIndex - 1];
+
+  const [isDragging, setIsDragging] = useState(false);
+  const progressBarRef = useRef<HTMLDivElement>(null);
+
+  const calculatePageFromPosition = useCallback((clientX: number) => {
+    if (!progressBarRef.current) return currentPage;
+
+    const rect = progressBarRef.current.getBoundingClientRect();
+    const x = clientX - rect.left;
+    const percentage = Math.max(0, Math.min(1, x / rect.width));
+    const page = Math.round(percentage * (totalPages - 1)) + 1;
+    return Math.max(1, Math.min(totalPages, page));
+  }, [currentPage, totalPages]);
+
+  const handleMouseDown = useCallback((e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(true);
+    const page = calculatePageFromPosition(e.clientX);
+    onPageChange?.(page, false);
+  }, [calculatePageFromPosition, onPageChange]);
+
+  const handleMouseMove = useCallback((e: MouseEvent) => {
+    if (!isDragging) return;
+    const page = calculatePageFromPosition(e.clientX);
+    onPageChange?.(page, false);
+  }, [isDragging, calculatePageFromPosition, onPageChange]);
+
+  const handleMouseUp = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  const handleTouchStart = useCallback((e: React.TouchEvent) => {
+    e.stopPropagation();
+    setIsDragging(true);
+    const touch = e.touches[0];
+    const page = calculatePageFromPosition(touch.clientX);
+    onPageChange?.(page, false);
+  }, [calculatePageFromPosition, onPageChange]);
+
+  const handleTouchMove = useCallback((e: TouchEvent) => {
+    if (!isDragging) return;
+    const touch = e.touches[0];
+    const page = calculatePageFromPosition(touch.clientX);
+    onPageChange?.(page, false);
+  }, [isDragging, calculatePageFromPosition, onPageChange]);
+
+  const handleTouchEnd = useCallback(() => {
+    setIsDragging(false);
+  }, []);
+
+  // Add and remove global event listeners for dragging
+  React.useEffect(() => {
+    if (isDragging) {
+      window.addEventListener('mousemove', handleMouseMove);
+      window.addEventListener('mouseup', handleMouseUp);
+      window.addEventListener('touchmove', handleTouchMove);
+      window.addEventListener('touchend', handleTouchEnd);
+    }
+    return () => {
+      window.removeEventListener('mousemove', handleMouseMove);
+      window.removeEventListener('mouseup', handleMouseUp);
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', handleTouchEnd);
+    };
+  }, [isDragging, handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
   return (
     <>
@@ -201,14 +267,19 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               <span className="text-sm font-medium tabular-nums min-w-[3rem] text-center">
                 {currentPage} / {totalPages}
               </span>
-              <div className="relative h-2 flex-1 max-w-[600px] group">
+              <div
+                ref={progressBarRef}
+                className={`relative h-2 flex-1 max-w-[600px] group cursor-pointer ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                onMouseDown={handleMouseDown}
+                onTouchStart={handleTouchStart}
+              >
                 {/* Progress Background */}
                 <div className="absolute inset-0 rounded-full bg-secondary/30" />
 
                 {/* Active Progress Fill */}
                 <div
                   className="absolute inset-y-0 left-0 reading-progress-bar rounded-full transition-all duration-300 pointer-events-none"
-                  style={{ width: `${(currentPage / totalPages) * 100}%` }}
+                  style={{ width: `calc(${totalPages > 1 ? ((currentPage - 1) / (totalPages - 1)) * 100 : 0}% + 4px)` }}
                 />
 
                 {/* Interactive Dots Container */}
@@ -231,10 +302,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       >
                         <div
                           className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${isCurrent
-                              ? 'h-2 w-2 bg-primary shadow-[0_0_8px_rgba(var(--primary),0.6)]'
-                              : isActive
-                                ? 'bg-primary/80 group-hover/dot:bg-primary'
-                                : 'bg-muted-foreground/40 group-hover/dot:bg-muted-foreground'
+                            ? 'h-2 w-2 bg-white shadow-[0_0_8px_rgba(255,255,255,0.6)]'
+                            : isActive
+                              ? 'bg-white group-hover/dot:bg-white'
+                              : 'bg-muted-foreground/40 group-hover/dot:bg-muted-foreground'
                             }`}
                         />
                         {/* Tooltip on hover */}

@@ -63,10 +63,8 @@ const AdminLayout: React.FC = () => {
             >
                 <div className="flex h-16 items-center justify-between border-b border-border px-4">
                     {sidebarOpen && (
-                        <Link to="/" className="text-xl font-bold">
-                            <span className="bg-gradient-to-r from-primary to-[#2994FF] bg-clip-text text-transparent">
-                                MangaVerse
-                            </span>
+                        <Link to="/" className="flex items-center">
+                            <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
                         </Link>
                     )}
                     <Button

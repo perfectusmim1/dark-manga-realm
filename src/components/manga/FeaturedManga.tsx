@@ -47,7 +47,7 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
 
       <div className="relative flex flex-col gap-6 p-6 md:flex-row md:items-center md:p-8">
         {/* Cover */}
-        <Link 
+        <Link
           to={`/manga/${manga.id}`}
           className="group relative shrink-0 overflow-hidden rounded-xl shadow-2xl shadow-primary/10 transition-transform duration-300 hover:scale-[1.02]"
         >
@@ -72,7 +72,11 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
             </Badge>
             <div className="flex items-center gap-1 text-sm text-primary">
               <Star className="h-4 w-4 fill-primary" />
-              <span className="font-semibold">{manga.rating}</span>
+              <span className="font-semibold">
+                {manga.ratings && manga.ratings.length > 0
+                  ? (manga.ratings.reduce((acc, curr) => acc + curr.rating, 0) / manga.ratings.length).toFixed(1)
+                  : '0.0'}
+              </span>
             </div>
           </div>
 
@@ -110,8 +114,8 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
                 Okumaya Başla
               </Link>
             </Button>
-            <Button 
-              variant={favorite ? 'default' : 'outline'} 
+            <Button
+              variant={favorite ? 'default' : 'outline'}
               size="lg"
               onClick={toggleFavorite}
               className={favorite ? 'bg-destructive hover:bg-destructive/90' : ''}

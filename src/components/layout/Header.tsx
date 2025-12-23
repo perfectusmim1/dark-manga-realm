@@ -42,9 +42,7 @@ const Header: React.FC = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
-  const navLinks = [
-    { path: '/browse', label: 'Keşfet' },
-  ];
+  const navLinks: { path: string; label: string }[] = [];
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
@@ -52,11 +50,9 @@ const Header: React.FC = () => {
         {/* Logo */}
         <Link
           to="/"
-          className="flex items-center gap-2 text-xl font-bold tracking-tight"
+          className="flex items-center gap-2"
         >
-          <span className="bg-gradient-to-r from-primary to-[#2994FF] bg-clip-text text-transparent">
-            MangaVerse
-          </span>
+          <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
         </Link>
 
         {/* Desktop Navigation */}
