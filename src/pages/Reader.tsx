@@ -14,6 +14,7 @@ import { toast } from 'sonner';
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
+import CommentSection from '@/components/comments/CommentSection';
 import { ReaderSettings } from '@/lib/types';
 
 const Reader: React.FC = () => {
@@ -201,6 +202,14 @@ const Reader: React.FC = () => {
           onPageChange={handlePageChange}
         />
       )}
+
+      {/* Yorum Bölümü */}
+      <div
+        className="mx-auto max-w-4xl px-4 py-8 mt-8 border-t border-border"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <CommentSection mangaId={manga.id} chapterId={chapterId} />
+      </div>
     </div>
   );
 };

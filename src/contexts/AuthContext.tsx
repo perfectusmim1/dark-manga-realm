@@ -18,12 +18,55 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
-    const savedUser = getUser();
-    if (savedUser) {
-      setUser(savedUser);
+    const checkUserExistence = () => {
+      const savedUser = getUser();
+      if (savedUser) {
+        // Veritabanındaki tüm kullanıcıları al ve mevcut kullanıcının hala var olup olmadığını kontrol et
+        const allUsers = getAllUsers();
+        const exists = allUsers.some(u => u.id === savedUser.id);
+
+        if (!exists) {
+          // Kullanıcı veritabanında yoksa oturumu kapat
+          logout();
+          return null;
+        }
+        return savedUser;
+      }
+      return null;
+    };
+
+    const initialUser = checkUserExistence();
+    if (initialUser) {
+      setUser(initialUser);
     }
     setIsLoading(false);
-  }, []);
+
+    // Veritabanı değişikliklerini veya oturum değişikliklerini izlemek için
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === 'db_users' || e.key === 'manga_user') {
+        const currentUser = checkUserExistence();
+        setUser(currentUser);
+      }
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+
+    // Periyodik kontrol - Admin panelinden silinme durumunda anında tepki vermek için
+    const intervalId = setInterval(() => {
+      if (user) {
+        const allUsers = getAllUsers();
+        const exists = allUsers.some(u => u.id === user.id);
+        if (!exists) {
+          logout();
+        }
+      }
+    }, 2000); // Her 2 saniyede bir kontrol et
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(intervalId);
+    };
+  }, [user?.id]);
 
   const login = async (emailOrUsername: string, password: string): Promise<boolean> => {
     // Simulated login - in production, this would call an API
