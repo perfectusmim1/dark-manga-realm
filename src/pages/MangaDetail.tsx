@@ -10,6 +10,8 @@ import {
   ChevronDown,
   ChevronUp,
   Library,
+  Bell,
+  BellOff,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
@@ -30,6 +32,9 @@ import {
   getLatestProgress,
   getFavoriteCategory,
   updateFavoriteCategory,
+  followManga,
+  unfollowManga,
+  isFollowingManga,
 } from '../lib/storage';
 import { LibraryCategory, Manga } from '@/lib/types';
 import { toast } from 'sonner';
@@ -47,6 +52,7 @@ const MangaDetail: React.FC = () => {
   const [manga, setManga] = useState<Manga | undefined>();
   const { user } = useAuth();
   const [favorite, setFavorite] = useState(false);
+  const [isFollowing, setIsFollowing] = useState(false);
   const [category, setCategory] = useState<LibraryCategory | undefined>();
   const [showAllChapters, setShowAllChapters] = useState(false);
   const [userRating, setUserRating] = useState<number | undefined>();
@@ -59,6 +65,7 @@ const MangaDetail: React.FC = () => {
       const m = getMangaById(mangaId);
       setManga(m);
       setFavorite(isFavorite(mangaId));
+      setIsFollowing(isFollowingManga(mangaId));
       setCategory(getFavoriteCategory(mangaId));
 
       // Get rating info
@@ -119,6 +126,23 @@ const MangaDetail: React.FC = () => {
     }
     setCategory(newCategory);
     toast.success(`Kategori: ${categoryLabels[newCategory]}`);
+  };
+
+  const toggleFollow = () => {
+    if (!user) {
+      toast.error('Takip etmek için giriş yapmalısınız');
+      return;
+    }
+
+    if (isFollowing) {
+      unfollowManga(manga!.id);
+      setIsFollowing(false);
+      toast.success('Takibi bıraktınız');
+    } else {
+      followManga(manga!.id);
+      setIsFollowing(true);
+      toast.success('Manga takip ediliyor! Yeni bölümlerden haberdar olacaksınız.');
+    }
   };
 
   const handleRating = (rating: number) => {
@@ -254,6 +278,20 @@ const MangaDetail: React.FC = () => {
                   >
                     <Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} />
                     {favorite ? 'Favorilerde' : 'Favorilere Ekle'}
+                  </Button>
+
+                  <Button
+                    variant={isFollowing ? 'default' : 'outline'}
+                    size="lg"
+                    onClick={toggleFollow}
+                    className={isFollowing ? 'bg-primary/20 text-primary border-primary/50 hover:bg-primary/30' : ''}
+                  >
+                    {isFollowing ? (
+                      <BellOff className="h-4 w-4" />
+                    ) : (
+                      <Bell className="h-4 w-4" />
+                    )}
+                    {isFollowing ? 'Takibi Bırak' : 'Takip Et'}
                   </Button>
 
                   {favorite && (

@@ -91,6 +91,13 @@ export interface LibraryItem extends Favorite {
   progress?: ReadingProgress;
 }
 
+// Follow system
+export interface MangaFollow {
+  userId: string;
+  mangaId: string;
+  followedAt: string;
+}
+
 // Notification types
 export interface Notification {
   id: string;
@@ -101,4 +108,13 @@ export interface Notification {
   link?: string;
   read: boolean;
   createdAt: string;
+  // Additional context
+  fromUserId?: string;
+  fromUsername?: string;
+  mangaId?: string;
+  mangaTitle?: string;
+  mangaCover?: string;
+  chapterId?: string;
+  chapterNumber?: number;
+  commentId?: string;
 }

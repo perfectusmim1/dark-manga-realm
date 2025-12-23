@@ -1,4 +1,4 @@
-import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification } from './types';
+import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow } from './types';
 import { getMangaById } from './database';
 
 const STORAGE_KEYS = {
@@ -8,6 +8,7 @@ const STORAGE_KEYS = {
     BOOKMARKS: 'manga_bookmarks',
     READER_SETTINGS: 'manga_reader_settings',
     NOTIFICATIONS: 'manga_notifications',
+    FOLLOWS: 'manga_follows',
     ADMIN_SESSION: 'manga_admin_session',
 };
 
@@ -341,5 +342,140 @@ export const clearNotifications = (): void => {
     if (!user) return;
 
     const allNotifications = getAllNotifications().filter(n => n.userId !== user.id);
+    saveNotifications(allNotifications);
+};
+
+// ==================== MANGA FOLLOW SYSTEM (USER-SPECIFIC) ====================
+
+const getAllFollows = (): MangaFollow[] => {
+    const data = localStorage.getItem(STORAGE_KEYS.FOLLOWS);
+    return data ? JSON.parse(data) : [];
+};
+
+const saveFollows = (follows: MangaFollow[]): void => {
+    localStorage.setItem(STORAGE_KEYS.FOLLOWS, JSON.stringify(follows));
+};
+
+export const getFollowedMangas = (userId?: string): MangaFollow[] => {
+    const user = getUser();
+    const currentUserId = userId || user?.id;
+    if (!currentUserId) return [];
+
+    return getAllFollows().filter(f => f.userId === currentUserId);
+};
+
+export const followManga = (mangaId: string): void => {
+    const user = getUser();
+    if (!user) return;
+
+    const allFollows = getAllFollows();
+    if (!allFollows.find(f => f.mangaId === mangaId && f.userId === user.id)) {
+        allFollows.push({
+            userId: user.id,
+            mangaId,
+            followedAt: new Date().toISOString(),
+        });
+        saveFollows(allFollows);
+    }
+};
+
+export const unfollowManga = (mangaId: string): void => {
+    const user = getUser();
+    if (!user) return;
+
+    const allFollows = getAllFollows().filter(
+        f => !(f.mangaId === mangaId && f.userId === user.id)
+    );
+    saveFollows(allFollows);
+};
+
+export const isFollowingManga = (mangaId: string): boolean => {
+    const user = getUser();
+    if (!user) return false;
+
+    return getAllFollows().some(f => f.mangaId === mangaId && f.userId === user.id);
+};
+
+export const getFollowersOfManga = (mangaId: string): string[] => {
+    return getAllFollows()
+        .filter(f => f.mangaId === mangaId)
+        .map(f => f.userId);
+};
+
+// Create notifications for all followers of a manga when a new chapter is released
+export const createNotificationForFollowers = (
+    mangaId: string,
+    mangaTitle: string,
+    mangaCover: string,
+    chapterId: string,
+    chapterNumber: number
+): void => {
+    const followers = getFollowersOfManga(mangaId);
+    const allNotifications = getAllNotifications();
+
+    followers.forEach(userId => {
+        const notification: Notification = {
+            id: `notif-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+            userId,
+            type: 'new_chapter',
+            title: 'Yeni Bölüm!',
+            message: `${mangaTitle} - Bölüm ${chapterNumber} yayınlandı!`,
+            link: `/manga/${mangaId}/chapter/${chapterId}`,
+            read: false,
+            createdAt: new Date().toISOString(),
+            mangaId,
+            mangaTitle,
+            mangaCover,
+            chapterId,
+            chapterNumber,
+        };
+        allNotifications.unshift(notification);
+    });
+
+    saveNotifications(allNotifications);
+};
+
+// Create notification for comment interactions
+export const createCommentNotification = (
+    targetUserId: string,
+    type: 'reply' | 'like',
+    fromUserId: string,
+    fromUsername: string,
+    mangaId: string,
+    mangaTitle: string,
+    commentId: string,
+    chapterId?: string
+): void => {
+    // Don't notify yourself
+    if (targetUserId === fromUserId) return;
+
+    const allNotifications = getAllNotifications();
+
+    const notification: Notification = {
+        id: `notif-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+        userId: targetUserId,
+        type,
+        title: type === 'reply' ? 'Yeni Yanıt' : 'Yorum Beğenildi',
+        message: type === 'reply'
+            ? `${fromUsername} yorumunuza yanıt verdi`
+            : `${fromUsername} yorumunuzu beğendi`,
+        link: chapterId
+            ? `/manga/${mangaId}/chapter/${chapterId}#comment-${commentId}`
+            : `/manga/${mangaId}#comment-${commentId}`,
+        read: false,
+        createdAt: new Date().toISOString(),
+        fromUserId,
+        fromUsername,
+        mangaId,
+        mangaTitle,
+        commentId,
+    };
+
+    allNotifications.unshift(notification);
+
+    if (allNotifications.length > 100) {
+        allNotifications.pop();
+    }
+
     saveNotifications(allNotifications);
 };

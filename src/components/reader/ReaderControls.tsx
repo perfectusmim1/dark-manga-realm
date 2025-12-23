@@ -159,7 +159,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     <Link
                       key={ch.id}
                       to={`/manga/${mangaId}/chapter/${ch.id}`}
-                      className={`rounded-lg px-3 py-2 text-sm transition-colors hover:bg-secondary ${ch.id === currentChapter.id ? 'bg-primary text-primary-foreground' : ''
+                      className={`rounded-lg px-3 py-2 text-sm transition-colors ${ch.id === currentChapter.id
+                        ? 'bg-primary text-primary-foreground hover:bg-primary/90'
+                        : 'hover:bg-secondary text-foreground'
                         }`}
                     >
                       Bölüm {ch.number}

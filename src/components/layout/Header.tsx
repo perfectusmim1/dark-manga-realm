@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import NotificationDropdown from '@/components/notifications/NotificationDropdown';
 import {
   Search,
   Menu,
@@ -96,6 +97,9 @@ const Header: React.FC = () => {
               </Link>
             </Button>
           )}
+
+          {/* Notifications */}
+          {user && <NotificationDropdown />}
 
           {user ? (
             <DropdownMenu>

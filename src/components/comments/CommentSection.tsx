@@ -34,8 +34,10 @@ import {
     addComment,
     updateComment,
     deleteComment,
-    toggleCommentLike
+    toggleCommentLike,
+    getMangaById
 } from '@/lib/database';
+import { createCommentNotification } from '@/lib/storage';
 import { toast } from 'sonner';
 
 interface CommentSectionProps {
@@ -76,7 +78,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         }
 
         try {
-            // Using Tenor API
             const response = await fetch(
                 `https://tenor.googleapis.com/v2/search?q=${encodeURIComponent(query)}&key=${TENOR_API_KEY}&limit=20&media_filter=gif`
             );
@@ -84,7 +85,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             setGifs(data.results || []);
         } catch (error) {
             console.error('GIF search error:', error);
-            // Fallback: Use Giphy if Tenor fails
             try {
                 const giphyResponse = await fetch(
                     `https://api.giphy.com/v1/gifs/search?api_key=dc6zaTOxFJmzC&q=${encodeURIComponent(query)}&limit=20`
@@ -160,7 +160,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
 
         const parentComment = comments.find(c => c.id === parentId);
 
-        addComment({
+        const newCommentObj = addComment({
             mangaId,
             chapterId,
             userId: user.id,
@@ -169,6 +169,20 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             content: `@${parentComment?.username} ${replyContent}`,
             parentId,
         });
+
+        if (parentComment && parentComment.userId !== user.id) {
+            const manga = getMangaById(mangaId);
+            createCommentNotification(
+                parentComment.userId,
+                'reply',
+                user.id,
+                user.username,
+                mangaId,
+                manga?.title || 'Manga',
+                newCommentObj.id,
+                chapterId
+            );
+        }
 
         setReplyingTo(null);
         setReplyContent('');
@@ -182,7 +196,25 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             return;
         }
 
+        const comment = comments.find(c => c.id === commentId);
+        const wasLiked = comment?.likedBy.includes(user.id);
+
         toggleCommentLike(commentId, user.id);
+
+        if (!wasLiked && comment && comment.userId !== user.id) {
+            const manga = getMangaById(mangaId);
+            createCommentNotification(
+                comment.userId,
+                'like',
+                user.id,
+                user.username,
+                mangaId,
+                manga?.title || 'Manga',
+                comment.id,
+                chapterId
+            );
+        }
+
         loadComments();
     };
 
@@ -203,6 +235,16 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         setEditGif(comment.gifUrl || null);
     };
 
+    const highlightMentions = (content: string) => {
+        const parts = content.split(/(@\w+)/g);
+        return parts.map((part, i) => {
+            if (part.startsWith('@')) {
+                return <span key={i} className="text-blue-500 font-medium">{part}</span>;
+            }
+            return part;
+        });
+    };
+
     const parentComments = comments.filter(c => !c.parentId);
     const getReplies = (parentId: string) => comments.filter(c => c.parentId === parentId);
 
@@ -213,7 +255,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                 <h3 className="text-lg font-semibold">Yorumlar ({comments.length})</h3>
             </div>
 
-            {/* New Comment Form */}
             {user ? (
                 <div className="rounded-lg border border-border bg-card p-4">
                     <div className="flex gap-3">
@@ -269,7 +310,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                 </div>
             )}
 
-            {/* Comments List */}
             <div className="space-y-4">
                 {parentComments.length === 0 ? (
                     <div className="py-8 text-center text-muted-foreground">
@@ -366,7 +406,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                         </div>
                                     ) : (
                                         <>
-                                            <p className="mt-2 text-foreground/90">{comment.content}</p>
+                                            <p className="mt-2 text-foreground/90 leading-relaxed font-sans">{highlightMentions(comment.content)}</p>
                                             {comment.gifUrl && (
                                                 <img src={comment.gifUrl} alt="Comment GIF" className="mt-2 max-h-48 rounded-lg" />
                                             )}
@@ -393,7 +433,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                         </Button>
                                     </div>
 
-                                    {/* Reply Form */}
                                     {replyingTo === comment.id && user && (
                                         <div className="mt-3 flex gap-2">
                                             <Textarea
@@ -420,7 +459,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                         </div>
                                     )}
 
-                                    {/* Replies */}
+                                    {/* Replies Section */}
                                     {getReplies(comment.id).length > 0 && (
                                         <div className="mt-4 space-y-3 border-l-2 border-border pl-4">
                                             {getReplies(comment.id).map((reply) => (
@@ -430,23 +469,64 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                                         <AvatarFallback>{reply.username[0].toUpperCase()}</AvatarFallback>
                                                     </Avatar>
                                                     <div className="flex-1">
-                                                        <div className="flex items-center gap-2">
-                                                            <span className="text-sm font-medium">{reply.username}</span>
-                                                            <span className="text-xs text-muted-foreground">
-                                                                {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
-                                                            </span>
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                <span className="text-sm font-medium">{reply.username}</span>
+                                                                <span className="text-xs text-muted-foreground">
+                                                                    {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
+                                                                    {reply.updatedAt && ' (düzenlendi)'}
+                                                                </span>
+                                                            </div>
                                                             {user?.id === reply.userId && (
-                                                                <Button
-                                                                    variant="ghost"
-                                                                    size="icon"
-                                                                    className="h-6 w-6"
-                                                                    onClick={() => handleDeleteComment(reply.id)}
-                                                                >
-                                                                    <Trash2 className="h-3 w-3" />
-                                                                </Button>
+                                                                <DropdownMenu>
+                                                                    <DropdownMenuTrigger asChild>
+                                                                        <Button variant="ghost" size="icon" className="h-7 w-7">
+                                                                            <MoreVertical className="h-4 w-4" />
+                                                                        </Button>
+                                                                    </DropdownMenuTrigger>
+                                                                    <DropdownMenuContent align="end">
+                                                                        <DropdownMenuItem onClick={() => startEdit(reply)}>
+                                                                            <Edit2 className="mr-2 h-4 w-4" />
+                                                                            Düzenle
+                                                                        </DropdownMenuItem>
+                                                                        <DropdownMenuItem
+                                                                            onClick={() => handleDeleteComment(reply.id)}
+                                                                            className="text-destructive"
+                                                                        >
+                                                                            <Trash2 className="mr-2 h-4 w-4" />
+                                                                            Sil
+                                                                        </DropdownMenuItem>
+                                                                    </DropdownMenuContent>
+                                                                </DropdownMenu>
                                                             )}
                                                         </div>
-                                                        <p className="text-sm text-foreground/90">{reply.content}</p>
+
+                                                        {editingId === reply.id ? (
+                                                            <div className="mt-2 space-y-2">
+                                                                <Textarea
+                                                                    value={editContent}
+                                                                    onChange={(e) => setEditContent(e.target.value)}
+                                                                    className="min-h-[60px]"
+                                                                />
+                                                                <div className="flex gap-2">
+                                                                    <Button size="sm" onClick={() => handleEditComment(reply.id)}>
+                                                                        Kaydet
+                                                                    </Button>
+                                                                    <Button
+                                                                        size="sm"
+                                                                        variant="ghost"
+                                                                        onClick={() => {
+                                                                            setEditingId(null);
+                                                                            setEditContent('');
+                                                                        }}
+                                                                    >
+                                                                        İptal
+                                                                    </Button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            <p className="text-sm text-foreground/90 leading-relaxed">{highlightMentions(reply.content)}</p>
+                                                        )}
                                                     </div>
                                                 </div>
                                             ))}
@@ -459,7 +539,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                 )}
             </div>
 
-            {/* GIF Picker Dialog */}
             <Dialog open={showGifPicker} onOpenChange={setShowGifPicker}>
                 <DialogContent className="max-w-2xl">
                     <DialogHeader>

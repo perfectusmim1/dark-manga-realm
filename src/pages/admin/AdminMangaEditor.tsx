@@ -30,6 +30,7 @@ import {
 import { getMangaById, saveManga, addChapterToManga, deleteChapter } from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
 import { allGenres } from '@/lib/mockData';
+import { createNotificationForFollowers } from '@/lib/storage';
 import { toast } from 'sonner';
 
 const AdminMangaEditor: React.FC = () => {
@@ -145,8 +146,16 @@ const AdminMangaEditor: React.FC = () => {
             const updatedManga = getMangaById(manga.id);
             if (updatedManga) {
                 setManga(updatedManga);
+                // Send notifications to followers
+                createNotificationForFollowers(
+                    manga.id,
+                    updatedManga.title,
+                    updatedManga.cover,
+                    chapter.id,
+                    chapter.number
+                );
             }
-            toast.success('Bölüm eklendi');
+            toast.success('Bölüm eklendi ve takipçilere bildirim gönderildi');
         } else {
             handleChange('chapters', [...(manga.chapters || []), chapter]);
             toast.success('Bölüm listeye eklendi');

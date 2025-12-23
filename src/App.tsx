@@ -17,6 +17,7 @@ import Favorites from "./pages/Favorites";
 import History from "./pages/History";
 import Bookmarks from "./pages/Bookmarks";
 import Library from "./pages/Library";
+import Notifications from "./pages/Notifications";
 import NotFound from "./pages/NotFound";
 
 // Admin Pages
@@ -59,6 +60,7 @@ const App = () => (
               <Route path="/library" element={<Library />} />
               <Route path="/history" element={<History />} />
               <Route path="/bookmarks" element={<Bookmarks />} />
+              <Route path="/notifications" element={<Notifications />} />
 
               {/* Admin Routes */}
               <Route path="/admin/login" element={<AdminLogin />} />
