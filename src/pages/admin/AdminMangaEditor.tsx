@@ -65,6 +65,7 @@ const AdminMangaEditor: React.FC = () => {
     });
     const [pageUrlInput, setPageUrlInput] = useState('');
     const [loading, setLoading] = useState(false);
+    const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
 
     useEffect(() => {
         const loadManga = async () => {
@@ -133,7 +134,7 @@ const AdminMangaEditor: React.FC = () => {
         }));
     };
 
-    const handleAddChapter = async () => {
+    const handleSaveChapter = async () => {
         if (!newChapter.title.trim()) {
             toast.error('Bölüm başlığı gerekli');
             return;
@@ -144,7 +145,7 @@ const AdminMangaEditor: React.FC = () => {
         }
 
         const chapter: Chapter = {
-            id: `chapter-${Date.now()}`,
+            id: editingChapterId || `chapter-${Date.now()}`,
             number: newChapter.number,
             title: newChapter.title,
             pages: newChapter.pages,
@@ -155,27 +156,44 @@ const AdminMangaEditor: React.FC = () => {
         if (isEditing && manga.id) {
             setLoading(true);
             try {
-                await addChapterToManga(manga.id, chapter);
-                const updatedManga = await getMangaById(manga.id);
-                if (updatedManga) {
-                    setManga(updatedManga);
-                    // Send notifications to followers
-                    createNotificationForFollowers(
-                        manga.id,
-                        updatedManga.title,
-                        updatedManga.cover,
-                        chapter.id,
-                        chapter.number
+                // If it's a new chapter, we use the specific add function
+                // If it's editing, we use saveManga to sync everything
+                if (!editingChapterId) {
+                    await addChapterToManga(manga.id, chapter);
+                } else {
+                    const updatedChapters = (manga.chapters || []).map(c =>
+                        c.id === editingChapterId ? chapter : c
                     );
+                    const updatedManga = { ...manga, chapters: updatedChapters } as Manga;
+                    await saveManga(updatedManga);
                 }
-                toast.success('Bölüm eklendi ve takipçilere bildirim gönderildi');
+
+                const refreshedManga = await getMangaById(manga.id);
+                if (refreshedManga) {
+                    setManga(refreshedManga);
+                    if (!editingChapterId) {
+                        // Only notify for NEW chapters
+                        createNotificationForFollowers(
+                            manga.id,
+                            refreshedManga.title,
+                            refreshedManga.cover,
+                            chapter.id,
+                            chapter.number
+                        );
+                    }
+                }
+                toast.success(editingChapterId ? 'Bölüm güncellendi' : 'Bölüm eklendi');
             } catch (err) {
-                toast.error('Bölüm eklenemedi');
+                toast.error('Bölüm kaydedilemedi');
             } finally {
                 setLoading(false);
             }
         } else {
-            handleChange('chapters', [...(manga.chapters || []), chapter]);
+            if (editingChapterId) {
+                handleChange('chapters', (manga.chapters || []).map(c => c.id === editingChapterId ? chapter : c));
+            } else {
+                handleChange('chapters', [...(manga.chapters || []), chapter]);
+            }
             toast.success('Bölüm listeye eklendi');
         }
 
@@ -184,7 +202,18 @@ const AdminMangaEditor: React.FC = () => {
             title: '',
             pages: [],
         });
+        setEditingChapterId(null);
         setShowChapterDialog(false);
+    };
+
+    const openEditChapterDialog = (chapter: Chapter) => {
+        setNewChapter({
+            number: chapter.number,
+            title: chapter.title,
+            pages: chapter.pages,
+        });
+        setEditingChapterId(chapter.id);
+        setShowChapterDialog(true);
     };
 
     const handleDeleteChapter = async (chapterId: string) => {
@@ -428,14 +457,23 @@ const AdminMangaEditor: React.FC = () => {
                                                 {chapter.pages.length} sayfa • {new Date(chapter.releaseDate).toLocaleDateString('tr-TR')}
                                             </p>
                                         </div>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-destructive"
-                                            onClick={() => handleDeleteChapter(chapter.id)}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
+                                        <div className="flex gap-2">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                onClick={() => openEditChapterDialog(chapter)}
+                                            >
+                                                <Upload className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="text-destructive"
+                                                onClick={() => handleDeleteChapter(chapter.id)}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
                                     </div>
                                 ))}
                             </div>
@@ -509,9 +547,9 @@ const AdminMangaEditor: React.FC = () => {
             <Dialog open={showChapterDialog} onOpenChange={setShowChapterDialog}>
                 <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
                     <DialogHeader>
-                        <DialogTitle>Yeni Bölüm Ekle</DialogTitle>
+                        <DialogTitle>{editingChapterId ? 'Bölüm Düzenle' : 'Yeni Bölüm Ekle'}</DialogTitle>
                         <DialogDescription>
-                            Manga için yeni bir bölüm ve içindeki sayfaları ekleyin.
+                            {editingChapterId ? 'Bölüm detaylarını ve sayfalarını güncelleyin.' : 'Manga için yeni bir bölüm ve içindeki sayfaları ekleyin.'}
                         </DialogDescription>
                     </DialogHeader>
 
@@ -572,11 +610,14 @@ const AdminMangaEditor: React.FC = () => {
                     </div>
 
                     <DialogFooter>
-                        <Button variant="outline" onClick={() => setShowChapterDialog(false)}>
+                        <Button variant="outline" onClick={() => {
+                            setShowChapterDialog(false);
+                            setEditingChapterId(null);
+                        }}>
                             İptal
                         </Button>
-                        <Button onClick={handleAddChapter}>
-                            Bölüm Ekle
+                        <Button onClick={handleSaveChapter}>
+                            {editingChapterId ? 'Güncelle' : 'Bölüm Ekle'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

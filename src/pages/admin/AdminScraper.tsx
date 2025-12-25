@@ -168,8 +168,25 @@ const AdminScraper: React.FC = () => {
 
             // Author
             const author = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.includes('Yazar'))
-                ?.querySelector('.author-content a')?.textContent?.trim() || 'Bilinmiyor';
+                .find(el => el.textContent?.toLowerCase().includes('yazar'))
+                ?.querySelector('.author-content a, .summary-content')?.textContent?.trim() || 'Bilinmiyor';
+
+            // Artist
+            const artist = Array.from(doc.querySelectorAll('.post-content_item'))
+                .find(el => el.textContent?.toLowerCase().includes('çizer'))
+                ?.querySelector('.artist-content a, .summary-content')?.textContent?.trim() || author;
+
+            // Alternative Titles
+            const altTitlesText = Array.from(doc.querySelectorAll('.post-content_item'))
+                .find(el => el.textContent?.toLowerCase().includes('diğer adları') || el.textContent?.toLowerCase().includes('alt isimler'))
+                ?.querySelector('.summary-content')?.textContent?.trim() || '';
+            const alternativeTitles = altTitlesText ? altTitlesText.split(',').map(t => t.trim()).filter(t => t !== '') : [];
+
+            // Release Year
+            const yearText = Array.from(doc.querySelectorAll('.post-content_item'))
+                .find(el => el.textContent?.toLowerCase().includes('yıl') || el.textContent?.toLowerCase().includes('salınış'))
+                ?.querySelector('.summary-content')?.textContent?.trim() || '';
+            const releaseYear = yearText ? parseInt(yearText.match(/\d{4}/)?.[0] || '') : new Date().getFullYear();
 
             // Genres
             const genreElements = doc.querySelectorAll('.genres-content a');
@@ -202,14 +219,16 @@ const AdminScraper: React.FC = () => {
 
             const scrapedManga: Partial<Manga> = {
                 title: finalTitle,
+                alternativeTitles,
                 description,
                 cover: finalCover,
                 banner: finalCover,
                 author,
-                artist: author,
+                artist,
                 status,
                 type,
                 genres: genres.filter(g => g && g !== ''),
+                releaseYear,
                 chapters: [], // We'll fetch pages for each chapter if needed, but for now just meta
                 views: 0,
                 ratings: [],
@@ -318,6 +337,7 @@ const AdminScraper: React.FC = () => {
             const finalManga: Manga = {
                 id: mangaId,
                 title: fetchedData.title!,
+                alternativeTitles: fetchedData.alternativeTitles || [],
                 description: fetchedData.description!,
                 cover: fetchedData.cover!,
                 banner: fetchedData.banner!,
@@ -326,6 +346,7 @@ const AdminScraper: React.FC = () => {
                 status: fetchedData.status!,
                 type: fetchedData.type!,
                 genres: fetchedData.genres!,
+                releaseYear: fetchedData.releaseYear!,
                 chapters: chapters,
                 views: 0,
                 ratings: [],
