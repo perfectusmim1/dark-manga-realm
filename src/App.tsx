@@ -29,6 +29,7 @@ import AdminMangaEditor from "./pages/admin/AdminMangaEditor";
 import AdminComments from "./pages/admin/AdminComments";
 import AdminUsers from "./pages/admin/AdminUsers";
 import AdminUserManagement from "./pages/admin/AdminUserManagement";
+import AdminScraper from "./pages/admin/AdminScraper";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -76,6 +77,7 @@ const App = () => (
                 <Route path="mangas/new" element={<AdminMangaEditor />} />
                 <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
                 <Route path="comments" element={<AdminComments />} />
+                <Route path="scraper" element={<AdminScraper />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="user-management" element={<AdminUserManagement />} />
               </Route>
