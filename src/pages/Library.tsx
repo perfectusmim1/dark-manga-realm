@@ -30,6 +30,7 @@ import {
 import { getMangaById } from '@/lib/database';
 import { Manga, LibraryCategory, Favorite, ReadingProgress } from '@/lib/types';
 import { toast } from 'sonner';
+import LibrarySkeleton from '@/components/skeletons/LibrarySkeleton';
 
 interface LibraryItem {
     favorite: Favorite;
@@ -119,9 +120,10 @@ const Library: React.FC = () => {
 
     if (isLoading && user) {
         return (
-            <div className="flex min-h-screen items-center justify-center">
-                <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-            </div>
+            <>
+                <Header />
+                <LibrarySkeleton />
+            </>
         );
     }
 

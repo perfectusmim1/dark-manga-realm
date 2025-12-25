@@ -17,6 +17,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 
+import BrowseSkeleton from '@/components/skeletons/BrowseSkeleton';
+
 const Browse: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
@@ -26,11 +28,17 @@ const Browse: React.FC = () => {
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || 'all');
   const [statusFilter, setStatusFilter] = useState('all');
   const [mangas, setMangas] = useState<Manga[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
     const fetchMangas = async () => {
-      const data = await getAllMangas();
-      setMangas(data);
+      try {
+        setIsLoading(true);
+        const data = await getAllMangas();
+        setMangas(data);
+      } finally {
+        setIsLoading(false);
+      }
     };
     fetchMangas();
   }, []);
@@ -112,6 +120,15 @@ const Browse: React.FC = () => {
   };
 
   const hasActiveFilters = searchQuery || selectedGenres.length > 0 || typeFilter !== 'all' || statusFilter !== 'all';
+
+  if (isLoading) {
+    return (
+      <>
+        <Header />
+        <BrowseSkeleton />
+      </>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

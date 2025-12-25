@@ -15,6 +15,7 @@ import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
 import CommentSection from '@/components/comments/CommentSection';
 import { ReaderSettings } from '@/lib/types';
+import ReaderSkeleton from '@/components/skeletons/ReaderSkeleton';
 
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
@@ -188,11 +189,7 @@ const Reader: React.FC = () => {
 
 
   if (isLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-      </div>
-    );
+    return <ReaderSkeleton />;
   }
 
   if (!manga || !chapter) {

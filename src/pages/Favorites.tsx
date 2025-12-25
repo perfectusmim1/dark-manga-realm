@@ -9,6 +9,7 @@ import { getFavorites } from '@/lib/storage';
 import { getMangaById } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
+import GridSkeleton from '@/components/skeletons/GridSkeleton';
 
 const Favorites: React.FC = () => {
   const { user } = useAuth();
@@ -41,9 +42,10 @@ const Favorites: React.FC = () => {
 
   if (isLoading && user) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-      </div>
+      <>
+        <Header />
+        <GridSkeleton />
+      </>
     );
   }
 

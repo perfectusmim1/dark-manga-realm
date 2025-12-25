@@ -9,6 +9,7 @@ import { getBookmarks, removeBookmark } from '../lib/storage';
 import { getMangaById } from '@/lib/database';
 import { toast } from 'sonner';
 import { Manga, Bookmark } from '@/lib/types';
+import ListSkeleton from '@/components/skeletons/ListSkeleton';
 
 const Bookmarks: React.FC = () => {
   const { user } = useAuth();
@@ -55,9 +56,10 @@ const Bookmarks: React.FC = () => {
 
   if (isLoading && user) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-      </div>
+      <>
+        <Header />
+        <ListSkeleton />
+      </>
     );
   }
 

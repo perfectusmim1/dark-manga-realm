@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getReadingHistory } from '@/lib/storage';
 import { getMangaById } from '@/lib/database';
+import ListSkeleton from '@/components/skeletons/ListSkeleton';
 
 const History: React.FC = () => {
   const { user } = useAuth();
@@ -39,9 +40,10 @@ const History: React.FC = () => {
 
   if (isLoading && user) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-      </div>
+      <>
+        <Header />
+        <ListSkeleton />
+      </>
     );
   }
 

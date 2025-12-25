@@ -15,14 +15,14 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// Convert Supabase user to our User type
-const mapSupabaseUserToUser = (supabaseUser: SupabaseUser): User => {
+// Convert Supabase user + Profile data to our User type
+const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: any): User => {
   return {
     id: supabaseUser.id,
     email: supabaseUser.email || '',
-    username: supabaseUser.user_metadata?.username || supabaseUser.email?.split('@')[0] || 'user',
-    avatar: supabaseUser.user_metadata?.avatar_url,
-    role: supabaseUser.user_metadata?.role || 'user',
+    username: profile?.username || supabaseUser.user_metadata?.username || supabaseUser.email?.split('@')[0] || 'user',
+    avatar: profile?.avatar || supabaseUser.user_metadata?.avatar_url,
+    role: profile?.role || 'user',
     createdAt: supabaseUser.created_at,
   };
 };
@@ -33,48 +33,92 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  useEffect(() => {
-    // Get initial session
-    const initializeAuth = async () => {
-      try {
-        const { data: { session: currentSession } } = await supabase.auth.getSession();
+  const fetchProfile = async (id: string) => {
+    // Add a 5s timeout to prevent infinite hangs on DB calls during initialization
+    const timeout = new Promise((_, reject) =>
+      setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
+    );
 
-        if (currentSession?.user) {
-          setSession(currentSession);
-          setSupabaseUser(currentSession.user);
-          setUser(mapSupabaseUserToUser(currentSession.user));
-        }
-      } catch (error) {
-        console.error('Auth initialization error:', error);
-      } finally {
-        setIsLoading(false);
+    try {
+      const fetchReq = supabase
+        .from('users')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+
+      const { data, error } = (await Promise.race([fetchReq, timeout])) as any;
+
+      if (error) {
+        console.error('Error fetching profile:', error);
+        return null;
       }
-    };
+      return data;
+    } catch (err) {
+      console.error('Profile fetch failed:', err);
+      return null;
+    }
+  };
 
-    initializeAuth();
+  useEffect(() => {
+    let mounted = true;
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      async (event, currentSession) => {
-        console.log('Auth state changed:', event);
+    const syncAuthState = async (currentSession: Session | null) => {
+      if (!mounted) return;
 
+      try {
         if (currentSession?.user) {
-          const newUser = mapSupabaseUserToUser(currentSession.user);
+          const profile = await fetchProfile(currentSession.user.id);
+          if (!mounted) return;
 
-          setSession(currentSession);
-          setSupabaseUser(currentSession.user);
-          setUser(newUser);
+          const newUser = mapSupabaseUserToUser(currentSession.user, profile);
+
+          setSession(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(currentSession)) return prev;
+            return currentSession;
+          });
+
+          setSupabaseUser(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(currentSession.user)) return prev;
+            return currentSession.user;
+          });
+
+          setUser(prev => {
+            if (JSON.stringify(prev) === JSON.stringify(newUser)) return prev;
+            return newUser;
+          });
         } else {
           setSession(null);
           setSupabaseUser(null);
           setUser(null);
         }
+      } catch (err) {
+        console.error('Failed to sync auth state:', err);
+      } finally {
+        if (mounted) setIsLoading(false);
+      }
+    };
 
-        setIsLoading(false);
+    // 1. Initial manual check
+    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
+      syncAuthState(initialSession);
+    }).catch(err => {
+      console.error('Initial session check failed:', err);
+      if (mounted) setIsLoading(false);
+    });
+
+    // 2. Continuous listener
+    const { data: { subscription } } = supabase.auth.onAuthStateChange(
+      async (event, currentSession) => {
+        console.log('Auth event change detected:', event);
+        // We only trigger re-sync for significant events to avoid loops
+        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
+          syncAuthState(currentSession);
+        }
       }
     );
 
     return () => {
+      mounted = false;
       subscription.unsubscribe();
     };
   }, []);
@@ -84,11 +128,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsLoading(true);
 
       // Supabase auth only works with email, not username
-      // So we need to check if the input is an email or username
       let loginEmail = email;
 
-      // If it doesn't look like an email, we assume it's a username
-      // and we need to look up the email from the users table
       if (!email.includes('@')) {
         const { data: userData, error: lookupError } = await supabase
           .from('users')
@@ -116,9 +157,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       if (data.user) {
+        const profile = await fetchProfile(data.user.id);
         setSession(data.session);
         setSupabaseUser(data.user);
-        setUser(mapSupabaseUserToUser(data.user));
+        setUser(mapSupabaseUserToUser(data.user, profile));
         return { success: true };
       }
 
@@ -174,20 +216,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             id: data.user.id,
             username,
             email,
-            password_hash: 'managed_by_supabase_auth', // We don't store the actual password
+            password_hash: 'managed_by_supabase_auth',
             role: 'user',
           }]);
 
         if (insertError) {
           console.error('Error saving user profile:', insertError);
-          // Continue anyway, the auth is successful
         }
 
-        // If email confirmation is disabled, user is logged in immediately
         if (data.session) {
+          const profile = await fetchProfile(data.user.id);
           setSession(data.session);
           setSupabaseUser(data.user);
-          setUser(mapSupabaseUserToUser(data.user));
+          setUser(mapSupabaseUserToUser(data.user, profile));
         }
 
         return { success: true };

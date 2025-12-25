@@ -9,6 +9,7 @@ import { Badge } from '@/components/ui/badge';
 import { getAllMangas } from '@/lib/database';
 import { getReadingHistory, getLatestProgress } from '@/lib/storage';
 import { useAuth } from '@/contexts/AuthContext';
+import HomeSkeleton from '@/components/skeletons/HomeSkeleton';
 import { Manga } from '@/lib/types';
 
 const Index: React.FC = () => {
@@ -51,9 +52,10 @@ const Index: React.FC = () => {
 
   if (isLoading) {
     return (
-      <div className="flex min-h-screen items-center justify-center">
-        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
-      </div>
+      <>
+        <Header />
+        <HomeSkeleton />
+      </>
     );
   }
 

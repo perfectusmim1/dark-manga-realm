@@ -9,42 +9,54 @@ import { Manga, Chapter, User, MangaRating, Comment } from './types';
  * Fetch all mangas from Supabase
  */
 export const getAllMangas = async (): Promise<Manga[]> => {
-    const { data, error } = await supabase
-        .from('mangas')
-        .select('*')
-        .order('last_updated', { ascending: false });
+    // Add a safety timeout
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Manga fetch timeout')), 8000)
+    );
 
-    if (error) {
-        console.error('Manga fetch error:', error);
+    try {
+        const fetchManga = async () => {
+            const { data, error } = await supabase
+                .from('mangas')
+                .select('*')
+                .order('last_updated', { ascending: false });
+
+            if (error) throw error;
+
+            // Try to get chapter counts and ratings in bulk, but don't fail if they fail
+            let chapterCounts: any[] = [];
+            let allRatings: any[] = [];
+
+            try {
+                const { data: cData } = await supabase.from('chapters').select('manga_id');
+                chapterCounts = cData || [];
+                const { data: rData } = await supabase.from('ratings').select('manga_id, rating');
+                allRatings = rData || [];
+            } catch (innerErr) {
+                console.warn('Non-critical bulk fetch error:', innerErr);
+            }
+
+            return data.map((m) => {
+                const mangaChapters = chapterCounts.filter(c => c.manga_id === m.id);
+                const mangaRatings = allRatings.filter(r => r.manga_id === m.id);
+
+                return {
+                    ...m,
+                    alternativeTitles: m.alternative_titles || [],
+                    lastUpdated: m.last_updated,
+                    createdAt: m.created_at,
+                    releaseYear: m.release_year,
+                    chapters: Array(mangaChapters.length).fill({}),
+                    ratings: mangaRatings.map(r => ({ rating: r.rating, userId: '', createdAt: '' })),
+                } as Manga;
+            });
+        };
+
+        return (await Promise.race([fetchManga(), timeout])) as Manga[];
+    } catch (error) {
+        console.error('Manga fetch global error:', error);
         return [];
     }
-
-    // Map snake_case to camelCase and fetch counts/stats if needed
-    // Note: To get chapters count or ratings count efficiently, 
-    // we might need more complex queries, but for now, we map basic fields.
-    const mapped = await Promise.all(data.map(async (m) => {
-        const { count: chapterCount } = await supabase
-            .from('chapters')
-            .select('*', { count: 'exact', head: true })
-            .eq('manga_id', m.id);
-
-        const { data: ratingData } = await supabase
-            .from('ratings')
-            .select('rating')
-            .eq('manga_id', m.id);
-
-        return {
-            ...m,
-            alternativeTitles: m.alternative_titles || [],
-            lastUpdated: m.last_updated,
-            createdAt: m.created_at,
-            releaseYear: m.release_year,
-            chapters: Array(chapterCount || 0).fill({}), // Placeholder for list view
-            ratings: ratingData?.map(r => ({ rating: r.rating, userId: '', createdAt: '' })) || [],
-        } as Manga;
-    }));
-
-    return mapped;
 };
 
 /**
