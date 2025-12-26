@@ -282,8 +282,20 @@ const MangaDetail: React.FC = () => {
 
                 <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{manga.title}</h1>
 
-                <p className="text-muted-foreground">
-                  {manga.author} {manga.artist && `• ${manga.artist}`}
+                {manga.alternativeTitles && manga.alternativeTitles.length > 0 && (
+                  <p className="text-sm text-muted-foreground italic">
+                    {manga.alternativeTitles.join(', ')}
+                  </p>
+                )}
+
+                <p className="text-muted-foreground flex items-center gap-2">
+                  <span>{manga.author} {manga.artist && `• ${manga.artist}`}</span>
+                  {manga.releaseYear && (
+                    <span className="flex items-center gap-1 text-xs">
+                      <Calendar className="h-3 w-3" />
+                      {manga.releaseYear}
+                    </span>
+                  )}
                 </p>
 
                 <div className="flex flex-wrap items-center gap-4 text-sm">

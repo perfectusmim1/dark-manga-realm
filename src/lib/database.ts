@@ -116,6 +116,8 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         status: manga.status,
         type: manga.type,
         views: manga.views || 0,
+        release_year: manga.releaseYear,
+        alternative_titles: manga.alternativeTitles || [],
         last_updated: new Date().toISOString(),
         created_at: manga.createdAt || new Date().toISOString(),
     };
@@ -259,6 +261,8 @@ export const searchMangas = async (query: string): Promise<Manga[]> => {
     if (error) return [];
     return data.map(m => ({
         ...m,
+        alternativeTitles: m.alternative_titles || [],
+        releaseYear: m.release_year,
         lastUpdated: m.last_updated,
         createdAt: m.created_at
     })) as Manga[];

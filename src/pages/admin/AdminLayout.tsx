@@ -14,6 +14,7 @@ import {
     BarChart3,
     UserCircle,
     Download,
+    RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { getAdminSession, removeAdminSession } from '@/lib/storage';
@@ -47,6 +48,7 @@ const AdminLayout: React.FC = () => {
         { icon: BookOpen, label: 'Mangalar', path: '/admin/mangas' },
         { icon: Plus, label: 'Manga Ekle', path: '/admin/mangas/new' },
         { icon: Download, label: 'İçerik Çek', path: '/admin/scraper' },
+        { icon: RefreshCw, label: 'Bölüm Çekme', path: '/admin/chapter-scraper' },
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
         { icon: Users, label: 'Adminler', path: '/admin/users' },
