@@ -1,7 +1,7 @@
 // Supabase Database Integration
 // Fully asynchronous operations replacing localStorage
 import { supabase } from './supabase';
-import { Manga, Chapter, User, MangaRating, Comment } from './types';
+import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem } from './types';
 
 // ==================== MANGA OPERATIONS ====================
 
@@ -527,8 +527,185 @@ export const toggleCommentLike = async (commentId: string, userId: string): Prom
     }
 };
 
-// Migration Helper (Still needed for the button)
+// ==================== READING LIST OPERATIONS ====================
+
+export const getReadingLists = async (userId: string, onlyPublic: boolean = false): Promise<ReadingList[]> => {
+    let query = supabase
+        .from('reading_lists')
+        .select('*');
+
+    if (onlyPublic) {
+        query = query.eq('is_public', true);
+    } else {
+        query = query.eq('user_id', userId);
+    }
+
+    const { data, error } = await query.order('created_at', { ascending: false });
+
+    if (error) return [];
+
+    return data.map(list => ({
+        id: list.id,
+        userId: list.user_id,
+        name: list.name,
+        description: list.description,
+        isPublic: list.is_public,
+        createdAt: list.created_at
+    })) as ReadingList[];
+};
+
+export const getReadingListById = async (listId: string): Promise<ReadingList | undefined> => {
+    const { data, error } = await supabase
+        .from('reading_lists')
+        .select(`
+            *,
+            items:reading_list_items(
+                manga_id
+            )
+        `)
+        .eq('id', listId)
+        .maybeSingle();
+
+    if (error || !data) return undefined;
+
+    // Fetch manga details for items
+    const mangaIds = data.items.map((item: any) => item.manga_id);
+    let mangas: Manga[] = [];
+
+    if (mangaIds.length > 0) {
+        const { data: mangaData } = await supabase
+            .from('mangas')
+            .select('*')
+            .in('id', mangaIds);
+
+        mangas = (mangaData || []).map(m => ({
+            ...m,
+            alternativeTitles: m.alternative_titles || [],
+            releaseYear: m.release_year,
+            lastUpdated: m.last_updated,
+            createdAt: m.created_at
+        })) as Manga[];
+    }
+
+    return {
+        id: data.id,
+        userId: data.user_id,
+        name: data.name,
+        description: data.description,
+        isPublic: data.is_public,
+        createdAt: data.created_at,
+        items: mangas
+    } as ReadingList;
+};
+
+export const createReadingList = async (list: Omit<ReadingList, 'id' | 'createdAt'>): Promise<ReadingList> => {
+    const { data, error } = await supabase
+        .from('reading_lists')
+        .insert({
+            user_id: list.userId,
+            name: list.name,
+            description: list.description,
+            is_public: list.isPublic
+        })
+        .select()
+        .single();
+
+    if (error) throw error;
+
+    return {
+        id: data.id,
+        userId: data.user_id,
+        name: data.name,
+        description: data.description,
+        isPublic: data.is_public,
+        createdAt: data.created_at
+    } as ReadingList;
+};
+
+export const updateReadingList = async (listId: string, updates: Partial<Pick<ReadingList, 'name' | 'description' | 'isPublic'>>): Promise<void> => {
+    const { error } = await supabase
+        .from('reading_lists')
+        .update({
+            name: updates.name,
+            description: updates.description,
+            is_public: updates.isPublic
+        })
+        .eq('id', listId);
+
+    if (error) throw error;
+};
+
+export const deleteReadingList = async (listId: string): Promise<void> => {
+    const { error } = await supabase
+        .from('reading_lists')
+        .delete()
+        .eq('id', listId);
+
+    if (error) throw error;
+};
+
+export const addMangaToReadingList = async (listId: string, mangaId: string): Promise<void> => {
+    const { error } = await supabase
+        .from('reading_list_items')
+        .upsert({
+            list_id: listId,
+            manga_id: mangaId
+        }, { onConflict: 'list_id,manga_id' });
+
+    if (error) throw error;
+};
+
+export const removeMangaFromReadingList = async (listId: string, mangaId: string): Promise<void> => {
+    const { error } = await supabase
+        .from('reading_list_items')
+        .delete()
+        .eq('list_id', listId)
+        .eq('manga_id', mangaId);
+
+    if (error) throw error;
+};
+
+export const getMangasInReadingList = async (listId: string): Promise<Manga[]> => {
+    const { data, error } = await supabase
+        .from('reading_list_items')
+        .select('manga_id')
+        .eq('list_id', listId);
+
+    if (error || !data) return [];
+
+    const mangaIds = data.map(item => item.manga_id);
+    if (mangaIds.length === 0) return [];
+
+    const { data: mangaData, error: mangaError } = await supabase
+        .from('mangas')
+        .select('*')
+        .in('id', mangaIds);
+
+    if (mangaError) return [];
+
+    return mangaData.map(m => ({
+        ...m,
+        alternativeTitles: m.alternative_titles || [],
+        releaseYear: m.release_year,
+        lastUpdated: m.last_updated,
+        createdAt: m.created_at
+    })) as Manga[];
+};
+
+export const checkIfMangaInList = async (listId: string, mangaId: string): Promise<boolean> => {
+    const { data, error } = await supabase
+        .from('reading_list_items')
+        .select('id')
+        .eq('list_id', listId)
+        .eq('manga_id', mangaId)
+        .maybeSingle();
+
+    return !!data && !error;
+};
+
+// Migration Helper
 export const syncAllToSupabase = async (): Promise<{ success: number; total: number }> => {
+
     const localMangasStr = localStorage.getItem('db_mangas');
     if (!localMangasStr) return { success: 0, total: 0 };
 

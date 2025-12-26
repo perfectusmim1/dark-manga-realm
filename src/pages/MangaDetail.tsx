@@ -12,10 +12,13 @@ import {
   Library,
   Bell,
   BellOff,
+  List,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
+import ReadingListModal from '@/components/manga/ReadingListModal';
 import { Button } from '@/components/ui/button';
+
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -61,6 +64,8 @@ const MangaDetail: React.FC = () => {
   const [hoverRating, setHoverRating] = useState(0);
   const [latestProgress, setLatestProgress] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isListModalOpen, setIsListModalOpen] = useState(false);
+
 
   useEffect(() => {
     const loadMangaData = async () => {
@@ -200,6 +205,15 @@ const MangaDetail: React.FC = () => {
       toast.error('İşlem başarısız oldu');
     }
   };
+
+  const handleAddToList = () => {
+    if (!user) {
+      toast.error('Listeye eklemek için giriş yapmalısınız');
+      return;
+    }
+    setIsListModalOpen(true);
+  };
+
 
   const handleRating = async (rating: number) => {
     if (!user) {
@@ -373,6 +387,17 @@ const MangaDetail: React.FC = () => {
                     {isFollowing ? 'Takibi Bırak' : 'Takip Et'}
                   </Button>
 
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={handleAddToList}
+                    className="group border-primary/30 hover:border-primary/60 hover:bg-primary/5 transition-all"
+                  >
+                    <List className="h-4 w-4 text-primary transition-transform group-hover:scale-110" />
+                    Listeye Ekle
+                  </Button>
+
+
                   {favorite && (
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
@@ -516,8 +541,18 @@ const MangaDetail: React.FC = () => {
           </div>
         </div>
       </main>
+
+      {user && manga && (
+        <ReadingListModal
+          isOpen={isListModalOpen}
+          onClose={() => setIsListModalOpen(false)}
+          mangaId={manga.id}
+          userId={user.id}
+        />
+      )}
     </div>
   );
 };
+
 
 export default MangaDetail;

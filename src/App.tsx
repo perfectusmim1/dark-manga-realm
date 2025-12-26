@@ -18,7 +18,10 @@ import History from "./pages/History";
 import Bookmarks from "./pages/Bookmarks";
 import Library from "./pages/Library";
 import Notifications from "./pages/Notifications";
+import ReadingLists from "./pages/ReadingLists";
+import ReadingListDetail from "./pages/ReadingListDetail";
 import NotFound from "./pages/NotFound";
+
 
 // Admin Pages
 import AdminLogin from "./pages/admin/AdminLogin";
@@ -69,6 +72,9 @@ const App = () => (
               <Route path="/history" element={<History />} />
               <Route path="/bookmarks" element={<Bookmarks />} />
               <Route path="/notifications" element={<Notifications />} />
+              <Route path="/reading-lists" element={<ReadingLists />} />
+              <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
+
 
               {/* Admin Routes */}
               <Route path="/admin/login" element={<AdminLogin />} />

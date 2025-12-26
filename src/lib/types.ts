@@ -137,3 +137,21 @@ export interface Comment {
   likes: number;
   likedBy: string[];
 }
+
+export interface ReadingList {
+  id: string;
+  userId: string;
+  name: string;
+  description?: string;
+  isPublic: boolean;
+  createdAt: string;
+  items?: Manga[];
+}
+
+export interface ReadingListItem {
+  id: string;
+  listId: string;
+  mangaId: string;
+  createdAt: string;
+}
+

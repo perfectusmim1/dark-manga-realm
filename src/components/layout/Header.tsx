@@ -12,7 +12,9 @@ import {
   LogOut,
   Library,
   Shield,
+  List,
 } from 'lucide-react';
+
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
@@ -138,6 +140,13 @@ const Header: React.FC = () => {
                     Yer İmleri
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/reading-lists" className="flex items-center gap-2">
+                    <List className="h-4 w-4" />
+                    Okuma Listelerim
+                  </Link>
+                </DropdownMenuItem>
+
                 {adminSession && (
                   <>
                     <DropdownMenuSeparator />
