@@ -37,7 +37,10 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
         {/* Type Badge */}
         <Badge
           variant="secondary"
-          className="absolute left-2 top-2 bg-background/80 backdrop-blur-sm text-xs"
+          className={`absolute left-2 top-2 border-none text-[10px] font-bold backdrop-blur-md ${manga.type === 'manhwa' ? 'bg-purple-600/90 text-white shadow-lg shadow-purple-500/20' :
+            manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
+              'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+            }`}
         >
           {manga.type.toUpperCase()}
         </Badge>
@@ -46,8 +49,8 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
         <Badge
           variant={manga.status === 'completed' ? 'default' : 'outline'}
           className={`absolute right-2 top-2 text-xs ${manga.status === 'completed'
-              ? 'bg-primary/90 text-primary-foreground'
-              : 'border-foreground/30 bg-background/80 backdrop-blur-sm'
+            ? 'bg-primary/90 text-primary-foreground'
+            : 'border-foreground/30 bg-background/80 backdrop-blur-sm'
             }`}
         >
           {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara'}

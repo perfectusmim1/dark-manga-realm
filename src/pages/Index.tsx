@@ -155,9 +155,9 @@ const Index: React.FC = () => {
                   <div className="absolute bottom-0 left-0 right-0 p-3">
                     <Badge
                       variant="secondary"
-                      className={`mb-2 text-xs ${manga.type === 'manhwa' ? 'bg-purple-500/20 text-purple-400' :
-                        manga.type === 'manhua' ? 'bg-green-500/20 text-green-400' :
-                          'bg-primary/20 text-primary'
+                      className={`mb-2 border-none text-[10px] font-bold backdrop-blur-md ${manga.type === 'manhwa' ? 'bg-purple-600/90 text-white shadow-lg shadow-purple-500/20' :
+                        manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
+                          'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                         }`}
                     >
                       {manga.type.toUpperCase()}

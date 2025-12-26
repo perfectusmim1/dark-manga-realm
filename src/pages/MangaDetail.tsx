@@ -272,7 +272,13 @@ const MangaDetail: React.FC = () => {
               {/* Info */}
               <div className="flex flex-1 flex-col gap-4 animate-fade-up opacity-0" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge variant="default" className="bg-primary text-primary-foreground">
+                  <Badge
+                    variant="default"
+                    className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' :
+                      manga.type === 'manhua' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' :
+                        'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+                      }`}
+                  >
                     {manga.type.toUpperCase()}
                   </Badge>
                   <Badge variant="outline">
