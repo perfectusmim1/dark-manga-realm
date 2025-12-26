@@ -20,7 +20,9 @@ import Library from "./pages/Library";
 import Notifications from "./pages/Notifications";
 import ReadingLists from "./pages/ReadingLists";
 import ReadingListDetail from "./pages/ReadingListDetail";
+import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+
 
 
 // Admin Pages
@@ -74,6 +76,8 @@ const App = () => (
               <Route path="/notifications" element={<Notifications />} />
               <Route path="/reading-lists" element={<ReadingLists />} />
               <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
+              <Route path="/settings" element={<Settings />} />
+
 
 
               {/* Admin Routes */}

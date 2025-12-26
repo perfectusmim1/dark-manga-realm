@@ -238,7 +238,19 @@ export const createCommentNotification = async (
     commentId: string,
     chapterId?: string
 ) => {
+    // Check user preferences
+    const { data: userData } = await supabase
+        .from('users')
+        .select('preferences')
+        .eq('id', targetUserId)
+        .single();
+
+    const prefs = userData?.preferences;
+    if (type === 'reply' && prefs?.notifications?.replies === false) return;
+    if (type === 'like' && prefs?.notifications?.likes === false) return;
+
     const title = type === 'reply' ? 'Yeni Yanıt' : 'Yorum Beğenisi';
+
     const message = type === 'reply'
         ? `${fromUsername} yorumunuza yanıt verdi.`
         : `${fromUsername} yorumunuzu beğendi.`;
@@ -266,13 +278,28 @@ export const createNotificationForFollowers = async (
     chapterId: string,
     chapterNumber: number
 ) => {
-    // Get all followers for this manga
-    const { data: followers } = await supabase.from('follows').select('user_id').eq('manga_id', mangaId);
+    // Get all followers for this manga with their preferences
+    const { data: followers } = await supabase
+        .from('follows')
+        .select(`
+            user_id,
+            user:users!user_id(preferences)
+        `)
+        .eq('manga_id', mangaId);
 
     if (!followers || followers.length === 0) return;
 
-    // Create notifications for each follower
-    const notifications = followers.map(f => ({
+    // Filter followers who want new chapter notifications
+    const activeFollowers = followers.filter(f => {
+        const prefs = (f as any).user?.preferences;
+        return prefs?.notifications?.new_chapter !== false;
+    });
+
+    if (activeFollowers.length === 0) return;
+
+    // Create notifications for each active follower
+    const notifications = activeFollowers.map(f => ({
+
         user_id: f.user_id,
         type: 'new_chapter',
         title: 'Yeni Bölüm',

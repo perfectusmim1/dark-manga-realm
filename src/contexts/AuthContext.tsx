@@ -11,7 +11,13 @@ interface AuthContextType {
   login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   register: (username: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
+  updateProfile: (updates: { username?: string, avatar?: string }) => Promise<{ success: boolean; error?: string }>;
+  updatePassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  updateEmail: (newEmail: string) => Promise<{ success: boolean; error?: string }>;
+  updatePreferences: (newPreferences: any) => Promise<{ success: boolean; error?: string }>;
 }
+
+
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
@@ -24,8 +30,16 @@ const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: any): User =
     avatar: profile?.avatar || supabaseUser.user_metadata?.avatar_url,
     role: profile?.role || 'user',
     createdAt: supabaseUser.created_at,
+    preferences: profile?.preferences || {
+      notifications: {
+        new_chapter: true,
+        replies: true,
+        likes: true
+      }
+    }
   };
 };
+
 
 export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
   const [user, setUser] = useState<User | null>(null);
@@ -254,6 +268,85 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const updateProfile = async (updates: { username?: string, avatar?: string }): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'Oturum açılmamış' };
+
+    try {
+      // Update our users table
+      const { error: dbError } = await supabase
+        .from('users')
+        .update(updates)
+        .eq('id', user.id);
+
+      if (dbError) throw dbError;
+
+      // Update Auth metadata if username changed
+      if (updates.username) {
+        const { error: authError } = await supabase.auth.updateUser({
+          data: { username: updates.username }
+        });
+        if (authError) console.warn('Auth metadata update failed:', authError);
+      }
+
+      // Refresh local state
+      const profile = await fetchProfile(user.id);
+      setUser(mapSupabaseUserToUser(supabaseUser!, profile));
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('Update profile error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const updatePassword = async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        password: newPassword
+      });
+      if (error) throw error;
+      return { success: true };
+    } catch (error: any) {
+      console.error('Update password error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const updateEmail = async (newEmail: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { error } = await supabase.auth.updateUser({
+        email: newEmail
+      });
+      if (error) throw error;
+      return { success: true, error: 'E-posta güncelleme onayı gönderildi. Lütfen yeni e-postanızı kontrol edin.' };
+    } catch (error: any) {
+      console.error('Update email error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const updatePreferences = async (newPreferences: any): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'Oturum açılmamış' };
+
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ preferences: newPreferences })
+        .eq('id', user.id);
+
+      if (error) throw error;
+
+      // Refresh local state
+      const profile = await fetchProfile(user.id);
+      setUser(mapSupabaseUserToUser(supabaseUser!, profile));
+
+      return { success: true };
+    } catch (error: any) {
+      console.error('Update preferences error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -262,8 +355,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       isLoading,
       login,
       register,
-      logout
+      logout,
+      updateProfile,
+      updatePassword,
+      updateEmail,
+      updatePreferences
     }}>
+
+
       {children}
     </AuthContext.Provider>
   );

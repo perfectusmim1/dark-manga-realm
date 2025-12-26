@@ -13,12 +13,16 @@ import {
   Library,
   Shield,
   List,
+  Settings,
 } from 'lucide-react';
+
 
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { getAdminSession } from '../../lib/storage';
+import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -106,9 +110,15 @@ const Header: React.FC = () => {
           {user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="ghost" size="icon" className="rounded-full">
-                  <User className="h-5 w-5" />
+                <Button variant="ghost" size="icon" className="h-9 w-9 p-0 rounded-full hover:bg-secondary/80">
+                  <Avatar className="h-8 w-8 border border-border/50">
+                    <AvatarImage src={user.avatar} />
+                    <AvatarFallback className="bg-primary/10 text-primary text-xs">
+                      {user.username[0].toUpperCase()}
+                    </AvatarFallback>
+                  </Avatar>
                 </Button>
+
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <div className="px-2 py-1.5">
@@ -146,6 +156,13 @@ const Header: React.FC = () => {
                     Okuma Listelerim
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/settings" className="flex items-center gap-2">
+                    <Settings className="h-4 w-4" />
+                    Ayarlar
+                  </Link>
+                </DropdownMenuItem>
+
 
                 {adminSession && (
                   <>

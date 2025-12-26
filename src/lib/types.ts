@@ -42,7 +42,15 @@ export interface User {
   avatar?: string;
   role?: 'user' | 'admin' | 'moderator';
   createdAt?: string;
+  preferences?: {
+    notifications: {
+      new_chapter: boolean;
+      replies: boolean;
+      likes: boolean;
+    };
+  };
 }
+
 
 export interface ReadingProgress {
   userId: string; // User ID

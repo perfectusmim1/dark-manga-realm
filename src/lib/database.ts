@@ -393,6 +393,7 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string): 
         .from('comments')
         .select(`
             *,
+            author:users(username, avatar),
             likes_count:comment_likes(count)
         `)
         .eq('manga_id', mangaId);
@@ -405,7 +406,10 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string): 
 
     const { data, error } = await query.order('created_at', { ascending: false });
 
-    if (error) return [];
+    if (error) {
+        console.error('Fetch comments error:', error);
+        return [];
+    }
 
     // Get current user's likes if authenticated
     const { data: userData } = await supabase.auth.getUser();
@@ -420,22 +424,24 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string): 
         userLikes = likes?.map(l => l.comment_id) || [];
     }
 
-    return data.map(c => ({
+    return (data || []).map(c => ({
         id: c.id,
         mangaId: c.manga_id,
         chapterId: c.chapter_id,
         userId: c.user_id,
-        username: c.username,
-        userAvatar: c.user_avatar,
+        // Prioritize joined author data for real-time updates
+        username: (c as any).author?.username || c.username,
+        userAvatar: (c as any).author?.avatar || c.user_avatar,
         content: c.content,
         gifUrl: c.gif_url,
         createdAt: c.created_at,
         updatedAt: c.updated_at,
         parentId: c.parent_id,
-        likes: c.likes_count[0]?.count || 0,
-        likedBy: userLikes.includes(c.id) ? [userId] : [], // Simplified for local UI sync
+        likes: (c as any).likes_count?.[0]?.count || 0,
+        likedBy: userLikes.includes(c.id) ? [userId] : [],
     })) as Comment[];
 };
+
 
 export const addComment = async (comment: Omit<Comment, 'id' | 'likes' | 'likedBy' | 'createdAt' | 'updatedAt'>): Promise<Comment> => {
     const { data, error } = await supabase
