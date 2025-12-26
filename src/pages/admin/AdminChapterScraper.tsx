@@ -58,6 +58,7 @@ const AdminChapterScraper: React.FC = () => {
     const [fetchingDetails, setFetchingDetails] = useState(false);
     const [sourceChapters, setSourceChapters] = useState<ScrapedChapter[]>([]);
     const [newChapters, setNewChapters] = useState<ScrapedChapter[]>([]);
+    const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
 
     // Import State
     const [importing, setImporting] = useState(false);
@@ -199,6 +200,7 @@ const AdminChapterScraper: React.FC = () => {
                 const localChapterNumbers = localMangaDetails.chapters.map(c => c.number);
                 const diff = chapters.filter(sc => !localChapterNumbers.includes(sc.number));
                 setNewChapters(diff);
+                setSelectedChapterIndices(diff.map((_, i) => i));
 
                 if (diff.length === 0) {
                     toast.info('Bu manga zaten güncel.');
@@ -215,13 +217,20 @@ const AdminChapterScraper: React.FC = () => {
 
     const handleImportNewChapters = async () => {
         if (!localMangaDetails || newChapters.length === 0) return;
+
+        const chaptersToImport = newChapters.filter((_, i) => selectedChapterIndices.includes(i));
+        if (chaptersToImport.length === 0) {
+            toast.error('Lütfen en az bir bölüm seçin');
+            return;
+        }
+
         setImporting(true);
 
         try {
             const importedChapters: Chapter[] = [...localMangaDetails.chapters];
 
-            for (let i = 0; i < newChapters.length; i++) {
-                const sc = newChapters[i];
+            for (let i = 0; i < chaptersToImport.length; i++) {
+                const sc = chaptersToImport[i];
                 try {
                     // Small delay to prevent proxy ban
                     if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
@@ -273,7 +282,7 @@ const AdminChapterScraper: React.FC = () => {
                         views: 0,
                     });
 
-                    toast.info(`Bölüm ${sc.number} yüklendi... (${i + 1}/${newChapters.length})`);
+                    toast.info(`Bölüm ${sc.number} yüklendi... (${i + 1}/${chaptersToImport.length})`);
                 } catch (e) {
                     toast.error(`Bölüm ${sc.number} hata verdi, atlanıyor.`);
                 }
@@ -287,7 +296,7 @@ const AdminChapterScraper: React.FC = () => {
             };
 
             await saveManga(updatedManga);
-            toast.success(`${newChapters.length} yeni bölüm başarıyla eklendi!`);
+            toast.success(`${chaptersToImport.length} yeni bölüm başarıyla eklendi!`);
             navigate(`/admin/mangas/${localMangaDetails.id}`);
         } catch (err) {
             toast.error('Güncelleme sırasında bir hata oluştu');
@@ -400,7 +409,7 @@ const AdminChapterScraper: React.FC = () => {
                                 className="gap-2"
                             >
                                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
-                                {newChapters.length > 0 ? `${newChapters.length} Yeni Bölümü İçe Aktar` : 'Güncelleme Yok'}
+                                {selectedChapterIndices.length > 0 ? `${selectedChapterIndices.length} Yeni Bölümü İçe Aktar` : 'Bölüm Seçilmedi'}
                             </Button>
                         </div>
                     </CardHeader>
@@ -408,12 +417,29 @@ const AdminChapterScraper: React.FC = () => {
                         <div className="grid md:grid-cols-2">
                             <div className="border-r border-border p-6">
                                 <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Yeni Bölümler ({newChapters.length})</h3>
-                                <div className="grid grid-cols-2 gap-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-                                    {newChapters.map((ch, i) => (
-                                        <Badge key={i} variant="secondary" className="flex justify-center py-2 h-auto text-sm">
-                                            Bölüm {ch.number}
-                                        </Badge>
-                                    ))}
+                                <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                                    {newChapters.map((ch, i) => {
+                                        const isSelected = selectedChapterIndices.includes(i);
+                                        return (
+                                            <button
+                                                key={i}
+                                                onClick={() => {
+                                                    setSelectedChapterIndices(prev =>
+                                                        prev.includes(i)
+                                                            ? prev.filter(index => index !== i)
+                                                            : [...prev, i]
+                                                    );
+                                                }}
+                                                className={`flex flex-col items-center justify-center rounded-full w-16 h-16 transition-all duration-200 border-2 select-none ${isSelected
+                                                    ? 'bg-green-500/20 border-green-500 text-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]'
+                                                    : 'bg-red-500/10 border-red-500/50 text-red-400 opacity-60'
+                                                    }`}
+                                            >
+                                                <span className="text-[10px] font-bold uppercase">Bölüm</span>
+                                                <span className="text-sm font-black">{ch.number}</span>
+                                            </button>
+                                        );
+                                    })}
                                     {newChapters.length === 0 && (
                                         <p className="col-span-full py-4 text-center text-sm text-green-500 font-medium">Bu manga tamamen güncel!</p>
                                     )}

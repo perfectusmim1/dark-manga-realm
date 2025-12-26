@@ -43,6 +43,7 @@ const AdminScraper: React.FC = () => {
     const [selectedManga, setSelectedManga] = useState<ScrapedMangaCard | null>(null);
     const [fetchedData, setFetchedData] = useState<Partial<Manga> | null>(null);
     const [fetchingDetails, setFetchingDetails] = useState(false);
+    const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
 
     const proxies = [
         (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
@@ -237,6 +238,7 @@ const AdminScraper: React.FC = () => {
             // Store temporary chapters for the preview/import flow
             (scrapedManga as any)._rawChapters = chapters;
 
+            setSelectedChapterIndices(chapters.map((_, i) => i));
             setFetchedData(scrapedManga);
             toast.success('Manga detayları çekildi');
         } catch (err) {
@@ -253,18 +255,26 @@ const AdminScraper: React.FC = () => {
 
         try {
             const rawChapters = (fetchedData as any)._rawChapters as ScrapedChapter[];
+            const selectedChaptersToImport = rawChapters.filter((_, i) => selectedChapterIndices.includes(i));
+
+            if (selectedChaptersToImport.length === 0) {
+                toast.error('Lütfen en az bir bölüm seçin');
+                setLoading(false);
+                return;
+            }
+
             const mangaId = `manga-${Date.now()}`;
 
             // For chapters, we need to visit EACH chapter link to get image URLs.
             // This can be heavy, so we'll do it sequentially or in chunks.
             const chapters: Chapter[] = [];
 
-            toast.info(`${rawChapters.length} bölüm için görsel linkleri çekiliyor...`);
+            toast.info(`${selectedChaptersToImport.length} bölüm için görsel linkleri çekiliyor...`);
 
             // Max 10 chapters for initial import to avoid rate limit/timeout? 
             // Or just do all but warn user.
-            for (let i = 0; i < rawChapters.length; i++) {
-                const rc = rawChapters[i];
+            for (let i = 0; i < selectedChaptersToImport.length; i++) {
+                const rc = selectedChaptersToImport[i];
                 try {
                     // Increased delay to be safer
                     if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
@@ -325,8 +335,8 @@ const AdminScraper: React.FC = () => {
                         views: 0,
                     });
 
-                    if ((i + 1) % 5 === 0 || i === rawChapters.length - 1) {
-                        toast.info(`${i + 1} / ${rawChapters.length} bölüm tamamlandı...`);
+                    if ((i + 1) % 5 === 0 || i === selectedChaptersToImport.length - 1) {
+                        toast.info(`${i + 1} / ${selectedChaptersToImport.length} bölüm tamamlandı...`);
                     }
                 } catch (e) {
                     console.error(`Bölüm ${rc.number} çekilemedi:`, e);
@@ -505,16 +515,49 @@ const AdminScraper: React.FC = () => {
 
                                     <div className="space-y-2 text-sm">
                                         <div className="flex items-center justify-between border-b pb-1">
-                                            <span className="font-semibold">Bölüm Sayısı</span>
-                                            <span>{(fetchedData as any)._rawChapters?.length || 0}</span>
+                                            <div className="flex items-center gap-4">
+                                                <span className="font-semibold text-muted-foreground">Bölüm Sayısı: <span className="text-foreground">{(fetchedData as any)._rawChapters?.length || 0}</span></span>
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    className="h-7 px-3 text-[10px] uppercase font-black tracking-wider transition-all"
+                                                    onClick={() => {
+                                                        const allChapters = (fetchedData as any)._rawChapters || [];
+                                                        if (selectedChapterIndices.length === allChapters.length) {
+                                                            setSelectedChapterIndices([]);
+                                                        } else {
+                                                            setSelectedChapterIndices(allChapters.map((_, i) => i));
+                                                        }
+                                                    }}
+                                                >
+                                                    {selectedChapterIndices.length === ((fetchedData as any)._rawChapters?.length || 0) ? 'Hiçbirini Seçme' : 'Tümünü Seç'}
+                                                </Button>
+                                            </div>
                                         </div>
                                         <div className="max-h-32 overflow-y-auto space-y-1 mt-2 pr-2">
-                                            {((fetchedData as any)._rawChapters as ScrapedChapter[])?.slice().reverse().map((ch, i) => (
-                                                <div key={i} className="flex justify-between text-xs py-1 px-2 bg-muted/30 rounded">
-                                                    <span className="truncate">{ch.name}</span>
-                                                    <span className="text-muted-foreground">#{ch.number}</span>
-                                                </div>
-                                            ))}
+                                            {((fetchedData as any)._rawChapters as ScrapedChapter[])?.slice().reverse().map((ch, revIdx, arr) => {
+                                                const originalIdx = arr.length - 1 - revIdx;
+                                                const isSelected = selectedChapterIndices.includes(originalIdx);
+                                                return (
+                                                    <div
+                                                        key={originalIdx}
+                                                        onClick={() => {
+                                                            setSelectedChapterIndices(prev =>
+                                                                prev.includes(originalIdx)
+                                                                    ? prev.filter(id => id !== originalIdx)
+                                                                    : [...prev, originalIdx]
+                                                            );
+                                                        }}
+                                                        className={`flex justify-between text-xs py-1 px-2 rounded cursor-pointer transition-colors ${isSelected
+                                                            ? 'bg-green-500/20 hover:bg-green-500/30 text-green-500'
+                                                            : 'bg-red-500/10 hover:bg-red-500/20 text-red-400'
+                                                            }`}
+                                                    >
+                                                        <span className="truncate">{ch.name}</span>
+                                                        <span className="opacity-70">#{ch.number}</span>
+                                                    </div>
+                                                );
+                                            })}
                                         </div>
                                     </div>
                                 </div>

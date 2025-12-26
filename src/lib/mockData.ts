@@ -45,7 +45,6 @@ export const allGenres = [
   'Suç',
   'Tıbbi',
   'Askeri',
-  'Harem',
 ];
 
 // Initialize database on import (no mock data)
