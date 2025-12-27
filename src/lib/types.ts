@@ -162,4 +162,20 @@ export interface ReadingListItem {
   mangaId: string;
   createdAt: string;
 }
-
+export interface Review {
+  id: string;
+  mangaId: string;
+  userId: string;
+  username: string;
+  userAvatar?: string;
+  content: string;
+  rating_story: number;
+  rating_characters: number;
+  rating_art: number;
+  rating_progression: number;
+  rating_engagement: number;
+  createdAt: string;
+  updatedAt: string;
+  likes: number;
+  likedBy: string[];
+}

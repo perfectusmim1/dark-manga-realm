@@ -1,7 +1,7 @@
 // Supabase Database Integration
 // Fully asynchronous operations replacing localStorage
 import { supabase } from './supabase';
-import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem } from './types';
+import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review } from './types';
 
 // ==================== MANGA OPERATIONS ====================
 
@@ -23,22 +23,25 @@ export const getAllMangas = async (): Promise<Manga[]> => {
 
             if (error) throw error;
 
-            // Try to get chapter counts and ratings in bulk, but don't fail if they fail
-            let chapterCounts: any[] = [];
-            let allRatings: any[] = [];
+            // Get all reviews to calculate averages
+            const { data: revData } = await supabase.from('reviews').select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement');
+            const allReviews = revData || [];
 
-            try {
-                const { data: cData } = await supabase.from('chapters').select('manga_id');
-                chapterCounts = cData || [];
-                const { data: rData } = await supabase.from('ratings').select('manga_id, rating');
-                allRatings = rData || [];
-            } catch (innerErr) {
-                console.warn('Non-critical bulk fetch error:', innerErr);
-            }
+            // Get chapter counts
+            const { data: cData } = await supabase.from('chapters').select('manga_id');
+            const chapterCounts = cData || [];
 
             return data.map((m) => {
                 const mangaChapters = chapterCounts.filter(c => c.manga_id === m.id);
-                const mangaRatings = allRatings.filter(r => r.manga_id === m.id);
+                const mangaReviews = allReviews.filter(r => r.manga_id === m.id);
+
+                let average = 0;
+                if (mangaReviews.length > 0) {
+                    const totalPoints = mangaReviews.reduce((sum, r) =>
+                        sum + (r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5
+                        , 0);
+                    average = Math.round((totalPoints / mangaReviews.length) * 10) / 10;
+                }
 
                 return {
                     ...m,
@@ -47,8 +50,10 @@ export const getAllMangas = async (): Promise<Manga[]> => {
                     createdAt: m.created_at,
                     releaseYear: m.release_year,
                     chapters: Array(mangaChapters.length).fill({}),
-                    ratings: mangaRatings.map(r => ({ rating: r.rating, userId: '', createdAt: '' })),
-                } as Manga;
+                    ratings: Array(mangaReviews.length).fill({ rating: average }), // Simplified for list view
+                    averageRating: average,
+                    reviewCount: mangaReviews.length
+                } as any;
             });
         };
 
@@ -77,10 +82,19 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
         return undefined;
     }
 
-    const { data: ratingData } = await supabase
-        .from('ratings')
+    const { data: reviewData } = await supabase
+        .from('reviews')
         .select('*')
         .eq('manga_id', mangaId);
+
+    const reviews = reviewData || [];
+    let average = 0;
+    if (reviews.length > 0) {
+        const totalPoints = reviews.reduce((sum, r) =>
+            sum + (r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5
+            , 0);
+        average = Math.round((totalPoints / reviews.length) * 10) / 10;
+    }
 
     return {
         ...data,
@@ -92,11 +106,13 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
             ...c,
             releaseDate: c.release_date
         })),
-        ratings: ratingData?.map(r => ({
+        ratings: reviews.map(r => ({
             userId: r.user_id,
-            rating: r.rating,
+            rating: Math.round((r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5),
             createdAt: r.created_at
-        })) || [],
+        })),
+        averageRating: average,
+        reviewCount: reviews.length
     } as Manga;
 };
 
@@ -197,10 +213,11 @@ export const deleteChapter = async (mangaId: string, chapterId: string): Promise
     return !error;
 };
 
-// ==================== RATING OPERATIONS ====================
+// ==================== REVIEW & RATING OPERATIONS ====================
 
 export const rateManga = async (mangaId: string, userId: string, rating: number): Promise<boolean> => {
-    const { error } = await supabase
+    // For backward compatibility, still update ratings table
+    await supabase
         .from('ratings')
         .upsert({
             manga_id: mangaId,
@@ -209,33 +226,198 @@ export const rateManga = async (mangaId: string, userId: string, rating: number)
             created_at: new Date().toISOString()
         }, { onConflict: 'manga_id,user_id' });
 
-    return !error;
+    // Also update/create a basic review if it doesn't exist
+    const { data: existingReview } = await supabase
+        .from('reviews')
+        .select('id')
+        .eq('manga_id', mangaId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (!existingReview) {
+        await supabase.from('reviews').insert({
+            manga_id: mangaId,
+            user_id: userId,
+            content: 'Puan verildi',
+            rating_story: rating,
+            rating_characters: rating,
+            rating_art: rating,
+            rating_progression: rating,
+            rating_engagement: rating,
+        });
+    }
+
+    return true;
+};
+
+export const addReview = async (review: Omit<Review, 'id' | 'createdAt' | 'updatedAt' | 'likes' | 'likedBy'>): Promise<void> => {
+    const { error } = await supabase.from('reviews').upsert({
+        manga_id: review.mangaId,
+        user_id: review.userId,
+        content: review.content,
+        rating_story: review.rating_story,
+        rating_characters: review.rating_characters,
+        rating_art: review.rating_art,
+        rating_progression: review.rating_progression,
+        rating_engagement: review.rating_engagement,
+        updated_at: new Date().toISOString()
+    }, { onConflict: 'manga_id,user_id' });
+
+    if (error) throw error;
+};
+
+export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => {
+    const { data, error } = await supabase
+        .from('reviews')
+        .select(`
+            *,
+            user:users!user_id(username, avatar),
+            likes_count:review_likes(count)
+        `)
+        .eq('manga_id', mangaId)
+        .order('created_at', { ascending: false });
+
+    if (error) {
+        console.error('Fetch reviews error:', error);
+        return [];
+    }
+
+    // Get current user's likes if authenticated
+    const { data: authData } = await supabase.auth.getUser();
+    const userId = authData?.user?.id;
+
+    let userLikes: string[] = [];
+    if (userId) {
+        const { data: likes } = await supabase
+            .from('review_likes')
+            .select('review_id')
+            .eq('user_id', userId);
+        userLikes = likes?.map(l => l.review_id) || [];
+    }
+
+    return (data || []).map(r => ({
+        id: r.id,
+        mangaId: r.manga_id,
+        userId: r.user_id,
+        username: (r as any).user?.username || 'Anonim',
+        userAvatar: (r as any).user?.avatar,
+        content: r.content,
+        rating_story: r.rating_story,
+        rating_characters: r.rating_characters,
+        rating_art: r.rating_art,
+        rating_progression: r.rating_progression,
+        rating_engagement: r.rating_engagement,
+        createdAt: r.created_at,
+        updatedAt: r.updated_at,
+        likes: (r as any).likes_count?.[0]?.count || 0,
+        likedBy: userLikes.includes(r.id) ? [userId] : []
+    })) as Review[];
+};
+
+export const toggleReviewLike = async (reviewId: string, userId: string): Promise<void> => {
+    const { data: existing } = await supabase
+        .from('review_likes')
+        .select('*')
+        .eq('review_id', reviewId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (existing) {
+        await supabase.from('review_likes').delete().eq('review_id', reviewId).eq('user_id', userId);
+    } else {
+        await supabase.from('review_likes').insert({ review_id: reviewId, user_id: userId });
+    }
 };
 
 export const getUserRating = async (mangaId: string, userId: string): Promise<number | undefined> => {
+    // Return average of the 5 categories for the user's review
     const { data, error } = await supabase
-        .from('ratings')
-        .select('rating')
+        .from('reviews')
+        .select('rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
         .eq('manga_id', mangaId)
         .eq('user_id', userId)
         .maybeSingle();
 
     if (error || !data) return undefined;
-    return data.rating;
+
+    const avg = (data.rating_story + data.rating_characters + data.rating_art + data.rating_progression + data.rating_engagement) / 5;
+    return Math.round(avg * 10) / 10;
 };
 
-export const getAverageRating = async (mangaId: string): Promise<{ average: number; count: number }> => {
+export const getUserReview = async (mangaId: string, userId: string): Promise<Review | undefined> => {
     const { data, error } = await supabase
-        .from('ratings')
-        .select('rating')
+        .from('reviews')
+        .select('*')
+        .eq('manga_id', mangaId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error || !data) return undefined;
+    return {
+        id: data.id,
+        mangaId: data.manga_id,
+        userId: data.user_id,
+        username: '', // Fill if needed
+        content: data.content,
+        rating_story: data.rating_story,
+        rating_characters: data.rating_characters,
+        rating_art: data.rating_art,
+        rating_progression: data.rating_progression,
+        rating_engagement: data.rating_engagement,
+        createdAt: data.created_at,
+        updatedAt: data.updated_at,
+        likes: 0,
+        likedBy: []
+    } as Review;
+};
+
+export const getAverageRating = async (mangaId: string): Promise<{
+    average: number;
+    count: number;
+    story: number;
+    characters: number;
+    art: number;
+    progression: number;
+    engagement: number;
+}> => {
+    const { data, error } = await supabase
+        .from('reviews')
+        .select('rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
         .eq('manga_id', mangaId);
 
-    if (error || !data || data.length === 0) return { average: 0, count: 0 };
+    if (error || !data || data.length === 0) return {
+        average: 0,
+        count: 0,
+        story: 0,
+        characters: 0,
+        art: 0,
+        progression: 0,
+        engagement: 0
+    };
 
-    const total = data.reduce((sum, r) => sum + r.rating, 0);
+    const count = data.length;
+    const sums = data.reduce((acc, r) => ({
+        story: acc.story + r.rating_story,
+        characters: acc.characters + r.rating_characters,
+        art: acc.art + r.rating_art,
+        progression: acc.progression + r.rating_progression,
+        engagement: acc.engagement + r.rating_engagement,
+    }), { story: 0, characters: 0, art: 0, progression: 0, engagement: 0 });
+
+    const avgs = {
+        story: Math.round((sums.story / count) * 10) / 10,
+        characters: Math.round((sums.characters / count) * 10) / 10,
+        art: Math.round((sums.art / count) * 10) / 10,
+        progression: Math.round((sums.progression / count) * 10) / 10,
+        engagement: Math.round((sums.engagement / count) * 10) / 10,
+    };
+
+    const totalAvg = Math.round(((avgs.story + avgs.characters + avgs.art + avgs.progression + avgs.engagement) / 5) * 10) / 10;
+
     return {
-        average: Math.round((total / data.length) * 10) / 10,
-        count: data.length
+        average: totalAvg,
+        count,
+        ...avgs
     };
 };
 
@@ -393,7 +575,7 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string): 
         .from('comments')
         .select(`
             *,
-            author:users(username, avatar),
+            author:users!user_id(username, avatar),
             likes_count:comment_likes(count)
         `)
         .eq('manga_id', mangaId);

@@ -27,7 +27,17 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import { getMangaById, getAverageRating, rateManga, getUserRating, incrementMangaViews } from '@/lib/database';
+import {
+  getMangaById,
+  getAverageRating,
+  rateManga,
+  getUserRating,
+  incrementMangaViews,
+  getReviewsForManga,
+  addReview,
+  getUserReview,
+  toggleReviewLike
+} from '@/lib/database';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   addFavorite,
@@ -40,7 +50,28 @@ import {
   isFollowingManga,
   getFavorites,
 } from '../lib/storage';
-import { LibraryCategory, Manga } from '@/lib/types';
+import { LibraryCategory, Manga, Review } from '@/lib/types';
+import {
+  MessageSquare,
+  ThumbsUp,
+  Plus,
+  Send,
+  ArrowRight,
+  Edit3
+} from 'lucide-react';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Progress } from "@/components/ui/progress";
+import { Textarea } from "@/components/ui/textarea";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+  DialogTrigger,
+  DialogFooter,
+} from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from 'sonner';
 import MangaDetailSkeleton from '@/components/skeletons/MangaDetailSkeleton';
 
@@ -67,6 +98,25 @@ const MangaDetail: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState('');
+  const [activeTab, setActiveTab] = useState('overview');
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [avgBreakdown, setAvgBreakdown] = useState<any>({
+    story: 0,
+    characters: 0,
+    art: 0,
+    progression: 0,
+    engagement: 0
+  });
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [userReview, setUserReview] = useState<Partial<Review>>({
+    content: '',
+    rating_story: 10,
+    rating_characters: 10,
+    rating_art: 10,
+    rating_progression: 10,
+    rating_engagement: 10
+  });
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
 
 
   useEffect(() => {
@@ -88,24 +138,41 @@ const MangaDetail: React.FC = () => {
           incrementMangaViews(mangaId);
 
           if (user) {
-            const [favorited, following, cat, rating, progress] = await Promise.all([
+            const [favorited, following, cat, rating, progress, mReviews, uReview] = await Promise.all([
               isFavorite(user.id, mangaId),
               isFollowingManga(user.id, mangaId),
-              // We'll get category from the favorites check or a separate call
               null as any,
               getUserRating(mangaId, user.id),
-              getLatestProgress(user.id, mangaId)
+              getLatestProgress(user.id, mangaId),
+              getReviewsForManga(mangaId),
+              getUserReview(mangaId, user.id)
             ]);
 
             setFavorite(favorited);
             setIsFollowing(following);
             setUserRating(rating);
             setLatestProgress(progress);
+            setReviews(mReviews);
+            if (uReview) setUserReview(uReview);
 
             // To get category, we'll fetch favorites specifically
             const userFavorites = await getFavorites(user.id);
             const thisFav = userFavorites.find(f => f.mangaId === mangaId);
             if (thisFav) setCategory(thisFav.category);
+          } else {
+            const mReviews = await getReviewsForManga(mangaId);
+            setReviews(mReviews);
+          }
+
+          // Update breakdown
+          if (avgRating) {
+            setAvgBreakdown({
+              story: (avgRating as any).story || 0,
+              characters: (avgRating as any).characters || 0,
+              art: (avgRating as any).art || 0,
+              progression: (avgRating as any).progression || 0,
+              engagement: (avgRating as any).engagement || 0
+            });
           }
         }
       } catch (err) {
@@ -228,9 +295,80 @@ const MangaDetail: React.FC = () => {
       setUserRating(rating);
       const newAvg = await getAverageRating(manga.id);
       setAverageRating(newAvg);
+
+      // Update breakdown as well
+      setAvgBreakdown({
+        story: (newAvg as any).story || 0,
+        characters: (newAvg as any).characters || 0,
+        art: (newAvg as any).art || 0,
+        progression: (newAvg as any).progression || 0,
+        engagement: (newAvg as any).engagement || 0
+      });
+
       toast.success(`${rating}/10 puan verildi!`);
     } catch (err) {
       toast.error('Puan kaydedilemedi');
+    }
+  };
+
+  const handleReviewSubmit = async () => {
+    if (!user) return;
+    if (!userReview.content?.trim()) {
+      toast.error('Lütfen bir inceleme metni yazın');
+      return;
+    }
+
+    try {
+      setIsSubmittingReview(true);
+      await addReview({
+        mangaId: manga.id,
+        userId: user.id,
+        username: user.username,
+        userAvatar: user.avatar,
+        content: userReview.content,
+        rating_story: userReview.rating_story || 10,
+        rating_characters: userReview.rating_characters || 10,
+        rating_art: userReview.rating_art || 10,
+        rating_progression: userReview.rating_progression || 10,
+        rating_engagement: userReview.rating_engagement || 10,
+      });
+
+      const [newAvg, newReviews] = await Promise.all([
+        getAverageRating(manga.id),
+        getReviewsForManga(manga.id)
+      ]);
+
+      setAverageRating(newAvg);
+      setReviews(newReviews);
+      setAvgBreakdown({
+        story: (newAvg as any).story || 0,
+        characters: (newAvg as any).characters || 0,
+        art: (newAvg as any).art || 0,
+        progression: (newAvg as any).progression || 0,
+        engagement: (newAvg as any).engagement || 0
+      });
+
+      setIsReviewModalOpen(false);
+      toast.success('İncelemeniz başarıyla yayınlandı!');
+    } catch (err) {
+      toast.error('İnceleme gönderilemedi');
+    } finally {
+      setIsSubmittingReview(false);
+    }
+  };
+
+  const toggleLikeReview = async (reviewId: string) => {
+    if (!user) {
+      toast.error('Beğenmek için giriş yapmalısınız');
+      return;
+    }
+
+    try {
+      await toggleReviewLike(reviewId, user.id);
+      const newReviews = await getReviewsForManga(manga.id);
+      setReviews(newReviews);
+    } catch (err) {
+      console.error('Like error:', err);
     }
   };
 
@@ -433,130 +571,357 @@ const MangaDetail: React.FC = () => {
           </div>
         </div>
 
-        {/* Rating Section */}
-        <div className="container py-6">
-          <div className="rounded-xl border border-border bg-card/50 p-6 animate-fade-up opacity-0" style={{ animationDelay: '0.25s', animationFillMode: 'forwards' }}>
-            <h2 className="text-lg font-semibold mb-4">Puan Ver</h2>
-            <div className="flex flex-col sm:flex-row sm:items-center gap-4">
-              <div className="flex gap-1">
-                {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
-                  <button
-                    key={star}
-                    onClick={() => handleRating(star)}
-                    onMouseEnter={() => setHoverRating(star)}
-                    onMouseLeave={() => setHoverRating(0)}
-                    className="p-1 transition-transform hover:scale-110"
-                  >
-                    <Star
-                      className={`h-6 w-6 transition-colors ${star <= (hoverRating || userRating || 0)
-                        ? 'fill-yellow-400 text-yellow-400'
-                        : 'text-muted-foreground'
-                        }`}
-                    />
-                  </button>
-                ))}
-              </div>
-              <div className="text-sm text-muted-foreground">
-                {userRating ? (
-                  <span>Puanınız: <strong className="text-foreground">{userRating}/10</strong></span>
-                ) : (
-                  <span>Henüz puan vermediniz</span>
-                )}
-                {averageRating.count > 0 && (
-                  <span className="ml-4">
-                    Ortalama: <strong className="text-foreground">{averageRating.average}/10</strong> ({averageRating.count} oy)
-                  </span>
-                )}
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Chapters List */}
+        {/* Tabs System */}
         <div className="container py-8">
-          <div className="rounded-xl border border-border bg-card/50 animate-fade-up opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
-            <div className="border-b border-border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div>
-                <h2 className="text-xl font-bold">Bölümler</h2>
-                <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
-              </div>
-              <div className="relative w-full sm:w-64">
-                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  placeholder="Bölüm ara (örn: 97)"
-                  className="pl-9"
-                  value={chapterSearch}
-                  onChange={(e) => setChapterSearch(e.target.value)}
-                />
-              </div>
-            </div>
+          <Tabs defaultValue="overview" className="w-full" onValueChange={setActiveTab}>
+            <TabsList className="mb-8 w-full justify-start border-b rounded-none bg-transparent h-auto p-0 gap-8">
+              <TabsTrigger
+                value="overview"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all"
+              >
+                GENEL BAKIŞ
+              </TabsTrigger>
+              <TabsTrigger
+                value="reviews"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all flex items-center gap-2"
+              >
+                İNCELEMELER
+                {reviews.length > 0 && (
+                  <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 border-none px-2 h-5 text-[10px]">
+                    {reviews.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger
+                value="discover"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all flex items-center gap-2"
+              >
+                KEŞFET
+              </TabsTrigger>
+            </TabsList>
 
-            {manga.chapters.length > 0 ? (
-              <>
-                <div className="divide-y divide-border">
-                  {displayedChapters.map((chapter) => (
-                    <Link
-                      key={chapter.id}
-                      to={`/manga/${manga.id}/chapter/${chapter.id}`}
-                      className="flex items-center justify-between p-4 transition-colors hover:bg-secondary/50"
-                    >
+            <TabsContent value="overview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                {/* Chapters List */}
+                <div className="lg:col-span-2 space-y-8">
+                  <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
+                    <div className="border-b border-border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                       <div>
-                        <h3 className="font-medium">
-                          Bölüm {chapter.number}: {chapter.title}
-                        </h3>
-                        <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
-                          <span className="flex items-center gap-1">
-                            <Calendar className="h-3 w-3" />
-                            {formatDate(chapter.releaseDate)}
-                          </span>
-                          <span className="flex items-center gap-1">
-                            <Eye className="h-3 w-3" />
-                            {formatViews(chapter.views || 0)}
-                          </span>
-                        </div>
+                        <h2 className="text-xl font-bold">Bölümler</h2>
+                        <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
                       </div>
-                      <Badge variant="outline" className="text-xs">
-                        {chapter.pages.length} sayfa
-                      </Badge>
-                    </Link>
-                  ))}
+                      <div className="relative w-full sm:w-64">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                          placeholder="Bölüm ara (örn: 97)"
+                          className="pl-9"
+                          value={chapterSearch}
+                          onChange={(e) => setChapterSearch(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    {manga.chapters.length > 0 ? (
+                      <>
+                        <div className="divide-y divide-border">
+                          {displayedChapters.map((chapter) => (
+                            <Link
+                              key={chapter.id}
+                              to={`/manga/${manga.id}/chapter/${chapter.id}`}
+                              className="flex items-center justify-between p-4 transition-colors hover:bg-secondary/50"
+                            >
+                              <div>
+                                <h3 className="font-medium">
+                                  Bölüm {chapter.number}: {chapter.title}
+                                </h3>
+                                <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+                                  <span className="flex items-center gap-1">
+                                    <Calendar className="h-3 w-3" />
+                                    {formatDate(chapter.releaseDate)}
+                                  </span>
+                                  <span className="flex items-center gap-1">
+                                    <Eye className="h-3 w-3" />
+                                    {formatViews(chapter.views || 0)}
+                                  </span>
+                                </div>
+                              </div>
+                              <Badge variant="outline" className="text-xs">
+                                {chapter.pages.length} sayfa
+                              </Badge>
+                            </Link>
+                          ))}
+                        </div>
+
+                        {filteredChapters.length > 8 && (
+                          <div className="border-t border-border p-4">
+                            <Button
+                              variant="ghost"
+                              className="w-full"
+                              onClick={() => setShowAllChapters(!showAllChapters)}
+                            >
+                              {showAllChapters ? (
+                                <>
+                                  <ChevronUp className="mr-2 h-4 w-4" />
+                                  Daha Az Göster
+                                </>
+                              ) : (
+                                <>
+                                  <ChevronDown className="mr-2 h-4 w-4" />
+                                  Tüm Bölümleri Göster ({filteredChapters.length - 8} daha)
+                                </>
+                              )}
+                            </Button>
+                          </div>
+                        )}
+                      </>
+                    ) : (
+                      <div className="p-8 text-center text-muted-foreground">
+                        Henüz bölüm eklenmemiş
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Comments Section */}
+                  <div className="rounded-xl border border-border bg-card/50 p-6">
+                    <CommentSection mangaId={manga.id} />
+                  </div>
                 </div>
 
-                {filteredChapters.length > 8 && (
-                  <div className="border-t border-border p-4">
-                    <Button
-                      variant="ghost"
-                      className="w-full"
-                      onClick={() => setShowAllChapters(!showAllChapters)}
-                    >
-                      {showAllChapters ? (
-                        <>
-                          <ChevronUp className="mr-2 h-4 w-4" />
-                          Daha Az Göster
-                        </>
-                      ) : (
-                        <>
-                          <ChevronDown className="mr-2 h-4 w-4" />
-                          Tüm Bölümleri Göster ({filteredChapters.length - 8} daha)
-                        </>
-                      )}
+                {/* Sidebar Info */}
+                <div className="space-y-6">
+                  <div className="rounded-xl border border-border bg-card/50 p-6">
+                    <h2 className="text-lg font-semibold mb-4">{userRating ? 'Puanınız' : 'Puan Ver'}</h2>
+                    <div className="flex flex-col gap-4">
+                      <div className="flex gap-1 justify-center">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
+                          <div
+                            key={star}
+                            onClick={() => !userRating && handleRating(star)}
+                            onMouseEnter={() => !userRating && setHoverRating(star)}
+                            onMouseLeave={() => !userRating && setHoverRating(0)}
+                            className={`p-1 transition-transform ${!userRating ? 'hover:scale-110 cursor-pointer' : 'cursor-default'}`}
+                          >
+                            <Star
+                              className={`h-5 w-5 transition-colors ${star <= (hoverRating || userRating || 0)
+                                ? 'fill-yellow-400 text-yellow-400'
+                                : 'text-muted-foreground'
+                                }`}
+                            />
+                          </div>
+                        ))}
+                      </div>
+                      <div className="text-sm text-center text-muted-foreground">
+                        {userRating ? (
+                          <span>Puanınız: <strong className="text-foreground">{userRating}/10</strong></span>
+                        ) : (
+                          <span>Henüz puan vermediniz</span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="rounded-xl border border-border bg-primary/5 p-6 border-primary/20">
+                    <h3 className="font-semibold mb-2">Hızlı Erişim</h3>
+                    <p className="text-sm text-muted-foreground mb-4">Manga hakkında daha fazla bilgi ve tartışma için incelemeler sekmesine göz atın.</p>
+                    <Button variant="outline" className="w-full group" onClick={() => setActiveTab('reviews')}>
+                      İncelemeleri Gör
+                      <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
                     </Button>
                   </div>
-                )}
-              </>
-            ) : (
-              <div className="p-8 text-center text-muted-foreground">
-                Henüz bölüm eklenmemiş
+                </div>
               </div>
-            )}
-          </div>
-        </div>
+            </TabsContent>
 
-        {/* Comments Section */}
-        <div className="container pb-12">
-          <div className="rounded-xl border border-border bg-card/50 p-6 animate-fade-up opacity-0" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
-            <CommentSection mangaId={manga.id} />
-          </div>
+            <TabsContent value="reviews" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="rounded-xl border border-border bg-card/50 p-8 shadow-xl">
+                {/* Reviews Summary */}
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 items-center mb-12">
+                  <div className="text-center md:border-r border-border py-4">
+                    <div className="text-7xl font-black mb-2 tracking-tighter text-foreground">{averageRating.average || '0'}</div>
+                    <div className="flex justify-center gap-0.5 mb-2">
+                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
+                        <Star key={star} className={`h-4 w-4 ${star <= Math.round(averageRating.average) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`} />
+                      ))}
+                    </div>
+                    <div className="text-muted-foreground font-medium">{reviews.length} inceleme</div>
+                  </div>
+
+                  <div className="lg:col-span-2 space-y-3">
+                    {[
+                      { label: 'Hikaye', value: avgBreakdown.story },
+                      { label: 'Karakterler', value: avgBreakdown.characters },
+                      { label: 'Çizim', value: avgBreakdown.art },
+                      { label: 'İlerleyiş', value: avgBreakdown.progression },
+                      { label: 'Sürükleyicilik', value: avgBreakdown.engagement },
+                    ].map((item) => (
+                      <div key={item.label} className="flex items-center gap-4">
+                        <span className="text-sm font-medium w-24 text-muted-foreground">{item.label}</span>
+                        <Progress value={item.value * 10} className="h-2 flex-1" />
+                        <span className="text-sm font-bold w-12 text-right">{item.value.toFixed(1)}</span>
+                      </div>
+                    ))}
+
+                    <div className="pt-6 flex justify-end">
+                      <Dialog open={isReviewModalOpen} onOpenChange={setIsReviewModalOpen}>
+                        <DialogTrigger asChild>
+                          <Button variant="glow" size="lg" className="rounded-full px-8 shadow-lg shadow-primary/20">
+                            {userReview?.id ? (
+                              <>
+                                <Edit3 className="mr-2 h-4 w-4" />
+                                İncelemeyi Düzenle
+                              </>
+                            ) : (
+                              <>
+                                <Plus className="mr-2 h-4 w-4" />
+                                İnceleme Yaz
+                              </>
+                            )}
+                          </Button>
+                        </DialogTrigger>
+                        <DialogContent className="sm:max-w-[600px] bg-card/95 backdrop-blur-xl border-primary/20">
+                          <DialogHeader>
+                            <DialogTitle className="text-2xl font-bold">
+                              {userReview.id ? 'İncelemeyi Düzenle' : 'İnceleme Yaz'}
+                            </DialogTitle>
+                            <DialogDescription>
+                              {userReview.id ? 'Mevcut incelemenizi güncelleyin.' : 'Manga hakkındaki görüşlerinizi ayrıntılı olarak paylaşın.'}
+                            </DialogDescription>
+                          </DialogHeader>
+
+                          <div className="space-y-6 py-4">
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                              {[
+                                { label: 'Hikaye', key: 'rating_story' },
+                                { label: 'Karakterler', key: 'rating_characters' },
+                                { label: 'Çizim', key: 'rating_art' },
+                                { label: 'İlerleyiş', key: 'rating_progression' },
+                                { label: 'Sürükleyicilik', key: 'rating_engagement' },
+                              ].map((item) => (
+                                <div key={item.label} className="space-y-2">
+                                  <div className="flex justify-between text-sm font-medium">
+                                    <span>{item.label}</span>
+                                    <span className="text-primary">{userReview[item.key as keyof Partial<Review>]}/10</span>
+                                  </div>
+                                  <div className="flex gap-1">
+                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
+                                      <button
+                                        key={star}
+                                        onClick={() => setUserReview(prev => ({ ...prev, [item.key]: star }))}
+                                        className="p-0.5"
+                                      >
+                                        <Star
+                                          className={`h-4 w-4 ${star <= (userReview[item.key as keyof Partial<Review>] as number) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`}
+                                        />
+                                      </button>
+                                    ))}
+                                  </div>
+                                </div>
+                              ))}
+                            </div>
+
+                            <div className="space-y-2">
+                              <label className="text-sm font-medium">İncelemeniz</label>
+                              <Textarea
+                                placeholder="Manga hakkındaki düşünceleriniz..."
+                                className="min-h-[120px] resize-none bg-secondary/30"
+                                value={userReview.content}
+                                onChange={(e) => setUserReview(prev => ({ ...prev, content: e.target.value }))}
+                              />
+                            </div>
+                          </div>
+
+                          <DialogFooter>
+                            <Button variant="ghost" onClick={() => setIsReviewModalOpen(false)}>İptal</Button>
+                            <Button variant="glow" onClick={handleReviewSubmit} disabled={isSubmittingReview}>
+                              {isSubmittingReview ? 'Kaydediliyor...' : (userReview.id ? 'Güncelle' : 'Yayınla')}
+                            </Button>
+                          </DialogFooter>
+                        </DialogContent>
+                      </Dialog>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Reviews List */}
+                <div className="space-y-6">
+                  <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                    <MessageSquare className="h-5 w-5 text-primary" />
+                    Kullanıcı İncelemeleri
+                  </h3>
+
+                  {reviews.length > 0 ? (
+                    <div className="grid grid-cols-1 gap-6">
+                      {reviews.map((review) => (
+                        <div key={review.id} className="rounded-xl border border-border bg-card/30 p-6 transition-all hover:bg-card/50">
+                          <div className="flex justify-between items-start mb-4">
+                            <div className="flex gap-4">
+                              <Avatar className="h-12 w-12 border-2 border-primary/20">
+                                <AvatarImage src={review.userAvatar} />
+                                <AvatarFallback>{review.username.substring(0, 2).toUpperCase()}</AvatarFallback>
+                              </Avatar>
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <h4 className="font-bold">{review.username}</h4>
+                                  {/* Optional LV badge can go here */}
+                                </div>
+                                <p className="text-xs text-muted-foreground">{formatDate(review.createdAt)}</p>
+                              </div>
+                            </div>
+                            <div className="flex gap-0.5 text-yellow-400">
+                              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
+                                const avg = (review.rating_story + review.rating_characters + review.rating_art + review.rating_progression + review.rating_engagement) / 5;
+                                return <Star key={star} className={`h-3 w-3 ${star <= Math.round(avg) ? 'fill-current' : 'text-muted-foreground'}`} />;
+                              })}
+                            </div>
+                          </div>
+
+                          <p className="text-foreground/90 leading-relaxed mb-6 whitespace-pre-wrap">{review.content}</p>
+
+                          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-6 bg-secondary/20 p-3 rounded-lg">
+                            <span>Hikaye: <strong className="text-foreground">{review.rating_story}/10</strong></span>
+                            <span>Karakterler: <strong className="text-foreground">{review.rating_characters}/10</strong></span>
+                            <span>Çizim: <strong className="text-foreground">{review.rating_art}/10</strong></span>
+                            <span>İlerleyiş: <strong className="text-foreground">{review.rating_progression}/10</strong></span>
+                            <span>Sürükleyicilik: <strong className="text-foreground">{review.rating_engagement}/10</strong></span>
+                          </div>
+
+                          <div className="flex items-center justify-between border-t border-border pt-4">
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              className={`gap-2 ${review.likedBy.includes(user?.id || '') ? 'text-primary bg-primary/10' : ''}`}
+                              onClick={() => toggleLikeReview(review.id)}
+                            >
+                              <ThumbsUp className={`h-4 w-4 ${review.likedBy.includes(user?.id || '') ? 'fill-current' : ''}`} />
+                              <span>{review.likes}</span>
+                            </Button>
+                            <Button variant="ghost" size="sm" className="gap-2">
+                              Paylaş
+                            </Button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-20 bg-secondary/10 rounded-xl border border-dashed border-border">
+                      <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
+                      <p className="text-muted-foreground">Henüz inceleme yapılmamış. İlk inceleyen siz olun!</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            </TabsContent>
+
+            <TabsContent value="discover" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="rounded-xl border border-border bg-card/50 p-12 text-center">
+                <h3 className="text-2xl font-bold mb-4">Benzer Serileri Keşfet</h3>
+                <p className="text-muted-foreground mb-8">Bu seri ile benzer türdeki diğer popüler serileri yakında burada görebileceksiniz.</p>
+                <Button variant="outline" asChild>
+                  <Link to="/browse">Tüm Serilere Göz At</Link>
+                </Button>
+              </div>
+            </TabsContent>
+          </Tabs>
         </div>
       </main>
 
