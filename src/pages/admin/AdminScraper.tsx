@@ -45,26 +45,55 @@ const AdminScraper: React.FC = () => {
     const [fetchingDetails, setFetchingDetails] = useState(false);
     const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
 
-    const proxies = [
-        (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-        (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-    ];
-
     const fetchWithProxy = async (targetUrl: string) => {
+        // 1. Priority: Supabase Edge Function
+        try {
+            const response = await fetch('https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/proxy-scraper', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: targetUrl })
+            });
+
+            if (response.ok) {
+                const data = await response.json();
+                if (data.content) return data.content;
+            }
+        } catch (e) {
+            console.warn('Edge Function failed, switching to backup proxies...', e);
+        }
+
+        // 2. Backup: Public Proxies
+        const backups = [
+            (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
+            (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
+            (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` // Additional backup
+        ];
+
         let lastError = null;
-        for (const proxy of proxies) {
+        for (const proxy of backups) {
             try {
                 const response = await fetch(proxy(targetUrl));
                 if (response.ok) {
-                    const data = await response.json();
-                    // allorigins returns {contents: "..."}, corsproxy returns direct stream
-                    if (data.contents) return data.contents;
-                    return data; // for proxies that return direct json or if already parsed
+                    const data = await response.json().catch(() => null);
+                    // allorigins returns {contents: "..."}
+                    if (data && data.contents) return data.contents;
+                    // codetabs returns text directly usually, but let's check text first if json fails
+                    if (!data) {
+                        return await response.text();
+                    }
+                    return data;
                 }
             } catch (err) {
                 lastError = err;
             }
         }
+
+        // Final attempt: direct fetch (works if user has a CORS plugin or browser allows)
+        try {
+            const response = await fetch(targetUrl);
+            if (response.ok) return await response.text();
+        } catch (e) { }
+
         throw lastError || new Error('All proxies failed');
     };
 
