@@ -37,7 +37,10 @@ import {
     updateComment,
     deleteComment,
     toggleCommentLike,
-    getMangaById
+    getMangaById,
+    getMangaReactions,
+    getUserMangaReaction,
+    addMangaReaction
 } from '@/lib/database';
 import { createCommentNotification } from '@/lib/storage';
 import { toast } from 'sonner';
@@ -64,15 +67,50 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     const [gifs, setGifs] = useState<any[]>([]);
     const [gifTarget, setGifTarget] = useState<'new' | 'edit' | 'reply'>('new');
     const [showAllComments, setShowAllComments] = useState(false);
+    const [sortBy, setSortBy] = useState<'newest' | 'popular'>('newest');
+    const [reactions, setReactions] = useState<Record<string, number>>({});
+    const [userReaction, setUserReaction] = useState<string | null>(null);
 
     useEffect(() => {
         loadComments();
-    }, [mangaId, chapterId]);
+        loadReactions();
+    }, [mangaId, chapterId, sortBy]);
 
     const loadComments = async () => {
-        const loadedComments = await getCommentsForManga(mangaId, chapterId);
+        const loadedComments = await getCommentsForManga(mangaId, chapterId, sortBy);
         setComments(loadedComments);
     };
+
+    const loadReactions = async () => {
+        const counts = await getMangaReactions(mangaId);
+        setReactions(counts);
+        if (user) {
+            const ur = await getUserMangaReaction(mangaId, user.id);
+            setUserReaction(ur);
+        }
+    };
+
+    const handleReaction = async (type: string) => {
+        if (!user) {
+            toast.error('Tepki bırakmak için giriş yapmalısınız');
+            return;
+        }
+        try {
+            await addMangaReaction(mangaId, user.id, type);
+            await loadReactions();
+        } catch (error) {
+            toast.error('İşlem başarısız oldu');
+        }
+    };
+
+    const reactionTypes = [
+        { type: 'like', label: 'Beğendim', emoji: '👍' },
+        { type: 'funny', label: 'Eğlenceli', emoji: '😂' },
+        { type: 'love', label: 'Bayıldım', emoji: '😍' },
+        { type: 'wow', label: 'Oha', emoji: '😲' },
+        { type: 'angry', label: 'Sinir Bozucu', emoji: '😡' },
+        { type: 'sad', label: 'Üzüldüm', emoji: '😢' },
+    ];
 
     const searchGifs = async (query: string) => {
         if (!query.trim()) {
@@ -253,10 +291,67 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     const getReplies = (parentId: string) => comments.filter(c => c.parentId === parentId);
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-center gap-2">
-                <MessageCircle className="h-5 w-5 text-primary" />
-                <h3 className="text-lg font-semibold">Yorumlar ({comments.length})</h3>
+        <div className="space-y-8">
+            {/* Reactions Section */}
+            {!chapterId && (
+                <div className="text-center space-y-6 py-6 pb-12 border-b border-border/50">
+                    <div className="space-y-1">
+                        <h2 className="text-2xl font-black tracking-tight">Ne Düşünüyorsun?</h2>
+                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest">Emojiler</p>
+                    </div>
+
+                    <div className="flex flex-wrap justify-center gap-4">
+                        {reactionTypes.map((r) => (
+                            <div key={r.type} className="flex flex-col items-center gap-2">
+                                <button
+                                    onClick={() => handleReaction(r.type)}
+                                    className={`group flex items-center gap-2 px-6 py-2.5 rounded-full border-2 transition-all duration-300 ${userReaction === r.type
+                                        ? 'bg-primary/20 border-primary text-primary shadow-lg shadow-primary/10'
+                                        : 'bg-card border-border hover:border-primary/50 hover:bg-secondary/50'
+                                        }`}
+                                >
+                                    <span className="text-xl transition-transform group-hover:scale-125 duration-300">
+                                        {r.emoji}
+                                    </span>
+                                    <span className="font-bold text-sm min-w-[2ch]">
+                                        {reactions[r.type] || 0}
+                                    </span>
+                                </button>
+                                <span className={`text-xs font-semibold ${userReaction === r.type ? 'text-primary' : 'text-muted-foreground'}`}>
+                                    {r.label}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex items-center gap-2">
+                    <MessageCircle className="h-5 w-5 text-primary" />
+                    <h3 className="text-lg font-bold">Yorumlar ({comments.length})</h3>
+                </div>
+
+                <div className="flex items-center bg-secondary/30 rounded-lg p-1">
+                    <button
+                        onClick={() => setSortBy('newest')}
+                        className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${sortBy === 'newest'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                    >
+                        En Yeni
+                    </button>
+                    <button
+                        onClick={() => setSortBy('popular')}
+                        className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${sortBy === 'popular'
+                            ? 'bg-background text-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground'
+                            }`}
+                    >
+                        Popüler
+                    </button>
+                </div>
             </div>
 
             {user ? (

@@ -179,3 +179,11 @@ export interface Review {
   likes: number;
   likedBy: string[];
 }
+
+export interface MangaReaction {
+  id: string;
+  mangaId: string;
+  userId: string;
+  reactionType: string;
+  createdAt: string;
+}

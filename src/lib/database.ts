@@ -1,7 +1,7 @@
 // Supabase Database Integration
 // Fully asynchronous operations replacing localStorage
 import { supabase } from './supabase';
-import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review } from './types';
+import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction } from './types';
 
 // ==================== MANGA OPERATIONS ====================
 
@@ -570,7 +570,7 @@ export const getStatistics = async () => {
 
 // ==================== COMMENT OPERATIONS ====================
 
-export const getCommentsForManga = async (mangaId: string, chapterId?: string): Promise<Comment[]> => {
+export const getCommentsForManga = async (mangaId: string, chapterId?: string, sortBy: 'newest' | 'popular' = 'newest'): Promise<Comment[]> => {
     let query = supabase
         .from('comments')
         .select(`
@@ -586,7 +586,7 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string): 
         query = query.is('chapter_id', null);
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const { data, error } = await query;
 
     if (error) {
         console.error('Fetch comments error:', error);
@@ -606,7 +606,7 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string): 
         userLikes = likes?.map(l => l.comment_id) || [];
     }
 
-    return (data || []).map(c => ({
+    const mappedComments = (data || []).map(c => ({
         id: c.id,
         mangaId: c.manga_id,
         chapterId: c.chapter_id,
@@ -622,6 +622,12 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string): 
         likes: (c as any).likes_count?.[0]?.count || 0,
         likedBy: userLikes.includes(c.id) ? [userId] : [],
     })) as Comment[];
+
+    if (sortBy === 'popular') {
+        return mappedComments.sort((a, b) => b.likes - a.likes);
+    } else {
+        return mappedComments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    }
 };
 
 
@@ -914,3 +920,59 @@ export const syncAllToSupabase = async (): Promise<{ success: number; total: num
 
 // Legacy stubs for Auth compatibility if needed temporarily
 export const initializeDatabase = () => { };
+// ==================== REACTION OPERATIONS ====================
+
+export const getMangaReactions = async (mangaId: string): Promise<Record<string, number>> => {
+    const { data, error } = await supabase
+        .from('manga_reactions')
+        .select('reaction_type')
+        .eq('manga_id', mangaId);
+
+    if (error) {
+        console.error('Fetch reactions error:', error);
+        return {};
+    }
+
+    const counts: Record<string, number> = {};
+    data.forEach(r => {
+        counts[r.reaction_type] = (counts[r.reaction_type] || 0) + 1;
+    });
+
+    return counts;
+};
+
+export const getUserMangaReaction = async (mangaId: string, userId: string): Promise<string | null> => {
+    const { data, error } = await supabase
+        .from('manga_reactions')
+        .select('reaction_type')
+        .eq('manga_id', mangaId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (error || !data) return null;
+    return data.reaction_type;
+};
+
+export const addMangaReaction = async (mangaId: string, userId: string, reactionType: string): Promise<void> => {
+    // If it's the same reaction, delete it (toggle off)
+    const current = await getUserMangaReaction(mangaId, userId);
+    if (current === reactionType) {
+        await supabase
+            .from('manga_reactions')
+            .delete()
+            .eq('manga_id', mangaId)
+            .eq('user_id', userId);
+        return;
+    }
+
+    const { error } = await supabase
+        .from('manga_reactions')
+        .upsert({
+            manga_id: mangaId,
+            user_id: userId,
+            reaction_type: reactionType,
+            created_at: new Date().toISOString()
+        }, { onConflict: 'manga_id,user_id' });
+
+    if (error) throw error;
+};
