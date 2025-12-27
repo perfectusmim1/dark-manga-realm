@@ -4,6 +4,7 @@ import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen } from 'lucide-
 import Header from '@/components/layout/Header';
 import FeaturedManga from '@/components/manga/FeaturedManga';
 import MangaGrid from '@/components/manga/MangaGrid';
+import MangaCard from '@/components/manga/MangaCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getAllMangas } from '@/lib/database';
@@ -143,30 +144,8 @@ const Index: React.FC = () => {
             </Button>
           </div>
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
-            {recentlyUpdated.map((manga) => (
-              <Link key={manga.id} to={`/manga/${manga.id}`} className="group">
-                <div className="relative aspect-[3/4] overflow-hidden rounded-xl bg-secondary">
-                  <img
-                    src={manga.cover}
-                    alt={manga.title}
-                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
-                  />
-                  <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                  <div className="absolute bottom-0 left-0 right-0 p-3">
-                    <Badge
-                      variant="secondary"
-                      className={`mb-2 border-none text-[10px] font-bold backdrop-blur-md ${manga.type === 'manhwa' ? 'bg-purple-600/90 text-white shadow-lg shadow-purple-500/20' :
-                        manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
-                          'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
-                        }`}
-                    >
-                      {manga.type.toUpperCase()}
-                    </Badge>
-                    <h3 className="font-semibold text-white text-sm line-clamp-2">{manga.title}</h3>
-                    <p className="text-xs text-white/70 mt-1">Bölüm {manga.chapters.length}</p>
-                  </div>
-                </div>
-              </Link>
+            {recentlyUpdated.map((manga, index) => (
+              <MangaCard key={manga.id} manga={manga} index={index} />
             ))}
           </div>
         </section>
