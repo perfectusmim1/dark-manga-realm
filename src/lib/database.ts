@@ -922,11 +922,19 @@ export const syncAllToSupabase = async (): Promise<{ success: number; total: num
 export const initializeDatabase = () => { };
 // ==================== REACTION OPERATIONS ====================
 
-export const getMangaReactions = async (mangaId: string): Promise<Record<string, number>> => {
-    const { data, error } = await supabase
+export const getMangaReactions = async (mangaId: string, chapterId?: string): Promise<Record<string, number>> => {
+    let query = supabase
         .from('manga_reactions')
         .select('reaction_type')
         .eq('manga_id', mangaId);
+
+    if (chapterId) {
+        query = query.eq('chapter_id', chapterId);
+    } else {
+        query = query.is('chapter_id', null);
+    }
+
+    const { data, error } = await query;
 
     if (error) {
         console.error('Fetch reactions error:', error);
@@ -941,27 +949,42 @@ export const getMangaReactions = async (mangaId: string): Promise<Record<string,
     return counts;
 };
 
-export const getUserMangaReaction = async (mangaId: string, userId: string): Promise<string | null> => {
-    const { data, error } = await supabase
+export const getUserMangaReaction = async (mangaId: string, userId: string, chapterId?: string): Promise<string | null> => {
+    let query = supabase
         .from('manga_reactions')
         .select('reaction_type')
         .eq('manga_id', mangaId)
-        .eq('user_id', userId)
-        .maybeSingle();
+        .eq('user_id', userId);
+
+    if (chapterId) {
+        query = query.eq('chapter_id', chapterId);
+    } else {
+        query = query.is('chapter_id', null);
+    }
+
+    const { data, error } = await query.maybeSingle();
 
     if (error || !data) return null;
     return data.reaction_type;
 };
 
-export const addMangaReaction = async (mangaId: string, userId: string, reactionType: string): Promise<void> => {
+export const addMangaReaction = async (mangaId: string, userId: string, reactionType: string, chapterId?: string): Promise<void> => {
     // If it's the same reaction, delete it (toggle off)
-    const current = await getUserMangaReaction(mangaId, userId);
+    const current = await getUserMangaReaction(mangaId, userId, chapterId);
     if (current === reactionType) {
-        await supabase
+        let deleteQuery = supabase
             .from('manga_reactions')
             .delete()
             .eq('manga_id', mangaId)
             .eq('user_id', userId);
+
+        if (chapterId) {
+            deleteQuery = deleteQuery.eq('chapter_id', chapterId);
+        } else {
+            deleteQuery = deleteQuery.is('chapter_id', null);
+        }
+
+        await deleteQuery;
         return;
     }
 
@@ -969,10 +992,11 @@ export const addMangaReaction = async (mangaId: string, userId: string, reaction
         .from('manga_reactions')
         .upsert({
             manga_id: mangaId,
+            chapter_id: chapterId || null,
             user_id: userId,
             reaction_type: reactionType,
             created_at: new Date().toISOString()
-        }, { onConflict: 'manga_id,user_id' });
+        }, { onConflict: 'user_id,manga_id,chapter_id' }); // Note: onConflict depends on how the index was created, but upsert with multiple cols usually requires them in unique index
 
     if (error) throw error;
 };

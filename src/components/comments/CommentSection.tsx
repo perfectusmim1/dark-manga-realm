@@ -82,10 +82,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     };
 
     const loadReactions = async () => {
-        const counts = await getMangaReactions(mangaId);
+        const counts = await getMangaReactions(mangaId, chapterId);
         setReactions(counts);
         if (user) {
-            const ur = await getUserMangaReaction(mangaId, user.id);
+            const ur = await getUserMangaReaction(mangaId, user.id, chapterId);
             setUserReaction(ur);
         }
     };
@@ -96,7 +96,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             return;
         }
         try {
-            await addMangaReaction(mangaId, user.id, type);
+            await addMangaReaction(mangaId, user.id, type, chapterId);
             await loadReactions();
         } catch (error) {
             toast.error('İşlem başarısız oldu');
@@ -293,38 +293,36 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     return (
         <div className="space-y-8">
             {/* Reactions Section */}
-            {!chapterId && (
-                <div className="text-center space-y-6 py-6 pb-12 border-b border-border/50">
-                    <div className="space-y-1">
-                        <h2 className="text-2xl font-black tracking-tight">Ne Düşünüyorsun?</h2>
-                        <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest">Emojiler</p>
-                    </div>
-
-                    <div className="flex flex-wrap justify-center gap-4">
-                        {reactionTypes.map((r) => (
-                            <div key={r.type} className="flex flex-col items-center gap-2">
-                                <button
-                                    onClick={() => handleReaction(r.type)}
-                                    className={`group flex items-center gap-2 px-6 py-2.5 rounded-full border-2 transition-all duration-300 ${userReaction === r.type
-                                        ? 'bg-primary/20 border-primary text-primary shadow-lg shadow-primary/10'
-                                        : 'bg-card border-border hover:border-primary/50 hover:bg-secondary/50'
-                                        }`}
-                                >
-                                    <span className="text-xl transition-transform group-hover:scale-125 duration-300">
-                                        {r.emoji}
-                                    </span>
-                                    <span className="font-bold text-sm min-w-[2ch]">
-                                        {reactions[r.type] || 0}
-                                    </span>
-                                </button>
-                                <span className={`text-xs font-semibold ${userReaction === r.type ? 'text-primary' : 'text-muted-foreground'}`}>
-                                    {r.label}
-                                </span>
-                            </div>
-                        ))}
-                    </div>
+            <div className="text-center space-y-6 py-6 pb-12 border-b border-border/50">
+                <div className="space-y-1">
+                    <h2 className="text-2xl font-black tracking-tight">Ne Düşünüyorsun?</h2>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest">Emojiler</p>
                 </div>
-            )}
+
+                <div className="flex flex-wrap justify-center gap-4">
+                    {reactionTypes.map((r) => (
+                        <div key={r.type} className="flex flex-col items-center gap-2">
+                            <button
+                                onClick={() => handleReaction(r.type)}
+                                className={`group flex items-center gap-2 px-6 py-2.5 rounded-full border-2 transition-all duration-300 ${userReaction === r.type
+                                    ? 'bg-primary/20 border-primary text-primary shadow-lg shadow-primary/10'
+                                    : 'bg-card border-border hover:border-primary/50 hover:bg-secondary/50'
+                                    }`}
+                            >
+                                <span className="text-xl transition-transform group-hover:scale-125 duration-300">
+                                    {r.emoji}
+                                </span>
+                                <span className="font-bold text-sm min-w-[2ch]">
+                                    {reactions[r.type] || 0}
+                                </span>
+                            </button>
+                            <span className={`text-xs font-semibold ${userReaction === r.type ? 'text-primary' : 'text-muted-foreground'}`}>
+                                {r.label}
+                            </span>
+                        </div>
+                    ))}
+                </div>
+            </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="flex items-center gap-2">

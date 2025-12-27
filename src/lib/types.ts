@@ -183,6 +183,7 @@ export interface Review {
 export interface MangaReaction {
   id: string;
   mangaId: string;
+  chapterId?: string;
   userId: string;
   reactionType: string;
   createdAt: string;
