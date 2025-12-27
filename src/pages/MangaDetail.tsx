@@ -573,7 +573,7 @@ const MangaDetail: React.FC = () => {
 
         {/* Tabs System */}
         <div className="container py-8">
-          <Tabs defaultValue="overview" className="w-full" onValueChange={setActiveTab}>
+          <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
             <TabsList className="mb-8 w-full justify-start border-b rounded-none bg-transparent h-auto p-0 gap-8">
               <TabsTrigger
                 value="overview"
