@@ -36,7 +36,8 @@ import {
   getReviewsForManga,
   addReview,
   getUserReview,
-  toggleReviewLike
+  toggleReviewLike,
+  getSimilarMangas
 } from '@/lib/database';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -117,6 +118,8 @@ const MangaDetail: React.FC = () => {
     rating_engagement: 10
   });
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [similarMangas, setSimilarMangas] = useState<Manga[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
 
 
   useEffect(() => {
@@ -173,6 +176,14 @@ const MangaDetail: React.FC = () => {
               progression: (avgRating as any).progression || 0,
               engagement: (avgRating as any).engagement || 0
             });
+          }
+
+          // Fetch similar mangas
+          if (mData && mData.genres && mData.genres.length > 0) {
+            setLoadingSimilar(true);
+            const similar = await getSimilarMangas(mangaId, mData.genres, 6);
+            setSimilarMangas(similar);
+            setLoadingSimilar(false);
           }
         }
       } catch (err) {
@@ -914,12 +925,74 @@ const MangaDetail: React.FC = () => {
             </TabsContent>
 
             <TabsContent value="discover" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="rounded-xl border border-border bg-card/50 p-12 text-center">
-                <h3 className="text-2xl font-bold mb-4">Benzer Serileri Keşfet</h3>
-                <p className="text-muted-foreground mb-8">Bu seri ile benzer türdeki diğer popüler serileri yakında burada görebileceksiniz.</p>
-                <Button variant="outline" asChild>
-                  <Link to="/browse">Tüm Serilere Göz At</Link>
-                </Button>
+              <div className="rounded-xl border border-border bg-card/50 p-8">
+                <div className="flex items-center justify-between mb-6">
+                  <div>
+                    <h3 className="text-2xl font-bold">Benzer Seriler</h3>
+                    <p className="text-muted-foreground text-sm mt-1">
+                      {manga?.genres?.slice(0, 3).join(', ')} türlerinde diğer popüler seriler
+                    </p>
+                  </div>
+                  <Button variant="outline" asChild>
+                    <Link to="/browse">Tüm Serilere Göz At</Link>
+                  </Button>
+                </div>
+
+                {loadingSimilar ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    {[1, 2, 3, 4, 5, 6].map(i => (
+                      <div key={i} className="animate-pulse">
+                        <div className="aspect-[2/3] bg-muted rounded-lg" />
+                        <div className="h-4 bg-muted rounded mt-2 w-3/4" />
+                      </div>
+                    ))}
+                  </div>
+                ) : similarMangas.length > 0 ? (
+                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                    {similarMangas.map((m) => (
+                      <Link
+                        key={m.id}
+                        to={`/manga/${m.id}`}
+                        className="group relative overflow-hidden rounded-lg border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                      >
+                        <div className="aspect-[2/3] overflow-hidden">
+                          <img
+                            src={m.cover}
+                            alt={m.title}
+                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                          />
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                        </div>
+                        <div className="absolute bottom-0 left-0 right-0 p-3 translate-y-full group-hover:translate-y-0 transition-transform">
+                          <h4 className="text-sm font-semibold text-white line-clamp-2">{m.title}</h4>
+                          <div className="flex items-center gap-2 mt-1">
+                            <Badge variant="secondary" className="text-[10px] px-1.5 h-5">
+                              {m.type.toUpperCase()}
+                            </Badge>
+                            {(m as any).averageRating > 0 && (
+                              <span className="text-xs text-yellow-400 flex items-center gap-0.5">
+                                <Star className="h-3 w-3 fill-current" />
+                                {(m as any).averageRating}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+                        {/* Always visible title overlay */}
+                        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/90 to-transparent group-hover:opacity-0 transition-opacity">
+                          <h4 className="text-xs font-medium text-white line-clamp-2">{m.title}</h4>
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="text-center py-16 bg-secondary/10 rounded-xl border border-dashed border-border">
+                    <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
+                    <p className="text-muted-foreground">Benzer seri bulunamadı.</p>
+                    <p className="text-sm text-muted-foreground/70 mt-1">
+                      Daha fazla içerik eklendiğinde öneriler burada görünecek.
+                    </p>
+                  </div>
+                )}
               </div>
             </TabsContent>
           </Tabs>

@@ -278,41 +278,62 @@ export const createNotificationForFollowers = async (
     chapterId: string,
     chapterNumber: number
 ) => {
-    // Get all followers for this manga with their preferences
-    const { data: followers } = await supabase
-        .from('follows')
-        .select(`
-            user_id,
-            user:users!user_id(preferences)
-        `)
-        .eq('manga_id', mangaId);
+    try {
+        // Get all followers for this manga
+        const { data: followers, error: followError } = await supabase
+            .from('follows')
+            .select('user_id')
+            .eq('manga_id', mangaId);
 
-    if (!followers || followers.length === 0) return;
+        if (followError || !followers || followers.length === 0) {
+            if (followError) console.error('Follower fetch error:', followError);
+            return;
+        }
 
-    // Filter followers who want new chapter notifications
-    const activeFollowers = followers.filter(f => {
-        const prefs = (f as any).user?.preferences;
-        return prefs?.notifications?.new_chapter !== false;
-    });
+        // Get user preferences for each follower
+        const userIds = followers.map(f => f.user_id);
+        const { data: usersData, error: usersError } = await supabase
+            .from('users')
+            .select('id, preferences')
+            .in('id', userIds);
 
-    if (activeFollowers.length === 0) return;
+        if (usersError) {
+            console.error('User preferences fetch error:', usersError);
+            return;
+        }
 
-    // Create notifications for each active follower
-    const notifications = activeFollowers.map(f => ({
+        // Create a map of user preferences
+        const userPrefsMap = new Map<string, any>();
+        usersData?.forEach(u => {
+            userPrefsMap.set(u.id, u.preferences);
+        });
 
-        user_id: f.user_id,
-        type: 'new_chapter',
-        title: 'Yeni Bölüm',
-        message: `${mangaTitle} - Bölüm ${chapterNumber} yayınlandı.`,
-        manga_id: mangaId,
-        chapter_id: chapterId,
-        link: `/manga/${mangaId}/chapter/${chapterId}`,
-        read: false,
-        created_at: new Date().toISOString()
-    }));
+        // Filter followers who want new chapter notifications
+        const activeFollowers = followers.filter(f => {
+            const prefs = userPrefsMap.get(f.user_id);
+            return prefs?.notifications?.new_chapter !== false;
+        });
 
-    const { error } = await supabase.from('notifications').insert(notifications);
-    if (error) console.error('Follower notification error:', error);
+        if (activeFollowers.length === 0) return;
+
+        // Create notifications for each active follower
+        const notifications = activeFollowers.map(f => ({
+            user_id: f.user_id,
+            type: 'new_chapter',
+            title: 'Yeni Bölüm',
+            message: `${mangaTitle} - Bölüm ${chapterNumber} yayınlandı.`,
+            manga_id: mangaId,
+            chapter_id: chapterId,
+            link: `/manga/${mangaId}/chapter/${chapterId}`,
+            read: false,
+            created_at: new Date().toISOString()
+        }));
+
+        const { error } = await supabase.from('notifications').insert(notifications);
+        if (error) console.error('Follower notification error:', error);
+    } catch (err) {
+        console.error('createNotificationForFollowers error:', err);
+    }
 };
 
 // ==================== ADMIN SESSION (LOCAL) ====================

@@ -976,3 +976,91 @@ export const addMangaReaction = async (mangaId: string, userId: string, reaction
 
     if (error) throw error;
 };
+
+// ==================== SIMILAR MANGA RECOMMENDATIONS ====================
+
+/**
+ * Get similar mangas based on matching genres
+ * @param mangaId - Current manga ID to exclude
+ * @param genres - Array of genres to match
+ * @param limit - Maximum number of results (default 6)
+ */
+export const getSimilarMangas = async (
+    mangaId: string,
+    genres: string[],
+    limit: number = 6
+): Promise<Manga[]> => {
+    try {
+        if (!genres || genres.length === 0) return [];
+
+        // Fetch all mangas except the current one
+        const { data, error } = await supabase
+            .from('mangas')
+            .select('*')
+            .neq('id', mangaId);
+
+        if (error || !data) return [];
+
+        // Get reviews for average ratings
+        const { data: revData } = await supabase
+            .from('reviews')
+            .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement');
+        const allReviews = revData || [];
+
+        // Get chapter counts
+        const { data: cData } = await supabase.from('chapters').select('manga_id');
+        const chapterCounts = cData || [];
+
+        // Calculate similarity score and map data
+        const scoredMangas = data.map(m => {
+            const mangaGenres = m.genres || [];
+            // Count matching genres
+            const matchingGenres = genres.filter(g =>
+                mangaGenres.some((mg: string) => mg.toLowerCase() === g.toLowerCase())
+            ).length;
+
+            // Calculate average rating
+            const mangaReviews = allReviews.filter(r => r.manga_id === m.id);
+            let average = 0;
+            if (mangaReviews.length > 0) {
+                const totalPoints = mangaReviews.reduce((sum, r) =>
+                    sum + (r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5
+                    , 0);
+                average = Math.round((totalPoints / mangaReviews.length) * 10) / 10;
+            }
+
+            const mangaChapters = chapterCounts.filter(c => c.manga_id === m.id);
+
+            return {
+                manga: {
+                    ...m,
+                    alternativeTitles: m.alternative_titles || [],
+                    lastUpdated: m.last_updated,
+                    createdAt: m.created_at,
+                    releaseYear: m.release_year,
+                    chapters: Array(mangaChapters.length).fill({}),
+                    ratings: Array(mangaReviews.length).fill({ rating: average }),
+                    averageRating: average,
+                    reviewCount: mangaReviews.length
+                } as Manga,
+                score: matchingGenres,
+                views: m.views || 0
+            };
+        });
+
+        // Filter mangas with at least 1 matching genre
+        const filtered = scoredMangas.filter(item => item.score > 0);
+
+        // Sort by matching genres (desc), then by views (desc)
+        filtered.sort((a, b) => {
+            if (b.score !== a.score) return b.score - a.score;
+            return b.views - a.views;
+        });
+
+        // Return top results
+        return filtered.slice(0, limit).map(item => item.manga);
+    } catch (err) {
+        console.error('getSimilarMangas error:', err);
+        return [];
+    }
+};
