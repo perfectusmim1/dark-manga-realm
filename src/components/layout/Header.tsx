@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import NotificationDropdown from '@/components/notifications/NotificationDropdown';
 import {
@@ -14,7 +14,11 @@ import {
   Shield,
   List,
   Settings,
+  Star,
+  BookOpen
 } from 'lucide-react';
+import { getAllMangas } from '@/lib/database';
+import { Manga } from '@/lib/types';
 
 
 import { Button } from '@/components/ui/button';
@@ -34,17 +38,59 @@ import {
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
+  const [quickResults, setQuickResults] = useState<Manga[]>([]);
+  const [allMangas, setAllMangas] = useState<Manga[]>([]);
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const adminSession = getAdminSession();
+
+  // Load all mangas for quick search once
+  useEffect(() => {
+    const loadAllMangas = async () => {
+      try {
+        const data = await getAllMangas();
+        setAllMangas(data);
+      } catch (err) {
+        console.error('Quick search data load failed:', err);
+      }
+    };
+    loadAllMangas();
+  }, []);
+
+  // Filter for quick results
+  useEffect(() => {
+    if (searchQuery.trim().length > 1) {
+      const query = searchQuery.toLowerCase();
+      const filtered = allMangas
+        .filter(m =>
+          m.title.toLowerCase().includes(query) ||
+          m.author.toLowerCase().includes(query) ||
+          m.alternativeTitles?.some(t => t.toLowerCase().includes(query))
+        )
+        .slice(0, 3);
+      setQuickResults(filtered);
+    } else {
+      setQuickResults([]);
+    }
+  }, [searchQuery, allMangas]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       navigate(`/browse?search=${encodeURIComponent(searchQuery)}`);
       setSearchQuery('');
+      setQuickResults([]);
+      setIsSearchFocused(false);
     }
+  };
+
+  const handleResultClick = (id: string) => {
+    navigate(`/manga/${id}`);
+    setSearchQuery('');
+    setQuickResults([]);
+    setIsSearchFocused(false);
   };
 
   const isActive = (path: string) => location.pathname === path;
@@ -87,8 +133,53 @@ const Header: React.FC = () => {
               placeholder="Manga, manhwa veya yazar ara..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
+              onFocus={() => setIsSearchFocused(true)}
+              onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
               className="w-full pl-10"
             />
+            {/* Quick Search Dropdown */}
+            {isSearchFocused && quickResults.length > 0 && (
+              <div className="absolute top-full left-0 right-0 mt-2 overflow-hidden rounded-xl border border-border bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+                <div className="p-2">
+                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Seriler</p>
+                  <div className="mt-1 space-y-1">
+                    {quickResults.map((manga) => (
+                      <button
+                        key={manga.id}
+                        onClick={() => handleResultClick(manga.id)}
+                        className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
+                      >
+                        <img
+                          src={manga.cover}
+                          alt={manga.title}
+                          className="h-12 w-9 rounded object-cover shadow-sm group-hover:scale-105 transition-transform"
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-muted-foreground capitalize">{manga.type}</span>
+                            <span className="h-1 w-1 rounded-full bg-border" />
+                            <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
+                              <Star className="h-2.5 w-2.5 fill-current" />
+                              {(manga as any).averageRating || '0.0'}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="mt-2 border-t border-border pt-1">
+                    <button
+                      onClick={handleSearch}
+                      className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+                    >
+                      <span>"{searchQuery}" için tüm sonuçlar</span>
+                      <Search className="h-3 w-3" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            )}
           </div>
         </form>
 
