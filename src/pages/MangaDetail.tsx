@@ -496,9 +496,14 @@ const MangaDetail: React.FC = () => {
 
                 <div className="flex flex-wrap gap-2">
                   {manga.genres.map((genre) => (
-                    <Badge key={genre} variant="secondary">
-                      {genre}
-                    </Badge>
+                    <Link key={genre} to={`/browse?genre=${encodeURIComponent(genre)}`}>
+                      <Badge
+                        variant="secondary"
+                        className="cursor-pointer hover:bg-secondary/80 transition-colors"
+                      >
+                        {genre}
+                      </Badge>
+                    </Link>
                   ))}
                 </div>
 

@@ -22,7 +22,9 @@ import BrowseSkeleton from '@/components/skeletons/BrowseSkeleton';
 const Browse: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
-  const [selectedGenres, setSelectedGenres] = useState<string[]>([]);
+  const [selectedGenres, setSelectedGenres] = useState<string[]>(
+    searchParams.get('genre') ? searchParams.get('genre')!.split(',') : []
+  );
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'popular');
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || 'all');
@@ -43,6 +45,17 @@ const Browse: React.FC = () => {
     fetchMangas();
   }, []);
 
+  // Update URL when filters change
+  useEffect(() => {
+    const params: Record<string, string> = {};
+    if (searchQuery) params.search = searchQuery;
+    if (sortBy !== 'popular') params.sort = sortBy;
+    if (typeFilter !== 'all') params.type = typeFilter;
+    if (selectedGenres.length > 0) params.genre = selectedGenres.join(',');
+
+    setSearchParams(params);
+  }, [searchQuery, sortBy, typeFilter, selectedGenres, setSearchParams]);
+
   const filteredManga = useMemo(() => {
     let result = [...mangas];
 
@@ -52,7 +65,8 @@ const Browse: React.FC = () => {
       result = result.filter(
         manga =>
           manga.title.toLowerCase().includes(query) ||
-          manga.author.toLowerCase().includes(query)
+          manga.author.toLowerCase().includes(query) ||
+          manga.alternativeTitles?.some(title => title.toLowerCase().includes(query))
       );
     }
 
