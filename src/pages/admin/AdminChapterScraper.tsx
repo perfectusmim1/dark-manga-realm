@@ -416,7 +416,25 @@ const AdminChapterScraper: React.FC = () => {
                     <CardContent className="p-0">
                         <div className="grid md:grid-cols-2">
                             <div className="border-r border-border p-6">
-                                <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Yeni Bölümler ({newChapters.length})</h3>
+                                <div className="mb-4 flex items-center justify-between">
+                                    <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Yeni Bölümler ({newChapters.length})</h3>
+                                    {newChapters.length > 0 && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-7 px-3 text-[10px] uppercase font-black tracking-wider transition-all"
+                                            onClick={() => {
+                                                if (selectedChapterIndices.length === newChapters.length) {
+                                                    setSelectedChapterIndices([]);
+                                                } else {
+                                                    setSelectedChapterIndices(newChapters.map((_, i) => i));
+                                                }
+                                            }}
+                                        >
+                                            {selectedChapterIndices.length === newChapters.length ? 'Hiçbirini Seçme' : 'Tümünü Seç'}
+                                        </Button>
+                                    )}
+                                </div>
                                 <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                                     {newChapters.map((ch, i) => {
                                         const isSelected = selectedChapterIndices.includes(i);

@@ -13,12 +13,13 @@ import {
   Bell,
   BellOff,
   List,
+  Search,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
 import ReadingListModal from '@/components/manga/ReadingListModal';
 import { Button } from '@/components/ui/button';
-
+import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
   DropdownMenu,
@@ -65,6 +66,7 @@ const MangaDetail: React.FC = () => {
   const [latestProgress, setLatestProgress] = useState<any>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
+  const [chapterSearch, setChapterSearch] = useState('');
 
 
   useEffect(() => {
@@ -246,9 +248,14 @@ const MangaDetail: React.FC = () => {
     return views.toString();
   };
 
+  const filteredChapters = manga.chapters.slice().reverse().filter(ch =>
+    ch.number.toString().includes(chapterSearch) ||
+    ch.title.toLowerCase().includes(chapterSearch.toLowerCase())
+  );
+
   const displayedChapters = showAllChapters
-    ? manga.chapters.slice().reverse()
-    : manga.chapters.slice().reverse().slice(0, 20);
+    ? filteredChapters
+    : filteredChapters.slice(0, 8);
 
   const continueChapter = latestProgress
     ? manga.chapters.find(ch => ch.id === latestProgress.chapterId)
@@ -468,9 +475,20 @@ const MangaDetail: React.FC = () => {
         {/* Chapters List */}
         <div className="container py-8">
           <div className="rounded-xl border border-border bg-card/50 animate-fade-up opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
-            <div className="border-b border-border p-4">
-              <h2 className="text-xl font-bold">Bölümler</h2>
-              <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
+            <div className="border-b border-border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-xl font-bold">Bölümler</h2>
+                <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
+              </div>
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Bölüm ara (örn: 97)"
+                  className="pl-9"
+                  value={chapterSearch}
+                  onChange={(e) => setChapterSearch(e.target.value)}
+                />
+              </div>
             </div>
 
             {manga.chapters.length > 0 ? (
@@ -504,7 +522,7 @@ const MangaDetail: React.FC = () => {
                   ))}
                 </div>
 
-                {manga.chapters.length > 20 && (
+                {filteredChapters.length > 8 && (
                   <div className="border-t border-border p-4">
                     <Button
                       variant="ghost"
@@ -519,7 +537,7 @@ const MangaDetail: React.FC = () => {
                       ) : (
                         <>
                           <ChevronDown className="mr-2 h-4 w-4" />
-                          Tüm Bölümleri Göster ({manga.chapters.length - 20} daha)
+                          Tüm Bölümleri Göster ({filteredChapters.length - 8} daha)
                         </>
                       )}
                     </Button>

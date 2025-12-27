@@ -10,7 +10,9 @@ import {
     Image,
     Send,
     X,
-    MoreVertical
+    MoreVertical,
+    ChevronDown,
+    ChevronUp
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -61,6 +63,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     const [gifSearch, setGifSearch] = useState('');
     const [gifs, setGifs] = useState<any[]>([]);
     const [gifTarget, setGifTarget] = useState<'new' | 'edit' | 'reply'>('new');
+    const [showAllComments, setShowAllComments] = useState(false);
 
     useEffect(() => {
         loadComments();
@@ -246,6 +249,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     };
 
     const parentComments = comments.filter(c => !c.parentId);
+    const displayedParentComments = showAllComments ? parentComments : parentComments.slice(0, 8);
     const getReplies = (parentId: string) => comments.filter(c => c.parentId === parentId);
 
     return (
@@ -311,231 +315,253 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             )}
 
             <div className="space-y-4">
-                {parentComments.length === 0 ? (
+                {displayedParentComments.length === 0 ? (
                     <div className="py-8 text-center text-muted-foreground">
                         Henüz yorum yok. İlk yorumu siz yapın!
                     </div>
                 ) : (
-                    parentComments.map((comment) => (
-                        <div key={comment.id} className="rounded-lg border border-border bg-card/50 p-4">
-                            <div className="flex gap-3">
-                                <Avatar className="h-10 w-10">
-                                    <AvatarImage src={comment.userAvatar} />
-                                    <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
-                                </Avatar>
-                                <div className="flex-1">
-                                    <div className="flex items-center justify-between">
-                                        <div className="flex items-center gap-2">
-                                            <span className="font-medium">{comment.username}</span>
-                                            <span className="text-xs text-muted-foreground">
-                                                {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
-                                                {comment.updatedAt && ' (düzenlendi)'}
-                                            </span>
+                    <>
+                        {displayedParentComments.map((comment) => (
+                            <div key={comment.id} className="rounded-lg border border-border bg-card/50 p-4">
+                                <div className="flex gap-3">
+                                    <Avatar className="h-10 w-10">
+                                        <AvatarImage src={comment.userAvatar} />
+                                        <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
+                                    </Avatar>
+                                    <div className="flex-1">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-2">
+                                                <span className="font-medium">{comment.username}</span>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
+                                                    {comment.updatedAt && ' (düzenlendi)'}
+                                                </span>
+                                            </div>
+
+                                            {(user?.id === comment.userId || user?.role === 'admin' || user?.role === 'moderator') && (
+                                                <DropdownMenu>
+                                                    <DropdownMenuTrigger asChild>
+                                                        <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                            <MoreVertical className="h-4 w-4" />
+                                                        </Button>
+                                                    </DropdownMenuTrigger>
+                                                    <DropdownMenuContent align="end">
+                                                        <DropdownMenuItem onClick={() => startEdit(comment)}>
+                                                            <Edit2 className="mr-2 h-4 w-4" />
+                                                            Düzenle
+                                                        </DropdownMenuItem>
+                                                        <DropdownMenuItem
+                                                            onClick={() => handleDeleteComment(comment.id)}
+                                                            className="text-destructive"
+                                                        >
+                                                            <Trash2 className="mr-2 h-4 w-4" />
+                                                            Sil
+                                                        </DropdownMenuItem>
+                                                    </DropdownMenuContent>
+                                                </DropdownMenu>
+                                            )}
                                         </div>
 
-                                        {(user?.id === comment.userId || user?.role === 'admin' || user?.role === 'moderator') && (
-                                            <DropdownMenu>
-                                                <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-8 w-8">
-                                                        <MoreVertical className="h-4 w-4" />
-                                                    </Button>
-                                                </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
-                                                    <DropdownMenuItem onClick={() => startEdit(comment)}>
-                                                        <Edit2 className="mr-2 h-4 w-4" />
-                                                        Düzenle
-                                                    </DropdownMenuItem>
-                                                    <DropdownMenuItem
-                                                        onClick={() => handleDeleteComment(comment.id)}
-                                                        className="text-destructive"
-                                                    >
-                                                        <Trash2 className="mr-2 h-4 w-4" />
-                                                        Sil
-                                                    </DropdownMenuItem>
-                                                </DropdownMenuContent>
-                                            </DropdownMenu>
-                                        )}
-                                    </div>
-
-                                    {editingId === comment.id ? (
-                                        <div className="mt-2 space-y-2">
-                                            <Textarea
-                                                value={editContent}
-                                                onChange={(e) => setEditContent(e.target.value)}
-                                                className="min-h-[60px]"
-                                            />
-                                            {editGif && (
-                                                <div className="relative inline-block">
-                                                    <img src={editGif} alt="Edit GIF" className="max-h-24 rounded-lg" />
+                                        {editingId === comment.id ? (
+                                            <div className="mt-2 space-y-2">
+                                                <Textarea
+                                                    value={editContent}
+                                                    onChange={(e) => setEditContent(e.target.value)}
+                                                    className="min-h-[60px]"
+                                                />
+                                                {editGif && (
+                                                    <div className="relative inline-block">
+                                                        <img src={editGif} alt="Edit GIF" className="max-h-24 rounded-lg" />
+                                                        <Button
+                                                            size="icon"
+                                                            variant="destructive"
+                                                            className="absolute -right-2 -top-2 h-6 w-6"
+                                                            onClick={() => setEditGif(null)}
+                                                        >
+                                                            <X className="h-4 w-4" />
+                                                        </Button>
+                                                    </div>
+                                                )}
+                                                <div className="flex gap-2">
                                                     <Button
-                                                        size="icon"
-                                                        variant="destructive"
-                                                        className="absolute -right-2 -top-2 h-6 w-6"
-                                                        onClick={() => setEditGif(null)}
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => {
+                                                            setGifTarget('edit');
+                                                            setShowGifPicker(true);
+                                                        }}
+                                                    >
+                                                        <Image className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button size="sm" onClick={() => handleEditComment(comment.id)}>
+                                                        Kaydet
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() => {
+                                                            setEditingId(null);
+                                                            setEditContent('');
+                                                            setEditGif(null);
+                                                        }}
+                                                    >
+                                                        İptal
+                                                    </Button>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <>
+                                                <p className="mt-2 text-foreground/90 leading-relaxed font-sans">{highlightMentions(comment.content)}</p>
+                                                {comment.gifUrl && (
+                                                    <img src={comment.gifUrl} alt="Comment GIF" className="mt-2 max-h-48 rounded-lg" />
+                                                )}
+                                            </>
+                                        )}
+
+                                        <div className="mt-3 flex items-center gap-4">
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => handleLike(comment.id)}
+                                                className={comment.likedBy.includes(user?.id || '') ? 'text-primary' : ''}
+                                            >
+                                                <ThumbsUp className="mr-1 h-4 w-4" />
+                                                {comment.likes}
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
+                                            >
+                                                <Reply className="mr-1 h-4 w-4" />
+                                                Yanıtla
+                                            </Button>
+                                        </div>
+
+                                        {replyingTo === comment.id && user && (
+                                            <div className="mt-3 flex gap-2">
+                                                <Textarea
+                                                    placeholder={`@${comment.username} yanıtınız...`}
+                                                    value={replyContent}
+                                                    onChange={(e) => setReplyContent(e.target.value)}
+                                                    className="min-h-[60px]"
+                                                />
+                                                <div className="flex flex-col gap-1">
+                                                    <Button size="sm" onClick={() => handleReply(comment.id)}>
+                                                        <Send className="h-4 w-4" />
+                                                    </Button>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="ghost"
+                                                        onClick={() => {
+                                                            setReplyingTo(null);
+                                                            setReplyContent('');
+                                                        }}
                                                     >
                                                         <X className="h-4 w-4" />
                                                     </Button>
                                                 </div>
-                                            )}
-                                            <div className="flex gap-2">
-                                                <Button
-                                                    variant="ghost"
-                                                    size="sm"
-                                                    onClick={() => {
-                                                        setGifTarget('edit');
-                                                        setShowGifPicker(true);
-                                                    }}
-                                                >
-                                                    <Image className="h-4 w-4" />
-                                                </Button>
-                                                <Button size="sm" onClick={() => handleEditComment(comment.id)}>
-                                                    Kaydet
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={() => {
-                                                        setEditingId(null);
-                                                        setEditContent('');
-                                                        setEditGif(null);
-                                                    }}
-                                                >
-                                                    İptal
-                                                </Button>
                                             </div>
-                                        </div>
-                                    ) : (
-                                        <>
-                                            <p className="mt-2 text-foreground/90 leading-relaxed font-sans">{highlightMentions(comment.content)}</p>
-                                            {comment.gifUrl && (
-                                                <img src={comment.gifUrl} alt="Comment GIF" className="mt-2 max-h-48 rounded-lg" />
-                                            )}
-                                        </>
-                                    )}
+                                        )}
 
-                                    <div className="mt-3 flex items-center gap-4">
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => handleLike(comment.id)}
-                                            className={comment.likedBy.includes(user?.id || '') ? 'text-primary' : ''}
-                                        >
-                                            <ThumbsUp className="mr-1 h-4 w-4" />
-                                            {comment.likes}
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="sm"
-                                            onClick={() => setReplyingTo(replyingTo === comment.id ? null : comment.id)}
-                                        >
-                                            <Reply className="mr-1 h-4 w-4" />
-                                            Yanıtla
-                                        </Button>
-                                    </div>
-
-                                    {replyingTo === comment.id && user && (
-                                        <div className="mt-3 flex gap-2">
-                                            <Textarea
-                                                placeholder={`@${comment.username} yanıtınız...`}
-                                                value={replyContent}
-                                                onChange={(e) => setReplyContent(e.target.value)}
-                                                className="min-h-[60px]"
-                                            />
-                                            <div className="flex flex-col gap-1">
-                                                <Button size="sm" onClick={() => handleReply(comment.id)}>
-                                                    <Send className="h-4 w-4" />
-                                                </Button>
-                                                <Button
-                                                    size="sm"
-                                                    variant="ghost"
-                                                    onClick={() => {
-                                                        setReplyingTo(null);
-                                                        setReplyContent('');
-                                                    }}
-                                                >
-                                                    <X className="h-4 w-4" />
-                                                </Button>
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Replies Section */}
-                                    {getReplies(comment.id).length > 0 && (
-                                        <div className="mt-4 space-y-3 border-l-2 border-border pl-4">
-                                            {getReplies(comment.id).map((reply) => (
-                                                <div key={reply.id} className="flex gap-2">
-                                                    <Avatar className="h-8 w-8">
-                                                        <AvatarImage src={reply.userAvatar} />
-                                                        <AvatarFallback>{reply.username[0].toUpperCase()}</AvatarFallback>
-                                                    </Avatar>
-                                                    <div className="flex-1">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-2">
-                                                                <span className="text-sm font-medium">{reply.username}</span>
-                                                                <span className="text-xs text-muted-foreground">
-                                                                    {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
-                                                                    {reply.updatedAt && ' (düzenlendi)'}
-                                                                </span>
+                                        {/* Replies Section */}
+                                        {getReplies(comment.id).length > 0 && (
+                                            <div className="mt-4 space-y-3 border-l-2 border-border pl-4">
+                                                {getReplies(comment.id).map((reply) => (
+                                                    <div key={reply.id} className="flex gap-2">
+                                                        <Avatar className="h-8 w-8">
+                                                            <AvatarImage src={reply.userAvatar} />
+                                                            <AvatarFallback>{reply.username[0].toUpperCase()}</AvatarFallback>
+                                                        </Avatar>
+                                                        <div className="flex-1">
+                                                            <div className="flex items-center justify-between">
+                                                                <div className="flex items-center gap-2">
+                                                                    <span className="text-sm font-medium">{reply.username}</span>
+                                                                    <span className="text-xs text-muted-foreground">
+                                                                        {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
+                                                                        {reply.updatedAt && ' (düzenlendi)'}
+                                                                    </span>
+                                                                </div>
+                                                                {(user?.id === reply.userId || user?.role === 'admin' || user?.role === 'moderator') && (
+                                                                    <DropdownMenu>
+                                                                        <DropdownMenuTrigger asChild>
+                                                                            <Button variant="ghost" size="icon" className="h-7 w-7">
+                                                                                <MoreVertical className="h-4 w-4" />
+                                                                            </Button>
+                                                                        </DropdownMenuTrigger>
+                                                                        <DropdownMenuContent align="end">
+                                                                            <DropdownMenuItem onClick={() => startEdit(reply)}>
+                                                                                <Edit2 className="mr-2 h-4 w-4" />
+                                                                                Düzenle
+                                                                            </DropdownMenuItem>
+                                                                            <DropdownMenuItem
+                                                                                onClick={() => handleDeleteComment(reply.id)}
+                                                                                className="text-destructive"
+                                                                            >
+                                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                                Sil
+                                                                            </DropdownMenuItem>
+                                                                        </DropdownMenuContent>
+                                                                    </DropdownMenu>
+                                                                )}
                                                             </div>
-                                                            {(user?.id === reply.userId || user?.role === 'admin' || user?.role === 'moderator') && (
-                                                                <DropdownMenu>
-                                                                    <DropdownMenuTrigger asChild>
-                                                                        <Button variant="ghost" size="icon" className="h-7 w-7">
-                                                                            <MoreVertical className="h-4 w-4" />
+
+                                                            {editingId === reply.id ? (
+                                                                <div className="mt-2 space-y-2">
+                                                                    <Textarea
+                                                                        value={editContent}
+                                                                        onChange={(e) => setEditContent(e.target.value)}
+                                                                        className="min-h-[60px]"
+                                                                    />
+                                                                    <div className="flex gap-2">
+                                                                        <Button size="sm" onClick={() => handleEditComment(reply.id)}>
+                                                                            Kaydet
                                                                         </Button>
-                                                                    </DropdownMenuTrigger>
-                                                                    <DropdownMenuContent align="end">
-                                                                        <DropdownMenuItem onClick={() => startEdit(reply)}>
-                                                                            <Edit2 className="mr-2 h-4 w-4" />
-                                                                            Düzenle
-                                                                        </DropdownMenuItem>
-                                                                        <DropdownMenuItem
-                                                                            onClick={() => handleDeleteComment(reply.id)}
-                                                                            className="text-destructive"
+                                                                        <Button
+                                                                            size="sm"
+                                                                            variant="ghost"
+                                                                            onClick={() => {
+                                                                                setEditingId(null);
+                                                                                setEditContent('');
+                                                                            }}
                                                                         >
-                                                                            <Trash2 className="mr-2 h-4 w-4" />
-                                                                            Sil
-                                                                        </DropdownMenuItem>
-                                                                    </DropdownMenuContent>
-                                                                </DropdownMenu>
+                                                                            İptal
+                                                                        </Button>
+                                                                    </div>
+                                                                </div>
+                                                            ) : (
+                                                                <p className="text-sm text-foreground/90 leading-relaxed">{highlightMentions(reply.content)}</p>
                                                             )}
                                                         </div>
-
-                                                        {editingId === reply.id ? (
-                                                            <div className="mt-2 space-y-2">
-                                                                <Textarea
-                                                                    value={editContent}
-                                                                    onChange={(e) => setEditContent(e.target.value)}
-                                                                    className="min-h-[60px]"
-                                                                />
-                                                                <div className="flex gap-2">
-                                                                    <Button size="sm" onClick={() => handleEditComment(reply.id)}>
-                                                                        Kaydet
-                                                                    </Button>
-                                                                    <Button
-                                                                        size="sm"
-                                                                        variant="ghost"
-                                                                        onClick={() => {
-                                                                            setEditingId(null);
-                                                                            setEditContent('');
-                                                                        }}
-                                                                    >
-                                                                        İptal
-                                                                    </Button>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            <p className="text-sm text-foreground/90 leading-relaxed">{highlightMentions(reply.content)}</p>
-                                                        )}
                                                     </div>
-                                                </div>
-                                            ))}
-                                        </div>
-                                    )}
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
-                        </div>
-                    ))
+                        ))}
+
+                        {parentComments.length > 8 && (
+                            <Button
+                                variant="ghost"
+                                className="w-full mt-4"
+                                onClick={() => setShowAllComments(!showAllComments)}
+                            >
+                                {showAllComments ? (
+                                    <>
+                                        <ChevronUp className="mr-2 h-4 w-4" />
+                                        Daha Az Göster
+                                    </>
+                                ) : (
+                                    <>
+                                        <ChevronDown className="mr-2 h-4 w-4" />
+                                        Tüm Yorumları Gör ({parentComments.length - 8} daha)
+                                    </>
+                                )}
+                            </Button>
+                        )}
+                    </>
                 )}
             </div>
 
