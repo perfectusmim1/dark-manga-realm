@@ -681,10 +681,6 @@ const MangaDetail: React.FC = () => {
                     )}
                   </div>
 
-                  {/* Comments Section */}
-                  <div className="rounded-xl border border-border bg-card/50 p-6">
-                    <CommentSection mangaId={manga.id} />
-                  </div>
                 </div>
 
                 {/* Sidebar Info */}
@@ -729,6 +725,11 @@ const MangaDetail: React.FC = () => {
                     </Button>
                   </div>
                 </div>
+              </div>
+
+              {/* Comments Section - Now Full Width */}
+              <div className="mt-8 rounded-xl border border-border bg-card/50 p-6 lg:p-10 shadow-sm">
+                <CommentSection mangaId={manga.id} />
               </div>
             </TabsContent>
 
