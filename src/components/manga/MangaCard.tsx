@@ -27,7 +27,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
     : '0.0';
 
   return (
-    <HoverCard openDelay={300}>
+    <HoverCard openDelay={200} closeDelay={100}>
       <HoverCardTrigger asChild>
         <Link
           to={`/manga/${manga.id}`}
@@ -116,7 +116,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
         side="right"
         align="start"
         sideOffset={15}
-        className="w-80 overflow-hidden border-none bg-background/95 p-0 backdrop-blur-xl shadow-2xl ring-1 ring-white/10"
+        className="w-80 overflow-hidden border-none bg-background/95 p-0 backdrop-blur-xl shadow-2xl ring-1 ring-white/10 pointer-events-none"
       >
         <div className="relative">
           {/* Background Blur Image */}
