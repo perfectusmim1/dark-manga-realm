@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 
 const Settings: React.FC = () => {
-    const { user, updateProfile, updatePassword, updateEmail, updatePreferences } = useAuth();
+    const { user, updateProfile, updatePassword, updatePreferences } = useAuth();
 
     // Profile state
     const [username, setUsername] = useState(user?.username || '');
@@ -34,10 +34,6 @@ const Settings: React.FC = () => {
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
-
-    // Email state
-    const [newEmail, setNewEmail] = useState(user?.email || '');
-    const [isUpdatingEmail, setIsUpdatingEmail] = useState(false);
 
     // Notification state
     const [prefs, setPrefs] = useState(user?.preferences || {
@@ -94,27 +90,6 @@ const Settings: React.FC = () => {
             toast.error('İşlem başarısız oldu');
         } finally {
             setIsUpdatingPassword(false);
-        }
-    };
-
-    const handleUpdateEmail = async () => {
-        if (!newEmail.match(/^[^\s@]+@[^\s@]+\.[^\s@]+$/)) {
-            toast.error('Geçerli bir e-posta adresi girin');
-            return;
-        }
-
-        try {
-            setIsUpdatingEmail(true);
-            const { success, error } = await updateEmail(newEmail);
-            if (success) {
-                toast.success(error || 'E-posta güncelleme talebi gönderildi');
-            } else {
-                toast.error(error || 'E-posta güncellenemedi');
-            }
-        } catch (err) {
-            toast.error('İşlem başarısız oldu');
-        } finally {
-            setIsUpdatingEmail(false);
         }
     };
 
@@ -228,7 +203,7 @@ const Settings: React.FC = () => {
                                         <Mail className="h-5 w-5" />
                                         E-posta Adresi
                                     </CardTitle>
-                                    <CardDescription>E-posta adresinizi değiştirdiğinizde yeni adresinize onay maili gönderilir.</CardDescription>
+                                    <CardDescription>E-posta adresiniz güvenlik nedeniyle değiştirilemez.</CardDescription>
                                 </CardHeader>
                                 <CardContent className="space-y-4">
                                     <div className="space-y-2">
@@ -236,16 +211,12 @@ const Settings: React.FC = () => {
                                         <Input
                                             id="email"
                                             type="email"
-                                            value={newEmail}
-                                            onChange={(e) => setNewEmail(e.target.value)}
+                                            value={user.email || ''}
+                                            disabled
+                                            className="bg-secondary/30"
                                         />
                                     </div>
                                 </CardContent>
-                                <CardFooter className="border-t border-border/50 pt-6">
-                                    <Button variant="outline" onClick={handleUpdateEmail} disabled={isUpdatingEmail} className="ml-auto gap-2">
-                                        {isUpdatingEmail ? 'Gönderiliyor...' : 'E-postayı Güncelle'}
-                                    </Button>
-                                </CardFooter>
                             </Card>
 
                             {/* Password Section */}
