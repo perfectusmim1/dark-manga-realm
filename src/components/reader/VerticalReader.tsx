@@ -116,22 +116,21 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   }, [pages, onPageChange, scrolledToInitial]);
 
   return (
-    <div className="flex flex-col items-center gap-1 pb-20 pt-20">
+    <div className="flex flex-col items-center gap-0 pb-20 pt-20">
       {pages.map((page, index) => (
         <div
           key={index}
           data-page-index={index}
-          className={`relative min-h-[200px] flex items-center justify-center`}
+          className="relative flex items-center justify-center w-full"
           style={{
-            width: settings.fitWidth ? '100%' : 'auto',
             maxWidth: settings.fitWidth ? `${896 * (settings.zoom / 100)}px` : 'none'
           }}
         >
           <img
             src={page}
             alt={`Sayfa ${index + 1}`}
-            className="select-none transition-transform duration-200"
-            style={{ width: `${settings.zoom}%` }}
+            className="select-none transition-transform duration-200 block"
+            style={{ width: `${settings.zoom}%`, height: 'auto' }}
             loading={index < (initialPage + 3) ? "eager" : "lazy"}
             draggable={false}
             onLoad={() => handleImageLoad(index)}
