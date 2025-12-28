@@ -525,6 +525,16 @@ const AdminMangaEditor: React.FC = () => {
                                 onChange={(e) => handleChange('banner', e.target.value)}
                                 placeholder="https://example.com/banner.jpg"
                             />
+                            {manga.banner && (
+                                <img
+                                    src={manga.banner}
+                                    alt="Banner"
+                                    className="mt-2 w-full rounded-lg aspect-video object-cover"
+                                    onError={(e) => {
+                                        (e.target as HTMLImageElement).src = 'https://via.placeholder.com/1200x400?text=No+Banner+Image';
+                                    }}
+                                />
+                            )}
                         </div>
                     </div>
 

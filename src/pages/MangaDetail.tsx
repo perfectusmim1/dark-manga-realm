@@ -420,7 +420,7 @@ const MangaDetail: React.FC = () => {
           {/* Background */}
           <div className="absolute inset-0 h-80">
             <img
-              src={manga.cover}
+              src={manga.banner || manga.cover}
               alt=""
               className="h-full w-full object-cover opacity-20 blur-2xl"
             />
