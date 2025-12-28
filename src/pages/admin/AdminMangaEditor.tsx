@@ -438,7 +438,16 @@ const AdminMangaEditor: React.FC = () => {
                     <div className="rounded-xl border border-border bg-card p-6 space-y-4">
                         <div className="flex items-center justify-between">
                             <h2 className="text-lg font-semibold">Bölümler ({manga.chapters?.length || 0})</h2>
-                            <Button onClick={() => setShowChapterDialog(true)}>
+                            <Button onClick={() => {
+                                setEditingChapterId(null);
+                                setNewChapter({
+                                    number: (manga.chapters?.length || 0) + 1,
+                                    title: '',
+                                    pages: [],
+                                });
+                                setPageUrlInput('');
+                                setShowChapterDialog(true);
+                            }}>
                                 <Plus className="mr-2 h-4 w-4" />
                                 Bölüm Ekle
                             </Button>
@@ -613,6 +622,12 @@ const AdminMangaEditor: React.FC = () => {
                         <Button variant="outline" onClick={() => {
                             setShowChapterDialog(false);
                             setEditingChapterId(null);
+                            setNewChapter({
+                                number: (manga.chapters?.length || 0) + 1,
+                                title: '',
+                                pages: [],
+                            });
+                            setPageUrlInput('');
                         }}>
                             İptal
                         </Button>
