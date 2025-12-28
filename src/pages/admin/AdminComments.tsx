@@ -27,6 +27,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Checkbox } from '@/components/ui/checkbox';
 import { getAllComments, deleteComment, getMangaById } from '@/lib/database';
 import { Comment } from '@/lib/types';
 import { toast } from 'sonner';
@@ -144,13 +145,11 @@ const AdminComments: React.FC = () => {
                 <div className="overflow-x-auto">
                     <table className="w-full">
                         <thead>
-                            <tr className="border-b border-border">
+                            <tr className="border-b border-border border-l-4 border-transparent">
                                 <th className="w-12 px-4 py-3">
-                                    <input
-                                        type="checkbox"
+                                    <Checkbox
                                         checked={selectedComments.size === filteredComments.length && filteredComments.length > 0}
-                                        onChange={selectAll}
-                                        className="rounded border-border"
+                                        onCheckedChange={selectAll}
                                     />
                                 </th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Kullanıcı</th>
@@ -162,18 +161,25 @@ const AdminComments: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-border">
                             {filteredComments.map((comment) => (
-                                <tr key={comment.id} className="hover:bg-secondary/50">
-                                    <td className="px-4 py-3">
-                                        <input
-                                            type="checkbox"
+                                <tr
+                                    key={comment.id}
+                                    className={`
+                                        group cursor-pointer select-none transition-all duration-200 border-l-4
+                                        ${selectedComments.has(comment.id)
+                                            ? 'bg-primary/5 border-primary shadow-sm'
+                                            : 'hover:bg-secondary/40 border-transparent'}
+                                    `}
+                                    onClick={() => toggleSelect(comment.id)}
+                                >
+                                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+                                        <Checkbox
                                             checked={selectedComments.has(comment.id)}
-                                            onChange={() => toggleSelect(comment.id)}
-                                            className="rounded border-border"
+                                            onCheckedChange={() => toggleSelect(comment.id)}
                                         />
                                     </td>
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-2">
-                                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary">
+                                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary group-hover:scale-110 transition-transform">
                                                 {comment.username[0].toUpperCase()}
                                             </div>
                                             <span className="font-medium">{comment.username}</span>
@@ -181,28 +187,30 @@ const AdminComments: React.FC = () => {
                                     </td>
                                     <td className="px-4 py-3 max-w-xs">
                                         <p className="truncate text-sm">{comment.content}</p>
-                                        {comment.gifUrl && (
-                                            <Badge variant="secondary" className="mt-1">GIF</Badge>
-                                        )}
-                                        {comment.parentId && (
-                                            <Badge variant="outline" className="mt-1 ml-1">Yanıt</Badge>
-                                        )}
+                                        <div className="flex gap-1 mt-1">
+                                            {comment.gifUrl && (
+                                                <Badge variant="secondary" className="text-[10px] h-4">GIF</Badge>
+                                            )}
+                                            {comment.parentId && (
+                                                <Badge variant="outline" className="text-[10px] h-4">Yanıt</Badge>
+                                            )}
+                                        </div>
                                     </td>
-                                    <td className="px-4 py-3">
-                                        <span className="text-sm text-muted-foreground">
+                                    <td className="px-4 py-3 border-r border-transparent">
+                                        <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
                                             {getMangaTitle(comment.mangaId)}
                                         </span>
                                     </td>
                                     <td className="px-4 py-3">
-                                        <span className="text-sm text-muted-foreground">
+                                        <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
                                             {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
                                         </span>
                                     </td>
-                                    <td className="px-4 py-3 text-right">
+                                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
                                         <Button
                                             variant="ghost"
                                             size="icon"
-                                            className="text-destructive hover:text-destructive"
+                                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
                                             onClick={() => setDeleteId(comment.id)}
                                         >
                                             <Trash2 className="h-4 w-4" />
