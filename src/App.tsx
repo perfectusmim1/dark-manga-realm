@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { initializeMockData } from "@/lib/mockData";
 
 // Pages
+import ScrollToTop from "./components/layout/ScrollToTop";
 import Index from "./pages/Index";
 import Browse from "./pages/Browse";
 import MangaDetail from "./pages/MangaDetail";
@@ -62,6 +63,7 @@ const App = () => (
           <Toaster />
           <Sonner />
           <BrowserRouter>
+            <ScrollToTop />
             <Routes>
               {/* Public Routes */}
               <Route path="/" element={<Index />} />

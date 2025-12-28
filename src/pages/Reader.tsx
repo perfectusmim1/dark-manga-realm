@@ -32,6 +32,13 @@ const Reader: React.FC = () => {
   const [initialized, setInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
 
+  // Reset state and scroll on chapter change
+  useEffect(() => {
+    setCurrentPage(1);
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    viewTracked.current = false;
+  }, [chapterId]);
+
   // Load Manga and Chapter
   useEffect(() => {
     const loadContent = async () => {
@@ -61,7 +68,11 @@ const Reader: React.FC = () => {
           const progress = await getLatestProgress(user.id, mangaId);
           if (progress && progress.chapterId === chapterId && progress.page > 1) {
             setCurrentPage(progress.page);
+          } else {
+            setCurrentPage(1);
           }
+        } else {
+          setCurrentPage(1);
         }
 
         setInitialized(true);
@@ -186,8 +197,6 @@ const Reader: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleControls]);
 
-
-
   if (isLoading) {
     return <ReaderSkeleton />;
   }
@@ -217,6 +226,7 @@ const Reader: React.FC = () => {
 
       {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
         <VerticalReader
+          key={chapterId}
           pages={chapter.pages}
           settings={settings}
           onPageChange={handlePageChange}
@@ -224,6 +234,7 @@ const Reader: React.FC = () => {
         />
       ) : (
         <HorizontalReader
+          key={chapterId}
           pages={chapter.pages}
           settings={settings}
           currentPage={currentPage}

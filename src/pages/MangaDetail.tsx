@@ -912,9 +912,7 @@ const MangaDetail: React.FC = () => {
                               <ThumbsUp className={`h-4 w-4 ${review.likedBy.includes(user?.id || '') ? 'fill-current' : ''}`} />
                               <span>{review.likes}</span>
                             </Button>
-                            <Button variant="ghost" size="sm" className="gap-2">
-                              Paylaş
-                            </Button>
+
                           </div>
                         </div>
                       ))}
