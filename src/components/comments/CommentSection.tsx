@@ -59,6 +59,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     const [selectedGif, setSelectedGif] = useState<string | null>(null);
     const [editingId, setEditingId] = useState<string | null>(null);
     const [editContent, setEditContent] = useState('');
+    const [editMention, setEditMention] = useState<string | null>(null);
     const [editGif, setEditGif] = useState<string | null>(null);
     const [replyingTo, setReplyingTo] = useState<string | null>(null);
     const [replyContent, setReplyContent] = useState('');
@@ -177,6 +178,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         await updateComment(commentId, editContent, editGif || undefined);
         setEditingId(null);
         setEditContent('');
+        setEditMention(null);
         setEditGif(null);
         await loadComments();
         toast.success('Yorum güncellendi');
@@ -272,12 +274,18 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
 
     const startEdit = (comment: Comment) => {
         setEditingId(comment.id);
+        const mentionMatch = comment.content.match(/^@[\w.-]+\s/);
+        if (mentionMatch) {
+            setEditMention(mentionMatch[0]);
+        } else {
+            setEditMention(null);
+        }
         setEditContent(comment.content);
         setEditGif(comment.gifUrl || null);
     };
 
     const highlightMentions = (content: string) => {
-        const parts = content.split(/(@\w+)/g);
+        const parts = content.split(/(@[\w.-]+)/g);
         return parts.map((part, i) => {
             if (part.startsWith('@')) {
                 return <span key={i} className="text-blue-500 font-medium">{part}</span>;
@@ -459,7 +467,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                             <div className="mt-2 space-y-2">
                                                 <Textarea
                                                     value={editContent}
-                                                    onChange={(e) => setEditContent(e.target.value)}
+                                                    onChange={(e) => {
+                                                        const newValue = e.target.value;
+                                                        if (editMention && !newValue.startsWith(editMention)) {
+                                                            return;
+                                                        }
+                                                        setEditContent(newValue);
+                                                    }}
                                                     className="min-h-[60px]"
                                                 />
                                                 {editGif && (
@@ -495,6 +509,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                                         onClick={() => {
                                                             setEditingId(null);
                                                             setEditContent('');
+                                                            setEditMention(null);
                                                             setEditGif(null);
                                                         }}
                                                     >
@@ -603,7 +618,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                                                 <div className="mt-2 space-y-2">
                                                                     <Textarea
                                                                         value={editContent}
-                                                                        onChange={(e) => setEditContent(e.target.value)}
+                                                                        onChange={(e) => {
+                                                                            const newValue = e.target.value;
+                                                                            if (editMention && !newValue.startsWith(editMention)) {
+                                                                                return;
+                                                                            }
+                                                                            setEditContent(newValue);
+                                                                        }}
                                                                         className="min-h-[60px]"
                                                                     />
                                                                     <div className="flex gap-2">
@@ -616,6 +637,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
                                                                             onClick={() => {
                                                                                 setEditingId(null);
                                                                                 setEditContent('');
+                                                                                setEditMention(null);
                                                                             }}
                                                                         >
                                                                             İptal
