@@ -98,10 +98,11 @@ const AdminComments: React.FC = () => {
         }
     };
 
-    const filteredComments = comments.filter(comment =>
-        comment.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        comment.username.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredComments = comments.filter(comment => {
+        const query = searchQuery.toLocaleLowerCase('tr-TR');
+        return comment.content.toLocaleLowerCase('tr-TR').includes(query) ||
+            comment.username.toLocaleLowerCase('tr-TR').includes(query);
+    });
 
     const getMangaTitle = (mangaId: string) => {
         return mangaCache[mangaId] || 'Yükleniyor...';

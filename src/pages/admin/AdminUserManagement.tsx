@@ -53,10 +53,11 @@ const AdminUserManagement: React.FC = () => {
         }
     };
 
-    const filteredUsers = users.filter(user =>
-        user.username.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        user.email.toLowerCase().includes(searchQuery.toLowerCase())
-    );
+    const filteredUsers = users.filter(user => {
+        const query = searchQuery.toLocaleLowerCase('tr-TR');
+        return user.username.toLocaleLowerCase('tr-TR').includes(query) ||
+            user.email.toLocaleLowerCase('tr-TR').includes(query);
+    });
 
     return (
         <div className="space-y-6">

@@ -399,7 +399,7 @@ const MangaDetail: React.FC = () => {
 
   const filteredChapters = manga.chapters.slice().reverse().filter(ch =>
     ch.number.toString().includes(chapterSearch) ||
-    ch.title.toLowerCase().includes(chapterSearch.toLowerCase())
+    ch.title.toLocaleLowerCase('tr-TR').includes(chapterSearch.toLocaleLowerCase('tr-TR'))
   );
 
   const displayedChapters = showAllChapters

@@ -72,8 +72,9 @@ const AdminMangaList: React.FC = () => {
     };
 
     const filteredMangas = mangas.filter((manga) => {
-        const matchesSearch = manga.title.toLowerCase().includes(searchQuery.toLowerCase()) ||
-            manga.author.toLowerCase().includes(searchQuery.toLowerCase());
+        const query = searchQuery.toLocaleLowerCase('tr-TR');
+        const matchesSearch = manga.title.toLocaleLowerCase('tr-TR').includes(query) ||
+            manga.author.toLocaleLowerCase('tr-TR').includes(query);
         const matchesType = typeFilter === 'all' || manga.type === typeFilter;
         const matchesStatus = statusFilter === 'all' || manga.status === statusFilter;
         return matchesSearch && matchesType && matchesStatus;

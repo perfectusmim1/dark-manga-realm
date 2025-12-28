@@ -62,12 +62,12 @@ const Header: React.FC = () => {
   // Filter for quick results
   useEffect(() => {
     if (searchQuery.trim().length > 1) {
-      const query = searchQuery.toLowerCase();
+      const query = searchQuery.toLocaleLowerCase('tr-TR');
       const filtered = allMangas
         .filter(m =>
-          m.title.toLowerCase().includes(query) ||
-          m.author.toLowerCase().includes(query) ||
-          m.alternativeTitles?.some(t => t.toLowerCase().includes(query))
+          m.title.toLocaleLowerCase('tr-TR').includes(query) ||
+          m.author.toLocaleLowerCase('tr-TR').includes(query) ||
+          m.alternativeTitles?.some(t => t.toLocaleLowerCase('tr-TR').includes(query))
         )
         .slice(0, 3);
       setQuickResults(filtered);

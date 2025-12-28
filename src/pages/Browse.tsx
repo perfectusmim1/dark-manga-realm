@@ -61,12 +61,12 @@ const Browse: React.FC = () => {
 
     // Search filter
     if (searchQuery) {
-      const query = searchQuery.toLowerCase();
+      const query = searchQuery.toLocaleLowerCase('tr-TR');
       result = result.filter(
         manga =>
-          manga.title.toLowerCase().includes(query) ||
-          manga.author.toLowerCase().includes(query) ||
-          manga.alternativeTitles?.some(title => title.toLowerCase().includes(query))
+          manga.title.toLocaleLowerCase('tr-TR').includes(query) ||
+          manga.author.toLocaleLowerCase('tr-TR').includes(query) ||
+          manga.alternativeTitles?.some(title => title.toLocaleLowerCase('tr-TR').includes(query))
       );
     }
 

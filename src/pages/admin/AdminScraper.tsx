@@ -185,36 +185,36 @@ const AdminScraper: React.FC = () => {
                 .find(el => el.textContent?.includes('Durumu'))
                 ?.querySelector('.summary-content')?.textContent?.trim() || 'ongoing';
 
-            const status: Manga['status'] = statusText.toLowerCase().includes('tamam') || statusText.toLowerCase().includes('fin') ? 'completed' : 'ongoing';
+            const status: Manga['status'] = statusText.toLocaleLowerCase('tr-TR').includes('tamam') || statusText.toLocaleLowerCase('tr-TR').includes('fin') ? 'completed' : 'ongoing';
 
             // Type
             const typeText = Array.from(doc.querySelectorAll('.post-content_item'))
                 .find(el => el.textContent?.includes('Tip') || el.textContent?.includes('Tür'))
                 ?.querySelector('.summary-content')?.textContent?.trim() || 'manga';
 
-            const type: Manga['type'] = typeText.toLowerCase().includes('manhwa') ? 'manhwa'
-                : typeText.toLowerCase().includes('manhua') ? 'manhua'
+            const type: Manga['type'] = typeText.toLocaleLowerCase('tr-TR').includes('manhwa') ? 'manhwa'
+                : typeText.toLocaleLowerCase('tr-TR').includes('manhua') ? 'manhua'
                     : 'manga';
 
             // Author
             const author = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.toLowerCase().includes('yazar'))
+                .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('yazar'))
                 ?.querySelector('.author-content a, .summary-content')?.textContent?.trim() || 'Bilinmiyor';
 
             // Artist
             const artist = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.toLowerCase().includes('çizer'))
+                .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('çizer'))
                 ?.querySelector('.artist-content a, .summary-content')?.textContent?.trim() || author;
 
             // Alternative Titles
             const altTitlesText = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.toLowerCase().includes('diğer adları') || el.textContent?.toLowerCase().includes('alt isimler'))
+                .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('diğer adları') || el.textContent?.toLocaleLowerCase('tr-TR').includes('alt isimler'))
                 ?.querySelector('.summary-content')?.textContent?.trim() || '';
             const alternativeTitles = altTitlesText ? altTitlesText.split(',').map(t => t.trim()).filter(t => t !== '') : [];
 
             // Release Year
             const yearText = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.toLowerCase().includes('yıl') || el.textContent?.toLowerCase().includes('salınış'))
+                .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('yıl') || el.textContent?.toLocaleLowerCase('tr-TR').includes('salınış'))
                 ?.querySelector('.summary-content')?.textContent?.trim() || '';
             const releaseYear = yearText ? parseInt(yearText.match(/\d{4}/)?.[0] || '') : new Date().getFullYear();
 
