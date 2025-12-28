@@ -517,7 +517,7 @@ const MangaDetail: React.FC = () => {
                     </Button>
                   ) : manga.chapters.length > 0 ? (
                     <Button asChild variant="glow" size="lg">
-                      <Link to={`/manga/${manga.id}/chapter/${manga.chapters[0]?.id}`}>
+                      <Link to={`/manga/${manga.id}/chapter/${[...manga.chapters].sort((a, b) => a.number - b.number)[0]?.id}`}>
                         <Play className="h-4 w-4" />
                         Okumaya Başla
                       </Link>

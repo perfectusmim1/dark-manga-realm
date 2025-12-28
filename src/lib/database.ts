@@ -27,12 +27,12 @@ export const getAllMangas = async (): Promise<Manga[]> => {
             const { data: revData } = await supabase.from('reviews').select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement');
             const allReviews = revData || [];
 
-            // Get chapter counts
-            const { data: cData } = await supabase.from('chapters').select('manga_id');
-            const chapterCounts = cData || [];
+            // Get chapter counts and first chapters
+            const { data: cData } = await supabase.from('chapters').select('id, manga_id, number').order('number', { ascending: true });
+            const allChapters = cData || [];
 
             return data.map((m) => {
-                const mangaChapters = chapterCounts.filter(c => c.manga_id === m.id);
+                const mangaChapters = allChapters.filter(c => c.manga_id === m.id);
                 const mangaReviews = allReviews.filter(r => r.manga_id === m.id);
 
                 let average = 0;
@@ -49,7 +49,7 @@ export const getAllMangas = async (): Promise<Manga[]> => {
                     lastUpdated: m.last_updated,
                     createdAt: m.created_at,
                     releaseYear: m.release_year,
-                    chapters: Array(mangaChapters.length).fill({}),
+                    chapters: mangaChapters.map(c => ({ id: c.id, number: c.number })),
                     ratings: Array(mangaReviews.length).fill({ rating: average }), // Simplified for list view
                     averageRating: average,
                     reviewCount: mangaReviews.length
@@ -663,11 +663,16 @@ export const addComment = async (comment: Omit<Comment, 'id' | 'likes' | 'likedB
 };
 
 export const updateComment = async (id: string, content: string, gifUrl?: string): Promise<void> => {
-    await supabase.from('comments').update({
+    const { error } = await supabase.from('comments').update({
         content,
         gif_url: gifUrl,
         updated_at: new Date().toISOString()
     }).eq('id', id);
+
+    if (error) {
+        console.error('Yorum güncelleme hatası:', error);
+        throw error;
+    }
 };
 
 export const deleteComment = async (id: string): Promise<void> => {

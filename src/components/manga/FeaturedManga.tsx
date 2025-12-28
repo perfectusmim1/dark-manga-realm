@@ -130,7 +130,7 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
 
           <div className="flex flex-wrap gap-3 pt-2">
             <Button asChild variant="glow" size="lg">
-              <Link to={`/manga/${manga.id}/chapter/${manga.chapters[0]?.id}`}>
+              <Link to={manga.chapters[0]?.id ? `/manga/${manga.id}/chapter/${manga.chapters[0].id}` : `/manga/${manga.id}`}>
                 <Play className="h-4 w-4" />
                 Okumaya Başla
               </Link>
