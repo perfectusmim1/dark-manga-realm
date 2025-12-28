@@ -29,12 +29,15 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
 
 const ReadingLists: React.FC = () => {
     const { user } = useAuth();
     const [lists, setLists] = useState<ReadingList[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+    const [isModalOpen, setIsModalOpen] = useState(false);
+    const [editingList, setEditingList] = useState<ReadingList | null>(null);
 
     useEffect(() => {
         if (user) {
@@ -69,6 +72,24 @@ const ReadingLists: React.FC = () => {
         }
     };
 
+    const handleCreateSuccess = (newList: ReadingList) => {
+        if (editingList) {
+            setLists(prev => prev.map(l => l.id === newList.id ? newList : l));
+        } else {
+            setLists(prev => [newList, ...prev]);
+        }
+    };
+
+    const handleEdit = (list: ReadingList) => {
+        setEditingList(list);
+        setIsModalOpen(true);
+    };
+
+    const handleOpenCreateModal = () => {
+        setEditingList(null);
+        setIsModalOpen(true);
+    };
+
     if (!user) {
         return (
             <div className="min-h-screen bg-background">
@@ -99,6 +120,10 @@ const ReadingLists: React.FC = () => {
                         <h1 className="text-3xl font-bold">Okuma Listelerim</h1>
                         <p className="text-muted-foreground">Oluşturduğunuz tüm manga koleksiyonları</p>
                     </div>
+                    <Button onClick={handleOpenCreateModal} className="gap-2 self-start sm:self-auto">
+                        <Plus className="h-4 w-4" />
+                        Yeni Liste Oluştur
+                    </Button>
                 </div>
 
                 {isLoading ? (
@@ -114,10 +139,11 @@ const ReadingLists: React.FC = () => {
                         </div>
                         <h2 className="text-xl font-semibold">Henüz listeniz yok</h2>
                         <p className="mt-2 max-w-xs text-muted-foreground">
-                            Manga detay sayfalarından "Listeye Ekle" butonuna basarak ilk listenizi oluşturabilirsiniz.
+                            Yeni bir liste oluşturarak favori mangalarınızı organize etmeye başlayın.
                         </p>
-                        <Button asChild className="mt-6">
-                            <Link to="/browse">Manga Keşfet</Link>
+                        <Button onClick={handleOpenCreateModal} className="mt-6 gap-2">
+                            <Plus className="h-4 w-4" />
+                            İlk Listeni Oluştur
                         </Button>
                     </div>
                 ) : (
@@ -157,6 +183,14 @@ const ReadingLists: React.FC = () => {
                                         <Button
                                             variant="ghost"
                                             size="icon"
+                                            className="h-8 w-8 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                            onClick={() => handleEdit(list)}
+                                        >
+                                            <Edit2 className="h-4 w-4" />
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
                                             className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
                                             onClick={() => setDeleteConfirmId(list.id)}
                                         >
@@ -169,6 +203,14 @@ const ReadingLists: React.FC = () => {
                     </div>
                 )}
             </main>
+
+            <CreateReadingListModal
+                isOpen={isModalOpen}
+                onClose={() => setIsModalOpen(false)}
+                userId={user.id}
+                onSuccess={handleCreateSuccess}
+                editList={editingList}
+            />
 
             <AlertDialog open={!!deleteConfirmId} onOpenChange={() => setDeleteConfirmId(null)}>
                 <AlertDialogContent>

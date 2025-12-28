@@ -8,6 +8,7 @@ import {
     Lock,
     Clock,
     BookOpen,
+    Edit2,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -17,6 +18,7 @@ import { getReadingListById, removeMangaFromReadingList } from '@/lib/database';
 import { ReadingList, Manga } from '@/lib/types';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
+import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
 
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
@@ -24,6 +26,7 @@ const ReadingListDetail: React.FC = () => {
     const navigate = useNavigate();
     const [list, setList] = useState<ReadingList | undefined>();
     const [isLoading, setIsLoading] = useState(true);
+    const [isEditModalOpen, setIsEditModalOpen] = useState(false);
 
     useEffect(() => {
         if (listId) {
@@ -64,6 +67,15 @@ const ReadingListDetail: React.FC = () => {
         }
     };
 
+    const handleEditSuccess = (updatedList: ReadingList) => {
+        setList(prev => prev ? {
+            ...prev,
+            name: updatedList.name,
+            description: updatedList.description,
+            isPublic: updatedList.isPublic
+        } : undefined);
+    };
+
     if (isLoading) {
         return (
             <div className="min-h-screen bg-background">
@@ -98,13 +110,23 @@ const ReadingListDetail: React.FC = () => {
 
                 <div className="mb-8 p-6 rounded-2xl border border-border bg-card/50 backdrop-blur-sm">
                     <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div>
-                            <div className="flex items-center gap-3 mb-2">
+                        <div className="flex-1">
+                            <div className="flex items-center flex-wrap gap-3 mb-2">
                                 <h1 className="text-3xl font-bold">{list.name}</h1>
                                 <Badge variant="secondary" className="gap-1">
                                     {list.isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
                                     {list.isPublic ? 'Herkese Açık' : 'Özel'}
                                 </Badge>
+                                {isOwner && (
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-8 w-8 rounded-full"
+                                        onClick={() => setIsEditModalOpen(true)}
+                                    >
+                                        <Edit2 className="h-4 w-4" />
+                                    </Button>
+                                )}
                             </div>
                             <p className="text-muted-foreground max-w-2xl">{list.description || 'Açıklama belirtilmemiş.'}</p>
                         </div>
@@ -121,6 +143,14 @@ const ReadingListDetail: React.FC = () => {
                         </div>
                     </div>
                 </div>
+
+                <CreateReadingListModal
+                    isOpen={isEditModalOpen}
+                    onClose={() => setIsEditModalOpen(false)}
+                    userId={user?.id || ''}
+                    onSuccess={handleEditSuccess}
+                    editList={list}
+                />
 
                 {list.items && list.items.length > 0 ? (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
