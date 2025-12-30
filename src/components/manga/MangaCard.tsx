@@ -63,10 +63,10 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
             <Badge
               variant={manga.status === 'completed' ? 'default' : 'outline'}
               className={cn(
-                "absolute right-2 top-2 text-xs",
+                "absolute right-2 bottom-2 text-[10px] font-bold z-10 transition-opacity duration-300 group-hover:opacity-0",
                 manga.status === 'completed'
-                  ? 'bg-primary/90 text-primary-foreground'
-                  : 'border-foreground/30 bg-background/80 backdrop-blur-sm'
+                  ? 'bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 border-none'
+                  : 'border-white/20 bg-black/60 text-white backdrop-blur-md'
               )}
             >
               {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara'}
@@ -92,22 +92,25 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
           </div>
 
           {/* Info */}
-          <div className="p-3">
-            <h3 className="line-clamp-1 font-semibold text-foreground transition-colors group-hover:text-primary">
+          <div className="p-2">
+            <h3 className="line-clamp-2 text-[13px] font-bold leading-tight text-foreground transition-colors group-hover:text-primary h-8">
               {manga.title}
             </h3>
-            <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
+            <p className="mt-1 line-clamp-1 text-[11px] text-muted-foreground">
               {manga.author}
             </p>
-            <div className="mt-2 flex flex-wrap gap-1">
-              {manga.genres.slice(0, 2).map((genre) => (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {manga.genres.slice(0, 1).map((genre) => (
                 <span
                   key={genre}
-                  className="rounded-full bg-secondary px-2 py-0.5 text-[10px] text-muted-foreground"
+                  className="rounded-md bg-secondary/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
                 >
                   {genre}
                 </span>
               ))}
+              <Badge variant="outline" className="h-4 px-1 text-[9px] border-primary/20 bg-primary/5 text-primary">
+                {manga.chapters.length} Bölüm
+              </Badge>
             </div>
           </div>
         </Link>

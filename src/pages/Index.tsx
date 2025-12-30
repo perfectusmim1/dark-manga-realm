@@ -95,7 +95,7 @@ const Index: React.FC = () => {
                 </Link>
               </Button>
             </div>
-            <div className="grid grid-cols-2 gap-4 md:grid-cols-3 lg:grid-cols-6">
+            <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
               {continueReading.map(({ manga, chapterId, chapterNumber }) => (
                 <Link
                   key={manga.id}
@@ -108,18 +108,18 @@ const Index: React.FC = () => {
                       alt={manga.title}
                       className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
                     />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent" />
-                    <div className="absolute bottom-0 left-0 right-0 p-3">
+                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-all duration-300 group-hover:opacity-100 backdrop-blur-[2px]">
+                      <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-white/10 border border-white/20 backdrop-blur-md shadow-2xl transition-all duration-300 group-hover:scale-110 group-hover:bg-white/20 group-active:scale-95">
+                        <div className="absolute inset-0 rounded-full bg-primary/20 blur-xl opacity-0 group-hover:opacity-50 transition-opacity" />
+                        <Play className="h-7 w-7 text-white fill-white ml-1 relative z-10" />
+                      </div>
+                    </div>
+                    <div className="absolute bottom-0 left-0 right-0 p-3 z-20">
                       <h3 className="font-semibold text-white text-sm line-clamp-1">{manga.title}</h3>
                       <div className="flex items-center gap-2 mt-1">
                         <Badge variant="secondary" className="text-xs">
                           Bölüm {chapterNumber}
                         </Badge>
-                      </div>
-                    </div>
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
-                      <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary">
-                        <Play className="h-6 w-6 text-white" />
                       </div>
                     </div>
                   </div>
@@ -143,7 +143,7 @@ const Index: React.FC = () => {
               </Link>
             </Button>
           </div>
-          <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6">
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
             {recentlyUpdated.map((manga, index) => (
               <MangaCard key={manga.id} manga={manga} index={index} />
             ))}

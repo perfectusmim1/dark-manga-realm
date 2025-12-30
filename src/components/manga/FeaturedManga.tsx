@@ -71,8 +71,11 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
             alt={manga.title}
             className="h-64 w-44 object-cover md:h-80 md:w-56"
           />
-          <div className="absolute inset-0 flex items-center justify-center bg-background/50 opacity-0 transition-opacity duration-300 group-hover:opacity-100">
-            <Play className="h-12 w-12 fill-primary text-primary" />
+          <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-all duration-300 group-hover:opacity-100 backdrop-blur-[2px]">
+            <div className="relative flex h-16 w-16 items-center justify-center rounded-full bg-white/10 border border-white/20 backdrop-blur-md shadow-2xl transition-all duration-300 group-hover:scale-110 group-hover:bg-white/20 group-active:scale-95">
+              <div className="absolute inset-0 rounded-full bg-primary/20 blur-2xl opacity-0 group-hover:opacity-70 transition-opacity" />
+              <Play className="h-8 w-8 text-white fill-white ml-1 relative z-10" />
+            </div>
           </div>
         </Link>
 
