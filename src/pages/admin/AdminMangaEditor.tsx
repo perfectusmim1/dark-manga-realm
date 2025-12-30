@@ -28,11 +28,28 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
-import { getMangaById, saveManga, addChapterToManga, deleteChapter } from '@/lib/database';
-import { Manga, Chapter } from '@/lib/types';
+import {
+    getMangaById,
+    saveManga,
+    addChapterToManga,
+    deleteChapter,
+    getCharacters,
+    getAuthors,
+    getArtists,
+    linkMangaToCharacter,
+    unlinkMangaFromCharacter,
+    linkMangaToAuthor,
+    linkMangaToArtist,
+    saveCharacter,
+    saveAuthor,
+    saveArtist,
+    getMangaCharacters
+} from '@/lib/database';
+import { Manga, Chapter, Character, Author, Artist } from '@/lib/types';
 import { allGenres } from '@/lib/mockData';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { toast } from 'sonner';
+import { Search } from 'lucide-react';
 
 const AdminMangaEditor: React.FC = () => {
     const navigate = useNavigate();
@@ -67,6 +84,33 @@ const AdminMangaEditor: React.FC = () => {
     const [loading, setLoading] = useState(false);
     const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
 
+    // Entity States
+    const [allCharacters, setAllCharacters] = useState<Character[]>([]);
+    const [allAuthors, setAllAuthors] = useState<Author[]>([]);
+    const [allArtists, setAllArtists] = useState<Artist[]>([]);
+    const [mangaCharacters, setMangaCharacters] = useState<Character[]>([]);
+    const [selectedAuthor, setSelectedAuthor] = useState<Author | null>(null);
+    const [selectedArtist, setSelectedArtist] = useState<Artist | null>(null);
+    const [deletedCharacterIds, setDeletedCharacterIds] = useState<string[]>([]);
+
+    // Dialog States for creating new entities
+    const [showEntityDialog, setShowEntityDialog] = useState<{ type: 'character' | 'author' | 'artist' | null }>({ type: null });
+    const [newEntity, setNewEntity] = useState({ name: '', imageUrl: '', description: '' });
+
+    useEffect(() => {
+        const loadInitialData = async () => {
+            const [chars, auths, arts] = await Promise.all([
+                getCharacters(),
+                getAuthors(),
+                getArtists()
+            ]);
+            setAllCharacters(chars);
+            setAllAuthors(auths);
+            setAllArtists(arts);
+        };
+        loadInitialData();
+    }, []);
+
     useEffect(() => {
         const loadManga = async () => {
             if (isEditing) {
@@ -79,7 +123,16 @@ const AdminMangaEditor: React.FC = () => {
                             ...prev,
                             number: existingManga.chapters.length + 1,
                         }));
-                    } else {
+
+                        // Load related entities
+                        const chars = await getMangaCharacters(mangaId);
+                        setMangaCharacters(chars);
+
+                        // Find matching author/artist from all lists
+                        // Note: If they aren't in the DB as objects yet, we might need to handle strings
+                        // But we want to encourage using the objects
+                    }
+                    else {
                         toast.error('Manga bulunamadı');
                         navigate('/admin/mangas');
                     }
@@ -275,6 +328,27 @@ const AdminMangaEditor: React.FC = () => {
             };
 
             await saveManga(mangaToSave);
+
+            // Save relationship links if editing
+            if (isEditing && manga.id) {
+                // Characters links sync
+                // 1. Unlink deleted characters
+                for (const charId of deletedCharacterIds) {
+                    await unlinkMangaFromCharacter(manga.id, charId);
+                }
+
+                // 2. Link current characters (upsert handles duplicates)
+                for (const char of mangaCharacters) {
+                    await linkMangaToCharacter(manga.id, char.id);
+                }
+
+                if (selectedAuthor) await linkMangaToAuthor(manga.id, selectedAuthor.id);
+                if (selectedArtist) await linkMangaToArtist(manga.id, selectedArtist.id);
+
+                // Reset deleted tracking
+                setDeletedCharacterIds([]);
+            }
+
             toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
             navigate('/admin/mangas');
         } catch (err) {
@@ -282,6 +356,44 @@ const AdminMangaEditor: React.FC = () => {
             console.error(err);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleCreateEntity = async () => {
+        if (!newEntity.name.trim()) return;
+        try {
+            let id = '';
+            const entity = { name: newEntity.name, imageUrl: newEntity.imageUrl, description: newEntity.description };
+            if (showEntityDialog.type === 'character') {
+                id = await saveCharacter(entity as any);
+                const chars = await getCharacters();
+                setAllCharacters(chars);
+                const created = chars.find(c => c.id === id);
+                if (created) setMangaCharacters(prev => [...prev, created]);
+            } else if (showEntityDialog.type === 'author') {
+                id = await saveAuthor(entity as any);
+                const auths = await getAuthors();
+                setAllAuthors(auths as any);
+                const created = auths.find(a => a.id === id);
+                if (created) {
+                    setSelectedAuthor(created as any);
+                    handleChange('author', created.name);
+                }
+            } else if (showEntityDialog.type === 'artist') {
+                id = await saveArtist(entity as any);
+                const arts = await getArtists();
+                setAllArtists(arts as any);
+                const created = arts.find(a => a.id === id);
+                if (created) {
+                    setSelectedArtist(created as any);
+                    handleChange('artist', created.name);
+                }
+            }
+            setShowEntityDialog({ type: null });
+            setNewEntity({ name: '', imageUrl: '', description: '' });
+            toast.success('Başarıyla oluşturuldu');
+        } catch (err) {
+            toast.error('Oluşturulamadı');
         }
     };
 
@@ -344,21 +456,75 @@ const AdminMangaEditor: React.FC = () => {
                         </div>
 
                         <div className="grid gap-4 md:grid-cols-2">
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Yazar *</label>
-                                <Input
-                                    value={manga.author || ''}
-                                    onChange={(e) => handleChange('author', e.target.value)}
-                                    placeholder="Yazar adı"
-                                />
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Yazar *</label>
+                                    <div className="flex gap-2">
+                                        <Select
+                                            value={selectedAuthor?.id}
+                                            onValueChange={(val) => {
+                                                const a = allAuthors.find(x => x.id === val);
+                                                if (a) {
+                                                    setSelectedAuthor(a);
+                                                    handleChange('author', a.name);
+                                                }
+                                            }}
+                                        >
+                                            <SelectTrigger className="flex-1">
+                                                <SelectValue placeholder="Yazar seçin..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {allAuthors.map(a => (
+                                                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'author' })}>
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    <Input
+                                        value={manga.author || ''}
+                                        onChange={(e) => handleChange('author', e.target.value)}
+                                        placeholder="Veya yazar adı girin"
+                                        className="mt-2"
+                                    />
+                                </div>
                             </div>
-                            <div className="space-y-2">
-                                <label className="text-sm font-medium">Çizer</label>
-                                <Input
-                                    value={manga.artist || ''}
-                                    onChange={(e) => handleChange('artist', e.target.value)}
-                                    placeholder="Çizer adı"
-                                />
+                            <div className="space-y-4">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Çizer</label>
+                                    <div className="flex gap-2">
+                                        <Select
+                                            value={selectedArtist?.id}
+                                            onValueChange={(val) => {
+                                                const a = allArtists.find(x => x.id === val);
+                                                if (a) {
+                                                    setSelectedArtist(a);
+                                                    handleChange('artist', a.name);
+                                                }
+                                            }}
+                                        >
+                                            <SelectTrigger className="flex-1">
+                                                <SelectValue placeholder="Çizer seçin..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {allArtists.map(a => (
+                                                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'artist' })}>
+                                            <Plus className="h-4 w-4" />
+                                        </Button>
+                                    </div>
+                                    <Input
+                                        value={manga.artist || ''}
+                                        onChange={(e) => handleChange('artist', e.target.value)}
+                                        placeholder="Veya çizer adı girin"
+                                        className="mt-2"
+                                    />
+                                </div>
                             </div>
                         </div>
 
@@ -430,6 +596,68 @@ const AdminMangaEditor: React.FC = () => {
                                         {genre}
                                     </Badge>
                                 ))}
+                            </div>
+                        </div>
+
+                        {/* Character Selection */}
+                        <div className="space-y-4 pt-4 border-t border-border">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-lg font-semibold">Karakterler</h2>
+                                <Button size="sm" variant="outline" onClick={() => setShowEntityDialog({ type: 'character' })}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Yeni Karakter
+                                </Button>
+                            </div>
+                            <div className="grid gap-2">
+                                <div className="flex gap-2">
+                                    <Select onValueChange={(val) => {
+                                        const char = allCharacters.find(c => c.id === val);
+                                        if (char && !mangaCharacters.find(mc => mc.id === char.id)) {
+                                            setMangaCharacters([...mangaCharacters, char]);
+                                        }
+                                    }}>
+                                        <SelectTrigger className="flex-1">
+                                            <SelectValue placeholder="Karakter seçin..." />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {allCharacters.filter(c => !mangaCharacters.find(mc => mc.id === c.id)).map(c => (
+                                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                                <div className="flex flex-wrap gap-2">
+                                    {mangaCharacters.map(char => (
+                                        <Badge key={char.id} variant="secondary" className="px-3 py-1 gap-2 border-primary/20 hover:border-primary/40 transition-colors">
+                                            <div className="w-5 h-5 rounded-full bg-muted overflow-hidden flex items-center justify-center shrink-0 border border-white/10">
+                                                {char.imageUrl ? (
+                                                    <img
+                                                        src={char.imageUrl}
+                                                        className="w-full h-full object-cover"
+                                                        onError={(e) => {
+                                                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/40?text=?';
+                                                        }}
+                                                    />
+                                                ) : (
+                                                    <span className="text-[10px] text-muted-foreground">?</span>
+                                                )}
+                                            </div>
+                                            <span className="max-w-[150px] truncate">{char.name}</span>
+                                            <button
+                                                type="button"
+                                                className="hover:text-destructive transition-colors ml-1"
+                                                onClick={() => {
+                                                    setMangaCharacters(mangaCharacters.filter(c => c.id !== char.id));
+                                                    if (!deletedCharacterIds.includes(char.id)) {
+                                                        setDeletedCharacterIds([...deletedCharacterIds, char.id]);
+                                                    }
+                                                }}
+                                            >
+                                                <X className="h-3 w-3" />
+                                            </button>
+                                        </Badge>
+                                    ))}
+                                </div>
                             </div>
                         </div>
                     </div>
@@ -644,6 +872,47 @@ const AdminMangaEditor: React.FC = () => {
                         <Button onClick={handleSaveChapter}>
                             {editingChapterId ? 'Güncelle' : 'Bölüm Ekle'}
                         </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* Entity Add Dialog (Character/Author/Artist) */}
+            <Dialog open={showEntityDialog.type !== null} onOpenChange={() => setShowEntityDialog({ type: null })}>
+                <DialogContent>
+                    <DialogHeader>
+                        <DialogTitle>
+                            Yeni {showEntityDialog.type === 'character' ? 'Karakter' : showEntityDialog.type === 'author' ? 'Yazar' : 'Çizer'} Ekle
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">İsim</label>
+                            <Input
+                                value={newEntity.name}
+                                onChange={(e) => setNewEntity({ ...newEntity, name: e.target.value })}
+                                placeholder="İsim..."
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Resim URL</label>
+                            <Input
+                                value={newEntity.imageUrl}
+                                onChange={(e) => setNewEntity({ ...newEntity, imageUrl: e.target.value })}
+                                placeholder="https://..."
+                            />
+                        </div>
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Açıklama / Hikaye</label>
+                            <Textarea
+                                value={newEntity.description}
+                                onChange={(e) => setNewEntity({ ...newEntity, description: e.target.value })}
+                                placeholder="Açıklama..."
+                            />
+                        </div>
+                    </div>
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setShowEntityDialog({ type: null })}>İptal</Button>
+                        <Button onClick={handleCreateEntity}>Oluştur</Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>

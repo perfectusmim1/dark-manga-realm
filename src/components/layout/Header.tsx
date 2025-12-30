@@ -15,10 +15,11 @@ import {
   List,
   Settings,
   Star,
-  BookOpen
+  BookOpen,
+  User as UserIcon
 } from 'lucide-react';
-import { getAllMangas } from '@/lib/database';
-import { Manga } from '@/lib/types';
+import { getAllMangas, getCharacters } from '@/lib/database';
+import { Manga, Character } from '@/lib/types';
 
 
 import { Button } from '@/components/ui/button';
@@ -45,18 +46,24 @@ const Header: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const adminSession = getAdminSession();
+  const [allCharacters, setAllCharacters] = useState<Character[]>([]);
+  const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
 
   // Load all mangas for quick search once
   useEffect(() => {
-    const loadAllMangas = async () => {
+    const loadInitialData = async () => {
       try {
-        const data = await getAllMangas();
-        setAllMangas(data);
+        const [mangaData, charData] = await Promise.all([
+          getAllMangas(),
+          getCharacters()
+        ]);
+        setAllMangas(mangaData);
+        setAllCharacters(charData);
       } catch (err) {
         console.error('Quick search data load failed:', err);
       }
     };
-    loadAllMangas();
+    loadInitialData();
   }, []);
 
   // Filter for quick results
@@ -71,10 +78,16 @@ const Header: React.FC = () => {
         )
         .slice(0, 3);
       setQuickResults(filtered);
+
+      const filteredChars = allCharacters
+        .filter(c => c.name.toLocaleLowerCase('tr-TR').includes(query))
+        .slice(0, 3);
+      setQuickCharacterResults(filteredChars);
     } else {
       setQuickResults([]);
+      setQuickCharacterResults([]);
     }
-  }, [searchQuery, allMangas]);
+  }, [searchQuery, allMangas, allCharacters]);
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
@@ -95,7 +108,10 @@ const Header: React.FC = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
-  const navLinks: { path: string; label: string }[] = [];
+  const navLinks: { path: string; label: string }[] = [
+    { path: '/browse', label: 'Keşfet' },
+    { path: '/characters', label: 'Karakterler' },
+  ];
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
@@ -168,6 +184,39 @@ const Header: React.FC = () => {
                       </button>
                     ))}
                   </div>
+
+                  {quickCharacterResults.length > 0 && (
+                    <div className="mt-3">
+                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Karakterler</p>
+                      <div className="mt-1 space-y-1">
+                        {quickCharacterResults.map(char => (
+                          <button
+                            key={char.id}
+                            onClick={() => {
+                              navigate(`/character/${char.id}`);
+                              setSearchQuery('');
+                              setQuickCharacterResults([]);
+                              setQuickResults([]);
+                              setIsSearchFocused(false);
+                            }}
+                            className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
+                          >
+                            <Avatar className="h-8 w-8">
+                              <AvatarImage src={char.imageUrl} />
+                              <AvatarFallback className="text-[10px]">{char.name[0]}</AvatarFallback>
+                            </Avatar>
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{char.name}</h4>
+                              <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                <Heart className="h-2 w-2 fill-primary text-primary" /> {char.likesCount} Beğeni
+                              </div>
+                            </div>
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
                   <div className="mt-2 border-t border-border pt-1">
                     <button
                       onClick={handleSearch}

@@ -22,7 +22,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 
 const Settings: React.FC = () => {
-    const { user, updateProfile, updatePassword, updatePreferences } = useAuth();
+    const { user, updateProfile, updatePassword, updatePreferences, toggle2FA } = useAuth();
 
     // Profile state
     const [username, setUsername] = useState(user?.username || '');
@@ -263,6 +263,40 @@ const Settings: React.FC = () => {
                                     </Button>
                                 </CardFooter>
                             </Card>
+                            {/* Two-Factor Authentication Section */}
+                            <Card className="border-border/50 bg-card/50 backdrop-blur-sm border-primary/20">
+                                <CardHeader>
+                                    <div className="flex items-center justify-between">
+                                        <div className="space-y-1">
+                                            <CardTitle className="flex items-center gap-2">
+                                                <ShieldCheck className="h-5 w-5 text-primary" />
+                                                İki Faktörlü Doğrulama (2FA)
+                                            </CardTitle>
+                                            <CardDescription>
+                                                Hesabınıza her girişte e-posta adresinize tek kullanımlık bir giriş bağlantısı gönderilir.
+                                            </CardDescription>
+                                        </div>
+                                        <Switch
+                                            checked={user?.twoFactorEnabled}
+                                            onCheckedChange={async (checked) => {
+                                                const { success, error } = await toggle2FA(checked);
+                                                if (success) {
+                                                    toast.success(checked ? '2FA Aktif Edildi' : '2FA Kapatıldı');
+                                                } else {
+                                                    toast.error(error || 'Hata oluştu');
+                                                }
+                                            }}
+                                        />
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="rounded-lg bg-primary/5 p-4 border border-primary/10">
+                                        <p className="text-sm text-primary/90">
+                                            Güvenliğiniz için 2FA'yı açmanızı öneririz. Bu özellik aktif olduğunda, şifreniz doğru olsa bile e-postanıza gelecek <b>tek kullanımlık giriş bağlantısı</b> olmadan giriş yapılamaz.
+                                        </p>
+                                    </div>
+                                </CardContent>
+                            </Card>
                         </div>
                     </TabsContent>
 
@@ -325,8 +359,8 @@ const Settings: React.FC = () => {
                         </Card>
                     </TabsContent>
                 </Tabs>
-            </main>
-        </div>
+            </main >
+        </div >
     );
 };
 

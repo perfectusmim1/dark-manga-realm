@@ -23,6 +23,10 @@ import ReadingLists from "./pages/ReadingLists";
 import ReadingListDetail from "./pages/ReadingListDetail";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import CharacterDetail from "./pages/CharacterDetail";
+import AuthorDetail from "./pages/AuthorDetail";
+import ArtistDetail from "./pages/ArtistDetail";
+import CharactersBrowse from "./pages/CharactersBrowse";
 
 
 
@@ -37,6 +41,7 @@ import AdminUsers from "./pages/admin/AdminUsers";
 import AdminUserManagement from "./pages/admin/AdminUserManagement";
 import AdminScraper from "./pages/admin/AdminScraper";
 import AdminChapterScraper from "./pages/admin/AdminChapterScraper";
+import AdminEntities from "./pages/admin/AdminEntities";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -79,6 +84,10 @@ const App = () => (
               <Route path="/reading-lists" element={<ReadingLists />} />
               <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
               <Route path="/settings" element={<Settings />} />
+              <Route path="/character/:id" element={<CharacterDetail />} />
+              <Route path="/author/:id" element={<AuthorDetail />} />
+              <Route path="/artist/:id" element={<ArtistDetail />} />
+              <Route path="/characters" element={<CharactersBrowse />} />
 
 
 
@@ -94,6 +103,7 @@ const App = () => (
                 <Route path="chapter-scraper" element={<AdminChapterScraper />} />
                 <Route path="users" element={<AdminUsers />} />
                 <Route path="user-management" element={<AdminUserManagement />} />
+                <Route path="entities" element={<AdminEntities />} />
               </Route>
 
               <Route path="*" element={<NotFound />} />

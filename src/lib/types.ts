@@ -17,7 +17,42 @@ export interface Manga {
   createdAt: string;
   type: 'manga' | 'manhwa' | 'manhua';
   releaseYear?: number;
+  characters?: Character[];
+  authorDetails?: Author;
+  artistDetails?: Artist;
 }
+
+export interface Character {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  description?: string;
+  likesCount: number;
+  createdAt: string;
+  series?: Manga[];
+  rank?: number;
+}
+
+export interface Author {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  description?: string;
+  likesCount: number;
+  createdAt: string;
+  series?: Manga[];
+}
+
+export interface Artist {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  description?: string;
+  likesCount: number;
+  createdAt: string;
+  series?: Manga[];
+}
+
 
 export interface MangaRating {
   userId: string;
@@ -49,6 +84,7 @@ export interface User {
       likes: boolean;
     };
   };
+  twoFactorEnabled?: boolean;
 }
 
 

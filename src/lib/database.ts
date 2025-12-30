@@ -1,7 +1,7 @@
 // Supabase Database Integration
 // Fully asynchronous operations replacing localStorage
 import { supabase } from './supabase';
-import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction } from './types';
+import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
 
 // ==================== MANGA OPERATIONS ====================
 
@@ -1093,3 +1093,229 @@ export const getSimilarMangas = async (
         return [];
     }
 };
+
+// ==================== CHARACTER, AUTHOR, ARTIST OPERATIONS ====================
+
+export const getCharacters = async (): Promise<Character[]> => {
+    const { data, error } = await supabase
+        .from('characters')
+        .select('*')
+        .order('likes_count', { ascending: false });
+
+    if (error) return [];
+    return data.map((c, index) => ({
+        id: c.id,
+        name: c.name,
+        imageUrl: c.image_url,
+        description: c.description,
+        likesCount: c.likes_count,
+        createdAt: c.created_at,
+        rank: index + 1
+    }));
+};
+
+export const getCharacterById = async (id: string): Promise<Character | undefined> => {
+    const { data, error } = await supabase
+        .from('characters')
+        .select(`
+            *,
+            mangas:manga_characters(manga:mangas(*))
+        `)
+        .eq('id', id)
+        .maybeSingle();
+
+    if (error || !data) return undefined;
+
+    // Get rank
+    const { count } = await supabase
+        .from('characters')
+        .select('*', { count: 'exact', head: true })
+        .gt('likes_count', data.likes_count);
+
+    return {
+        id: data.id,
+        name: data.name,
+        imageUrl: data.image_url,
+        description: data.description,
+        likesCount: data.likes_count,
+        createdAt: data.created_at,
+        rank: (count || 0) + 1,
+        series: (data as any).mangas.map((m: any) => m.manga).filter(Boolean)
+    };
+};
+
+export const saveCharacter = async (character: Partial<Character>): Promise<string> => {
+    const data = {
+        name: character.name,
+        image_url: character.imageUrl,
+        description: character.description,
+    };
+
+    if (character.id) {
+        const { error } = await supabase.from('characters').update(data).eq('id', character.id);
+        if (error) throw error;
+        return character.id;
+    } else {
+        const { data: inserted, error } = await supabase.from('characters').insert(data).select().single();
+        if (error) throw error;
+        return inserted.id;
+    }
+};
+
+export const deleteCharacter = async (id: string): Promise<void> => {
+    const { error } = await supabase.from('characters').delete().eq('id', id);
+    if (error) throw error;
+};
+
+export const linkMangaToCharacter = async (mangaId: string, characterId: string): Promise<void> => {
+    await supabase.from('manga_characters').upsert({ manga_id: mangaId, character_id: characterId });
+};
+
+export const unlinkMangaFromCharacter = async (mangaId: string, characterId: string): Promise<void> => {
+    await supabase.from('manga_characters').delete().eq('manga_id', mangaId).eq('character_id', characterId);
+};
+
+export const getMangaCharacters = async (mangaId: string): Promise<Character[]> => {
+    const { data, error } = await supabase
+        .from('manga_characters')
+        .select('character:characters(*)')
+        .eq('manga_id', mangaId);
+
+    if (error) return [];
+    return data.map((d: any) => ({
+        id: d.character.id,
+        name: d.character.name,
+        imageUrl: d.character.image_url,
+        description: d.character.description,
+        likesCount: d.character.likes_count,
+        createdAt: d.character.created_at
+    }));
+};
+
+// Same for Authors/Artists (shorter versions)
+export const getAuthors = async () => {
+    const { data } = await supabase.from('authors').select('*').order('name');
+    return (data || []).map(d => ({ ...d, imageUrl: d.image_url, likesCount: d.likes_count }));
+};
+
+export const getArtists = async () => {
+    const { data } = await supabase.from('artists').select('*').order('name');
+    return (data || []).map(d => ({ ...d, imageUrl: d.image_url, likesCount: d.likes_count }));
+};
+
+export const getAuthorById = async (id: string): Promise<Author | undefined> => {
+    const { data, error } = await supabase
+        .from('authors')
+        .select(`*, mangas:manga_authors(manga:mangas(*))`)
+        .eq('id', id)
+        .maybeSingle();
+    if (error || !data) return undefined;
+    return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series: (data as any).mangas.map((m: any) => m.manga) };
+};
+
+export const getArtistById = async (id: string): Promise<Artist | undefined> => {
+    const { data, error } = await supabase
+        .from('artists')
+        .select(`*, mangas:manga_artists(manga:mangas(*))`)
+        .eq('id', id)
+        .maybeSingle();
+    if (error || !data) return undefined;
+    return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series: (data as any).mangas.map((m: any) => m.manga) };
+};
+
+export const saveAuthor = async (author: Partial<Author>) => {
+    const data = { name: author.name, image_url: author.imageUrl, description: author.description };
+    if (author.id) {
+        await supabase.from('authors').update(data).eq('id', author.id);
+        return author.id;
+    } else {
+        const { data: inserted } = await supabase.from('authors').insert(data).select().single();
+        return inserted.id;
+    }
+};
+
+export const deleteAuthor = async (id: string): Promise<void> => {
+    const { error } = await supabase.from('authors').delete().eq('id', id);
+    if (error) throw error;
+};
+
+export const saveArtist = async (artist: Partial<Artist>) => {
+    const data = { name: artist.name, image_url: artist.imageUrl, description: artist.description };
+    if (artist.id) {
+        await supabase.from('artists').update(data).eq('id', artist.id);
+        return artist.id;
+    } else {
+        const { data: inserted } = await supabase.from('artists').insert(data).select().single();
+        return inserted.id;
+    }
+};
+
+export const deleteArtist = async (id: string): Promise<void> => {
+    const { error } = await supabase.from('artists').delete().eq('id', id);
+    if (error) throw error;
+};
+
+export const linkMangaToAuthor = async (mangaId: string, authorId: string) => {
+    await supabase.from('manga_authors').upsert({ manga_id: mangaId, author_id: authorId });
+};
+
+export const linkMangaToArtist = async (mangaId: string, artistId: string) => {
+    await supabase.from('manga_artists').upsert({ manga_id: mangaId, artist_id: artistId });
+};
+
+// Generic Like Toggle for Entities
+export const toggleEntityLike = async (entityType: 'character' | 'author' | 'artist', entityId: string, userId: string): Promise<void> => {
+    const tableName = `${entityType}_likes`;
+    const colName = `${entityType}_id`;
+
+    const { data: existing } = await supabase
+        .from(tableName as any)
+        .select('*')
+        .eq(colName, entityId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (existing) {
+        await supabase.from(tableName as any).delete().eq(colName, entityId).eq('user_id', userId);
+        // Decrement likes_count
+        await supabase.rpc(`decrement_${entityType}_likes`, { entity_id_param: entityId });
+    } else {
+        await supabase.from(tableName as any).insert({ [colName]: entityId, user_id: userId });
+        // Increment likes_count
+        await supabase.rpc(`increment_${entityType}_likes`, { entity_id_param: entityId });
+    }
+};
+
+export const getEntityComments = async (entityType: 'character' | 'author' | 'artist', entityId: string): Promise<Comment[]> => {
+    const tableName = `${entityType}_comments`;
+    const colName = `${entityType}_id`;
+
+    const { data, error } = await supabase
+        .from(tableName as any)
+        .select(`*, user:users!user_id(username, avatar)`)
+        .eq(colName, entityId)
+        .order('created_at', { ascending: false });
+
+    if (error) return [];
+    return data.map(c => ({
+        id: c.id,
+        userId: c.user_id,
+        username: (c as any).user?.username || 'Anonim',
+        userAvatar: (c as any).user?.avatar,
+        content: c.content,
+        likes: c.likes || 0,
+        createdAt: c.created_at,
+        likedBy: [] // Simplified
+    })) as any[];
+};
+
+export const addEntityComment = async (entityType: 'character' | 'author' | 'artist', entityId: string, userId: string, content: string): Promise<void> => {
+    const tableName = `${entityType}_comments`;
+    const colName = `${entityType}_id`;
+    await supabase.from(tableName as any).insert({
+        [colName]: entityId,
+        user_id: userId,
+        content
+    });
+};
+

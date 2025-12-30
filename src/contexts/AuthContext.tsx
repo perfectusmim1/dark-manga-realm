@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { User } from '@/lib/types';
+import { toast } from 'sonner';
 
 interface AuthContextType {
   user: User | null;
@@ -15,6 +16,10 @@ interface AuthContextType {
   updatePassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
   updateEmail: (newEmail: string) => Promise<{ success: boolean; error?: string }>;
   updatePreferences: (newPreferences: any) => Promise<{ success: boolean; error?: string }>;
+  resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
+  verifyOtp: (email: string, token: string, type: 'signup' | 'recovery' | 'email') => Promise<{ success: boolean; error?: string }>;
+  toggle2FA: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
+  loginWithGoogle: () => Promise<void>;
 }
 
 
@@ -30,6 +35,7 @@ const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: any): User =
     avatar: profile?.avatar || supabaseUser.user_metadata?.avatar_url,
     role: profile?.role || 'user',
     createdAt: supabaseUser.created_at,
+    twoFactorEnabled: profile?.two_factor_enabled || false,
     preferences: profile?.preferences || {
       notifications: {
         new_chapter: true,
@@ -81,25 +87,100 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       try {
         if (currentSession?.user) {
-          const profile = await fetchProfile(currentSession.user.id);
+          let profile = await fetchProfile(currentSession.user.id);
+
+          // 1. If profile doesn't exist by ID, check by Email (Linking strategy)
+          if (!profile && currentSession.user.email && mounted) {
+            console.log('Profile not found by ID, searching by email:', currentSession.user.email);
+            const { data: existingByEmail } = await supabase
+              .from('users')
+              .select('*')
+              .eq('email', currentSession.user.email)
+              .maybeSingle();
+
+            if (existingByEmail) {
+              console.log('Found profile by email, attempting to link IDs...');
+              // If ID is different, we must update it to allow RLS to work
+              const { data: updatedProfile, error: updateError } = await supabase
+                .from('users')
+                .update({ id: currentSession.user.id })
+                .eq('email', currentSession.user.email)
+                .select()
+                .maybeSingle();
+
+              if (!updateError && updatedProfile) {
+                profile = updatedProfile;
+                console.log('Profile linked successfully!');
+              } else {
+                console.warn('Could not link profile (likely RLS policy restriction):', updateError);
+                // Fallback: use existing profile even if ID update failed (for now)
+                profile = existingByEmail;
+              }
+            }
+          }
+
+          // 2. If still no profile, create a new one (First time register)
+          if (!profile && mounted) {
+            console.log('No profile found anywhere, creating new one...');
+            let baseUsername = currentSession.user.user_metadata?.full_name ||
+              currentSession.user.user_metadata?.username ||
+              currentSession.user.email?.split('@')[0] ||
+              'user';
+
+            baseUsername = baseUsername.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').substring(0, 15);
+
+            // Try to insert with username, if conflict, add suffix
+            const { data: newProfile, error: insertError } = await supabase
+              .from('users')
+              .insert([{
+                id: currentSession.user.id,
+                username: baseUsername,
+                email: currentSession.user.email,
+                avatar: currentSession.user.user_metadata?.avatar_url,
+                role: 'user',
+                password_hash: 'oauth_user'
+              }])
+              .select()
+              .maybeSingle();
+
+            if (insertError) {
+              if (insertError.code === '23505') { // Conflict (username or email)
+                const randomSuffix = Math.floor(1000 + Math.random() * 9000);
+                const { data: retryProfile } = await supabase
+                  .from('users')
+                  .insert([{
+                    id: currentSession.user.id,
+                    username: `${baseUsername}${randomSuffix}`,
+                    email: currentSession.user.email,
+                    avatar: currentSession.user.user_metadata?.avatar_url,
+                    role: 'user',
+                    password_hash: 'oauth_user'
+                  }])
+                  .select()
+                  .maybeSingle();
+                profile = retryProfile;
+              } else {
+                console.error('Final insert failed:', insertError);
+              }
+            } else {
+              profile = newProfile;
+            }
+          }
+
           if (!mounted) return;
 
-          const newUser = mapSupabaseUserToUser(currentSession.user, profile);
-
-          setSession(prev => {
-            if (JSON.stringify(prev) === JSON.stringify(currentSession)) return prev;
-            return currentSession;
-          });
-
-          setSupabaseUser(prev => {
-            if (JSON.stringify(prev) === JSON.stringify(currentSession.user)) return prev;
-            return currentSession.user;
-          });
-
-          setUser(prev => {
-            if (JSON.stringify(prev) === JSON.stringify(newUser)) return prev;
-            return newUser;
-          });
+          // 3. Final safety check: set state
+          if (profile) {
+            const newUser = mapSupabaseUserToUser(currentSession.user, profile);
+            setSession(currentSession);
+            setSupabaseUser(currentSession.user);
+            setUser(newUser);
+          } else {
+            console.error('Critical: Could not establish a user profile.');
+            // Even if DB profile fails, let's at least let them see they are logged in via Auth
+            const fallbackUser = mapSupabaseUserToUser(currentSession.user, null);
+            setUser(fallbackUser);
+          }
         } else {
           setSession(null);
           setSupabaseUser(null);
@@ -347,6 +428,72 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const resetPassword = async (email: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { error } = await supabase.auth.resetPasswordForEmail(email, {
+        redirectTo: `${window.location.origin}/auth?type=recovery`,
+      });
+      if (error) throw error;
+      return { success: true };
+    } catch (error: any) {
+      console.error('Reset password error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const verifyOtp = async (email: string, token: string, type: 'signup' | 'recovery' | 'email'): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const { data, error } = await supabase.auth.verifyOtp({
+        email,
+        token,
+        type: type as any,
+      });
+      if (error) throw error;
+      if (data.session) {
+        setSession(data.session);
+        setSupabaseUser(data.session.user);
+        const profile = await fetchProfile(data.session.user.id);
+        setUser(mapSupabaseUserToUser(data.session.user, profile));
+      }
+      return { success: true };
+    } catch (error: any) {
+      console.error('Verify OTP error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const toggle2FA = async (enabled: boolean): Promise<{ success: boolean; error?: string }> => {
+    if (!user) return { success: false, error: 'Oturum açılmamış' };
+    try {
+      const { error } = await supabase
+        .from('users')
+        .update({ two_factor_enabled: enabled })
+        .eq('id', user.id);
+      if (error) throw error;
+
+      setUser(prev => prev ? { ...prev, twoFactorEnabled: enabled } : null);
+      return { success: true };
+    } catch (error: any) {
+      console.error('Toggle 2FA error:', error);
+      return { success: false, error: error.message };
+    }
+  };
+
+  const loginWithGoogle = async () => {
+    try {
+      const { error } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: `${window.location.origin}/auth`,
+        }
+      });
+      if (error) throw error;
+    } catch (error: any) {
+      console.error('Google login error:', error);
+      toast.error('Google ile giriş yapılırken hata oluştu');
+    }
+  };
+
   return (
     <AuthContext.Provider value={{
       user,
@@ -359,7 +506,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updateProfile,
       updatePassword,
       updateEmail,
-      updatePreferences
+      updatePreferences,
+      resetPassword,
+      verifyOtp,
+      toggle2FA,
+      loginWithGoogle
     }}>
 
 

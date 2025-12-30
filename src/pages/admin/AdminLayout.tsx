@@ -50,6 +50,7 @@ const AdminLayout: React.FC = () => {
         { icon: Download, label: 'İçerik Çek', path: '/admin/scraper' },
         { icon: RefreshCw, label: 'Bölüm Çekme', path: '/admin/chapter-scraper' },
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
+        { icon: Users, label: 'Karakter & Sanatçı', path: '/admin/entities' },
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
         { icon: Users, label: 'Adminler', path: '/admin/users' },
     ];

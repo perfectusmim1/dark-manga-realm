@@ -194,6 +194,150 @@ export type Database = {
                 };
                 Update: Partial<Database['public']['Tables']['notifications']['Insert']>;
             };
+            characters: {
+                Row: {
+                    id: string;
+                    name: string;
+                    image_url: string | null;
+                    description: string | null;
+                    likes_count: number;
+                    created_at: string;
+                };
+                Insert: Omit<Database['public']['Tables']['characters']['Row'], 'id' | 'created_at' | 'likes_count'> & {
+                    id?: string;
+                    created_at?: string;
+                    likes_count?: number;
+                };
+                Update: Partial<Database['public']['Tables']['characters']['Insert']>;
+            };
+            authors: {
+                Row: {
+                    id: string;
+                    name: string;
+                    image_url: string | null;
+                    description: string | null;
+                    likes_count: number;
+                    created_at: string;
+                };
+                Insert: Omit<Database['public']['Tables']['authors']['Row'], 'id' | 'created_at' | 'likes_count'> & {
+                    id?: string;
+                    created_at?: string;
+                    likes_count?: number;
+                };
+                Update: Partial<Database['public']['Tables']['authors']['Insert']>;
+            };
+            artists: {
+                Row: {
+                    id: string;
+                    name: string;
+                    image_url: string | null;
+                    description: string | null;
+                    likes_count: number;
+                    created_at: string;
+                };
+                Insert: Omit<Database['public']['Tables']['artists']['Row'], 'id' | 'created_at' | 'likes_count'> & {
+                    id?: string;
+                    created_at?: string;
+                    likes_count?: number;
+                };
+                Update: Partial<Database['public']['Tables']['artists']['Insert']>;
+            };
+            manga_characters: {
+                Row: {
+                    manga_id: string;
+                    character_id: string;
+                };
+                Insert: Database['public']['Tables']['manga_characters']['Row'];
+                Update: Partial<Database['public']['Tables']['manga_characters']['Insert']>;
+            };
+            manga_authors: {
+                Row: {
+                    manga_id: string;
+                    author_id: string;
+                };
+                Insert: Database['public']['Tables']['manga_authors']['Row'];
+                Update: Partial<Database['public']['Tables']['manga_authors']['Insert']>;
+            };
+            manga_artists: {
+                Row: {
+                    manga_id: string;
+                    artist_id: string;
+                };
+                Insert: Database['public']['Tables']['manga_artists']['Row'];
+                Update: Partial<Database['public']['Tables']['manga_artists']['Insert']>;
+            };
+            character_likes: {
+                Row: {
+                    user_id: string;
+                    character_id: string;
+                };
+                Insert: Database['public']['Tables']['character_likes']['Row'];
+                Update: Partial<Database['public']['Tables']['character_likes']['Insert']>;
+            };
+            author_likes: {
+                Row: {
+                    user_id: string;
+                    author_id: string;
+                };
+                Insert: Database['public']['Tables']['author_likes']['Row'];
+                Update: Partial<Database['public']['Tables']['author_likes']['Insert']>;
+            };
+            artist_likes: {
+                Row: {
+                    user_id: string;
+                    artist_id: string;
+                };
+                Insert: Database['public']['Tables']['artist_likes']['Row'];
+                Update: Partial<Database['public']['Tables']['artist_likes']['Insert']>;
+            };
+            character_comments: {
+                Row: {
+                    id: string;
+                    character_id: string;
+                    user_id: string;
+                    content: string;
+                    likes: number;
+                    created_at: string;
+                };
+                Insert: Omit<Database['public']['Tables']['character_comments']['Row'], 'id' | 'created_at' | 'likes'> & {
+                    id?: string;
+                    created_at?: string;
+                    likes?: number;
+                };
+                Update: Partial<Database['public']['Tables']['character_comments']['Insert']>;
+            };
+            author_comments: {
+                Row: {
+                    id: string;
+                    author_id: string;
+                    user_id: string;
+                    content: string;
+                    likes: number;
+                    created_at: string;
+                };
+                Insert: Omit<Database['public']['Tables']['author_comments']['Row'], 'id' | 'created_at' | 'likes'> & {
+                    id?: string;
+                    created_at?: string;
+                    likes?: number;
+                };
+                Update: Partial<Database['public']['Tables']['author_comments']['Insert']>;
+            };
+            artist_comments: {
+                Row: {
+                    id: string;
+                    artist_id: string;
+                    user_id: string;
+                    content: string;
+                    likes: number;
+                    created_at: string;
+                };
+                Insert: Omit<Database['public']['Tables']['artist_comments']['Row'], 'id' | 'created_at' | 'likes'> & {
+                    id?: string;
+                    created_at?: string;
+                    likes?: number;
+                };
+                Update: Partial<Database['public']['Tables']['artist_comments']['Insert']>;
+            };
         };
     };
 };

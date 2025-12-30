@@ -37,8 +37,11 @@ import {
   addReview,
   getUserReview,
   toggleReviewLike,
-  getSimilarMangas
+  getSimilarMangas,
+  getMangaCharacters
 } from '@/lib/database';
+import { Character } from '@/lib/types';
+import { Trophy, Group } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
   addFavorite,
@@ -120,6 +123,7 @@ const MangaDetail: React.FC = () => {
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [similarMangas, setSimilarMangas] = useState<Manga[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
+  const [mangaCharacters, setMangaCharacters] = useState<any[]>([]);
 
 
   useEffect(() => {
@@ -185,6 +189,10 @@ const MangaDetail: React.FC = () => {
             setSimilarMangas(similar);
             setLoadingSimilar(false);
           }
+
+          // Fetch characters
+          const chars = await getMangaCharacters(mangaId);
+          setMangaCharacters(chars);
         }
       } catch (err) {
         console.error('Error loading manga detail:', err);
@@ -609,6 +617,17 @@ const MangaDetail: React.FC = () => {
                 )}
               </TabsTrigger>
               <TabsTrigger
+                value="characters"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all flex items-center gap-2"
+              >
+                KARAKTERLER
+                {mangaCharacters.length > 0 && (
+                  <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 border-none px-2 h-5 text-[10px]">
+                    {mangaCharacters.length}
+                  </Badge>
+                )}
+              </TabsTrigger>
+              <TabsTrigger
                 value="discover"
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all flex items-center gap-2"
               >
@@ -743,9 +762,35 @@ const MangaDetail: React.FC = () => {
                 </div>
               </div>
 
-              {/* Comments Section - Now Full Width */}
               <div className="mt-8 rounded-xl border border-border bg-card/50 p-6 lg:p-10 shadow-sm">
                 <CommentSection mangaId={manga.id} />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="characters" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+                {mangaCharacters.map((char) => (
+                  <Link key={char.id} to={`/character/${char.id}`} className="group space-y-3">
+                    <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-lg border border-border bg-secondary/30">
+                      <img
+                        src={char.imageUrl || 'https://via.placeholder.com/300x400?text=Karakter'}
+                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        alt={char.name}
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                        <div className="text-white text-xs font-bold flex items-center gap-1">
+                          <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
+                        </div>
+                      </div>
+                    </div>
+                    <h3 className="text-center font-bold text-sm truncate group-hover:text-primary transition-colors">{char.name}</h3>
+                  </Link>
+                ))}
+                {mangaCharacters.length === 0 && (
+                  <div className="col-span-full py-20 text-center text-muted-foreground italic bg-secondary/10 rounded-2xl border border-dashed border-border">
+                    Bu seri için henüz karakter eklenmemiş.
+                  </div>
+                )}
               </div>
             </TabsContent>
 
