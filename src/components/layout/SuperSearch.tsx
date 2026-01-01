@@ -1,0 +1,280 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import {
+    Search,
+    ArrowLeft,
+    Star
+} from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { getAllMangas } from '@/lib/database';
+import { Manga } from '@/lib/types';
+import {
+    Dialog,
+    DialogContent,
+    DialogTrigger,
+    DialogTitle,
+    DialogDescription,
+} from '@/components/ui/dialog';
+import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
+import { useAuth } from '@/contexts/AuthContext';
+import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
+import { toast } from 'sonner';
+
+const SuperSearch: React.FC = () => {
+    const [isOpen, setIsOpen] = useState(false);
+    const [searchQuery, setSearchQuery] = useState('');
+    const [allMangas, setAllMangas] = useState<Manga[]>([]);
+    const [isLoading, setIsLoading] = useState(false);
+    const [activeGenre, setActiveGenre] = useState('Hepsi');
+    const [favorites, setFavorites] = useState<Record<string, boolean>>({});
+    const { user } = useAuth();
+    const [popularSearches] = useState([
+        'The Mad Dog Of The Duke\'s Estate',
+        'The Swordmaster Who Leapt Through Time',
+        'Naihai Öğretmen',
+        'Reincarnation Of The Fist King',
+        'The Sword God From A Fallen World'
+    ]);
+
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        if (isOpen) {
+            const loadData = async () => {
+                setIsLoading(true);
+                try {
+                    const data = await getAllMangas();
+                    setAllMangas(data);
+
+                    if (user) {
+                        const favStatus: Record<string, boolean> = {};
+                        await Promise.all(data.map(async (m) => {
+                            favStatus[m.id] = await isFavorite(user.id, m.id);
+                        }));
+                        setFavorites(favStatus);
+                    }
+                } catch (err) {
+                    console.error('Failed to load data for search:', err);
+                } finally {
+                    setIsLoading(false);
+                }
+            };
+            loadData();
+        }
+    }, [isOpen, user]);
+
+    const genres = useMemo(() => {
+        const allGenres = allMangas.flatMap(m => m.genres);
+        return ['Hepsi', ...Array.from(new Set(allGenres))].slice(0, 10);
+    }, [allMangas]);
+
+    const filteredMangas = useMemo(() => {
+        if (!searchQuery.trim()) return [];
+
+        const query = searchQuery.toLocaleLowerCase('tr-TR');
+        return allMangas.filter(m => {
+            const matchesSearch = m.title.toLocaleLowerCase('tr-TR').includes(query) ||
+                m.alternativeTitles?.some(t => t.toLocaleLowerCase('tr-TR').includes(query)) ||
+                m.author.toLocaleLowerCase('tr-TR').includes(query);
+
+            const matchesGenre = activeGenre === 'Hepsi' || m.genres.includes(activeGenre);
+
+            return matchesSearch && matchesGenre;
+        });
+    }, [searchQuery, allMangas, activeGenre]);
+
+    const handleResultClick = (id: string) => {
+        navigate(`/manga/${id}`);
+        setIsOpen(false);
+        setSearchQuery('');
+    };
+
+    const handleToggleFavorite = async (e: React.MouseEvent, mangaId: string) => {
+        e.stopPropagation();
+        if (!user) {
+            toast.error('Favorilere eklemek için giriş yapmalısınız');
+            return;
+        }
+
+        try {
+            const isFav = favorites[mangaId];
+            if (isFav) {
+                await removeFavorite(user.id, mangaId);
+                setFavorites(prev => ({ ...prev, [mangaId]: false }));
+                toast.success('Favorilerden kaldırıldı');
+            } else {
+                await addFavorite(user.id, mangaId);
+                setFavorites(prev => ({ ...prev, [mangaId]: true }));
+                toast.success('Favorilere eklendi');
+            }
+        } catch (err) {
+            toast.error('İşlem başarısız oldu');
+        }
+    };
+
+    return (
+        <Dialog open={isOpen} onOpenChange={setIsOpen}>
+            <DialogTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full hover:bg-secondary/80">
+                    <Search className="h-5 w-5 text-muted-foreground" />
+                </Button>
+            </DialogTrigger>
+            <DialogContent className="max-w-2xl p-0 gap-0 bg-[#1A1A1A] border-none shadow-2xl rounded-2xl overflow-hidden sm:max-w-2xl [&>button]:hidden">
+                <DialogTitle className="sr-only">Manga Arama</DialogTitle>
+                <DialogDescription className="sr-only">
+                    Manga, yazar veya kategoriye göre arama yapın.
+                </DialogDescription>
+                <div className="flex flex-col h-[600px]">
+                    {/* Search Header */}
+                    <div className="flex items-center gap-3 p-4 border-b border-white/5 bg-[#141414] relative pr-4">
+                        <div className="flex items-center gap-3 flex-1 px-3 bg-white/5 rounded-xl border border-white/5 focus-within:border-white/10 transition-colors">
+                            {searchQuery ? (
+                                <button
+                                    onClick={() => setSearchQuery('')}
+                                    className="p-1 hover:bg-white/5 rounded-md transition-colors"
+                                >
+                                    <ArrowLeft className="h-4 w-4 text-muted-foreground" />
+                                </button>
+                            ) : (
+                                <Search className="h-4 w-4 text-muted-foreground shrink-0" />
+                            )}
+                            <input
+                                autoFocus
+                                placeholder="Type to search..."
+                                value={searchQuery}
+                                onChange={(e) => setSearchQuery(e.target.value)}
+                                className="flex-1 bg-transparent border-none outline-none py-2.5 text-[15px] placeholder:text-muted-foreground/30 text-white"
+                            />
+                        </div>
+                    </div>
+
+                    <ScrollArea className="flex-1">
+                        <div className="p-6">
+                            {!searchQuery ? (
+                                <>
+                                    {/* Popular Searches */}
+                                    <div className="mb-8">
+                                        <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-[0.1em] mb-4">POPÜLER ARAMALAR</h3>
+                                        <div className="space-y-1">
+                                            {popularSearches.map((m, i) => (
+                                                <button
+                                                    key={i}
+                                                    onClick={() => {
+                                                        setSearchQuery(m);
+                                                    }}
+                                                    className="flex items-center gap-4 w-full p-2.5 rounded-xl hover:bg-white/5 text-left transition-colors group"
+                                                >
+                                                    <span className="text-muted-foreground/30 font-bold text-xs w-6 italic shrink-0 flex items-center justify-center"># {i + 1}</span>
+                                                    <span className="text-[14px] font-medium text-white/80 group-hover:text-white transition-colors py-0.5">{m}</span>
+                                                </button>
+                                            ))}
+                                        </div>
+                                    </div>
+                                </>
+                            ) : (
+                                <div className="space-y-6">
+                                    {/* Genres/Filters */}
+                                    <div className="flex flex-wrap gap-2">
+                                        {genres.map(genre => (
+                                            <button
+                                                key={genre}
+                                                onClick={() => setActiveGenre(genre)}
+                                                className={cn(
+                                                    "px-4 py-1.5 rounded-full text-xs font-semibold transition-all duration-200",
+                                                    activeGenre === genre
+                                                        ? "bg-white text-black"
+                                                        : "bg-[#2A2A2A] text-white/60 hover:bg-[#3A3A3A] hover:text-white"
+                                                )}
+                                            >
+                                                {genre}
+                                            </button>
+                                        ))}
+                                    </div>
+
+                                    {/* Results List */}
+                                    <div className="space-y-1">
+                                        {isLoading ? (
+                                            <div className="py-12 text-center text-muted-foreground animate-pulse">
+                                                Sonuçlar yükleniyor...
+                                            </div>
+                                        ) : filteredMangas.length === 0 ? (
+                                            <div className="py-12 text-center text-muted-foreground">
+                                                Eşleşen sonuç bulunamadı.
+                                            </div>
+                                        ) : (
+                                            filteredMangas.map((manga) => (
+                                                <div
+                                                    key={manga.id}
+                                                    onClick={() => handleResultClick(manga.id)}
+                                                    className="flex gap-4 p-3 rounded-2xl hover:bg-white/5 cursor-pointer text-left transition-all group items-start relative"
+                                                >
+                                                    <div className="relative aspect-[3/4] w-[70px] flex-shrink-0 overflow-hidden rounded-lg shadow-xl border border-white/10 group-hover:border-white/20 transition-all">
+                                                        <img
+                                                            src={manga.cover}
+                                                            alt={manga.title}
+                                                            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                        />
+                                                    </div>
+                                                    <div className="flex-1 min-w-0 pt-0.5">
+                                                        <div className="flex items-start justify-between gap-4">
+                                                            <h4 className="text-[15px] font-bold text-white transition-colors line-clamp-1 leading-tight">
+                                                                {highlightText(manga.title, searchQuery)}
+                                                            </h4>
+                                                            <button
+                                                                onClick={(e) => handleToggleFavorite(e, manga.id)}
+                                                                className="relative z-10 p-1.5 -m-1.5 rounded-full hover:bg-white/10 transition-colors group/star"
+                                                            >
+                                                                <Star
+                                                                    className={cn(
+                                                                        "h-4 w-4 shrink-0 transition-all",
+                                                                        favorites[manga.id]
+                                                                            ? "text-yellow-400 fill-yellow-400"
+                                                                            : "text-white/20 group-hover/star:text-white"
+                                                                    )}
+                                                                />
+                                                            </button>
+                                                        </div>
+                                                        <div className="flex items-center gap-1.5 mt-0.5 mb-1.5">
+                                                            <span className="text-[11px] font-semibold text-white/40">
+                                                                {new Date(manga.lastUpdated).toLocaleDateString('tr-TR', { day: 'numeric', month: 'long', year: 'numeric' })}
+                                                            </span>
+                                                            <span className="text-[11px] text-white/40">•</span>
+                                                            <span className="text-[11px] font-semibold text-white/40 capitalize">Seri</span>
+                                                        </div>
+                                                        <p className="text-[12px] text-white/30 line-clamp-2 leading-snug font-medium italic">
+                                                            "{manga.description}"
+                                                        </p>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </ScrollArea>
+                </div>
+            </DialogContent>
+        </Dialog>
+    );
+};
+
+// Helper for title highlighting
+const highlightText = (text: string, query: string) => {
+    if (!query) return text;
+    const parts = text.split(new RegExp(`(${query})`, 'gi'));
+    return (
+        <span>
+            {parts.map((part, i) =>
+                part.toLowerCase() === query.toLowerCase()
+                    ? <span key={i} className="bg-yellow-400/90 text-black px-0.5 rounded-sm shrink-0">{part}</span>
+                    : part
+            )}
+        </span>
+    );
+};
+
+export default SuperSearch;

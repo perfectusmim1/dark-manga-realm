@@ -571,25 +571,35 @@ export const getStatistics = async () => {
 // ==================== COMMENT OPERATIONS ====================
 
 export const getCommentsForManga = async (mangaId: string, chapterId?: string, sortBy: 'newest' | 'popular' = 'newest'): Promise<Comment[]> => {
+    return getEntityCommentsV2('manga', mangaId, chapterId, sortBy);
+};
+
+export const getEntityCommentsV2 = async (entityType: 'manga' | 'character' | 'author' | 'artist', entityId: string, chapterId?: string, sortBy: 'newest' | 'popular' = 'newest'): Promise<Comment[]> => {
+    const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
+    const colName = entityType === 'manga' ? 'manga_id' : `${entityType}_id`;
+    const likesTableName = entityType === 'manga' ? 'comment_likes' : `${entityType}_comment_likes`;
+
     let query = supabase
-        .from('comments')
+        .from(tableName as any)
         .select(`
             *,
             author:users!user_id(username, avatar),
-            likes_count:comment_likes(count)
-        `)
-        .eq('manga_id', mangaId);
+            likes_count:${likesTableName}(count)
+        ` as any)
+        .eq(colName, entityId);
 
-    if (chapterId) {
-        query = query.eq('chapter_id', chapterId);
-    } else {
-        query = query.is('chapter_id', null);
+    if (entityType === 'manga') {
+        if (chapterId) {
+            query = query.eq('chapter_id', chapterId);
+        } else {
+            query = query.is('chapter_id', null);
+        }
     }
 
     const { data, error } = await query;
 
     if (error) {
-        console.error('Fetch comments error:', error);
+        console.error(`Fetch ${entityType} comments error:`, error);
         return [];
     }
 
@@ -600,27 +610,28 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string, s
     let userLikes: string[] = [];
     if (userId) {
         const { data: likes } = await supabase
-            .from('comment_likes')
-            .select('comment_id')
+            .from(likesTableName as any)
+            .select('comment_id' as any)
             .eq('user_id', userId);
-        userLikes = likes?.map(l => l.comment_id) || [];
+        userLikes = (likes as any[])?.map(l => l.comment_id) || [];
     }
 
-    const mappedComments = (data || []).map(c => ({
+    const mappedComments = (data as any[] || []).map(c => ({
         id: c.id,
-        mangaId: c.manga_id,
+        mangaId: entityType === 'manga' ? c.manga_id : undefined,
+        entityId: entityType !== 'manga' ? c[colName] : undefined,
+        entityType,
         chapterId: c.chapter_id,
         userId: c.user_id,
-        // Prioritize joined author data for real-time updates
-        username: (c as any).author?.username || c.username,
-        userAvatar: (c as any).author?.avatar || c.user_avatar,
+        username: c.author?.username || c.username || 'Anonim',
+        userAvatar: c.author?.avatar || c.user_avatar,
         content: c.content,
         gifUrl: c.gif_url,
         createdAt: c.created_at,
         updatedAt: c.updated_at,
         parentId: c.parent_id,
-        likes: (c as any).likes_count?.[0]?.count || 0,
-        likedBy: userLikes.includes(c.id) ? [userId] : [],
+        likes: c.likes_count?.[0]?.count || 0,
+        likedBy: userLikes.includes(c.id) ? [userId || ''] : [],
     })) as Comment[];
 
     if (sortBy === 'popular') {
@@ -632,25 +643,41 @@ export const getCommentsForManga = async (mangaId: string, chapterId?: string, s
 
 
 export const addComment = async (comment: Omit<Comment, 'id' | 'likes' | 'likedBy' | 'createdAt' | 'updatedAt'>): Promise<Comment> => {
+    return addCommentV2(comment);
+};
+
+export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'likedBy' | 'createdAt' | 'updatedAt'>): Promise<Comment> => {
+    const entityType = comment.entityType || 'manga';
+    const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
+    const colName = entityType === 'manga' ? 'manga_id' : `${entityType}_id`;
+    const entityId = entityType === 'manga' ? comment.mangaId : comment.entityId;
+
+    const insertData: any = {
+        [colName]: entityId,
+        user_id: comment.userId,
+        username: comment.username,
+        user_avatar: comment.userAvatar,
+        content: comment.content,
+        gif_url: comment.gifUrl,
+        parent_id: comment.parentId
+    };
+
+    if (entityType === 'manga') {
+        insertData.chapter_id = comment.chapterId;
+    }
+
     const { data, error } = await supabase
-        .from('comments')
-        .insert({
-            manga_id: comment.mangaId,
-            chapter_id: comment.chapterId,
-            user_id: comment.userId,
-            username: comment.username,
-            user_avatar: comment.userAvatar,
-            content: comment.content,
-            gif_url: comment.gifUrl,
-            parent_id: comment.parentId
-        })
+        .from(tableName as any)
+        .insert(insertData)
         .select()
         .single();
 
     if (error) throw error;
     return {
         ...data,
-        mangaId: data.manga_id,
+        mangaId: entityType === 'manga' ? data.manga_id : undefined,
+        entityId: entityType !== 'manga' ? data[colName] : undefined,
+        entityType,
         chapterId: data.chapter_id,
         userId: data.user_id,
         username: data.username,
@@ -662,8 +689,9 @@ export const addComment = async (comment: Omit<Comment, 'id' | 'likes' | 'likedB
     } as Comment;
 };
 
-export const updateComment = async (id: string, content: string, gifUrl?: string): Promise<void> => {
-    const { error } = await supabase.from('comments').update({
+export const updateComment = async (id: string, content: string, gifUrl?: string, entityType: string = 'manga'): Promise<void> => {
+    const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
+    const { error } = await supabase.from(tableName as any).update({
         content,
         gif_url: gifUrl,
         updated_at: new Date().toISOString()
@@ -675,8 +703,9 @@ export const updateComment = async (id: string, content: string, gifUrl?: string
     }
 };
 
-export const deleteComment = async (id: string): Promise<void> => {
-    const { error } = await supabase.from('comments').delete().eq('id', id);
+export const deleteComment = async (id: string, entityType: string = 'manga'): Promise<void> => {
+    const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
+    const { error } = await supabase.from(tableName as any).delete().eq('id', id);
     if (error) {
         console.error('Yorum silme hatası:', error);
         throw error;
@@ -711,18 +740,28 @@ export const getAllComments = async (): Promise<Comment[]> => {
     })) as Comment[];
 };
 
-export const toggleCommentLike = async (commentId: string, userId: string): Promise<void> => {
+export const toggleCommentLike = async (commentId: string, userId: string, entityType: string = 'manga'): Promise<void> => {
+    const likesTableName = entityType === 'manga' ? 'comment_likes' : `${entityType}_comment_likes`;
     const { data: existing } = await supabase
-        .from('comment_likes')
+        .from(likesTableName as any)
         .select('*')
         .eq('comment_id', commentId)
         .eq('user_id', userId)
         .maybeSingle();
 
     if (existing) {
-        await supabase.from('comment_likes').delete().eq('comment_id', commentId).eq('user_id', userId);
+        await supabase
+            .from(likesTableName as any)
+            .delete()
+            .eq('comment_id', commentId)
+            .eq('user_id', userId);
     } else {
-        await supabase.from('comment_likes').insert({ comment_id: commentId, user_id: userId });
+        await supabase
+            .from(likesTableName as any)
+            .insert({
+                comment_id: commentId,
+                user_id: userId
+            });
     }
 };
 
@@ -925,26 +964,34 @@ export const syncAllToSupabase = async (): Promise<{ success: number; total: num
 
 // Legacy stubs for Auth compatibility if needed temporarily
 export const initializeDatabase = () => { };
+
+
 // ==================== REACTION OPERATIONS ====================
 
 export const getMangaReactions = async (mangaId: string, chapterId?: string): Promise<Record<string, number>> => {
-    let query = supabase
-        .from('manga_reactions')
-        .select('reaction_type')
-        .eq('manga_id', mangaId);
+    return getEntityReactions('manga', mangaId, chapterId);
+};
 
-    if (chapterId) {
-        query = query.eq('chapter_id', chapterId);
-    } else {
-        query = query.is('chapter_id', null);
+export const getEntityReactions = async (entityType: 'manga' | 'character' | 'author' | 'artist', entityId: string, chapterId?: string): Promise<Record<string, number>> => {
+    const tableName = `${entityType}_reactions`;
+    const colName = `${entityType}_id`;
+
+    let query = supabase
+        .from(tableName as any)
+        .select('reaction_type')
+        .eq(colName, entityId);
+
+    if (entityType === 'manga') {
+        if (chapterId) {
+            query = query.eq('chapter_id', chapterId);
+        } else {
+            query = query.is('chapter_id', null);
+        }
     }
 
     const { data, error } = await query;
 
-    if (error) {
-        console.error('Fetch reactions error:', error);
-        return {};
-    }
+    if (error) return {};
 
     const counts: Record<string, number> = {};
     data.forEach(r => {
@@ -955,16 +1002,25 @@ export const getMangaReactions = async (mangaId: string, chapterId?: string): Pr
 };
 
 export const getUserMangaReaction = async (mangaId: string, userId: string, chapterId?: string): Promise<string | null> => {
+    return getUserEntityReaction('manga', mangaId, userId, chapterId);
+};
+
+export const getUserEntityReaction = async (entityType: 'manga' | 'character' | 'author' | 'artist', entityId: string, userId: string, chapterId?: string): Promise<string | null> => {
+    const tableName = `${entityType}_reactions`;
+    const colName = `${entityType}_id`;
+
     let query = supabase
-        .from('manga_reactions')
+        .from(tableName as any)
         .select('reaction_type')
-        .eq('manga_id', mangaId)
+        .eq(colName, entityId)
         .eq('user_id', userId);
 
-    if (chapterId) {
-        query = query.eq('chapter_id', chapterId);
-    } else {
-        query = query.is('chapter_id', null);
+    if (entityType === 'manga') {
+        if (chapterId) {
+            query = query.eq('chapter_id', chapterId);
+        } else {
+            query = query.is('chapter_id', null);
+        }
     }
 
     const { data, error } = await query.maybeSingle();
@@ -974,34 +1030,51 @@ export const getUserMangaReaction = async (mangaId: string, userId: string, chap
 };
 
 export const addMangaReaction = async (mangaId: string, userId: string, reactionType: string, chapterId?: string): Promise<void> => {
+    return addEntityReactionV2('manga', mangaId, userId, reactionType, chapterId);
+};
+
+export const addEntityReactionV2 = async (entityType: 'manga' | 'character' | 'author' | 'artist', entityId: string, userId: string, reactionType: string, chapterId?: string): Promise<void> => {
+    const tableName = `${entityType}_reactions`;
+    const colName = `${entityType}_id`;
+
     // If it's the same reaction, delete it (toggle off)
-    const current = await getUserMangaReaction(mangaId, userId, chapterId);
+    const current = await getUserEntityReaction(entityType, entityId, userId, chapterId);
     if (current === reactionType) {
         let deleteQuery = supabase
-            .from('manga_reactions')
+            .from(tableName as any)
             .delete()
-            .eq('manga_id', mangaId)
+            .eq(colName, entityId)
             .eq('user_id', userId);
 
-        if (chapterId) {
-            deleteQuery = deleteQuery.eq('chapter_id', chapterId);
-        } else {
-            deleteQuery = deleteQuery.is('chapter_id', null);
+        if (entityType === 'manga') {
+            if (chapterId) {
+                deleteQuery = deleteQuery.eq('chapter_id', chapterId);
+            } else {
+                deleteQuery = deleteQuery.is('chapter_id', null);
+            }
         }
 
         await deleteQuery;
         return;
     }
 
+    const insertData: any = {
+        [colName]: entityId,
+        user_id: userId,
+        reaction_type: reactionType,
+        created_at: new Date().toISOString()
+    };
+
+    let onConflictCols = ['user_id', colName];
+
+    if (entityType === 'manga') {
+        insertData.chapter_id = chapterId || null;
+        onConflictCols.push('chapter_id');
+    }
+
     const { error } = await supabase
-        .from('manga_reactions')
-        .upsert({
-            manga_id: mangaId,
-            chapter_id: chapterId || null,
-            user_id: userId,
-            reaction_type: reactionType,
-            created_at: new Date().toISOString()
-        }, { onConflict: 'user_id,manga_id,chapter_id' }); // Note: onConflict depends on how the index was created, but upsert with multiple cols usually requires them in unique index
+        .from(tableName as any)
+        .upsert(insertData, { onConflict: onConflictCols.join(',') });
 
     if (error) throw error;
 };
@@ -1286,36 +1359,19 @@ export const toggleEntityLike = async (entityType: 'character' | 'author' | 'art
     }
 };
 
+// ==================== WRAPPERS FOR COMPATIBILITY ====================
+
 export const getEntityComments = async (entityType: 'character' | 'author' | 'artist', entityId: string): Promise<Comment[]> => {
-    const tableName = `${entityType}_comments`;
-    const colName = `${entityType}_id`;
-
-    const { data, error } = await supabase
-        .from(tableName as any)
-        .select(`*, user:users!user_id(username, avatar)`)
-        .eq(colName, entityId)
-        .order('created_at', { ascending: false });
-
-    if (error) return [];
-    return data.map(c => ({
-        id: c.id,
-        userId: c.user_id,
-        username: (c as any).user?.username || 'Anonim',
-        userAvatar: (c as any).user?.avatar,
-        content: c.content,
-        likes: c.likes || 0,
-        createdAt: c.created_at,
-        likedBy: [] // Simplified
-    })) as any[];
+    return getEntityCommentsV2(entityType, entityId);
 };
 
 export const addEntityComment = async (entityType: 'character' | 'author' | 'artist', entityId: string, userId: string, content: string): Promise<void> => {
-    const tableName = `${entityType}_comments`;
-    const colName = `${entityType}_id`;
-    await supabase.from(tableName as any).insert({
-        [colName]: entityId,
-        user_id: userId,
-        content
+    await addCommentV2({
+        entityId,
+        entityType,
+        userId,
+        username: '', // Will be handled by DB or session if needed, but here we provide it
+        content,
     });
 };
 

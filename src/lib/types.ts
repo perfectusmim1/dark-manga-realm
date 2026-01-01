@@ -168,7 +168,9 @@ export interface Notification {
 
 export interface Comment {
   id: string;
-  mangaId: string;
+  mangaId?: string;
+  entityId?: string;
+  entityType?: 'manga' | 'character' | 'author' | 'artist';
   chapterId?: string;
   userId: string;
   username: string;

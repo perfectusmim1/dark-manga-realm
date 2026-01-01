@@ -233,10 +233,11 @@ export const createCommentNotification = async (
     type: 'reply' | 'like',
     fromUserId: string,
     fromUsername: string,
-    mangaId: string,
-    mangaTitle: string,
+    entityId: string,
+    entityTitle: string,
     commentId: string,
-    chapterId?: string
+    chapterId?: string,
+    entityType: string = 'manga'
 ) => {
     // Check user preferences
     const { data: userData } = await supabase
@@ -250,25 +251,27 @@ export const createCommentNotification = async (
     if (type === 'like' && prefs?.notifications?.likes === false) return;
 
     const title = type === 'reply' ? 'Yeni Yanıt' : 'Yorum Beğenisi';
-
     const message = type === 'reply'
-        ? `${fromUsername} yorumunuza yanıt verdi.`
-        : `${fromUsername} yorumunuzu beğendi.`;
+        ? `${fromUsername} ${entityTitle} yorumunuza yanıt verdi.`
+        : `${fromUsername} ${entityTitle} yorumunuzu beğendi.`;
+
+    const link = entityType === 'manga'
+        ? (chapterId ? `/manga/${entityId}/chapter/${chapterId}#comment-${commentId}` : `/manga/${entityId}#comment-${commentId}`)
+        : `/${entityType}/${entityId}#comment-${commentId}`;
 
     const { error } = await supabase.from('notifications').insert({
         user_id: targetUserId,
         type,
         title,
         message,
-        manga_id: mangaId,
-        chapter_id: chapterId,
         from_user_id: fromUserId,
-        link: `/manga/${mangaId}${chapterId ? `/chapter/${chapterId}` : ''}#comment-${commentId}`,
+        from_username: fromUsername,
+        link,
         read: false,
         created_at: new Date().toISOString()
     });
 
-    if (error) console.error('Notification creation error:', error);
+    if (error) console.error('Notification error:', error);
 };
 
 export const createNotificationForFollowers = async (

@@ -6,79 +6,90 @@ import { Badge } from '@/components/ui/badge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
 import { Textarea } from '@/components/ui/textarea';
-import { getCharacterById, toggleEntityLike, getEntityComments, addEntityComment } from '@/lib/database';
-import { Character, Comment } from '@/lib/types';
+import { getCharacterById, toggleEntityLike } from '@/lib/database';
+import { Character } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
+import CommentSection from '@/components/comments/CommentSection';
+import { supabase } from '@/lib/supabase'; // Added for like check
 
 const CharacterDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
     const [character, setCharacter] = useState<Character | null>(null);
-    const [comments, setComments] = useState<Comment[]>([]);
     const [loading, setLoading] = useState(true);
-    const [commentInput, setCommentInput] = useState('');
     const [isLiked, setIsLiked] = useState(false);
 
     useEffect(() => {
-        const loadData = async () => {
+        const fetchCharacter = async () => {
             if (!id) return;
             try {
-                const char = await getCharacterById(id);
-                if (char) {
-                    setCharacter(char);
-                    // Check if liked - simplified for now
+                const data = await getCharacterById(id);
+                if (data) {
+                    setCharacter(data);
+                    // Check if liked
+                    if (user) {
+                        const { data: liked } = await supabase
+                            .from('character_likes')
+                            .select('*')
+                            .eq('character_id', id)
+                            .eq('user_id', user.id)
+                            .maybeSingle();
+                        setIsLiked(!!liked);
+                    }
                 }
-                const comms = await getEntityComments('character', id);
-                setComments(comms);
-            } catch (err) {
-                console.error(err);
+            } catch (error) {
+                console.error(error);
+                toast.error('Karakter bilgileri yüklenemedi');
             } finally {
                 setLoading(false);
             }
         };
-        loadData();
-    }, [id]);
+
+        fetchCharacter();
+    }, [id, user]);
 
     const handleLike = async () => {
         if (!user) {
-            toast.error('Lütfen önce giriş yapın');
+            toast.error('Bu işlemi yapmak için giriş yapmalısınız');
             return;
         }
-        if (!id || !character) return;
+
         try {
-            await toggleEntityLike('character', id, user.id);
+            await toggleEntityLike('character', id!, user.id);
             setIsLiked(!isLiked);
-            setCharacter(prev => prev ? {
-                ...prev,
-                likesCount: isLiked ? prev.likesCount - 1 : prev.likesCount + 1
-            } : null);
+            // Update local count
+            if (character) {
+                setCharacter({
+                    ...character,
+                    likesCount: isLiked ? character.likesCount - 1 : character.likesCount + 1
+                });
+            }
             toast.success(isLiked ? 'Beğeni kaldırıldı' : 'Beğenildi');
-        } catch (err) {
-            toast.error('Bir hata oluştu');
+        } catch (error) {
+            toast.error('İşlem başarısız oldu');
         }
     };
 
-    const handleComment = async () => {
-        if (!user) {
-            toast.error('Giriş yapmalısınız');
-            return;
-        }
-        if (!commentInput.trim()) return;
-        try {
-            await addEntityComment('character', id!, user.id, commentInput);
-            setCommentInput('');
-            const comms = await getEntityComments('character', id!);
-            setComments(comms);
-            toast.success('Yorum yapıldı');
-        } catch (err) {
-            toast.error('Yorum gönderilemedi');
-        }
-    };
+    if (loading) {
+        return (
+            <div className="min-h-screen bg-background flex items-center justify-center">
+                <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary"></div>
+            </div>
+        );
+    }
 
-    if (loading) return <div className="min-h-screen bg-background" />;
-    if (!character) return <div className="min-h-screen bg-background flex items-center justify-center">Karakter bulunamadı</div>;
+    if (!character) {
+        return (
+            <div className="min-h-screen bg-background flex flex-col items-center justify-center gap-4">
+                <h1 className="text-2xl font-bold">Karakter Bulunamadı</h1>
+                <Button asChild variant="outline">
+                    <Link to="/">Ana Sayfaya Dön</Link>
+                </Button>
+            </div>
+        );
+    }
 
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">
@@ -120,7 +131,7 @@ const CharacterDetail: React.FC = () => {
                                 onClick={handleLike}
                             >
                                 <Heart className={`mr-2 h-5 w-5 ${isLiked ? 'fill-current' : ''}`} />
-                                {character.likesCount} Kalp
+                                {character.likesCount}
                             </Button>
                             {character.rank && (
                                 <div className="w-20 h-11 flex items-center justify-center rounded-xl bg-secondary border border-border">
@@ -180,49 +191,7 @@ const CharacterDetail: React.FC = () => {
 
                         {/* Comments Section */}
                         <div className="space-y-6">
-                            <h2 className="text-2xl font-bold flex items-center gap-2">
-                                <MessageCircle className="h-6 w-6 text-primary" />
-                                Yorumlar ({comments.length})
-                            </h2>
-
-                            <div className="space-y-4">
-                                <Textarea
-                                    placeholder="Bu karakter hakkında ne düşünüyorsun?"
-                                    className="min-h-[100px] rounded-xl bg-secondary/50 border-border focus:ring-primary"
-                                    value={commentInput}
-                                    onChange={(e) => setCommentInput(e.target.value)}
-                                />
-                                <div className="flex justify-end">
-                                    <Button onClick={handleComment} className="rounded-xl px-8 shadow-md">
-                                        Gönder
-                                    </Button>
-                                </div>
-                            </div>
-
-                            <div className="space-y-4 mt-8">
-                                {comments.map(c => (
-                                    <div key={c.id} className="flex gap-4 p-4 rounded-xl bg-card border border-border shadow-sm">
-                                        <Avatar className="h-10 w-10 border border-border">
-                                            <AvatarImage src={c.userAvatar} />
-                                            <AvatarFallback>{c.username[0]}</AvatarFallback>
-                                        </Avatar>
-                                        <div className="flex-1 space-y-1">
-                                            <div className="flex items-center justify-between">
-                                                <span className="font-bold text-sm text-primary">{c.username}</span>
-                                                <span className="text-xs text-muted-foreground">
-                                                    {new Date(c.createdAt).toLocaleDateString('tr-TR')}
-                                                </span>
-                                            </div>
-                                            <p className="text-foreground/90">{c.content}</p>
-                                        </div>
-                                    </div>
-                                ))}
-                                {comments.length === 0 && (
-                                    <div className="text-center py-10 text-muted-foreground italic">
-                                        Henüz yorum yok. İlk yorumu sen yap!
-                                    </div>
-                                )}
-                            </div>
+                            <CommentSection entityId={id} entityType="character" />
                         </div>
                     </div>
                 </div>

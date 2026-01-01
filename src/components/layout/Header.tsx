@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import NotificationDropdown from '@/components/notifications/NotificationDropdown';
+import SuperSearch from './SuperSearch';
 import {
   Search,
   Menu,
@@ -244,8 +245,11 @@ const Header: React.FC = () => {
             </Button>
           )}
 
-          {/* Notifications */}
-          {user && <NotificationDropdown />}
+          {/* Notifications & Search */}
+          <div className="flex items-center gap-1">
+            <SuperSearch />
+            {user && <NotificationDropdown />}
+          </div>
 
           {user ? (
             <DropdownMenu>

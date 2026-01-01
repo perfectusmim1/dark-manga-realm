@@ -38,22 +38,33 @@ import {
     deleteComment,
     toggleCommentLike,
     getMangaById,
+    getCharacterById,
     getMangaReactions,
     getUserMangaReaction,
-    addMangaReaction
+    addMangaReaction,
+    getEntityCommentsV2,
+    getEntityReactions,
+    getUserEntityReaction,
+    addEntityReactionV2,
+    addCommentV2
 } from '@/lib/database';
 import { createCommentNotification } from '@/lib/storage';
 import { toast } from 'sonner';
 
 interface CommentSectionProps {
-    mangaId: string;
+    mangaId?: string; // Kept for compatibility
+    entityId?: string;
+    entityType?: 'manga' | 'character' | 'author' | 'artist';
     chapterId?: string;
 }
 
 const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ'; // Free tier API key
 
-const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) => {
+const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, entityId: propEntityId, entityType: propEntityType = 'manga', chapterId }) => {
     const { user } = useAuth();
+    const entityId = propEntityId || propMangaId || '';
+    const entityType = propEntityType;
+
     const [comments, setComments] = useState<Comment[]>([]);
     const [newComment, setNewComment] = useState('');
     const [selectedGif, setSelectedGif] = useState<string | null>(null);
@@ -75,18 +86,18 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     useEffect(() => {
         loadComments();
         loadReactions();
-    }, [mangaId, chapterId, sortBy]);
+    }, [entityId, entityType, chapterId, sortBy]);
 
     const loadComments = async () => {
-        const loadedComments = await getCommentsForManga(mangaId, chapterId, sortBy);
+        const loadedComments = await getEntityCommentsV2(entityType, entityId, chapterId, sortBy);
         setComments(loadedComments);
     };
 
     const loadReactions = async () => {
-        const counts = await getMangaReactions(mangaId, chapterId);
+        const counts = await getEntityReactions(entityType, entityId, chapterId);
         setReactions(counts);
         if (user) {
-            const ur = await getUserMangaReaction(mangaId, user.id, chapterId);
+            const ur = await getUserEntityReaction(entityType, entityId, user.id, chapterId);
             setUserReaction(ur);
         }
     };
@@ -97,7 +108,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             return;
         }
         try {
-            await addMangaReaction(mangaId, user.id, type, chapterId);
+            await addEntityReactionV2(entityType, entityId, user.id, type, chapterId);
             await loadReactions();
         } catch (error) {
             toast.error('İşlem başarısız oldu');
@@ -153,8 +164,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             return;
         }
 
-        await addComment({
-            mangaId,
+        await addCommentV2({
+            mangaId: entityType === 'manga' ? entityId : undefined,
+            entityId: entityType !== 'manga' ? entityId : undefined,
+            entityType,
             chapterId,
             userId: user.id,
             username: user.username,
@@ -175,7 +188,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
             return;
         }
 
-        await updateComment(commentId, editContent, editGif || undefined);
+        await updateComment(commentId, editContent, editGif || undefined, entityType);
         setEditingId(null);
         setEditContent('');
         setEditMention(null);
@@ -185,7 +198,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
     };
 
     const handleDeleteComment = async (commentId: string) => {
-        await deleteComment(commentId);
+        await deleteComment(commentId, entityType);
         await loadComments();
         toast.success('Yorum silindi');
     };
@@ -203,8 +216,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
 
         const parentComment = comments.find(c => c.id === parentId);
 
-        const newCommentObj = await addComment({
-            mangaId,
+        const newCommentObj = await addCommentV2({
+            mangaId: entityType === 'manga' ? entityId : undefined,
+            entityId: entityType !== 'manga' ? entityId : undefined,
+            entityType,
             chapterId,
             userId: user.id,
             username: user.username,
@@ -214,16 +229,25 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         });
 
         if (parentComment && parentComment.userId !== user.id) {
-            const manga = await getMangaById(mangaId);
+            let entityTitle = 'Manga';
+            if (entityType === 'manga') {
+                const manga = await getMangaById(entityId);
+                entityTitle = manga?.title || 'Manga';
+            } else if (entityType === 'character') {
+                const character = await getCharacterById(entityId);
+                entityTitle = character?.name || 'Karakter';
+            }
+
             await createCommentNotification(
                 parentComment.userId,
                 'reply',
                 user.id,
                 user.username,
-                mangaId,
-                manga?.title || 'Manga',
+                entityId,
+                entityTitle,
                 newCommentObj.id,
-                chapterId
+                chapterId,
+                entityType
             );
         }
 
@@ -242,19 +266,28 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId, chapterId }) =
         const comment = comments.find(c => c.id === commentId);
         const wasLiked = comment?.likedBy.includes(user.id);
 
-        await toggleCommentLike(commentId, user.id);
+        await toggleCommentLike(commentId, user.id, entityType);
 
         if (!wasLiked && comment && comment.userId !== user.id) {
-            const manga = await getMangaById(mangaId);
+            let entityTitle = 'Manga';
+            if (entityType === 'manga') {
+                const manga = await getMangaById(entityId);
+                entityTitle = manga?.title || 'Manga';
+            } else if (entityType === 'character') {
+                const character = await getCharacterById(entityId);
+                entityTitle = character?.name || 'Karakter';
+            }
+
             await createCommentNotification(
                 comment.userId,
                 'like',
                 user.id,
                 user.username,
-                mangaId,
-                manga?.title || 'Manga',
+                entityId,
+                entityTitle,
                 comment.id,
-                chapterId
+                chapterId,
+                entityType
             );
         }
 
