@@ -31,13 +31,7 @@ const SuperSearch: React.FC = () => {
     const [activeGenre, setActiveGenre] = useState('Hepsi');
     const [favorites, setFavorites] = useState<Record<string, boolean>>({});
     const { user } = useAuth();
-    const [popularSearches] = useState([
-        'The Mad Dog Of The Duke\'s Estate',
-        'The Swordmaster Who Leapt Through Time',
-        'Naihai Öğretmen',
-        'Reincarnation Of The Fist King',
-        'The Sword God From A Fallen World'
-    ]);
+    const [popularMangas, setPopularMangas] = useState<Manga[]>([]);
 
     const navigate = useNavigate();
 
@@ -48,6 +42,12 @@ const SuperSearch: React.FC = () => {
                 try {
                     const data = await getAllMangas();
                     setAllMangas(data);
+
+                    // Set popular mangas (top 5 by views or just first 5 if views are equal)
+                    const popular = [...data]
+                        .sort((a, b) => (b.views || 0) - (a.views || 0))
+                        .slice(0, 5);
+                    setPopularMangas(popular);
 
                     if (user) {
                         const favStatus: Record<string, boolean> = {};
@@ -159,18 +159,28 @@ const SuperSearch: React.FC = () => {
                                     <div className="mb-8">
                                         <h3 className="text-[11px] font-bold text-muted-foreground uppercase tracking-[0.1em] mb-4">POPÜLER ARAMALAR</h3>
                                         <div className="space-y-1">
-                                            {popularSearches.map((m, i) => (
-                                                <button
-                                                    key={i}
-                                                    onClick={() => {
-                                                        setSearchQuery(m);
-                                                    }}
-                                                    className="flex items-center gap-4 w-full p-2.5 rounded-xl hover:bg-white/5 text-left transition-colors group"
-                                                >
-                                                    <span className="text-muted-foreground/30 font-bold text-xs w-6 italic shrink-0 flex items-center justify-center"># {i + 1}</span>
-                                                    <span className="text-[14px] font-medium text-white/80 group-hover:text-white transition-colors py-0.5">{m}</span>
-                                                </button>
-                                            ))}
+                                            {isLoading ? (
+                                                <div className="space-y-2">
+                                                    {[1, 2, 3, 4, 5].map((n) => (
+                                                        <div key={n} className="h-10 w-full bg-white/5 animate-pulse rounded-xl" />
+                                                    ))}
+                                                </div>
+                                            ) : popularMangas.length > 0 ? (
+                                                popularMangas.map((m, i) => (
+                                                    <button
+                                                        key={m.id}
+                                                        onClick={() => handleResultClick(m.id)}
+                                                        className="flex items-center gap-4 w-full p-2.5 rounded-xl hover:bg-white/5 text-left transition-colors group"
+                                                    >
+                                                        <span className="text-muted-foreground/30 font-bold text-xs w-6 italic shrink-0 flex items-center justify-center"># {i + 1}</span>
+                                                        <span className="text-[14px] font-medium text-white/80 group-hover:text-white transition-colors py-0.5">{m.title}</span>
+                                                    </button>
+                                                ))
+                                            ) : (
+                                                <div className="py-8 text-center text-muted-foreground text-xs italic">
+                                                    Henüz popüler arama verisi bulunmuyor.
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
                                 </>
