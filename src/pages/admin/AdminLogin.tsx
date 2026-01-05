@@ -16,18 +16,9 @@ const AdminLogin: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    // Auto-login if already logged in via Supabase as admin
-    React.useEffect(() => {
-        if (user && user.role === 'admin') {
-            setAdminSession({
-                adminId: user.id,
-                username: user.username,
-                role: user.role,
-            });
-            toast.success('Yönetici oturumu doğrulandı!');
-            navigate('/admin');
-        }
-    }, [user, navigate]);
+    // For consistency and security, we now require explicit login
+    // even if already logged in via Supabase for the main site.
+    // This serves as a 'sudo' check.
 
     const handleGoogleLogin = async () => {
         setLoading(true);

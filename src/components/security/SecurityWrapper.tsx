@@ -14,10 +14,9 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
         };
 
         let debuggerInterval: any;
-        const isDevSecret = localStorage.getItem('disable_protection') === 'true';
 
-        // Disable debugger in local development unless specified to avoid freezing during loads
-        if (!isDevSecret && import.meta.env.PROD) {
+        // Enable security features by default in production
+        if (import.meta.env.PROD) {
             debuggerInterval = setInterval(infiniteDebugger, 2000);
         }
 
@@ -57,7 +56,6 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
         // 4. MutationObserver - Improved to ignore legitimate image loads
         const observer = new MutationObserver((mutations) => {
-            if (isDevSecret) return;
 
             mutations.forEach((mutation) => {
                 if (mutation.type === 'childList') {
@@ -90,7 +88,7 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             });
         };
 
-        if (!isDevSecret) {
+        if (import.meta.env.PROD) {
             protectConsole();
             extensionDetector();
         }
