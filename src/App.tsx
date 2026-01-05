@@ -60,56 +60,60 @@ const AppInitializer = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+import SecurityWrapper from "@/components/security/SecurityWrapper";
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
       <TooltipProvider>
-        <AppInitializer>
-          <Toaster />
-          <Sonner />
-          <BrowserRouter>
-            <ScrollToTop />
-            <Routes>
-              {/* Public Routes */}
-              <Route path="/" element={<Index />} />
-              <Route path="/browse" element={<Browse />} />
-              <Route path="/manga/:mangaId" element={<MangaDetail />} />
-              <Route path="/manga/:mangaId/chapter/:chapterId" element={<Reader />} />
-              <Route path="/auth" element={<Auth />} />
-              <Route path="/favorites" element={<Favorites />} />
-              <Route path="/library" element={<Library />} />
-              <Route path="/history" element={<History />} />
-              <Route path="/bookmarks" element={<Bookmarks />} />
-              <Route path="/notifications" element={<Notifications />} />
-              <Route path="/reading-lists" element={<ReadingLists />} />
-              <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
-              <Route path="/settings" element={<Settings />} />
-              <Route path="/character/:id" element={<CharacterDetail />} />
-              <Route path="/author/:id" element={<AuthorDetail />} />
-              <Route path="/artist/:id" element={<ArtistDetail />} />
-              <Route path="/characters" element={<CharactersBrowse />} />
+        <SecurityWrapper>
+          <AppInitializer>
+            <Toaster />
+            <Sonner />
+            <BrowserRouter>
+              <ScrollToTop />
+              <Routes>
+                {/* Public Routes */}
+                <Route path="/" element={<Index />} />
+                <Route path="/browse" element={<Browse />} />
+                <Route path="/manga/:mangaId" element={<MangaDetail />} />
+                <Route path="/manga/:mangaId/chapter/:chapterId" element={<Reader />} />
+                <Route path="/auth" element={<Auth />} />
+                <Route path="/favorites" element={<Favorites />} />
+                <Route path="/library" element={<Library />} />
+                <Route path="/history" element={<History />} />
+                <Route path="/bookmarks" element={<Bookmarks />} />
+                <Route path="/notifications" element={<Notifications />} />
+                <Route path="/reading-lists" element={<ReadingLists />} />
+                <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="/character/:id" element={<CharacterDetail />} />
+                <Route path="/author/:id" element={<AuthorDetail />} />
+                <Route path="/artist/:id" element={<ArtistDetail />} />
+                <Route path="/characters" element={<CharactersBrowse />} />
 
 
 
-              {/* Admin Routes */}
-              <Route path="/admin/login" element={<AdminLogin />} />
-              <Route path="/admin" element={<AdminLayout />}>
-                <Route index element={<AdminDashboard />} />
-                <Route path="mangas" element={<AdminMangaList />} />
-                <Route path="mangas/new" element={<AdminMangaEditor />} />
-                <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
-                <Route path="comments" element={<AdminComments />} />
-                <Route path="scraper" element={<AdminScraper />} />
-                <Route path="chapter-scraper" element={<AdminChapterScraper />} />
-                <Route path="users" element={<AdminUsers />} />
-                <Route path="user-management" element={<AdminUserManagement />} />
-                <Route path="entities" element={<AdminEntities />} />
-              </Route>
+                {/* Admin Routes */}
+                <Route path="/admin/login" element={<AdminLogin />} />
+                <Route path="/admin" element={<AdminLayout />}>
+                  <Route index element={<AdminDashboard />} />
+                  <Route path="mangas" element={<AdminMangaList />} />
+                  <Route path="mangas/new" element={<AdminMangaEditor />} />
+                  <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
+                  <Route path="comments" element={<AdminComments />} />
+                  <Route path="scraper" element={<AdminScraper />} />
+                  <Route path="chapter-scraper" element={<AdminChapterScraper />} />
+                  <Route path="users" element={<AdminUsers />} />
+                  <Route path="user-management" element={<AdminUserManagement />} />
+                  <Route path="entities" element={<AdminEntities />} />
+                </Route>
 
-              <Route path="*" element={<NotFound />} />
-            </Routes>
-          </BrowserRouter>
-        </AppInitializer>
+                <Route path="*" element={<NotFound />} />
+              </Routes>
+            </BrowserRouter>
+          </AppInitializer>
+        </SecurityWrapper>
       </TooltipProvider>
     </AuthProvider>
   </QueryClientProvider>

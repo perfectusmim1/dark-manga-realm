@@ -10,6 +10,8 @@ interface HorizontalReaderProps {
   onPageChange: (page: number) => void;
 }
 
+import ProtectedImage from '@/components/security/ProtectedImage';
+
 const HorizontalReader: React.FC<HorizontalReaderProps> = ({
   pages,
   settings,
@@ -54,17 +56,16 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
       </button>
 
       {/* Page Display */}
-      <div className={`flex h-full items-center justify-center px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
-        <img
+      <div className={`relative flex h-full items-center justify-center px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
+        <ProtectedImage
           src={pages[currentPage - 1]}
           alt={`Sayfa ${currentPage}`}
-          className={`max-h-full select-none object-contain transition-transform duration-200`}
+          zoom={settings.zoom}
+          className="max-h-full items-center justify-center flex"
           style={{
-            transform: `scale(${settings.zoom / 100})`,
             width: settings.fitWidth ? '100%' : 'auto',
-            maxWidth: settings.fitWidth ? '896px' : 'none'
+            maxWidth: settings.fitWidth ? '896px' : 'none',
           }}
-          draggable={false}
         />
       </div>
 

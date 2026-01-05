@@ -8,6 +8,8 @@ interface VerticalReaderProps {
   initialPage?: number;
 }
 
+import ProtectedImage from '@/components/security/ProtectedImage';
+
 const VerticalReader: React.FC<VerticalReaderProps> = ({
   pages,
   settings,
@@ -16,66 +18,6 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
 }) => {
   const [scrolledToInitial, setScrolledToInitial] = useState(false);
   const lastReportedPage = useRef<number>(initialPage);
-  const [loadedImages, setLoadedImages] = useState<Set<number>>(new Set());
-
-  // Handle image load event
-  const handleImageLoad = (index: number) => {
-    setLoadedImages(prev => new Set(prev).add(index));
-  };
-
-  // Scroll to initial page when target image is loaded
-  useEffect(() => {
-    if (scrolledToInitial) return;
-
-    if (initialPage === 1) {
-      setScrolledToInitial(true);
-      return;
-    }
-
-    const targetIndex = initialPage - 1;
-
-    // Check if target image is loaded or if we have enough images loaded
-    if (loadedImages.has(targetIndex) || loadedImages.size >= Math.min(targetIndex + 1, pages.length)) {
-      // Find target element using data attribute
-      const targetElement = document.querySelector(`[data-page-index="${targetIndex}"]`);
-
-      if (targetElement) {
-        const elementTop = (targetElement as HTMLElement).offsetTop;
-
-        // Scroll to the target position
-        window.scrollTo({
-          top: elementTop - 80,
-          behavior: 'auto'
-        });
-
-        setScrolledToInitial(true);
-      }
-    }
-  }, [loadedImages, initialPage, scrolledToInitial, pages.length]);
-
-  // Fallback: force scroll after a timeout regardless of image load status
-  useEffect(() => {
-    if (scrolledToInitial) return;
-    if (initialPage === 1) return;
-
-    const timeout = setTimeout(() => {
-      if (!scrolledToInitial) {
-        const targetIndex = initialPage - 1;
-        const targetElement = document.querySelector(`[data-page-index="${targetIndex}"]`);
-
-        if (targetElement) {
-          const elementTop = (targetElement as HTMLElement).offsetTop;
-          window.scrollTo({
-            top: elementTop - 80,
-            behavior: 'auto'
-          });
-        }
-        setScrolledToInitial(true);
-      }
-    }, 500); // Force scroll after 500ms
-
-    return () => clearTimeout(timeout);
-  }, [initialPage, scrolledToInitial]);
 
   // Intersection Observer for tracking current page
   useEffect(() => {
@@ -115,6 +57,28 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
     return () => observer.disconnect();
   }, [pages, onPageChange, scrolledToInitial]);
 
+  // Handle initial scroll
+  useEffect(() => {
+    if (scrolledToInitial) return;
+
+    // For vertical reader, we can just mark as scrolled since ProtectedImage handles its own loading
+    // In a real scenario, we might want to wait for the first image to render on canvas
+    const timeout = setTimeout(() => {
+      if (initialPage > 1) {
+        const targetElement = document.querySelector(`[data-page-index="${initialPage - 1}"]`);
+        if (targetElement) {
+          window.scrollTo({
+            top: (targetElement as HTMLElement).offsetTop - 80,
+            behavior: 'auto'
+          });
+        }
+      }
+      setScrolledToInitial(true);
+    }, 500);
+
+    return () => clearTimeout(timeout);
+  }, [initialPage, scrolledToInitial]);
+
   return (
     <div className="flex flex-col items-center gap-0 pb-20 pt-20">
       {pages.map((page, index) => (
@@ -126,17 +90,13 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
             maxWidth: settings.fitWidth ? `${896 * (settings.zoom / 100)}px` : 'none'
           }}
         >
-          <img
+          <ProtectedImage
             src={page}
             alt={`Sayfa ${index + 1}`}
-            className="select-none transition-transform duration-200 block"
-            style={{ width: `${settings.zoom}%`, height: 'auto' }}
-            loading={index < (initialPage + 3) ? "eager" : "lazy"}
-            draggable={false}
-            onLoad={() => handleImageLoad(index)}
+            zoom={settings.zoom}
           />
           {/* Page number indicator for debugging/clarity if images fail */}
-          <div className="absolute top-2 right-2 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity hover:opacity-100">
+          <div className="absolute top-2 right-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
             P{index + 1}
           </div>
         </div>
