@@ -124,7 +124,7 @@ CREATE TABLE public.comment_likes (
   CONSTRAINT comment_likes_pkey PRIMARY KEY (id)
 );
 
--- MANGA PUANLARI (Basit)
+-- PUANLAR VE İNCELEMELER
 CREATE TABLE public.ratings (
   id text NOT NULL DEFAULT uuid_generate_v4(),
   manga_id text NOT NULL REFERENCES public.mangas(id) ON DELETE CASCADE,
@@ -134,7 +134,6 @@ CREATE TABLE public.ratings (
   CONSTRAINT ratings_pkey PRIMARY KEY (id)
 );
 
--- DETAYLI İNCELEMELER (Reviews)
 CREATE TABLE public.reviews (
   id uuid NOT NULL DEFAULT gen_random_uuid(),
   manga_id text NOT NULL REFERENCES public.mangas(id) ON DELETE CASCADE,
@@ -150,29 +149,17 @@ CREATE TABLE public.reviews (
   CONSTRAINT reviews_pkey PRIMARY KEY (id)
 );
 
--- İNCELEME BEĞENİLERİ
 CREATE TABLE public.review_likes (
   user_id text NOT NULL REFERENCES public.users(id),
   review_id uuid NOT NULL REFERENCES public.reviews(id) ON DELETE CASCADE,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   CONSTRAINT review_likes_pkey PRIMARY KEY (user_id, review_id)
 );
-
--- REAKSİYONLAR
-CREATE TABLE public.manga_reactions (
-  id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  manga_id text REFERENCES public.mangas(id) ON DELETE CASCADE,
-  user_id text REFERENCES public.users(id),
-  chapter_id text,
-  reaction_type text NOT NULL,
-  created_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT manga_reactions_pkey PRIMARY KEY (id)
-);
 ```
 
 ### 3. Adım: Yazarlar, Sanatçılar ve Karakterler
 ```sql
--- KARAKTERLER
+-- KARAKTERLER, YAZARLAR, SANATÇILAR
 CREATE TABLE public.characters (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
   name text NOT NULL,
@@ -183,33 +170,27 @@ CREATE TABLE public.characters (
   CONSTRAINT characters_pkey PRIMARY KEY (id)
 );
 
--- KARAKTER YORUMLARI & BEĞENİLERİ
-CREATE TABLE public.character_comments (
+CREATE TABLE public.authors (
   id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  character_id uuid REFERENCES public.characters(id) ON DELETE CASCADE,
-  user_id text REFERENCES public.users(id),
-  username text,
-  user_avatar text,
-  content text NOT NULL,
-  likes integer DEFAULT 0,
-  gif_url text,
-  parent_id uuid REFERENCES public.character_comments(id),
+  name text NOT NULL,
+  image_url text,
+  description text,
+  likes_count integer DEFAULT 0,
   created_at timestamp with time zone DEFAULT now(),
-  updated_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT character_comments_pkey PRIMARY KEY (id)
+  CONSTRAINT authors_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE public.character_likes (
-  user_id text NOT NULL REFERENCES public.users(id),
-  character_id uuid NOT NULL REFERENCES public.characters(id) ON DELETE CASCADE,
-  CONSTRAINT character_likes_pkey PRIMARY KEY (user_id, character_id)
+CREATE TABLE public.artists (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  name text NOT NULL,
+  image_url text,
+  description text,
+  likes_count integer DEFAULT 0,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT artists_pkey PRIMARY KEY (id)
 );
 
--- YAZARLAR VE SANATÇILAR (Benzer yapıda authors ve artists tabloları)
--- Not: authors, artists tabloları ve bunlara bağlı comment/like/reaction tabloları 
--- karakterler tablosuyla aynı mantıkta oluşturulmalıdır.
-
--- İLİŞKİ (JUNCTION) TABLOLARI
+-- JUNCTION TABLOLARI
 CREATE TABLE public.manga_characters (
   manga_id text NOT NULL REFERENCES public.mangas(id) ON DELETE CASCADE,
   character_id uuid NOT NULL REFERENCES public.characters(id) ON DELETE CASCADE,
@@ -229,9 +210,26 @@ CREATE TABLE public.manga_artists (
 );
 ```
 
-### 4. Adım: Kullanıcı Verileri (Listeler, Takip, İlerleme)
+### 4. Adım: Reaksiyonlar ve Yorumlar (Detaylı)
 ```sql
--- FAVORİLER VE TAKİP
+-- Reaksiyon tabloları
+CREATE TABLE public.manga_reactions (
+  id uuid NOT NULL DEFAULT uuid_generate_v4(),
+  manga_id text REFERENCES public.mangas(id) ON DELETE CASCADE,
+  user_id text REFERENCES public.users(id),
+  chapter_id text,
+  reaction_type text NOT NULL,
+  created_at timestamp with time zone DEFAULT now(),
+  CONSTRAINT manga_reactions_pkey PRIMARY KEY (id)
+);
+
+-- Benzer tablolar: author_reactions, artist_reactions, character_reactions (Primary Key: id uuid)
+-- Benzer tablolar: character_comments, author_comments, artist_comments
+-- Benzer tablolar: character_likes, author_likes, artist_likes
+```
+
+### 5. Adım: Kullanıcı Verileri (Listeler, Takip, İlerleme)
+```sql
 CREATE TABLE public.favorites (
   id text NOT NULL DEFAULT uuid_generate_v4(),
   user_id text NOT NULL,
@@ -241,34 +239,6 @@ CREATE TABLE public.favorites (
   CONSTRAINT favorites_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE public.follows (
-  id text NOT NULL DEFAULT uuid_generate_v4(),
-  user_id text NOT NULL REFERENCES public.users(id),
-  manga_id text NOT NULL REFERENCES public.mangas(id) ON DELETE CASCADE,
-  followed_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT follows_pkey PRIMARY KEY (id)
-);
-
--- OKUMA LİSTELERİ
-CREATE TABLE public.reading_lists (
-  id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  user_id text NOT NULL REFERENCES public.users(id),
-  name text NOT NULL,
-  description text,
-  is_public boolean DEFAULT false,
-  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
-  CONSTRAINT reading_lists_pkey PRIMARY KEY (id)
-);
-
-CREATE TABLE public.reading_list_items (
-  id uuid NOT NULL DEFAULT uuid_generate_v4(),
-  list_id uuid NOT NULL REFERENCES public.reading_lists(id) ON DELETE CASCADE,
-  manga_id text NOT NULL REFERENCES public.mangas(id) ON DELETE CASCADE,
-  created_at timestamp with time zone NOT NULL DEFAULT timezone('utc'::text, now()),
-  CONSTRAINT reading_list_items_pkey PRIMARY KEY (id)
-);
-
--- İLERLEME VE YER İMLERİ
 CREATE TABLE public.reading_progress (
   id text NOT NULL DEFAULT (gen_random_uuid())::text,
   user_id text NOT NULL,
@@ -280,19 +250,6 @@ CREATE TABLE public.reading_progress (
   CONSTRAINT reading_progress_pkey PRIMARY KEY (id)
 );
 
-CREATE TABLE public.bookmarks (
-  id text NOT NULL DEFAULT (gen_random_uuid())::text,
-  user_id text NOT NULL,
-  manga_id text NOT NULL REFERENCES public.mangas(id) ON DELETE CASCADE,
-  chapter_id text NOT NULL,
-  chapter_number numeric,
-  page integer NOT NULL,
-  note text,
-  created_at timestamp with time zone DEFAULT now(),
-  CONSTRAINT bookmarks_pkey PRIMARY KEY (id)
-);
-
--- BİLDİRİMLER
 CREATE TABLE public.notifications (
   id text NOT NULL DEFAULT (gen_random_uuid())::text,
   user_id text NOT NULL,
@@ -310,146 +267,80 @@ CREATE TABLE public.notifications (
 );
 ```
 
-## 4. Güvenlik Önlemleri (Row Level Security - RLS)
+## 4. Performans ve Güvenlik Optimizasyonları
 
-Sistem güvenliği için veritabanındaki her tablo RLS ile korunmaktadır. Yeni kurulumda bu politikaları SQL Editor üzerinden çalıştırmayı unutmayın.
+Sitenin hızlı çalışması ve güvenli kalması için aşağıdaki ayarlar uygulanmıştır.
 
-### 1. Kullanıcı Rol Kontrolü Fonksiyonu
-Bazı politikalar `admin` veya `moderator` kontrolü yaptığı için aşağıdaki yardımcı fonksiyonun kurulu olması gerekir:
-
+### 1. İndeksleme (Hızlandırma)
+Sorguların milisaniyeler içinde yanıt vermesi için şu indeksleri oluşturun:
 ```sql
-CREATE OR REPLACE FUNCTION public.check_user_role(user_id text, allowed_roles text[])
-RETURNS boolean AS $$
-BEGIN
-  RETURN EXISTS (
-    SELECT 1 FROM public.users
-    WHERE id = user_id AND role = ANY(allowed_roles)
-  );
-END;
-$$ LANGUAGE plpgsql SECURITY DEFINER;
+-- Manga & Bölüm İndeksleri
+CREATE INDEX IF NOT EXISTS idx_comments_manga_id ON public.comments(manga_id);
+CREATE INDEX IF NOT EXISTS idx_comments_chapter_id ON public.comments(chapter_id);
+CREATE INDEX IF NOT EXISTS idx_reading_progress_manga_id ON public.reading_progress(manga_id);
+
+-- Kullanıcı İndeksleri
+CREATE INDEX IF NOT EXISTS idx_comments_user_id ON public.comments(user_id);
+CREATE INDEX IF NOT EXISTS idx_favorites_user_id ON public.favorites(user_id);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_id ON public.notifications(user_id);
+
+-- Gelişmiş İndeksler (Reaksiyonlar ve İncelemeler)
+CREATE INDEX IF NOT EXISTS idx_manga_reactions_manga_id ON public.manga_reactions(manga_id);
+CREATE INDEX IF NOT EXISTS idx_reviews_user_id ON public.reviews(user_id);
 ```
 
-### 2. Tablo Politikaları
+### 2. Sertleştirilmiş Güvenlik (RLS)
+Sorgu performansını artıran ve güvenliği sıkılaştıran politikalar:
 
-#### Kullanıcılar (users)
 ```sql
+-- YÜKSEK PERFORMANSLI RLS KALIBI: (SELECT auth.uid()) kullanımı
 ALTER TABLE public.users ENABLE ROW LEVEL SECURITY;
 
--- Herkes profilleri görebilir
-CREATE POLICY "Public profiles are viewable by everyone" ON public.users 
+CREATE POLICY "Public profiles are viewable" ON public.users 
     FOR SELECT USING (true);
 
--- Kullanıcılar kendi profillerini oluşturabilir
-CREATE POLICY "Users can insert their own profile" ON public.users 
-    FOR INSERT WITH CHECK (auth.uid()::text = id);
-
--- Kullanıcılar kendi profillerini güncelleyebilir (rol değişimi hariç)
 CREATE POLICY "Users can update own profile" ON public.users 
-    FOR UPDATE USING (auth.uid()::text = id);
+    FOR UPDATE USING ((SELECT auth.uid())::text = id);
 
--- Adminler tüm kullanıcıları yönetebilir
-CREATE POLICY "Admins can manage all users" ON public.users 
-    FOR ALL USING (check_user_role(auth.uid()::text, ARRAY['admin', 'moderator']));
-```
-
-#### Mangalar ve Bölümler (mangas, chapters)
-```sql
--- Herkes okuyabilir
-CREATE POLICY "mangas_read" ON public.mangas FOR SELECT USING (true);
-CREATE POLICY "chapters_read" ON public.chapters FOR SELECT USING (true);
-
--- Sadece yetkililer düzenleyebilir
-CREATE POLICY "mangas_admin_all" ON public.mangas 
-    FOR ALL USING (check_user_role(auth.uid()::text, ARRAY['admin', 'moderator']));
-
-CREATE POLICY "chapters_admin_all" ON public.chapters 
-    FOR ALL USING (check_user_role(auth.uid()::text, ARRAY['admin', 'moderator']));
-```
-
-#### Yorumlar ve Beğeniler (comments, likes)
-```sql
--- Tüm yorum tabloları için (comments, character_comments vb.)
-CREATE POLICY "Public Select" ON public.comments FOR SELECT USING (true);
-
--- Sadece giriş yapanlar yorum yapabilir
-CREATE POLICY "User Insert" ON public.comments 
-    FOR INSERT WITH CHECK (auth.uid()::text = user_id);
-
--- Sadece sahibi veya admin silebilir/güncelleyebilir
-CREATE POLICY "User Owner or Admin" ON public.comments 
-    FOR ALL USING (
-        auth.uid()::text = user_id OR 
-        check_user_role(auth.uid()::text, ARRAY['admin', 'moderator'])
-    );
-```
-
-#### Kullanıcı Verileri (follows, favorites, reading_progress, bookmarks)
-```sql
--- Bu tablolarda kural "Sadece Sahibi" (Individual User Data) prensibidir
-CREATE POLICY "Users can manage own data" ON public.favorites 
-    FOR ALL USING (auth.uid()::text = user_id);
-
-CREATE POLICY "Users can manage own progress" ON public.reading_progress 
-    FOR ALL USING (auth.uid()::text = user_id);
-
-CREATE POLICY "Users can view own notifications" ON public.notifications 
-    FOR SELECT USING (auth.uid()::text = user_id);
+-- BİLDİRİMLER: Sadece gönderici bildirim oluşturabilir
+CREATE POLICY "Strict Notification Insert" ON public.notifications
+    FOR INSERT TO authenticated
+    WITH CHECK ((SELECT auth.uid())::text = from_user_id);
 ```
 
 ## 5. Fonksiyonlar ve Tetikleyiciler (Triggers)
 
-Güncellenme tarihleri ve otomatik işlemler için aşağıdaki Sql'leri çalıştırın.
-
 ```sql
--- Updated_at kolonunu otomatik güncelleme fonksiyonu
-CREATE OR REPLACE FUNCTION update_updated_at_column()
-RETURNS TRIGGER AS $$
-BEGIN
-    NEW.updated_at = NOW();
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
--- Yeni bölüm eklendiğinde manganın 'last_updated' tarihini güncelleme
-CREATE OR REPLACE FUNCTION update_manga_last_updated()
-RETURNS TRIGGER AS $$
-BEGIN
-    UPDATE public.mangas SET last_updated = NOW() WHERE id = NEW.manga_id;
-    RETURN NEW;
-END;
-$$ language 'plpgsql';
-
-CREATE TRIGGER update_manga_on_chapter_insert
-    AFTER INSERT ON public.chapters
-    FOR EACH ROW
-    EXECUTE FUNCTION update_manga_last_updated();
-
--- GÖRÜNTÜLENME ARTIRMA FONKSİYONLARI (RPC)
--- Supabase Dashboard > Database > Functions kısmından ekleyin
-
-CREATE OR REPLACE FUNCTION increment_manga_views(manga_id_param UUID)
+-- GÖRÜNTÜLENME ARTIRMA (RPC)
+CREATE OR REPLACE FUNCTION increment_manga_views(manga_id_param text)
 RETURNS void AS $$
 BEGIN
-    UPDATE public.mangas
-    SET views = views + 1
-    WHERE id = manga_id_param;
+    UPDATE public.mangas SET views = views + 1 WHERE id = manga_id_param;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 
-CREATE OR REPLACE FUNCTION increment_chapter_views(chapter_id_param UUID)
+CREATE OR REPLACE FUNCTION increment_chapter_views(chapter_id_param text)
 RETURNS void AS $$
 BEGIN
-    UPDATE public.chapters
-    SET views = views + 1
-    WHERE id = chapter_id_param;
+    UPDATE public.chapters SET views = views + 1 WHERE id = chapter_id_param;
 END;
-$$ LANGUAGE plpgsql;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
+
+-- ROL KONTROLÜ
+CREATE OR REPLACE FUNCTION public.check_user_role(target_id text, required_roles text[])
+RETURNS boolean AS $$
+BEGIN
+  RETURN EXISTS (
+    SELECT 1 FROM public.users WHERE id = target_id AND role = ANY(required_roles)
+  );
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public;
 ```
 
 ## 6. Önemli Hatırlatmalar
 
-1.  **Auth Sync:** Sitede `AuthContext.tsx` dosyasında bulunan `syncAuthState` fonksiyonu, Supabase Auth tablosu ile `public.users` tablosunu eşleştirir. Eğer yeni hesap açarsanız, bu sistem sayesinde giriş yapan kullanıcılar için otomatik profil oluşturulacaktır.
-2.  **Storage:** Eğer siteye kapak görseli veya avatar yüklüyorsanız, Supabase Dashboard üzerinden `Storage` kısmında `mangas` ve `avatars` adında iki adet "Public" bucket oluşturmalı ve bunlara uygun RLS politikaları (select: public, insert/update: auth) tanımlamalısınız.
-3.  **Hızlandırma (Indexes):** Performans için `manga_id`, `user_id` ve `chapter_id` kolonlarına veritabanında "Index" oluşturun.
+1.  **Storage:** `mangas` ve `avatars` adında iki adet "Public" bucket oluşturun.
+2.  **Auth Sync:** `AuthContext.tsx` içindeki `syncAuthState` fonksiyonu yeni üyeler için `public.users` tablosunda otomatik profil oluşturur.
+3.  **Leaked Password:** Supabase Dashboard > Auth > Settings > "Leaked Password Protection" ayarını **AÇIK** hale getirin.
 
-*Bu doküman Perfectus Obfuscator/Manga Realm sistemi için özel olarak hazırlanmıştır.*
+*Bu doküman ToonParrot / Manga Realm sistemi için güncellenmiş ve optimize edilmiştir.*
