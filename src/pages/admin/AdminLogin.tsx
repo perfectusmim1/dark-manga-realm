@@ -16,6 +16,19 @@ const AdminLogin: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
 
+    // Auto-detect admin status if already logged in via Supabase/Google
+    React.useEffect(() => {
+        if (user && (user.role === 'admin' || user.role === 'moderator')) {
+            setAdminSession({
+                adminId: user.id,
+                username: user.username,
+                role: user.role,
+            });
+            toast.success('Yönetici oturumu açıldı');
+            navigate('/admin');
+        }
+    }, [user, navigate, loginWithGoogle]);
+
     // For consistency and security, we now require explicit login
     // even if already logged in via Supabase for the main site.
     // This serves as a 'sudo' check.
@@ -23,7 +36,7 @@ const AdminLogin: React.FC = () => {
     const handleGoogleLogin = async () => {
         setLoading(true);
         try {
-            await loginWithGoogle();
+            await loginWithGoogle(`${window.location.origin}/admin/login`);
         } catch (error) {
             toast.error('Google ile giriş yapılamadı');
             setLoading(false);

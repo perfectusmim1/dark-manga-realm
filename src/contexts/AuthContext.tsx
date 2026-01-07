@@ -19,7 +19,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   verifyOtp: (email: string, token: string, type: 'signup' | 'recovery' | 'email') => Promise<{ success: boolean; error?: string }>;
   toggle2FA: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
-  loginWithGoogle: () => Promise<void>;
+  loginWithGoogle: (redirectTo?: string) => Promise<void>;
 }
 
 
@@ -479,12 +479,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const loginWithGoogle = async () => {
+  const loginWithGoogle = async (redirectTo?: string) => {
     try {
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: `${window.location.origin}/auth`,
+          redirectTo: redirectTo || `${window.location.origin}/auth`,
         }
       });
       if (error) throw error;
