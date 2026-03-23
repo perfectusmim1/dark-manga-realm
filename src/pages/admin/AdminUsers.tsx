@@ -146,12 +146,12 @@ const AdminUsers: React.FC = () => {
                                     <td className="px-4 py-3 text-muted-foreground">{admin.email}</td>
                                     <td className="px-4 py-3">
                                         {admin.role === 'admin' ? (
-                                            <Badge className="bg-purple-500/20 text-purple-500">
+                                            <Badge variant="outline" className="bg-purple-500/10 text-purple-500 border-purple-500/20 hover:bg-purple-500/20 transition-colors">
                                                 <ShieldCheck className="mr-1 h-3 w-3" />
                                                 Admin
                                             </Badge>
                                         ) : (
-                                            <Badge variant="secondary">
+                                            <Badge variant="secondary" className="hover:bg-secondary/70 transition-colors">
                                                 <Shield className="mr-1 h-3 w-3" />
                                                 Moderatör
                                             </Badge>

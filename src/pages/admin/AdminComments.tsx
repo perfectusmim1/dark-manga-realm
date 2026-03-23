@@ -189,10 +189,10 @@ const AdminComments: React.FC = () => {
                                         <p className="truncate text-sm">{comment.content}</p>
                                         <div className="flex gap-1 mt-1">
                                             {comment.gifUrl && (
-                                                <Badge variant="secondary" className="text-[10px] h-4">GIF</Badge>
+                                                <Badge variant="secondary" className="text-[10px] h-4 hover:bg-secondary/70 transition-colors">GIF</Badge>
                                             )}
                                             {comment.parentId && (
-                                                <Badge variant="outline" className="text-[10px] h-4">Yanıt</Badge>
+                                                <Badge variant="outline" className="text-[10px] h-4 hover:bg-secondary/20 transition-colors">Yanıt</Badge>
                                             )}
                                         </div>
                                     </td>

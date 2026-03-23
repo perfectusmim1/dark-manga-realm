@@ -54,7 +54,7 @@ const Library: React.FC = () => {
 
     useEffect(() => {
         fetchLibrary();
-    }, [activeTab, user]);
+    }, [activeTab, user?.id]);
 
     const fetchLibrary = async () => {
         if (!user) return;

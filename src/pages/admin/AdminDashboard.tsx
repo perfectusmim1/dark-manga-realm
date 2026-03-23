@@ -11,7 +11,7 @@ import {
     Users as UsersIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getStatistics, getAllMangas, syncAllToSupabase } from '@/lib/database';
+import { getStatistics, getAllMangas } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -99,18 +99,6 @@ const AdminDashboard: React.FC = () => {
                     <p className="text-muted-foreground">Site istatistiklerine genel bakış</p>
                 </div>
                 <div className="flex gap-2">
-                    <Button
-                        variant="outline"
-                        onClick={async () => {
-                            const toastId = toast.loading('Veriler Supabase\'e senkronize ediliyor...');
-                            const result = await syncAllToSupabase();
-                            toast.dismiss(toastId);
-                            toast.success(`${result.success}/${result.total} manga başarıyla senkronize edildi!`);
-                        }}
-                    >
-                        <TrendingUp className="mr-2 h-4 w-4" />
-                        Supabase'e Senkronize Et
-                    </Button>
                     <Button asChild>
                         <Link to="/admin/mangas/new">
                             <Plus className="mr-2 h-4 w-4" />
@@ -120,7 +108,6 @@ const AdminDashboard: React.FC = () => {
                 </div>
             </div>
 
-            {/* Stat Cards */}
             <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 {statCards.map((stat) => (
                     <div
@@ -141,7 +128,6 @@ const AdminDashboard: React.FC = () => {
                 ))}
             </div>
 
-            {/* Type Distribution */}
             <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-xl border border-border bg-card p-6">
                     <h2 className="mb-4 text-lg font-semibold">Türe Göre Dağılım</h2>
@@ -175,12 +161,12 @@ const AdminDashboard: React.FC = () => {
                 <div className="rounded-xl border border-border bg-card p-6">
                     <h2 className="mb-4 text-lg font-semibold">Duruma Göre Dağılım</h2>
                     <div className="space-y-4">
-                        {([
+                        {[
                             { key: 'ongoing', label: 'Devam Ediyor', color: 'bg-green-500' },
                             { key: 'completed', label: 'Tamamlandı', color: 'bg-primary' },
                             { key: 'hiatus', label: 'Ara Verildi', color: 'bg-orange-500' },
-                        ] as const).map(({ key, label, color }) => {
-                            const count = stats.mangasByStatus[key];
+                        ].map(({ key, label, color }) => {
+                            const count = stats.mangasByStatus[key as any];
                             const percentage = stats.totalMangas > 0
                                 ? Math.round((count / stats.totalMangas) * 100)
                                 : 0;
@@ -204,7 +190,6 @@ const AdminDashboard: React.FC = () => {
                 </div>
             </div>
 
-            {/* Recent Mangas */}
             <div className="rounded-xl border border-border bg-card p-6">
                 <div className="mb-4 flex items-center justify-between">
                     <h2 className="text-lg font-semibold">Son Güncellenenler</h2>

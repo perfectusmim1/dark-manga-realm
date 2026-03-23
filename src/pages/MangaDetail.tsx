@@ -162,7 +162,7 @@ const MangaDetail: React.FC = () => {
             setReviews(mReviews);
             if (uReview) setUserReview(uReview);
 
-            // To get category, we'll fetch favorites specifically
+
             const userFavorites = await getFavorites(user.id);
             const thisFav = userFavorites.find(f => f.mangaId === mangaId);
             if (thisFav) setCategory(thisFav.category);
@@ -171,7 +171,7 @@ const MangaDetail: React.FC = () => {
             setReviews(mReviews);
           }
 
-          // Update breakdown
+
           if (avgRating) {
             setAvgBreakdown({
               story: (avgRating as any).story || 0,
@@ -182,7 +182,7 @@ const MangaDetail: React.FC = () => {
             });
           }
 
-          // Fetch similar mangas
+
           if (mData && mData.genres && mData.genres.length > 0) {
             setLoadingSimilar(true);
             const similar = await getSimilarMangas(mangaId, mData.genres, 6);
@@ -190,7 +190,7 @@ const MangaDetail: React.FC = () => {
             setLoadingSimilar(false);
           }
 
-          // Fetch characters
+
           const chars = await getMangaCharacters(mangaId);
           setMangaCharacters(chars);
         }
@@ -202,7 +202,7 @@ const MangaDetail: React.FC = () => {
     };
 
     loadMangaData();
-  }, [mangaId, user]);
+  }, [mangaId, user?.id]);
 
   if (isLoading) {
     return (
@@ -260,12 +260,8 @@ const MangaDetail: React.FC = () => {
     }
 
     try {
-      if (!favorite) {
-        await addFavorite(user.id, manga.id, newCategory);
-        setFavorite(true);
-      } else {
-        await updateFavoriteCategory(user.id, manga.id, newCategory);
-      }
+      await addFavorite(user.id, manga.id, newCategory);
+      setFavorite(true);
       setCategory(newCategory);
       toast.success(`Kategori: ${categoryLabels[newCategory]}`);
     } catch (err) {
@@ -720,20 +716,23 @@ const MangaDetail: React.FC = () => {
 
                 {/* Sidebar Info */}
                 <div className="space-y-6">
-                  <div className="rounded-xl border border-border bg-card/50 p-6">
-                    <h2 className="text-lg font-semibold mb-4">{userRating ? 'Puanınız' : 'Puan Ver'}</h2>
+                  <div 
+                    className="rounded-xl border border-border bg-card/50 p-6 cursor-pointer hover:bg-card/70 transition-colors group"
+                    onClick={() => setActiveTab('reviews')}
+                  >
+                    <h2 className="text-lg font-semibold mb-4 text-center group-hover:text-primary transition-colors">
+                      {userRating ? 'Puanınız' : 'Puan Ver'}
+                      <ArrowRight className="inline-block ml-2 h-4 w-4 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
+                    </h2>
                     <div className="flex flex-col gap-4">
                       <div className="flex gap-1 justify-center">
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
                           <div
                             key={star}
-                            onClick={() => !userRating && handleRating(star)}
-                            onMouseEnter={() => !userRating && setHoverRating(star)}
-                            onMouseLeave={() => !userRating && setHoverRating(0)}
-                            className={`p-1 transition-transform ${!userRating ? 'hover:scale-110 cursor-pointer' : 'cursor-default'}`}
+                            className="p-1"
                           >
                             <Star
-                              className={`h-5 w-5 transition-colors ${star <= (hoverRating || userRating || 0)
+                              className={`h-5 w-5 transition-colors ${star <= (userRating || 0)
                                 ? 'fill-yellow-400 text-yellow-400'
                                 : 'text-muted-foreground'
                                 }`}
@@ -741,11 +740,11 @@ const MangaDetail: React.FC = () => {
                           </div>
                         ))}
                       </div>
-                      <div className="text-sm text-center text-muted-foreground">
+                      <div className="text-sm text-center text-muted-foreground group-hover:text-foreground transition-colors">
                         {userRating ? (
                           <span>Puanınız: <strong className="text-foreground">{userRating}/10</strong></span>
                         ) : (
-                          <span>Henüz puan vermediniz</span>
+                          <span>Puanlamak için tıklayın</span>
                         )}
                       </div>
                     </div>

@@ -52,13 +52,13 @@ import { createCommentNotification } from '@/lib/storage';
 import { toast } from 'sonner';
 
 interface CommentSectionProps {
-    mangaId?: string; // Kept for compatibility
+    mangaId?: string;
     entityId?: string;
     entityType?: 'manga' | 'character' | 'author' | 'artist';
     chapterId?: string;
 }
 
-const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ'; // Free tier API key
+const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
 
 const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, entityId: propEntityId, entityType: propEntityType = 'manga', chapterId }) => {
     const { user } = useAuth();
@@ -333,7 +333,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
     return (
         <div className="space-y-8">
-            {/* Reactions Section */}
+
             <div className="text-center space-y-6 py-6 pb-12 border-b border-border/50">
                 <div className="space-y-1">
                     <h2 className="text-2xl font-black tracking-tight">Ne Düşünüyorsun?</h2>
@@ -468,7 +468,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                 <span className="font-medium">{comment.username}</span>
                                                 <span className="text-xs text-muted-foreground">
                                                     {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
-                                                    {comment.updatedAt && ' (düzenlendi)'}
+                                                    {comment.updatedAt && new Date(comment.updatedAt).getTime() - new Date(comment.createdAt).getTime() > 2000 && ' (düzenlendi)'}
                                                 </span>
                                             </div>
 
@@ -605,7 +605,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                             </div>
                                         )}
 
-                                        {/* Replies Section */}
+                                
                                         {getReplies(comment.id).length > 0 && (
                                             <div className="mt-4 space-y-3 border-l-2 border-border pl-4">
                                                 {getReplies(comment.id).map((reply) => (
@@ -620,7 +620,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                     <span className="text-sm font-medium">{reply.username}</span>
                                                                     <span className="text-xs text-muted-foreground">
                                                                         {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
-                                                                        {reply.updatedAt && ' (düzenlendi)'}
+                                                                        {reply.updatedAt && new Date(reply.updatedAt).getTime() - new Date(reply.createdAt).getTime() > 2000 && ' (düzenlendi)'}
                                                                     </span>
                                                                 </div>
                                                                 {(user?.id === reply.userId || user?.role === 'admin' || user?.role === 'moderator') && (

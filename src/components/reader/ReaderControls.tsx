@@ -126,7 +126,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         className={`fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : '-translate-y-full'
           }`}
       >
-        <div className="container flex h-14 items-center justify-between gap-4">
+        <div 
+          className="container flex h-14 items-center justify-between gap-4"
+          onClick={(e) => e.stopPropagation()}
+        >
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="icon">
               <Link to={`/manga/${mangaId}`}>
@@ -245,7 +248,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         className={`fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : 'translate-y-full'
           }`}
       >
-        <div className="container flex h-14 items-center justify-between gap-4">
+        <div 
+          className="container flex h-14 items-center justify-between gap-4"
+          onClick={(e) => e.stopPropagation()}
+        >
           <Button
             variant="ghost"
             disabled={!prevChapter}
@@ -271,12 +277,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               </span>
               <div
                 ref={progressBarRef}
-                className={`relative h-2 flex-1 max-w-[600px] group cursor-pointer ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
+                className={`relative h-6 flex-1 max-w-[600px] group cursor-pointer flex items-center ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
                 onMouseDown={handleMouseDown}
                 onTouchStart={handleTouchStart}
+                onClick={(e) => e.stopPropagation()}
               >
                 {/* Progress Background */}
-                <div className="absolute inset-0 rounded-full bg-secondary/30" />
+                <div className="absolute inset-x-0 h-1.5 rounded-full bg-secondary/30 pointer-events-none" />
 
                 {/* Active Progress Fill */}
                 <div
@@ -285,36 +292,29 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 />
 
                 {/* Interactive Dots Container */}
-                <div className="absolute inset-x-0 h-full flex items-center justify-between px-[1px]">
+                <div className="absolute inset-x-0 h-full flex items-center justify-between px-[1px] pointer-events-none">
                   {Array.from({ length: totalPages }).map((_, i) => {
                     const pageNum = i + 1;
                     const isActive = pageNum <= currentPage;
                     const isCurrent = pageNum === currentPage;
 
                     return (
-                      <button
+                      <div
                         key={pageNum}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          onPageChange?.(pageNum);
-                        }}
-                        className={`group/dot relative z-10 flex h-4 w-4 transform items-center justify-center transition-all hover:scale-150 ${isCurrent ? 'scale-125' : 'scale-100'
-                          }`}
-                        title={`Sayfa ${pageNum}`}
+                        className={`group/dot relative z-10 flex h-full flex-1 items-center justify-center transition-all min-w-[2px]`}
                       >
                         <div
-                          className={`h-1.5 w-1.5 rounded-full transition-all duration-300 ${isCurrent
-                            ? 'h-2 w-2 bg-white shadow-[0_0_8px_rgba(255,255,255,0.6)]'
+                          className={`rounded-full transition-all duration-300 ${isCurrent
+                            ? 'h-2.5 w-2.5 bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)] scale-125'
                             : isActive
-                              ? 'bg-white group-hover/dot:bg-white'
-                              : 'bg-muted-foreground/40 group-hover/dot:bg-muted-foreground'
+                              ? 'h-1.5 w-1.5 bg-white'
+                              : 'h-1.5 w-1.5 bg-muted-foreground/40'
                             }`}
                         />
-                        {/* Tooltip on hover */}
-                        <div className="absolute -top-8 hidden rounded bg-popover px-2 py-0.5 text-[10px] text-popover-foreground shadow-md group-hover/dot:block">
+                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 hidden rounded bg-popover px-2 py-0.5 text-[10px] text-popover-foreground shadow-md group-hover/dot:block font-bold">
                           {pageNum}
                         </div>
-                      </button>
+                      </div>
                     );
                   })}
                 </div>

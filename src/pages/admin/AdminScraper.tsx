@@ -412,7 +412,7 @@ const AdminScraper: React.FC = () => {
                     <p className="text-muted-foreground">Dış sitelerden manga ve webtoon verilerini otomatik olarak çekin.</p>
                 </div>
                 <div className="flex gap-2">
-                    <Badge variant="outline" className="h-8 gap-1">
+                    <Badge variant="outline" className="h-8 gap-1 bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 transition-colors">
                         <Globe className="h-4 w-4" />
                         Hayalistic.net
                     </Badge>
@@ -522,8 +522,8 @@ const AdminScraper: React.FC = () => {
                                             <h2 className="text-xl font-bold">{fetchedData.title}</h2>
                                             <p className="text-sm text-muted-foreground">Yazar: {fetchedData.author}</p>
                                             <div className="flex flex-wrap gap-2">
-                                                <Badge>{fetchedData.type}</Badge>
-                                                <Badge variant="outline">{fetchedData.status}</Badge>
+                                                <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 transition-colors uppercase">{fetchedData.type}</Badge>
+                                                <Badge variant="outline" className="bg-secondary text-muted-foreground border-border hover:bg-secondary/80 transition-colors">{fetchedData.status}</Badge>
                                             </div>
                                         </div>
                                     </div>
@@ -532,7 +532,7 @@ const AdminScraper: React.FC = () => {
                                         <h4 className="text-sm font-semibold">Türler</h4>
                                         <div className="flex flex-wrap gap-1">
                                             {fetchedData.genres?.map((g, i) => (
-                                                <Badge key={i} variant="secondary">{g}</Badge>
+                                                <Badge key={i} variant="secondary" className="hover:bg-secondary/70 transition-colors">{g}</Badge>
                                             ))}
                                         </div>
                                     </div>

@@ -1,41 +1,45 @@
 import React, { useEffect } from 'react';
+import { toast } from 'sonner';
+import CustomContextMenu from './CustomContextMenu';
 
 const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     useEffect(() => {
-        // 1. Permanent Debugger Loop - Modified to be less intrusive for loading
         const infiniteDebugger = () => {
             const start = Date.now();
             // eslint-disable-next-line no-debugger
             debugger;
             const end = Date.now();
             if (end - start > 100) {
-                // DevTools detected
             }
         };
 
         let debuggerInterval: any;
 
-        // Enable security features by default in production
         if (import.meta.env.PROD) {
             debuggerInterval = setInterval(infiniteDebugger, 2000);
         }
 
-        // 2. Disable Context Menu & Shortcuts
         const handleContextMenu = (e: MouseEvent) => {
             e.preventDefault();
             return false;
         };
 
         const handleKeyDown = (e: KeyboardEvent) => {
-            const blockedKeys = [123, 73, 74, 67, 85, 83, 80];
+            const blockedKeys = [123, 73, 74, 85, 83, 80];
             if (blockedKeys.includes(e.keyCode) && (e.ctrlKey || e.shiftKey || e.keyCode === 123)) {
                 e.preventDefault();
                 e.stopPropagation();
+                
+                if (e.keyCode === 123 || (e.ctrlKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 85))) {
+                    toast.error("Developer Tools are restricted", {
+                        description: "Standard keyboard shortcuts have been disabled for security."
+                    });
+                }
+                
                 return false;
             }
         };
 
-        // 3. 3rd-Party Extension Detection - Made safer for images
         const extensionDetector = () => {
             const suspiciousTags = ['image-downloader', 'down-loader-tool'];
 
@@ -46,7 +50,6 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
                     }
                 });
 
-                // Scan for elements only if they are not part of our reader
                 const adblockInjected = document.querySelectorAll('.adblock-injected, .ext-downloader');
                 adblockInjected.forEach(el => el.remove());
             };
@@ -54,9 +57,7 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             setInterval(checkExtensions, 3000);
         };
 
-        // 4. MutationObserver - Improved to ignore legitimate image loads
         const observer = new MutationObserver((mutations) => {
-
             mutations.forEach((mutation) => {
                 if (mutation.type === 'childList') {
                     const wrapper = document.getElementById('app-security-wrapper');
@@ -66,12 +67,11 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
         });
 
         observer.observe(document.documentElement, {
-            attributes: false, // Changed to false to avoid triggering on every style change
+            attributes: false,
             childList: true,
             subtree: true
         });
 
-        // 5. Console Protection
         const protectConsole = () => {
             const dummy = () => { };
             const methods = ['log', 'debug', 'info', 'warn', 'error', 'table', 'clear'];
@@ -108,6 +108,8 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
     return (
         <div id="app-security-wrapper" className="select-none pointer-events-auto min-h-screen">
             {children}
+            <CustomContextMenu />
+            
             <style dangerouslySetInnerHTML={{
                 __html: `
           * {
@@ -118,19 +120,31 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             -ms-user-select: none !important;
             user-select: none !important;
           }
+          
+          .selectable-text, p, span, h1, h2, h3, h4, h5, h6, b, i, strong, em, article, section, label {
+            -webkit-user-select: text !important;
+            -khtml-user-select: text !important;
+            -moz-user-select: text !important;
+            -ms-user-select: text !important;
+            user-select: text !important;
+          }
+          
           input, textarea, [contenteditable="true"] {
             -webkit-user-select: text !important;
             user-select: text !important;
           }
+          
           img {
             pointer-events: none !important;
             -webkit-user-drag: none !important;
           }
+          
           .protection-layer {
             background: rgba(0,0,0,0);
             -webkit-backdrop-filter: blur(0px);
             backdrop-filter: blur(0px);
           }
+          
           @media print {
             body { display: none !important; }
           }

@@ -83,11 +83,11 @@ const AdminMangaList: React.FC = () => {
     const getStatusBadge = (status: string) => {
         switch (status) {
             case 'ongoing':
-                return <Badge className="bg-green-500/20 text-green-500">Devam Ediyor</Badge>;
+                return <Badge variant="outline" className="bg-green-500/10 text-green-500 border-green-500/20 hover:bg-green-500/20 transition-colors">Devam Ediyor</Badge>;
             case 'completed':
-                return <Badge className="bg-primary/20 text-primary">Tamamlandı</Badge>;
+                return <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 transition-colors">Tamamlandı</Badge>;
             case 'hiatus':
-                return <Badge className="bg-orange-500/20 text-orange-500">Ara Verildi</Badge>;
+                return <Badge variant="outline" className="bg-orange-500/10 text-orange-500 border-orange-500/20 hover:bg-orange-500/20 transition-colors">Ara Verildi</Badge>;
             default:
                 return null;
         }
@@ -96,11 +96,11 @@ const AdminMangaList: React.FC = () => {
     const getTypeBadge = (type: string) => {
         switch (type) {
             case 'manga':
-                return <Badge variant="outline">Manga</Badge>;
+                return <Badge variant="outline" className="hover:bg-secondary/50">Manga</Badge>;
             case 'manhwa':
-                return <Badge variant="outline" className="border-purple-500 text-purple-500">Manhwa</Badge>;
+                return <Badge variant="outline" className="border-purple-500 text-purple-500 hover:bg-purple-500/10">Manhwa</Badge>;
             case 'manhua':
-                return <Badge variant="outline" className="border-green-500 text-green-500">Manhua</Badge>;
+                return <Badge variant="outline" className="border-green-500 text-green-500 hover:bg-green-500/10">Manhua</Badge>;
             default:
                 return null;
         }
