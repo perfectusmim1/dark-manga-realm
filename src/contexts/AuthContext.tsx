@@ -172,14 +172,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           // 3. Final safety check: set state
           if (profile) {
             const newUser = mapSupabaseUserToUser(currentSession.user, profile);
-            setSession(currentSession);
-            setSupabaseUser(currentSession.user);
-            setUser(newUser);
+            setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
+            setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(currentSession.user) ? prev : currentSession.user);
+            setUser(prev => JSON.stringify(prev) === JSON.stringify(newUser) ? prev : newUser);
           } else {
             console.error('Critical: Could not establish a user profile.');
             // Even if DB profile fails, let's at least let them see they are logged in via Auth
             const fallbackUser = mapSupabaseUserToUser(currentSession.user, null);
-            setUser(fallbackUser);
+            setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
           }
         } else {
           setSession(null);
