@@ -177,9 +177,15 @@ const Reader: React.FC = () => {
   }, []);
 
   const handleTap = useCallback((e: React.MouseEvent | React.TouchEvent) => {
-    // Only toggle if clicking the main container, not interactive elements
     const target = e.target as HTMLElement;
-    if (target.closest('button') || target.closest('a') || target.closest('.popover-content')) {
+    if (
+      target.closest('button') ||
+      target.closest('a') ||
+      target.closest('[role="dialog"]') ||
+      target.closest('[data-radix-popper-content-wrapper]') ||
+      target.closest('[data-state]') ||
+      target.closest('.fixed')
+    ) {
       return;
     }
     toggleControls();

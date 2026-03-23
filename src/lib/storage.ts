@@ -38,11 +38,16 @@ export const addFavorite = async (userId: string, mangaId: string, category: Lib
 };
 
 export const updateFavoriteCategory = async (userId: string, mangaId: string, category: LibraryCategory): Promise<void> => {
-    await supabase
+    const { error } = await supabase
         .from('favorites')
         .update({ category })
         .eq('user_id', userId)
         .eq('manga_id', mangaId);
+
+    if (error) {
+        console.error('Failed to update favorite category:', error);
+        throw error;
+    }
 };
 
 export const removeFavorite = async (userId: string, mangaId: string): Promise<void> => {

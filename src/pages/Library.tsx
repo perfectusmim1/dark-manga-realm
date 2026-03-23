@@ -94,9 +94,14 @@ const Library: React.FC = () => {
 
     const handleCategoryChange = async (mangaId: string, category: LibraryCategory) => {
         if (!user) return;
-        await updateFavoriteCategory(user.id, mangaId, category);
-        fetchLibrary();
-        toast.success('Kategori güncellendi');
+        try {
+            await updateFavoriteCategory(user.id, mangaId, category);
+            toast.success('Kategori güncellendi');
+            await fetchLibrary();
+        } catch (err) {
+            console.error('Category update failed:', err);
+            toast.error('Kategori güncellenemedi');
+        }
     };
 
     const handleRemove = async (mangaId: string) => {

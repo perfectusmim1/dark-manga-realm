@@ -1,4 +1,4 @@
-import React, { useState, useRef, useCallback } from 'react';
+import React, { useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -7,7 +7,6 @@ import {
   BookmarkPlus,
   Rows,
   Columns,
-  Home,
   List,
   X
 } from 'lucide-react';
@@ -53,82 +52,43 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const prevChapter = chapters[currentIndex + 1];
   const nextChapter = chapters[currentIndex - 1];
 
-  const [isDragging, setIsDragging] = useState(false);
-  const progressBarRef = useRef<HTMLDivElement>(null);
+  const [hoverPage, setHoverPage] = useState<number | null>(null);
 
-  const calculatePageFromPosition = useCallback((clientX: number) => {
-    if (!progressBarRef.current) return currentPage;
+  const progressPercent = totalPages > 1 ? ((currentPage - 1) / (totalPages - 1)) * 100 : 0;
 
-    const rect = progressBarRef.current.getBoundingClientRect();
-    const x = clientX - rect.left;
-    const percentage = Math.max(0, Math.min(1, x / rect.width));
-    const page = Math.round(percentage * (totalPages - 1)) + 1;
-    return Math.max(1, Math.min(totalPages, page));
-  }, [currentPage, totalPages]);
-
-  const handleMouseDown = useCallback((e: React.MouseEvent) => {
-    e.preventDefault();
+  const handleBarClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    setIsDragging(true);
-    const page = calculatePageFromPosition(e.clientX);
-    onPageChange?.(page, false);
-  }, [calculatePageFromPosition, onPageChange]);
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, x / rect.width));
+    const page = Math.round(ratio * (totalPages - 1)) + 1;
+    onPageChange?.(Math.max(1, Math.min(totalPages, page)), false);
+  }, [totalPages, onPageChange]);
 
-  const handleMouseMove = useCallback((e: MouseEvent) => {
-    if (!isDragging) return;
-    const page = calculatePageFromPosition(e.clientX);
-    onPageChange?.(page, false);
-  }, [isDragging, calculatePageFromPosition, onPageChange]);
+  const handleBarHover = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
+    const bar = e.currentTarget;
+    const rect = bar.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const ratio = Math.max(0, Math.min(1, x / rect.width));
+    const page = Math.round(ratio * (totalPages - 1)) + 1;
+    setHoverPage(Math.max(1, Math.min(totalPages, page)));
+  }, [totalPages]);
 
-  const handleMouseUp = useCallback(() => {
-    setIsDragging(false);
+  const handleBarLeave = useCallback(() => {
+    setHoverPage(null);
   }, []);
-
-  const handleTouchStart = useCallback((e: React.TouchEvent) => {
-    e.stopPropagation();
-    setIsDragging(true);
-    const touch = e.touches[0];
-    const page = calculatePageFromPosition(touch.clientX);
-    onPageChange?.(page, false);
-  }, [calculatePageFromPosition, onPageChange]);
-
-  const handleTouchMove = useCallback((e: TouchEvent) => {
-    if (!isDragging) return;
-    const touch = e.touches[0];
-    const page = calculatePageFromPosition(touch.clientX);
-    onPageChange?.(page, false);
-  }, [isDragging, calculatePageFromPosition, onPageChange]);
-
-  const handleTouchEnd = useCallback(() => {
-    setIsDragging(false);
-  }, []);
-
-  // Add and remove global event listeners for dragging
-  React.useEffect(() => {
-    if (isDragging) {
-      window.addEventListener('mousemove', handleMouseMove);
-      window.addEventListener('mouseup', handleMouseUp);
-      window.addEventListener('touchmove', handleTouchMove);
-      window.addEventListener('touchend', handleTouchEnd);
-    }
-    return () => {
-      window.removeEventListener('mousemove', handleMouseMove);
-      window.removeEventListener('mouseup', handleMouseUp);
-      window.removeEventListener('touchmove', handleTouchMove);
-      window.removeEventListener('touchend', handleTouchEnd);
-    };
-  }, [isDragging, handleMouseMove, handleMouseUp, handleTouchMove, handleTouchEnd]);
 
   return (
     <>
       {/* Top Bar */}
       <div
-        className={`fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : '-translate-y-full'
-          }`}
+        className={`fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : '-translate-y-full'}`}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
-        <div 
+        <div
           className="container flex h-14 items-center justify-between gap-4"
-          onClick={(e) => e.stopPropagation()}
         >
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="icon">
@@ -245,12 +205,12 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
       {/* Bottom Bar */}
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : 'translate-y-full'
-          }`}
+        className={`fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : 'translate-y-full'}`}
+        onClick={(e) => e.stopPropagation()}
+        onMouseDown={(e) => e.stopPropagation()}
       >
-        <div 
+        <div
           className="container flex h-14 items-center justify-between gap-4"
-          onClick={(e) => e.stopPropagation()}
         >
           <Button
             variant="ghost"
@@ -271,54 +231,54 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           </Button>
 
           {settings.showProgress && (
-            <div className="flex flex-1 items-center justify-center gap-4 px-4 overflow-hidden">
-              <span className="text-sm font-medium tabular-nums min-w-[3rem] text-center">
+            <div className="flex flex-1 items-center justify-center gap-3 px-4 overflow-hidden">
+              <span className="text-xs font-semibold tabular-nums text-muted-foreground select-none whitespace-nowrap">
                 {currentPage} / {totalPages}
               </span>
-              <div
-                ref={progressBarRef}
-                className={`relative h-6 flex-1 max-w-[600px] group cursor-pointer flex items-center ${isDragging ? 'cursor-grabbing' : 'cursor-grab'}`}
-                onMouseDown={handleMouseDown}
-                onTouchStart={handleTouchStart}
-                onClick={(e) => e.stopPropagation()}
-              >
-                {/* Progress Background */}
-                <div className="absolute inset-x-0 h-1.5 rounded-full bg-secondary/30 pointer-events-none" />
 
-                {/* Active Progress Fill */}
+              <div className="relative flex-1 max-w-[500px]">
+                {/* Hover tooltip */}
+                {hoverPage !== null && (
+                  <div
+                    className="absolute -top-8 z-10 rounded-md bg-popover px-2 py-0.5 text-[11px] font-bold text-popover-foreground shadow-lg border border-border/50 pointer-events-none select-none"
+                    style={{
+                      left: `${totalPages > 1 ? ((hoverPage - 1) / (totalPages - 1)) * 100 : 0}%`,
+                      transform: 'translateX(-50%)',
+                    }}
+                  >
+                    {hoverPage}
+                  </div>
+                )}
+
+                {/* Clickable track area */}
                 <div
-                  className="absolute inset-y-0 left-0 reading-progress-bar rounded-full transition-all duration-300 pointer-events-none"
-                  style={{ width: `calc(${totalPages > 1 ? ((currentPage - 1) / (totalPages - 1)) * 100 : 0}% + 4px)` }}
-                />
+                  className="relative h-8 flex items-center cursor-pointer group"
+                  onClick={handleBarClick}
+                  onMouseMove={handleBarHover}
+                  onMouseLeave={handleBarLeave}
+                >
+                  {/* Background track */}
+                  <div className="absolute inset-x-0 h-[5px] rounded-full bg-white/10 group-hover:h-[7px] transition-all duration-200" />
 
-                {/* Interactive Dots Container */}
-                <div className="absolute inset-x-0 h-full flex items-center justify-between px-[1px] pointer-events-none">
-                  {Array.from({ length: totalPages }).map((_, i) => {
-                    const pageNum = i + 1;
-                    const isActive = pageNum <= currentPage;
-                    const isCurrent = pageNum === currentPage;
+                  {/* Fill */}
+                  <div
+                    className="absolute left-0 h-[5px] rounded-full bg-gradient-to-r from-primary to-blue-400 group-hover:h-[7px] transition-all duration-200 pointer-events-none"
+                    style={{ width: `${progressPercent}%` }}
+                  />
 
-                    return (
-                      <div
-                        key={pageNum}
-                        className={`group/dot relative z-10 flex h-full flex-1 items-center justify-center transition-all min-w-[2px]`}
-                      >
-                        <div
-                          className={`rounded-full transition-all duration-300 ${isCurrent
-                            ? 'h-2.5 w-2.5 bg-white shadow-[0_0_8px_rgba(255,255,255,0.8)] scale-125'
-                            : isActive
-                              ? 'h-1.5 w-1.5 bg-white'
-                              : 'h-1.5 w-1.5 bg-muted-foreground/40'
-                            }`}
-                        />
-                        <div className="absolute -top-8 left-1/2 -translate-x-1/2 hidden rounded bg-popover px-2 py-0.5 text-[10px] text-popover-foreground shadow-md group-hover/dot:block font-bold">
-                          {pageNum}
-                        </div>
-                      </div>
-                    );
-                  })}
+                  {/* Thumb */}
+                  <div
+                    className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-white border-2 border-primary shadow-[0_0_10px_rgba(59,130,246,0.5)] group-hover:h-4 group-hover:w-4 group-hover:shadow-[0_0_16px_rgba(59,130,246,0.7)] transition-all duration-200 pointer-events-none"
+                    style={{
+                      left: `calc(${progressPercent}% - 7px)`,
+                    }}
+                  />
                 </div>
               </div>
+
+              <span className="text-[10px] font-medium tabular-nums text-primary select-none whitespace-nowrap">
+                %{Math.round(progressPercent)}
+              </span>
             </div>
           )}
 

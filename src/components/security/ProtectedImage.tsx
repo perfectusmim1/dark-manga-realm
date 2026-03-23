@@ -100,7 +100,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, st
 
             {/* Absolute protection overlay - hardest to bypass */}
             <div
-                className="absolute inset-0 z-[100] bg-transparent cursor-default protection-layer"
+                className="absolute inset-0 z-10 bg-transparent cursor-default protection-layer"
                 onContextMenu={(e) => e.preventDefault()}
                 style={{ pointerEvents: 'auto' }}
             />
