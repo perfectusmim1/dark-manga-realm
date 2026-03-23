@@ -10,6 +10,8 @@ import {
 } from '../lib/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { Button } from '@/components/ui/button';
+import { ArrowUpToLine, ArrowDownToLine } from 'lucide-react';
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
@@ -166,8 +168,12 @@ const Reader: React.FC = () => {
       }).then(() => {
         toast.success(`Yer imi eklendi: Sayfa ${currentPage}`);
       }).catch((error) => {
-        console.error('Error adding bookmark:', error);
-        toast.error('Yer imi eklenemedi');
+        if (error.message === 'ALREADY_EXISTS') {
+          toast.warning(`Bu sayfa (Sayfa ${currentPage}) zaten yer imlerine eklenmiş!`);
+        } else {
+          console.error('Error adding bookmark:', error);
+          toast.error('Yer imi eklenemedi');
+        }
       });
     }
   }, [user, mangaId, chapterId, chapter, currentPage]);
@@ -211,6 +217,14 @@ const Reader: React.FC = () => {
     return null;
   }
 
+  const scrollToTop = () => {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const scrollToBottom = () => {
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
+  };
+
   return (
     <div
       className="min-h-screen bg-background"
@@ -247,6 +261,31 @@ const Reader: React.FC = () => {
           onPageChange={handlePageChange}
         />
       )}
+
+      {/* Scroll controls */}
+      <div className={`fixed bottom-24 right-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
+        <Button 
+          variant="secondary" 
+          size="icon" 
+          className="rounded-full shadow-lg h-10 w-10 opacity-70 hover:opacity-100 pointer-events-auto transition-opacity border border-border bg-background/80 backdrop-blur-md"
+          onClick={(e) => { e.stopPropagation(); scrollToTop(); }}
+          title="En Üste Git"
+        >
+          <ArrowUpToLine className="h-5 w-5" />
+        </Button>
+      </div>
+
+      <div className={`fixed bottom-24 left-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
+        <Button 
+          variant="secondary" 
+          size="icon" 
+          className="rounded-full shadow-lg h-10 w-10 opacity-70 hover:opacity-100 pointer-events-auto transition-opacity border border-border bg-background/80 backdrop-blur-md"
+          onClick={(e) => { e.stopPropagation(); scrollToBottom(); }}
+          title="En Alta Git"
+        >
+          <ArrowDownToLine className="h-5 w-5" />
+        </Button>
+      </div>
 
       {/* Yorum Bölümü */}
       <div

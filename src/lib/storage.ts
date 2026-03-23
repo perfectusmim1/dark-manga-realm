@@ -141,7 +141,20 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
 };
 
 export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'userId'>): Promise<void> => {
-    await supabase.from('bookmarks').insert({
+    // Check existing bookmark
+    const { data: existing } = await supabase.from('bookmarks')
+        .select('id')
+        .eq('user_id', userId)
+        .eq('manga_id', bookmark.mangaId)
+        .eq('chapter_id', bookmark.chapterId)
+        .eq('page', bookmark.page)
+        .maybeSingle();
+
+    if (existing) {
+        throw new Error('ALREADY_EXISTS');
+    }
+
+    const { error } = await supabase.from('bookmarks').insert({
         user_id: userId,
         manga_id: bookmark.mangaId,
         chapter_id: bookmark.chapterId,
@@ -150,6 +163,10 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         note: bookmark.note,
         created_at: new Date().toISOString()
     });
+
+    if (error) {
+        throw error;
+    }
 };
 
 export const removeBookmark = async (userId: string, id: string): Promise<void> => {
