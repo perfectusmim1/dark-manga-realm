@@ -106,60 +106,75 @@ const Bookmarks: React.FC = () => {
         </div>
 
         {bookmarks.length > 0 ? (
-          <div className="space-y-4">
+          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
             {bookmarks.map((item, index) => {
               const { manga, chapter } = item;
 
               if (!manga || !chapter) return null;
+              
+              const previewImage = (chapter.pages && chapter.pages.length >= item.page) 
+                ? chapter.pages[item.page - 1] 
+                : manga.cover;
 
               return (
                 <div
                   key={item.id}
-                  className="flex gap-4 rounded-xl border border-border bg-card/50 p-4 transition-colors hover:bg-card animate-fade-up opacity-0"
+                  className="group relative flex flex-col rounded-xl border border-border bg-card/50 overflow-hidden transition-all hover:shadow-xl animate-fade-up opacity-0"
                   style={{ animationDelay: `${0.1 + index * 0.05}s`, animationFillMode: 'forwards' }}
                 >
-                  <Link to={`/manga/${manga.id}`} className="shrink-0">
+                  <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`} className="relative aspect-square w-full overflow-hidden block">
                     <img
-                      src={manga.cover}
+                      src={previewImage}
                       alt={manga.title}
-                      className="h-24 w-16 rounded-lg object-cover"
+                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
                     />
+                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                    
+                    <div className="absolute top-3 left-3 flex px-2 py-1 bg-black/60 backdrop-blur-md rounded-lg text-xs font-bold border border-white/10 text-white shadow-md">
+                        Sayfa {item.page}
+                    </div>
+                    
+                    <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-black/60 backdrop-blur-md px-2 py-1 rounded-md">
+                        {formatDate(item.createdAt)}
+                    </div>
                   </Link>
 
-                  <div className="flex flex-1 flex-col justify-between">
-                    <div>
-                      <Link to={`/manga/${manga.id}`}>
-                        <h3 className="font-semibold hover:text-primary">{manga.title}</h3>
-                      </Link>
-                      <p className="text-sm text-muted-foreground">
-                        Bölüm {chapter.number} • Sayfa {item.page}
-                      </p>
-                      {item.note && (
-                        <p className="mt-1 text-sm text-foreground/70">
-                          "{item.note}"
+                  <div className="p-4 flex flex-col flex-1">
+                    <Link to={`/manga/${manga.id}`} className="hover:text-primary transition-colors">
+                        <h3 className="font-bold line-clamp-1">{manga.title}</h3>
+                    </Link>
+                    
+                    <div className="flex items-center justify-between mt-1">
+                        <p className="text-sm text-primary font-medium">
+                            Bölüm {chapter.number}
                         </p>
-                      )}
                     </div>
+                    
+                    {item.note && (
+                        <div className="mt-3 text-sm text-muted-foreground italic line-clamp-2 bg-secondary/50 p-2 text-center rounded-lg border border-border/50">
+                          "{item.note}"
+                        </div>
+                    )}
 
-                    <div className="flex items-center justify-between">
-                      <Badge variant="outline" className="text-xs">
-                        {formatDate(item.createdAt)}
-                      </Badge>
-                      <div className="flex gap-2">
-                        <Button asChild size="sm">
-                          <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
-                            Sayfa {item.page}'e Git
-                          </Link>
+                    <div className="mt-auto pt-4 flex gap-2 w-full">
+                        <Button 
+                            variant="default" 
+                            size="sm" 
+                            className="flex-1"
+                            asChild
+                        >
+                            <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
+                                Oku
+                            </Link>
                         </Button>
                         <Button
-                          variant="ghost"
-                          size="icon"
-                          onClick={() => handleRemoveBookmark(item.id)}
-                          className="text-destructive hover:bg-destructive/10"
+                            variant="destructive"
+                            size="icon"
+                            onClick={() => handleRemoveBookmark(item.id)}
+                            className="shrink-0"
                         >
-                          <Trash2 className="h-4 w-4" />
+                            <Trash2 className="h-4 w-4" />
                         </Button>
-                      </div>
                     </div>
                   </div>
                 </div>
