@@ -468,15 +468,36 @@ const MangaDetail: React.FC = () => {
                   </p>
                 )}
 
-                <p className="text-muted-foreground flex items-center gap-2">
-                  <span>{manga.author} {manga.artist && `• ${manga.artist}`}</span>
+                <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                  <div className="flex items-center">
+                    {manga.authorDetails ? (
+                      <Link to={`/author/${manga.authorDetails.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
+                        {manga.author}
+                      </Link>
+                    ) : (
+                      <span>{manga.author}</span>
+                    )}
+                    
+                    {manga.artist && (
+                      <span className="mx-2">•</span>
+                    )}
+                    
+                    {manga.artist && manga.artistDetails ? (
+                      <Link to={`/artist/${manga.artistDetails.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
+                        {manga.artist}
+                      </Link>
+                    ) : manga.artist ? (
+                      <span>{manga.artist}</span>
+                    ) : null}
+                  </div>
+
                   {manga.releaseYear && (
-                    <span className="flex items-center gap-1 text-xs">
+                    <span className="flex items-center gap-1 text-xs border-l border-border pl-2">
                       <Calendar className="h-3 w-3" />
                       {manga.releaseYear}
                     </span>
                   )}
-                </p>
+                </div>
 
                 <div className="flex flex-wrap items-center gap-4 text-sm">
                   {averageRating.count > 0 && (

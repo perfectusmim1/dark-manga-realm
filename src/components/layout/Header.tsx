@@ -112,6 +112,8 @@ const Header: React.FC = () => {
   const navLinks: { path: string; label: string }[] = [
     { path: '/browse', label: 'Keşfet' },
     { path: '/characters', label: 'Karakterler' },
+    { path: '/authors', label: 'Yazarlar' },
+    { path: '/artists', label: 'Çizerler' },
   ];
 
   return (

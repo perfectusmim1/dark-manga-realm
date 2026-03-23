@@ -27,9 +27,8 @@ import CharacterDetail from "./pages/CharacterDetail";
 import AuthorDetail from "./pages/AuthorDetail";
 import ArtistDetail from "./pages/ArtistDetail";
 import CharactersBrowse from "./pages/CharactersBrowse";
-
-
-
+import AuthorsBrowse from "./pages/AuthorsBrowse";
+import ArtistsBrowse from "./pages/ArtistsBrowse";
 // Admin Pages
 import AdminLogin from "./pages/admin/AdminLogin";
 import AdminLayout from "./pages/admin/AdminLayout";
@@ -91,8 +90,8 @@ const App = () => (
                 <Route path="/author/:id" element={<AuthorDetail />} />
                 <Route path="/artist/:id" element={<ArtistDetail />} />
                 <Route path="/characters" element={<CharactersBrowse />} />
-
-
+                <Route path="/authors" element={<AuthorsBrowse />} />
+                <Route path="/artists" element={<ArtistsBrowse />} />
 
                 {/* Admin Routes */}
                 <Route path="/admin/login" element={<AdminLogin />} />

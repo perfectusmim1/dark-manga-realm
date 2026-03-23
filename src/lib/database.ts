@@ -87,6 +87,9 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
         .select('*')
         .eq('manga_id', mangaId);
 
+    const { data: authorData } = data.author ? await supabase.from('authors').select('*').eq('name', data.author).maybeSingle() : { data: null };
+    const { data: artistData } = data.artist ? await supabase.from('artists').select('*').eq('name', data.artist).maybeSingle() : { data: null };
+
     const reviews = reviewData || [];
     let average = 0;
     if (reviews.length > 0) {
@@ -112,7 +115,9 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
             createdAt: r.created_at
         })),
         averageRating: average,
-        reviewCount: reviews.length
+        reviewCount: reviews.length,
+        authorDetails: authorData ? { ...authorData, imageUrl: authorData.image_url, likesCount: authorData.likes_count } : undefined,
+        artistDetails: artistData ? { ...artistData, imageUrl: artistData.image_url, likesCount: artistData.likes_count } : undefined
     } as Manga;
 };
 
