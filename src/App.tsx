@@ -23,6 +23,11 @@ import ReadingLists from "./pages/ReadingLists";
 import ReadingListDetail from "./pages/ReadingListDetail";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
+import Profile from "./pages/Profile";
+import Community from "./pages/Community";
+import TierLists from "./pages/TierLists";
+import TierListEditor from "./pages/TierListEditor";
+import TierListView from "./pages/TierListView";
 import CharacterDetail from "./pages/CharacterDetail";
 import AuthorDetail from "./pages/AuthorDetail";
 import ArtistDetail from "./pages/ArtistDetail";
@@ -74,6 +79,7 @@ const App = () => (
               <Routes>
                 {/* Public Routes */}
                 <Route path="/" element={<Index />} />
+                <Route path="/community" element={<Community />} />
                 <Route path="/browse" element={<Browse />} />
                 <Route path="/manga/:mangaId" element={<MangaDetail />} />
                 <Route path="/manga/:mangaId/chapter/:chapterId" element={<Reader />} />
@@ -84,8 +90,13 @@ const App = () => (
                 <Route path="/bookmarks" element={<Bookmarks />} />
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/reading-lists" element={<ReadingLists />} />
+                <Route path="/tier-lists" element={<TierLists />} />
+                <Route path="/tier-lists/create" element={<TierListEditor />} />
+                <Route path="/tier-lists/:id" element={<TierListView />} />
+                <Route path="/tier-lists/:id/edit" element={<TierListEditor />} />
                 <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
                 <Route path="/settings" element={<Settings />} />
+                <Route path="/profile/:userId" element={<Profile />} />
                 <Route path="/character/:id" element={<CharacterDetail />} />
                 <Route path="/author/:id" element={<AuthorDetail />} />
                 <Route path="/artist/:id" element={<ArtistDetail />} />

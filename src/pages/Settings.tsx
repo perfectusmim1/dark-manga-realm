@@ -36,11 +36,14 @@ const Settings: React.FC = () => {
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
     // Notification state
-    const [prefs, setPrefs] = useState(user?.preferences || {
+    const [prefs, setPrefs] = useState<any>(user?.preferences || {
         notifications: {
             new_chapter: true,
             replies: true,
             likes: true
+        },
+        privacy: {
+            visibility: 'public'
         }
     });
     const [isUpdatingPrefs, setIsUpdatingPrefs] = useState(false);
@@ -144,6 +147,10 @@ const Settings: React.FC = () => {
                         <TabsTrigger value="notifications" className="gap-2">
                             <Bell className="h-4 w-4" />
                             Bildirimler
+                        </TabsTrigger>
+                        <TabsTrigger value="privacy" className="gap-2">
+                            <EyeOff className="h-4 w-4" />
+                            Gizlilik
                         </TabsTrigger>
                     </TabsList>
 
@@ -354,6 +361,66 @@ const Settings: React.FC = () => {
                                         })}
                                         disabled={isUpdatingPrefs}
                                     />
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="privacy">
+                        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <EyeOff className="h-5 w-5" />
+                                    Gizlilik Ayarları
+                                </CardTitle>
+                                <CardDescription>Profilinizin ve okuma geçmişinizin kimler tarafından görülebileceğini seçin.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="flex items-center justify-between space-x-2">
+                                    <div className="flex flex-col space-y-1">
+                                        <Label>Profil Görünürlüğü</Label>
+                                        <p className="text-sm text-muted-foreground">Profilinizi (İstatistikler, Tier List, vb.) kimler görebilir?</p>
+                                    </div>
+                                    <div className="flex items-center gap-2 bg-secondary/30 rounded-lg p-1">
+                                        <button
+                                            onClick={() => handleUpdatePreferences({
+                                                ...prefs,
+                                                privacy: { ...prefs.privacy, visibility: 'public' }
+                                            })}
+                                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                                                (!prefs.privacy || prefs.privacy.visibility === 'public')
+                                                ? 'bg-background text-foreground shadow-sm'
+                                                : 'text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        >
+                                            Herkese Açık
+                                        </button>
+                                        <button
+                                            onClick={() => handleUpdatePreferences({
+                                                ...prefs,
+                                                privacy: { ...prefs.privacy, visibility: 'members' }
+                                            })}
+                                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                                                prefs.privacy?.visibility === 'members'
+                                                ? 'bg-background text-foreground shadow-sm'
+                                                : 'text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        >
+                                            Sadece Üyeler
+                                        </button>
+                                        <button
+                                            onClick={() => handleUpdatePreferences({
+                                                ...prefs,
+                                                privacy: { ...prefs.privacy, visibility: 'private' }
+                                            })}
+                                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
+                                                prefs.privacy?.visibility === 'private'
+                                                ? 'bg-background text-foreground shadow-sm'
+                                                : 'text-muted-foreground hover:text-foreground'
+                                            }`}
+                                        >
+                                            Gizli
+                                        </button>
+                                    </div>
                                 </div>
                             </CardContent>
                         </Card>

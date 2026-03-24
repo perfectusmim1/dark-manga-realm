@@ -29,7 +29,7 @@ const CharactersBrowse: React.FC = () => {
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">
             <Header />
-            <main className="flex-1 container mx-auto px-4 py-8 max-w-7xl">
+            <main className="flex-1 container mx-auto px-4 py-8 max-w-7xl animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
                     <div>
                         <h1 className="text-4xl font-black mb-2">Popüler Karakterler</h1>

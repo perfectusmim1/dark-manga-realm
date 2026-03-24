@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
+import { Link } from 'react-router-dom';
 import {
     MessageCircle,
     ThumbsUp,
@@ -458,14 +459,18 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                         {displayedParentComments.map((comment) => (
                             <div key={comment.id} className="rounded-lg border border-border bg-card/50 p-4">
                                 <div className="flex gap-3">
-                                    <Avatar className="h-10 w-10">
-                                        <AvatarImage src={comment.userAvatar} />
-                                        <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
-                                    </Avatar>
+                                    <Link to={`/profile/${comment.userId}`} className="shrink-0 transition-transform hover:scale-105">
+                                        <Avatar className="h-10 w-10 border border-transparent hover:border-primary transition-colors cursor-pointer text-foreground">
+                                            <AvatarImage src={comment.userAvatar} />
+                                            <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
+                                        </Avatar>
+                                    </Link>
                                     <div className="flex-1">
                                         <div className="flex items-center justify-between">
                                             <div className="flex items-center gap-2">
-                                                <span className="font-medium">{comment.username}</span>
+                                                <Link to={`/profile/${comment.userId}`} className="font-medium hover:text-primary hover:underline transition-colors cursor-pointer text-foreground">
+                                                    {comment.username}
+                                                </Link>
                                                 <span className="text-xs text-muted-foreground">
                                                     {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
                                                     {comment.updatedAt && new Date(comment.updatedAt).getTime() - new Date(comment.createdAt).getTime() > 2000 && ' (düzenlendi)'}
@@ -610,14 +615,18 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                             <div className="mt-4 space-y-3 border-l-2 border-border pl-4">
                                                 {getReplies(comment.id).map((reply) => (
                                                     <div key={reply.id} className="flex gap-2">
-                                                        <Avatar className="h-8 w-8">
-                                                            <AvatarImage src={reply.userAvatar} />
-                                                            <AvatarFallback>{reply.username[0].toUpperCase()}</AvatarFallback>
-                                                        </Avatar>
+                                                        <Link to={`/profile/${reply.userId}`} className="shrink-0 transition-transform hover:scale-105">
+                                                            <Avatar className="h-8 w-8 border border-transparent hover:border-primary transition-colors cursor-pointer text-foreground">
+                                                                <AvatarImage src={reply.userAvatar} />
+                                                                <AvatarFallback>{reply.username[0].toUpperCase()}</AvatarFallback>
+                                                            </Avatar>
+                                                        </Link>
                                                         <div className="flex-1">
                                                             <div className="flex items-center justify-between">
                                                                 <div className="flex items-center gap-2">
-                                                                    <span className="text-sm font-medium">{reply.username}</span>
+                                                                    <Link to={`/profile/${reply.userId}`} className="text-sm font-medium hover:text-primary hover:underline transition-colors text-foreground">
+                                                                        {reply.username}
+                                                                    </Link>
                                                                     <span className="text-xs text-muted-foreground">
                                                                         {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
                                                                         {reply.updatedAt && new Date(reply.updatedAt).getTime() - new Date(reply.createdAt).getTime() > 2000 && ' (düzenlendi)'}

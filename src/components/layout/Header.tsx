@@ -17,7 +17,11 @@ import {
   Settings,
   Star,
   BookOpen,
-  User as UserIcon
+  User as UserIcon,
+  Trophy,
+  Dices,
+  Users,
+  Book
 } from 'lucide-react';
 import { getAllMangas, getCharacters } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
@@ -109,12 +113,21 @@ const Header: React.FC = () => {
 
   const isActive = (path: string) => location.pathname === path;
 
-  const navLinks: { path: string; label: string }[] = [
+  const navLinks: { path: string; label: string; icon?: any }[] = [
     { path: '/browse', label: 'Keşfet' },
     { path: '/characters', label: 'Karakterler' },
-    { path: '/authors', label: 'Yazarlar' },
-    { path: '/artists', label: 'Çizerler' },
+    { path: '/community', label: 'Topluluk', icon: Users },
   ];
+
+  const handleRandomManga = async () => {
+    try {
+      const mangas = await getAllMangas();
+      if (mangas && mangas.length > 0) {
+        const randomManga = mangas[Math.floor(Math.random() * mangas.length)];
+        navigate(`/manga/${randomManga.id}`);
+      }
+    } catch(err) {}
+  };
 
   return (
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
@@ -129,23 +142,38 @@ const Header: React.FC = () => {
 
         {/* Desktop Navigation */}
         <nav className="hidden items-center gap-6 lg:flex">
-          {navLinks.map((link) => (
-            <Link
-              key={link.path}
-              to={link.path}
-              className={`text-sm font-medium transition-colors ${location.pathname + location.search === link.path
-                ? 'text-primary'
-                : 'text-muted-foreground hover:text-foreground'
-                }`}
-            >
-              {link.label}
-            </Link>
-          ))}
+          {navLinks.map((link) => {
+            const Icon = link.icon;
+            return (
+              <Link
+                key={link.path}
+                to={link.path}
+                className={`text-sm font-medium transition-colors flex items-center gap-1.5 ${location.pathname + location.search === link.path
+                  ? 'text-primary'
+                  : 'text-muted-foreground hover:text-foreground'
+                  }`}
+              >
+                {Icon && <Icon className="w-4 h-4" />}
+                {link.label}
+              </Link>
+            );
+          })}
         </nav>
 
-        {/* Search Bar */}
-        <form onSubmit={handleSearch} className="hidden flex-1 max-w-md md:flex">
-          <div className="relative w-full">
+        {/* Search Bar & Dice Button */}
+        <div className="flex-1 flex items-center gap-2 max-w-md hidden md:flex">
+          <Button 
+            variant="outline" 
+            size="icon" 
+            className="shrink-0 h-9 w-9 group transition-all hover:bg-primary/20 hover:border-primary/50" 
+            onClick={handleRandomManga}
+            title="Rastgele Manga"
+          >
+            <Dices className="h-4 w-4 text-primary group-hover:rotate-12 transition-transform" />
+          </Button>
+
+          <form onSubmit={handleSearch} className="flex-1">
+            <div className="relative w-full">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               type="search"
@@ -234,6 +262,7 @@ const Header: React.FC = () => {
             )}
           </div>
         </form>
+        </div>
 
         {/* User Actions */}
         <div className="flex items-center gap-2">
@@ -273,6 +302,20 @@ const Header: React.FC = () => {
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
+                  <Link to={`/profile/${user.id}`} className="flex items-center gap-2">
+                    <UserIcon className="h-4 w-4" />
+                    Profilim
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
+                  <Link to={`/profile/${user.id}?tab=achievements`} className="flex items-center gap-2">
+                    <Trophy className="h-4 w-4 text-yellow-500" />
+                    Başarımlarım
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem asChild>
                   <Link to="/library" className="flex items-center gap-2">
                     <Library className="h-4 w-4" />
                     Kütüphanem
@@ -300,6 +343,12 @@ const Header: React.FC = () => {
                   <Link to="/reading-lists" className="flex items-center gap-2">
                     <List className="h-4 w-4" />
                     Okuma Listelerim
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/tier-lists" className="flex items-center gap-2">
+                    <Book className="h-4 w-4" />
+                    Tier Listelerim
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>

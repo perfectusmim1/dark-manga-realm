@@ -8,7 +8,9 @@ import {
   Rows,
   Columns,
   List,
-  X
+  X,
+  Eye,
+  EyeOff
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, Chapter } from '@/lib/types';
@@ -33,6 +35,8 @@ interface ReaderControlsProps {
   totalPages: number;
   visible: boolean;
   onPageChange?: (page: number, smooth?: boolean) => void;
+  isIncognito: boolean;
+  onIncognitoToggle: (val: boolean) => void;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -47,6 +51,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   totalPages,
   visible,
   onPageChange,
+  isIncognito,
+  onIncognitoToggle,
 }) => {
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
@@ -105,7 +111,19 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <Button variant="ghost" size="icon" onClick={onAddBookmark}>
+            <Button
+              variant="ghost"
+              size="icon"
+              title={isIncognito ? "Gizli Mod Açık (Geçmişe Kaydedilmiyor)" : "Gizli Modu Aç"}
+              onClick={() => {
+                onIncognitoToggle(!isIncognito);
+              }}
+              className={isIncognito ? "text-purple-500 bg-purple-500/10 hover:text-purple-400 hover:bg-purple-500/20" : ""}
+            >
+              {isIncognito ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5 opacity-50" />}
+            </Button>
+            
+            <Button variant="ghost" size="icon" onClick={onAddBookmark} title="Yer İmlerime Ekle">
               <BookmarkPlus className="h-5 w-5" />
             </Button>
 

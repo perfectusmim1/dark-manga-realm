@@ -9,7 +9,9 @@ import {
     Clock,
     BookOpen,
     Edit2,
+    Heart
 } from 'lucide-react';
+import { supabase } from '@/lib/supabase';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -27,6 +29,11 @@ const ReadingListDetail: React.FC = () => {
     const [list, setList] = useState<ReadingList | undefined>();
     const [isLoading, setIsLoading] = useState(true);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    
+    // Likes State
+    const [likesCount, setLikesCount] = useState(0);
+    const [isLiked, setIsLiked] = useState(false);
+    const [isLiking, setIsLiking] = useState(false);
 
     useEffect(() => {
         if (listId) {
@@ -45,11 +52,66 @@ const ReadingListDetail: React.FC = () => {
                 return;
             }
             setList(data);
+
+            // Fetch likes
+            const { count: totalLikes } = await supabase
+                .from('reading_list_likes')
+                .select('*', { count: 'exact', head: true })
+                .eq('list_id', listId);
+            
+            setLikesCount(totalLikes || 0);
+
+            if (user?.id) {
+                const { data: likeData } = await supabase
+                    .from('reading_list_likes')
+                    .select('id')
+                    .eq('list_id', listId)
+                    .eq('user_id', user.id)
+                    .single();
+                
+                setIsLiked(!!likeData);
+            }
+
         } catch (err) {
             console.error('Liste detay hatası:', err);
             toast.error('Liste yüklenemedi');
         } finally {
             setIsLoading(false);
+        }
+    };
+
+    const handleToggleLike = async () => {
+        if (!user) {
+            toast.error('Listeyi beğenmek için giriş yapmalısınız');
+            navigate('/auth');
+            return;
+        }
+        if (!listId || isLiking) return;
+
+        setIsLiking(true);
+        try {
+            if (isLiked) {
+                await supabase
+                    .from('reading_list_likes')
+                    .delete()
+                    .eq('list_id', listId)
+                    .eq('user_id', user.id);
+                setLikesCount(prev => Math.max(0, prev - 1));
+                setIsLiked(false);
+                toast.success('Beğenmekten vazgeçildi');
+            } else {
+                await supabase
+                    .from('reading_list_likes')
+                    .insert([{ list_id: listId, user_id: user.id }]);
+                setLikesCount(prev => prev + 1);
+                setIsLiked(true);
+                toast.success('Liste beğenildi');
+            }
+        } catch (err) {
+            console.error(err);
+            toast.error('İşlem sırasında bir hata oluştu');
+        } finally {
+            setIsLiking(false);
         }
     };
 
@@ -130,8 +192,12 @@ const ReadingListDetail: React.FC = () => {
                             </div>
                             <p className="text-muted-foreground max-w-2xl">{list.description || 'Açıklama belirtilmemiş.'}</p>
                         </div>
-
+                        
                         <div className="flex items-center gap-4 text-sm text-muted-foreground bg-secondary/30 px-4 py-2 rounded-lg">
+                            <div className="flex items-center gap-1 cursor-pointer hover:text-red-500 transition-colors" onClick={handleToggleLike}>
+                                <Heart className={`h-4 w-4 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
+                                <span>{likesCount} Beğeni</span>
+                            </div>
                             <div className="flex items-center gap-1">
                                 <BookOpen className="h-4 w-4" />
                                 <span>{list.items?.length || 0} Seri</span>

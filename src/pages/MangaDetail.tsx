@@ -87,6 +87,101 @@ const categoryLabels: Record<LibraryCategory, string> = {
   dropped: 'Bıraktım',
 };
 
+const PreviewChapter = ({ 
+  chapter, 
+  index, 
+  mangaId, 
+  isImageMounted, 
+  onInView,
+  onNearBottom 
+}: { 
+  chapter: any; 
+  index: number; 
+  mangaId: string; 
+  isImageMounted: boolean;
+  onInView: (index: number) => void;
+  onNearBottom: (index: number) => void;
+}) => {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+  
+  useEffect(() => {
+    if (!containerRef.current) return;
+    
+    const observer = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          onInView(index);
+        }
+      });
+    }, { rootMargin: '-40% 0px -40% 0px' });
+    
+    observer.observe(containerRef.current);
+    
+    const bottomObserver = new IntersectionObserver((entries) => {
+      entries.forEach(entry => {
+        if (entry.isIntersecting) {
+          onNearBottom(index);
+        }
+      });
+    }, { rootMargin: '0px 0px 800px 0px' });
+    
+    bottomObserver.observe(containerRef.current);
+
+    return () => {
+      observer.disconnect();
+      bottomObserver.disconnect();
+    };
+  }, [index, onInView, onNearBottom]);
+
+  return (
+    <div ref={containerRef} className="space-y-4 rounded-xl border border-border bg-card/50 p-4 sm:p-6 shadow-sm">
+      <div className="flex items-center justify-between border-b border-border pb-4">
+        <div>
+          <h3 className="text-xl font-bold">Bölüm {chapter.number}: {chapter.title}</h3>
+          <p className="text-sm text-muted-foreground mt-1">
+            {chapter.pages.length} sayfa
+          </p>
+        </div>
+        <Button asChild variant="secondary" size="sm">
+          <Link to={`/manga/${mangaId}/chapter/${chapter.id}`}>
+            <Play className="h-4 w-4 mr-2" />
+            Oku
+          </Link>
+        </Button>
+      </div>
+      
+      <div className="grid grid-cols-2 gap-2 sm:gap-4 md:gap-6">
+        {chapter.pages.map((page: string, pageIndex: number) => (
+          <Link key={pageIndex} to={`/manga/${mangaId}/chapter/${chapter.id}?page=${pageIndex + 1}`}>
+            <div className="group relative aspect-square overflow-hidden rounded-lg bg-secondary border border-border cursor-pointer shadow-sm">
+              {isImageMounted ? (
+                <img 
+                  src={page} 
+                  alt={`Bölüm ${chapter.number} Sayfa ${pageIndex + 1}`}
+                  loading="lazy"
+                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-muted-foreground bg-secondary/30">
+                  <div className="animate-pulse w-8 h-8 rounded-full bg-border/50"></div>
+                </div>
+              )}
+              <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
+                <span className="text-white font-medium flex items-center gap-2">
+                  <Eye className="w-5 h-5"/> Sayfaya Git
+                </span>
+              </div>
+              <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-md font-mono text-white text-xs px-2 py-1 rounded shadow">
+                {pageIndex + 1}
+              </div>
+            </div>
+          </Link>
+        ))}
+      </div>
+    </div>
+  );
+};
+
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
   const [manga, setManga] = useState<Manga | undefined>();
@@ -103,6 +198,17 @@ const MangaDetail: React.FC = () => {
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
+  const [maxLoadedIndex, setMaxLoadedIndex] = useState(0);
+  const [currentViewedIndex, setCurrentViewedIndex] = useState(0);
+
+  const handlePreviewInView = React.useCallback((idx: number) => {
+    setCurrentViewedIndex(idx);
+  }, []);
+
+  const handlePreviewNearBottom = React.useCallback((idx: number) => {
+    setMaxLoadedIndex(prev => Math.max(prev, idx + 1));
+  }, []);
+
   const [reviews, setReviews] = useState<Review[]>([]);
   const [avgBreakdown, setAvgBreakdown] = useState<any>({
     story: 0,
@@ -623,6 +729,12 @@ const MangaDetail: React.FC = () => {
                 GENEL BAKIŞ
               </TabsTrigger>
               <TabsTrigger
+                value="preview"
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all"
+              >
+                ÖNİZLEME
+              </TabsTrigger>
+              <TabsTrigger
                 value="reviews"
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all flex items-center gap-2"
               >
@@ -784,6 +896,49 @@ const MangaDetail: React.FC = () => {
 
               <div className="mt-8 rounded-xl border border-border bg-card/50 p-6 lg:p-10 shadow-sm">
                 <CommentSection mangaId={manga.id} />
+              </div>
+            </TabsContent>
+
+            <TabsContent value="preview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              <div className="space-y-8 max-w-4xl mx-auto">
+                {(() => {
+                  const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
+                  const displayedPreviewChapters = sortedChaptersAsc.slice(0, maxLoadedIndex + 1);
+                  
+                  if (sortedChaptersAsc.length === 0) {
+                    return <div className="text-center rounded-xl border border-border bg-card/50 text-muted-foreground p-8">Henüz bölüm eklenmemiş</div>;
+                  }
+
+                  return (
+                    <>
+                      {displayedPreviewChapters.map((chapter, index) => {
+                        // Only mount images for current, previous, and next chapters (max 3 loaded in memory)
+                        const isImageMounted = Math.abs(index - currentViewedIndex) <= 1;
+                        
+                        return (
+                          <PreviewChapter 
+                            key={chapter.id}
+                            chapter={chapter}
+                            index={index}
+                            mangaId={manga.id}
+                            isImageMounted={isImageMounted}
+                            onInView={handlePreviewInView}
+                            onNearBottom={handlePreviewNearBottom}
+                          />
+                        );
+                      })}
+                      
+                      {maxLoadedIndex < sortedChaptersAsc.length - 1 && (
+                        <div className="flex justify-center p-8 bg-card/20 rounded-xl" style={{ minHeight: '100px' }}>
+                          <span className="text-muted-foreground flex items-center gap-2">
+                             <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
+                             Sonraki bölüm yükleniyor...
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  );
+                })()}
               </div>
             </TabsContent>
 

@@ -8,6 +8,7 @@ import {
   addBookmark,
   getLatestProgress,
 } from '../lib/storage';
+import { logChapterRead } from '../lib/profile';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -33,6 +34,17 @@ const Reader: React.FC = () => {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [initialized, setInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isIncognito, setIsIncognito] = useState(() => localStorage.getItem('toonparrot_incognito') === 'true');
+
+  const toggleIncognito = (val: boolean) => {
+    setIsIncognito(val);
+    localStorage.setItem('toonparrot_incognito', val.toString());
+    if (val) {
+        toast.info("Gizli mod açıldı. Okuma verileriniz kaydedilmeyecek.");
+    } else {
+        toast.info("Gizli mod kapatıldı.");
+    }
+  };
 
   // Reset state and scroll on chapter change
   useEffect(() => {
@@ -79,8 +91,8 @@ const Reader: React.FC = () => {
 
         setInitialized(true);
 
-        // Track views
-        if (!viewTracked.current) {
+        // Track views (only if not incognito)
+        if (!viewTracked.current && !isIncognito) {
           incrementMangaViews(mangaId);
           incrementChapterViews(mangaId, chapterId);
           viewTracked.current = true;
@@ -98,7 +110,7 @@ const Reader: React.FC = () => {
   // Save reading progress when page changes
   useEffect(() => {
     const saveProgress = async () => {
-      if (mangaId && chapterId && chapter && initialized && user) {
+      if (mangaId && chapterId && chapter && initialized && user && !isIncognito) {
         try {
           await updateReadingProgress(user.id, {
             mangaId,
@@ -106,6 +118,8 @@ const Reader: React.FC = () => {
             chapterNumber: chapter.number,
             page: currentPage,
           });
+          
+          await logChapterRead(user.id, mangaId, chapterId, chapter.number);
         } catch (error) {
           console.error('Error updating reading progress:', error);
         }
@@ -242,6 +256,8 @@ const Reader: React.FC = () => {
         totalPages={chapter.pages.length}
         visible={controlsVisible}
         onPageChange={scrollToPage}
+        isIncognito={isIncognito}
+        onIncognitoToggle={toggleIncognito}
       />
 
       {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
