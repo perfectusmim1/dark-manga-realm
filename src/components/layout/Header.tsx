@@ -8,6 +8,8 @@ import {
   Search,
   Menu,
   X,
+  Wifi,
+  WifiOff,
   User,
   Heart,
   History,
@@ -30,12 +32,12 @@ import {
 } from 'lucide-react';
 import { getAllMangas, getCharacters } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
-
-
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
+import { toast } from 'sonner';
 import {
   Dialog,
   DialogContent,
@@ -51,6 +53,12 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
@@ -59,6 +67,7 @@ const Header: React.FC = () => {
   const [allMangas, setAllMangas] = useState<Manga[]>([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const { user, logout } = useAuth();
+  const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
   const navigate = useNavigate();
   const location = useLocation();
   const isAdmin = user?.role === 'admin' || user?.role === 'moderator';
@@ -215,13 +224,51 @@ const Header: React.FC = () => {
     } catch(err) {}
   };
 
+  const handleToggleOfflineMode = () => {
+    const nextForceOfflineMode = !offlinePreferences.forceOfflineMode;
+    updateOfflinePreferences({ forceOfflineMode: nextForceOfflineMode });
+    toast.success(nextForceOfflineMode ? 'Çevrimdışı mod açıldı' : 'Çevrimdışı mod kapatıldı');
+  };
+
+  const offlineModeLabel = offlinePreferences.forceOfflineMode ? 'Çevrimdışı Mod Açık' : 'Çevrimdışı Mod';
+
+  const renderOfflineToggleButton = (extraClassName = '') => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-pressed={offlinePreferences.forceOfflineMode}
+          onClick={handleToggleOfflineMode}
+          title={offlineModeLabel}
+          className={`shrink-0 h-9 w-9 transition-all ${
+            offlinePreferences.forceOfflineMode
+              ? 'border-primary/50 bg-primary/12 text-primary hover:bg-primary/18 hover:border-primary/60'
+              : 'hover:bg-primary/20 hover:border-primary/50'
+          } ${extraClassName}`}
+        >
+          {offlinePreferences.forceOfflineMode ? (
+            <WifiOff className="h-4 w-4" />
+          ) : (
+            <Wifi className="h-4 w-4 text-primary" />
+          )}
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {offlineModeLabel}
+      </TooltipContent>
+    </Tooltip>
+  );
+
   return (
+    <TooltipProvider>
     <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
       <div className="container flex h-16 items-center justify-between gap-4">
         {/* Logo */}
         <Link
           to="/"
-          className="flex items-center gap-2"
+          className="-ml-2 flex items-center gap-2 md:-ml-3"
         >
           <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
         </Link>
@@ -257,6 +304,7 @@ const Header: React.FC = () => {
           >
             <Dices className="h-4 w-4 text-primary group-hover:rotate-12 transition-transform" />
           </Button>
+          {renderOfflineToggleButton()}
 
           <form onSubmit={handleSearch} className="flex-1">
             <div className="relative w-full">
@@ -365,6 +413,9 @@ const Header: React.FC = () => {
           {/* Notifications & Search */}
           <div className="flex items-center gap-1">
             <SuperSearch />
+            <div className="md:hidden">
+              {renderOfflineToggleButton()}
+            </div>
             <InstallAppButton
               iconOnly
               variant="ghost"
@@ -657,6 +708,7 @@ const Header: React.FC = () => {
         </DialogContent>
       </Dialog>
     </header>
+    </TooltipProvider>
   );
 };
 

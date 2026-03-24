@@ -379,7 +379,9 @@ class OfflineDownloadManager {
 
   async clearCompletedJobs() {
     const jobs = await getOfflineJobs();
-    const completedJobs = jobs.filter((job) => job.status === 'completed');
+    const completedJobs = jobs.filter((job) =>
+      ['completed', 'failed', 'partial', 'cancelled'].includes(job.status),
+    );
 
     await Promise.all(completedJobs.map((job) => removeOfflineJob(job.id)));
   }

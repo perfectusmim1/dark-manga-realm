@@ -49,7 +49,7 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  let payload: { identifier?: string; password?: string };
+  let payload: { identifier?: string; password?: string; deviceHash?: string; deviceInstallationId?: string };
 
   try {
     payload = await req.json();
@@ -62,6 +62,7 @@ Deno.serve(async (req: Request) => {
 
   const identifier = payload.identifier?.trim().toLowerCase() ?? "";
   const password = payload.password ?? "";
+  const deviceHash = payload.deviceHash?.trim() || null;
 
   if (identifier.length < 2 || password.length < 1) {
     return json({
@@ -111,15 +112,64 @@ Deno.serve(async (req: Request) => {
   }
 
   let loginEmail = identifier;
+  let targetUserId: string | null = null;
+
+  const [{ data: ipBan }, { data: deviceBan }] = await Promise.all([
+    serviceClient.from("banned_ip_hashes").select("ip_hash").eq("ip_hash", ipHash).maybeSingle(),
+    deviceHash
+      ? serviceClient.from("banned_device_hashes").select("device_hash").eq("device_hash", deviceHash).maybeSingle()
+      : Promise.resolve({ data: null } as any),
+  ]);
+
+  if (ipBan) {
+    return json({
+      success: false,
+      code: "IP_BANNED",
+      message: "Bu bağlantı için site erişimi engellendi.",
+    });
+  }
+
+  if (deviceBan) {
+    return json({
+      success: false,
+      code: "DEVICE_BANNED",
+      message: "Bu cihaz için site erişimi engellendi.",
+    });
+  }
 
   if (!identifier.includes("@")) {
     const { data: matchedUser } = await serviceClient
       .from("users")
-      .select("email")
+      .select("id, email, is_banned, ban_reason")
       .eq("username", identifier)
       .maybeSingle();
 
+    if (matchedUser?.is_banned) {
+      return json({
+        success: false,
+        code: "USER_BANNED",
+        message: matchedUser.ban_reason || "Hesabınız banlandı.",
+      });
+    }
+
+    targetUserId = matchedUser?.id || null;
     loginEmail = matchedUser?.email?.trim().toLowerCase() || `${identifier}@invalid.toonparrot.local`;
+  } else {
+    const { data: matchedUser } = await serviceClient
+      .from("users")
+      .select("id, is_banned, ban_reason")
+      .eq("email", identifier)
+      .maybeSingle();
+
+    if (matchedUser?.is_banned) {
+      return json({
+        success: false,
+        code: "USER_BANNED",
+        message: matchedUser.ban_reason || "Hesabınız banlandı.",
+      });
+    }
+
+    targetUserId = matchedUser?.id || null;
   }
 
   const authResponse = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {
@@ -155,6 +205,20 @@ Deno.serve(async (req: Request) => {
     ip_hash: ipHash,
     success: true,
   });
+
+  if (authResult?.user?.id && deviceHash) {
+    await serviceClient.from("user_access_fingerprints").upsert({
+      user_id: authResult.user.id,
+      ip_hash: ipHash,
+      device_hash: deviceHash,
+      installation_id_hash: payload.deviceInstallationId?.trim() ? await sha256(payload.deviceInstallationId.trim()) : null,
+      user_agent: req.headers.get("user-agent"),
+      last_seen_at: new Date().toISOString(),
+    }, {
+      onConflict: "user_id,ip_hash,device_hash",
+      ignoreDuplicates: false,
+    });
+  }
 
   return json({
     success: true,

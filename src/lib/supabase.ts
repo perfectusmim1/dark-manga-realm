@@ -62,6 +62,10 @@ export type Database = {
                     password_hash: string;
                     avatar: string | null;
                     role: 'user' | 'admin' | 'moderator';
+                    is_banned: boolean;
+                    ban_reason: string | null;
+                    banned_at: string | null;
+                    banned_by: string | null;
                     created_at: string;
                 };
                 Insert: Omit<Database['public']['Tables']['users']['Row'], 'id' | 'created_at'> & {

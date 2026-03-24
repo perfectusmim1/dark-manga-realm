@@ -2,6 +2,7 @@ import React, { createContext, useContext, useState, useEffect, ReactNode } from
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { User } from '@/lib/types';
+import { checkCurrentAccess, getDeviceIdentity } from '@/lib/security/deviceIdentity';
 import { toast } from 'sonner';
 
 interface AuthContextType {
@@ -37,6 +38,9 @@ interface UserProfileRow {
   username: string;
   avatar: string | null;
   role: User['role'];
+  is_banned?: boolean;
+  ban_reason?: string | null;
+  banned_at?: string | null;
   created_at: string;
   preferences?: User['preferences'];
   two_factor_enabled?: boolean;
@@ -51,12 +55,20 @@ const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileR
     avatar: profile?.avatar || supabaseUser.user_metadata?.avatar_url,
     role: profile?.role || 'user',
     createdAt: supabaseUser.created_at,
+    isBanned: profile?.is_banned || false,
+    banReason: profile?.ban_reason || undefined,
+    bannedAt: profile?.banned_at || undefined,
     twoFactorEnabled: profile?.two_factor_enabled || false,
     preferences: profile?.preferences || {
       notifications: {
         new_chapter: true,
         replies: true,
         likes: true
+      },
+      comments: {
+        auto_show_media: false,
+        auto_show_gifs: false,
+        auto_show_replies: false,
       }
     }
   };
@@ -78,7 +90,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const fetchReq = supabase
         .from('users')
-        .select('id, username, avatar, role, created_at, preferences, two_factor_enabled')
+        .select('id, username, avatar, role, is_banned, ban_reason, banned_at, created_at, preferences, two_factor_enabled')
         .eq('id', id)
         .maybeSingle();
 
@@ -149,6 +161,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       try {
         if (currentSession?.user) {
+          const accessCheck = await checkCurrentAccess().catch(() => ({ allowed: true }));
+          if (!mounted) return;
+
+          if (!accessCheck.allowed) {
+            await supabase.auth.signOut();
+            setSession(null);
+            setSupabaseUser(null);
+            setUser(null);
+            toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için erişim engellendi');
+            return;
+          }
+
           const profile = await ensureProfile(currentSession.user);
 
           if (!mounted) return;
@@ -222,10 +246,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setIsLoading(true);
 
       const identifier = email.trim();
+      const deviceIdentity = await getDeviceIdentity();
       const { data, error } = await supabase.functions.invoke('password-login', {
         body: {
           identifier,
           password,
+          ...deviceIdentity,
         },
       });
 
@@ -274,6 +300,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const register = async (username: string, email: string, password: string): Promise<{ success: boolean; error?: string }> => {
     try {
       setIsLoading(true);
+
+      const accessCheck = await checkCurrentAccess().catch((error) => {
+        console.error('Access check error during register:', error);
+        return { allowed: true };
+      });
+
+      if (!accessCheck.allowed) {
+        return { success: false, error: accessCheck.message || 'Bu cihaz veya bağlantı için kayıt engellendi' };
+      }
 
       // Check if username is already taken
       const { data: existingUser } = await supabase
@@ -341,26 +376,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return { success: false, error: 'Oturum açılmamış' };
 
     try {
+      if (updates.username && updates.username.trim() !== user.username) {
+        return { success: false, error: 'Kullanıcı adı değiştirilemez' };
+      }
+
       const currentAuthUser = supabaseUser || (await supabase.auth.getUser()).data.user;
       if (!currentAuthUser) {
         return { success: false, error: 'Oturum bulunamadı' };
       }
 
-      await ensureProfile(currentAuthUser, updates.username || user.username);
+      await ensureProfile(currentAuthUser, user.username);
 
       // Update our users table
       const { error: dbError } = await supabase
         .from('users')
-        .update(updates)
+        .update({ avatar: updates.avatar })
         .eq('id', user.id);
 
       if (dbError) throw dbError;
 
       // Update Auth metadata if username changed
-      if (updates.username || updates.avatar !== undefined) {
+      if (updates.avatar !== undefined) {
         const { data: authUpdateData, error: authError } = await supabase.auth.updateUser({
           data: {
-            ...(updates.username ? { username: updates.username } : {}),
             ...(updates.avatar !== undefined ? { avatar_url: updates.avatar } : {}),
           }
         });
@@ -372,7 +410,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       // Refresh local state
       const refreshedAuthUser = (await supabase.auth.getUser()).data.user || currentAuthUser;
-      const profile = await ensureProfile(refreshedAuthUser, updates.username || user.username);
+      const profile = await ensureProfile(refreshedAuthUser, user.username);
       setSupabaseUser(refreshedAuthUser);
       setUser(mapSupabaseUserToUser(refreshedAuthUser, profile));
 
@@ -501,6 +539,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const loginWithGoogle = async (redirectTo?: string) => {
     try {
+      const accessCheck = await checkCurrentAccess().catch((error) => {
+        console.error('Access check error during Google login:', error);
+        return { allowed: true };
+      });
+
+      if (!accessCheck.allowed) {
+        toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için erişim engellendi');
+        return;
+      }
+
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {

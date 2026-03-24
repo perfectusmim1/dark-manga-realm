@@ -35,6 +35,10 @@ const Browse: React.FC = () => {
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(32);
+  const loaderRef = React.useRef<HTMLDivElement | null>(null);
+
+  const PAGE_SIZE = 32;
 
   useEffect(() => {
     const fetchMangas = async () => {
@@ -137,6 +141,31 @@ const Browse: React.FC = () => {
 
     return result;
   }, [searchQuery, typeFilter, statusFilter, selectedGenres, selectedTagSlugs, tagFilteredMangaIds, sortBy, mangas]);
+
+  useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+  }, [filteredManga.length, PAGE_SIZE]);
+
+  useEffect(() => {
+    if (!loaderRef.current || visibleCount >= filteredManga.length) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0]?.isIntersecting) {
+          setVisibleCount(prev => Math.min(prev + PAGE_SIZE, filteredManga.length));
+        }
+      },
+      { rootMargin: '320px 0px' }
+    );
+
+    observer.observe(loaderRef.current);
+
+    return () => observer.disconnect();
+  }, [filteredManga.length, visibleCount, PAGE_SIZE]);
+
+  const visibleManga = filteredManga.slice(0, visibleCount);
 
   const toggleGenre = (genre: string) => {
     setSelectedGenres(prev =>
@@ -274,9 +303,15 @@ const Browse: React.FC = () => {
 
         {/* Manga Grid */}
         <MangaGrid
-          manga={filteredManga}
+          manga={visibleManga}
           emptyMessage="Arama kriterlerinize uygun manga bulunamadı"
         />
+
+        {filteredManga.length > visibleManga.length && (
+          <div ref={loaderRef} className="py-8 text-center text-sm text-muted-foreground">
+            Aşağı kaydırdıkça yeni seriler yüklenecek
+          </div>
+        )}
       </main>
     </div>
   );

@@ -123,11 +123,12 @@ const Favorites: React.FC = () => {
           <TabsContent value="lists" className="mt-0">
             {favoriteLists.length > 0 ? (
               <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
-                {favoriteLists.map((list) => (
+                {favoriteLists.map((list, index) => (
                   <Link
                     key={list.id}
                     to={`/reading-lists/${list.id}`}
-                    className="group overflow-hidden rounded-2xl border border-border bg-card/50 transition-all hover:border-primary/40 hover:bg-card"
+                    className="group animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 opacity-0 transition-all hover:border-primary/40 hover:bg-card"
+                    style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
                   >
                     <ReadingListCover
                       imageUrl={list.imageUrl}

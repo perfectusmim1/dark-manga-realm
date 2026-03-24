@@ -18,6 +18,7 @@ import {
     Eye,
     EyeOff,
     ShieldAlert,
+    SlidersHorizontal,
     Loader2,
     WifiOff,
 } from 'lucide-react';
@@ -25,6 +26,22 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { getBlockedUsers, unblockUser } from '@/lib/profile';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
+
+const buildPreferenceState = (preferences?: any) => ({
+    notifications: {
+        new_chapter: preferences?.notifications?.new_chapter ?? true,
+        replies: preferences?.notifications?.replies ?? true,
+        likes: preferences?.notifications?.likes ?? true,
+    },
+    comments: {
+        auto_show_media: preferences?.comments?.auto_show_media ?? false,
+        auto_show_gifs: preferences?.comments?.auto_show_gifs ?? false,
+        auto_show_replies: preferences?.comments?.auto_show_replies ?? false,
+    },
+    privacy: {
+        visibility: preferences?.privacy?.visibility ?? 'public',
+    },
+});
 
 const Settings: React.FC = () => {
     const { user, updateProfile, updatePassword, updatePreferences, toggle2FA } = useAuth();
@@ -42,16 +59,7 @@ const Settings: React.FC = () => {
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
     // Notification state
-    const [prefs, setPrefs] = useState<any>(user?.preferences || {
-        notifications: {
-            new_chapter: true,
-            replies: true,
-            likes: true
-        },
-        privacy: {
-            visibility: 'public'
-        }
-    });
+    const [prefs, setPrefs] = useState<any>(buildPreferenceState(user?.preferences));
     const [isUpdatingPrefs, setIsUpdatingPrefs] = useState(false);
     const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
     const [isBlockedUsersLoading, setIsBlockedUsersLoading] = useState(true);
@@ -70,6 +78,15 @@ const Settings: React.FC = () => {
             setIsBlockedUsersLoading(false);
         });
     }, [user?.id]);
+
+    useEffect(() => {
+        setUsername(user?.username || '');
+        setAvatar(user?.avatar || '');
+    }, [user?.username, user?.avatar]);
+
+    useEffect(() => {
+        setPrefs(buildPreferenceState(user?.preferences));
+    }, [user?.preferences]);
 
     const handleUpdateProfile = async () => {
         if (!username.trim()) {
@@ -198,6 +215,10 @@ const Settings: React.FC = () => {
                             <EyeOff className="h-4 w-4" />
                             Gizlilik
                         </TabsTrigger>
+                        <TabsTrigger value="preferences" className="gap-2">
+                            <SlidersHorizontal className="h-4 w-4" />
+                            Tercihler
+                        </TabsTrigger>
                         <TabsTrigger value="blocked" className="gap-2">
                             <ShieldAlert className="h-4 w-4" />
                             Engellenenler
@@ -236,12 +257,14 @@ const Settings: React.FC = () => {
 
                                 <div className="space-y-2">
                                     <Label htmlFor="username">Kullanıcı Adı</Label>
-                                    <Input
-                                        id="username"
-                                        value={username}
-                                        onChange={(e) => setUsername(e.target.value)}
-                                    />
-                                </div>
+                                        <Input
+                                            id="username"
+                                            value={username}
+                                            disabled
+                                            className="bg-secondary/30"
+                                        />
+                                        <p className="text-xs text-muted-foreground">Kullanıcı adı kayıt sırasında belirlenir ve sonradan değiştirilemez.</p>
+                                    </div>
                             </CardContent>
                             <CardFooter className="border-t border-border/50 pt-6">
                                 <Button onClick={handleUpdateProfile} disabled={isUpdatingProfile} className="ml-auto gap-2">
@@ -499,6 +522,64 @@ const Settings: React.FC = () => {
                                             Gizli
                                         </button>
                                     </div>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="preferences">
+                        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <SlidersHorizontal className="h-5 w-5" />
+                                    Diğer Tercihler
+                                </CardTitle>
+                                <CardDescription>Yorum görünümü ve genel kullanım davranışlarını buradan belirleyebilirsiniz.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-6">
+                                <div className="flex items-center justify-between space-x-2">
+                                    <div className="flex flex-col space-y-1">
+                                        <Label htmlFor="auto-show-replies">Yanıtları Otomatik Aç</Label>
+                                        <p className="text-sm text-muted-foreground">Yorum başlıklarının altındaki yanıtlar varsayılan olarak açık gelsin.</p>
+                                    </div>
+                                    <Switch
+                                        id="auto-show-replies"
+                                        checked={prefs.comments?.auto_show_replies ?? false}
+                                        onCheckedChange={(checked) => handleUpdatePreferences({
+                                            ...prefs,
+                                            comments: { ...prefs.comments, auto_show_replies: checked }
+                                        })}
+                                        disabled={isUpdatingPrefs}
+                                    />
+                                </div>
+                                <div className="flex items-center justify-between space-x-2 border-t border-border/50 pt-6">
+                                    <div className="flex flex-col space-y-1">
+                                        <Label htmlFor="auto-show-media">Yorum Medyalarını Otomatik Aç</Label>
+                                        <p className="text-sm text-muted-foreground">Yorumlardaki görselleri butona basmadan direkt göster.</p>
+                                    </div>
+                                    <Switch
+                                        id="auto-show-media"
+                                        checked={prefs.comments?.auto_show_media ?? false}
+                                        onCheckedChange={(checked) => handleUpdatePreferences({
+                                            ...prefs,
+                                            comments: { ...prefs.comments, auto_show_media: checked }
+                                        })}
+                                        disabled={isUpdatingPrefs}
+                                    />
+                                </div>
+                                <div className="flex items-center justify-between space-x-2 border-t border-border/50 pt-6">
+                                    <div className="flex flex-col space-y-1">
+                                        <Label htmlFor="auto-show-gifs">Yorum GIF'lerini Otomatik Aç</Label>
+                                        <p className="text-sm text-muted-foreground">GIF içeren yorumları varsayılan olarak açık göster.</p>
+                                    </div>
+                                    <Switch
+                                        id="auto-show-gifs"
+                                        checked={prefs.comments?.auto_show_gifs ?? false}
+                                        onCheckedChange={(checked) => handleUpdatePreferences({
+                                            ...prefs,
+                                            comments: { ...prefs.comments, auto_show_gifs: checked }
+                                        })}
+                                        disabled={isUpdatingPrefs}
+                                    />
                                 </div>
                             </CardContent>
                         </Card>

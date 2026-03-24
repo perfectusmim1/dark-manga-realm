@@ -21,6 +21,7 @@ import {
   getReadingHistoryEntries,
 } from '@/lib/storage';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
+import { formatChapterDisplayTitle, sanitizeChapterTitle } from '@/lib/chapterTitle';
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 
 const PAGE_SIZE = 20;
@@ -67,8 +68,11 @@ const matchesHistorySearch = (
   return haystack.includes(query);
 };
 
-const SeriesHistoryCard = ({ item }: { item: ReadingHistoryEntry }) => (
-  <article className="group relative overflow-hidden rounded-[28px] border border-border/70 bg-card/60 shadow-[0_20px_50px_rgba(0,0,0,0.18)] transition-all duration-300 hover:border-primary/35 hover:bg-card">
+const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: number }) => (
+  <article
+    className="group relative animate-fade-up overflow-hidden rounded-[28px] border border-border/70 bg-card/60 opacity-0 shadow-[0_20px_50px_rgba(0,0,0,0.18)] transition-all duration-300 hover:border-primary/35 hover:bg-card"
+    style={{ animationDelay: `${0.08 + Math.min(index, 9) * 0.03}s`, animationFillMode: 'forwards' }}
+  >
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_45%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
     <div className="relative flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
       <Link to={`/manga/${item.mangaId}`} className="shrink-0">
@@ -88,8 +92,7 @@ const SeriesHistoryCard = ({ item }: { item: ReadingHistoryEntry }) => (
               </h2>
             </Link>
             <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-              Bölüm {item.chapterNumber}
-              {item.chapterTitle ? ` • ${item.chapterTitle}` : ''}
+              {formatChapterDisplayTitle(item.chapterNumber, item.chapterTitle)}
               {' • '}
               Sayfa {item.page}
             </p>
@@ -130,10 +133,11 @@ const SeriesHistoryCard = ({ item }: { item: ReadingHistoryEntry }) => (
   </article>
 );
 
-const ChapterHistoryCard = ({ item }: { item: ChapterHistoryEntry }) => (
+const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index: number }) => (
   <Link
     to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`}
-    className="group overflow-hidden rounded-[24px] border border-border/70 bg-card/60 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:bg-card"
+    className="group animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 opacity-0 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:bg-card"
+    style={{ animationDelay: `${0.08 + Math.min(index, 11) * 0.02}s`, animationFillMode: 'forwards' }}
   >
     <div className="relative aspect-square overflow-hidden">
       <img
@@ -164,7 +168,7 @@ const ChapterHistoryCard = ({ item }: { item: ChapterHistoryEntry }) => (
 
     <div className="space-y-2 p-3">
       <p className="line-clamp-1 text-xs text-muted-foreground">
-        {item.chapterTitle || `Bölüm ${item.chapterNumber}`}
+        {sanitizeChapterTitle(item.chapterNumber, item.chapterTitle) || `Bölüm ${item.chapterNumber}`}
       </p>
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span>Sayfa {item.page}</span>
@@ -402,8 +406,8 @@ const History: React.FC = () => {
             {filteredSeriesHistory.length > 0 ? (
               <>
                 <div className="space-y-4">
-                  {visibleSeriesHistory.map((item) => (
-                    <SeriesHistoryCard key={`${item.mangaId}-${item.chapterId}`} item={item} />
+                  {visibleSeriesHistory.map((item, index) => (
+                    <SeriesHistoryCard key={`${item.mangaId}-${item.chapterId}`} item={item} index={index} />
                   ))}
                 </div>
                 {seriesVisibleCount < filteredSeriesHistory.length && (
@@ -438,8 +442,8 @@ const History: React.FC = () => {
             {filteredChapterHistory.length > 0 ? (
               <>
                 <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-                  {visibleChapterHistory.map((item) => (
-                    <ChapterHistoryCard key={`${item.chapterId}-${item.lastRead}`} item={item} />
+                  {visibleChapterHistory.map((item, index) => (
+                    <ChapterHistoryCard key={`${item.chapterId}-${item.lastRead}`} item={item} index={index} />
                   ))}
                 </div>
                 {chapterVisibleCount < filteredChapterHistory.length && (

@@ -48,7 +48,8 @@ import {
   getMangaCharacters,
   createMangaReport,
 } from '@/lib/database';
-import { Character } from '@/lib/types';
+import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
+import { Chapter, Character, LibraryCategory, Manga, Review, Favorite } from '@/lib/types';
 import { Trophy, Group } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -63,7 +64,6 @@ import {
   isFollowingManga,
   getFavorites,
 } from '../lib/storage';
-import { LibraryCategory, Manga, Review, Favorite } from '@/lib/types';
 import {
   MessageSquare,
   ThumbsUp,
@@ -153,7 +153,7 @@ const PreviewChapter = ({
     <div ref={containerRef} className="space-y-4 rounded-xl border border-border bg-card/50 p-4 sm:p-6 shadow-sm">
       <div className="flex items-center justify-between border-b border-border pb-4">
         <div>
-          <h3 className="text-xl font-bold">Bölüm {chapter.number}: {chapter.title}</h3>
+          <h3 className="text-xl font-bold">{formatChapterDisplayTitle(chapter.number, chapter.title)}</h3>
           <p className="text-sm text-muted-foreground mt-1">
             {chapter.pages.length} sayfa
           </p>
@@ -220,7 +220,7 @@ const MangaDetail: React.FC = () => {
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [revealedBlockedReviews, setRevealedBlockedReviews] = useState<Record<string, boolean>>({});
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
-  const [reportReason, setReportReason] = useState('Yanlis seri bilgisi');
+  const [reportReason, setReportReason] = useState('Yanlış seri bilgisi');
   const [reportDetails, setReportDetails] = useState('');
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [seriesReadingSeconds, setSeriesReadingSeconds] = useState(0);
@@ -305,12 +305,12 @@ const MangaDetail: React.FC = () => {
   const [isReviewsLoading, setIsReviewsLoading] = useState(true);
   const [isCharsLoading, setIsCharsLoading] = useState(true);
   const mangaReportReasons = [
-    'Yanlis seri bilgisi',
-    'Kirik veya eksik bolum',
-    'Kapak veya gorsel sorunu',
-    'Yinelenen seri kaydi',
-    'Ceviri veya icerik hatasi',
-    'Diger',
+    'Yanlış seri bilgisi',
+    'Kırık veya eksik bölüm',
+    'Kapak veya görsel sorunu',
+    'Yinelenen seri kaydı',
+    'Çeviri veya içerik hatası',
+    'Diğer',
   ];
 
   useEffect(() => {
@@ -653,33 +653,33 @@ const MangaDetail: React.FC = () => {
 
   const openReportDialog = () => {
     if (!isOnline) {
-      toast.error('Bildirim gondermek icin internet baglantisi gerekli');
+      toast.error('Bildirim göndermek için internet bağlantısı gerekli');
       return;
     }
 
     if (!user) {
-      toast.error('Bildirim gondermek icin giris yapmalisiniz');
+      toast.error('Bildirim göndermek için giriş yapmalısınız');
       return;
     }
 
-    setReportReason('Yanlis seri bilgisi');
+    setReportReason('Yanlış seri bilgisi');
     setReportDetails('');
     setIsReportDialogOpen(true);
   };
 
   const handleSubmitReport = async () => {
     if (!isOnline) {
-      toast.error('Bildirim gondermek icin internet baglantisi gerekli');
+      toast.error('Bildirim göndermek için internet bağlantısı gerekli');
       return;
     }
 
     if (!user) {
-      toast.error('Bildirim gondermek icin giris yapmalisiniz');
+      toast.error('Bildirim göndermek için giriş yapmalısınız');
       return;
     }
 
     if (!reportReason.trim()) {
-      toast.error('Bir neden secmelisiniz');
+      toast.error('Bir neden seçmelisiniz');
       return;
     }
 
@@ -696,7 +696,7 @@ const MangaDetail: React.FC = () => {
       setReportDetails('');
     } catch (error) {
       console.error('Manga report submit error:', error);
-      toast.error('Bildirim gonderilemedi');
+      toast.error('Bildirim gönderilemedi');
     } finally {
       setIsSubmittingReport(false);
     }
@@ -1169,7 +1169,7 @@ const MangaDetail: React.FC = () => {
                                       : "hover:text-primary",
                                   )}
                                 >
-                                  Bölüm {chapter.number}: {chapter.title}
+                                  {formatChapterDisplayTitle(chapter.number, chapter.title)}
                                 </Link>
                                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                                   <span className="flex items-center gap-1">
@@ -1767,7 +1767,7 @@ const MangaDetail: React.FC = () => {
           <DialogHeader>
             <DialogTitle>Seriyi Bildir</DialogTitle>
             <DialogDescription>
-              Hata, eksik bolum veya yanlis bilgi gibi problemleri buradan admin ekibine iletebilirsiniz.
+              Hata, eksik bölüm veya yanlış bilgi gibi problemleri buradan admin ekibine iletebilirsiniz.
             </DialogDescription>
           </DialogHeader>
 
@@ -1775,7 +1775,7 @@ const MangaDetail: React.FC = () => {
             <div className="rounded-xl border border-border/60 bg-card/60 p-4">
               <p className="text-sm font-medium">{manga.title}</p>
               <p className="mt-1 text-xs text-muted-foreground">
-                Ayni seri icin tekrar bildirim gonderirseniz son notunuzla guncellenir.
+                Aynı seri için tekrar bildirim gönderirseniz son notunuzla güncellenir.
               </p>
             </div>
 
@@ -1801,7 +1801,7 @@ const MangaDetail: React.FC = () => {
               <Textarea
                 value={reportDetails}
                 onChange={(event) => setReportDetails(event.target.value)}
-                placeholder="Sorunu biraz daha aciklayin. Ornek: 57. bolum sayfalari kirik."
+                placeholder="Sorunu biraz daha açıklayın. Örnek: 57. bölüm sayfaları kırık."
                 className="min-h-[140px]"
                 maxLength={600}
               />
@@ -1811,10 +1811,10 @@ const MangaDetail: React.FC = () => {
 
           <DialogFooter>
             <Button variant="ghost" onClick={() => setIsReportDialogOpen(false)}>
-              Iptal
+              İptal
             </Button>
             <Button onClick={handleSubmitReport} disabled={isSubmittingReport}>
-              {isSubmittingReport ? 'Gonderiliyor...' : 'Bildirimi Gonder'}
+              {isSubmittingReport ? 'Gönderiliyor...' : 'Bildirimi Gönder'}
             </Button>
           </DialogFooter>
         </DialogContent>

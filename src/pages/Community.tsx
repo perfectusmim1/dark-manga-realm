@@ -5,7 +5,6 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Trophy, BookOpen, MessageSquare, Flame, Heart, TrendingUp } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
-import { Skeleton } from '@/components/ui/skeleton';
 import TagBadge from '@/components/tags/TagBadge';
 import ReadingListCover from '@/components/manga/ReadingListCover';
 import { getTrendingTags } from '@/lib/database';
@@ -37,6 +36,7 @@ const Community: React.FC = () => {
   const [category, setCategory] = useState<'chapters' | 'comments' | 'reading_lists' | 'users'>('chapters');
   const [trendingTags, setTrendingTags] = useState<Tag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
+  const [visibleCount, setVisibleCount] = useState(20);
   
   // Users list state
   const [allUsers, setAllUsers] = useState<LeaderboardUser[]>([]);
@@ -56,6 +56,10 @@ const Community: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    setVisibleCount(PAGE_SIZE);
+    if (category !== 'users') {
+      setUsers([]);
+    }
     const fetchLeaderboard = async () => {
       try {
         setLoading(true);
@@ -194,6 +198,7 @@ const Community: React.FC = () => {
   useEffect(() => {
     if (category === 'users') {
       setPage(0);
+      setAllUsers([]);
       fetchAllUsers(0, true);
     }
   }, [category]);
@@ -212,16 +217,28 @@ const Community: React.FC = () => {
   }, [category]);
 
   const handleLoadMore = () => {
-    if (!loading && hasMore && category === 'users') {
+    if (loading) {
+      return;
+    }
+
+    if (category === 'users' && hasMore) {
       const nextPage = page + 1;
       setPage(nextPage);
       fetchAllUsers(nextPage);
+      return;
+    }
+
+    if (category !== 'users') {
+      setVisibleCount(prev => prev + PAGE_SIZE);
     }
   };
 
+  const visibleItems = category === 'users' ? allUsers : users.slice(0, visibleCount);
+  const canLoadMore = category === 'users' ? hasMore : users.length > visibleCount;
+
   // Intersection Observer for infinite scroll
   useEffect(() => {
-    if (category !== 'users' || !hasMore || loading) return;
+    if (!canLoadMore || loading) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -236,7 +253,7 @@ const Community: React.FC = () => {
     if (loader) observer.observe(loader);
 
     return () => observer.disconnect();
-  }, [category, hasMore, loading, page]);
+  }, [category, canLoadMore, loading, page, users.length, visibleCount]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
@@ -292,24 +309,15 @@ const Community: React.FC = () => {
             </div>
           </div>
         )}
-
-
-
-        {loading ? (
-          <div className="space-y-4">
-            {[1, 2, 3, 4, 5].map((i) => (
-              <div key={i} className="flex items-center gap-4 bg-card/50 border border-border rounded-xl p-4">
-                <Skeleton className="w-10 h-10 rounded-full" />
-                <div className="flex-1 space-y-2">
-                  <Skeleton className="h-4 w-32" />
-                  <Skeleton className="h-3 w-20" />
-                </div>
-                <Skeleton className="h-4 w-12" />
-              </div>
-            ))}
+        {loading && visibleItems.length === 0 ? (
+          <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-border bg-card/30 animate-fade-in">
+            <div className="flex flex-col items-center gap-4">
+              <div className="h-10 w-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
+              <p className="text-sm text-muted-foreground animate-pulse">Topluluk verileri yükleniyor...</p>
+            </div>
           </div>
         ) : (
-          <div className="bg-card/50 border border-border rounded-xl shadow-sm overflow-hidden backdrop-blur-sm">
+          <div className={`bg-card/50 border border-border rounded-xl shadow-sm overflow-hidden backdrop-blur-sm transition-opacity duration-200 ${loading ? 'opacity-75' : 'opacity-100'}`}>
             <div className="flex items-center px-6 py-4 border-b border-border bg-secondary/20">
               <span className="w-12 text-center text-sm font-semibold text-muted-foreground">Sıra</span>
               <span className="flex-1 text-sm font-semibold text-muted-foreground ml-4">{category === 'reading_lists' ? 'Liste Bilgisi' : category === 'users' ? 'Üye Bilgisi' : 'Kullanıcı'}</span>
@@ -319,10 +327,10 @@ const Community: React.FC = () => {
             </div>
 
             <div className="divide-y divide-border">
-              {(category === 'users' ? allUsers : users).length === 0 ? (
+              {visibleItems.length === 0 ? (
                 <div className="p-8 text-center text-muted-foreground">Henüz veri yok. İlk okuyan sen ol!</div>
               ) : (
-                (category === 'users' ? allUsers : users).map((user, index) => (
+                visibleItems.map((user, index) => (
                   <Link
                     key={user.id}
                     to={user.isList ? `/reading-lists/${user.id}` : `/profile/${user.id}`}
@@ -398,10 +406,12 @@ const Community: React.FC = () => {
                 ))
               )}
 
-              {category === 'users' && hasMore && (
+              {canLoadMore && (
                 <div id="infinite-scroll-loader" className="p-12 flex flex-col items-center justify-center gap-4">
                   <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
-                  <p className="text-sm font-medium text-muted-foreground animate-pulse text-center">Rakiplerin yükleniyor...</p>
+                  <p className="text-sm font-medium text-muted-foreground animate-pulse text-center">
+                    {category === 'users' ? 'Rakiplerin yükleniyor...' : 'Daha fazla lider yükleniyor...'}
+                  </p>
                 </div>
               )}
             </div>

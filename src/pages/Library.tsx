@@ -50,7 +50,9 @@ const Library: React.FC = () => {
     const { user } = useAuth();
     const [activeTab, setActiveTab] = useState<LibraryCategory | 'all'>('all');
     const [libraryItems, setLibraryItems] = useState<any[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
     useEffect(() => {
         fetchLibrary();
@@ -60,7 +62,11 @@ const Library: React.FC = () => {
         if (!user) return;
 
         try {
-            setIsLoading(true);
+            if (hasLoadedOnce) {
+                setIsRefreshing(true);
+            } else {
+                setIsInitialLoading(true);
+            }
             const favorites = await getFavorites(user.id);
 
             let filtered = favorites;
@@ -88,7 +94,9 @@ const Library: React.FC = () => {
         } catch (err) {
             console.error('Library fetch error:', err);
         } finally {
-            setIsLoading(false);
+            setIsInitialLoading(false);
+            setIsRefreshing(false);
+            setHasLoadedOnce(true);
         }
     };
 
@@ -123,7 +131,7 @@ const Library: React.FC = () => {
         );
     };
 
-    if (isLoading && user) {
+    if (isInitialLoading && user) {
         return (
             <>
                 <Header />
@@ -176,7 +184,7 @@ const Library: React.FC = () => {
                         ))}
                     </TabsList>
 
-                    <TabsContent value={activeTab} className="mt-0">
+                    <TabsContent value={activeTab} className={`mt-0 transition-opacity duration-200 ${isRefreshing ? 'opacity-75' : 'opacity-100'}`}>
                         {libraryItems.length === 0 ? (
                             <div className="flex flex-col items-center justify-center py-16">
                                 <LibraryIcon className="h-16 w-16 text-muted-foreground/50" />
@@ -191,10 +199,11 @@ const Library: React.FC = () => {
                             </div>
                         ) : (
                             <div className="space-y-4">
-                                {libraryItems.map(({ favorite, manga, progress }) => (
+                                {libraryItems.map(({ favorite, manga, progress }, index) => (
                                     <div
                                         key={favorite.mangaId}
-                                        className="flex items-center gap-4 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-lg"
+                                        className="animate-fade-up flex items-center gap-4 rounded-xl border border-border bg-card p-4 opacity-0 transition-shadow hover:shadow-lg"
+                                        style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
                                     >
                                         <Link to={`/manga/${manga!.id}`}>
                                             <img

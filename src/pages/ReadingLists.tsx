@@ -149,10 +149,11 @@ const ReadingLists: React.FC = () => {
                     </div>
                 ) : (
                     <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        {lists.map((list) => (
+                        {lists.map((list, index) => (
                             <div
                                 key={list.id}
-                                className="group relative overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
+                                className="group relative animate-fade-up overflow-hidden rounded-xl border border-border bg-card opacity-0 transition-all hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
+                                style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
                             >
                                 <ReadingListCover
                                     imageUrl={list.imageUrl}

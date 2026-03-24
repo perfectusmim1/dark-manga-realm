@@ -19,6 +19,7 @@ import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
+import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { OfflineChapter, OfflineDownloadStatus, OfflineMangaGroup } from '@/lib/offline/types';
 import { offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { formatBytes, formatSpeed } from '@/lib/offline/utils';
@@ -206,8 +207,12 @@ const Downloads: React.FC = () => {
             { label: 'İndirilen Bölüm', value: `${snapshot.stats.chapterCount}` },
             { label: 'Aktif İndirme', value: `${snapshot.stats.activeDownloads}` },
             { label: 'Kullanılabilir Alan', value: availableBytes ? formatBytes(availableBytes) : 'Bilinmiyor' },
-          ].map((item) => (
-            <div key={item.label} className="rounded-2xl border border-border bg-card/40 p-5 backdrop-blur-sm">
+          ].map((item, index) => (
+            <div
+              key={item.label}
+              className="animate-fade-up rounded-2xl border border-border bg-card/40 p-5 opacity-0 backdrop-blur-sm"
+              style={{ animationDelay: `${0.08 + index * 0.03}s`, animationFillMode: 'forwards' }}
+            >
               <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
               <p className="mt-3 text-2xl font-black tracking-tight">{item.value}</p>
             </div>
@@ -218,7 +223,10 @@ const Downloads: React.FC = () => {
           Kullanılabilir alan, tarayıcının bu site için verdiği tahmini kota bilgisidir. Sabit ayrılmış disk alanı değildir; cihaz ve tarayıcıya göre değişebilir.
         </p>
 
-        <section className="mt-6 rounded-2xl border border-border bg-card/35 p-5 backdrop-blur-sm">
+        <section
+          className="mt-6 animate-fade-up rounded-2xl border border-border bg-card/35 p-5 opacity-0 backdrop-blur-sm"
+          style={{ animationDelay: '0.22s', animationFillMode: 'forwards' }}
+        >
           <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
@@ -252,7 +260,7 @@ const Downloads: React.FC = () => {
 
         <InstallAppBanner compact className="mt-6" />
 
-        <div className="mt-8 flex flex-wrap gap-2">
+        <div className="mt-8 animate-fade-up flex flex-wrap gap-2 opacity-0" style={{ animationDelay: '0.28s', animationFillMode: 'forwards' }}>
           {FILTERS.map((filter) => (
             <Button
               key={filter}
@@ -282,7 +290,7 @@ const Downloads: React.FC = () => {
           </div>
         ) : (
           <div className="mt-8 space-y-5">
-            {filteredSeries.map((entry) => {
+            {filteredSeries.map((entry, index) => {
               const primaryJob = getPrimaryJob(entry);
               const canRead = entry.chapters.some((chapter) => chapter.downloadStatus === 'completed');
               const readChapterCount = entry.chapters.filter((chapter) => chapter.isRead).length;
@@ -294,7 +302,8 @@ const Downloads: React.FC = () => {
               return (
                 <section
                   key={entry.manga.mangaId}
-                  className="overflow-hidden rounded-3xl border border-border bg-card/35 backdrop-blur-sm"
+                  className="animate-fade-up overflow-hidden rounded-3xl border border-border bg-card/35 opacity-0 backdrop-blur-sm"
+                  style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.035}s`, animationFillMode: 'forwards' }}
                 >
                   <div className="p-5 sm:p-6">
                     <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
@@ -403,7 +412,7 @@ const Downloads: React.FC = () => {
                             <div key={chapter.chapterId} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
                               <div className="min-w-0">
                                 <p className="font-semibold">
-                                  Bölüm {chapter.chapterNumber}: {chapter.title}
+                                  {formatChapterDisplayTitle(chapter.chapterNumber, chapter.title)}
                                 </p>
                                 <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                                   <span>{formatBytes(chapter.downloadedBytes || 0)}</span>

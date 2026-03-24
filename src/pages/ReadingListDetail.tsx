@@ -40,7 +40,7 @@ const ReadingListDetail: React.FC = () => {
         if (listId) {
             fetchList();
         }
-    }, [listId]);
+    }, [listId, user?.id]);
 
     const fetchList = async () => {
         if (!listId) return;
@@ -63,14 +63,20 @@ const ReadingListDetail: React.FC = () => {
             setLikesCount(totalLikes || 0);
 
             if (user?.id) {
-                const { data: likeData } = await supabase
+                const { data: likeData, error: likeError } = await supabase
                     .from('reading_list_likes')
                     .select('id')
                     .eq('list_id', listId)
                     .eq('user_id', user.id)
-                    .single();
+                    .limit(1);
                 
-                setIsLiked(!!likeData);
+                if (likeError) {
+                    console.error('Reading list like fetch error:', likeError);
+                }
+
+                setIsLiked((likeData?.length || 0) > 0);
+            } else {
+                setIsLiked(false);
             }
 
         } catch (err) {
@@ -101,9 +107,35 @@ const ReadingListDetail: React.FC = () => {
                 setIsLiked(false);
                 toast.success('Beğenmekten vazgeçildi');
             } else {
-                await supabase
+                const { data: existingLikes, error: existingLikesError } = await supabase
+                    .from('reading_list_likes')
+                    .select('id')
+                    .eq('list_id', listId)
+                    .eq('user_id', user.id)
+                    .limit(1);
+
+                if (existingLikesError) {
+                    throw existingLikesError;
+                }
+
+                if ((existingLikes?.length || 0) > 0) {
+                    setIsLiked(true);
+                    const { count } = await supabase
+                        .from('reading_list_likes')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('list_id', listId);
+                    setLikesCount(count || 0);
+                    return;
+                }
+
+                const { error: insertError } = await supabase
                     .from('reading_list_likes')
                     .insert([{ list_id: listId, user_id: user.id }]);
+
+                if (insertError) {
+                    throw insertError;
+                }
+
                 setLikesCount(prev => prev + 1);
                 setIsLiked(true);
                 toast.success('Liste beğenildi');
@@ -166,13 +198,17 @@ const ReadingListDetail: React.FC = () => {
             <main className="container pb-12 pt-20">
                 <Link
                     to="/reading-lists"
-                    className="mb-6 flex w-fit items-center gap-2 text-sm text-muted-foreground hover:text-foreground transition-colors"
+                    className="mb-6 flex w-fit animate-fade-up items-center gap-2 text-sm text-muted-foreground opacity-0 transition-colors hover:text-foreground"
+                    style={{ animationDelay: '40ms', animationFillMode: 'forwards' }}
                 >
                     <ChevronLeft className="h-4 w-4" />
                     Listelerime Dön
                 </Link>
 
-                <div className="mb-8 overflow-hidden rounded-2xl border border-border bg-card/50 backdrop-blur-sm">
+                <div
+                    className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 opacity-0 backdrop-blur-sm"
+                    style={{ animationDelay: '90ms', animationFillMode: 'forwards' }}
+                >
                     <ReadingListCover
                         imageUrl={list.imageUrl}
                         alt={list.name}
@@ -228,10 +264,11 @@ const ReadingListDetail: React.FC = () => {
 
                 {list.items && list.items.length > 0 ? (
                     <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {list.items.map((manga) => (
+                        {list.items.map((manga, index) => (
                             <div
                                 key={manga.id}
-                                className="group flex gap-4 rounded-xl border border-border bg-card p-3 transition-all hover:border-primary/50 hover:shadow-lg"
+                                className="group animate-fade-up flex gap-4 rounded-xl border border-border bg-card p-3 opacity-0 transition-all hover:border-primary/50 hover:shadow-lg"
+                                style={{ animationDelay: `${140 + (index % 9) * 45}ms`, animationFillMode: 'forwards' }}
                             >
                                 <Link to={`/manga/${manga.id}`} className="shrink-0">
                                     <img
@@ -274,7 +311,10 @@ const ReadingListDetail: React.FC = () => {
                         ))}
                     </div>
                 ) : (
-                    <div className="flex flex-col items-center justify-center py-20 text-center">
+                    <div
+                        className="flex animate-fade-up flex-col items-center justify-center py-20 text-center opacity-0"
+                        style={{ animationDelay: '140ms', animationFillMode: 'forwards' }}
+                    >
                         <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />
                         <p className="text-muted-foreground">Bu liste henüz boş.</p>
                         <Button asChild variant="outline" className="mt-4">

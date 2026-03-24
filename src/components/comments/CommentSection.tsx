@@ -73,6 +73,8 @@ interface CommentSectionProps {
 
 const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
 const MAX_VISIBLE_PARENT_COMMENTS = 8;
+const COMMENT_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
+const MAX_REPLY_INDENT_LEVEL = 3;
 
 interface CommentDraft {
     title: string;
@@ -90,6 +92,9 @@ const createEmptyDraft = (overrides?: Partial<CommentDraft>): CommentDraft => ({
     gifUrl: null,
     ...overrides,
 });
+
+const canEditComment = (comment: Comment) =>
+    Date.now() - new Date(comment.createdAt).getTime() <= COMMENT_EDIT_WINDOW_MS;
 
 const normalizeDraft = (draft: CommentDraft) => ({
     ...draft,
@@ -117,7 +122,7 @@ const highlightMentions = (content: string) => {
 
     return parts.map((part, i) => {
         if (part.startsWith('@')) {
-            return <span key={i} className="font-medium text-primary">{part}</span>;
+            return <span key={i} className="font-medium text-sky-400">{part}</span>;
         }
 
         return <React.Fragment key={i}>{part}</React.Fragment>;
@@ -139,7 +144,7 @@ const renderFormattedText = (content: string) => {
     return lines.map((line, index) => (
         <React.Fragment key={`${line}-${index}`}>
             {index > 0 && <br />}
-            {line}
+            {highlightMentions(line)}
         </React.Fragment>
     ));
 };
@@ -230,7 +235,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                         <div className="flex flex-wrap gap-3">
                             {draft.gifUrl && (
                                 <div className="relative overflow-hidden rounded-xl border border-border bg-background/70">
-                                    <img src={draft.gifUrl} alt="Secili GIF" className="max-h-32 rounded-xl object-cover" />
+                                    <img src={draft.gifUrl} alt="Seçili GIF" className="max-h-32 rounded-xl object-cover" />
                                     <Button size="icon" variant="destructive" className="absolute right-2 top-2 h-7 w-7" onClick={() => setField('gifUrl', null)}>
                                         <X className="h-4 w-4" />
                                     </Button>
@@ -251,13 +256,13 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                             {draft.mediaUrls.map((mediaUrl, index) => (
                                 <div key={index} className="flex items-center gap-2">
                                     <Input
-                                        placeholder={`Gorsel linki ${index + 1}`}
+                                        placeholder={`Görsel Linki ${index + 1}`}
                                         value={mediaUrl}
                                         onChange={(event) => updateMediaUrl(index, event.target.value)}
                                         className="h-10"
                                     />
                                     <Button type="button" variant="ghost" size="sm" onClick={() => removeMediaField(index)}>
-                                        Kaldir
+                                        Kaldır
                                     </Button>
                                 </div>
                             ))}
@@ -282,21 +287,21 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                                 }
                             }}>
                                 <Link2 className="mr-2 h-4 w-4" />
-                                Gorsel Ekle
+                                Görsel Ekle
                             </Button>
                             <label className="ml-1 flex items-center gap-2 text-sm text-muted-foreground">
                                 <Checkbox
                                     checked={draft.isSpoiler}
                                     onCheckedChange={(checked) => setField('isSpoiler', checked === true)}
                                 />
-                                Spoiler olarak isaretle
+                                Spoiler Olarak İşaretle
                             </label>
                         </div>
 
                         <div className="flex items-center gap-2">
                             {onCancel && (
                                 <Button variant="ghost" size="sm" onClick={onCancel}>
-                                    Iptal
+                                    İptal
                                 </Button>
                             )}
 
@@ -340,9 +345,14 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     const [revealedSpoilers, setRevealedSpoilers] = useState<Record<string, boolean>>({});
     const [mediaLoadErrors, setMediaLoadErrors] = useState<Record<string, boolean>>({});
     const [reportingComment, setReportingComment] = useState<Comment | null>(null);
-    const [reportReason, setReportReason] = useState('Spam veya alakasiz');
+    const [reportReason, setReportReason] = useState('Spam veya alakasız');
     const [reportDetails, setReportDetails] = useState('');
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+    const commentPreferences = {
+        autoShowMedia: user?.preferences?.comments?.auto_show_media ?? false,
+        autoShowGifs: user?.preferences?.comments?.auto_show_gifs ?? false,
+        autoShowReplies: user?.preferences?.comments?.auto_show_replies ?? false,
+    };
 
     useEffect(() => {
         loadComments();
@@ -378,34 +388,70 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         setUserReaction(ur);
     };
 
+    const sortCommentsForState = (items: Comment[]) => items.slice().sort((a, b) => {
+        const pinDiff = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+        if (pinDiff !== 0) {
+            return pinDiff;
+        }
+
+        if (sortBy === 'popular') {
+            const likeDiff = b.likes - a.likes;
+            if (likeDiff !== 0) {
+                return likeDiff;
+            }
+        }
+
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+
+    const shouldAutoExpandMedia = (comment: Comment) =>
+        (commentPreferences.autoShowMedia && getCommentMediaUrls(comment).length > 0) ||
+        (commentPreferences.autoShowGifs && Boolean(comment.gifUrl));
+
+    useEffect(() => {
+        setExpandedMedia((previous) => {
+            let changed = false;
+            const next = { ...previous };
+
+            for (const comment of comments) {
+                if (shouldAutoExpandMedia(comment) && !next[comment.id]) {
+                    next[comment.id] = true;
+                    changed = true;
+                }
+            }
+
+            return changed ? next : previous;
+        });
+    }, [comments, commentPreferences.autoShowMedia, commentPreferences.autoShowGifs]);
+
     const handleReaction = async (type: string) => {
         if (!user) {
-            toast.error('Tepki birakmak icin giris yapmalisiniz');
+            toast.error('Tepki bırakmak için giriş yapmalısınız');
             return;
         }
         try {
             await addEntityReactionV2(entityType, entityId, user.id, type, chapterId);
             await loadReactions();
         } catch {
-            toast.error('Islem basarisiz oldu');
+            toast.error('İşlem başarısız oldu');
         }
     };
 
     const reactionTypes = [
-        { type: 'like', label: 'Begendim', emoji: '👍' },
-        { type: 'funny', label: 'Eglenceli', emoji: '😂' },
-        { type: 'love', label: 'Bayildim', emoji: '😍' },
+        { type: 'like', label: 'Beğendim', emoji: '👍' },
+        { type: 'funny', label: 'Eğlenceli', emoji: '😂' },
+        { type: 'love', label: 'Bayıldım', emoji: '😍' },
         { type: 'wow', label: 'Oha', emoji: '😲' },
         { type: 'angry', label: 'Sinir Bozucu', emoji: '😡' },
-        { type: 'sad', label: 'Uzuldu m', emoji: '😢' },
+        { type: 'sad', label: 'Üzüldüm', emoji: '😢' },
     ];
     const commentReportReasons = [
-        'Spam veya alakasiz',
+        'Spam veya alakasız',
         'Hakaret veya nefret',
         'Spoiler bildirimi',
-        'Yanlis bilgi',
-        'Reklam veya dolandiricilik',
-        'Diger',
+        'Yanlış bilgi',
+        'Reklam veya dolandırıcılık',
+        'Diğer',
     ];
 
     const searchGifs = async (query: string) => {
@@ -432,7 +478,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     media_formats: { tinygif: { url: g.images.fixed_height.url } }
                 })) || []);
             } catch {
-                toast.error('GIF aramasi basarisiz oldu');
+                toast.error('GIF araması başarısız oldu');
             }
         }
     };
@@ -446,12 +492,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             mediaUrls: normalizedDraft.mediaUrls,
             gifUrl: normalizedDraft.gifUrl,
         })) {
-            toast.error('Yorum, baslik, medya veya GIF eklemelisiniz');
+            toast.error('Yorum, başlık, medya veya GIF eklemelisiniz');
             return null;
         }
 
         if (!isValidCommentMediaUrls(normalizedDraft.mediaUrls)) {
-            toast.error('Tum gorsel baglantilari gecerli olmali');
+            toast.error('Tüm görsel bağlantıları geçerli olmalı');
             return null;
         }
 
@@ -460,7 +506,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
     const handleSubmitComment = async () => {
         if (!user) {
-            toast.error('Yorum yapmak icin giris yapmalisiniz');
+            toast.error('Yorum yapmak için giriş yapmalısınız');
             return;
         }
 
@@ -469,7 +515,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             return;
         }
 
-        await addCommentV2({
+        const createdComment = await addCommentV2({
             mangaId: entityType === 'manga' ? entityId : undefined,
             entityId: entityType !== 'manga' ? entityId : undefined,
             entityType,
@@ -487,7 +533,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
         setNewDraft(createEmptyDraft());
         setNewComposerVersion((previous) => previous + 1);
-        await loadComments();
+        setComments((previous) => sortCommentsForState([createdComment, ...previous]));
         toast.success('Yorum eklendi');
     };
 
@@ -510,7 +556,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         setEditDraft(createEmptyDraft());
         setEditMention(null);
         await loadComments();
-        toast.success('Yorum guncellendi');
+            toast.success('Yorum güncellendi');
     };
 
     const handleDeleteComment = async (commentId: string) => {
@@ -521,18 +567,18 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
     const handleTogglePin = async (comment: Comment) => {
         if (user?.role !== 'admin' && user?.role !== 'moderator') {
-            toast.error('Bu islem icin yetkiniz yok');
+            toast.error('Bu işlem için yetkiniz yok');
             return;
         }
 
         await setCommentPinned(comment.id, !comment.isPinned, entityType);
         await loadComments();
-        toast.success(comment.isPinned ? 'Yorum sabitlemesi kaldirildi' : 'Yorum sabitlendi');
+            toast.success(comment.isPinned ? 'Yorum sabitlemesi kaldırıldı' : 'Yorum sabitlendi');
     };
 
     const openCommentReport = (comment: Comment) => {
         if (!user) {
-            toast.error('Yorum bildirmek icin giris yapmalisiniz');
+            toast.error('Yorum bildirmek için giriş yapmalısınız');
             return;
         }
 
@@ -542,13 +588,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         }
 
         setReportingComment(comment);
-        setReportReason('Spam veya alakasiz');
+        setReportReason('Spam veya alakasız');
         setReportDetails('');
     };
 
     const handleSubmitCommentReport = async () => {
         if (!user || !reportingComment) {
-            toast.error('Bildirim icin once giris yapmalisiniz');
+            toast.error('Bildirim için önce giriş yapmalısınız');
             return;
         }
 
@@ -568,7 +614,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             setReportDetails('');
         } catch (error) {
             console.error('Comment report submit error:', error);
-            toast.error('Yorum bildirimi gonderilemedi');
+            toast.error('Yorum bildirimi gönderilemedi');
         } finally {
             setIsSubmittingReport(false);
         }
@@ -576,13 +622,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
     const handleReply = async (parentId: string) => {
         if (!user) {
-            toast.error('Yanit vermek icin giris yapmalisiniz');
+            toast.error('Yanıt vermek için giriş yapmalısınız');
             return;
         }
 
         const parentComment = comments.find(c => c.id === parentId);
         if (!parentComment) {
-            toast.error('Yanitlanacak yorum bulunamadi');
+            toast.error('Yanıtlanacak yorum bulunamadı');
             return;
         }
 
@@ -612,40 +658,42 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             parentId,
         });
 
-        if (parentComment && parentComment.userId !== user.id) {
-            let entityTitle = 'Manga';
-            if (entityType === 'manga') {
-                const manga = await getMangaById(entityId);
-                entityTitle = manga?.title || 'Manga';
-            } else if (entityType === 'character') {
-                const character = await getCharacterById(entityId);
-                entityTitle = character?.name || 'Karakter';
-            }
-
-            await createCommentNotification(
-                parentComment.userId,
-                'reply',
-                user.id,
-                user.username,
-                entityId,
-                entityTitle,
-                newCommentObj.id,
-                chapterId,
-                entityType
-            );
-        }
-
         setExpandedReplies(prev => ({ ...prev, [parentId]: true }));
         setReplyingTo(null);
         setReplyMention(null);
         setReplyDraft(createEmptyDraft());
-        await loadComments();
-        toast.success('Yanit eklendi');
+        setComments((previous) => sortCommentsForState([newCommentObj, ...previous]));
+            toast.success('Yanıt eklendi');
+
+        if (parentComment && parentComment.userId !== user.id) {
+            void (async () => {
+                let entityTitle = 'Manga';
+                if (entityType === 'manga') {
+                    const manga = await getMangaById(entityId);
+                    entityTitle = manga?.title || 'Manga';
+                } else if (entityType === 'character') {
+                    const character = await getCharacterById(entityId);
+                    entityTitle = character?.name || 'Karakter';
+                }
+
+                await createCommentNotification(
+                    parentComment.userId,
+                    'reply',
+                    user.id,
+                    user.username,
+                    entityId,
+                    entityTitle,
+                    newCommentObj.id,
+                    chapterId,
+                    entityType
+                );
+            })();
+        }
     };
 
     const handleLike = async (commentId: string) => {
         if (!user) {
-            toast.error('Begenmek icin giris yapmalisiniz');
+            toast.error('Beğenmek için giriş yapmalısınız');
             return;
         }
 
@@ -694,6 +742,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     };
 
     const startEdit = (comment: Comment) => {
+        if (!canEditComment(comment)) {
+            toast.error('Yorumlar yalnızca ilk 24 saat içinde düzenlenebilir');
+            return;
+        }
+
         setEditingId(comment.id);
         setReplyingTo(null);
         setEditMention(extractMentionPrefix(comment.content));
@@ -747,6 +800,39 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     const parentComments = commentChildrenMap.root || [];
     const displayedParentComments = showAllComments ? parentComments : parentComments.slice(0, MAX_VISIBLE_PARENT_COMMENTS);
     const getReplies = (parentId: string) => commentChildrenMap[parentId] || [];
+    const getReplyCount = (parentId: string): number => {
+        const replies = getReplies(parentId);
+
+        if (replies.length === 0) {
+            return 0;
+        }
+
+        return replies.reduce((total, reply) => total + 1 + getReplyCount(reply.id), 0);
+    };
+
+    useEffect(() => {
+        if (!commentPreferences.autoShowReplies) {
+            return;
+        }
+
+        setExpandedReplies((previous) => {
+            let changed = false;
+            const next = { ...previous };
+
+            for (const [parentId, replies] of Object.entries(commentChildrenMap)) {
+                if (parentId === 'root' || replies.length === 0) {
+                    continue;
+                }
+
+                if (!next[parentId]) {
+                    next[parentId] = true;
+                    changed = true;
+                }
+            }
+
+            return changed ? next : previous;
+        });
+    }, [commentChildrenMap, commentPreferences.autoShowReplies]);
 
     const toggleReplies = (commentId: string) => {
         setExpandedReplies(prev => ({ ...prev, [commentId]: !prev[commentId] }));
@@ -762,6 +848,229 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
     const markMediaAsFailed = (key: string) => {
         setMediaLoadErrors(prev => ({ ...prev, [key]: true }));
+    };
+
+    const getReplyIndentClass = (depth: number) => {
+        if (depth <= 1) {
+            return '';
+        }
+
+        if (depth === 2) {
+            return 'ml-4';
+        }
+
+        if (depth === 3) {
+            return 'ml-8';
+        }
+
+        return '';
+    };
+
+    const getReplyThreadClassName = (depth: number) => {
+        if (depth === 1) {
+            return 'space-y-3 border-l-2 border-border pl-4';
+        }
+
+        if (depth > MAX_REPLY_INDENT_LEVEL) {
+            return 'mt-3 space-y-3';
+        }
+
+        return cn('mt-3 space-y-3 border-l border-border/60 pl-3', getReplyIndentClass(depth));
+    };
+
+    const renderReplyThread = (parentId: string, depth = 1): React.ReactNode => {
+        const replies = getReplies(parentId);
+
+        if (replies.length === 0) {
+            return null;
+        }
+
+        return (
+            <div className={getReplyThreadClassName(depth)}>
+                {replies.map((reply) => {
+                    const hasNestedReplies = getReplies(reply.id).length > 0;
+                    const useNestedCardStyle = depth >= 2;
+                    const nextDepth = depth + 1;
+                    const nestedReplies = hasNestedReplies ? renderReplyThread(reply.id, nextDepth) : null;
+                    const renderNestedAsSibling = depth >= MAX_REPLY_INDENT_LEVEL;
+
+                    return (
+                        <div
+                            key={reply.id}
+                            className={cn(
+                                'relative overflow-hidden rounded-lg transition-all',
+                                reply.isPinned
+                                    ? 'border border-primary/30 bg-primary/5 p-2'
+                                    : useNestedCardStyle
+                                        ? 'border border-border/60 bg-background/30 p-3'
+                                        : ''
+                            )}
+                        >
+                            <div className="flex gap-2 transition-all duration-300">
+                                <Link to={`/profile/${reply.userId}`} className="shrink-0 transition-transform hover:scale-105">
+                                    <Avatar className="h-8 w-8 border border-transparent text-foreground transition-colors hover:border-primary">
+                                        <AvatarImage src={reply.userAvatar} />
+                                        <AvatarFallback>{reply.username[0].toUpperCase()}</AvatarFallback>
+                                    </Avatar>
+                                </Link>
+
+                                <div className="flex-1">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <div className="flex items-center gap-2">
+                                            <Link to={`/profile/${reply.userId}`} className="text-sm font-medium text-foreground transition-colors hover:text-primary hover:underline">
+                                                {reply.username}
+                                            </Link>
+                                            {reply.isPinned && (
+                                                <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
+                                                    <Pin className="h-3 w-3" />
+                                                    Sabit
+                                                </Badge>
+                                            )}
+                                            <span className="text-xs text-muted-foreground">
+                                                {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
+                                                {reply.updatedAt && new Date(reply.updatedAt).getTime() - new Date(reply.createdAt).getTime() > 2000 && ' (düzenlendi)'}
+                                            </span>
+                                        </div>
+
+                                        {(user?.id === reply.userId || user?.role === 'admin' || user?.role === 'moderator') && (
+                                            <DropdownMenu>
+                                                <DropdownMenuTrigger asChild>
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7">
+                                                        <MoreVertical className="h-4 w-4" />
+                                                    </Button>
+                                                </DropdownMenuTrigger>
+                                                <DropdownMenuContent align="end">
+                                                    {(user?.role === 'admin' || user?.role === 'moderator') && (
+                                                        <DropdownMenuItem onClick={() => handleTogglePin(reply)}>
+                                                            <Pin className="mr-2 h-4 w-4" />
+                                                            {reply.isPinned ? 'Sabitlemeyi Kaldır' : 'Sabitle'}
+                                                        </DropdownMenuItem>
+                                                    )}
+                                                    {canEditComment(reply) && (
+                                                        <DropdownMenuItem onClick={() => startEdit(reply)}>
+                                                            <Edit2 className="mr-2 h-4 w-4" />
+                                                            Düzenle
+                                                        </DropdownMenuItem>
+                                                    )}
+                                                    <DropdownMenuItem
+                                                        onClick={() => handleDeleteComment(reply.id)}
+                                                        className="text-destructive"
+                                                    >
+                                                        <Trash2 className="mr-2 h-4 w-4" />
+                                                        Sil
+                                                    </DropdownMenuItem>
+                                                </DropdownMenuContent>
+                                            </DropdownMenu>
+                                        )}
+                                    </div>
+
+                                    {editingId === reply.id ? (
+                                        <div className="mt-2">
+                                            <CommentComposer
+                                                key={`edit-${reply.id}`}
+                                                draft={editDraft}
+                                                placeholder="Yorumu düzenle..."
+                                                submitLabel="Kaydet"
+                                                compact
+                                                onDraftChange={(draft) => setEditDraft({ ...draft, body: keepMentionPrefix(draft.body, editMention) })}
+                                                onOpenGifPicker={() => {
+                                                    setGifTarget('edit');
+                                                    setShowGifPicker(true);
+                                                }}
+                                                onSubmit={() => handleEditComment(reply.id)}
+                                                onCancel={() => {
+                                                    setEditingId(null);
+                                                    setEditMention(null);
+                                                    setEditDraft(createEmptyDraft());
+                                                }}
+                                            />
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {reply.title && <h4 className="font-bold text-foreground">{reply.title}</h4>}
+                                            <p className="text-sm leading-relaxed text-foreground/90">
+                                                {renderFormattedText(reply.content)}
+                                            </p>
+                                            {(getCommentMediaUrls(reply).length > 0 || reply.gifUrl) && (
+                                                <Button variant="outline" size="sm" onClick={() => toggleMedia(reply.id)}>
+                                                    {expandedMedia[reply.id] ? 'Medyayı Gizle' : 'Medyayı Görüntüle'}
+                                                </Button>
+                                            )}
+                                            {expandedMedia[reply.id] && getCommentMediaUrls(reply).map((mediaUrl, index) => (
+                                                <img
+                                                    key={`${reply.id}-media-${index}`}
+                                                    src={mediaUrl}
+                                                    alt={`Reply media ${index + 1}`}
+                                                    className="mt-2 max-h-64 rounded-lg"
+                                                    onError={() => markMediaAsFailed(`${reply.id}:media:${index}`)}
+                                                />
+                                            ))}
+                                            {expandedMedia[reply.id] && reply.gifUrl && (
+                                                <img
+                                                    src={reply.gifUrl}
+                                                    alt="Reply GIF"
+                                                    className="mt-2 max-h-48 rounded-lg"
+                                                    onError={() => markMediaAsFailed(`${reply.id}:gif`)}
+                                                />
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <div className="mt-2 flex flex-wrap items-center gap-2">
+                                        <Button variant="ghost" size="sm" onClick={() => handleLike(reply.id)} className={reply.likedBy.includes(user?.id || '') ? 'text-primary' : ''}>
+                                            <ThumbsUp className="mr-1 h-4 w-4" />
+                                            {reply.likes}
+                                        </Button>
+                                        <Button variant="ghost" size="sm" onClick={() => openReplyComposer(reply)}>
+                                            <Reply className="mr-1 h-4 w-4" />
+                                            Yanıtla
+                                        </Button>
+                                        {user && user.id !== reply.userId && (
+                                            <Button
+                                                variant="ghost"
+                                                size="sm"
+                                                onClick={() => openCommentReport(reply)}
+                                                className="text-muted-foreground hover:text-amber-200"
+                                            >
+                                                <Flag className="mr-1 h-4 w-4" />
+                                                Bildir
+                                            </Button>
+                                        )}
+                                    </div>
+
+                                    {replyingTo === reply.id && user && (
+                                        <div className="mt-3">
+                                            <CommentComposer
+                                                key={`reply-${reply.id}`}
+                                                draft={replyDraft}
+                                                placeholder={`@${reply.username} için yanıt yaz...`}
+                                                submitLabel="Yanıtı Gönder"
+                                                compact
+                                                onDraftChange={(draft) => setReplyDraft({ ...draft, body: keepMentionPrefix(draft.body, replyMention) })}
+                                                onOpenGifPicker={() => {
+                                                    setGifTarget('reply');
+                                                    setShowGifPicker(true);
+                                                }}
+                                                onSubmit={() => handleReply(reply.id)}
+                                                onCancel={() => {
+                                                    setReplyingTo(null);
+                                                    setReplyMention(null);
+                                                    setReplyDraft(createEmptyDraft());
+                                                }}
+                                            />
+                                        </div>
+                                    )}
+
+                                    {!renderNestedAsSibling && nestedReplies}
+                                </div>
+                            </div>
+
+                            {renderNestedAsSibling && nestedReplies}
+                        </div>
+                    );
+                })}
+            </div>
+        );
     };
 
     return (
@@ -831,8 +1140,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     avatar={user.avatar}
                     username={user.username}
                     draft={newDraft}
-                    placeholder="Bir yorum yazin, baslik ekleyin, spoiler isaretleyin veya gorsel baglantisi birakin..."
-                    submitLabel="Gonder"
+                    placeholder="Bir yorum yazın, başlık ekleyin, spoiler işaretleyin veya görsel bağlantısı bırakın..."
+                    submitLabel="Gönder"
                     onDraftChange={setNewDraft}
                     onOpenGifPicker={() => {
                         setGifTarget('new');
@@ -893,13 +1202,15 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                 {(user?.role === 'admin' || user?.role === 'moderator') && (
                                                                     <DropdownMenuItem onClick={() => handleTogglePin(comment)}>
                                                                         <Pin className="mr-2 h-4 w-4" />
-                                                                        {comment.isPinned ? 'Sabitlemeyi Kaldir' : 'Sabitle'}
+                                                                        {comment.isPinned ? 'Sabitlemeyi Kaldır' : 'Sabitle'}
                                                                     </DropdownMenuItem>
                                                                 )}
-                                                                <DropdownMenuItem onClick={() => startEdit(comment)}>
-                                                                    <Edit2 className="mr-2 h-4 w-4" />
-                                                                    Düzenle
-                                                                </DropdownMenuItem>
+                                                                                            {canEditComment(comment) && (
+                                                                                                <DropdownMenuItem onClick={() => startEdit(comment)}>
+                                                                                                    <Edit2 className="mr-2 h-4 w-4" />
+                                                                                                    Düzenle
+                                                                                                </DropdownMenuItem>
+                                                                                            )}
                                                                 <DropdownMenuItem
                                                                     onClick={() => handleDeleteComment(comment.id)}
                                                                     className="text-destructive"
@@ -917,7 +1228,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                         <CommentComposer
                                                             key={`edit-${comment.id}`}
                                                             draft={editDraft}
-                                                            placeholder="Yorumu duzenle..."
+                                                            placeholder="Yorumu düzenle..."
                                                             submitLabel="Kaydet"
                                                             compact
                                                             onDraftChange={(draft) => setEditDraft({ ...draft, body: keepMentionPrefix(draft.body, editMention) })}
@@ -940,11 +1251,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                 <div className="flex items-center justify-between gap-3">
                                                                     <span className="flex items-center gap-2">
                                                                         <AlertTriangle className="h-4 w-4" />
-                                                                        Bu yorum spoiler olarak isaretlendi.
+                                                                        Bu yorum spoiler olarak işaretlendi.
                                                                     </span>
                                                                     <Button size="sm" variant="secondary" onClick={() => toggleSpoiler(comment.id)}>
                                                                         <Eye className="mr-2 h-4 w-4" />
-                                                                        Spoileri Goster
+                                                                        Spoileri Göster
                                                                     </Button>
                                                                 </div>
                                                             </div>
@@ -968,12 +1279,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                             {expandedMedia[comment.id] ? (
                                                                                 <>
                                                                                     <EyeOff className="mr-2 h-4 w-4" />
-                                                                                    Medyayi Gizle
+                                                                                    Medyayı Gizle
                                                                                 </>
                                                                             ) : (
                                                                                 <>
                                                                                     <Eye className="mr-2 h-4 w-4" />
-                                                                                    Medyayi Goruntule
+                                                                                    Medyayı Görüntüle
                                                                                 </>
                                                                             )}
                                                                         </Button>
@@ -982,7 +1293,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                             <div className="mt-3 space-y-3">
                                                                                 {getCommentMediaUrls(comment).map((mediaUrl, index) => (
                                                                                     mediaLoadErrors[`${comment.id}:media:${index}`] ? (
-                                                                                        <div key={`${comment.id}-media-error-${index}`} className="text-sm text-destructive">Gorsel yuklenemedi.</div>
+                                                                                        <div key={`${comment.id}-media-error-${index}`} className="text-sm text-destructive">Görsel yüklenemedi.</div>
                                                                                     ) : (
                                                                                         <img
                                                                                             key={`${comment.id}-media-${index}`}
@@ -996,7 +1307,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
                                                                                 {comment.gifUrl && (
                                                                                     mediaLoadErrors[`${comment.id}:gif`] ? (
-                                                                                        <div className="text-sm text-destructive">GIF yuklenemedi.</div>
+                                                                                        <div className="text-sm text-destructive">GIF yüklenemedi.</div>
                                                                                     ) : (
                                                                                         <img
                                                                                             src={comment.gifUrl}
@@ -1049,12 +1360,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                             {expandedReplies[comment.id] ? (
                                                                 <>
                                                                     <ChevronUp className="mr-1 h-4 w-4" />
-                                                                    Yanitlari Gizle
+                                                                    Yanıtları Gizle
                                                                 </>
                                                             ) : (
                                                                 <>
                                                                     <ChevronDown className="mr-1 h-4 w-4" />
-                                                                    Yanitlari Goster ({getReplies(comment.id).length})
+                                                                    Yanıtları Göster ({getReplyCount(comment.id)})
                                                                 </>
                                                             )}
                                                         </Button>
@@ -1066,8 +1377,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                         <CommentComposer
                                                             key={`reply-${comment.id}`}
                                                             draft={replyDraft}
-                                                            placeholder={`@${comment.username} icin yanit yaz...`}
-                                                            submitLabel="Yaniti Gonder"
+                                                            placeholder={`@${comment.username} için yanıt yaz...`}
+                                                            submitLabel="Yanıtı Gönder"
                                                             compact
                                                             onDraftChange={(draft) => setReplyDraft({ ...draft, body: keepMentionPrefix(draft.body, replyMention) })}
                                                             onOpenGifPicker={() => {
@@ -1084,192 +1395,16 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                     </div>
                                                 )}
 
-                                                {getReplies(comment.id).length > 0 && expandedReplies[comment.id] && (
-                                                    <div className="mt-4 space-y-3 border-l-2 border-border pl-4">
-                                                        {getReplies(comment.id).map((reply) => {
-                                                            return (
-                                                                <div key={reply.id} className={`relative overflow-hidden rounded-lg transition-all ${reply.isPinned ? 'border border-primary/30 bg-primary/5 p-2' : ''}`}>
-                                                                    <div className="flex gap-2 transition-all duration-300">
-                                                                        <Link to={`/profile/${reply.userId}`} className="shrink-0 transition-transform hover:scale-105">
-                                                                            <Avatar className="h-8 w-8 border border-transparent hover:border-primary transition-colors cursor-pointer text-foreground">
-                                                                                <AvatarImage src={reply.userAvatar} />
-                                                                                <AvatarFallback>{reply.username[0].toUpperCase()}</AvatarFallback>
-                                                                            </Avatar>
-                                                                        </Link>
-                                                                        <div className="flex-1">
-                                                                            <div className="flex items-center justify-between">
-                                                                                <div className="flex items-center gap-2">
-                                                                                    <Link to={`/profile/${reply.userId}`} className="text-sm font-medium hover:text-primary hover:underline transition-colors text-foreground">
-                                                                                        {reply.username}
-                                                                                    </Link>
-                                                                                    {reply.isPinned && (
-                                                                                        <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
-                                                                                            <Pin className="h-3 w-3" />
-                                                                                            Sabit
-                                                                                        </Badge>
-                                                                                    )}
-                                                                                    <span className="text-xs text-muted-foreground">
-                                                                                        {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
-                                                                                        {reply.updatedAt && new Date(reply.updatedAt).getTime() - new Date(reply.createdAt).getTime() > 2000 && ' (düzenlendi)'}
-                                                                                    </span>
-                                                                                </div>
-                                                                                {(user?.id === reply.userId || user?.role === 'admin' || user?.role === 'moderator') && (
-                                                                                    <DropdownMenu>
-                                                                                        <DropdownMenuTrigger asChild>
-                                                                                            <Button variant="ghost" size="icon" className="h-7 w-7">
-                                                                                                <MoreVertical className="h-4 w-4" />
-                                                                                            </Button>
-                                                                                        </DropdownMenuTrigger>
-                                                                                        <DropdownMenuContent align="end">
-                                                                                            {(user?.role === 'admin' || user?.role === 'moderator') && (
-                                                                                                <DropdownMenuItem onClick={() => handleTogglePin(reply)}>
-                                                                                                    <Pin className="mr-2 h-4 w-4" />
-                                                                                                    {reply.isPinned ? 'Sabitlemeyi Kaldir' : 'Sabitle'}
-                                                                                                </DropdownMenuItem>
-                                                                                            )}
-                                                                                            <DropdownMenuItem onClick={() => startEdit(reply)}>
-                                                                                                <Edit2 className="mr-2 h-4 w-4" />
-                                                                                                Düzenle
-                                                                                            </DropdownMenuItem>
-                                                                                            <DropdownMenuItem
-                                                                                                onClick={() => handleDeleteComment(reply.id)}
-                                                                                                className="text-destructive"
-                                                                                            >
-                                                                                                <Trash2 className="mr-2 h-4 w-4" />
-                                                                                                Sil
-                                                                                            </DropdownMenuItem>
-                                                                                        </DropdownMenuContent>
-                                                                                    </DropdownMenu>
-                                                                                )}
-                                                                            </div>
-
-                                                                            {editingId === reply.id ? (
-                                                                                <div className="mt-2">
-                                                                                    <CommentComposer
-                                                                                        key={`edit-${reply.id}`}
-                                                                                        draft={editDraft}
-                                                                                        placeholder="Yorumu duzenle..."
-                                                                                        submitLabel="Kaydet"
-                                                                                        compact
-                                                                                        onDraftChange={(draft) => setEditDraft({ ...draft, body: keepMentionPrefix(draft.body, editMention) })}
-                                                                                        onOpenGifPicker={() => {
-                                                                                            setGifTarget('edit');
-                                                                                            setShowGifPicker(true);
-                                                                                        }}
-                                                                                        onSubmit={() => handleEditComment(reply.id)}
-                                                                                        onCancel={() => {
-                                                                                            setEditingId(null);
-                                                                                            setEditMention(null);
-                                                                                            setEditDraft(createEmptyDraft());
-                                                                                        }}
-                                                                                    />
-                                                                                </div>
-                                                                            ) : (
-                                                                                <div className="space-y-2">
-                                                                                    <p className="text-sm text-foreground/90 leading-relaxed">
-                                                                                        {renderFormattedText(reply.content)}
-                                                                                    </p>
-                                                                                    {(getCommentMediaUrls(reply).length > 0 || reply.gifUrl) && (
-                                                                                        <Button variant="outline" size="sm" onClick={() => toggleMedia(reply.id)}>
-                                                                                            {expandedMedia[reply.id] ? 'Medyayi Gizle' : 'Medyayi Goruntule'}
-                                                                                        </Button>
-                                                                                    )}
-                                                                                    {expandedMedia[reply.id] && getCommentMediaUrls(reply).map((mediaUrl, index) => (
-                                                                                        <img
-                                                                                            key={`${reply.id}-media-${index}`}
-                                                                                            src={mediaUrl}
-                                                                                            alt={`Reply media ${index + 1}`}
-                                                                                            className="max-h-64 rounded-lg mt-2"
-                                                                                            onError={() => markMediaAsFailed(`${reply.id}:media:${index}`)}
-                                                                                        />
-                                                                                    ))}
-                                                                                    {expandedMedia[reply.id] && reply.gifUrl && (
-                                                                                        <img
-                                                                                            src={reply.gifUrl}
-                                                                                            alt="Reply GIF"
-                                                                                            className="max-h-48 rounded-lg mt-2"
-                                                                                            onError={() => markMediaAsFailed(`${reply.id}:gif`)}
-                                                                                        />
-                                                                                    )}
-                                                                                </div>
-                                                                            )}
-
-                                                                            <div className="mt-2 flex flex-wrap items-center gap-2">
-                                                                                <Button variant="ghost" size="sm" onClick={() => handleLike(reply.id)} className={reply.likedBy.includes(user?.id || '') ? 'text-primary' : ''}>
-                                                                                    <ThumbsUp className="mr-1 h-4 w-4" />
-                                                                                    {reply.likes}
-                                                                                </Button>
-                                                                                <Button variant="ghost" size="sm" onClick={() => openReplyComposer(reply)}>
-                                                                                    <Reply className="mr-1 h-4 w-4" />
-                                                                                    Yanitla
-                                                                                </Button>
-                                                                                {user && user.id !== reply.userId && (
-                                                                                    <Button
-                                                                                        variant="ghost"
-                                                                                        size="sm"
-                                                                                        onClick={() => openCommentReport(reply)}
-                                                                                        className="text-muted-foreground hover:text-amber-200"
-                                                                                    >
-                                                                                        <Flag className="mr-1 h-4 w-4" />
-                                                                                        Bildir
-                                                                                    </Button>
-                                                                                )}
-                                                                            </div>
-
-                                                                            {replyingTo === reply.id && user && (
-                                                                                <div className="mt-3">
-                                                                                    <CommentComposer
-                                                                                        key={`reply-${reply.id}`}
-                                                                                        draft={replyDraft}
-                                                                                        placeholder={`@${reply.username} icin yanit yaz...`}
-                                                                                        submitLabel="Yaniti Gonder"
-                                                                                        compact
-                                                                                        onDraftChange={(draft) => setReplyDraft({ ...draft, body: keepMentionPrefix(draft.body, replyMention) })}
-                                                                                        onOpenGifPicker={() => {
-                                                                                            setGifTarget('reply');
-                                                                                            setShowGifPicker(true);
-                                                                                        }}
-                                                                                        onSubmit={() => handleReply(reply.id)}
-                                                                                        onCancel={() => {
-                                                                                            setReplyingTo(null);
-                                                                                            setReplyMention(null);
-                                                                                            setReplyDraft(createEmptyDraft());
-                                                                                        }}
-                                                                                    />
-                                                                                </div>
-                                                                            )}
-
-                                                                            {getReplies(reply.id).length > 0 && (
-                                                                                <div className="mt-3 space-y-3 border-l border-border/60 pl-3">
-                                                                                    {getReplies(reply.id).map((nestedReply) => (
-                                                                                        <div key={nestedReply.id} className="rounded-lg border border-border/60 bg-background/30 p-3">
-                                                                                            <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                                                                                                <span className="font-medium text-foreground">{nestedReply.username}</span>
-                                                                                                <span>{formatDistanceToNow(new Date(nestedReply.createdAt), { addSuffix: true, locale: tr })}</span>
-                                                                                            </div>
-                                                                                            <p className="mt-1 text-sm leading-relaxed">
-                                                                                                {renderFormattedText(nestedReply.content)}
-                                                                                            </p>
-                                                                                            {user && user.id !== nestedReply.userId && (
-                                                                                                <Button
-                                                                                                    variant="ghost"
-                                                                                                    size="sm"
-                                                                                                    onClick={() => openCommentReport(nestedReply)}
-                                                                                                    className="mt-2 h-8 px-2 text-muted-foreground hover:text-amber-200"
-                                                                                                >
-                                                                                                    <Flag className="mr-1 h-4 w-4" />
-                                                                                                    Bildir
-                                                                                                </Button>
-                                                                                            )}
-                                                                                        </div>
-                                                                                    ))}
-                                                                                </div>
-                                                                            )}
-                                                                        </div>
-                                                                    </div>
-                                                                </div>
-                                                            );
-                                                        })}
+                                                {getReplies(comment.id).length > 0 && (
+                                                    <div
+                                                        className={cn(
+                                                            'grid transition-all duration-200 ease-out',
+                                                            expandedReplies[comment.id] ? 'mt-4 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                                        )}
+                                                    >
+                                                        <div className="min-h-0 overflow-hidden">
+                                                            {renderReplyThread(comment.id)}
+                                                        </div>
                                                     </div>
                                                 )}
                                             </div>
@@ -1312,7 +1447,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     <DialogHeader>
                         <DialogTitle>Yorumu Bildir</DialogTitle>
                         <DialogDescription>
-                            Problemli yorumlari buradan admin paneline iletebilirsiniz.
+                            Problemli yorumları buradan admin paneline iletebilirsiniz.
                         </DialogDescription>
                     </DialogHeader>
 
@@ -1320,7 +1455,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                         <div className="rounded-xl border border-border/60 bg-card/60 p-4">
                             <p className="text-sm font-medium">{reportingComment?.username}</p>
                             <p className="mt-2 text-sm text-muted-foreground line-clamp-4">
-                                {reportingComment?.content ? stripCommentFormatting(reportingComment.content) : 'Yorum onizlemesi bulunamadi.'}
+                                {reportingComment?.content ? stripCommentFormatting(reportingComment.content) : 'Yorum önizlemesi bulunamadı.'}
                             </p>
                         </div>
 
@@ -1346,7 +1481,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                             <Textarea
                                 value={reportDetails}
                                 onChange={(event) => setReportDetails(event.target.value)}
-                                placeholder="Isterseniz yoruma dair kisa bir not ekleyin."
+                                placeholder="İsterseniz yoruma dair kısa bir not ekleyin."
                                 className="min-h-[140px]"
                                 maxLength={500}
                             />
@@ -1362,10 +1497,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                 setReportDetails('');
                             }}
                         >
-                            Iptal
+                            İptal
                         </Button>
                         <Button onClick={handleSubmitCommentReport} disabled={isSubmittingReport}>
-                            {isSubmittingReport ? 'Gonderiliyor...' : 'Bildirimi Gonder'}
+                            {isSubmittingReport ? 'Gönderiliyor...' : 'Bildirimi Gönder'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

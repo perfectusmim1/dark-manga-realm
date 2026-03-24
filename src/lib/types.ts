@@ -87,11 +87,22 @@ export interface User {
   avatar?: string;
   role?: 'user' | 'admin' | 'moderator';
   createdAt?: string;
+  isBanned?: boolean;
+  banReason?: string;
+  bannedAt?: string;
   preferences?: {
     notifications: {
       new_chapter: boolean;
       replies: boolean;
       likes: boolean;
+    };
+    comments?: {
+      auto_show_media: boolean;
+      auto_show_gifs: boolean;
+      auto_show_replies: boolean;
+    };
+    privacy?: {
+      visibility: 'public' | 'members' | 'private';
     };
   };
   twoFactorEnabled?: boolean;

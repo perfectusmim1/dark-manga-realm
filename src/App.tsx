@@ -4,9 +4,11 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, matchPath, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 import { initializeMockData } from "@/lib/mockData";
 import { useEffectiveOnlineStatus } from "@/hooks/useEffectiveOnlineStatus";
+import { checkCurrentAccess } from "@/lib/security/deviceIdentity";
+import { useAuth } from "@/contexts/AuthContext";
 
 // Pages
 import ScrollToTop from "./components/layout/ScrollToTop";
@@ -111,6 +113,64 @@ const OfflineStartupRedirect = () => {
   return null;
 };
 
+const AccessGate = ({ children }: { children: React.ReactNode }) => {
+  const { isOnline } = useEffectiveOnlineStatus();
+  const { user, logout } = useAuth();
+  const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
+
+  useEffect(() => {
+    let active = true;
+
+    if (!isOnline) {
+      setBlockedMessage(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    void (async () => {
+      const access = await checkCurrentAccess().catch((error) => {
+        console.error('Access gate check failed:', error);
+        return { allowed: true } as const;
+      });
+
+      if (!active) {
+        return;
+      }
+
+      if (!access.allowed) {
+        if (user) {
+          await logout();
+        }
+
+        setBlockedMessage(access.message || 'Bu cihaz veya bağlantı için site erişimi engellendi.');
+        return;
+      }
+
+      setBlockedMessage(null);
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [isOnline, user?.id, logout]);
+
+  if (blockedMessage) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <div className="container flex min-h-screen max-w-2xl items-center justify-center py-12">
+          <div className="w-full rounded-2xl border border-destructive/30 bg-card/60 p-8 text-center shadow-xl backdrop-blur-sm">
+            <h1 className="text-3xl font-black">Erişim Engellendi</h1>
+            <p className="mt-4 text-muted-foreground">{blockedMessage}</p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -120,9 +180,10 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
-              <OfflineStartupRedirect />
-              <ScrollToTop />
-              <Routes>
+              <AccessGate>
+                <OfflineStartupRedirect />
+                <ScrollToTop />
+                <Routes>
                 {/* Public Routes */}
                 <Route path="/" element={<Index />} />
                 <Route path="/community" element={<Community />} />
@@ -173,8 +234,9 @@ const App = () => (
                 </Route>
 
                 <Route path="*" element={<NotFound />} />
-              </Routes>
-              <DownloadDock />
+                </Routes>
+                <DownloadDock />
+              </AccessGate>
             </BrowserRouter>
           </AppInitializer>
         </SecurityWrapper>

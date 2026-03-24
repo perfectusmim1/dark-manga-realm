@@ -298,7 +298,9 @@ export const deleteChapter = async (mangaId: string, chapterId: string): Promise
     return !error;
 };
 
-export const getLatestChapters = async (limit?: number): Promise<LatestChapterFeedItem[]> => {
+export const getLatestChapters = async (limit?: number, offset: number = 0): Promise<LatestChapterFeedItem[]> => {
+    const end = typeof limit === 'number' ? offset + limit - 1 : undefined;
+
     let query = supabase
         .from('chapters')
         .select(`
@@ -312,8 +314,8 @@ export const getLatestChapters = async (limit?: number): Promise<LatestChapterFe
         `)
         .order('created_at', { ascending: false });
 
-    if (limit) {
-        query = query.limit(limit);
+    if (typeof end === 'number') {
+        query = query.range(offset, end);
     }
 
     const { data, error } = await query;
@@ -591,6 +593,9 @@ const mapAdminDirectoryUser = (user: any): User => ({
     email: user.email || '',
     avatar: user.avatar,
     role: user.role,
+    isBanned: user.is_banned || false,
+    banReason: user.ban_reason || undefined,
+    bannedAt: user.banned_at || undefined,
     createdAt: user.created_at,
 });
 
@@ -604,7 +609,7 @@ export const getAllUsers = async (): Promise<User[]> => {
 
     const { data: fallbackData, error: fallbackError } = await supabase
         .from('users')
-        .select('id, username, avatar, role, created_at')
+        .select('id, username, avatar, role, is_banned, ban_reason, banned_at, created_at')
         .order('created_at', { ascending: false });
 
     if (fallbackError) {
@@ -648,7 +653,7 @@ export const getAdminUsers = async (): Promise<AdminUser[]> => {
 
     const { data: fallbackData, error: fallbackError } = await supabase
         .from('users')
-        .select('id, username, avatar, role, created_at')
+        .select('id, username, avatar, role, is_banned, ban_reason, banned_at, created_at')
         .in('role', ['admin', 'moderator'])
         .order('created_at', { ascending: false });
 
@@ -715,6 +720,39 @@ export const deleteAdminUser = async (adminId: string): Promise<void> => {
 
     if (error) {
         throw error;
+    }
+};
+
+export const banUserAccess = async (userId: string, reason = 'Yönetici tarafından banlandı.'): Promise<void> => {
+    const { data, error } = await supabase.functions.invoke('admin-ban-user', {
+        body: {
+            targetUserId: userId,
+            reason,
+        },
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!data?.success) {
+        throw new Error(data?.message || 'BAN_FAILED');
+    }
+};
+
+export const unbanUserAccess = async (userId: string): Promise<void> => {
+    const { data, error } = await supabase.functions.invoke('admin-unban-user', {
+        body: {
+            targetUserId: userId,
+        },
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!data?.success) {
+        throw new Error(data?.message || 'UNBAN_FAILED');
     }
 };
 
@@ -915,6 +953,7 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
 
     if (error) throw error;
     return {
+        id: data.id,
         mangaId: entityType === 'manga' ? data.manga_id : undefined,
         entityId: entityType !== 'manga' ? data[colName] : undefined,
         entityType,
@@ -931,7 +970,7 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
         gifUrl: comment.gifUrl,
         createdAt: data.created_at,
         updatedAt: data.updated_at,
-        parentId: data.parent_id,
+        parentId: data.parent_id ?? comment.parentId,
         likes: 0,
         likedBy: []
     } as Comment;
@@ -943,6 +982,22 @@ export const updateComment = async (
     entityType: string = 'manga'
 ): Promise<void> => {
     const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
+    const { data: existingComment, error: existingCommentError } = await supabase
+        .from(tableName as any)
+        .select('created_at')
+        .eq('id', id)
+        .single();
+
+    if (existingCommentError) {
+        console.error('Yorum düzenleme ön kontrol hatası:', existingCommentError);
+        throw existingCommentError;
+    }
+
+    const editDeadline = new Date(existingComment.created_at).getTime() + (24 * 60 * 60 * 1000);
+    if (Date.now() > editDeadline) {
+        throw new Error('Yorumlar yalnızca ilk 24 saat içinde düzenlenebilir');
+    }
+
     const { error } = await supabase.from(tableName as any).update({
         content: encodeCommentContent({
             body: payload.content,

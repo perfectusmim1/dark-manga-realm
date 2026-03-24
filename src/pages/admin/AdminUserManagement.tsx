@@ -7,7 +7,9 @@ import {
     UserCircle,
     Mail,
     Calendar,
-    Search
+    Search,
+    ShieldBan,
+    ShieldCheck
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -22,7 +24,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { getAllUsers, deleteUser } from '@/lib/database';
+import { getAllUsers, deleteUser, banUserAccess, unbanUserAccess } from '@/lib/database';
 import { User } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -30,6 +32,8 @@ const AdminUserManagement: React.FC = () => {
     const [users, setUsers] = useState<User[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [deleteId, setDeleteId] = useState<string | null>(null);
+    const [banTarget, setBanTarget] = useState<User | null>(null);
+    const [unbanTarget, setUnbanTarget] = useState<User | null>(null);
 
     useEffect(() => {
         loadUsers();
@@ -50,6 +54,38 @@ const AdminUserManagement: React.FC = () => {
                 toast.error('Kullanıcı silinemedi');
             }
             setDeleteId(null);
+        }
+    };
+
+    const handleBanUser = async () => {
+        if (!banTarget) {
+            return;
+        }
+
+        try {
+            await banUserAccess(banTarget.id);
+            await loadUsers();
+            toast.success('Kullanıcı banlandı');
+        } catch (error: any) {
+            toast.error(error?.message || 'Kullanıcı banlanamadı');
+        } finally {
+            setBanTarget(null);
+        }
+    };
+
+    const handleUnbanUser = async () => {
+        if (!unbanTarget) {
+            return;
+        }
+
+        try {
+            await unbanUserAccess(unbanTarget.id);
+            await loadUsers();
+            toast.success('Ban kaldırıldı');
+        } catch (error: any) {
+            toast.error(error?.message || 'Ban kaldırılamadı');
+        } finally {
+            setUnbanTarget(null);
         }
     };
 
@@ -99,13 +135,14 @@ const AdminUserManagement: React.FC = () => {
                             <tr className="bg-muted/50 border-b border-border">
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Kullanıcı</th>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">E-posta</th>
+                                <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Durum</th>
                                 <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Kayıt Tarihi</th>
                                 <th className="px-6 py-4 text-right text-sm font-semibold text-foreground">İşlemler</th>
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
                             {filteredUsers.map((user) => (
-                                <tr key={user.id} className="hover:bg-secondary/30 transition-colors">
+                                <tr key={user.id} className={`transition-colors ${user.isBanned ? 'bg-destructive/5 hover:bg-destructive/10' : 'hover:bg-secondary/30'}`}>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-3">
                                             {user.avatar ? (
@@ -128,20 +165,61 @@ const AdminUserManagement: React.FC = () => {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
+                                        {user.isBanned ? (
+                                            <div className="space-y-1">
+                                                <Badge variant="destructive" className="gap-1">
+                                                    <ShieldBan className="h-3 w-3" />
+                                                    Banlı
+                                                </Badge>
+                                                {user.banReason && (
+                                                    <p className="max-w-48 truncate text-xs text-muted-foreground">{user.banReason}</p>
+                                                )}
+                                            </div>
+                                        ) : (
+                                            <Badge variant="secondary" className="gap-1">
+                                                <ShieldCheck className="h-3 w-3" />
+                                                Aktif
+                                            </Badge>
+                                        )}
+                                    </td>
+                                    <td className="px-6 py-4">
                                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                             <Calendar className="h-4 w-4" />
                                             {user.createdAt ? formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: tr }) : 'Bilinmiyor'}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4 text-right">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                            onClick={() => setDeleteId(user.id)}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
+                                        <div className="flex items-center justify-end gap-2">
+                                            {user.role === 'user' && (
+                                                user.isBanned ? (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                                                        onClick={() => setUnbanTarget(user)}
+                                                    >
+                                                        Banı Kaldır
+                                                    </Button>
+                                                ) : (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                                                        onClick={() => setBanTarget(user)}
+                                                    >
+                                                        Banla
+                                                    </Button>
+                                                )
+                                            )}
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                                onClick={() => setDeleteId(user.id)}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </div>
                                     </td>
                                 </tr>
                             ))}
@@ -173,6 +251,43 @@ const AdminUserManagement: React.FC = () => {
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
                             Sil
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={!!banTarget} onOpenChange={() => setBanTarget(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Kullanıcıyı Banla</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Bu işlem kullanıcı hesabını, bilinen IP adreslerini ve mevcut cihaz izlerini ban listesine alır. Kullanıcı siteye yeniden giriş yapamaz.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>İptal</AlertDialogCancel>
+                        <AlertDialogAction
+                            onClick={handleBanUser}
+                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                        >
+                            Banla
+                        </AlertDialogAction>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            <AlertDialog open={!!unbanTarget} onOpenChange={() => setUnbanTarget(null)}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Banı Kaldır</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Bu kullanıcının hesap, IP ve cihaz ban kayıtları kaldırılacak.
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel>İptal</AlertDialogCancel>
+                        <AlertDialogAction onClick={handleUnbanUser}>
+                            Banı Kaldır
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

@@ -25,6 +25,7 @@ const STORAGE_KEYS = {
 
 const RELEVANT_STATUSES: OfflineDownloadStatus[] = ['running', 'queued', 'paused', 'failed', 'partial', 'completed'];
 const ACTIVE_STATUSES: OfflineDownloadStatus[] = ['running', 'queued', 'paused'];
+const FINISHED_STATUSES: OfflineDownloadStatus[] = ['completed', 'failed', 'partial', 'cancelled'];
 
 const STATUS_PRIORITY: Record<OfflineDownloadStatus, number> = {
   running: 0,
@@ -94,7 +95,7 @@ const DownloadDock: React.FC = () => {
 
   const primaryJob = relevantJobs[0];
   const hasActiveJobs = relevantJobs.some((job) => ACTIVE_STATUSES.includes(job.status));
-  const hasCompletedJobs = relevantJobs.some((job) => job.status === 'completed');
+  const hasFinishedJobs = relevantJobs.some((job) => FINISHED_STATUSES.includes(job.status));
 
   useEffect(() => {
     setStoredBoolean(STORAGE_KEYS.minimized, isMinimized);
@@ -160,10 +161,17 @@ const DownloadDock: React.FC = () => {
   }
 
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[90] flex max-h-[calc(100vh-6rem)] w-[min(92vw,380px)] max-w-[calc(100vw-1.5rem)] flex-col items-end gap-3 md:bottom-5">
-      {isExpanded && (
-        <div className="pointer-events-auto max-h-[min(42vh,360px)] w-full overflow-y-auto rounded-2xl border border-border/70 bg-card/95 p-4 shadow-2xl shadow-black/35 backdrop-blur-xl md:max-h-[min(48vh,420px)]">
-          <div className="flex items-start justify-between gap-3">
+    <div className="pointer-events-none fixed bottom-5 right-5 z-[90] flex max-h-[calc(100vh-6rem)] w-[min(94vw,460px)] max-w-[calc(100vw-1rem)] flex-col items-end gap-3 md:bottom-5">
+      <div
+        className={cn(
+          'pointer-events-none w-full overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-2xl shadow-black/35 backdrop-blur-xl transition-all duration-200 ease-out',
+          isExpanded
+            ? 'pointer-events-auto max-h-[min(46vh,420px)] translate-y-0 opacity-100 md:max-h-[min(52vh,480px)]'
+            : 'max-h-0 translate-y-2 opacity-0',
+        )}
+      >
+        <div className="max-h-[min(46vh,420px)] overflow-y-auto p-4 md:max-h-[min(52vh,480px)]">
+          <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">
                 Arka Plan İndirmeleri
@@ -173,15 +181,15 @@ const DownloadDock: React.FC = () => {
               </h3>
             </div>
 
-            <div className="flex items-center gap-2">
-              {hasCompletedJobs && (
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {hasFinishedJobs && (
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-8 px-3 text-xs"
                   onClick={() => void handleClearCompleted()}
                 >
-                  Tamamlananları Temizle
+                  Bitenleri Temizle
                 </Button>
               )}
               <Button asChild variant="outline" size="sm">
@@ -210,7 +218,7 @@ const DownloadDock: React.FC = () => {
             {relevantJobs.slice(0, 4).map((job) => (
               <div
                 key={job.id}
-                className="rounded-xl border border-border/60 bg-background/45 p-3"
+                className="rounded-xl border border-border/60 bg-background/45 p-3 transition-all duration-200"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
@@ -259,7 +267,7 @@ const DownloadDock: React.FC = () => {
             ))}
           </div>
         </div>
-      )}
+      </div>
 
       <button
         type="button"

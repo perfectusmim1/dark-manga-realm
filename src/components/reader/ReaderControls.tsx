@@ -17,6 +17,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, Chapter } from '@/lib/types';
+import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import {
   Popover,
   PopoverContent,
@@ -129,7 +130,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 )}
               </span>
               <span className="text-xs text-muted-foreground">
-                Bölüm {currentChapter.number}: {currentChapter.title}
+                {formatChapterDisplayTitle(currentChapter.number, currentChapter.title)}
               </span>
             </div>
           </div>

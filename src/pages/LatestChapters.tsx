@@ -6,35 +6,59 @@ import { BookOpen, Clock } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import { Badge } from '@/components/ui/badge';
+import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
 import { getLatestChapters, LatestChapterFeedItem } from '@/lib/database';
-
-const formatChapterNumber = (value: number) => {
-    if (Number.isInteger(value)) {
-        return value.toString();
-    }
-
-    return value.toFixed(1).replace(/\.0$/, '');
-};
 
 const LatestChapters: React.FC = () => {
     const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>([]);
     const [isLoading, setIsLoading] = React.useState(true);
+    const [isLoadingMore, setIsLoadingMore] = React.useState(false);
+    const [hasMore, setHasMore] = React.useState(true);
+    const loaderRef = React.useRef<HTMLDivElement | null>(null);
+
+    const PAGE_SIZE = 30;
+
+    const loadChapters = React.useCallback(async (offset: number, append: boolean) => {
+        try {
+            if (append) {
+                setIsLoadingMore(true);
+            } else {
+                setIsLoading(true);
+            }
+
+            const data = await getLatestChapters(PAGE_SIZE, offset);
+            setChapters(prev => (append ? [...prev, ...data] : data));
+            setHasMore(data.length === PAGE_SIZE);
+        } catch (error) {
+            console.error('Latest chapters page error:', error);
+        } finally {
+            setIsLoading(false);
+            setIsLoadingMore(false);
+        }
+    }, []);
 
     React.useEffect(() => {
-        const loadChapters = async () => {
-            try {
-                setIsLoading(true);
-                const data = await getLatestChapters();
-                setChapters(data);
-            } catch (error) {
-                console.error('Latest chapters page error:', error);
-            } finally {
-                setIsLoading(false);
-            }
-        };
+        loadChapters(0, false);
+    }, [loadChapters]);
 
-        loadChapters();
-    }, []);
+    React.useEffect(() => {
+        if (!loaderRef.current || !hasMore || isLoading || isLoadingMore) {
+            return;
+        }
+
+        const observer = new IntersectionObserver(
+            (entries) => {
+                if (entries[0]?.isIntersecting) {
+                    loadChapters(chapters.length, true);
+                }
+            },
+            { rootMargin: '320px 0px' }
+        );
+
+        observer.observe(loaderRef.current);
+
+        return () => observer.disconnect();
+    }, [chapters.length, hasMore, isLoading, isLoadingMore, loadChapters]);
 
     if (isLoading) {
         return (
@@ -64,7 +88,7 @@ const LatestChapters: React.FC = () => {
                     </div>
                     <div className="mt-4">
                         <Badge variant="secondary" className="px-3 py-1 text-xs">
-                            {chapters.length} bölüm listeleniyor
+                            {chapters.length} bölüm yüklendi
                         </Badge>
                     </div>
                 </div>
@@ -75,8 +99,8 @@ const LatestChapters: React.FC = () => {
                             <Link
                                 key={chapter.chapterId}
                                 to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
-                                className="group flex items-center gap-3 rounded-2xl border border-border bg-card/40 p-3 transition-all hover:border-primary/40 hover:bg-card"
-                                style={{ animationDelay: `${0.12 + index * 0.02}s`, animationFillMode: 'forwards' }}
+                                className="group animate-fade-up opacity-0 flex items-center gap-3 rounded-2xl border border-border bg-card/40 p-3 transition-all duration-200 hover:border-primary/40 hover:bg-card"
+                                style={{ animationDelay: `${0.08 + index * 0.015}s`, animationFillMode: 'forwards' }}
                             >
                                 <img
                                     src={chapter.mangaCover}
@@ -106,8 +130,8 @@ const LatestChapters: React.FC = () => {
                                                 {chapter.mangaTitle}
                                             </h2>
                                             <p className="mt-1 line-clamp-1 text-sm text-primary">
-                                                Bölüm {formatChapterNumber(chapter.chapterNumber)}
-                                                {chapter.chapterTitle ? ` • ${chapter.chapterTitle}` : ''}
+                                                Bölüm {formatChapterNumberLabel(chapter.chapterNumber)}
+                                                {sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle) ? ` • ${sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle)}` : ''}
                                             </p>
                                         </div>
 
@@ -137,6 +161,29 @@ const LatestChapters: React.FC = () => {
                                 Yeni bölümler eklendikçe burada görünecek.
                             </p>
                         </div>
+                    </div>
+                )}
+
+                {chapters.length > 0 && (
+                    <div ref={loaderRef} className="py-6">
+                        {isLoadingMore ? (
+                            <div className="grid gap-3 xl:grid-cols-2">
+                                {Array.from({ length: 6 }).map((_, index) => (
+                                    <div
+                                        key={`latest-chapter-loader-${index}`}
+                                        className="h-[110px] animate-pulse rounded-2xl border border-border bg-card/40"
+                                    />
+                                ))}
+                            </div>
+                        ) : hasMore ? (
+                            <div className="text-center text-sm text-muted-foreground">
+                                Aşağı kaydırdıkça yeni bölümler yüklenecek
+                            </div>
+                        ) : (
+                            <div className="text-center text-sm text-muted-foreground">
+                                Tüm son bölümler yüklendi
+                            </div>
+                        )}
                     </div>
                 )}
             </main>

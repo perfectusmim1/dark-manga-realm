@@ -45,6 +45,7 @@ import {
     saveArtist,
     getMangaCharacters
 } from '@/lib/database';
+import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { Manga, Chapter, Character, Author, Artist } from '@/lib/types';
 import { allGenres } from '@/lib/mockData';
 import { createNotificationForFollowers } from '@/lib/storage';
@@ -324,6 +325,8 @@ const AdminMangaEditor: React.FC = () => {
                 chapters: manga.chapters || [],
                 lastUpdated: new Date().toISOString(),
                 createdAt: manga.createdAt || new Date().toISOString(),
+                averageRating: manga.averageRating ?? 0,
+                reviewCount: manga.reviewCount ?? 0,
                 releaseYear: manga.releaseYear,
             };
 
@@ -352,7 +355,8 @@ const AdminMangaEditor: React.FC = () => {
             toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
             navigate('/admin/mangas');
         } catch (err) {
-            toast.error('Kaydedilirken bir hata oluştu');
+            const message = err instanceof Error ? err.message : 'Kaydedilirken bir hata oluştu';
+            toast.error(message);
             console.error(err);
         } finally {
             setLoading(false);
@@ -690,7 +694,7 @@ const AdminMangaEditor: React.FC = () => {
                                         className="flex items-center justify-between rounded-lg border border-border p-3"
                                     >
                                         <div>
-                                            <p className="font-medium">Bölüm {chapter.number}: {chapter.title}</p>
+                                            <p className="font-medium">{formatChapterDisplayTitle(chapter.number, chapter.title)}</p>
                                             <p className="text-sm text-muted-foreground">
                                                 {chapter.pages.length} sayfa • {new Date(chapter.releaseDate).toLocaleDateString('tr-TR')}
                                             </p>

@@ -27,12 +27,17 @@ const OverviewCard = ({
     label,
     value,
     accentClassName,
+    index,
 }: {
     label: string;
     value: string;
     accentClassName: string;
+    index: number;
 }) => (
-    <div className="rounded-2xl border border-border bg-card/50 p-5">
+    <div
+        className="animate-fade-up rounded-2xl border border-border bg-card/50 p-5 opacity-0"
+        style={{ animationDelay: `${0.1 + index * 0.03}s`, animationFillMode: 'forwards' }}
+    >
         <p className="text-sm text-muted-foreground">{label}</p>
         <p className={`mt-2 text-2xl font-bold ${accentClassName}`}>{value}</p>
     </div>
@@ -140,7 +145,10 @@ const ReadingTime: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/85">
+                <div
+                    className="mb-6 animate-fade-up flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/85 opacity-0"
+                    style={{ animationDelay: '0.08s', animationFillMode: 'forwards' }}
+                >
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
                     <p>
                         Okuma süresi verileri tahmini olarak hesaplanır. Arka planda açık kalan sekmeler, çevrimdışı kullanım ve bağlantı farkları nedeniyle
@@ -156,14 +164,17 @@ const ReadingTime: React.FC = () => {
                     </div>
                 ) : (
                     <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <OverviewCard label="Bugün" value={formatReadingDuration(overview.todaySeconds)} accentClassName="text-primary" />
-                        <OverviewCard label="Bu Hafta" value={formatReadingDuration(overview.weekSeconds)} accentClassName="text-sky-400" />
-                        <OverviewCard label="Bu Ay" value={formatReadingDuration(overview.monthSeconds)} accentClassName="text-emerald-400" />
-                        <OverviewCard label="Tüm Zaman" value={formatReadingDuration(overview.allTimeSeconds)} accentClassName="text-amber-400" />
+                        <OverviewCard label="Bugün" value={formatReadingDuration(overview.todaySeconds)} accentClassName="text-primary" index={0} />
+                        <OverviewCard label="Bu Hafta" value={formatReadingDuration(overview.weekSeconds)} accentClassName="text-sky-400" index={1} />
+                        <OverviewCard label="Bu Ay" value={formatReadingDuration(overview.monthSeconds)} accentClassName="text-emerald-400" index={2} />
+                        <OverviewCard label="Tüm Zaman" value={formatReadingDuration(overview.allTimeSeconds)} accentClassName="text-amber-400" index={3} />
                     </div>
                 )}
 
-                <div className="mt-8 rounded-3xl border border-border bg-card/35 p-5 md:p-6">
+                <div
+                    className="mt-8 animate-fade-up rounded-3xl border border-border bg-card/35 p-5 opacity-0 md:p-6"
+                    style={{ animationDelay: '0.18s', animationFillMode: 'forwards' }}
+                >
                     <Tabs value={range} onValueChange={(value) => setRange(value as ReadingTimeRange)} className="space-y-6">
                         <TabsList className="h-auto flex-wrap gap-2 rounded-2xl bg-secondary/40 p-1">
                             <TabsTrigger value="today">Bugün</TabsTrigger>
@@ -172,22 +183,22 @@ const ReadingTime: React.FC = () => {
                             <TabsTrigger value="all">Tüm Zaman</TabsTrigger>
                         </TabsList>
 
-                        <div className="grid gap-4 md:grid-cols-3">
-                            <div className="rounded-2xl border border-border bg-background/40 p-4">
+                            <div className="grid gap-4 md:grid-cols-3">
+                            <div className="animate-fade-up rounded-2xl border border-border bg-background/40 p-4 opacity-0" style={{ animationDelay: '0.22s', animationFillMode: 'forwards' }}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <Flame className="h-4 w-4 text-primary" />
                                     <span className="text-sm">Seçili Süre</span>
                                 </div>
                                 <p className="mt-3 text-2xl font-bold">{formatReadingDuration(selectedTotalSeconds)}</p>
                             </div>
-                            <div className="rounded-2xl border border-border bg-background/40 p-4">
+                            <div className="animate-fade-up rounded-2xl border border-border bg-background/40 p-4 opacity-0" style={{ animationDelay: '0.26s', animationFillMode: 'forwards' }}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <CalendarDays className="h-4 w-4 text-sky-400" />
                                     <span className="text-sm">Aktif Gün</span>
                                 </div>
                                 <p className="mt-3 text-2xl font-bold">{timeline.length}</p>
                             </div>
-                            <div className="rounded-2xl border border-border bg-background/40 p-4">
+                            <div className="animate-fade-up rounded-2xl border border-border bg-background/40 p-4 opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <LineChart className="h-4 w-4 text-emerald-400" />
                                     <span className="text-sm">En Yoğun Gün</span>
@@ -206,14 +217,18 @@ const ReadingTime: React.FC = () => {
                             </div>
                         ) : timeline.length > 0 ? (
                             <div className="space-y-4">
-                                {timeline.map((day) => {
+                                {timeline.map((day, index) => {
                                     const width = maxDaySeconds > 0 ? Math.max((day.seconds / maxDaySeconds) * 100, 6) : 0;
                                     const isExpanded = Boolean(expandedDays[day.date]);
                                     const visibleEntries = isExpanded ? day.entries : day.entries.slice(0, 4);
                                     const hiddenCount = Math.max(day.entries.length - 4, 0);
 
                                     return (
-                                        <div key={day.date} className="rounded-2xl border border-border bg-background/40 p-4">
+                                        <div
+                                            key={day.date}
+                                            className="animate-fade-up rounded-2xl border border-border bg-background/40 p-4 opacity-0"
+                                            style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
+                                        >
                                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                                 <div>
                                                     <p className="text-lg font-semibold capitalize">{day.label}</p>
