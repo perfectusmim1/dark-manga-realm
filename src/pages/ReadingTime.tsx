@@ -41,6 +41,7 @@ const OverviewCard = ({
 const ReadingTime: React.FC = () => {
     const { user } = useAuth();
     const [range, setRange] = React.useState<ReadingTimeRange>('week');
+    const [expandedDays, setExpandedDays] = React.useState<Record<string, boolean>>({});
     const [overview, setOverview] = React.useState<ReadingTimeOverview>({
         todaySeconds: 0,
         weekSeconds: 0,
@@ -82,6 +83,7 @@ const ReadingTime: React.FC = () => {
         const loadTimeline = async () => {
             try {
                 setIsTimelineLoading(true);
+                setExpandedDays({});
                 const data = await getReadingTimeTimeline(user.id, range);
                 setTimeline(data);
             } catch (error) {
@@ -198,6 +200,9 @@ const ReadingTime: React.FC = () => {
                             <div className="space-y-4">
                                 {timeline.map((day) => {
                                     const width = maxDaySeconds > 0 ? Math.max((day.seconds / maxDaySeconds) * 100, 6) : 0;
+                                    const isExpanded = Boolean(expandedDays[day.date]);
+                                    const visibleEntries = isExpanded ? day.entries : day.entries.slice(0, 4);
+                                    const hiddenCount = Math.max(day.entries.length - 4, 0);
 
                                     return (
                                         <div key={day.date} className="rounded-2xl border border-border bg-background/40 p-4">
@@ -225,7 +230,7 @@ const ReadingTime: React.FC = () => {
                                             </div>
 
                                             <div className="mt-4 space-y-2">
-                                                {day.entries.slice(0, 4).map((entry) => (
+                                                {visibleEntries.map((entry) => (
                                                     <Link
                                                         key={entry.id}
                                                         to={entry.chapterId ? `/manga/${entry.mangaId}/chapter/${entry.chapterId}` : `/manga/${entry.mangaId}`}
@@ -262,10 +267,14 @@ const ReadingTime: React.FC = () => {
                                                     </Link>
                                                 ))}
 
-                                                {day.entries.length > 4 && (
-                                                    <div className="pl-1 text-xs text-muted-foreground">
-                                                        +{day.entries.length - 4} kayıt daha
-                                                    </div>
+                                                {hiddenCount > 0 && (
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => setExpandedDays((prev) => ({ ...prev, [day.date]: !isExpanded }))}
+                                                        className="pl-1 text-left text-xs font-medium text-primary transition-colors hover:text-primary/80"
+                                                    >
+                                                        {isExpanded ? 'Daha az göster' : `+${hiddenCount} kayıt daha`}
+                                                    </button>
                                                 )}
                                             </div>
                                         </div>

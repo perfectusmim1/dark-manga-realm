@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen } from 'lucide-react';
+import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import TopTenSection from '@/components/manga/TopTenSection';
 import MangaGrid from '@/components/manga/MangaGrid';
@@ -13,6 +13,122 @@ import { getReadingHistory, getLatestProgress } from '@/lib/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import HomeSkeleton from '@/components/skeletons/HomeSkeleton';
 import { Manga, Tag } from '@/lib/types';
+import { AnimatePresence, motion } from 'framer-motion';
+
+interface HorizontalMangaSectionProps {
+  title: string;
+  icon: React.ComponentType<{ className?: string }>;
+  iconClassName: string;
+  linkTo: string;
+  manga: Manga[];
+  delay: string;
+}
+
+const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
+  title,
+  icon: Icon,
+  iconClassName,
+  linkTo,
+  manga,
+  delay,
+}) => {
+  const scrollRef = useRef<HTMLDivElement>(null);
+  const [showLeftArrow, setShowLeftArrow] = useState(false);
+  const [showRightArrow, setShowRightArrow] = useState(false);
+
+  const updateArrows = () => {
+    if (!scrollRef.current) {
+      return;
+    }
+
+    const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+    setShowLeftArrow(scrollLeft > 20);
+    setShowRightArrow(scrollWidth > clientWidth + 20 && scrollLeft < scrollWidth - clientWidth - 20);
+  };
+
+  const scroll = (direction: 'left' | 'right') => {
+    if (!scrollRef.current) {
+      return;
+    }
+
+    const scrollAmount = scrollRef.current.clientWidth * 0.82;
+    scrollRef.current.scrollBy({
+      left: direction === 'left' ? -scrollAmount : scrollAmount,
+      behavior: 'smooth',
+    });
+
+    window.setTimeout(updateArrows, 450);
+  };
+
+  useEffect(() => {
+    updateArrows();
+    window.addEventListener('resize', updateArrows);
+    return () => window.removeEventListener('resize', updateArrows);
+  }, [manga.length]);
+
+  return (
+    <section className="mt-12 animate-fade-up opacity-0" style={{ animationDelay: delay, animationFillMode: 'forwards' }}>
+      <div className="mb-6 flex items-center justify-between">
+        <div className="flex items-center gap-2">
+          <Icon className={iconClassName} />
+          <h2 className="text-xl font-bold tracking-tight md:text-2xl">{title}</h2>
+        </div>
+        <Button asChild variant="ghost" size="sm">
+          <Link to={linkTo}>
+            Tümünü Gör
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </Link>
+        </Button>
+      </div>
+
+      <div className="relative group/carousel">
+        <AnimatePresence>
+          {showLeftArrow && (
+            <motion.button
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => scroll('left')}
+              className="absolute left-0 top-0 bottom-0 z-40 w-12 sm:w-16 bg-black/20 hover:bg-black/60 text-white transition-all duration-300 flex items-center justify-center group/arrow opacity-0 group-hover/carousel:opacity-100"
+              aria-label={`${title} sola kaydır`}
+            >
+              <ChevronLeft className="h-10 w-10 transition-transform duration-300 group-hover/arrow:scale-125 group-active/arrow:scale-90" />
+            </motion.button>
+          )}
+
+          {showRightArrow && (
+            <motion.button
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => scroll('right')}
+              className="absolute right-0 top-0 bottom-0 z-40 w-12 sm:w-16 bg-black/20 hover:bg-black/60 text-white transition-all duration-300 flex items-center justify-center group/arrow opacity-0 group-hover/carousel:opacity-100"
+              aria-label={`${title} sağa kaydır`}
+            >
+              <ChevronRight className="h-10 w-10 transition-transform duration-300 group-hover/arrow:scale-125 group-active/arrow:scale-90" />
+            </motion.button>
+          )}
+        </AnimatePresence>
+
+        <div
+          ref={scrollRef}
+          onScroll={updateArrows}
+          className="flex gap-3 overflow-x-auto px-0 scroll-smooth scrollbar-hide sm:gap-4"
+          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+        >
+          {manga.map((item, index) => (
+            <div
+              key={item.id}
+              className="shrink-0 w-[calc((100%-24px)/3)] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/7)] 2xl:w-[calc((100%-112px)/8)]"
+            >
+              <MangaCard manga={item} index={index} />
+            </div>
+          ))}
+        </div>
+      </div>
+    </section>
+  );
+};
 
 const Index: React.FC = () => {
   const { user } = useAuth();
@@ -150,100 +266,57 @@ const Index: React.FC = () => {
         )}
 
         {/* Newly Added Series Section */}
-        <section className="mt-10 animate-fade-up opacity-0" style={{ animationDelay: '0.18s', animationFillMode: 'forwards' }}>
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Sparkles className="h-5 w-5 text-amber-400" />
-              <h2 className="text-xl font-bold tracking-tight md:text-2xl">Yeni Çıkan Seriler</h2>
-            </div>
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/browse?sort=created">
-                Tümünü Gör
-                <ArrowRight className="ml-1 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
-            {newlyAddedSeries.map((manga, index) => (
-              <MangaCard key={manga.id} manga={manga} index={index} />
-            ))}
-          </div>
-        </section>
+        <HorizontalMangaSection
+          title="Yeni Çıkan Seriler"
+          icon={Sparkles}
+          iconClassName="h-5 w-5 text-amber-400"
+          linkTo="/browse?sort=created"
+          manga={newlyAddedSeries}
+          delay="0.18s"
+        />
 
         {/* Recently Updated Section */}
-        <section className="mt-10 animate-fade-up opacity-0" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
-          <div className="mb-4 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <Clock className="h-5 w-5 text-primary" />
-              <h2 className="text-xl font-bold tracking-tight md:text-2xl">Son Güncellenenler</h2>
-            </div>
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/browse?sort=updated">
-                Tümünü Gör
-                <ArrowRight className="ml-1 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
-            {recentlyUpdated.map((manga, index) => (
-              <MangaCard key={manga.id} manga={manga} index={index} />
-            ))}
-          </div>
-        </section>
+        <HorizontalMangaSection
+          title="Son Güncellenenler"
+          icon={Clock}
+          iconClassName="h-5 w-5 text-primary"
+          linkTo="/browse?sort=updated"
+          manga={recentlyUpdated}
+          delay="0.2s"
+        />
 
         {/* Trending Section */}
-        <section className="mt-12 animate-fade-up opacity-0" style={{ animationDelay: '0.25s', animationFillMode: 'forwards' }}>
-          <div className="mb-6 flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <TrendingUp className="h-5 w-5 text-primary" />
-              <h2 className="text-xl font-bold tracking-tight md:text-2xl">Trend Olanlar</h2>
-            </div>
-            <Button asChild variant="ghost" size="sm">
-              <Link to="/browse?sort=trending">
-                Tümünü Gör
-                <ArrowRight className="ml-1 h-4 w-4" />
-              </Link>
-            </Button>
-          </div>
-          <MangaGrid manga={trendingManga} />
-        </section>
+        <HorizontalMangaSection
+          title="Trend Olanlar"
+          icon={TrendingUp}
+          iconClassName="h-5 w-5 text-primary"
+          linkTo="/browse?sort=trending"
+          manga={trendingManga}
+          delay="0.25s"
+        />
 
         {/* Popular Manhwa Section */}
         {popularManhwa.length > 0 && (
-          <section className="mt-12 animate-fade-up opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
-            <div className="mb-6 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Sparkles className="h-5 w-5 text-purple-500" />
-                <h2 className="text-xl font-bold tracking-tight md:text-2xl">Popüler Manhwa</h2>
-              </div>
-              <Button asChild variant="ghost" size="sm">
-                <Link to="/browse?type=manhwa">
-                  Tümünü Gör
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-            <MangaGrid manga={popularManhwa} />
-          </section>
+          <HorizontalMangaSection
+            title="Popüler Manhwa"
+            icon={Sparkles}
+            iconClassName="h-5 w-5 text-purple-500"
+            linkTo="/browse?type=manhwa"
+            manga={popularManhwa}
+            delay="0.3s"
+          />
         )}
 
         {/* Popular Manhua Section */}
         {popularManhua.length > 0 && (
-          <section className="mt-12 animate-fade-up opacity-0" style={{ animationDelay: '0.35s', animationFillMode: 'forwards' }}>
-            <div className="mb-6 flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <BookOpen className="h-5 w-5 text-green-500" />
-                <h2 className="text-xl font-bold tracking-tight md:text-2xl">Popüler Manhua</h2>
-              </div>
-              <Button asChild variant="ghost" size="sm">
-                <Link to="/browse?type=manhua">
-                  Tümünü Gör
-                  <ArrowRight className="ml-1 h-4 w-4" />
-                </Link>
-              </Button>
-            </div>
-            <MangaGrid manga={popularManhua} />
-          </section>
+          <HorizontalMangaSection
+            title="Popüler Manhua"
+            icon={BookOpen}
+            iconClassName="h-5 w-5 text-green-500"
+            linkTo="/browse?type=manhua"
+            manga={popularManhua}
+            delay="0.35s"
+          />
         )}
 
         {/* Trending Tags Section */}

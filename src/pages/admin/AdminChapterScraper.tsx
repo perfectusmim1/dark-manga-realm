@@ -26,6 +26,7 @@ import {
 } from "@/components/ui/select";
 import { toast } from 'sonner';
 import { getAllMangas, getMangaById, saveManga } from '@/lib/database';
+import { createNotificationForFollowers } from '@/lib/storage';
 import { Manga, Chapter } from '@/lib/types';
 
 interface ScrapedMangaCard {
@@ -255,6 +256,7 @@ const AdminChapterScraper: React.FC = () => {
 
         try {
             const importedChapters: Chapter[] = [...localMangaDetails.chapters];
+            const importedThisRun: Chapter[] = [];
 
             for (let i = 0; i < chaptersToImport.length; i++) {
                 const sc = chaptersToImport[i];
@@ -300,14 +302,17 @@ const AdminChapterScraper: React.FC = () => {
                         }
                     }
 
-                    importedChapters.push({
+                    const importedChapter: Chapter = {
                         id: `chapter-${Date.now()}-${sc.number}`,
                         number: sc.number,
                         title: sc.name,
                         pages: images,
                         releaseDate: new Date().toISOString(),
                         views: 0,
-                    });
+                    };
+
+                    importedChapters.push(importedChapter);
+                    importedThisRun.push(importedChapter);
 
                     toast.info(`Bölüm ${sc.number} yüklendi... (${i + 1}/${chaptersToImport.length})`);
                 } catch (e) {
@@ -323,7 +328,22 @@ const AdminChapterScraper: React.FC = () => {
             };
 
             await saveManga(updatedManga);
-            toast.success(`${chaptersToImport.length} yeni bölüm başarıyla eklendi!`);
+
+            if (importedThisRun.length > 0) {
+                await Promise.all(
+                    importedThisRun.map((chapter) =>
+                        createNotificationForFollowers(
+                            localMangaDetails.id,
+                            localMangaDetails.title,
+                            localMangaDetails.cover,
+                            chapter.id,
+                            chapter.number
+                        )
+                    )
+                );
+            }
+
+            toast.success(`${importedThisRun.length} yeni bölüm başarıyla eklendi!`);
             navigate(`/admin/mangas/${localMangaDetails.id}`);
         } catch (err) {
             toast.error('Güncelleme sırasında bir hata oluştu');

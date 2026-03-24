@@ -1,11 +1,10 @@
 import React, { useState, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
     Megaphone,
     ChevronRight,
-    Info,
-    X,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
@@ -159,9 +158,12 @@ const AnnouncementDropdown: React.FC = () => {
                 </ScrollArea>
                 
                 <div className="p-2 border-t border-border/50 bg-secondary/20">
-                    <p className="text-[10px] text-center text-muted-foreground">
-                        Tüm duyuruları burada görebilirsiniz.
-                    </p>
+                    <Button asChild variant="ghost" className="w-full justify-between text-xs text-muted-foreground hover:text-foreground">
+                        <Link to="/announcements" onClick={() => setIsOpen(false)}>
+                            Tümünü Gör
+                            <ChevronRight className="h-3.5 w-3.5" />
+                        </Link>
+                    </Button>
                 </div>
             </PopoverContent>
         </Popover>

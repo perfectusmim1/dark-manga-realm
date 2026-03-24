@@ -66,12 +66,14 @@
   }
 
   html {
-    scrollbar-gutter: stable;
+    overflow-y: scroll;
+    scrollbar-gutter: stable both-edges;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
+    overflow-y: scroll;
   }
 
   /* Custom scrollbar */

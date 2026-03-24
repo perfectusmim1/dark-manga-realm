@@ -126,6 +126,7 @@ export interface ReaderSettings {
   backgroundColor: 'dark' | 'light' | 'sepia';
   preloadPages: number;
   zoom: number; // 10-300
+  autoScrollSpeed: number; // pixels per second
 }
 
 // Library categories

@@ -59,3 +59,20 @@ export const getReadList = async (userId: string) => {
         
     return { reads: data?.map(r => r.announcement_id) || [], error };
 };
+
+export const markAllAnnouncementsAsRead = async (announcementIds: string[], userId: string) => {
+    if (!announcementIds.length) {
+        return { error: null };
+    }
+
+    const payload = announcementIds.map((announcementId) => ({
+        announcement_id: announcementId,
+        user_id: userId,
+    }));
+
+    const { error } = await supabase
+        .from('announcement_reads')
+        .upsert(payload, { onConflict: 'announcement_id,user_id' });
+
+    return { error };
+};

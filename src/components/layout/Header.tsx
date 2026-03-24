@@ -24,6 +24,7 @@ import {
   Users,
   Book,
   Clock3,
+  Sparkles,
 } from 'lucide-react';
 import { getAllMangas, getCharacters } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
@@ -33,6 +34,13 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 
 import {
   DropdownMenu,
@@ -54,6 +62,11 @@ const Header: React.FC = () => {
   const isAdmin = user?.role === 'admin' || user?.role === 'moderator';
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
+  const [isRandomDialogOpen, setIsRandomDialogOpen] = useState(false);
+  const [isRandomRolling, setIsRandomRolling] = useState(false);
+  const [randomQueue, setRandomQueue] = useState<Manga[]>([]);
+  const [randomSpinIndex, setRandomSpinIndex] = useState(0);
+  const [randomTransitionMs, setRandomTransitionMs] = useState(120);
 
   // Load all mangas for quick search once
   useEffect(() => {
@@ -121,12 +134,81 @@ const Header: React.FC = () => {
     { path: '/community', label: 'Topluluk', icon: Users },
   ];
 
+  useEffect(() => {
+    if (!isRandomRolling || randomQueue.length === 0) {
+      return;
+    }
+
+    let cancelled = false;
+    let timeoutId: number | undefined;
+    let navigateTimeoutId: number | undefined;
+    const lastIndex = randomQueue.length - 1;
+
+    const advance = (step: number) => {
+      if (cancelled) {
+        return;
+      }
+
+      const progress = step / lastIndex;
+      const transitionMs = progress < 0.55 ? 85 : progress < 0.8 ? 140 : 220;
+      const nextDelay = progress < 0.55 ? 95 : progress < 0.8 ? 170 : 280;
+
+      setRandomTransitionMs(transitionMs);
+      setRandomSpinIndex(step);
+
+      if (step >= lastIndex) {
+        navigateTimeoutId = window.setTimeout(() => {
+          if (cancelled) {
+            return;
+          }
+
+          const selectedManga = randomQueue[lastIndex];
+          setIsRandomRolling(false);
+          setIsRandomDialogOpen(false);
+          navigate(`/manga/${selectedManga.id}`);
+        }, 700);
+        return;
+      }
+
+      timeoutId = window.setTimeout(() => advance(step + 1), nextDelay);
+    };
+
+    timeoutId = window.setTimeout(() => advance(1), 120);
+
+    return () => {
+      cancelled = true;
+      if (timeoutId) {
+        window.clearTimeout(timeoutId);
+      }
+      if (navigateTimeoutId) {
+        window.clearTimeout(navigateTimeoutId);
+      }
+    };
+  }, [isRandomRolling, navigate, randomQueue]);
+
+  const buildRandomQueue = (mangas: Manga[]) => {
+    const shuffled = [...mangas].sort(() => Math.random() - 0.5);
+    const selectedManga = shuffled[Math.floor(Math.random() * shuffled.length)];
+    const fillerPool = shuffled.filter((manga) => manga.id !== selectedManga.id);
+    const fillers = Array.from({ length: 10 }).map((_, index) => fillerPool[index % fillerPool.length] || selectedManga);
+
+    return [...fillers, selectedManga];
+  };
+
   const handleRandomManga = async () => {
     try {
-      const mangas = await getAllMangas();
+      if (isRandomRolling) {
+        return;
+      }
+
+      const mangas = allMangas.length > 0 ? allMangas : await getAllMangas();
       if (mangas && mangas.length > 0) {
-        const randomManga = mangas[Math.floor(Math.random() * mangas.length)];
-        navigate(`/manga/${randomManga.id}`);
+        const queue = buildRandomQueue(mangas);
+        setRandomQueue(queue);
+        setRandomSpinIndex(0);
+        setRandomTransitionMs(90);
+        setIsRandomDialogOpen(true);
+        setIsRandomRolling(true);
       }
     } catch(err) {}
   };
@@ -478,6 +560,80 @@ const Header: React.FC = () => {
           </nav>
         </div>
       )}
+
+      <Dialog
+        open={isRandomDialogOpen}
+        onOpenChange={(open) => {
+          if (isRandomRolling) {
+            return;
+          }
+          setIsRandomDialogOpen(open);
+        }}
+      >
+        <DialogContent className="max-w-md overflow-hidden border-primary/20 bg-card/95 p-0 backdrop-blur-xl">
+          <DialogHeader className="border-b border-border/60 px-6 py-5">
+            <div className="flex items-center gap-2 text-primary">
+              <Sparkles className="h-4 w-4" />
+              <span className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Rastgele Seri</span>
+            </div>
+            <DialogTitle className="pt-2 text-2xl font-black tracking-tight">
+              Şansın Kimi Seçecek?
+            </DialogTitle>
+            <DialogDescription>
+              Seri kartları slot gibi akıyor, seçilen manganın üstünde durunca sayfaya geçeceksin.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="relative px-6 py-6">
+            <div className="pointer-events-none absolute inset-x-6 top-6 h-16 rounded-t-3xl bg-gradient-to-b from-card via-card/80 to-transparent z-20" />
+            <div className="pointer-events-none absolute inset-x-6 bottom-6 h-16 rounded-b-3xl bg-gradient-to-t from-card via-card/80 to-transparent z-20" />
+            <div className="pointer-events-none absolute inset-x-7 top-1/2 z-20 h-[96px] -translate-y-1/2 rounded-[26px] border border-primary/30 bg-primary/10 shadow-[0_0_40px_rgba(59,130,246,0.18)]" />
+
+            <div className="h-[312px] overflow-hidden rounded-[28px] border border-border/60 bg-background/70">
+              <div
+                className="px-4 py-[108px]"
+                style={{
+                  transform: `translateY(-${randomSpinIndex * 96}px)`,
+                  transitionProperty: 'transform',
+                  transitionDuration: `${randomTransitionMs}ms`,
+                  transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
+                }}
+              >
+                <div className="space-y-3">
+                  {randomQueue.map((manga, index) => {
+                    const isActive = index === randomSpinIndex;
+
+                    return (
+                      <div
+                        key={`${manga.id}-${index}`}
+                        className={`flex h-[84px] items-center gap-4 rounded-2xl border px-3 transition-all ${isActive ? 'border-primary/50 bg-primary/10 shadow-[0_0_24px_rgba(59,130,246,0.12)]' : 'border-border/50 bg-card/50 opacity-70'}`}
+                      >
+                        <img
+                          src={manga.cover}
+                          alt={manga.title}
+                          className="h-16 w-12 rounded-xl object-cover shadow-md"
+                        />
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-semibold">{manga.title}</p>
+                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                            <span className="uppercase">{manga.type}</span>
+                            <span className="h-1 w-1 rounded-full bg-border" />
+                            <span>{manga.author}</span>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+            </div>
+
+            <p className="pt-4 text-center text-xs text-muted-foreground">
+              {isRandomRolling ? 'Karıştırılıyor...' : 'Seçim tamamlandı, seri açılıyor...'}
+            </p>
+          </div>
+        </DialogContent>
+      </Dialog>
     </header>
   );
 };

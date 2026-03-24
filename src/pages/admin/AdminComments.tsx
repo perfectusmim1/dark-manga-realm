@@ -1,263 +1,365 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
-    Search,
-    Trash2,
+    Loader2,
     MessageSquare,
     Pin,
+    Search,
+    Trash2,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Badge } from '@/components/ui/badge';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
-import { getAllComments, deleteComment, getMangaById, setCommentPinned } from '@/lib/database';
+import { Input } from '@/components/ui/input';
+import { deleteComment, getAdminCommentsPage, getMangaTitlesByIds, setCommentPinned } from '@/lib/database';
 import { Comment } from '@/lib/types';
 import { toast } from 'sonner';
 
+const PAGE_SIZE = 30;
+
 const AdminComments: React.FC = () => {
     const [comments, setComments] = useState<Comment[]>([]);
+    const [searchInput, setSearchInput] = useState('');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedComments, setSelectedComments] = useState<Set<string>>(new Set());
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
     const [mangaCache, setMangaCache] = useState<Record<string, string>>({});
+    const [page, setPage] = useState(0);
+    const [totalComments, setTotalComments] = useState(0);
+    const [hasMore, setHasMore] = useState(true);
+    const [isInitialLoading, setIsInitialLoading] = useState(true);
+    const [isLoadingMore, setIsLoadingMore] = useState(false);
+    const [isRefreshing, setIsRefreshing] = useState(false);
+    const [updatingCommentId, setUpdatingCommentId] = useState<string | null>(null);
+    const loadMoreRef = useRef<HTMLDivElement | null>(null);
 
     useEffect(() => {
-        loadComments();
-    }, []);
+        const timeout = window.setTimeout(() => {
+            setSearchQuery(searchInput.trim());
+            setSelectedComments(new Set());
+        }, 250);
 
-    const loadComments = async () => {
-        const data = await getAllComments();
-        setComments(data);
+        return () => window.clearTimeout(timeout);
+    }, [searchInput]);
 
-        // Load manga titles for unique mangaIds
-        const uniqueMangaIds = [...new Set(data.map(c => c.mangaId))];
-        const newCache = { ...mangaCache };
-        let cacheUpdated = false;
+    useEffect(() => {
+        void loadCommentsPage(0, true);
+    }, [searchQuery]);
 
-        for (const id of uniqueMangaIds) {
-            if (!newCache[id]) {
-                const manga = await getMangaById(id);
-                if (manga) {
-                    newCache[id] = manga.title;
-                    cacheUpdated = true;
-                }
-            }
+    useEffect(() => {
+        if (!hasMore || isInitialLoading || isLoadingMore) {
+            return;
         }
 
-        if (cacheUpdated) setMangaCache(newCache);
+        const target = loadMoreRef.current;
+        if (!target) {
+            return;
+        }
+
+        const observer = new IntersectionObserver((entries) => {
+            const entry = entries[0];
+            if (entry?.isIntersecting) {
+                void loadCommentsPage(page + 1, false);
+            }
+        }, { rootMargin: '300px 0px' });
+
+        observer.observe(target);
+
+        return () => observer.disconnect();
+    }, [hasMore, isInitialLoading, isLoadingMore, page, searchQuery]);
+
+    const mergeComments = (existing: Comment[], incoming: Comment[]) => {
+        const next = [...existing];
+        const knownIds = new Set(existing.map((comment) => comment.id));
+
+        incoming.forEach((comment) => {
+            if (!knownIds.has(comment.id)) {
+                next.push(comment);
+            }
+        });
+
+        return next;
+    };
+
+    const loadCommentsPage = async (targetPage: number, reset: boolean) => {
+        if ((!reset && (isInitialLoading || isLoadingMore || isRefreshing)) || targetPage < 0) {
+            return;
+        }
+
+        if (reset) {
+            setIsInitialLoading(true);
+            setIsRefreshing(true);
+        } else {
+            setIsLoadingMore(true);
+        }
+
+        try {
+            const result = await getAdminCommentsPage(targetPage, PAGE_SIZE, searchQuery);
+            const titles = await getMangaTitlesByIds(result.comments.map((comment) => comment.mangaId || ''));
+
+            setMangaCache((current) => ({ ...current, ...titles }));
+            setComments((current) => reset ? result.comments : mergeComments(current, result.comments));
+            setPage(targetPage);
+            setTotalComments(result.total);
+            setHasMore((targetPage + 1) * PAGE_SIZE < result.total);
+        } catch (error) {
+            console.error('Admin comments load error:', error);
+            toast.error('Yorumlar yüklenemedi');
+        } finally {
+            setIsInitialLoading(false);
+            setIsLoadingMore(false);
+            setIsRefreshing(false);
+        }
+    };
+
+    const refreshComments = async () => {
+        setSelectedComments(new Set());
+        await loadCommentsPage(0, true);
     };
 
     const handleDelete = async (id: string) => {
-        await deleteComment(id);
-        await loadComments();
-        toast.success('Yorum silindi');
-        setDeleteId(null);
+        try {
+            await deleteComment(id);
+            toast.success('Yorum silindi');
+            setDeleteId(null);
+            await refreshComments();
+        } catch (error) {
+            console.error('Delete comment error:', error);
+            toast.error('Yorum silinemedi');
+        }
     };
 
     const handleTogglePin = async (comment: Comment) => {
-        await setCommentPinned(comment.id, !comment.isPinned);
-        await loadComments();
-        toast.success(comment.isPinned ? 'Yorum sabitlemesi kaldırıldı' : 'Yorum sabitlendi');
+        try {
+            setUpdatingCommentId(comment.id);
+            await setCommentPinned(comment.id, !comment.isPinned);
+            toast.success(comment.isPinned ? 'Yorum sabitlemesi kaldırıldı' : 'Yorum sabitlendi');
+            await refreshComments();
+        } catch (error) {
+            console.error('Toggle pin error:', error);
+            toast.error('Yorum güncellenemedi');
+        } finally {
+            setUpdatingCommentId(null);
+        }
     };
 
     const handleBulkDelete = async () => {
-        await Promise.all(Array.from(selectedComments).map(id => deleteComment(id)));
-        setSelectedComments(new Set());
-        await loadComments();
-        toast.success(`${selectedComments.size} yorum silindi`);
-        setBulkDeleteConfirm(false);
+        try {
+            await Promise.all(Array.from(selectedComments).map((id) => deleteComment(id)));
+            toast.success(`${selectedComments.size} yorum silindi`);
+            setBulkDeleteConfirm(false);
+            await refreshComments();
+        } catch (error) {
+            console.error('Bulk delete comments error:', error);
+            toast.error('Toplu silme başarısız oldu');
+        }
     };
 
     const toggleSelect = (id: string) => {
-        const newSelected = new Set(selectedComments);
-        if (newSelected.has(id)) {
-            newSelected.delete(id);
-        } else {
-            newSelected.add(id);
-        }
-        setSelectedComments(newSelected);
+        setSelectedComments((current) => {
+            const next = new Set(current);
+            if (next.has(id)) {
+                next.delete(id);
+            } else {
+                next.add(id);
+            }
+            return next;
+        });
     };
 
-    const selectAll = () => {
-        if (selectedComments.size === filteredComments.length) {
+    const toggleSelectLoaded = () => {
+        const loadedIds = comments.map((comment) => comment.id);
+        const isAllLoadedSelected = loadedIds.length > 0 && loadedIds.every((id) => selectedComments.has(id));
+
+        if (isAllLoadedSelected) {
             setSelectedComments(new Set());
-        } else {
-            setSelectedComments(new Set(filteredComments.map(c => c.id)));
+            return;
         }
+
+        setSelectedComments(new Set(loadedIds));
     };
 
-    const filteredComments = comments.filter(comment => {
-        const query = searchQuery.toLocaleLowerCase('tr-TR');
-        return comment.content.toLocaleLowerCase('tr-TR').includes(query) ||
-            (comment.title || '').toLocaleLowerCase('tr-TR').includes(query) ||
-            comment.username.toLocaleLowerCase('tr-TR').includes(query);
-    });
+    const getMangaTitle = (mangaId?: string) => {
+        if (!mangaId) {
+            return 'Genel yorum';
+        }
 
-    const getMangaTitle = (mangaId: string) => {
         return mangaCache[mangaId] || 'Yükleniyor...';
     };
 
+    const loadedCount = comments.length;
+    const selectedLoadedCount = comments.filter((comment) => selectedComments.has(comment.id)).length;
+    const allLoadedSelected = loadedCount > 0 && selectedLoadedCount === loadedCount;
+    const partiallySelected = selectedLoadedCount > 0 && selectedLoadedCount < loadedCount;
+
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                     <h1 className="text-3xl font-bold">Yorumlar</h1>
-                    <p className="text-muted-foreground">Tüm yorumları yönetin</p>
+                    <p className="text-muted-foreground">Yorumları daha hızlı inceleyip yönetin.</p>
                 </div>
-                {selectedComments.size > 0 && (
-                    <Button
-                        variant="destructive"
-                        onClick={() => setBulkDeleteConfirm(true)}
-                    >
-                        <Trash2 className="mr-2 h-4 w-4" />
-                        {selectedComments.size} Yorum Sil
-                    </Button>
-                )}
-            </div>
 
-            {/* Search */}
-            <div className="flex items-center gap-4">
-                <div className="relative flex-1">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                        placeholder="Yorum veya kullanıcı ara..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-10"
-                    />
+                <div className="flex flex-wrap gap-2">
+                    <Badge variant="outline" className="px-3 py-1">
+                        {totalComments} toplam yorum
+                    </Badge>
+                    <Badge variant="outline" className="px-3 py-1">
+                        {loadedCount} yüklü
+                    </Badge>
+                    {selectedComments.size > 0 && (
+                        <Button variant="destructive" onClick={() => setBulkDeleteConfirm(true)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            {selectedComments.size} Yorum Sil
+                        </Button>
+                    )}
                 </div>
             </div>
 
-            {/* Comments Table */}
-            <div className="rounded-xl border border-border bg-card">
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="border-b border-border border-l-4 border-transparent">
-                                <th className="w-12 px-4 py-3">
-                                    <Checkbox
-                                        checked={selectedComments.size === filteredComments.length && filteredComments.length > 0}
-                                        onCheckedChange={selectAll}
-                                    />
-                                </th>
-                                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Kullanıcı</th>
-                                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Yorum</th>
-                                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Manga</th>
-                                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Tarih</th>
-                                <th className="px-4 py-3 text-right text-sm font-medium text-muted-foreground">İşlemler</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                            {filteredComments.map((comment) => (
-                                <tr
-                                    key={comment.id}
-                                    className={`
-                                        group cursor-pointer select-none transition-all duration-200 border-l-4
-                                        ${selectedComments.has(comment.id)
-                                            ? 'bg-primary/5 border-primary shadow-sm'
-                                            : 'hover:bg-secondary/40 border-transparent'}
-                                    `}
-                                    onClick={() => toggleSelect(comment.id)}
-                                >
-                                    <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
+            <div className="rounded-2xl border border-border bg-card/60 p-4">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="relative flex-1">
+                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                        <Input
+                            placeholder="Yorum veya kullanıcı ara..."
+                            value={searchInput}
+                            onChange={(event) => setSearchInput(event.target.value)}
+                            className="pl-10"
+                        />
+                    </div>
+
+                    <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2 rounded-xl border border-border px-3 py-2">
+                            <Checkbox
+                                checked={allLoadedSelected ? true : partiallySelected ? 'indeterminate' : false}
+                                onCheckedChange={toggleSelectLoaded}
+                            />
+                            <span className="text-sm text-muted-foreground">Yüklüleri seç</span>
+                        </div>
+
+                        <Button variant="outline" onClick={() => void refreshComments()} disabled={isRefreshing}>
+                            {isRefreshing ? 'Yenileniyor...' : 'Yenile'}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+
+            <div className="space-y-3">
+                {isInitialLoading ? (
+                    <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-border bg-card/40">
+                        <div className="text-center">
+                            <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
+                            <p className="mt-3 text-sm text-muted-foreground">Yorumlar yükleniyor...</p>
+                        </div>
+                    </div>
+                ) : comments.length === 0 ? (
+                    <div className="flex min-h-[320px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/40">
+                        <MessageSquare className="h-12 w-12 text-muted-foreground/30" />
+                        <p className="mt-3 text-lg font-medium">Yorum bulunamadı</p>
+                        <p className="mt-1 text-sm text-muted-foreground">Arama filtresini değiştirip tekrar deneyin.</p>
+                    </div>
+                ) : (
+                    comments.map((comment) => (
+                        <div
+                            key={comment.id}
+                            className={`rounded-2xl border bg-card/60 p-4 transition-colors ${selectedComments.has(comment.id) ? 'border-primary/50 bg-primary/5' : 'border-border hover:border-primary/20'}`}
+                        >
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                                <div className="flex gap-4">
+                                    <div className="pt-1">
                                         <Checkbox
                                             checked={selectedComments.has(comment.id)}
                                             onCheckedChange={() => toggleSelect(comment.id)}
                                         />
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <div className="flex items-center gap-2">
-                                            <div className="flex h-8 w-8 items-center justify-center rounded-full bg-primary/10 text-sm font-medium text-primary group-hover:scale-110 transition-transform">
-                                                {comment.username[0].toUpperCase()}
-                                            </div>
-                                            <span className="font-medium">{comment.username}</span>
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-3 max-w-xs">
-                                        {comment.title && (
-                                            <p className="truncate text-xs font-semibold text-primary">{comment.title}</p>
-                                        )}
-                                        <p className="truncate text-sm">{comment.content}</p>
-                                        <div className="flex gap-1 mt-1">
-                                            {comment.gifUrl && (
-                                                <Badge variant="secondary" className="text-[10px] h-4 hover:bg-secondary/70 transition-colors">GIF</Badge>
-                                            )}
-                                            {comment.mediaUrl && (
-                                                <Badge variant="secondary" className="text-[10px] h-4 hover:bg-secondary/70 transition-colors">Medya</Badge>
-                                            )}
-                                            {comment.isSpoiler && (
-                                                <Badge variant="outline" className="text-[10px] h-4 hover:bg-secondary/20 transition-colors">Spoiler</Badge>
-                                            )}
-                                            {comment.parentId && (
-                                                <Badge variant="outline" className="text-[10px] h-4 hover:bg-secondary/20 transition-colors">Yanıt</Badge>
-                                            )}
+                                    </div>
+
+                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-sm font-semibold text-primary">
+                                        {comment.username[0]?.toUpperCase() || '?'}
+                                    </div>
+
+                                    <div className="min-w-0 space-y-3">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <span className="font-semibold">{comment.username}</span>
+                                            <Badge variant="outline">{getMangaTitle(comment.mangaId)}</Badge>
                                             {comment.isPinned && (
-                                                <Badge variant="secondary" className="text-[10px] h-4 bg-primary/15 text-primary hover:bg-primary/20">
+                                                <Badge variant="secondary" className="bg-primary/15 text-primary">
                                                     Sabit
                                                 </Badge>
                                             )}
+                                            {comment.parentId && <Badge variant="outline">Yanıt</Badge>}
+                                            {comment.gifUrl && <Badge variant="secondary">GIF</Badge>}
+                                            {(comment.mediaUrls?.length || comment.mediaUrl) && <Badge variant="secondary">Medya</Badge>}
+                                            {comment.isSpoiler && <Badge variant="outline">Spoiler</Badge>}
                                         </div>
-                                    </td>
-                                    <td className="px-4 py-3 border-r border-transparent">
-                                        <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
-                                            {getMangaTitle(comment.mangaId)}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3">
-                                        <span className="text-sm text-muted-foreground group-hover:text-foreground transition-colors">
-                                            {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
-                                        </span>
-                                    </td>
-                                    <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className={`transition-colors ${comment.isPinned ? 'text-primary hover:bg-primary/10 hover:text-primary' : 'text-muted-foreground hover:text-primary hover:bg-primary/10'}`}
-                                            onClick={() => handleTogglePin(comment)}
-                                        >
+
+                                        <div className="space-y-1">
+                                            {comment.title && (
+                                                <p className="text-sm font-semibold text-primary">{comment.title}</p>
+                                            )}
+                                            <p className="whitespace-pre-wrap break-words text-sm text-foreground/90">
+                                                {comment.content}
+                                            </p>
+                                        </div>
+
+                                        <div className="flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                                            <span>{formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}</span>
+                                            <span>{comment.likes} beğeni</span>
+                                            {comment.chapterId && <span>bölüm yorumu</span>}
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="flex shrink-0 items-center gap-2 lg:pl-4">
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        disabled={updatingCommentId === comment.id}
+                                        className={comment.isPinned ? 'text-primary hover:bg-primary/10 hover:text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}
+                                        onClick={() => void handleTogglePin(comment)}
+                                    >
+                                        {updatingCommentId === comment.id ? (
+                                            <Loader2 className="h-4 w-4 animate-spin" />
+                                        ) : (
                                             <Pin className={`h-4 w-4 ${comment.isPinned ? 'fill-current' : ''}`} />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-muted-foreground hover:text-destructive hover:bg-destructive/10 transition-colors"
-                                            onClick={() => setDeleteId(comment.id)}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                {filteredComments.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-12">
-                        <MessageSquare className="h-12 w-12 text-muted-foreground/50" />
-                        <p className="mt-2 text-muted-foreground">Yorum bulunamadı</p>
-                    </div>
+                                        )}
+                                    </Button>
+                                    <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
+                                        onClick={() => setDeleteId(comment.id)}
+                                    >
+                                        <Trash2 className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </div>
+                        </div>
+                    ))
                 )}
             </div>
 
-            {/* Delete Single Comment Dialog */}
+            {!isInitialLoading && comments.length > 0 && (
+                <div ref={loadMoreRef} className="flex min-h-12 items-center justify-center">
+                    {isLoadingMore ? (
+                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                            Daha fazla yorum yükleniyor...
+                        </div>
+                    ) : hasMore ? (
+                        <span className="text-sm text-muted-foreground">
+                            Aşağı kaydırdıkça yeni yorumlar yüklenecek
+                        </span>
+                    ) : (
+                        <span className="text-sm text-muted-foreground">
+                            Tüm yorumlar yüklendi
+                        </span>
+                    )}
+                </div>
+            )}
+
             <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
@@ -269,7 +371,7 @@ const AdminComments: React.FC = () => {
                     <AlertDialogFooter>
                         <AlertDialogCancel>İptal</AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={() => deleteId && handleDelete(deleteId)}
+                            onClick={() => deleteId && void handleDelete(deleteId)}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
                             Sil
@@ -278,7 +380,6 @@ const AdminComments: React.FC = () => {
                 </AlertDialogContent>
             </AlertDialog>
 
-            {/* Bulk Delete Dialog */}
             <AlertDialog open={bulkDeleteConfirm} onOpenChange={setBulkDeleteConfirm}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
@@ -290,7 +391,7 @@ const AdminComments: React.FC = () => {
                     <AlertDialogFooter>
                         <AlertDialogCancel>İptal</AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={handleBulkDelete}
+                            onClick={() => void handleBulkDelete()}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
                             {selectedComments.size} Yorum Sil

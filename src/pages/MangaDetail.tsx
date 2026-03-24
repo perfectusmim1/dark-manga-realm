@@ -15,6 +15,8 @@ import {
   List,
   Search,
   ShieldAlert,
+  Flag,
+  Clock3,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
@@ -40,7 +42,8 @@ import {
   getUserReview,
   toggleReviewLike,
   getSimilarMangas,
-  getMangaCharacters
+  getMangaCharacters,
+  createMangaReport,
 } from '@/lib/database';
 import { Character } from '@/lib/types';
 import { Trophy, Group } from 'lucide-react';
@@ -81,6 +84,7 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from 'sonner';
 import MangaDetailSkeleton from '@/components/skeletons/MangaDetailSkeleton';
 import TagSection from '@/components/tags/TagSection';
+import { formatReadingDuration, getBlockedUserIds, getMangaReadingTimeTotal } from '@/lib/profile';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -205,6 +209,12 @@ const MangaDetail: React.FC = () => {
   const [currentViewedIndex, setCurrentViewedIndex] = useState(0);
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [revealedBlockedReviews, setRevealedBlockedReviews] = useState<Record<string, boolean>>({});
+  const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
+  const [reportReason, setReportReason] = useState('Yanlis seri bilgisi');
+  const [reportDetails, setReportDetails] = useState('');
+  const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [seriesReadingSeconds, setSeriesReadingSeconds] = useState(0);
+  const [isSeriesReadingTimeLoading, setIsSeriesReadingTimeLoading] = useState(false);
 
   const handlePreviewInView = React.useCallback((idx: number) => {
     setCurrentViewedIndex(idx);
@@ -239,6 +249,14 @@ const MangaDetail: React.FC = () => {
 
   const [isReviewsLoading, setIsReviewsLoading] = useState(true);
   const [isCharsLoading, setIsCharsLoading] = useState(true);
+  const mangaReportReasons = [
+    'Yanlis seri bilgisi',
+    'Kirik veya eksik bolum',
+    'Kapak veya gorsel sorunu',
+    'Yinelenen seri kaydi',
+    'Ceviri veya icerik hatasi',
+    'Diger',
+  ];
 
   useEffect(() => {
     const loadMangaData = async () => {
@@ -248,6 +266,12 @@ const MangaDetail: React.FC = () => {
         setIsLoading(true);
         setIsReviewsLoading(true);
         setIsCharsLoading(true);
+        setIsSeriesReadingTimeLoading(Boolean(user));
+
+        if (!user) {
+          setSeriesReadingSeconds(0);
+          setBlockedUserIds([]);
+        }
 
         // Wave 1: Fetch the most important thing (Manga Metadata)
         const mData = await getMangaById(mangaId);
@@ -272,7 +296,9 @@ const MangaDetail: React.FC = () => {
               getLatestProgress(user.id, mangaId),
               getReviewsForManga(mangaId),
               getUserReview(mangaId, user.id),
-              getFavorites(user.id)
+              getFavorites(user.id),
+              getBlockedUserIds(user.id),
+              getMangaReadingTimeTotal(user.id, mangaId),
             ]) : Promise.all([
               getReviewsForManga(mangaId)
             ])
@@ -281,28 +307,31 @@ const MangaDetail: React.FC = () => {
             setIsCharsLoading(false);
 
             if (user && Array.isArray(uInfo) && uInfo.length > 1) {
-              const [favorited, following, rating, progress, mReviews, uReview, userFavorites] = uInfo;
+              const [favorited, following, rating, progress, mReviews, uReview, userFavorites, blockedUsersResult, mangaReadingTime] = uInfo;
               setFavorite(favorited as boolean);
               setIsFollowing(following as boolean);
               setUserRating(rating as number);
               setLatestProgress(progress);
               setReviews(mReviews as Review[]);
               if (uReview) setUserReview(uReview as Review);
+              setBlockedUserIds((blockedUsersResult as { ids?: string[] })?.ids || []);
+              setSeriesReadingSeconds(Number(mangaReadingTime) || 0);
               
               const favs = userFavorites as Favorite[];
               const thisFav = favs.find((f: any) => f.mangaId === mangaId);
               if (thisFav) setCategory(thisFav.category);
-
-              // Fetch blocked users
-              import('@/lib/profile').then(({ getBlockedUserIds }) => {
-                getBlockedUserIds(user.id).then(({ ids }) => {
-                  if (ids) setBlockedUserIds(ids);
-                });
-              });
             } else if (uInfo && Array.isArray(uInfo)) {
               setReviews(uInfo[0] as Review[]);
+              setSeriesReadingSeconds(0);
             }
+
+            setIsSeriesReadingTimeLoading(false);
             setIsReviewsLoading(false);
+          }).catch((error) => {
+            console.error('Manga detail secondary load error:', error);
+            setIsCharsLoading(false);
+            setIsReviewsLoading(false);
+            setIsSeriesReadingTimeLoading(false);
           });
 
           // Parallel & Non-blocking
@@ -417,6 +446,47 @@ const MangaDetail: React.FC = () => {
       return;
     }
     setIsListModalOpen(true);
+  };
+
+  const openReportDialog = () => {
+    if (!user) {
+      toast.error('Bildirim gondermek icin giris yapmalisiniz');
+      return;
+    }
+
+    setReportReason('Yanlis seri bilgisi');
+    setReportDetails('');
+    setIsReportDialogOpen(true);
+  };
+
+  const handleSubmitReport = async () => {
+    if (!user) {
+      toast.error('Bildirim gondermek icin giris yapmalisiniz');
+      return;
+    }
+
+    if (!reportReason.trim()) {
+      toast.error('Bir neden secmelisiniz');
+      return;
+    }
+
+    try {
+      setIsSubmittingReport(true);
+      await createMangaReport({
+        mangaId: manga.id,
+        reporterId: user.id,
+        reason: reportReason,
+        details: reportDetails,
+      });
+      toast.success('Seri bildirimi admin ekibine iletildi');
+      setIsReportDialogOpen(false);
+      setReportDetails('');
+    } catch (error) {
+      console.error('Manga report submit error:', error);
+      toast.error('Bildirim gonderilemedi');
+    } finally {
+      setIsSubmittingReport(false);
+    }
   };
 
 
@@ -541,15 +611,16 @@ const MangaDetail: React.FC = () => {
 
       <main className="pt-16">
         {/* Hero Section */}
-        <div className="relative">
+        <div className="relative overflow-hidden">
           {/* Background */}
-          <div className="absolute inset-0 h-80">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[30rem] overflow-hidden md:h-[34rem]">
             <img
               src={manga.banner || manga.cover}
               alt=""
-              className="h-full w-full object-cover opacity-20 blur-2xl"
+              className="h-full w-full scale-110 object-cover blur-3xl [mask-image:linear-gradient(to_bottom,rgba(0,0,0,0.98)_0%,rgba(0,0,0,0.88)_48%,rgba(0,0,0,0.55)_72%,transparent_100%)]"
             />
-            <div className="absolute inset-0 bg-gradient-to-b from-background/50 via-background/80 to-background" />
+            <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/72 to-background" />
+            <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-background/60 to-background blur-xl" />
           </div>
 
           {/* Content */}
@@ -636,6 +707,14 @@ const MangaDetail: React.FC = () => {
                     <BookOpen className="h-4 w-4" />
                     <span>{manga.chapters.length} bölüm</span>
                   </div>
+                  {user && (
+                    <div className="flex items-center gap-1 text-red-400">
+                      <Clock3 className="h-4 w-4" />
+                      <span>
+                        Bu seride {isSeriesReadingTimeLoading ? 'yükleniyor...' : formatReadingDuration(seriesReadingSeconds)}
+                      </span>
+                    </div>
+                  )}
                 </div>
 
                 <p className="text-foreground/80 leading-relaxed">{manga.description}</p>
@@ -702,6 +781,16 @@ const MangaDetail: React.FC = () => {
                   >
                     <List className="h-4 w-4 text-primary transition-transform group-hover:scale-110" />
                     Listeye Ekle
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    onClick={openReportDialog}
+                    className="group border-amber-500/30 text-amber-100 hover:border-amber-400/60 hover:bg-amber-500/10"
+                  >
+                    <Flag className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
+                    Bildir
                   </Button>
 
 
@@ -1286,6 +1375,64 @@ const MangaDetail: React.FC = () => {
           </Tabs>
         </div>
       </main>
+
+      <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
+        <DialogContent className="sm:max-w-[560px]">
+          <DialogHeader>
+            <DialogTitle>Seriyi Bildir</DialogTitle>
+            <DialogDescription>
+              Hata, eksik bolum veya yanlis bilgi gibi problemleri buradan admin ekibine iletebilirsiniz.
+            </DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-5 py-2">
+            <div className="rounded-xl border border-border/60 bg-card/60 p-4">
+              <p className="text-sm font-medium">{manga.title}</p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Ayni seri icin tekrar bildirim gonderirseniz son notunuzla guncellenir.
+              </p>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Neden</label>
+              <div className="flex flex-wrap gap-2">
+                {mangaReportReasons.map((reason) => (
+                  <Button
+                    key={reason}
+                    type="button"
+                    variant={reportReason === reason ? 'default' : 'outline'}
+                    size="sm"
+                    onClick={() => setReportReason(reason)}
+                  >
+                    {reason}
+                  </Button>
+                ))}
+              </div>
+            </div>
+
+            <div className="space-y-2">
+              <label className="text-sm font-medium">Detay</label>
+              <Textarea
+                value={reportDetails}
+                onChange={(event) => setReportDetails(event.target.value)}
+                placeholder="Sorunu biraz daha aciklayin. Ornek: 57. bolum sayfalari kirik."
+                className="min-h-[140px]"
+                maxLength={600}
+              />
+              <p className="text-xs text-muted-foreground">{reportDetails.length}/600</p>
+            </div>
+          </div>
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsReportDialogOpen(false)}>
+              Iptal
+            </Button>
+            <Button onClick={handleSubmitReport} disabled={isSubmittingReport}>
+              {isSubmittingReport ? 'Gonderiliyor...' : 'Bildirimi Gonder'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       {user && manga && (
         <ReadingListModal

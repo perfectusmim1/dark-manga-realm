@@ -20,6 +20,7 @@ import LatestChapters from "./pages/LatestChapters";
 import Bookmarks from "./pages/Bookmarks";
 import Library from "./pages/Library";
 import Notifications from "./pages/Notifications";
+import Announcements from "./pages/Announcements";
 import ReadingLists from "./pages/ReadingLists";
 import ReadingTime from "./pages/ReadingTime";
 import ReadingListDetail from "./pages/ReadingListDetail";
@@ -50,6 +51,7 @@ import AdminChapterScraper from "./pages/admin/AdminChapterScraper";
 import AdminEntities from "./pages/admin/AdminEntities";
 import AdminTags from "./pages/admin/AdminTags";
 import AdminAnnouncements from "./pages/admin/AdminAnnouncements";
+import AdminReports from "./pages/admin/AdminReports";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -95,6 +97,7 @@ const App = () => (
                 <Route path="/reading-time" element={<ReadingTime />} />
                 <Route path="/bookmarks" element={<Bookmarks />} />
                 <Route path="/notifications" element={<Notifications />} />
+                <Route path="/announcements" element={<Announcements />} />
                 <Route path="/reading-lists" element={<ReadingLists />} />
                 <Route path="/tier-lists" element={<TierLists />} />
                 <Route path="/tier-lists/create" element={<TierListEditor />} />
@@ -125,6 +128,7 @@ const App = () => (
                   <Route path="entities" element={<AdminEntities />} />
                   <Route path="tags" element={<AdminTags />} />
                   <Route path="announcements" element={<AdminAnnouncements />} />
+                  <Route path="reports" element={<AdminReports />} />
                 </Route>
 
                 <Route path="*" element={<NotFound />} />

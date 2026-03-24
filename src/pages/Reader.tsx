@@ -35,7 +35,11 @@ const Reader: React.FC = () => {
   const [initialized, setInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isIncognito, setIsIncognito] = useState(() => localStorage.getItem('toonparrot_incognito') === 'true');
+  const [isAutoScrolling, setIsAutoScrolling] = useState(false);
   const readingSessionStartedAt = useRef<number | null>(null);
+  const readerContentRef = useRef<HTMLDivElement | null>(null);
+  const autoScrollFrameRef = useRef<number | null>(null);
+  const autoScrollLastTickRef = useRef<number | null>(null);
 
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
@@ -73,6 +77,7 @@ const Reader: React.FC = () => {
     setCurrentPage(1);
     window.scrollTo({ top: 0, behavior: 'instant' });
     viewTracked.current = false;
+    setIsAutoScrolling(false);
   }, [chapterId]);
 
   // Load Manga and Chapter
@@ -199,6 +204,82 @@ const Reader: React.FC = () => {
     setReaderSettings(newSettings);
   }, []);
 
+  const isAutoScrollAvailable = settings.mode !== 'horizontal';
+
+  const handleAutoScrollToggle = useCallback(() => {
+    if (!isAutoScrollAvailable) {
+      toast.info('Otomatik kaydırma yalnızca dikey okuyucuda kullanılabilir.');
+      return;
+    }
+
+    setIsAutoScrolling((prev) => !prev);
+  }, [isAutoScrollAvailable]);
+
+  const handleAutoScrollSpeedChange = useCallback((speed: number) => {
+    handleSettingsChange({
+      ...settings,
+      autoScrollSpeed: speed,
+    });
+  }, [handleSettingsChange, settings]);
+
+  useEffect(() => {
+    if (isAutoScrollAvailable) {
+      return;
+    }
+
+    setIsAutoScrolling(false);
+  }, [isAutoScrollAvailable]);
+
+  useEffect(() => {
+    if (!isAutoScrolling || !isAutoScrollAvailable) {
+      if (autoScrollFrameRef.current !== null) {
+        cancelAnimationFrame(autoScrollFrameRef.current);
+        autoScrollFrameRef.current = null;
+      }
+      autoScrollLastTickRef.current = null;
+      return;
+    }
+
+    const step = (timestamp: number) => {
+      const contentRoot = readerContentRef.current;
+      if (!contentRoot) {
+        setIsAutoScrolling(false);
+        return;
+      }
+
+      if (autoScrollLastTickRef.current === null) {
+        autoScrollLastTickRef.current = timestamp;
+      }
+
+      const elapsed = timestamp - autoScrollLastTickRef.current;
+      autoScrollLastTickRef.current = timestamp;
+
+      const contentBottom = contentRoot.offsetTop + contentRoot.offsetHeight;
+      const maxScrollTop = Math.max(0, contentBottom - window.innerHeight);
+
+      if (window.scrollY >= maxScrollTop - 2) {
+        setIsAutoScrolling(false);
+        toast.info('Bölüm sonuna ulaşıldı, otomatik kaydırma durduruldu.');
+        return;
+      }
+
+      const pixelsPerSecond = settings.autoScrollSpeed || 30;
+      const distance = (pixelsPerSecond * elapsed) / 1000;
+      window.scrollBy({ top: distance, behavior: 'auto' });
+      autoScrollFrameRef.current = requestAnimationFrame(step);
+    };
+
+    autoScrollFrameRef.current = requestAnimationFrame(step);
+
+    return () => {
+      if (autoScrollFrameRef.current !== null) {
+        cancelAnimationFrame(autoScrollFrameRef.current);
+        autoScrollFrameRef.current = null;
+      }
+      autoScrollLastTickRef.current = null;
+    };
+  }, [isAutoScrolling, isAutoScrollAvailable, settings.autoScrollSpeed]);
+
   const isScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
@@ -324,25 +405,32 @@ const Reader: React.FC = () => {
         onPageChange={scrollToPage}
         isIncognito={isIncognito}
         onIncognitoToggle={toggleIncognito}
+        isAutoScrollAvailable={isAutoScrollAvailable}
+        isAutoScrolling={isAutoScrolling}
+        autoScrollSpeed={settings.autoScrollSpeed || 30}
+        onAutoScrollToggle={handleAutoScrollToggle}
+        onAutoScrollSpeedChange={handleAutoScrollSpeedChange}
       />
 
-      {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
-        <VerticalReader
-          key={chapterId}
-          pages={chapter.pages}
-          settings={settings}
-          onPageChange={handlePageChange}
-          initialPage={currentPage}
-        />
-      ) : (
-        <HorizontalReader
-          key={chapterId}
-          pages={chapter.pages}
-          settings={settings}
-          currentPage={currentPage}
-          onPageChange={handlePageChange}
-        />
-      )}
+      <div ref={readerContentRef}>
+        {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
+          <VerticalReader
+            key={chapterId}
+            pages={chapter.pages}
+            settings={settings}
+            onPageChange={handlePageChange}
+            initialPage={currentPage}
+          />
+        ) : (
+          <HorizontalReader
+            key={chapterId}
+            pages={chapter.pages}
+            settings={settings}
+            currentPage={currentPage}
+            onPageChange={handlePageChange}
+          />
+        )}
+      </div>
 
       {/* Scroll controls */}
       <div className={`fixed bottom-24 right-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>

@@ -175,16 +175,31 @@ export const removeBookmark = async (userId: string, id: string): Promise<void> 
 
 // ==================== READER SETTINGS (KEEP LOCAL) ====================
 
+const DEFAULT_READER_SETTINGS: ReaderSettings = {
+    mode: 'vertical',
+    fitWidth: true,
+    showProgress: true,
+    backgroundColor: 'dark',
+    preloadPages: 3,
+    zoom: 100,
+    autoScrollSpeed: 30,
+};
+
 export const getReaderSettings = (): ReaderSettings => {
     const data = localStorage.getItem(STORAGE_KEYS.READER_SETTINGS);
-    return data ? JSON.parse(data) : {
-        mode: 'vertical',
-        fitWidth: true,
-        showProgress: true,
-        backgroundColor: 'dark',
-        preloadPages: 3,
-        zoom: 100,
-    };
+
+    if (!data) {
+        return DEFAULT_READER_SETTINGS;
+    }
+
+    try {
+        return {
+            ...DEFAULT_READER_SETTINGS,
+            ...JSON.parse(data),
+        };
+    } catch {
+        return DEFAULT_READER_SETTINGS;
+    }
 };
 
 export const setReaderSettings = (settings: ReaderSettings): void => {

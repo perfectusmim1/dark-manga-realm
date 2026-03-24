@@ -52,52 +52,20 @@ const Auth: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // 1. First, resolve the actual email if username was provided
-      let loginEmail = formData.emailOrUsername;
-      let twoFactorEnabled = false;
-
-      if (!loginEmail.includes('@')) {
-        const { data: userData } = await supabase
-          .from('users')
-          .select('email, two_factor_enabled')
-          .eq('username', loginEmail)
-          .maybeSingle();
-
-        if (userData) {
-          loginEmail = userData.email;
-          twoFactorEnabled = userData.two_factor_enabled;
-        } else {
-          toast.error('Kullanıcı bulunamadı');
-          setIsLoading(false);
-          return;
-        }
-      } else {
-        const { data: userData } = await supabase
-          .from('users')
-          .select('two_factor_enabled')
-          .eq('email', loginEmail)
-          .maybeSingle();
-
-        if (userData) {
-          twoFactorEnabled = userData.two_factor_enabled;
-        }
-      }
-
-      // 2. Perform regular login
-      const result = await login(loginEmail, formData.password);
+      const result = await login(formData.emailOrUsername, formData.password);
 
       if (result.success) {
-        if (twoFactorEnabled) {
+        if (result.requiresTwoFactor && result.email) {
           // Flag that we are handling 2FA to prevent early redirect
           setIs2FAProcessing(true);
 
           // Sign out current session and request OTP for 2FA
           await supabase.auth.signOut();
-          setOtpEmail(loginEmail);
+          setOtpEmail(result.email);
           setOtpType('email');
 
           const { error: otpError } = await supabase.auth.signInWithOtp({
-            email: loginEmail,
+            email: result.email,
             options: { shouldCreateUser: false }
           });
 

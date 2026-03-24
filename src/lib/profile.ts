@@ -491,6 +491,21 @@ export const getReadingTimeOverview = async (userId: string): Promise<ReadingTim
     });
 };
 
+export const getMangaReadingTimeTotal = async (userId: string, mangaId: string): Promise<number> => {
+    const { data, error } = await supabase
+        .from('reading_activity_log')
+        .select('seconds_spent')
+        .eq('user_id', userId)
+        .eq('manga_id', mangaId);
+
+    if (error) {
+        console.error('Manga reading time total error:', error);
+        return 0;
+    }
+
+    return (data || []).reduce((sum: number, row: any) => sum + clampReadingSeconds(row.seconds_spent || 0), 0);
+};
+
 export const getReadingTimeTimeline = async (userId: string, range: ReadingTimeRange = 'week'): Promise<ReadingTimeDayBucket[]> => {
     let query = supabase
         .from('reading_activity_log')

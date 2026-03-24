@@ -145,12 +145,12 @@ const Community: React.FC = () => {
       if (isInitial) {
         const { count: onlineCount } = await supabase
           .from('users')
-          .select('*', { count: 'exact', head: true })
+          .select('id', { count: 'exact', head: true })
           .gt('last_seen_at', oneMinuteAgo);
           
         const { count: totalCount } = await supabase
           .from('users')
-          .select('*', { count: 'exact', head: true });
+          .select('id', { count: 'exact', head: true });
           
         setUserStats({
           online: onlineCount || 0,

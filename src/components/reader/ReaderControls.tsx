@@ -10,7 +10,10 @@ import {
   List,
   X,
   Eye,
-  EyeOff
+  EyeOff,
+  Play,
+  Pause,
+  Gauge
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, Chapter } from '@/lib/types';
@@ -37,6 +40,11 @@ interface ReaderControlsProps {
   onPageChange?: (page: number, smooth?: boolean) => void;
   isIncognito: boolean;
   onIncognitoToggle: (val: boolean) => void;
+  isAutoScrollAvailable: boolean;
+  isAutoScrolling: boolean;
+  autoScrollSpeed: number;
+  onAutoScrollToggle: () => void;
+  onAutoScrollSpeedChange: (speed: number) => void;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -53,6 +61,11 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   onPageChange,
   isIncognito,
   onIncognitoToggle,
+  isAutoScrollAvailable,
+  isAutoScrolling,
+  autoScrollSpeed,
+  onAutoScrollToggle,
+  onAutoScrollSpeedChange,
 }) => {
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
@@ -297,6 +310,67 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               <span className="text-[10px] font-medium tabular-nums text-primary select-none whitespace-nowrap">
                 %{Math.round(progressPercent)}
               </span>
+
+              {isAutoScrollAvailable && (
+                <div className="flex items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-1 shrink-0">
+                  <Button
+                    variant={isAutoScrolling ? 'default' : 'ghost'}
+                    size="icon"
+                    className="h-7 w-7 rounded-full"
+                    onClick={onAutoScrollToggle}
+                    title={isAutoScrolling ? 'Otomatik kaydırmayı duraklat' : 'Otomatik kaydırmayı başlat'}
+                  >
+                    {isAutoScrolling ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  </Button>
+
+                  <Popover>
+                    <PopoverTrigger asChild>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="h-7 gap-1 rounded-full px-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+                        title="Otomatik kaydırma hızı"
+                      >
+                        <Gauge className="h-3.5 w-3.5" />
+                        {autoScrollSpeed} px/sn
+                      </Button>
+                    </PopoverTrigger>
+                    <PopoverContent align="end" className="w-60">
+                      <div className="space-y-4">
+                        <div className="flex items-center justify-between">
+                          <div>
+                            <p className="text-sm font-semibold">Otomatik Kaydırma</p>
+                            <p className="text-xs text-muted-foreground">
+                              Hızı ayarla, sonra tek tuşla başlat.
+                            </p>
+                          </div>
+                          <Button
+                            variant={isAutoScrolling ? 'default' : 'outline'}
+                            size="sm"
+                            onClick={onAutoScrollToggle}
+                          >
+                            {isAutoScrolling ? 'Duraklat' : 'Başlat'}
+                          </Button>
+                        </div>
+
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                            <Label>Hız</Label>
+                            <span>{autoScrollSpeed} px/sn</span>
+                          </div>
+                          <Slider
+                            value={[autoScrollSpeed]}
+                            min={10}
+                        max={500}
+                            step={5}
+                            onValueChange={([val]) => onAutoScrollSpeedChange(val)}
+                          />
+                        </div>
+                      </div>
+                    </PopoverContent>
+                  </Popover>
+                </div>
+              )}
             </div>
           )}
 

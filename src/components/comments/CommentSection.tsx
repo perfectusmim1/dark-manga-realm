@@ -19,6 +19,7 @@ import {
     EyeOff,
     Link2,
     Pin,
+    Flag,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -35,6 +36,8 @@ import {
 import {
     Dialog,
     DialogContent,
+    DialogDescription,
+    DialogFooter,
     DialogHeader,
     DialogTitle,
 } from '@/components/ui/dialog';
@@ -51,7 +54,8 @@ import {
     getUserEntityReaction,
     addEntityReactionV2,
     addCommentV2,
-    setCommentPinned
+    setCommentPinned,
+    createCommentReport,
 } from '@/lib/database';
 import { commentHasRenderableContent, isValidCommentMediaUrls, stripCommentFormatting } from '@/lib/commentContent';
 import { getBlockedUserIds } from '@/lib/profile';
@@ -335,6 +339,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     const [expandedMedia, setExpandedMedia] = useState<Record<string, boolean>>({});
     const [revealedSpoilers, setRevealedSpoilers] = useState<Record<string, boolean>>({});
     const [mediaLoadErrors, setMediaLoadErrors] = useState<Record<string, boolean>>({});
+    const [reportingComment, setReportingComment] = useState<Comment | null>(null);
+    const [reportReason, setReportReason] = useState('Spam veya alakasiz');
+    const [reportDetails, setReportDetails] = useState('');
+    const [isSubmittingReport, setIsSubmittingReport] = useState(false);
 
     useEffect(() => {
         loadComments();
@@ -390,6 +398,14 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         { type: 'wow', label: 'Oha', emoji: '😲' },
         { type: 'angry', label: 'Sinir Bozucu', emoji: '😡' },
         { type: 'sad', label: 'Uzuldu m', emoji: '😢' },
+    ];
+    const commentReportReasons = [
+        'Spam veya alakasiz',
+        'Hakaret veya nefret',
+        'Spoiler bildirimi',
+        'Yanlis bilgi',
+        'Reklam veya dolandiricilik',
+        'Diger',
     ];
 
     const searchGifs = async (query: string) => {
@@ -512,6 +528,50 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         await setCommentPinned(comment.id, !comment.isPinned, entityType);
         await loadComments();
         toast.success(comment.isPinned ? 'Yorum sabitlemesi kaldirildi' : 'Yorum sabitlendi');
+    };
+
+    const openCommentReport = (comment: Comment) => {
+        if (!user) {
+            toast.error('Yorum bildirmek icin giris yapmalisiniz');
+            return;
+        }
+
+        if (comment.userId === user.id) {
+            toast.error('Kendi yorumunuzu bildiremezsiniz');
+            return;
+        }
+
+        setReportingComment(comment);
+        setReportReason('Spam veya alakasiz');
+        setReportDetails('');
+    };
+
+    const handleSubmitCommentReport = async () => {
+        if (!user || !reportingComment) {
+            toast.error('Bildirim icin once giris yapmalisiniz');
+            return;
+        }
+
+        try {
+            setIsSubmittingReport(true);
+            await createCommentReport({
+                commentId: reportingComment.id,
+                commentEntityType: entityType,
+                targetEntityId: entityId,
+                reporterId: user.id,
+                reportedUserId: reportingComment.userId,
+                reason: reportReason,
+                details: reportDetails,
+            });
+            toast.success('Yorum bildirimi admin ekibine iletildi');
+            setReportingComment(null);
+            setReportDetails('');
+        } catch (error) {
+            console.error('Comment report submit error:', error);
+            toast.error('Yorum bildirimi gonderilemedi');
+        } finally {
+            setIsSubmittingReport(false);
+        }
     };
 
     const handleReply = async (parentId: string) => {
@@ -973,6 +1033,17 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                         <Reply className="mr-1 h-4 w-4" />
                                                         Yanıtla
                                                     </Button>
+                                                    {user && user.id !== comment.userId && (
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => openCommentReport(comment)}
+                                                            className="text-muted-foreground hover:text-amber-200"
+                                                        >
+                                                            <Flag className="mr-1 h-4 w-4" />
+                                                            Bildir
+                                                        </Button>
+                                                    )}
                                                     {getReplies(comment.id).length > 0 && (
                                                         <Button variant="ghost" size="sm" onClick={() => toggleReplies(comment.id)}>
                                                             {expandedReplies[comment.id] ? (
@@ -1132,6 +1203,17 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                                     <Reply className="mr-1 h-4 w-4" />
                                                                                     Yanitla
                                                                                 </Button>
+                                                                                {user && user.id !== reply.userId && (
+                                                                                    <Button
+                                                                                        variant="ghost"
+                                                                                        size="sm"
+                                                                                        onClick={() => openCommentReport(reply)}
+                                                                                        className="text-muted-foreground hover:text-amber-200"
+                                                                                    >
+                                                                                        <Flag className="mr-1 h-4 w-4" />
+                                                                                        Bildir
+                                                                                    </Button>
+                                                                                )}
                                                                             </div>
 
                                                                             {replyingTo === reply.id && user && (
@@ -1168,6 +1250,17 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                                             <p className="mt-1 text-sm leading-relaxed">
                                                                                                 {renderFormattedText(nestedReply.content)}
                                                                                             </p>
+                                                                                            {user && user.id !== nestedReply.userId && (
+                                                                                                <Button
+                                                                                                    variant="ghost"
+                                                                                                    size="sm"
+                                                                                                    onClick={() => openCommentReport(nestedReply)}
+                                                                                                    className="mt-2 h-8 px-2 text-muted-foreground hover:text-amber-200"
+                                                                                                >
+                                                                                                    <Flag className="mr-1 h-4 w-4" />
+                                                                                                    Bildir
+                                                                                                </Button>
+                                                                                            )}
                                                                                         </div>
                                                                                     ))}
                                                                                 </div>
@@ -1208,6 +1301,75 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     </>
                 )}
             </div>
+
+            <Dialog open={Boolean(reportingComment)} onOpenChange={(open) => {
+                if (!open) {
+                    setReportingComment(null);
+                    setReportDetails('');
+                }
+            }}>
+                <DialogContent className="sm:max-w-[560px]">
+                    <DialogHeader>
+                        <DialogTitle>Yorumu Bildir</DialogTitle>
+                        <DialogDescription>
+                            Problemli yorumlari buradan admin paneline iletebilirsiniz.
+                        </DialogDescription>
+                    </DialogHeader>
+
+                    <div className="space-y-5 py-2">
+                        <div className="rounded-xl border border-border/60 bg-card/60 p-4">
+                            <p className="text-sm font-medium">{reportingComment?.username}</p>
+                            <p className="mt-2 text-sm text-muted-foreground line-clamp-4">
+                                {reportingComment?.content ? stripCommentFormatting(reportingComment.content) : 'Yorum onizlemesi bulunamadi.'}
+                            </p>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Neden</label>
+                            <div className="flex flex-wrap gap-2">
+                                {commentReportReasons.map((reason) => (
+                                    <Button
+                                        key={reason}
+                                        type="button"
+                                        variant={reportReason === reason ? 'default' : 'outline'}
+                                        size="sm"
+                                        onClick={() => setReportReason(reason)}
+                                    >
+                                        {reason}
+                                    </Button>
+                                ))}
+                            </div>
+                        </div>
+
+                        <div className="space-y-2">
+                            <label className="text-sm font-medium">Detay</label>
+                            <Textarea
+                                value={reportDetails}
+                                onChange={(event) => setReportDetails(event.target.value)}
+                                placeholder="Isterseniz yoruma dair kisa bir not ekleyin."
+                                className="min-h-[140px]"
+                                maxLength={500}
+                            />
+                            <p className="text-xs text-muted-foreground">{reportDetails.length}/500</p>
+                        </div>
+                    </div>
+
+                    <DialogFooter>
+                        <Button
+                            variant="ghost"
+                            onClick={() => {
+                                setReportingComment(null);
+                                setReportDetails('');
+                            }}
+                        >
+                            Iptal
+                        </Button>
+                        <Button onClick={handleSubmitCommentReport} disabled={isSubmittingReport}>
+                            {isSubmittingReport ? 'Gonderiliyor...' : 'Bildirimi Gonder'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
 
             <Dialog open={showGifPicker} onOpenChange={setShowGifPicker}>
                 <DialogContent className="max-w-2xl">

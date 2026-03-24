@@ -9,7 +9,13 @@ interface AuthContextType {
   supabaseUser: SupabaseUser | null;
   session: Session | null;
   isLoading: boolean;
-  login: (email: string, password: string) => Promise<{ success: boolean; error?: string }>;
+  login: (email: string, password: string) => Promise<{
+    success: boolean;
+    error?: string;
+    email?: string;
+    requiresTwoFactor?: boolean;
+    retryAfterSeconds?: number;
+  }>;
   register: (username: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateProfile: (updates: { username?: string, avatar?: string }) => Promise<{ success: boolean; error?: string }>;
@@ -26,8 +32,18 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+interface UserProfileRow {
+  id: string;
+  username: string;
+  avatar: string | null;
+  role: User['role'];
+  created_at: string;
+  preferences?: User['preferences'];
+  two_factor_enabled?: boolean;
+}
+
 // Convert Supabase user + Profile data to our User type
-const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: any): User => {
+const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileRow | null): User => {
   return {
     id: supabaseUser.id,
     email: supabaseUser.email || '',
@@ -53,7 +69,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
-  const fetchProfile = async (id: string) => {
+  const fetchProfile = async (id: string): Promise<UserProfileRow | null> => {
     // Add a 5s timeout to prevent infinite hangs on DB calls during initialization
     const timeout = new Promise((_, reject) =>
       setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
@@ -62,7 +78,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const fetchReq = supabase
         .from('users')
-        .select('*')
+        .select('id, username, avatar, role, created_at, preferences, two_factor_enabled')
         .eq('id', id)
         .maybeSingle();
 
@@ -79,6 +95,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
+  const syncCurrentAuthProfile = async (currentUser: SupabaseUser): Promise<UserProfileRow | null> => {
+    try {
+      const baseUsername =
+        currentUser.user_metadata?.full_name ||
+        currentUser.user_metadata?.username ||
+        currentUser.email?.split('@')[0] ||
+        'user';
+
+      const { data, error } = await supabase.rpc('sync_current_auth_profile', {
+        p_avatar: currentUser.user_metadata?.avatar_url || null,
+        p_base_username: baseUsername,
+      });
+
+      if (error) {
+        console.error('Profile sync failed:', error);
+        return null;
+      }
+
+      const profileRow = Array.isArray(data) ? data[0] : data;
+      return profileRow || null;
+    } catch (error) {
+      console.error('Profile sync exception:', error);
+      return null;
+    }
+  };
+
   useEffect(() => {
     let mounted = true;
 
@@ -88,83 +130,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       try {
         if (currentSession?.user) {
           let profile = await fetchProfile(currentSession.user.id);
-
-          // 1. If profile doesn't exist by ID, check by Email (Linking strategy)
-          if (!profile && currentSession.user.email && mounted) {
-            console.log('Profile not found by ID, searching by email:', currentSession.user.email);
-            const { data: existingByEmail } = await supabase
-              .from('users')
-              .select('*')
-              .eq('email', currentSession.user.email)
-              .maybeSingle();
-
-            if (existingByEmail) {
-              console.log('Found profile by email, attempting to link IDs...');
-              // If ID is different, we must update it to allow RLS to work
-              const { data: updatedProfile, error: updateError } = await supabase
-                .from('users')
-                .update({ id: currentSession.user.id })
-                .eq('email', currentSession.user.email)
-                .select()
-                .maybeSingle();
-
-              if (!updateError && updatedProfile) {
-                profile = updatedProfile;
-                console.log('Profile linked successfully!');
-              } else {
-                console.warn('Could not link profile (likely RLS policy restriction):', updateError);
-                // Fallback: use existing profile even if ID update failed (for now)
-                profile = existingByEmail;
-              }
-            }
-          }
-
-          // 2. If still no profile, create a new one (First time register)
           if (!profile && mounted) {
-            console.log('No profile found anywhere, creating new one...');
-            let baseUsername = currentSession.user.user_metadata?.full_name ||
-              currentSession.user.user_metadata?.username ||
-              currentSession.user.email?.split('@')[0] ||
-              'user';
-
-            baseUsername = baseUsername.toLowerCase().replace(/\s+/g, '_').replace(/[^a-z0-9_]/g, '').substring(0, 15);
-
-            // Try to insert with username, if conflict, add suffix
-            const { data: newProfile, error: insertError } = await supabase
-              .from('users')
-              .insert([{
-                id: currentSession.user.id,
-                username: baseUsername,
-                email: currentSession.user.email,
-                avatar: currentSession.user.user_metadata?.avatar_url,
-                role: 'user',
-                password_hash: 'oauth_user'
-              }])
-              .select()
-              .maybeSingle();
-
-            if (insertError) {
-              if (insertError.code === '23505') { // Conflict (username or email)
-                const randomSuffix = Math.floor(1000 + Math.random() * 9000);
-                const { data: retryProfile } = await supabase
-                  .from('users')
-                  .insert([{
-                    id: currentSession.user.id,
-                    username: `${baseUsername}${randomSuffix}`,
-                    email: currentSession.user.email,
-                    avatar: currentSession.user.user_metadata?.avatar_url,
-                    role: 'user',
-                    password_hash: 'oauth_user'
-                  }])
-                  .select()
-                  .maybeSingle();
-                profile = retryProfile;
-              } else {
-                console.error('Final insert failed:', insertError);
-              }
-            } else {
-              profile = newProfile;
-            }
+            profile = await syncCurrentAuthProfile(currentSession.user);
           }
 
           if (!mounted) return;
@@ -226,48 +193,58 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, []);
 
-  const login = async (email: string, password: string): Promise<{ success: boolean; error?: string }> => {
+  const login = async (email: string, password: string): Promise<{
+    success: boolean;
+    error?: string;
+    email?: string;
+    requiresTwoFactor?: boolean;
+    retryAfterSeconds?: number;
+  }> => {
     try {
       setIsLoading(true);
 
-      // Supabase auth only works with email, not username
-      let loginEmail = email;
-
-      if (!email.includes('@')) {
-        const { data: userData, error: lookupError } = await supabase
-          .from('users')
-          .select('email')
-          .eq('username', email)
-          .maybeSingle();
-
-        if (lookupError || !userData) {
-          return { success: false, error: 'Kullanıcı bulunamadı' };
-        }
-        loginEmail = userData.email;
-      }
-
-      const { data, error } = await supabase.auth.signInWithPassword({
-        email: loginEmail,
-        password,
+      const identifier = email.trim();
+      const { data, error } = await supabase.functions.invoke('password-login', {
+        body: {
+          identifier,
+          password,
+        },
       });
 
       if (error) {
-        console.error('Login error:', error);
-        if (error.message.includes('Invalid login credentials')) {
-          return { success: false, error: 'E-posta veya şifre hatalı' };
-        }
-        return { success: false, error: error.message };
+        console.error('Login function error:', error);
+        return { success: false, error: 'Giriş sırasında bir hata oluştu' };
       }
 
-      if (data.user) {
-        const profile = await fetchProfile(data.user.id);
-        setSession(data.session);
-        setSupabaseUser(data.user);
-        setUser(mapSupabaseUserToUser(data.user, profile));
-        return { success: true };
+      if (!data?.success || !data?.session?.access_token || !data?.session?.refresh_token) {
+        return {
+          success: false,
+          error: data?.message || 'E-posta/kullanıcı adı veya şifre hatalı',
+          retryAfterSeconds: data?.retryAfterSeconds,
+        };
       }
 
-      return { success: false, error: 'Giriş başarısız' };
+      const { data: sessionData, error: setSessionError } = await supabase.auth.setSession({
+        access_token: data.session.access_token,
+        refresh_token: data.session.refresh_token,
+      });
+
+      if (setSessionError || !sessionData.user || !sessionData.session) {
+        console.error('Session set error:', setSessionError);
+        return { success: false, error: 'Oturum oluşturulamadı' };
+      }
+
+      const profile = (await fetchProfile(sessionData.user.id)) || (await syncCurrentAuthProfile(sessionData.user));
+
+      setSession(sessionData.session);
+      setSupabaseUser(sessionData.user);
+      setUser(mapSupabaseUserToUser(sessionData.user, profile));
+
+      return {
+        success: true,
+        email: sessionData.user.email || undefined,
+        requiresTwoFactor: Boolean(profile?.two_factor_enabled),
+      };
     } catch (error: any) {
       console.error('Login error:', error);
       return { success: false, error: error.message || 'Bir hata oluştu' };

@@ -23,7 +23,45 @@ export interface LikedReadingListPreview extends ReadingList {
     likedAt: string;
 }
 
-const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
+export type ReportStatus = 'open' | 'reviewed' | 'resolved' | 'dismissed';
+
+export interface MangaReport {
+    id: string;
+    mangaId: string;
+    mangaTitle: string;
+    mangaCover?: string;
+    reporterId: string;
+    reporterUsername?: string;
+    reason: string;
+    details?: string;
+    status: ReportStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface CommentReport {
+    id: string;
+    commentId: string;
+    commentEntityType: 'manga' | 'character' | 'author' | 'artist';
+    targetEntityId: string;
+    targetTitle?: string;
+    reporterId: string;
+    reporterUsername?: string;
+    reportedUserId: string;
+    reportedUsername?: string;
+    commentPreview?: string;
+    commentCreatedAt?: string;
+    reason: string;
+    details?: string;
+    status: ReportStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export interface AdminCommentsPage {
+    comments: Comment[];
+    total: number;
+}
 
 // ==================== MANGA OPERATIONS ====================
 
@@ -547,14 +585,19 @@ export const searchMangas = async (query: string): Promise<Manga[]> => {
 
 // ==================== USER OPERATIONS ====================
 
+const mapAdminDirectoryUser = (user: any): User => ({
+    id: user.id,
+    username: user.username,
+    email: user.email,
+    avatar: user.avatar,
+    role: user.role,
+    createdAt: user.created_at,
+});
+
 export const getAllUsers = async (): Promise<User[]> => {
-    const { data, error } = await supabase.from('users').select('*');
+    const { data, error } = await supabase.rpc('get_admin_user_directory');
     if (error) return [];
-    return data.map(u => ({
-        ...u,
-        createdAt: u.created_at,
-        avatar: u.avatar
-    })) as User[];
+    return (data || []).map(mapAdminDirectoryUser);
 };
 
 export const saveUser = async (user: User): Promise<void> => {
@@ -579,17 +622,12 @@ export const deleteUser = async (userId: string): Promise<void> => {
 export type AdminUser = User; // Reuse User type for now
 
 export const getAdminUsers = async (): Promise<AdminUser[]> => {
-    const { data, error } = await supabase
-        .from('users')
-        .select('*')
-        .in('role', ['admin', 'moderator']);
+    const { data, error } = await supabase.rpc('get_admin_user_directory');
     if (error) return [];
 
-    return data.map(u => ({
-        ...u,
-        createdAt: u.created_at,
-        avatar: u.avatar
-    })) as AdminUser[];
+    return (data || [])
+        .filter((user: any) => ['admin', 'moderator'].includes(user.role))
+        .map(mapAdminDirectoryUser) as AdminUser[];
 };
 
 export const addAdminUser = async (admin: any): Promise<void> => {
@@ -603,7 +641,7 @@ export const addAdminUser = async (admin: any): Promise<void> => {
 
     const { data: targetUser, error: targetUserError } = await supabase
         .from('users')
-        .select('id, email, role')
+        .select('id, role')
         .eq('id', admin.userId)
         .single();
 
@@ -628,7 +666,7 @@ export const addAdminUser = async (admin: any): Promise<void> => {
 export const deleteAdminUser = async (adminId: string): Promise<void> => {
     const { data: staffUser, error: staffError } = await supabase
         .from('users')
-        .select('id, email, role')
+        .select('id, role')
         .eq('id', adminId)
         .single();
 
@@ -636,7 +674,7 @@ export const deleteAdminUser = async (adminId: string): Promise<void> => {
         throw staffError || new Error('STAFF_NOT_FOUND');
     }
 
-    if (staffUser.role === 'admin' || staffUser.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL) {
+    if (staffUser.role === 'admin') {
         throw new Error('PRIMARY_ADMIN_PROTECTED');
     }
 
@@ -660,7 +698,7 @@ export const authenticateAdmin = async (email: string, password: string): Promis
 
     const { data: userData, error: userError } = await supabase
         .from('users')
-        .select('*')
+        .select('id, username, avatar, role, created_at')
         .eq('id', authData.user.id)
         .in('role', ['admin', 'moderator'])
         .single();
@@ -673,7 +711,8 @@ export const authenticateAdmin = async (email: string, password: string): Promis
     return {
         ...userData,
         createdAt: userData.created_at,
-        avatar: userData.avatar
+        avatar: userData.avatar,
+        email: authData.user.email || '',
     } as User;
 };
 
@@ -683,7 +722,7 @@ export const getStatistics = async () => {
     const { count: mangaCount } = await supabase.from('mangas').select('*', { count: 'exact', head: true });
     const { count: chapterCount } = await supabase.from('chapters').select('*', { count: 'exact', head: true });
     const { count: commentCount } = await supabase.from('comments').select('*', { count: 'exact', head: true });
-    const { count: userCount } = await supabase.from('users').select('*', { count: 'exact', head: true });
+    const { count: userCount } = await supabase.from('users').select('id', { count: 'exact', head: true });
 
     const { data: mangaData } = await supabase.from('mangas').select('type, status, views');
 
@@ -946,6 +985,90 @@ export const getAllComments = async (): Promise<Comment[]> => {
     }) as Comment[];
 };
 
+export const getAdminCommentsPage = async (
+    page: number,
+    pageSize: number = 30,
+    searchQuery: string = '',
+): Promise<AdminCommentsPage> => {
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+    const normalizedQuery = searchQuery.trim();
+
+    let query = supabase
+        .from('comments')
+        .select(`
+            *,
+            likes_count:comment_likes(count)
+        `, { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+    if (normalizedQuery) {
+        query = query.or(`content.ilike.%${normalizedQuery}%,username.ilike.%${normalizedQuery}%`);
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) {
+        console.error('Admin comments page fetch error:', error);
+        return { comments: [], total: 0 };
+    }
+
+    const comments = (data || []).map((c: any) => {
+        const parsedContent = parseCommentContent(c.content || '');
+
+        return {
+            id: c.id,
+            mangaId: c.manga_id,
+            chapterId: c.chapter_id,
+            userId: c.user_id,
+            username: c.username,
+            userAvatar: c.user_avatar,
+            content: parsedContent.body,
+            title: parsedContent.title,
+            textColor: parsedContent.textColor,
+            mediaUrl: parsedContent.mediaUrl,
+            mediaUrls: parsedContent.mediaUrls,
+            isSpoiler: parsedContent.isSpoiler,
+            gifUrl: c.gif_url,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at,
+            parentId: c.parent_id,
+            likes: c.likes_count?.[0]?.count || 0,
+            likedBy: [],
+            isPinned: Boolean(c.is_pinned),
+        };
+    }) as Comment[];
+
+    return {
+        comments,
+        total: count || 0,
+    };
+};
+
+export const getMangaTitlesByIds = async (mangaIds: string[]): Promise<Record<string, string>> => {
+    const uniqueIds = [...new Set(mangaIds.filter(Boolean))];
+
+    if (uniqueIds.length === 0) {
+        return {};
+    }
+
+    const { data, error } = await supabase
+        .from('mangas')
+        .select('id, title')
+        .in('id', uniqueIds);
+
+    if (error) {
+        console.error('Manga title batch fetch error:', error);
+        return {};
+    }
+
+    return (data || []).reduce((acc, manga: any) => {
+        acc[manga.id] = manga.title;
+        return acc;
+    }, {} as Record<string, string>);
+};
+
 export const setCommentPinned = async (id: string, isPinned: boolean, entityType: string = 'manga'): Promise<void> => {
     const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
     const { error } = await supabase
@@ -955,6 +1078,249 @@ export const setCommentPinned = async (id: string, isPinned: boolean, entityType
 
     if (error) {
         console.error('Yorum sabitleme hatası:', error);
+        throw error;
+    }
+};
+
+// ==================== REPORT OPERATIONS ====================
+
+export const createMangaReport = async (payload: {
+    mangaId: string;
+    reporterId: string;
+    reason: string;
+    details?: string;
+}): Promise<void> => {
+    const { error } = await supabase
+        .from('manga_reports')
+        .upsert({
+            manga_id: payload.mangaId,
+            reporter_id: payload.reporterId,
+            reason: payload.reason.trim(),
+            details: payload.details?.trim() || null,
+            status: 'open',
+            updated_at: new Date().toISOString(),
+        }, {
+            onConflict: 'reporter_id,manga_id',
+        });
+
+    if (error) {
+        console.error('Manga report create error:', error);
+        throw error;
+    }
+};
+
+export const createCommentReport = async (payload: {
+    commentId: string;
+    commentEntityType: 'manga' | 'character' | 'author' | 'artist';
+    targetEntityId: string;
+    reporterId: string;
+    reportedUserId: string;
+    reason: string;
+    details?: string;
+}): Promise<void> => {
+    const { error } = await supabase
+        .from('comment_reports')
+        .upsert({
+            comment_id: payload.commentId,
+            comment_entity_type: payload.commentEntityType,
+            target_entity_id: payload.targetEntityId,
+            reporter_id: payload.reporterId,
+            reported_user_id: payload.reportedUserId,
+            reason: payload.reason.trim(),
+            details: payload.details?.trim() || null,
+            status: 'open',
+            updated_at: new Date().toISOString(),
+        }, {
+            onConflict: 'reporter_id,comment_entity_type,comment_id',
+        });
+
+    if (error) {
+        console.error('Comment report create error:', error);
+        throw error;
+    }
+};
+
+export const getMangaReports = async (): Promise<MangaReport[]> => {
+    const { data, error } = await supabase
+        .from('manga_reports')
+        .select('id, manga_id, reporter_id, reason, details, status, created_at, updated_at')
+        .order('created_at', { ascending: false });
+
+    if (error || !data) {
+        if (error) {
+            console.error('Manga reports fetch error:', error);
+        }
+        return [];
+    }
+
+    const mangaIds = [...new Set(data.map((report: any) => report.manga_id).filter(Boolean))];
+    const reporterIds = [...new Set(data.map((report: any) => report.reporter_id).filter(Boolean))];
+
+    const [{ data: mangasData }, { data: reportersData }] = await Promise.all([
+        mangaIds.length
+            ? supabase.from('mangas').select('id, title, cover').in('id', mangaIds)
+            : Promise.resolve({ data: [] as any[] }),
+        reporterIds.length
+            ? supabase.from('users').select('id, username').in('id', reporterIds)
+            : Promise.resolve({ data: [] as any[] }),
+    ]);
+
+    const mangaMap = new Map((mangasData || []).map((manga: any) => [manga.id, manga]));
+    const reporterMap = new Map((reportersData || []).map((user: any) => [user.id, user.username]));
+
+    return data.map((report: any) => {
+        const manga = mangaMap.get(report.manga_id);
+
+        return {
+            id: report.id,
+            mangaId: report.manga_id,
+            mangaTitle: manga?.title || 'Bilinmeyen seri',
+            mangaCover: manga?.cover,
+            reporterId: report.reporter_id,
+            reporterUsername: reporterMap.get(report.reporter_id),
+            reason: report.reason,
+            details: report.details || undefined,
+            status: report.status as ReportStatus,
+            createdAt: report.created_at,
+            updatedAt: report.updated_at,
+        };
+    });
+};
+
+export const getCommentReports = async (): Promise<CommentReport[]> => {
+    const { data, error } = await supabase
+        .from('comment_reports')
+        .select('id, comment_id, comment_entity_type, target_entity_id, reporter_id, reported_user_id, reason, details, status, created_at, updated_at')
+        .order('created_at', { ascending: false });
+
+    if (error || !data) {
+        if (error) {
+            console.error('Comment reports fetch error:', error);
+        }
+        return [];
+    }
+
+    const reporterIds = [...new Set(data.flatMap((report: any) => [report.reporter_id, report.reported_user_id]).filter(Boolean))];
+    const [{ data: usersData }] = await Promise.all([
+        reporterIds.length
+            ? supabase.from('users').select('id, username').in('id', reporterIds)
+            : Promise.resolve({ data: [] as any[] }),
+    ]);
+    const userMap = new Map((usersData || []).map((user: any) => [user.id, user.username]));
+
+    const groupedIds = {
+        manga: data.filter((report: any) => report.comment_entity_type === 'manga').map((report: any) => report.comment_id),
+        character: data.filter((report: any) => report.comment_entity_type === 'character').map((report: any) => report.comment_id),
+        author: data.filter((report: any) => report.comment_entity_type === 'author').map((report: any) => report.comment_id),
+        artist: data.filter((report: any) => report.comment_entity_type === 'artist').map((report: any) => report.comment_id),
+    };
+
+    const [
+        { data: mangaCommentsData },
+        { data: characterCommentsData },
+        { data: authorCommentsData },
+        { data: artistCommentsData },
+    ] = await Promise.all([
+        groupedIds.manga.length
+            ? supabase.from('comments').select('id, manga_id, user_id, username, content, created_at').in('id', groupedIds.manga)
+            : Promise.resolve({ data: [] as any[] }),
+        groupedIds.character.length
+            ? supabase.from('character_comments').select('id, character_id, user_id, username, content, created_at').in('id', groupedIds.character)
+            : Promise.resolve({ data: [] as any[] }),
+        groupedIds.author.length
+            ? supabase.from('author_comments').select('id, author_id, user_id, username, content, created_at').in('id', groupedIds.author)
+            : Promise.resolve({ data: [] as any[] }),
+        groupedIds.artist.length
+            ? supabase.from('artist_comments').select('id, artist_id, user_id, username, content, created_at').in('id', groupedIds.artist)
+            : Promise.resolve({ data: [] as any[] }),
+    ]);
+
+    const commentMap = new Map<string, any>();
+    (mangaCommentsData || []).forEach((comment: any) => commentMap.set(`manga:${comment.id}`, comment));
+    (characterCommentsData || []).forEach((comment: any) => commentMap.set(`character:${comment.id}`, comment));
+    (authorCommentsData || []).forEach((comment: any) => commentMap.set(`author:${comment.id}`, comment));
+    (artistCommentsData || []).forEach((comment: any) => commentMap.set(`artist:${comment.id}`, comment));
+
+    const targetIds = {
+        manga: [...new Set(data.filter((report: any) => report.comment_entity_type === 'manga').map((report: any) => report.target_entity_id).filter(Boolean))],
+        character: [...new Set(data.filter((report: any) => report.comment_entity_type === 'character').map((report: any) => report.target_entity_id).filter(Boolean))],
+        author: [...new Set(data.filter((report: any) => report.comment_entity_type === 'author').map((report: any) => report.target_entity_id).filter(Boolean))],
+        artist: [...new Set(data.filter((report: any) => report.comment_entity_type === 'artist').map((report: any) => report.target_entity_id).filter(Boolean))],
+    };
+
+    const [
+        { data: mangaTargetsData },
+        { data: characterTargetsData },
+        { data: authorTargetsData },
+        { data: artistTargetsData },
+    ] = await Promise.all([
+        targetIds.manga.length
+            ? supabase.from('mangas').select('id, title').in('id', targetIds.manga)
+            : Promise.resolve({ data: [] as any[] }),
+        targetIds.character.length
+            ? supabase.from('characters').select('id, name').in('id', targetIds.character)
+            : Promise.resolve({ data: [] as any[] }),
+        targetIds.author.length
+            ? supabase.from('authors').select('id, name').in('id', targetIds.author)
+            : Promise.resolve({ data: [] as any[] }),
+        targetIds.artist.length
+            ? supabase.from('artists').select('id, name').in('id', targetIds.artist)
+            : Promise.resolve({ data: [] as any[] }),
+    ]);
+
+    const targetTitleMap = new Map<string, string>();
+    (mangaTargetsData || []).forEach((target: any) => targetTitleMap.set(`manga:${target.id}`, target.title));
+    (characterTargetsData || []).forEach((target: any) => targetTitleMap.set(`character:${target.id}`, target.name));
+    (authorTargetsData || []).forEach((target: any) => targetTitleMap.set(`author:${target.id}`, target.name));
+    (artistTargetsData || []).forEach((target: any) => targetTitleMap.set(`artist:${target.id}`, target.name));
+
+    return data.map((report: any) => {
+        const commentKey = `${report.comment_entity_type}:${report.comment_id}`;
+        const targetKey = `${report.comment_entity_type}:${report.target_entity_id}`;
+        const comment = commentMap.get(commentKey);
+        const parsedContent = comment?.content ? parseCommentContent(comment.content) : null;
+
+        return {
+            id: report.id,
+            commentId: report.comment_id,
+            commentEntityType: report.comment_entity_type,
+            targetEntityId: report.target_entity_id,
+            targetTitle: targetTitleMap.get(targetKey) || 'Bilinmeyen hedef',
+            reporterId: report.reporter_id,
+            reporterUsername: userMap.get(report.reporter_id),
+            reportedUserId: report.reported_user_id,
+            reportedUsername: comment?.username || userMap.get(report.reported_user_id),
+            commentPreview: parsedContent?.body || undefined,
+            commentCreatedAt: comment?.created_at,
+            reason: report.reason,
+            details: report.details || undefined,
+            status: report.status as ReportStatus,
+            createdAt: report.created_at,
+            updatedAt: report.updated_at,
+        };
+    });
+};
+
+export const updateMangaReportStatus = async (id: string, status: ReportStatus): Promise<void> => {
+    const { error } = await supabase
+        .from('manga_reports')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (error) {
+        console.error('Manga report status update error:', error);
+        throw error;
+    }
+};
+
+export const updateCommentReportStatus = async (id: string, status: ReportStatus): Promise<void> => {
+    const { error } = await supabase
+        .from('comment_reports')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (error) {
+        console.error('Comment report status update error:', error);
         throw error;
     }
 };
