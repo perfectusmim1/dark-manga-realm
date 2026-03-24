@@ -12,6 +12,7 @@ import {
   WifiOff,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
@@ -198,6 +199,12 @@ const Downloads: React.FC = () => {
             </div>
           ))}
         </div>
+
+        <p className="mt-3 text-xs text-muted-foreground">
+          Kullanılabilir alan, tarayıcının bu site için verdiği tahmini kota bilgisidir. Sabit ayrılmış disk alanı değildir; cihaz ve tarayıcıya göre değişebilir.
+        </p>
+
+        <InstallAppBanner compact className="mt-6" />
 
         <div className="mt-8 flex flex-wrap gap-2">
           {FILTERS.map((filter) => (

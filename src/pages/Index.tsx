@@ -2,6 +2,7 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import TopTenSection from '@/components/manga/TopTenSection';
 import MangaGrid from '@/components/manga/MangaGrid';
 import MangaCard from '@/components/manga/MangaCard';
@@ -211,6 +212,10 @@ const Index: React.FC = () => {
       <Header />
 
       <main className="container pb-12 pt-20">
+        <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.06s', animationFillMode: 'forwards' }}>
+          <InstallAppBanner className="mb-8" />
+        </div>
+
         {/* Top 10 Section */}
         <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
           <TopTenSection />

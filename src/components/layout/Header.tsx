@@ -3,6 +3,7 @@ import { Link, useNavigate, useLocation } from 'react-router-dom';
 import NotificationDropdown from '@/components/notifications/NotificationDropdown';
 import AnnouncementDropdown from '@/components/notifications/AnnouncementDropdown';
 import SuperSearch from './SuperSearch';
+import InstallAppButton from '@/components/pwa/InstallAppButton';
 import {
   Search,
   Menu,
@@ -364,6 +365,13 @@ const Header: React.FC = () => {
           {/* Notifications & Search */}
           <div className="flex items-center gap-1">
             <SuperSearch />
+            <InstallAppButton
+              iconOnly
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 text-muted-foreground hover:text-foreground"
+              title="Uygulamayı Yükle"
+            />
             {user && (
               <>
                 <AnnouncementDropdown />
