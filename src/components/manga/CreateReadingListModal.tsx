@@ -113,8 +113,8 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
+            <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-[425px] flex-col overflow-hidden p-0 sm:max-w-[425px]">
+                <DialogHeader className="px-6 pt-6">
                     <DialogTitle className="flex items-center gap-2">
                         <List className="h-5 w-5" />
                         {editList ? 'Listeyi Düzenle' : 'Yeni Liste Oluştur'}
@@ -126,7 +126,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="space-y-4 py-4">
+                <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
                     <div className="space-y-2">
                         <Label htmlFor="list-name">Liste Adı</Label>
                         <Input
@@ -195,7 +195,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                     </div>
                 </div>
 
-                <DialogFooter>
+                <DialogFooter className="border-t border-border px-6 py-4">
                     <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
                         İptal
                     </Button>

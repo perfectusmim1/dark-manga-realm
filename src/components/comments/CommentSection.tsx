@@ -18,6 +18,7 @@ import {
     Eye,
     EyeOff,
     Link2,
+    Pin,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -49,7 +50,8 @@ import {
     getEntityReactions,
     getUserEntityReaction,
     addEntityReactionV2,
-    addCommentV2
+    addCommentV2,
+    setCommentPinned
 } from '@/lib/database';
 import { commentHasRenderableContent, isValidCommentMediaUrls, stripCommentFormatting } from '@/lib/commentContent';
 import { getBlockedUserIds } from '@/lib/profile';
@@ -501,6 +503,17 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         toast.success('Yorum silindi');
     };
 
+    const handleTogglePin = async (comment: Comment) => {
+        if (user?.role !== 'admin' && user?.role !== 'moderator') {
+            toast.error('Bu islem icin yetkiniz yok');
+            return;
+        }
+
+        await setCommentPinned(comment.id, !comment.isPinned, entityType);
+        await loadComments();
+        toast.success(comment.isPinned ? 'Yorum sabitlemesi kaldirildi' : 'Yorum sabitlendi');
+    };
+
     const handleReply = async (parentId: string) => {
         if (!user) {
             toast.error('Yanit vermek icin giris yapmalisiniz');
@@ -782,7 +795,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     <>
                         {displayedParentComments.map((comment) => {
                             return (
-                                <div key={comment.id} className="relative rounded-lg border border-border bg-card/50 p-4 transition-all overflow-hidden">
+                                <div key={comment.id} className={`relative overflow-hidden rounded-lg border p-4 transition-all ${comment.isPinned ? 'border-primary/40 bg-primary/5' : 'border-border bg-card/50'}`}>
                                     <div className="transition-all duration-300">
                                         <div className="flex gap-3">
                                             <Link to={`/profile/${comment.userId}`} className="shrink-0 transition-transform hover:scale-105">
@@ -797,6 +810,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                         <Link to={`/profile/${comment.userId}`} className="font-medium hover:text-primary hover:underline transition-colors cursor-pointer text-foreground">
                                                             {comment.username}
                                                         </Link>
+                                                        {comment.isPinned && (
+                                                            <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
+                                                                <Pin className="h-3 w-3" />
+                                                                Sabit
+                                                            </Badge>
+                                                        )}
                                                         <span className="text-xs text-muted-foreground">
                                                             {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
                                                             {comment.updatedAt && new Date(comment.updatedAt).getTime() - new Date(comment.createdAt).getTime() > 2000 && ' (düzenlendi)'}
@@ -811,6 +830,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                 </Button>
                                                             </DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end">
+                                                                {(user?.role === 'admin' || user?.role === 'moderator') && (
+                                                                    <DropdownMenuItem onClick={() => handleTogglePin(comment)}>
+                                                                        <Pin className="mr-2 h-4 w-4" />
+                                                                        {comment.isPinned ? 'Sabitlemeyi Kaldir' : 'Sabitle'}
+                                                                    </DropdownMenuItem>
+                                                                )}
                                                                 <DropdownMenuItem onClick={() => startEdit(comment)}>
                                                                     <Edit2 className="mr-2 h-4 w-4" />
                                                                     Düzenle
@@ -992,7 +1017,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                     <div className="mt-4 space-y-3 border-l-2 border-border pl-4">
                                                         {getReplies(comment.id).map((reply) => {
                                                             return (
-                                                                <div key={reply.id} className="relative transition-all overflow-hidden rounded-lg">
+                                                                <div key={reply.id} className={`relative overflow-hidden rounded-lg transition-all ${reply.isPinned ? 'border border-primary/30 bg-primary/5 p-2' : ''}`}>
                                                                     <div className="flex gap-2 transition-all duration-300">
                                                                         <Link to={`/profile/${reply.userId}`} className="shrink-0 transition-transform hover:scale-105">
                                                                             <Avatar className="h-8 w-8 border border-transparent hover:border-primary transition-colors cursor-pointer text-foreground">
@@ -1006,6 +1031,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                                     <Link to={`/profile/${reply.userId}`} className="text-sm font-medium hover:text-primary hover:underline transition-colors text-foreground">
                                                                                         {reply.username}
                                                                                     </Link>
+                                                                                    {reply.isPinned && (
+                                                                                        <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
+                                                                                            <Pin className="h-3 w-3" />
+                                                                                            Sabit
+                                                                                        </Badge>
+                                                                                    )}
                                                                                     <span className="text-xs text-muted-foreground">
                                                                                         {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
                                                                                         {reply.updatedAt && new Date(reply.updatedAt).getTime() - new Date(reply.createdAt).getTime() > 2000 && ' (düzenlendi)'}
@@ -1019,6 +1050,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                                                             </Button>
                                                                                         </DropdownMenuTrigger>
                                                                                         <DropdownMenuContent align="end">
+                                                                                            {(user?.role === 'admin' || user?.role === 'moderator') && (
+                                                                                                <DropdownMenuItem onClick={() => handleTogglePin(reply)}>
+                                                                                                    <Pin className="mr-2 h-4 w-4" />
+                                                                                                    {reply.isPinned ? 'Sabitlemeyi Kaldir' : 'Sabitle'}
+                                                                                                </DropdownMenuItem>
+                                                                                            )}
                                                                                             <DropdownMenuItem onClick={() => startEdit(reply)}>
                                                                                                 <Edit2 className="mr-2 h-4 w-4" />
                                                                                                 Düzenle

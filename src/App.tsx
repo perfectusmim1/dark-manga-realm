@@ -16,10 +16,12 @@ import Reader from "./pages/Reader";
 import Auth from "./pages/Auth";
 import Favorites from "./pages/Favorites";
 import History from "./pages/History";
+import LatestChapters from "./pages/LatestChapters";
 import Bookmarks from "./pages/Bookmarks";
 import Library from "./pages/Library";
 import Notifications from "./pages/Notifications";
 import ReadingLists from "./pages/ReadingLists";
+import ReadingTime from "./pages/ReadingTime";
 import ReadingListDetail from "./pages/ReadingListDetail";
 import Settings from "./pages/Settings";
 import NotFound from "./pages/NotFound";
@@ -89,6 +91,8 @@ const App = () => (
                 <Route path="/favorites" element={<Favorites />} />
                 <Route path="/library" element={<Library />} />
                 <Route path="/history" element={<History />} />
+                <Route path="/latest-chapters" element={<LatestChapters />} />
+                <Route path="/reading-time" element={<ReadingTime />} />
                 <Route path="/bookmarks" element={<Bookmarks />} />
                 <Route path="/notifications" element={<Notifications />} />
                 <Route path="/reading-lists" element={<ReadingLists />} />

@@ -5,13 +5,13 @@ import { tr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import HeatMap from '@/components/profile/HeatMap';
-import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply } from 'lucide-react';
+import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3 } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getUserProfile, getReadingActivity, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
+import { formatReadingDuration, getUserProfile, getReadingActivity, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
 import { ACHIEVEMENTS } from '@/lib/achievements';
 import { supabase } from '@/lib/supabase';
 import { useToast } from "@/components/ui/use-toast";
@@ -347,7 +347,7 @@ const Profile: React.FC = () => {
             
             <TabsContent value="overview" className="mt-0 space-y-8">
               {/* Detailed Stats Grid */}
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
                 <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
                   <Calendar className="w-6 h-6 text-primary mb-3 mx-auto" />
                   <p className="text-2xl font-bold">{joinDate}</p>
@@ -371,6 +371,15 @@ const Profile: React.FC = () => {
                   <p className="text-2xl font-bold">{profileData.stats.totalComments || 0}</p>
                   <p className="text-sm text-muted-foreground mt-1">Yorum Yapıldı</p>
                 </div>
+
+                <Link
+                  to="/reading-time"
+                  className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center transition-colors hover:border-primary/40 hover:bg-card"
+                >
+                  <Clock3 className="w-6 h-6 text-primary mb-3 mx-auto" />
+                  <p className="text-2xl font-bold">{formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}</p>
+                  <p className="text-sm text-muted-foreground mt-1">Toplam Okuma Süresi</p>
+                </Link>
               </div>
 
               {/* Heat Map Section */}

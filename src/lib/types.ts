@@ -185,6 +185,7 @@ export interface Comment {
   parentId?: string;
   likes: number;
   likedBy: string[];
+  isPinned?: boolean;
 }
 
 export interface ReadingList {

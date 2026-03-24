@@ -35,6 +35,7 @@ const Reader: React.FC = () => {
   const [initialized, setInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isIncognito, setIsIncognito] = useState(() => localStorage.getItem('toonparrot_incognito') === 'true');
+  const readingSessionStartedAt = useRef<number | null>(null);
 
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
@@ -45,6 +46,27 @@ const Reader: React.FC = () => {
         toast.info("Gizli mod kapatıldı.");
     }
   };
+
+  const flushReadingSession = useCallback(async (minimumSeconds = 0, resetTimer = true) => {
+    const startedAt = readingSessionStartedAt.current;
+    if (!startedAt) {
+      return;
+    }
+
+    const elapsedSeconds = Math.floor((Date.now() - startedAt) / 1000);
+
+    if (resetTimer) {
+      readingSessionStartedAt.current = Date.now();
+    } else {
+      readingSessionStartedAt.current = null;
+    }
+
+    if (!user || !mangaId || !chapterId || !chapter || isIncognito || elapsedSeconds < minimumSeconds) {
+      return;
+    }
+
+    await logChapterRead(user.id, mangaId, chapterId, chapter.number, elapsedSeconds);
+  }, [user, mangaId, chapterId, chapter, isIncognito]);
 
   // Reset state and scroll on chapter change
   useEffect(() => {
@@ -118,8 +140,6 @@ const Reader: React.FC = () => {
             chapterNumber: chapter.number,
             page: currentPage,
           });
-          
-          await logChapterRead(user.id, mangaId, chapterId, chapter.number);
         } catch (error) {
           console.error('Error updating reading progress:', error);
         }
@@ -127,6 +147,52 @@ const Reader: React.FC = () => {
     };
     saveProgress();
   }, [mangaId, chapterId, chapter, currentPage, initialized, user]);
+
+  useEffect(() => {
+    if (!initialized || !user || !mangaId || !chapterId || !chapter || isIncognito) {
+      readingSessionStartedAt.current = null;
+      return;
+    }
+
+    logChapterRead(user.id, mangaId, chapterId, chapter.number, 0);
+    readingSessionStartedAt.current = Date.now();
+
+    return () => {
+      void flushReadingSession(5, false);
+    };
+  }, [initialized, user, mangaId, chapterId, chapter, isIncognito, flushReadingSession]);
+
+  useEffect(() => {
+    if (!initialized || !user || !chapter || isIncognito) {
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      void flushReadingSession(30, true);
+    }, 30000);
+
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'hidden') {
+        void flushReadingSession(5, false);
+        return;
+      }
+
+      readingSessionStartedAt.current = Date.now();
+    };
+
+    const handleBeforeUnload = () => {
+      void flushReadingSession(5, false);
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    window.addEventListener('beforeunload', handleBeforeUnload);
+
+    return () => {
+      window.clearInterval(intervalId);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [initialized, user, chapter, isIncognito, flushReadingSession]);
 
   const handleSettingsChange = useCallback((newSettings: ReaderSettings) => {
     setSettings(newSettings);

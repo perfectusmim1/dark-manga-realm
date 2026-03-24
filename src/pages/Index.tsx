@@ -81,6 +81,9 @@ const Index: React.FC = () => {
   }
 
   const trendingManga = mangas.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8);
+  const newlyAddedSeries = [...mangas]
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .slice(0, 8);
   const recentlyUpdated = [...mangas]
     .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
     .slice(0, 12);
@@ -145,6 +148,27 @@ const Index: React.FC = () => {
             </div>
           </section>
         )}
+
+        {/* Newly Added Series Section */}
+        <section className="mt-10 animate-fade-up opacity-0" style={{ animationDelay: '0.18s', animationFillMode: 'forwards' }}>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-5 w-5 text-amber-400" />
+              <h2 className="text-xl font-bold tracking-tight md:text-2xl">Yeni Çıkan Seriler</h2>
+            </div>
+            <Button asChild variant="ghost" size="sm">
+              <Link to="/browse?sort=created">
+                Tümünü Gör
+                <ArrowRight className="ml-1 h-4 w-4" />
+              </Link>
+            </Button>
+          </div>
+          <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
+            {newlyAddedSeries.map((manga, index) => (
+              <MangaCard key={manga.id} manga={manga} index={index} />
+            ))}
+          </div>
+        </section>
 
         {/* Recently Updated Section */}
         <section className="mt-10 animate-fade-up opacity-0" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>

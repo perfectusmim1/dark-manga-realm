@@ -27,6 +27,70 @@ export interface ProfileFollowedManga {
     href: string;
 }
 
+export type ReadingTimeRange = 'today' | 'week' | 'month' | 'all';
+
+export interface ReadingTimeOverview {
+    todaySeconds: number;
+    weekSeconds: number;
+    monthSeconds: number;
+    allTimeSeconds: number;
+}
+
+export interface ReadingTimeEntry {
+    id: string;
+    mangaId: string;
+    mangaTitle: string;
+    mangaCover?: string;
+    chapterId?: string;
+    chapterNumber?: number;
+    readAt: string;
+    secondsSpent: number;
+}
+
+export interface ReadingTimeDayBucket {
+    date: string;
+    label: string;
+    seconds: number;
+    chapters: number;
+    seriesCount: number;
+    entries: ReadingTimeEntry[];
+}
+
+const getLocalDateKey = (value: string | Date) => {
+    const date = value instanceof Date ? value : new Date(value);
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+    const day = `${date.getDate()}`.padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+};
+
+const clampReadingSeconds = (seconds: number) => {
+    if (!Number.isFinite(seconds)) {
+        return 0;
+    }
+
+    return Math.max(0, Math.min(43200, Math.round(seconds)));
+};
+
+const getRangeStartDate = (range: ReadingTimeRange) => {
+    if (range === 'all') {
+        return null;
+    }
+
+    const now = new Date();
+    now.setHours(0, 0, 0, 0);
+
+    if (range === 'today') {
+        return now;
+    }
+
+    const daysToSubtract = range === 'week' ? 6 : 29;
+    const start = new Date(now);
+    start.setDate(start.getDate() - daysToSubtract);
+    return start;
+};
+
 const buildCommentPreview = (rawContent: string) => {
     const parsed = parseCommentContent(rawContent);
     const text = stripCommentFormatting(parsed.body).replace(/\s+/g, ' ').trim();
@@ -192,6 +256,13 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         .from('reading_activity_log')
         .select('id', { count: 'exact', head: true })
         .eq('user_id', userId);
+
+    const { data: readingTimeRows } = await supabase
+        .from('reading_activity_log')
+        .select('seconds_spent')
+        .eq('user_id', userId);
+
+    const totalReadingSeconds = (readingTimeRows || []).reduce((sum: number, row: any) => sum + (row.seconds_spent || 0), 0);
         
     const [
         { count: totalComments },
@@ -254,6 +325,7 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         stats: {
             totalSeries: totalSeries || 0,
             totalChapters: totalChapters || 0,
+            totalReadingSeconds,
             totalComments: (totalComments || 0) + (totalCharacterComments || 0) + (totalAuthorComments || 0) + (totalArtistComments || 0),
             followersCount: followersCount || 0,
             followingCount: followingCount || 0,
@@ -296,27 +368,195 @@ export const getReadingActivity = async (userId: string, days: number = 365) => 
     return Object.entries(activityMap).map(([date, count]) => ({ date, count }));
 };
 
-export const logChapterRead = async (userId: string, mangaId: string, chapterId: string, chapterNumber: number) => {
-    // Optional optimization: don't log if already logged today for the same chapter
-    const today = new Date().toISOString().split('T')[0];
-    
-    const { data } = await supabase
+export const logChapterRead = async (userId: string, mangaId: string, chapterId: string, chapterNumber: number, secondsSpent: number = 0) => {
+    const startOfToday = new Date();
+    startOfToday.setHours(0, 0, 0, 0);
+
+    const normalizedSeconds = clampReadingSeconds(secondsSpent);
+
+    const { data, error } = await supabase
         .from('reading_activity_log')
-        .select('id')
+        .select('id, seconds_spent')
         .eq('user_id', userId)
         .eq('chapter_id', chapterId)
-        .gte('read_at', today + 'T00:00:00Z')
-        .maybeSingle();
-        
-    if (!data) {
-        // Log it!
-        await supabase.from('reading_activity_log').insert({
+        .gte('read_at', startOfToday.toISOString())
+        .order('read_at', { ascending: false })
+        .limit(1);
+
+    if (error) {
+        console.error('Reading time lookup error:', error);
+        return;
+    }
+
+    const existingRow = data?.[0];
+
+    if (existingRow?.id) {
+        const nextSeconds = (existingRow.seconds_spent || 0) + normalizedSeconds;
+        const { error: updateError } = await supabase
+            .from('reading_activity_log')
+            .update({
+                read_at: new Date().toISOString(),
+                seconds_spent: nextSeconds,
+            })
+            .eq('id', existingRow.id);
+
+        if (updateError) {
+            console.error('Reading time update error:', updateError);
+        }
+
+        return;
+    }
+
+    const { error: insertError } = await supabase
+        .from('reading_activity_log')
+        .insert({
             user_id: userId,
             manga_id: mangaId,
             chapter_id: chapterId,
-            chapter_number: chapterNumber
+            chapter_number: chapterNumber,
+            seconds_spent: normalizedSeconds,
         });
+
+    if (insertError) {
+        console.error('Reading time insert error:', insertError);
     }
+};
+
+export const formatReadingDuration = (seconds: number) => {
+    const normalized = Number.isFinite(seconds) ? Math.max(0, Math.round(seconds)) : 0;
+
+    if (normalized < 60) {
+        return `${normalized} sn`;
+    }
+
+    const hours = Math.floor(normalized / 3600);
+    const minutes = Math.floor((normalized % 3600) / 60);
+
+    if (hours === 0) {
+        return `${minutes} dk`;
+    }
+
+    if (minutes === 0) {
+        return `${hours} sa`;
+    }
+
+    return `${hours} sa ${minutes} dk`;
+};
+
+export const getReadingTimeOverview = async (userId: string): Promise<ReadingTimeOverview> => {
+    const { data, error } = await supabase
+        .from('reading_activity_log')
+        .select('read_at, seconds_spent')
+        .eq('user_id', userId)
+        .order('read_at', { ascending: false });
+
+    if (error) {
+        console.error('Reading time overview error:', error);
+        return {
+            todaySeconds: 0,
+            weekSeconds: 0,
+            monthSeconds: 0,
+            allTimeSeconds: 0,
+        };
+    }
+
+    const startOfToday = getRangeStartDate('today')!;
+    const startOfWeek = getRangeStartDate('week')!;
+    const startOfMonth = getRangeStartDate('month')!;
+
+    return (data || []).reduce<ReadingTimeOverview>((summary, row: any) => {
+        const readAt = new Date(row.read_at);
+        const seconds = clampReadingSeconds(row.seconds_spent || 0);
+
+        summary.allTimeSeconds += seconds;
+
+        if (readAt >= startOfMonth) {
+            summary.monthSeconds += seconds;
+        }
+
+        if (readAt >= startOfWeek) {
+            summary.weekSeconds += seconds;
+        }
+
+        if (readAt >= startOfToday) {
+            summary.todaySeconds += seconds;
+        }
+
+        return summary;
+    }, {
+        todaySeconds: 0,
+        weekSeconds: 0,
+        monthSeconds: 0,
+        allTimeSeconds: 0,
+    });
+};
+
+export const getReadingTimeTimeline = async (userId: string, range: ReadingTimeRange = 'week'): Promise<ReadingTimeDayBucket[]> => {
+    let query = supabase
+        .from('reading_activity_log')
+        .select('id, manga_id, chapter_id, chapter_number, read_at, seconds_spent')
+        .eq('user_id', userId)
+        .order('read_at', { ascending: false });
+
+    const startDate = getRangeStartDate(range);
+    if (startDate) {
+        query = query.gte('read_at', startDate.toISOString());
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Reading time timeline error:', error);
+        return [];
+    }
+
+    const logs = data || [];
+    const mangaIds = [...new Set(logs.map((log: any) => log.manga_id).filter(Boolean))];
+    const { data: mangaRows } = mangaIds.length > 0
+        ? await supabase.from('mangas').select('id, title, cover').in('id', mangaIds)
+        : { data: [] as any[] };
+
+    const mangaMap = new Map((mangaRows || []).map((manga: any) => [manga.id, manga]));
+    const dayMap = new Map<string, ReadingTimeDayBucket>();
+
+    logs.forEach((log: any) => {
+        const dateKey = getLocalDateKey(log.read_at);
+        const manga = mangaMap.get(log.manga_id);
+        const entry: ReadingTimeEntry = {
+            id: log.id,
+            mangaId: log.manga_id,
+            mangaTitle: manga?.title || 'Seri',
+            mangaCover: manga?.cover || undefined,
+            chapterId: log.chapter_id || undefined,
+            chapterNumber: log.chapter_number ? Number(log.chapter_number) : undefined,
+            readAt: log.read_at,
+            secondsSpent: clampReadingSeconds(log.seconds_spent || 0),
+        };
+
+        const existingBucket = dayMap.get(dateKey);
+        if (existingBucket) {
+            existingBucket.seconds += entry.secondsSpent;
+            existingBucket.chapters += 1;
+            existingBucket.entries.push(entry);
+            existingBucket.seriesCount = new Set(existingBucket.entries.map((item) => item.mangaId)).size;
+            return;
+        }
+
+        dayMap.set(dateKey, {
+            date: dateKey,
+            label: new Date(log.read_at).toLocaleDateString('tr-TR', {
+                weekday: 'long',
+                day: 'numeric',
+                month: 'long',
+            }),
+            seconds: entry.secondsSpent,
+            chapters: 1,
+            seriesCount: 1,
+            entries: [entry],
+        });
+    });
+
+    return Array.from(dayMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 
 export const updatePrivacySettings = async (userId: string, visibility: 'public' | 'private' | 'members', currentPreferences: any = {}) => {

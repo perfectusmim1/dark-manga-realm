@@ -1,15 +1,15 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
     Plus,
-    Trash2,
     Shield,
     ShieldCheck,
+    ShieldAlert,
+    Trash2,
     Users,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import {
     Dialog,
@@ -35,85 +35,124 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { getAdminUsers, addAdminUser, deleteAdminUser, AdminUser } from '@/lib/database';
+import { getAdminUsers, addAdminUser, deleteAdminUser, getAllUsers, AdminUser } from '@/lib/database';
+import { User } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+
+const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
 
 const AdminUsers: React.FC = () => {
     const { user } = useAuth();
     const [admins, setAdmins] = useState<AdminUser[]>([]);
+    const [allUsers, setAllUsers] = useState<User[]>([]);
     const [showAddDialog, setShowAddDialog] = useState(false);
     const [deleteId, setDeleteId] = useState<string | null>(null);
-    const [newAdmin, setNewAdmin] = useState({
-        username: '',
-        email: '',
-        password: '',
-        role: 'moderator' as 'admin' | 'moderator',
-    });
+    const [selectedUserId, setSelectedUserId] = useState('');
 
     useEffect(() => {
-        loadAdmins();
+        loadData();
     }, []);
 
-    const loadAdmins = async () => {
-        const data = await getAdminUsers();
-        setAdmins(data);
+    const loadData = async () => {
+        const [staffData, usersData] = await Promise.all([
+            getAdminUsers(),
+            getAllUsers(),
+        ]);
+
+        setAdmins(staffData);
+        setAllUsers(usersData);
     };
 
-    const handleAddAdmin = async () => {
-        if (!newAdmin.username.trim() || !newAdmin.email.trim() || !newAdmin.password.trim()) {
-            toast.error('Tüm alanları doldurun');
-            return;
-        }
+    const eligibleUsers = useMemo(
+        () => allUsers.filter((member) => (member.role || 'user') === 'user'),
+        [allUsers]
+    );
 
-        if (newAdmin.password.length < 6) {
-            toast.error('Şifre en az 6 karakter olmalı');
+    const handleAddModerator = async () => {
+        if (!selectedUserId) {
+            toast.error('Bir kullanıcı seçin');
             return;
         }
 
         try {
-            await addAdminUser(newAdmin);
-            await loadAdmins();
+            await addAdminUser({ userId: selectedUserId, role: 'moderator' });
+            await loadData();
             setShowAddDialog(false);
-            setNewAdmin({ username: '', email: '', password: '', role: 'moderator' });
-            toast.success('Admin eklendi');
-        } catch (error) {
-            toast.error('Admin eklenemedi');
-        }
-    };
-
-    const handleDeleteAdmin = async () => {
-        if (deleteId) {
-            if (admins.length <= 1) {
-                toast.error('Son admin silinemez');
+            setSelectedUserId('');
+            toast.success('Moderatör eklendi');
+        } catch (error: any) {
+            if (error?.message === 'ONLY_MODERATOR_ALLOWED') {
+                toast.error('Bu panelden sadece moderatör eklenebilir');
                 return;
             }
 
-            try {
-                await deleteAdminUser(deleteId);
-                await loadAdmins();
-                toast.success('Admin silindi');
-                setDeleteId(null);
-            } catch (error) {
-                toast.error('Admin silinemedi');
-            }
+            toast.error('Moderatör eklenemedi');
         }
     };
 
-    return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
+    const handleRemoveModerator = async () => {
+        if (!deleteId) {
+            return;
+        }
+
+        const selectedStaff = admins.find((staff) => staff.id === deleteId);
+        if (selectedStaff?.role === 'admin' || selectedStaff?.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL) {
+            toast.error('Ana admin kaldırılamaz');
+            return;
+        }
+
+        try {
+            await deleteAdminUser(deleteId);
+            await loadData();
+            toast.success('Moderatör yetkisi kaldırıldı');
+            setDeleteId(null);
+        } catch (error) {
+            toast.error('Yetki kaldırılamadı');
+        }
+    };
+
+    if (user?.role !== 'admin') {
+        return (
+            <div className="space-y-6">
                 <div>
                     <h1 className="text-3xl font-bold">Adminler</h1>
-                    <p className="text-muted-foreground">Admin ve moderatörleri yönetin</p>
+                    <p className="text-muted-foreground">Bu alan sadece ana admin hesabına açıktır.</p>
+                </div>
+
+                <div className="rounded-2xl border border-border bg-card/50 p-10 text-center">
+                    <ShieldAlert className="mx-auto h-12 w-12 text-destructive" />
+                    <h2 className="mt-4 text-xl font-semibold">Erişim Engellendi</h2>
+                    <p className="mt-2 text-muted-foreground">
+                        Moderatörler staff yönetimi ekranını kullanamaz.
+                    </p>
+                </div>
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="flex items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold">Adminler</h1>
+                    <p className="text-muted-foreground">
+                        Tek admin hesabı kilitli. Buradan sadece mevcut kullanıcıları moderatör yapabilir veya moderatör yetkisini kaldırabilirsiniz.
+                    </p>
                 </div>
                 <Button onClick={() => setShowAddDialog(true)}>
                     <Plus className="mr-2 h-4 w-4" />
-                    Yeni Admin
+                    Yeni Moderatör
                 </Button>
             </div>
 
-            {/* Admins List */}
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                <p className="font-medium">Korunan ana admin</p>
+                <p className="mt-1 text-amber-100/80">
+                    {PRIMARY_ADMIN_EMAIL} hesabı dışında hiçbir kullanıcı admin yapılamaz ve bu hesap kaldırılamaz.
+                </p>
+            </div>
+
             <div className="rounded-xl border border-border bg-card">
                 <div className="overflow-x-auto">
                     <table className="w-full">
@@ -127,115 +166,95 @@ const AdminUsers: React.FC = () => {
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                            {admins.map((admin) => (
-                                <tr key={admin.id} className="hover:bg-secondary/50">
-                                    <td className="px-4 py-3">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                                {admin.username ? admin.username[0].toUpperCase() : 'A'}
+                            {admins.map((admin) => {
+                                const isPrimaryAdmin = admin.role === 'admin' || admin.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL;
+
+                                return (
+                                    <tr key={admin.id} className="hover:bg-secondary/50">
+                                        <td className="px-4 py-3">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                                    {admin.username ? admin.username[0].toUpperCase() : 'A'}
+                                                </div>
+                                                <div>
+                                                    <p className="font-medium">{admin.username}</p>
+                                                    {user?.id === admin.id && (
+                                                        <Badge variant="secondary" className="text-xs">Siz</Badge>
+                                                    )}
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="font-medium">{admin.username}</p>
-                                                {user?.id === admin.id && (
-                                                    <Badge variant="secondary" className="text-xs">Siz</Badge>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-4 py-3 text-muted-foreground">{admin.email}</td>
-                                    <td className="px-4 py-3">
-                                        {admin.role === 'admin' ? (
-                                            <Badge variant="outline" className="bg-purple-500/10 text-purple-500 border-purple-500/20 hover:bg-purple-500/20 transition-colors">
-                                                <ShieldCheck className="mr-1 h-3 w-3" />
-                                                Admin
-                                            </Badge>
-                                        ) : (
-                                            <Badge variant="secondary" className="hover:bg-secondary/70 transition-colors">
-                                                <Shield className="mr-1 h-3 w-3" />
-                                                Moderatör
-                                            </Badge>
-                                        )}
-                                    </td>
-                                    <td className="px-4 py-3 text-muted-foreground">
-                                        {admin.createdAt
-                                            ? formatDistanceToNow(new Date(admin.createdAt), { addSuffix: true, locale: tr })
-                                            : 'Bilinmiyor'}
-                                    </td>
-                                    <td className="px-4 py-3 text-right">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="text-destructive hover:text-destructive"
-                                            onClick={() => setDeleteId(admin.id)}
-                                            disabled={user?.id === admin.id || admins.length <= 1}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
-                                        </Button>
-                                    </td>
-                                </tr>
-                            ))}
+                                        </td>
+                                        <td className="px-4 py-3 text-muted-foreground">{admin.email}</td>
+                                        <td className="px-4 py-3">
+                                            {isPrimaryAdmin ? (
+                                                <Badge variant="outline" className="border-purple-500/20 bg-purple-500/10 text-purple-500">
+                                                    <ShieldCheck className="mr-1 h-3 w-3" />
+                                                    Admin
+                                                </Badge>
+                                            ) : (
+                                                <Badge variant="secondary">
+                                                    <Shield className="mr-1 h-3 w-3" />
+                                                    Moderatör
+                                                </Badge>
+                                            )}
+                                        </td>
+                                        <td className="px-4 py-3 text-muted-foreground">
+                                            {admin.createdAt
+                                                ? formatDistanceToNow(new Date(admin.createdAt), { addSuffix: true, locale: tr })
+                                                : 'Bilinmiyor'}
+                                        </td>
+                                        <td className="px-4 py-3 text-right">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="text-destructive hover:text-destructive"
+                                                onClick={() => setDeleteId(admin.id)}
+                                                disabled={isPrimaryAdmin}
+                                                title={isPrimaryAdmin ? 'Ana admin kaldırılamaz' : 'Moderatör yetkisini kaldır'}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
+                                        </td>
+                                    </tr>
+                                );
+                            })}
                         </tbody>
                     </table>
                 </div>
+
                 {admins.length === 0 && (
                     <div className="flex flex-col items-center justify-center py-12">
                         <Users className="h-12 w-12 text-muted-foreground/50" />
-                        <p className="mt-2 text-muted-foreground">Admin bulunamadı</p>
+                        <p className="mt-2 text-muted-foreground">Yetkili kullanıcı bulunamadı</p>
                     </div>
                 )}
             </div>
 
-            {/* Add Admin Dialog */}
             <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
                 <DialogContent>
                     <DialogHeader>
-                        <DialogTitle>Yeni Admin Ekle</DialogTitle>
+                        <DialogTitle>Yeni Moderatör Ekle</DialogTitle>
                     </DialogHeader>
 
                     <div className="space-y-4">
                         <div className="space-y-2">
-                            <label className="text-sm font-medium">Kullanıcı Adı</label>
-                            <Input
-                                value={newAdmin.username}
-                                onChange={(e) => setNewAdmin(prev => ({ ...prev, username: e.target.value }))}
-                                placeholder="kullaniciadi"
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">E-posta</label>
-                            <Input
-                                type="email"
-                                value={newAdmin.email}
-                                onChange={(e) => setNewAdmin(prev => ({ ...prev, email: e.target.value }))}
-                                placeholder="admin@example.com"
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Şifre</label>
-                            <Input
-                                type="password"
-                                value={newAdmin.password}
-                                onChange={(e) => setNewAdmin(prev => ({ ...prev, password: e.target.value }))}
-                                placeholder="••••••••"
-                            />
-                        </div>
-
-                        <div className="space-y-2">
-                            <label className="text-sm font-medium">Rol</label>
-                            <Select
-                                value={newAdmin.role}
-                                onValueChange={(value: 'admin' | 'moderator') => setNewAdmin(prev => ({ ...prev, role: value }))}
-                            >
+                            <label className="text-sm font-medium">Kullanıcı</label>
+                            <Select value={selectedUserId} onValueChange={setSelectedUserId}>
                                 <SelectTrigger>
-                                    <SelectValue />
+                                    <SelectValue placeholder="Mevcut bir kullanıcı seçin" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="admin">Admin</SelectItem>
-                                    <SelectItem value="moderator">Moderatör</SelectItem>
+                                    {eligibleUsers.map((member) => (
+                                        <SelectItem key={member.id} value={member.id}>
+                                            {member.username} ({member.email})
+                                        </SelectItem>
+                                    ))}
                                 </SelectContent>
                             </Select>
+                        </div>
+
+                        <div className="rounded-xl border border-border bg-secondary/30 p-3 text-sm text-muted-foreground">
+                            Bu ekran yeni admin oluşturmaz. Sadece mevcut kullanıcıya moderatör rolü verir.
                         </div>
                     </div>
 
@@ -243,29 +262,28 @@ const AdminUsers: React.FC = () => {
                         <Button variant="outline" onClick={() => setShowAddDialog(false)}>
                             İptal
                         </Button>
-                        <Button onClick={handleAddAdmin}>
-                            Ekle
+                        <Button onClick={handleAddModerator} disabled={!selectedUserId}>
+                            Moderatör Yap
                         </Button>
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
 
-            {/* Delete Confirmation Dialog */}
             <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Admin Sil</AlertDialogTitle>
+                        <AlertDialogTitle>Moderatör Yetkisini Kaldır</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Bu admini silmek istediğinizden emin misiniz? Bu işlem geri alınamaz.
+                            Bu kullanıcının moderatör yetkisini kaldırmak istediğinizden emin misiniz? Kullanıcının hesabı silinmez, sadece rolü tekrar normal kullanıcı olur.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
                         <AlertDialogCancel>İptal</AlertDialogCancel>
                         <AlertDialogAction
-                            onClick={handleDeleteAdmin}
+                            onClick={handleRemoveModerator}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
-                            Sil
+                            Yetkiyi Kaldır
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

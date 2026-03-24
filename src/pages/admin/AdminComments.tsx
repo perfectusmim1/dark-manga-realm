@@ -5,8 +5,7 @@ import {
     Search,
     Trash2,
     MessageSquare,
-    Filter,
-    ChevronDown,
+    Pin,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,7 +27,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Checkbox } from '@/components/ui/checkbox';
-import { getAllComments, deleteComment, getMangaById } from '@/lib/database';
+import { getAllComments, deleteComment, getMangaById, setCommentPinned } from '@/lib/database';
 import { Comment } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -71,6 +70,12 @@ const AdminComments: React.FC = () => {
         await loadComments();
         toast.success('Yorum silindi');
         setDeleteId(null);
+    };
+
+    const handleTogglePin = async (comment: Comment) => {
+        await setCommentPinned(comment.id, !comment.isPinned);
+        await loadComments();
+        toast.success(comment.isPinned ? 'Yorum sabitlemesi kaldırıldı' : 'Yorum sabitlendi');
     };
 
     const handleBulkDelete = async () => {
@@ -204,6 +209,11 @@ const AdminComments: React.FC = () => {
                                             {comment.parentId && (
                                                 <Badge variant="outline" className="text-[10px] h-4 hover:bg-secondary/20 transition-colors">Yanıt</Badge>
                                             )}
+                                            {comment.isPinned && (
+                                                <Badge variant="secondary" className="text-[10px] h-4 bg-primary/15 text-primary hover:bg-primary/20">
+                                                    Sabit
+                                                </Badge>
+                                            )}
                                         </div>
                                     </td>
                                     <td className="px-4 py-3 border-r border-transparent">
@@ -217,6 +227,14 @@ const AdminComments: React.FC = () => {
                                         </span>
                                     </td>
                                     <td className="px-4 py-3 text-right" onClick={(e) => e.stopPropagation()}>
+                                        <Button
+                                            variant="ghost"
+                                            size="icon"
+                                            className={`transition-colors ${comment.isPinned ? 'text-primary hover:bg-primary/10 hover:text-primary' : 'text-muted-foreground hover:text-primary hover:bg-primary/10'}`}
+                                            onClick={() => handleTogglePin(comment)}
+                                        >
+                                            <Pin className={`h-4 w-4 ${comment.isPinned ? 'fill-current' : ''}`} />
+                                        </Button>
                                         <Button
                                             variant="ghost"
                                             size="icon"

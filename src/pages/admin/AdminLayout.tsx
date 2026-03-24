@@ -56,7 +56,7 @@ const AdminLayout: React.FC = () => {
         { icon: Hash, label: 'Etiketler', path: '/admin/tags' },
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
         { icon: Megaphone, label: 'Duyurular', path: '/admin/announcements' },
-        { icon: Users, label: 'Adminler', path: '/admin/users' },
+        ...(user?.role === 'admin' ? [{ icon: Users, label: 'Adminler', path: '/admin/users' }] : []),
     ];
 
     const isActive = (path: string) => {

@@ -4,6 +4,27 @@ import { supabase } from './supabase';
 import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 
+export interface LatestChapterFeedItem {
+    chapterId: string;
+    mangaId: string;
+    mangaTitle: string;
+    mangaCover: string;
+    mangaType?: Manga['type'];
+    chapterNumber: number;
+    chapterTitle?: string;
+    addedAt: string;
+    releaseDate?: string;
+}
+
+export interface LikedReadingListPreview extends ReadingList {
+    ownerUsername?: string;
+    likesCount: number;
+    itemsCount: number;
+    likedAt: string;
+}
+
+const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
+
 // ==================== MANGA OPERATIONS ====================
 
 /**
@@ -237,6 +258,54 @@ export const deleteChapter = async (mangaId: string, chapterId: string): Promise
         .eq('manga_id', mangaId);
 
     return !error;
+};
+
+export const getLatestChapters = async (limit?: number): Promise<LatestChapterFeedItem[]> => {
+    let query = supabase
+        .from('chapters')
+        .select(`
+            id,
+            manga_id,
+            number,
+            title,
+            created_at,
+            release_date,
+            mangas:manga_id(id, title, cover, type)
+        `)
+        .order('created_at', { ascending: false });
+
+    if (limit) {
+        query = query.limit(limit);
+    }
+
+    const { data, error } = await query;
+
+    if (error) {
+        console.error('Latest chapters fetch error:', error);
+        return [];
+    }
+
+    return (data || [])
+        .map((chapter: any) => {
+            const manga = Array.isArray(chapter.mangas) ? chapter.mangas[0] : chapter.mangas;
+
+            if (!manga?.id) {
+                return null;
+            }
+
+            return {
+                chapterId: chapter.id,
+                mangaId: manga.id,
+                mangaTitle: manga.title,
+                mangaCover: manga.cover,
+                mangaType: manga.type,
+                chapterNumber: Number(chapter.number),
+                chapterTitle: chapter.title || undefined,
+                addedAt: chapter.created_at || chapter.release_date,
+                releaseDate: chapter.release_date || undefined,
+            } satisfies LatestChapterFeedItem;
+        })
+        .filter(Boolean) as LatestChapterFeedItem[];
 };
 
 // ==================== REVIEW & RATING OPERATIONS ====================
@@ -524,15 +593,61 @@ export const getAdminUsers = async (): Promise<AdminUser[]> => {
 };
 
 export const addAdminUser = async (admin: any): Promise<void> => {
-    // This is complex because we need to create an auth user.
-    // For now, we'll just throw or log, as ID generation happens on auth signup.
-    // In a real app, you would use an Edge Function to create an admin user.
-    console.warn('Adding admin via direct DB insert is not fully supported without Auth sync.');
-    // Mock implementation for UI stability if needed or just insert to public users
+    if (!admin?.userId) {
+        throw new Error('USER_ID_REQUIRED');
+    }
+
+    if (admin?.role && admin.role !== 'moderator') {
+        throw new Error('ONLY_MODERATOR_ALLOWED');
+    }
+
+    const { data: targetUser, error: targetUserError } = await supabase
+        .from('users')
+        .select('id, email, role')
+        .eq('id', admin.userId)
+        .single();
+
+    if (targetUserError || !targetUser) {
+        throw targetUserError || new Error('USER_NOT_FOUND');
+    }
+
+    if (targetUser.role === 'admin') {
+        throw new Error('ADMIN_PROMOTION_BLOCKED');
+    }
+
+    const { error } = await supabase
+        .from('users')
+        .update({ role: 'moderator' })
+        .eq('id', admin.userId);
+
+    if (error) {
+        throw error;
+    }
 };
 
 export const deleteAdminUser = async (adminId: string): Promise<void> => {
-    await deleteUser(adminId);
+    const { data: staffUser, error: staffError } = await supabase
+        .from('users')
+        .select('id, email, role')
+        .eq('id', adminId)
+        .single();
+
+    if (staffError || !staffUser) {
+        throw staffError || new Error('STAFF_NOT_FOUND');
+    }
+
+    if (staffUser.role === 'admin' || staffUser.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL) {
+        throw new Error('PRIMARY_ADMIN_PROTECTED');
+    }
+
+    const { error } = await supabase
+        .from('users')
+        .update({ role: 'user' })
+        .eq('id', adminId);
+
+    if (error) {
+        throw error;
+    }
 };
 
 export const authenticateAdmin = async (email: string, password: string): Promise<User | null> => {
@@ -669,14 +784,25 @@ export const getEntityCommentsV2 = async (entityType: 'manga' | 'character' | 'a
             parentId: c.parent_id,
             likes: c.likes_count?.[0]?.count || 0,
             likedBy: userLikes.includes(c.id) ? [userId || ''] : [],
+            isPinned: Boolean(c.is_pinned),
         };
     }) as Comment[];
 
-    if (sortBy === 'popular') {
-        return mappedComments.sort((a, b) => b.likes - a.likes);
-    } else {
-        return mappedComments.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    }
+    return mappedComments.sort((a, b) => {
+        const pinDiff = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+        if (pinDiff !== 0) {
+            return pinDiff;
+        }
+
+        if (sortBy === 'popular') {
+            const likeDiff = b.likes - a.likes;
+            if (likeDiff !== 0) {
+                return likeDiff;
+            }
+        }
+
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
 };
 
 
@@ -808,8 +934,29 @@ export const getAllComments = async (): Promise<Comment[]> => {
             parentId: c.parent_id,
             likes: c.likes_count[0]?.count || 0,
             likedBy: [],
+            isPinned: Boolean(c.is_pinned),
         };
+    }).sort((a, b) => {
+        const pinDiff = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+        if (pinDiff !== 0) {
+            return pinDiff;
+        }
+
+        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     }) as Comment[];
+};
+
+export const setCommentPinned = async (id: string, isPinned: boolean, entityType: string = 'manga'): Promise<void> => {
+    const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
+    const { error } = await supabase
+        .from(tableName as any)
+        .update({ is_pinned: isPinned } as any)
+        .eq('id', id);
+
+    if (error) {
+        console.error('Yorum sabitleme hatası:', error);
+        throw error;
+    }
 };
 
 export const toggleCommentLike = async (commentId: string, userId: string, entityType: string = 'manga'): Promise<void> => {
@@ -908,6 +1055,93 @@ export const getReadingListById = async (listId: string): Promise<ReadingList | 
         createdAt: data.created_at,
         items: mangas
     } as ReadingList;
+};
+
+export const getLikedReadingLists = async (userId: string): Promise<LikedReadingListPreview[]> => {
+    const { data: likesData, error: likesError } = await supabase
+        .from('reading_list_likes')
+        .select('list_id, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+    if (likesError || !likesData?.length) {
+        if (likesError) {
+            console.error('Liked reading lists fetch error:', likesError);
+        }
+        return [];
+    }
+
+    const listIds = [...new Set(likesData.map((entry: any) => entry.list_id).filter(Boolean))];
+
+    const [{ data: listsData, error: listsError }, { data: itemsData }, { data: allLikesData }] = await Promise.all([
+        supabase
+            .from('reading_lists')
+            .select('id, user_id, name, description, image_url, is_public, created_at')
+            .in('id', listIds),
+        supabase
+            .from('reading_list_items')
+            .select('list_id')
+            .in('list_id', listIds),
+        supabase
+            .from('reading_list_likes')
+            .select('list_id')
+            .in('list_id', listIds),
+    ]);
+
+    if (listsError || !listsData?.length) {
+        if (listsError) {
+            console.error('Reading lists detail fetch error:', listsError);
+        }
+        return [];
+    }
+
+    const ownerIds = [...new Set(listsData.map((list: any) => list.user_id).filter(Boolean))];
+    const { data: ownerData } = await supabase
+        .from('users')
+        .select('id, username')
+        .in('id', ownerIds);
+
+    const listMap = new Map(
+        listsData.map((list: any) => [
+            list.id,
+            {
+                id: list.id,
+                userId: list.user_id,
+                name: list.name,
+                description: list.description,
+                imageUrl: list.image_url,
+                isPublic: list.is_public,
+                createdAt: list.created_at,
+            } satisfies ReadingList,
+        ])
+    );
+    const ownerMap = new Map((ownerData || []).map((owner: any) => [owner.id, owner.username]));
+    const itemCountMap = (itemsData || []).reduce<Record<string, number>>((accumulator, item: any) => {
+        accumulator[item.list_id] = (accumulator[item.list_id] || 0) + 1;
+        return accumulator;
+    }, {});
+    const likesCountMap = (allLikesData || []).reduce<Record<string, number>>((accumulator, like: any) => {
+        accumulator[like.list_id] = (accumulator[like.list_id] || 0) + 1;
+        return accumulator;
+    }, {});
+
+    return likesData
+        .map((entry: any) => {
+            const list = listMap.get(entry.list_id);
+
+            if (!list) {
+                return null;
+            }
+
+            return {
+                ...list,
+                ownerUsername: ownerMap.get(list.userId) || undefined,
+                likesCount: likesCountMap[list.id] || 0,
+                itemsCount: itemCountMap[list.id] || 0,
+                likedAt: entry.created_at,
+            } satisfies LikedReadingListPreview;
+        })
+        .filter(Boolean) as LikedReadingListPreview[];
 };
 
 export const createReadingList = async (list: Omit<ReadingList, 'id' | 'createdAt'>): Promise<ReadingList> => {

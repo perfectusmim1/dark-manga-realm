@@ -22,7 +22,8 @@ import {
   Trophy,
   Dices,
   Users,
-  Book
+  Book,
+  Clock3,
 } from 'lucide-react';
 import { getAllMangas, getCharacters } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
@@ -115,6 +116,7 @@ const Header: React.FC = () => {
 
   const navLinks: { path: string; label: string; icon?: any }[] = [
     { path: '/browse', label: 'Keşfet' },
+    { path: '/latest-chapters', label: 'Son Bölümler' },
     { path: '/characters', label: 'Karakterler' },
     { path: '/community', label: 'Topluluk', icon: Users },
   ];
@@ -339,6 +341,12 @@ const Header: React.FC = () => {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link to="/reading-time" className="flex items-center gap-2">
+                    <Clock3 className="h-4 w-4" />
+                    Süre
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/bookmarks" className="flex items-center gap-2">
                     <BookMarked className="h-4 w-4" />
                     Yer İmleri
@@ -448,6 +456,13 @@ const Header: React.FC = () => {
                   className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
                 >
                   Okuma Geçmişi
+                </Link>
+                <Link
+                  to="/reading-time"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+                >
+                  Süre
                 </Link>
               </>
             )}

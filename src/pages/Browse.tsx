@@ -122,6 +122,9 @@ const Browse: React.FC = () => {
       case 'updated':
         result.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
         break;
+      case 'created':
+        result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        break;
       case 'views':
         result.sort((a, b) => b.views - a.views);
         break;
@@ -217,6 +220,7 @@ const Browse: React.FC = () => {
             <SelectContent>
               <SelectItem value="popular">Popüler</SelectItem>
               <SelectItem value="rating">Puan</SelectItem>
+              <SelectItem value="created">Yeni Eklenen</SelectItem>
               <SelectItem value="updated">Son Güncellenen</SelectItem>
               <SelectItem value="views">Görüntülenme</SelectItem>
               <SelectItem value="chapters">Bölüm Sayısı</SelectItem>
