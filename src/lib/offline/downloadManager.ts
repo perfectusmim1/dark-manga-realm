@@ -20,6 +20,8 @@ import {
   OfflineChapter,
   OfflineDownloadStatus,
 } from '@/lib/offline/types';
+import { getOfflinePreferences } from '@/lib/offline/preferences';
+import { compressOfflineImage } from '@/lib/offline/imageCompression';
 
 const PROXY_FUNCTION_URL = `${supabaseUrl}/functions/v1/offline-image-proxy`;
 const PAGE_DOWNLOAD_CONCURRENCY = 3;
@@ -554,14 +556,30 @@ class OfflineDownloadManager {
             void persistProgress();
           });
 
-          expectedBytesByPage.set(nextItem.pageIndex, result.expectedTotalBytes || result.byteSize);
+          const { compressedDownloads } = getOfflinePreferences();
+          const processedImage = compressedDownloads
+            ? await compressOfflineImage(result.blob, result.mimeType)
+            : {
+              blob: result.blob,
+              mimeType: result.mimeType,
+              compressed: false,
+              originalBytes: result.byteSize,
+              storedBytes: result.byteSize,
+              savedBytes: 0,
+            };
+          const storedByteSize = processedImage.storedBytes || result.byteSize;
+
+          downloadedBytes -= result.byteSize;
+          downloadedBytes += storedByteSize;
+
+          expectedBytesByPage.set(nextItem.pageIndex, storedByteSize);
           await upsertOfflinePage({
             chapterId: currentChapter.chapterId,
             mangaId: currentChapter.mangaId,
             pageIndex: nextItem.pageIndex,
-            blob: result.blob,
-            mimeType: result.mimeType,
-            byteSize: result.byteSize,
+            blob: processedImage.blob,
+            mimeType: processedImage.mimeType,
+            byteSize: storedByteSize,
             sourceUrl: nextItem.sourceUrl,
           });
           downloadedIndexes.add(nextItem.pageIndex);

@@ -574,9 +574,18 @@ const MangaDetail: React.FC = () => {
 
     try {
       setIsQueueingSeriesDownload(true);
-      await offlineDownloadManager.queueSeriesDownload(manga, [...manga.chapters].sort((a, b) => a.number - b.number));
-      toast.success('Seri indirilmeye hazirlandi');
       setIsSeriesDownloadDialogOpen(false);
+      const job = await offlineDownloadManager.queueSeriesDownload(
+        manga,
+        [...manga.chapters].sort((a, b) => a.number - b.number),
+      );
+
+      if (!job) {
+        toast.info('Bu serinin tüm bölümleri zaten çevrimdışı hazır');
+        return;
+      }
+
+      toast.success('Seri arka planda indiriliyor. Sağ alttan takibini görebilirsin.');
     } catch (error) {
       console.error('Series download queue error:', error);
       toast.error('Seri indirilemedi');
@@ -596,8 +605,14 @@ const MangaDetail: React.FC = () => {
     }
 
     try {
-      await offlineDownloadManager.queueChapterDownload(manga, chapter);
-      toast.success(`Bölüm ${chapter.number} indirilmeye eklendi`);
+      const job = await offlineDownloadManager.queueChapterDownload(manga, chapter);
+
+      if (!job) {
+        toast.info(`Bölüm ${chapter.number} zaten çevrimdışı hazır`);
+        return;
+      }
+
+      toast.success(`Bölüm ${chapter.number} arka planda indiriliyor. Sağ alttan takip edebilirsin.`);
     } catch (error) {
       console.error('Chapter download queue error:', error);
       toast.error('Bölüm kuyruğa eklenemedi');

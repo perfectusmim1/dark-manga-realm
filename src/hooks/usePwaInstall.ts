@@ -8,13 +8,40 @@ interface BeforeInstallPromptEvent extends Event {
   }>;
 }
 
+const PWA_INSTALLED_KEY = 'toonparrot_pwa_installed';
+
+const getInstalledMarker = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.localStorage.getItem(PWA_INSTALLED_KEY) === 'true';
+};
+
+const setInstalledMarker = (value: boolean) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  if (value) {
+    window.localStorage.setItem(PWA_INSTALLED_KEY, 'true');
+    return;
+  }
+
+  window.localStorage.removeItem(PWA_INSTALLED_KEY);
+};
+
 const getStandaloneState = () => {
   if (typeof window === 'undefined') {
     return false;
   }
 
   const navigatorWithStandalone = navigator as Navigator & { standalone?: boolean };
-  return window.matchMedia('(display-mode: standalone)').matches || navigatorWithStandalone.standalone === true;
+  return (
+    window.matchMedia('(display-mode: standalone)').matches
+    || navigatorWithStandalone.standalone === true
+    || getInstalledMarker()
+  );
 };
 
 const getIsIos = () => {
@@ -31,17 +58,29 @@ export const usePwaInstall = () => {
   const [isIos, setIsIos] = useState(getIsIos);
 
   useEffect(() => {
+    if (getStandaloneState()) {
+      setInstalledMarker(true);
+      setIsInstalled(true);
+    }
+
     const handleBeforeInstallPrompt = (event: Event) => {
       event.preventDefault();
+      setInstalledMarker(false);
       setDeferredPrompt(event as BeforeInstallPromptEvent);
+      setIsInstalled(getStandaloneState());
     };
 
     const handleAppInstalled = () => {
+      setInstalledMarker(true);
       setIsInstalled(true);
       setDeferredPrompt(null);
     };
 
     const handleDisplayModeChange = () => {
+      if (window.matchMedia('(display-mode: standalone)').matches) {
+        setInstalledMarker(true);
+      }
+
       setIsInstalled(getStandaloneState());
       setIsIos(getIsIos());
     };
@@ -66,6 +105,7 @@ export const usePwaInstall = () => {
     const choice = await deferredPrompt.userChoice;
 
     if (choice.outcome === 'accepted') {
+      setInstalledMarker(true);
       setIsInstalled(true);
     }
 

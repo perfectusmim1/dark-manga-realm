@@ -55,6 +55,7 @@ import AdminAnnouncements from "./pages/admin/AdminAnnouncements";
 import AdminReports from "./pages/admin/AdminReports";
 import { offlineDownloadManager } from "@/lib/offline/downloadManager";
 import { initializeOfflineReaderSync } from "@/lib/offline/offlineReaderSync";
+import DownloadDock from "@/components/offline/DownloadDock";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -139,6 +140,7 @@ const App = () => (
 
                 <Route path="*" element={<NotFound />} />
               </Routes>
+              <DownloadDock />
             </BrowserRouter>
           </AppInitializer>
         </SecurityWrapper>

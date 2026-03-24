@@ -16,7 +16,9 @@ import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
+import { Switch } from '@/components/ui/switch';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
+import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
 import { OfflineChapter, OfflineDownloadStatus, OfflineMangaGroup } from '@/lib/offline/types';
 import { offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { formatBytes, formatSpeed } from '@/lib/offline/utils';
@@ -91,6 +93,7 @@ const formatDateTime = (value?: string) => {
 
 const Downloads: React.FC = () => {
   const { snapshot, isLoading, isOnline } = useOfflineLibrary();
+  const { preferences, updatePreferences } = useOfflinePreferences();
   const [activeFilter, setActiveFilter] = useState<DownloadsFilter>('Tümü');
   const [expandedSeries, setExpandedSeries] = useState<Record<string, boolean>>({});
 
@@ -203,6 +206,38 @@ const Downloads: React.FC = () => {
         <p className="mt-3 text-xs text-muted-foreground">
           Kullanılabilir alan, tarayıcının bu site için verdiği tahmini kota bilgisidir. Sabit ayrılmış disk alanı değildir; cihaz ve tarayıcıya göre değişebilir.
         </p>
+
+        <section className="mt-6 rounded-2xl border border-border bg-card/35 p-5 backdrop-blur-sm">
+          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+            <div className="min-w-0">
+              <div className="flex items-center gap-2">
+                <p className="text-sm font-bold">Sıkıştırılmış İndirme</p>
+                <Badge variant="secondary">Önerilen</Badge>
+              </div>
+              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+                Yeni indirmelerde sayfalar kaliteyi neredeyse fark edilmeyecek seviyede koruyarak WebP olarak optimize edilir.
+                Bu, özellikle uzun bölümlerde dosya boyutunu ciddi şekilde düşürür.
+              </p>
+              <p className="mt-2 text-xs text-muted-foreground">
+                Not: Bu ayar yeni indirilen sayfalara uygulanır. Mevcut indirilmiş bölümler aynı kalır.
+              </p>
+            </div>
+
+            <div className="flex shrink-0 items-center gap-3 rounded-full border border-border/70 bg-background/50 px-4 py-3">
+              <div className="text-right">
+                <p className="text-sm font-semibold">
+                  {preferences.compressedDownloads ? 'Açık' : 'Kapalı'}
+                </p>
+                <p className="text-xs text-muted-foreground">Yeni indirmelerde geçerli</p>
+              </div>
+              <Switch
+                checked={preferences.compressedDownloads}
+                onCheckedChange={(checked) => updatePreferences({ compressedDownloads: checked })}
+                aria-label="Sıkıştırılmış indirmeyi aç veya kapat"
+              />
+            </div>
+          </div>
+        </section>
 
         <InstallAppBanner compact className="mt-6" />
 

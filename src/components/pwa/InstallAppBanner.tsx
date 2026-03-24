@@ -2,6 +2,7 @@ import React from 'react';
 import { Download } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import InstallAppButton from '@/components/pwa/InstallAppButton';
+import { usePwaInstall } from '@/hooks/usePwaInstall';
 
 interface InstallAppBannerProps {
   compact?: boolean;
@@ -12,6 +13,12 @@ const InstallAppBanner: React.FC<InstallAppBannerProps> = ({
   compact = false,
   className,
 }) => {
+  const { canInstall, isInstalled, isIos } = usePwaInstall();
+
+  if (isInstalled || (!canInstall && !isIos)) {
+    return null;
+  }
+
   return (
     <section
       className={cn(
