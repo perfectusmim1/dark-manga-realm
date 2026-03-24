@@ -48,6 +48,7 @@ const Reader: React.FC = () => {
   const [controlsVisible, setControlsVisible] = useState(true);
   const [initialized, setInitialized] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
+  const [isTrackingReady, setIsTrackingReady] = useState(false);
   const [isIncognito, setIsIncognito] = useState(() => localStorage.getItem('toonparrot_incognito') === 'true');
   const [isAutoScrolling, setIsAutoScrolling] = useState(() => persistedAutoScrollIntent);
   const [isOfflineChapter, setIsOfflineChapter] = useState(false);
@@ -101,6 +102,7 @@ const Reader: React.FC = () => {
     setCurrentPage(1);
     window.scrollTo({ top: 0, behavior: 'instant' });
     viewTracked.current = false;
+    setIsTrackingReady(false);
     if (!resumeAutoScrollAfterNavigationRef.current) {
       persistedAutoScrollIntent = false;
       setIsAutoScrolling(false);
@@ -231,10 +233,24 @@ const Reader: React.FC = () => {
     loadContent();
   }, [mangaId, chapterId, user, navigate]);
 
+  useEffect(() => {
+    if (!initialized || isLoading || !chapter || resolvedPages.length === 0 || offlineUnavailable) {
+      return;
+    }
+
+    const timer = window.setTimeout(() => {
+      setIsTrackingReady(true);
+    }, 2000);
+
+    return () => {
+      window.clearTimeout(timer);
+    };
+  }, [chapter, initialized, isLoading, offlineUnavailable, resolvedPages.length]);
+
   // Save reading progress when page changes
   useEffect(() => {
     const saveProgress = async () => {
-      if (mangaId && chapterId && chapter && initialized && user && !isIncognito) {
+      if (mangaId && chapterId && chapter && initialized && isTrackingReady && user && !isIncognito) {
         try {
           if (navigator.onLine) {
             await updateReadingProgress(user.id, {
@@ -267,18 +283,18 @@ const Reader: React.FC = () => {
       }
     };
     saveProgress();
-  }, [mangaId, chapterId, chapter, currentPage, initialized, resolvedPages.length, user]);
+  }, [mangaId, chapterId, chapter, currentPage, initialized, isTrackingReady, resolvedPages.length, user]);
 
   useEffect(() => {
-    if (!isOfflineChapter || !chapterId || resolvedPages.length === 0) {
+    if (!isTrackingReady || !isOfflineChapter || !chapterId || resolvedPages.length === 0) {
       return;
     }
 
     void markOfflineChapterReadProgress(chapterId, currentPage, resolvedPages.length);
-  }, [chapterId, currentPage, isOfflineChapter, resolvedPages.length]);
+  }, [chapterId, currentPage, isOfflineChapter, isTrackingReady, resolvedPages.length]);
 
   useEffect(() => {
-    if (!initialized || !user || !mangaId || !chapterId || !chapter || isIncognito) {
+    if (!initialized || !isTrackingReady || !user || !mangaId || !chapterId || !chapter || isIncognito) {
       readingSessionStartedAt.current = null;
       return;
     }
@@ -291,10 +307,10 @@ const Reader: React.FC = () => {
     return () => {
       void flushReadingSession(5, false);
     };
-  }, [initialized, user, mangaId, chapterId, chapter, isIncognito, flushReadingSession]);
+  }, [initialized, isTrackingReady, user, mangaId, chapterId, chapter, isIncognito, flushReadingSession]);
 
   useEffect(() => {
-    if (!initialized || !user || !chapter || isIncognito) {
+    if (!initialized || !isTrackingReady || !user || !chapter || isIncognito) {
       return;
     }
 
@@ -323,7 +339,7 @@ const Reader: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [initialized, user, chapter, isIncognito, flushReadingSession]);
+  }, [initialized, isTrackingReady, user, chapter, isIncognito, flushReadingSession]);
 
   const handleSettingsChange = useCallback((newSettings: ReaderSettings) => {
     setSettings(newSettings);
