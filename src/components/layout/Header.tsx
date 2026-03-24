@@ -587,7 +587,7 @@ const Header: React.FC = () => {
           <div className="relative px-6 py-6">
             <div className="pointer-events-none absolute inset-x-6 top-6 h-16 rounded-t-3xl bg-gradient-to-b from-card via-card/80 to-transparent z-20" />
             <div className="pointer-events-none absolute inset-x-6 bottom-6 h-16 rounded-b-3xl bg-gradient-to-t from-card via-card/80 to-transparent z-20" />
-            <div className="pointer-events-none absolute inset-x-7 top-1/2 z-20 h-[96px] -translate-y-1/2 rounded-[26px] border border-primary/30 bg-primary/10 shadow-[0_0_40px_rgba(59,130,246,0.18)]" />
+            <div className="pointer-events-none absolute inset-x-7 top-[calc(50%-20px)] z-20 h-[96px] -translate-y-1/2 rounded-[26px] border border-primary/30 bg-primary/10 shadow-[0_0_40px_rgba(59,130,246,0.18)]" />
 
             <div className="h-[312px] overflow-hidden rounded-[28px] border border-border/60 bg-background/70">
               <div

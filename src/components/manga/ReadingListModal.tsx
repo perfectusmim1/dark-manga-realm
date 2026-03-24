@@ -136,8 +136,8 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="sm:max-w-[425px]">
-                <DialogHeader>
+            <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-[425px] flex-col overflow-hidden p-0 sm:max-w-[425px]">
+                <DialogHeader className="px-6 pt-6">
                     <DialogTitle className="flex items-center gap-2">
                         <List className="h-5 w-5" />
                         Okuma Listelerim
@@ -147,7 +147,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="py-4">
+                <div className="flex-1 overflow-y-auto px-6 py-4">
                     {!isCreating ? (
                         <>
                             <ScrollArea className="h-[300px] pr-4">
@@ -281,29 +281,29 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                                     onCheckedChange={setIsPublic}
                                 />
                             </div>
-                            <div className="flex gap-2 pt-2">
-                                <Button
-                                    variant="ghost"
-                                    className="flex-1"
-                                    onClick={() => setIsCreating(false)}
-                                >
-                                    İptal
-                                </Button>
-                                <Button className="flex-1" onClick={handleCreateList}>
-                                    Oluştur ve Ekle
-                                </Button>
-                            </div>
                         </div>
                     )}
                 </div>
 
-                {!isCreating && (
-                    <DialogFooter>
+                <DialogFooter className="border-t border-border px-6 py-4">
+                    {isCreating ? (
+                        <>
+                            <Button
+                                variant="ghost"
+                                onClick={() => setIsCreating(false)}
+                            >
+                                İptal
+                            </Button>
+                            <Button onClick={handleCreateList}>
+                                Oluştur ve Ekle
+                            </Button>
+                        </>
+                    ) : (
                         <Button variant="ghost" className="w-full" onClick={onClose}>
                             Kapat
                         </Button>
-                    </DialogFooter>
-                )}
+                    )}
+                </DialogFooter>
             </DialogContent>
         </Dialog>
     );

@@ -2,7 +2,9 @@ import React, { useState, useEffect, useMemo } from 'react';
 import {
     Search,
     ArrowLeft,
-    Star
+    Star,
+    Sparkles,
+    BookOpen
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { getAllMangas } from '@/lib/database';
@@ -32,6 +34,7 @@ const SuperSearch: React.FC = () => {
     const [favorites, setFavorites] = useState<Record<string, boolean>>({});
     const { user } = useAuth();
     const [popularMangas, setPopularMangas] = useState<Manga[]>([]);
+    const [randomShowcase, setRandomShowcase] = useState<Manga[]>([]);
 
     const navigate = useNavigate();
 
@@ -48,6 +51,11 @@ const SuperSearch: React.FC = () => {
                         .sort((a, b) => (b.views || 0) - (a.views || 0))
                         .slice(0, 5);
                     setPopularMangas(popular);
+
+                    const randomCards = [...data]
+                        .sort(() => Math.random() - 0.5)
+                        .slice(0, 4);
+                    setRandomShowcase(randomCards);
 
                     if (user) {
                         const favStatus: Record<string, boolean> = {};
@@ -261,6 +269,61 @@ const SuperSearch: React.FC = () => {
                                                 </div>
                                             ))
                                         )}
+                                    </div>
+                                </div>
+                            )}
+
+                            {!searchQuery && randomShowcase.length > 0 && (
+                                <div>
+                                    <div className="mb-4 flex items-center gap-2">
+                                        <Sparkles className="h-4 w-4 text-primary" />
+                                        <h3 className="text-[11px] font-bold uppercase tracking-[0.1em] text-muted-foreground">
+                                            RASTGELE SERİLER
+                                        </h3>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+                                        {randomShowcase.map((manga) => (
+                                            <button
+                                                key={manga.id}
+                                                onClick={() => handleResultClick(manga.id)}
+                                                className="group overflow-hidden rounded-2xl border border-white/5 bg-[#141414] text-left transition-all hover:border-primary/30 hover:bg-white/[0.04] hover:shadow-[0_0_24px_rgba(59,130,246,0.12)]"
+                                            >
+                                                <div className="relative aspect-[2/3] overflow-hidden">
+                                                    <img
+                                                        src={manga.cover}
+                                                        alt={manga.title}
+                                                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                    />
+                                                    <div className="absolute inset-0 bg-gradient-to-t from-black via-black/10 to-transparent" />
+                                                    <Badge
+                                                        variant="secondary"
+                                                        className="absolute left-2 top-2 border-none bg-primary/90 text-[9px] font-bold text-primary-foreground shadow-lg shadow-primary/20"
+                                                    >
+                                                        {manga.type.toUpperCase()}
+                                                    </Badge>
+                                                    <Badge
+                                                        variant="outline"
+                                                        className="absolute bottom-2 right-2 border-white/10 bg-black/60 px-1.5 text-[9px] text-white backdrop-blur-md"
+                                                    >
+                                                        {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam' : 'Ara'}
+                                                    </Badge>
+                                                </div>
+
+                                                <div className="space-y-1.5 p-3">
+                                                    <p className="line-clamp-2 min-h-[2.5rem] text-[12px] font-bold leading-5 text-white/90 transition-colors group-hover:text-white">
+                                                        {manga.title}
+                                                    </p>
+                                                    <p className="line-clamp-1 text-[10px] text-white/40">
+                                                        {manga.author}
+                                                    </p>
+                                                    <div className="flex items-center gap-1.5 text-[10px] text-primary/90">
+                                                        <BookOpen className="h-3 w-3" />
+                                                        <span>{manga.chapters.length} bölüm</span>
+                                                    </div>
+                                                </div>
+                                            </button>
+                                        ))}
                                     </div>
                                 </div>
                             )}

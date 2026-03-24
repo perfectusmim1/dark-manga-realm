@@ -36,8 +36,20 @@ const Announcements: React.FC = () => {
                 getReadList(user.id),
             ]);
 
+            const unreadIds = announcementData
+                .filter((announcement) => !reads.includes(announcement.id))
+                .map((announcement) => announcement.id);
+
+            let nextReadIds = reads;
+            if (unreadIds.length > 0) {
+                const { error } = await markAllAnnouncementsAsRead(unreadIds, user.id);
+                if (!error) {
+                    nextReadIds = [...new Set([...reads, ...unreadIds])];
+                }
+            }
+
             setAnnouncements(announcementData);
-            setReadIds(reads);
+            setReadIds(nextReadIds);
         } catch (error) {
             console.error('Announcements page load error:', error);
             toast.error('Duyurular yüklenemedi');

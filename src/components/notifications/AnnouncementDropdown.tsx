@@ -20,6 +20,7 @@ import {
     getUnreadAnnouncementCount,
     markAsRead,
     getReadList,
+    markAllAnnouncementsAsRead,
     Announcement
 } from '@/lib/announcements';
 
@@ -31,17 +32,32 @@ const AnnouncementDropdown: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    const loadAnnouncements = async () => {
+    const loadAnnouncements = async (markViewed = false) => {
         if (!user) return;
         setLoading(true);
         try {
             const { announcements: allAnnouncements } = await getAnnouncements();
-            const { count } = await getUnreadAnnouncementCount(user.id);
             const { reads } = await getReadList(user.id);
-            
+
+            let nextReadIds = reads;
+            if (markViewed) {
+                const unreadIds = allAnnouncements
+                    .filter((announcement) => !reads.includes(announcement.id))
+                    .map((announcement) => announcement.id);
+
+                if (unreadIds.length > 0) {
+                    const { error } = await markAllAnnouncementsAsRead(unreadIds, user.id);
+                    if (!error) {
+                        nextReadIds = [...new Set([...reads, ...unreadIds])];
+                    }
+                }
+            }
+
+            const unreadCount = allAnnouncements.filter((announcement) => !nextReadIds.includes(announcement.id)).length;
+
             setAnnouncements(allAnnouncements);
-            setUnreadCount(Number(count));
-            setReadIds(reads);
+            setUnreadCount(unreadCount);
+            setReadIds(nextReadIds);
         } catch (error) {
             console.error('Error loading announcements:', error);
         } finally {
@@ -59,7 +75,7 @@ const AnnouncementDropdown: React.FC = () => {
 
     useEffect(() => {
         if (isOpen) {
-            loadAnnouncements();
+            loadAnnouncements(true);
         }
     }, [isOpen]);
 
