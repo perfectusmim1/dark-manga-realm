@@ -1,15 +1,10 @@
-import { logChapterRead } from '@/lib/profile';
 import { updateReadingProgress } from '@/lib/storage';
 import {
   addPendingReaderSync,
   getPendingReaderSyncItems,
   removePendingReaderSyncItem,
 } from '@/lib/offline/offlineStorage';
-import {
-  PendingReaderActivityPayload,
-  PendingReaderProgressPayload,
-  PendingReaderSync,
-} from '@/lib/offline/types';
+import { PendingReaderActivityPayload, PendingReaderProgressPayload, PendingReaderSync } from '@/lib/offline/types';
 
 let initialized = false;
 let flushInFlight: Promise<void> | null = null;
@@ -104,14 +99,8 @@ export const flushPendingReaderSync = async () => {
             page: payload.page,
           });
         } else {
-          const payload = item.payload as PendingReaderActivityPayload;
-          await logChapterRead(
-            item.userId,
-            payload.mangaId,
-            payload.chapterId,
-            payload.chapterNumber,
-            payload.secondsSpent,
-          );
+          await removePendingReaderSyncItem(item.id);
+          continue;
         }
 
         await removePendingReaderSyncItem(item.id);

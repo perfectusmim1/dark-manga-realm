@@ -23,11 +23,11 @@ import {
   buildOfflineReaderPages,
   getOfflineChapter,
   getOfflineMangaDetail,
+  markOfflineChapterReadProgress,
   getPendingReaderSyncItems,
 } from '@/lib/offline/offlineStorage';
 import {
   flushPendingReaderSync,
-  queueReadingActivitySync,
   queueReadingProgressSync,
 } from '@/lib/offline/offlineReaderSync';
 
@@ -89,13 +89,6 @@ const Reader: React.FC = () => {
       await flushPendingReaderSync();
       return;
     }
-
-    await queueReadingActivitySync(user.id, {
-      mangaId,
-      chapterId,
-      chapterNumber: chapter.number,
-      secondsSpent: elapsedSeconds,
-    });
   }, [user, mangaId, chapterId, chapter, isIncognito]);
 
   // Reset state and scroll on chapter change
@@ -240,6 +233,14 @@ const Reader: React.FC = () => {
     };
     saveProgress();
   }, [mangaId, chapterId, chapter, currentPage, initialized, user]);
+
+  useEffect(() => {
+    if (!isOfflineChapter || !chapterId || resolvedPages.length === 0) {
+      return;
+    }
+
+    void markOfflineChapterReadProgress(chapterId, currentPage, resolvedPages.length);
+  }, [chapterId, currentPage, isOfflineChapter, resolvedPages.length]);
 
   useEffect(() => {
     if (!initialized || !user || !mangaId || !chapterId || !chapter || isIncognito) {

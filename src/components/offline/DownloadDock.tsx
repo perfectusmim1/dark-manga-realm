@@ -55,6 +55,7 @@ const DownloadDock: React.FC = () => {
   const { snapshot, isOnline } = useOfflineLibrary();
   const { pathname } = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
+  const [isDismissed, setIsDismissed] = useState(false);
 
   const relevantJobs = useMemo(
     () => sortJobs(snapshot.jobs.filter((job) => RELEVANT_STATUSES.includes(job.status))),
@@ -63,7 +64,13 @@ const DownloadDock: React.FC = () => {
 
   const primaryJob = relevantJobs[0];
 
-  if (!primaryJob || pathname.startsWith('/downloads') || isReaderRoute(pathname)) {
+  React.useEffect(() => {
+    if (snapshot.jobs.some((job) => ['running', 'queued'].includes(job.status))) {
+      setIsDismissed(false);
+    }
+  }, [snapshot.jobs]);
+
+  if (!primaryJob || isDismissed || pathname.startsWith('/downloads') || isReaderRoute(pathname)) {
     return null;
   }
 
@@ -200,7 +207,22 @@ const DownloadDock: React.FC = () => {
           </div>
 
           <div className="shrink-0 text-muted-foreground">
-            {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                className="rounded-md p-1 transition-colors hover:bg-secondary hover:text-foreground"
+                onClick={(event) => {
+                  event.stopPropagation();
+                  setIsDismissed(true);
+                  setIsExpanded(false);
+                }}
+                aria-label="İndirme panelini kapat"
+                title="Kapat"
+              >
+                <ChevronDown className="h-4 w-4 rotate-45" />
+              </button>
+              {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
+            </div>
           </div>
         </div>
       </button>

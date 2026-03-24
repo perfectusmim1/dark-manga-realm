@@ -6,8 +6,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getReadingHistory } from '@/lib/storage';
-import { getMangaById } from '@/lib/database';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
+import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 
 const History: React.FC = () => {
   const { user } = useAuth();
@@ -19,6 +19,7 @@ const History: React.FC = () => {
       if (user) {
         try {
           setIsLoading(true);
+          await flushPendingReaderSync();
           const history = await getReadingHistory(user.id);
           // Group by mangaId to show latest per manga
           const unique = history.reduce((acc: any, item: any) => {

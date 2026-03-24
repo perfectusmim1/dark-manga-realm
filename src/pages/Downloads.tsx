@@ -124,6 +124,17 @@ const Downloads: React.FC = () => {
     toast.success('Seri indirilenlerden kaldırıldı.');
   };
 
+  const handleDeleteReadChapters = async (entry: OfflineMangaGroup) => {
+    const deletedCount = await offlineDownloadManager.deleteReadChaptersForManga(entry.manga.mangaId);
+
+    if (deletedCount > 0) {
+      toast.success(`${deletedCount} okunan bölüm silindi.`);
+      return;
+    }
+
+    toast.info('Silinecek okunan bölüm bulunamadı.');
+  };
+
   const handleRetrySeries = async (entry: OfflineMangaGroup) => {
     const job = getPrimaryJob(entry);
 
@@ -274,6 +285,7 @@ const Downloads: React.FC = () => {
             {filteredSeries.map((entry) => {
               const primaryJob = getPrimaryJob(entry);
               const canRead = entry.chapters.some((chapter) => chapter.downloadStatus === 'completed');
+              const readChapterCount = entry.chapters.filter((chapter) => chapter.isRead).length;
               const firstReadableChapter = entry.chapters
                 .filter((chapter) => chapter.downloadStatus === 'completed')
                 .sort((a, b) => a.chapterNumber - b.chapterNumber)[0];
@@ -316,6 +328,7 @@ const Downloads: React.FC = () => {
 
                           <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
                             <span>{entry.downloadedChapters}/{entry.manga.chapterCount} bölüm indirildi</span>
+                            <span>{readChapterCount} okundu</span>
                             <span>{formatBytes(entry.totalBytes)}</span>
                             <span>Son indirme: {formatDateTime(entry.latestDownloadedAt)}</span>
                           </div>
@@ -363,6 +376,13 @@ const Downloads: React.FC = () => {
                           Bölümler
                         </Button>
 
+                        {readChapterCount > 0 && (
+                          <Button variant="outline" onClick={() => void handleDeleteReadChapters(entry)}>
+                            <Trash2 className="mr-2 h-4 w-4" />
+                            Okunanları Sil
+                          </Button>
+                        )}
+
                         <Button variant="outline" onClick={() => void handleDeleteSeries(entry.manga.mangaId)}>
                           <Trash2 className="mr-2 h-4 w-4" />
                           Sil
@@ -389,6 +409,9 @@ const Downloads: React.FC = () => {
                                   <span>{formatBytes(chapter.downloadedBytes || 0)}</span>
                                   <span>{chapter.pageCount} sayfa</span>
                                   <span>{formatDateTime(chapter.downloadedAt || chapter.lastAttemptAt)}</span>
+                                  {chapter.isRead && (
+                                    <Badge variant="secondary">Okundu</Badge>
+                                  )}
                                   <Badge variant="outline">{chapter.downloadStatus}</Badge>
                                 </div>
                               </div>

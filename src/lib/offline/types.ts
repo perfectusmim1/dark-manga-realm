@@ -42,6 +42,10 @@ export interface OfflineChapter {
   downloadedAt?: string;
   lastAttemptAt?: string;
   error?: string;
+  isRead?: boolean;
+  maxReadPage?: number;
+  readProgressPercent?: number;
+  lastReadAt?: string;
 }
 
 export interface OfflinePage {

@@ -108,6 +108,9 @@ const mapChapterToOffline = (
   downloadStatus,
   downloadedPages: 0,
   downloadedBytes: 0,
+  isRead: false,
+  maxReadPage: 0,
+  readProgressPercent: 0,
 });
 
 const mapMangaToOffline = (manga: Manga): OfflineManga => ({
@@ -227,6 +230,33 @@ export const updateOfflineChapter = async (
   await db.put('chapters', nextValue);
   emitOfflineLibraryChange();
   return nextValue;
+};
+
+export const markOfflineChapterReadProgress = async (
+  chapterId: string,
+  currentPage: number,
+  totalPages: number,
+) => {
+  if (!chapterId || !Number.isFinite(currentPage) || !Number.isFinite(totalPages) || totalPages <= 0) {
+    return undefined;
+  }
+
+  return updateOfflineChapter(chapterId, (current) => {
+    const nextMaxReadPage = Math.max(current.maxReadPage || 0, Math.min(currentPage, totalPages));
+    const readProgressPercent = Math.max(
+      current.readProgressPercent || 0,
+      Math.min(100, (nextMaxReadPage / totalPages) * 100),
+    );
+    const shouldMarkRead = readProgressPercent >= 70;
+
+    return {
+      ...current,
+      maxReadPage: nextMaxReadPage,
+      readProgressPercent,
+      isRead: current.isRead || shouldMarkRead,
+      lastReadAt: new Date().toISOString(),
+    };
+  });
 };
 
 export const replaceOfflineJob = async (job: DownloadJob) => {
@@ -363,6 +393,19 @@ export const deleteOfflineManga = async (mangaId: string) => {
 
   await db.delete('mangas', mangaId);
   emitOfflineLibraryChange();
+};
+
+export const deleteReadOfflineChaptersForManga = async (mangaId: string) => {
+  const chapters = await getOfflineChaptersForManga(mangaId);
+  const readChapterIds = chapters
+    .filter((chapter) => chapter.isRead)
+    .map((chapter) => chapter.chapterId);
+
+  for (const chapterId of readChapterIds) {
+    await deleteOfflineChapter(chapterId);
+  }
+
+  return readChapterIds.length;
 };
 
 export const buildOfflineReaderPages = async (chapterId: string) => {

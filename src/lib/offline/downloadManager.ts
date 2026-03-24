@@ -6,6 +6,7 @@ import {
   clearInterruptedJobs,
   deleteOfflineChapter,
   deleteOfflineManga,
+  deleteReadOfflineChaptersForManga,
   getOfflineChapter,
   getOfflineJobs,
   getOfflinePagesForChapter,
@@ -370,6 +371,10 @@ class OfflineDownloadManager {
     }
 
     await deleteOfflineManga(mangaId);
+  }
+
+  async deleteReadChaptersForManga(mangaId: string) {
+    return deleteReadOfflineChaptersForManga(mangaId);
   }
 
   private async processQueue() {

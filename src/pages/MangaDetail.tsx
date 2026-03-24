@@ -92,6 +92,7 @@ import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { OfflineMangaGroup } from '@/lib/offline/types';
+import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -322,6 +323,7 @@ const MangaDetail: React.FC = () => {
           Promise.all([
             getMangaCharacters(mangaId),
             user ? Promise.all([
+              navigator.onLine ? flushPendingReaderSync() : Promise.resolve(),
               isFavorite(user.id, mangaId),
               isFollowingManga(user.id, mangaId),
               getUserRating(mangaId, user.id),
@@ -339,7 +341,7 @@ const MangaDetail: React.FC = () => {
             setIsCharsLoading(false);
 
             if (user && Array.isArray(uInfo) && uInfo.length > 1) {
-              const [favorited, following, rating, progress, mReviews, uReview, userFavorites, blockedUsersResult, mangaReadingTime] = uInfo;
+              const [, favorited, following, rating, progress, mReviews, uReview, userFavorites, blockedUsersResult, mangaReadingTime] = uInfo;
               setFavorite(favorited as boolean);
               setIsFollowing(following as boolean);
               setUserRating(rating as number);
@@ -1147,6 +1149,11 @@ const MangaDetail: React.FC = () => {
                                     <Eye className="h-3 w-3" />
                                     {formatViews(chapter.views || 0)}
                                   </span>
+                                  {offlineChapterMap[chapter.id]?.isRead && (
+                                    <Badge variant="secondary" className="text-[10px]">
+                                      Okundu
+                                    </Badge>
+                                  )}
                                   {offlineChapterMap[chapter.id] && (
                                     <Badge variant="outline" className="text-[10px] capitalize">
                                       {offlineChapterMap[chapter.id].downloadStatus}
