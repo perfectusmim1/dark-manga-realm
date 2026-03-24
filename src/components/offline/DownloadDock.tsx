@@ -115,6 +115,7 @@ const DownloadDock: React.FC = () => {
 
   const primaryJob = relevantJobs[0];
   const hasActiveJobs = relevantJobs.some((job) => ACTIVE_STATUSES.includes(job.status));
+  const hasCompletedJobs = relevantJobs.some((job) => job.status === 'completed');
   const dockSignature = useMemo(
     () => relevantJobs.map((job) => `${job.id}:${job.status}`).join('|'),
     [relevantJobs],
@@ -159,6 +160,10 @@ const DownloadDock: React.FC = () => {
     setIsMinimized(false);
   };
 
+  const handleClearCompleted = async () => {
+    await offlineDownloadManager.clearCompletedJobs();
+  };
+
   const handleToggleMinimize = (event: React.MouseEvent<HTMLButtonElement>) => {
     event.stopPropagation();
     setIsExpanded(false);
@@ -167,7 +172,7 @@ const DownloadDock: React.FC = () => {
 
   if (isMinimized) {
     return (
-      <div className="pointer-events-none fixed bottom-5 right-5 z-[90]">
+      <div className="pointer-events-none fixed bottom-5 right-5 z-[90] md:bottom-5">
         <button
           type="button"
           onClick={() => setIsMinimized(false)}
@@ -187,9 +192,9 @@ const DownloadDock: React.FC = () => {
   }
 
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[90] flex w-[min(92vw,380px)] flex-col items-end gap-3">
+    <div className="pointer-events-none fixed bottom-5 right-5 z-[90] flex max-h-[calc(100vh-6rem)] w-[min(92vw,380px)] max-w-[calc(100vw-1.5rem)] flex-col items-end gap-3 md:bottom-5">
       {isExpanded && (
-        <div className="pointer-events-auto w-full rounded-2xl border border-border/70 bg-card/95 p-4 shadow-2xl shadow-black/35 backdrop-blur-xl">
+        <div className="pointer-events-auto max-h-[min(42vh,360px)] w-full overflow-y-auto rounded-2xl border border-border/70 bg-card/95 p-4 shadow-2xl shadow-black/35 backdrop-blur-xl md:max-h-[min(48vh,420px)]">
           <div className="flex items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">
@@ -201,6 +206,16 @@ const DownloadDock: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
+              {hasCompletedJobs && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  onClick={() => void handleClearCompleted()}
+                >
+                  Tamamlananları Temizle
+                </Button>
+              )}
               <Button asChild variant="outline" size="sm">
                 <Link to="/downloads">İndirilenler</Link>
               </Button>

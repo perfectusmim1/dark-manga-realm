@@ -377,6 +377,13 @@ class OfflineDownloadManager {
     return deleteReadOfflineChaptersForManga(mangaId);
   }
 
+  async clearCompletedJobs() {
+    const jobs = await getOfflineJobs();
+    const completedJobs = jobs.filter((job) => job.status === 'completed');
+
+    await Promise.all(completedJobs.map((job) => removeOfflineJob(job.id)));
+  }
+
   private async processQueue() {
     if (this.processing || !navigator.onLine) {
       return;
