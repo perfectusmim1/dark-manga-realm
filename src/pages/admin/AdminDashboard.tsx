@@ -132,7 +132,7 @@ const AdminDashboard: React.FC = () => {
                 <div className="rounded-xl border border-border bg-card p-6">
                     <h2 className="mb-4 text-lg font-semibold">Türe Göre Dağılım</h2>
                     <div className="space-y-4">
-                        {(['manga', 'manhwa', 'manhua'] as const).map((type) => {
+                        {(['manga', 'manhwa', 'manhua', 'webtoon'] as const).map((type) => {
                             const count = stats.mangasByType[type];
                             const percentage = stats.totalMangas > 0
                                 ? Math.round((count / stats.totalMangas) * 100)
@@ -147,7 +147,8 @@ const AdminDashboard: React.FC = () => {
                                     <div className="h-2 overflow-hidden rounded-full bg-secondary">
                                         <div
                                             className={`h-full rounded-full transition-all ${type === 'manga' ? 'bg-primary' :
-                                                type === 'manhwa' ? 'bg-purple-500' : 'bg-green-500'
+                                                type === 'manhwa' ? 'bg-purple-500' :
+                                                    type === 'manhua' ? 'bg-green-500' : 'bg-sky-500'
                                                 }`}
                                             style={{ width: `${percentage}%` }}
                                         />

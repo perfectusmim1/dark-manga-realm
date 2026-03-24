@@ -316,7 +316,7 @@ const AdminMangaEditor: React.FC = () => {
                 author: manga.author!,
                 artist: manga.artist || manga.author!,
                 status: manga.status as 'ongoing' | 'completed' | 'hiatus',
-                type: manga.type as 'manga' | 'manhwa' | 'manhua',
+                type: manga.type as 'manga' | 'manhwa' | 'manhua' | 'webtoon',
                 genres: manga.genres || [],
                 description: manga.description || '',
                 ratings: manga.ratings || [],
@@ -552,6 +552,7 @@ const AdminMangaEditor: React.FC = () => {
                                         <SelectItem value="manga">Manga</SelectItem>
                                         <SelectItem value="manhwa">Manhwa</SelectItem>
                                         <SelectItem value="manhua">Manhua</SelectItem>
+                                        <SelectItem value="webtoon">Webtoon</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>

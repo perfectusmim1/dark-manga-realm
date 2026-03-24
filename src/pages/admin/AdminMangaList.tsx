@@ -101,6 +101,8 @@ const AdminMangaList: React.FC = () => {
                 return <Badge variant="outline" className="border-purple-500 text-purple-500 hover:bg-purple-500/10">Manhwa</Badge>;
             case 'manhua':
                 return <Badge variant="outline" className="border-green-500 text-green-500 hover:bg-green-500/10">Manhua</Badge>;
+            case 'webtoon':
+                return <Badge variant="outline" className="border-sky-500 text-sky-400 hover:bg-sky-500/10">Webtoon</Badge>;
             default:
                 return null;
         }
@@ -146,6 +148,7 @@ const AdminMangaList: React.FC = () => {
                         <DropdownMenuItem onClick={() => setTypeFilter('manga')}>Manga</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setTypeFilter('manhwa')}>Manhwa</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setTypeFilter('manhua')}>Manhua</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTypeFilter('webtoon')}>Webtoon</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
 

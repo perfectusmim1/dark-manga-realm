@@ -330,7 +330,7 @@ const MangaDetail: React.FC = () => {
         }
 
         // Wave 1: Fetch the most important thing (Manga Metadata)
-        const mData = await getMangaById(mangaId);
+        const mData = isOnline ? await getMangaById(mangaId) : undefined;
         
         if (mData) {
           setIsOfflineView(false);
@@ -347,7 +347,7 @@ const MangaDetail: React.FC = () => {
           Promise.all([
             getMangaCharacters(mangaId),
             user ? Promise.all([
-              navigator.onLine ? flushPendingReaderSync() : Promise.resolve(),
+              isOnline ? flushPendingReaderSync() : Promise.resolve(),
               isFavorite(user.id, mangaId),
               isFollowingManga(user.id, mangaId),
               getUserRating(mangaId, user.id),
@@ -452,7 +452,7 @@ const MangaDetail: React.FC = () => {
     };
 
     loadMangaData();
-  }, [mangaId, user?.id]);
+  }, [isOnline, mangaId, user?.id]);
 
   if (isLoading) {
     return (
@@ -870,7 +870,8 @@ const MangaDetail: React.FC = () => {
                     variant="default"
                     className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' :
                       manga.type === 'manhua' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' :
-                        'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+                        manga.type === 'webtoon' ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/20' :
+                          'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                       }`}
                   >
                     {manga.type.toUpperCase()}

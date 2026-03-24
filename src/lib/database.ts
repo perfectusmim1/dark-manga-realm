@@ -762,6 +762,7 @@ export const getStatistics = async () => {
         manga: mangaData?.filter(m => m.type === 'manga').length || 0,
         manhwa: mangaData?.filter(m => m.type === 'manhwa').length || 0,
         manhua: mangaData?.filter(m => m.type === 'manhua').length || 0,
+        webtoon: mangaData?.filter(m => m.type === 'webtoon').length || 0,
     };
 
     const mangasByStatus = {

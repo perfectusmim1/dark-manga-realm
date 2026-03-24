@@ -298,7 +298,15 @@ const SuperSearch: React.FC = () => {
                                                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/10 to-transparent" />
                                                     <Badge
                                                         variant="secondary"
-                                                        className="absolute left-2 top-2 border-none bg-primary/90 text-[9px] font-bold text-primary-foreground shadow-lg shadow-primary/20"
+                                                        className={`absolute left-2 top-2 border-none text-[9px] font-bold shadow-lg ${
+                                                            manga.type === 'manhwa'
+                                                                ? 'bg-purple-600/90 text-white shadow-purple-500/20'
+                                                                : manga.type === 'manhua'
+                                                                    ? 'bg-emerald-600/90 text-white shadow-emerald-500/20'
+                                                                    : manga.type === 'webtoon'
+                                                                        ? 'bg-sky-600/90 text-white shadow-sky-500/20'
+                                                                        : 'bg-primary/90 text-primary-foreground shadow-primary/20'
+                                                        }`}
                                                     >
                                                         {manga.type.toUpperCase()}
                                                     </Badge>

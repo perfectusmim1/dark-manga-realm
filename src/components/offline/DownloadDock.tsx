@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 
 const STORAGE_KEYS = {
   minimized: 'toonparrot_download_dock_minimized',
-  dismissedSignature: 'toonparrot_download_dock_dismissed_signature',
+  hiddenWhenIdle: 'toonparrot_download_dock_hidden_when_idle',
 };
 
 const RELEVANT_STATUSES: OfflineDownloadStatus[] = ['running', 'queued', 'paused', 'failed', 'partial', 'completed'];
@@ -72,14 +72,6 @@ const getStoredBoolean = (key: string, fallback = false) => {
   return raw === 'true';
 };
 
-const getStoredString = (key: string) => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  return window.localStorage.getItem(key);
-};
-
 const setStoredBoolean = (key: string, value: boolean) => {
   if (typeof window === 'undefined') {
     return;
@@ -88,25 +80,12 @@ const setStoredBoolean = (key: string, value: boolean) => {
   window.localStorage.setItem(key, String(value));
 };
 
-const setStoredString = (key: string, value: string | null) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  if (value === null) {
-    window.localStorage.removeItem(key);
-    return;
-  }
-
-  window.localStorage.setItem(key, value);
-};
-
 const DownloadDock: React.FC = () => {
   const { snapshot, isOnline } = useOfflineLibrary();
   const { pathname } = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(() => getStoredBoolean(STORAGE_KEYS.minimized, false));
-  const [dismissedSignature, setDismissedSignature] = useState(() => getStoredString(STORAGE_KEYS.dismissedSignature));
+  const [hiddenWhenIdle, setHiddenWhenIdle] = useState(() => getStoredBoolean(STORAGE_KEYS.hiddenWhenIdle, false));
 
   const relevantJobs = useMemo(
     () => sortJobs(snapshot.jobs.filter((job) => RELEVANT_STATUSES.includes(job.status))),
@@ -116,33 +95,22 @@ const DownloadDock: React.FC = () => {
   const primaryJob = relevantJobs[0];
   const hasActiveJobs = relevantJobs.some((job) => ACTIVE_STATUSES.includes(job.status));
   const hasCompletedJobs = relevantJobs.some((job) => job.status === 'completed');
-  const dockSignature = useMemo(
-    () => relevantJobs.map((job) => `${job.id}:${job.status}`).join('|'),
-    [relevantJobs],
-  );
-  const isDismissed = Boolean(dockSignature) && dismissedSignature === dockSignature;
 
   useEffect(() => {
     setStoredBoolean(STORAGE_KEYS.minimized, isMinimized);
   }, [isMinimized]);
 
   useEffect(() => {
-    setStoredString(STORAGE_KEYS.dismissedSignature, dismissedSignature);
-  }, [dismissedSignature]);
+    setStoredBoolean(STORAGE_KEYS.hiddenWhenIdle, hiddenWhenIdle);
+  }, [hiddenWhenIdle]);
 
   useEffect(() => {
-    if (!relevantJobs.length && dismissedSignature) {
-      setDismissedSignature(null);
+    if (hasActiveJobs && hiddenWhenIdle) {
+      setHiddenWhenIdle(false);
     }
-  }, [dismissedSignature, relevantJobs.length]);
+  }, [hasActiveJobs, hiddenWhenIdle]);
 
-  useEffect(() => {
-    if (hasActiveJobs && dismissedSignature && dismissedSignature !== dockSignature) {
-      setDismissedSignature(null);
-    }
-  }, [dismissedSignature, dockSignature, hasActiveJobs]);
-
-  if (!primaryJob || isDismissed || pathname.startsWith('/downloads') || isReaderRoute(pathname)) {
+  if (!primaryJob || ((!hasActiveJobs && hiddenWhenIdle)) || pathname.startsWith('/downloads') || isReaderRoute(pathname)) {
     return null;
   }
 
@@ -155,7 +123,7 @@ const DownloadDock: React.FC = () => {
   };
 
   const handleDismiss = () => {
-    setDismissedSignature(dockSignature);
+    setHiddenWhenIdle(true);
     setIsExpanded(false);
     setIsMinimized(false);
   };

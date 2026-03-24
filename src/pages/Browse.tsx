@@ -174,7 +174,7 @@ const Browse: React.FC = () => {
       <main className="container pb-12 pt-20">
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
           <h1 className="text-3xl font-bold tracking-tight">Keşfet</h1>
-          <p className="mt-2 text-muted-foreground">Binlerce manga ve manhwa arasından seçim yapın</p>
+          <p className="mt-2 text-muted-foreground">Binlerce manga, manhwa, manhua ve webtoon arasından seçim yapın</p>
         </div>
 
         {/* Filters Bar */}
@@ -198,6 +198,7 @@ const Browse: React.FC = () => {
               <SelectItem value="manga">Manga</SelectItem>
               <SelectItem value="manhwa">Manhwa</SelectItem>
               <SelectItem value="manhua">Manhua</SelectItem>
+              <SelectItem value="webtoon">Webtoon</SelectItem>
             </SelectContent>
           </Select>
 

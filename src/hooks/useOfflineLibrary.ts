@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getOfflineLibrarySnapshot, subscribeOfflineLibrary } from '@/lib/offline/offlineStorage';
 import { OfflineLibrarySnapshot } from '@/lib/offline/types';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const EMPTY_SNAPSHOT: OfflineLibrarySnapshot = {
   series: [],
@@ -18,7 +19,7 @@ const EMPTY_SNAPSHOT: OfflineLibrarySnapshot = {
 export const useOfflineLibrary = () => {
   const [snapshot, setSnapshot] = useState<OfflineLibrarySnapshot>(EMPTY_SNAPSHOT);
   const [isLoading, setIsLoading] = useState(true);
-  const [isOnline, setIsOnline] = useState(() => navigator.onLine);
+  const { isOnline } = useEffectiveOnlineStatus();
 
   const refresh = useCallback(async () => {
     const nextSnapshot = await getOfflineLibrarySnapshot();
@@ -30,7 +31,6 @@ export const useOfflineLibrary = () => {
     void refresh();
 
     const unsubscribe = subscribeOfflineLibrary(() => {
-      setIsOnline(navigator.onLine);
       void refresh();
     });
 

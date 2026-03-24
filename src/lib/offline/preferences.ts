@@ -1,5 +1,6 @@
 export interface OfflinePreferences {
   compressedDownloads: boolean;
+  forceOfflineMode: boolean;
 }
 
 const OFFLINE_PREFERENCES_KEY = 'toonparrot_offline_preferences';
@@ -7,6 +8,7 @@ const OFFLINE_PREFERENCES_EVENT = 'toonparrot:offline-preferences-updated';
 
 const DEFAULT_OFFLINE_PREFERENCES: OfflinePreferences = {
   compressedDownloads: true,
+  forceOfflineMode: false,
 };
 
 const canUseStorage = () => typeof window !== 'undefined';
@@ -65,4 +67,3 @@ export const subscribeOfflinePreferences = (listener: () => void) => {
     window.removeEventListener('storage', handleStorage);
   };
 };
-

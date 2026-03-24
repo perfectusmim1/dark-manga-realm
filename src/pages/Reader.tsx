@@ -31,6 +31,7 @@ import {
   flushPendingReaderSync,
   queueReadingProgressSync,
 } from '@/lib/offline/offlineReaderSync';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 let persistedAutoScrollIntent = false;
 
@@ -38,6 +39,7 @@ const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
   const navigate = useNavigate();
   const { user } = useAuth();
+  const { isOnline: isOnlineNow } = useEffectiveOnlineStatus();
   const viewTracked = useRef(false);
 
   const [manga, setManga] = useState<any>(null);
@@ -53,7 +55,6 @@ const Reader: React.FC = () => {
   const [isAutoScrolling, setIsAutoScrolling] = useState(() => persistedAutoScrollIntent);
   const [isOfflineChapter, setIsOfflineChapter] = useState(false);
   const [offlineUnavailable, setOfflineUnavailable] = useState(false);
-  const [isOnlineNow, setIsOnlineNow] = useState(() => navigator.onLine);
   const readingSessionStartedAt = useRef<number | null>(null);
   const readerContentRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
@@ -90,12 +91,12 @@ const Reader: React.FC = () => {
       return;
     }
 
-    if (navigator.onLine) {
+    if (isOnlineNow) {
       await logChapterRead(user.id, mangaId, chapterId, chapter.number, elapsedSeconds);
       await flushPendingReaderSync();
       return;
     }
-  }, [user, mangaId, chapterId, chapter, isIncognito]);
+  }, [user, mangaId, chapterId, chapter, isIncognito, isOnlineNow]);
 
   // Reset state and scroll on chapter change
   useEffect(() => {
@@ -123,18 +124,10 @@ const Reader: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    const handleOnline = () => setIsOnlineNow(true);
-    const handleOffline = () => setIsOnlineNow(false);
-
-    window.addEventListener('online', handleOnline);
-    window.addEventListener('offline', handleOffline);
-
     const previousScrollRestoration = window.history.scrollRestoration;
     window.history.scrollRestoration = 'manual';
 
     return () => {
-      window.removeEventListener('online', handleOnline);
-      window.removeEventListener('offline', handleOffline);
       window.history.scrollRestoration = previousScrollRestoration;
     };
   }, []);
@@ -147,7 +140,7 @@ const Reader: React.FC = () => {
       try {
         setIsLoading(true);
         const offlineChapter = await getOfflineChapter(chapterId);
-        const mData = navigator.onLine ? await getMangaById(mangaId) : undefined;
+        const mData = isOnlineNow ? await getMangaById(mangaId) : undefined;
         const fallbackManga = mData || await getOfflineMangaDetail(mangaId);
 
         if (!fallbackManga) {
@@ -173,14 +166,14 @@ const Reader: React.FC = () => {
 
         setChapter(resolvedChapter);
 
-        if (offlineChapter?.downloadStatus === 'completed') {
+        if (!isOnlineNow && offlineChapter?.downloadStatus === 'completed') {
           const offlinePages = await buildOfflineReaderPages(chapterId);
           revokeOfflineUrlsRef.current?.();
           revokeOfflineUrlsRef.current = offlinePages.revoke;
           setResolvedPages(offlinePages.pages);
           setIsOfflineChapter(true);
           setOfflineUnavailable(false);
-        } else if (!navigator.onLine) {
+        } else if (!isOnlineNow) {
           setResolvedPages([]);
           setIsOfflineChapter(false);
           setOfflineUnavailable(true);
@@ -196,7 +189,7 @@ const Reader: React.FC = () => {
 
         if (urlPage && parseInt(urlPage) > 0) {
           initialTargetPage = parseInt(urlPage);
-        } else if (user && navigator.onLine) {
+        } else if (user && isOnlineNow) {
           const progress = await getLatestProgress(user.id, mangaId);
           if (progress && progress.chapterId === chapterId && progress.page > 1) {
             initialTargetPage = progress.page;
@@ -218,7 +211,7 @@ const Reader: React.FC = () => {
         setInitialized(true);
 
         // Track views (only if not incognito)
-        if (!viewTracked.current && !isIncognito && navigator.onLine) {
+        if (!viewTracked.current && !isIncognito && isOnlineNow) {
           incrementMangaViews(mangaId);
           incrementChapterViews(mangaId, chapterId);
           viewTracked.current = true;
@@ -231,7 +224,7 @@ const Reader: React.FC = () => {
     };
 
     loadContent();
-  }, [mangaId, chapterId, user, navigate]);
+  }, [chapterId, isIncognito, isOnlineNow, mangaId, navigate, user]);
 
   useEffect(() => {
     if (!initialized || isLoading || !chapter || resolvedPages.length === 0 || offlineUnavailable) {
@@ -252,7 +245,7 @@ const Reader: React.FC = () => {
     const saveProgress = async () => {
       if (mangaId && chapterId && chapter && initialized && isTrackingReady && user && !isIncognito) {
         try {
-          if (navigator.onLine) {
+          if (isOnlineNow) {
             await updateReadingProgress(user.id, {
               mangaId,
               chapterId,
@@ -283,7 +276,7 @@ const Reader: React.FC = () => {
       }
     };
     saveProgress();
-  }, [mangaId, chapterId, chapter, currentPage, initialized, isTrackingReady, resolvedPages.length, user]);
+  }, [mangaId, chapterId, chapter, currentPage, initialized, isOnlineNow, isTrackingReady, resolvedPages.length, user]);
 
   useEffect(() => {
     if (!isTrackingReady || !isOfflineChapter || !chapterId || resolvedPages.length === 0) {
@@ -299,7 +292,7 @@ const Reader: React.FC = () => {
       return;
     }
 
-    if (navigator.onLine) {
+    if (isOnlineNow) {
       logChapterRead(user.id, mangaId, chapterId, chapter.number, 0);
     }
     readingSessionStartedAt.current = Date.now();
@@ -307,7 +300,7 @@ const Reader: React.FC = () => {
     return () => {
       void flushReadingSession(5, false);
     };
-  }, [initialized, isTrackingReady, user, mangaId, chapterId, chapter, isIncognito, flushReadingSession]);
+  }, [initialized, isTrackingReady, user, mangaId, chapterId, chapter, isIncognito, flushReadingSession, isOnlineNow]);
 
   useEffect(() => {
     if (!initialized || !isTrackingReady || !user || !chapter || isIncognito) {
@@ -538,7 +531,7 @@ const Reader: React.FC = () => {
   }, [chapterId, initialized, isLoading, resolvedPages.length, scrollToPage]);
 
   const handleAddBookmark = useCallback(() => {
-    if (!navigator.onLine) {
+    if (!isOnlineNow) {
       toast.error('Yer imi eklemek için internet bağlantısı gerekli');
       return;
     }
@@ -565,7 +558,7 @@ const Reader: React.FC = () => {
         }
       });
     }
-  }, [user, mangaId, chapterId, chapter, currentPage]);
+  }, [user, mangaId, chapterId, chapter, currentPage, isOnlineNow]);
 
   const toggleControls = useCallback(() => {
     setControlsVisible(prev => !prev);
@@ -721,7 +714,7 @@ const Reader: React.FC = () => {
         className="mx-auto max-w-4xl px-4 py-8 mt-8 border-t border-border"
         onClick={(e) => e.stopPropagation()}
       >
-        {navigator.onLine ? (
+        {isOnlineNow ? (
           <CommentSection mangaId={manga.id} chapterId={chapterId} />
         ) : (
           <div className="rounded-2xl border border-border bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">

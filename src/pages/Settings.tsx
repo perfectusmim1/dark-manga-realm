@@ -19,13 +19,16 @@ import {
     EyeOff,
     ShieldAlert,
     Loader2,
+    WifiOff,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { getBlockedUsers, unblockUser } from '@/lib/profile';
+import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
 
 const Settings: React.FC = () => {
     const { user, updateProfile, updatePassword, updatePreferences, toggle2FA } = useAuth();
+    const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
 
     // Profile state
     const [username, setUsername] = useState(user?.username || '');
@@ -348,6 +351,34 @@ const Settings: React.FC = () => {
                                         <p className="text-sm text-primary/90">
                                             Güvenliğiniz için 2FA'yı açmanızı öneririz. Bu özellik aktif olduğunda, şifreniz doğru olsa bile e-postanıza gelecek <b>tek kullanımlık giriş bağlantısı</b> olmadan giriş yapılamaz.
                                         </p>
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            <Card className="border-border/50 bg-card/50 backdrop-blur-sm border-blue-500/20">
+                                <CardHeader>
+                                    <div className="flex items-center justify-between gap-4">
+                                        <div className="space-y-1">
+                                            <CardTitle className="flex items-center gap-2">
+                                                <WifiOff className="h-5 w-5 text-blue-400" />
+                                                Çevrimdışı Mod
+                                            </CardTitle>
+                                            <CardDescription>
+                                                Açıkken internetin olsa bile site çevrimdışı gibi davranır ve öncelik yalnızca indirilen içeriklere verilir.
+                                            </CardDescription>
+                                        </div>
+                                        <Switch
+                                            checked={offlinePreferences.forceOfflineMode}
+                                            onCheckedChange={(checked) => {
+                                                updateOfflinePreferences({ forceOfflineMode: checked });
+                                                toast.success(checked ? 'Çevrimdışı mod açıldı' : 'Çevrimdışı mod kapatıldı');
+                                            }}
+                                        />
+                                    </div>
+                                </CardHeader>
+                                <CardContent>
+                                    <div className="rounded-lg border border-blue-500/15 bg-blue-500/5 p-4 text-sm text-blue-100/90">
+                                        Bu modda ana sayfa, seri sayfaları ve okuyucu indirilen içeriklere göre çalışır. Yeni yorum, takip, favori ve benzeri online işlemler pasif olur.
                                     </div>
                                 </CardContent>
                             </Card>

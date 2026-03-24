@@ -147,7 +147,7 @@ const ChapterHistoryCard = ({ item }: { item: ChapterHistoryEntry }) => (
           variant="secondary"
           className={item.isRead
             ? 'border-emerald-300/80 bg-emerald-500/95 text-white shadow-lg shadow-emerald-500/25'
-            : 'border-primary/20 bg-primary/15 text-primary'}
+            : 'border-primary/70 bg-primary/90 text-white shadow-lg shadow-primary/20'}
         >
           {item.isRead ? 'Okundu' : `%${Math.round(item.readProgressPercent || 0)}`}
         </Badge>

@@ -24,7 +24,7 @@ export type Database = {
                     banner: string | null;
                     genres: string[];
                     status: 'ongoing' | 'completed' | 'hiatus';
-                    type: 'manga' | 'manhwa' | 'manhua';
+                    type: 'manga' | 'manhwa' | 'manhua' | 'webtoon';
                     views: number;
                     created_at: string;
                     last_updated: string;

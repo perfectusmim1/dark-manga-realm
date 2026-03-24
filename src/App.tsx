@@ -6,6 +6,7 @@ import { BrowserRouter, Routes, Route, matchPath, useLocation, useNavigate } fro
 import { AuthProvider } from "@/contexts/AuthContext";
 import { useEffect, useRef } from "react";
 import { initializeMockData } from "@/lib/mockData";
+import { useEffectiveOnlineStatus } from "@/hooks/useEffectiveOnlineStatus";
 
 // Pages
 import ScrollToTop from "./components/layout/ScrollToTop";
@@ -82,6 +83,7 @@ const OfflineStartupRedirect = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const hasCheckedInitialRoute = useRef(false);
+  const { isOnline } = useEffectiveOnlineStatus();
 
   useEffect(() => {
     if (hasCheckedInitialRoute.current) {
@@ -90,7 +92,7 @@ const OfflineStartupRedirect = () => {
 
     hasCheckedInitialRoute.current = true;
 
-    if (typeof window === 'undefined' || navigator.onLine) {
+    if (typeof window === 'undefined' || isOnline) {
       return;
     }
 
@@ -104,7 +106,7 @@ const OfflineStartupRedirect = () => {
     if (!isOfflineReadyRoute) {
       navigate('/downloads', { replace: true });
     }
-  }, [location.pathname, navigate]);
+  }, [isOnline, location.pathname, navigate]);
 
   return null;
 };

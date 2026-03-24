@@ -16,7 +16,7 @@ export interface Manga {
   chapters: Chapter[];
   lastUpdated: string;
   createdAt: string;
-  type: 'manga' | 'manhwa' | 'manhua';
+  type: 'manga' | 'manhwa' | 'manhua' | 'webtoon';
   releaseYear?: number;
   characters?: Character[];
   authorDetails?: Author;

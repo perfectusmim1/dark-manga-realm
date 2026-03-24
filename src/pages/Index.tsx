@@ -256,6 +256,7 @@ const Index: React.FC = () => {
     .slice(0, 12);
   const popularManhwa = mangas.filter(m => m.type === 'manhwa').slice(0, 8);
   const popularManhua = mangas.filter(m => m.type === 'manhua').slice(0, 8);
+  const popularWebtoon = mangas.filter(m => m.type === 'webtoon').slice(0, 8);
 
   return (
     <div className="min-h-screen bg-background">
@@ -325,12 +326,8 @@ const Index: React.FC = () => {
                       alt={manga.title}
                       className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
                     />
-                    <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-all duration-300 group-hover:opacity-100 backdrop-blur-[2px]">
-                      <div className="relative flex h-14 w-14 items-center justify-center rounded-full bg-white/10 border border-white/20 backdrop-blur-md shadow-2xl transition-all duration-300 group-hover:scale-110 group-hover:bg-white/20 group-active:scale-95">
-                        <div className="absolute inset-0 rounded-full bg-primary/20 blur-xl opacity-0 group-hover:opacity-50 transition-opacity" />
-                        <Play className="h-7 w-7 text-white fill-white ml-1 relative z-10" />
-                      </div>
-                    </div>
+                    <div className="absolute inset-0 bg-black/8 transition-colors duration-300 group-hover:bg-black/18" />
+                    <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
                     <div className="absolute bottom-0 left-0 right-0 p-3 z-20">
                       <h3 className="font-semibold text-white text-sm line-clamp-1">{manga.title}</h3>
                       <div className="flex items-center gap-2 mt-1">
@@ -397,7 +394,18 @@ const Index: React.FC = () => {
               />
             )}
 
-            <section className="mt-16 animate-fade-up opacity-0" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
+            {popularWebtoon.length > 0 && (
+              <HorizontalMangaSection
+                title="Popüler Webtoon"
+                icon={BookOpen}
+                iconClassName="h-5 w-5 text-sky-400"
+                linkTo="/browse?type=webtoon"
+                manga={popularWebtoon}
+                delay="0.4s"
+              />
+            )}
+
+            <section className="mt-16 animate-fade-up opacity-0" style={{ animationDelay: '0.45s', animationFillMode: 'forwards' }}>
               <div className="mb-6 flex items-center gap-2">
                 <TrendingUp className="h-5 w-5 text-primary" />
                 <h2 className="text-2xl font-bold tracking-tight">Trend Etiketler</h2>
@@ -463,7 +471,7 @@ const Index: React.FC = () => {
                 <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
               </h3>
               <p className="text-sm text-muted-foreground mt-1">
-                En iyi manga, manhwa ve manhua okuma deneyimi
+                En iyi manga, manhwa, manhua ve webtoon okuma deneyimi
               </p>
             </div>
             <div className="flex items-center gap-6 text-sm text-muted-foreground">
@@ -471,6 +479,7 @@ const Index: React.FC = () => {
               <Link to="/browse?type=manhwa" className="hover:text-foreground transition-colors">Manhwa</Link>
               <Link to="/browse?type=manga" className="hover:text-foreground transition-colors">Manga</Link>
               <Link to="/browse?type=manhua" className="hover:text-foreground transition-colors">Manhua</Link>
+              <Link to="/browse?type=webtoon" className="hover:text-foreground transition-colors">Webtoon</Link>
             </div>
           </div>
           <div className="mt-6 pt-6 border-t border-border text-center">

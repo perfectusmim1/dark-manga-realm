@@ -192,9 +192,11 @@ const AdminScraper: React.FC = () => {
                 .find(el => el.textContent?.includes('Tip') || el.textContent?.includes('Tür'))
                 ?.querySelector('.summary-content')?.textContent?.trim() || 'manga';
 
-            const type: Manga['type'] = typeText.toLocaleLowerCase('tr-TR').includes('manhwa') ? 'manhwa'
-                : typeText.toLocaleLowerCase('tr-TR').includes('manhua') ? 'manhua'
-                    : 'manga';
+            const normalizedTypeText = typeText.toLocaleLowerCase('tr-TR');
+            const type: Manga['type'] = normalizedTypeText.includes('webtoon') ? 'webtoon'
+                : normalizedTypeText.includes('manhwa') ? 'manhwa'
+                    : normalizedTypeText.includes('manhua') ? 'manhua'
+                        : 'manga';
 
             // Author
             const author = Array.from(doc.querySelectorAll('.post-content_item'))
