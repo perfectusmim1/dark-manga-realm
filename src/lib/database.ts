@@ -2,6 +2,7 @@
 // Fully asynchronous operations replacing localStorage
 import { supabase } from './supabase';
 import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
+import { encodeCommentContent, parseCommentContent } from './commentContent';
 
 // ==================== MANGA OPERATIONS ====================
 
@@ -82,21 +83,40 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
         return undefined;
     }
 
-    const { data: reviewData } = await supabase
-        .from('reviews')
-        .select('*')
-        .eq('manga_id', mangaId);
-
-    const { data: authorData } = data.author ? await supabase.from('authors').select('*').eq('name', data.author).maybeSingle() : { data: null };
-    const { data: artistData } = data.artist ? await supabase.from('artists').select('*').eq('name', data.artist).maybeSingle() : { data: null };
+    const [
+        { data: reviewData },
+        { data: authorData },
+        { data: artistData }
+    ] = await Promise.all([
+        supabase.from('reviews').select('*').eq('manga_id', mangaId),
+        data.author ? supabase.from('authors').select('*').eq('name', data.author).maybeSingle() : Promise.resolve({ data: null }),
+        data.artist ? supabase.from('artists').select('*').eq('name', data.artist).maybeSingle() : Promise.resolve({ data: null })
+    ]);
 
     const reviews = reviewData || [];
     let average = 0;
+    const breakdown = { story: 0, characters: 0, art: 0, progression: 0, engagement: 0 };
+
     if (reviews.length > 0) {
         const totalPoints = reviews.reduce((sum, r) =>
             sum + (r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5
             , 0);
         average = Math.round((totalPoints / reviews.length) * 10) / 10;
+
+        // Calculate breakdown
+        reviews.forEach(r => {
+            breakdown.story += r.rating_story;
+            breakdown.characters += r.rating_characters;
+            breakdown.art += r.rating_art;
+            breakdown.progression += r.rating_progression;
+            breakdown.engagement += r.rating_engagement;
+        });
+
+        breakdown.story = Math.round((breakdown.story / reviews.length) * 10) / 10;
+        breakdown.characters = Math.round((breakdown.characters / reviews.length) * 10) / 10;
+        breakdown.art = Math.round((breakdown.art / reviews.length) * 10) / 10;
+        breakdown.progression = Math.round((breakdown.progression / reviews.length) * 10) / 10;
+        breakdown.engagement = Math.round((breakdown.engagement / reviews.length) * 10) / 10;
     }
 
     return {
@@ -115,10 +135,11 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
             createdAt: r.created_at
         })),
         averageRating: average,
+        ratingBreakdown: breakdown,
         reviewCount: reviews.length,
         authorDetails: authorData ? { ...authorData, imageUrl: authorData.image_url, likesCount: authorData.likes_count } : undefined,
         artistDetails: artistData ? { ...artistData, imageUrl: artistData.image_url, likesCount: artistData.likes_count } : undefined
-    } as Manga;
+    } as any;
 };
 
 /**
@@ -529,7 +550,10 @@ export const authenticateAdmin = async (email: string, password: string): Promis
         .in('role', ['admin', 'moderator'])
         .single();
 
-    if (userError || !userData) return null;
+    if (userError || !userData) {
+        await supabase.auth.signOut();
+        return null;
+    }
 
     return {
         ...userData,
@@ -621,23 +645,32 @@ export const getEntityCommentsV2 = async (entityType: 'manga' | 'character' | 'a
         userLikes = (likes as any[])?.map(l => l.comment_id) || [];
     }
 
-    const mappedComments = (data as any[] || []).map(c => ({
-        id: c.id,
-        mangaId: entityType === 'manga' ? c.manga_id : undefined,
-        entityId: entityType !== 'manga' ? c[colName] : undefined,
-        entityType,
-        chapterId: c.chapter_id,
-        userId: c.user_id,
-        username: c.author?.username || c.username || 'Anonim',
-        userAvatar: c.author?.avatar || c.user_avatar,
-        content: c.content,
-        gifUrl: c.gif_url,
-        createdAt: c.created_at,
-        updatedAt: c.updated_at,
-        parentId: c.parent_id,
-        likes: c.likes_count?.[0]?.count || 0,
-        likedBy: userLikes.includes(c.id) ? [userId || ''] : [],
-    })) as Comment[];
+    const mappedComments = (data as any[] || []).map(c => {
+        const parsedContent = parseCommentContent(c.content || '');
+
+        return {
+            id: c.id,
+            mangaId: entityType === 'manga' ? c.manga_id : undefined,
+            entityId: entityType !== 'manga' ? c[colName] : undefined,
+            entityType,
+            chapterId: c.chapter_id,
+            userId: c.user_id,
+            username: c.author?.username || c.username || 'Anonim',
+            userAvatar: c.author?.avatar || c.user_avatar,
+            content: parsedContent.body,
+            title: parsedContent.title,
+            textColor: parsedContent.textColor,
+            mediaUrl: parsedContent.mediaUrl,
+            mediaUrls: parsedContent.mediaUrls,
+            isSpoiler: parsedContent.isSpoiler,
+            gifUrl: c.gif_url,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at,
+            parentId: c.parent_id,
+            likes: c.likes_count?.[0]?.count || 0,
+            likedBy: userLikes.includes(c.id) ? [userId || ''] : [],
+        };
+    }) as Comment[];
 
     if (sortBy === 'popular') {
         return mappedComments.sort((a, b) => b.likes - a.likes);
@@ -662,7 +695,14 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
         user_id: comment.userId,
         username: comment.username,
         user_avatar: comment.userAvatar,
-        content: comment.content,
+        content: encodeCommentContent({
+            body: comment.content,
+            title: comment.title,
+            textColor: comment.textColor,
+            mediaUrl: comment.mediaUrl,
+            mediaUrls: comment.mediaUrls,
+            isSpoiler: comment.isSpoiler,
+        }),
         gif_url: comment.gifUrl,
         parent_id: comment.parentId
     };
@@ -679,7 +719,6 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
 
     if (error) throw error;
     return {
-        ...data,
         mangaId: entityType === 'manga' ? data.manga_id : undefined,
         entityId: entityType !== 'manga' ? data[colName] : undefined,
         entityType,
@@ -687,18 +726,37 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
         userId: data.user_id,
         username: data.username,
         userAvatar: data.user_avatar,
+        content: comment.content,
+        title: comment.title,
+        textColor: comment.textColor,
+        mediaUrl: comment.mediaUrl,
+        mediaUrls: comment.mediaUrls,
+        isSpoiler: comment.isSpoiler,
+        gifUrl: comment.gifUrl,
         createdAt: data.created_at,
+        updatedAt: data.updated_at,
         parentId: data.parent_id,
         likes: 0,
         likedBy: []
     } as Comment;
 };
 
-export const updateComment = async (id: string, content: string, gifUrl?: string, entityType: string = 'manga'): Promise<void> => {
+export const updateComment = async (
+    id: string,
+    payload: Pick<Comment, 'content' | 'title' | 'textColor' | 'mediaUrl' | 'mediaUrls' | 'isSpoiler' | 'gifUrl'>,
+    entityType: string = 'manga'
+): Promise<void> => {
     const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
     const { error } = await supabase.from(tableName as any).update({
-        content,
-        gif_url: gifUrl,
+        content: encodeCommentContent({
+            body: payload.content,
+            title: payload.title,
+            textColor: payload.textColor,
+            mediaUrl: payload.mediaUrl,
+            mediaUrls: payload.mediaUrls,
+            isSpoiler: payload.isSpoiler,
+        }),
+        gif_url: payload.gifUrl,
         updated_at: new Date().toISOString()
     }).eq('id', id);
 
@@ -728,21 +786,30 @@ export const getAllComments = async (): Promise<Comment[]> => {
 
     if (error) return [];
 
-    return data.map(c => ({
-        id: c.id,
-        mangaId: c.manga_id,
-        chapterId: c.chapter_id,
-        userId: c.user_id,
-        username: c.username,
-        userAvatar: c.user_avatar,
-        content: c.content,
-        gif_url: c.gif_url,
-        createdAt: c.created_at,
-        updatedAt: c.updated_at,
-        parentId: c.parent_id,
-        likes: c.likes_count[0]?.count || 0,
-        likedBy: [],
-    })) as Comment[];
+    return data.map(c => {
+        const parsedContent = parseCommentContent(c.content || '');
+
+        return {
+            id: c.id,
+            mangaId: c.manga_id,
+            chapterId: c.chapter_id,
+            userId: c.user_id,
+            username: c.username,
+            userAvatar: c.user_avatar,
+            content: parsedContent.body,
+            title: parsedContent.title,
+            textColor: parsedContent.textColor,
+            mediaUrl: parsedContent.mediaUrl,
+            mediaUrls: parsedContent.mediaUrls,
+            isSpoiler: parsedContent.isSpoiler,
+            gifUrl: c.gif_url,
+            createdAt: c.created_at,
+            updatedAt: c.updated_at,
+            parentId: c.parent_id,
+            likes: c.likes_count[0]?.count || 0,
+            likedBy: [],
+        };
+    }) as Comment[];
 };
 
 export const toggleCommentLike = async (commentId: string, userId: string, entityType: string = 'manga'): Promise<void> => {
@@ -792,6 +859,7 @@ export const getReadingLists = async (userId: string, onlyPublic: boolean = fals
         userId: list.user_id,
         name: list.name,
         description: list.description,
+        imageUrl: list.image_url,
         isPublic: list.is_public,
         createdAt: list.created_at
     })) as ReadingList[];
@@ -835,6 +903,7 @@ export const getReadingListById = async (listId: string): Promise<ReadingList | 
         userId: data.user_id,
         name: data.name,
         description: data.description,
+        imageUrl: data.image_url,
         isPublic: data.is_public,
         createdAt: data.created_at,
         items: mangas
@@ -848,6 +917,7 @@ export const createReadingList = async (list: Omit<ReadingList, 'id' | 'createdA
             user_id: list.userId,
             name: list.name,
             description: list.description,
+            image_url: list.imageUrl,
             is_public: list.isPublic
         })
         .select()
@@ -860,17 +930,19 @@ export const createReadingList = async (list: Omit<ReadingList, 'id' | 'createdA
         userId: data.user_id,
         name: data.name,
         description: data.description,
+        imageUrl: data.image_url,
         isPublic: data.is_public,
         createdAt: data.created_at
     } as ReadingList;
 };
 
-export const updateReadingList = async (listId: string, updates: Partial<Pick<ReadingList, 'name' | 'description' | 'isPublic'>>): Promise<void> => {
+export const updateReadingList = async (listId: string, updates: Partial<Pick<ReadingList, 'name' | 'description' | 'imageUrl' | 'isPublic'>>): Promise<void> => {
     const { error } = await supabase
         .from('reading_lists')
         .update({
             name: updates.name,
             description: updates.description,
+            image_url: updates.imageUrl,
             is_public: updates.isPublic
         })
         .eq('id', listId);
@@ -1375,8 +1447,425 @@ export const addEntityComment = async (entityType: 'character' | 'author' | 'art
         entityId,
         entityType,
         userId,
-        username: '', // Will be handled by DB or session if needed, but here we provide it
+        username: '',
         content,
     });
 };
 
+// ==================== SMART TAG OPERATIONS ====================
+
+import { Tag, TagCategory, TagVote } from './types';
+
+export const getAllTags = async (): Promise<Tag[]> => {
+    const { data, error } = await supabase
+        .from('tags')
+        .select('*')
+        .order('usage_count', { ascending: false });
+
+    if (error) return [];
+    return data.map(t => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        category: t.category as TagCategory,
+        description: t.description,
+        usageCount: t.usage_count,
+        isOfficial: t.is_official,
+        createdBy: t.created_by,
+        createdAt: t.created_at
+    }));
+};
+
+export const getTagsByCategory = async (category: TagCategory): Promise<Tag[]> => {
+    const { data, error } = await supabase
+        .from('tags')
+        .select('*')
+        .eq('category', category)
+        .order('usage_count', { ascending: false });
+
+    if (error) return [];
+    return data.map(t => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        category: t.category as TagCategory,
+        description: t.description,
+        usageCount: t.usage_count,
+        isOfficial: t.is_official,
+        createdBy: t.created_by,
+        createdAt: t.created_at
+    }));
+};
+
+export const searchTags = async (query: string): Promise<Tag[]> => {
+    const { data, error } = await supabase
+        .from('tags')
+        .select('*')
+        .ilike('name', `%${query}%`)
+        .order('usage_count', { ascending: false })
+        .limit(20);
+
+    if (error) return [];
+    return data.map(t => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        category: t.category as TagCategory,
+        description: t.description,
+        usageCount: t.usage_count,
+        isOfficial: t.is_official,
+        createdBy: t.created_by,
+        createdAt: t.created_at
+    }));
+};
+
+export const createTag = async (
+    name: string,
+    category: TagCategory = 'general',
+    description?: string,
+    userId?: string
+): Promise<Tag | null> => {
+    const slug = name
+        .toLowerCase()
+        .replace(/[^a-z0-9\s-]/g, '')
+        .replace(/\s+/g, '-')
+        .replace(/-+/g, '-')
+        .trim();
+
+    const { data, error } = await supabase
+        .from('tags')
+        .upsert({
+            name,
+            slug,
+            category,
+            description,
+            created_by: userId,
+            is_official: false
+        }, { onConflict: 'slug' })
+        .select()
+        .single();
+
+    if (error) {
+        console.error('Create tag error:', error);
+        return null;
+    }
+
+    return {
+        id: data.id,
+        name: data.name,
+        slug: data.slug,
+        category: data.category as TagCategory,
+        description: data.description,
+        usageCount: data.usage_count,
+        isOfficial: data.is_official,
+        createdBy: data.created_by,
+        createdAt: data.created_at
+    };
+};
+
+export const updateTag = async (tagId: string, updates: Partial<{ name: string; category: TagCategory; description: string; isOfficial: boolean }>): Promise<void> => {
+    const updateData: any = {};
+    if (updates.name !== undefined) updateData.name = updates.name;
+    if (updates.category !== undefined) updateData.category = updates.category;
+    if (updates.description !== undefined) updateData.description = updates.description;
+    if (updates.isOfficial !== undefined) updateData.is_official = updates.isOfficial;
+
+    const { error } = await supabase.from('tags').update(updateData).eq('id', tagId);
+    if (error) throw error;
+};
+
+export const deleteTag = async (tagId: string): Promise<void> => {
+    const { error } = await supabase.from('tags').delete().eq('id', tagId);
+    if (error) throw error;
+};
+
+export const getTagsForEntity = async (
+    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityId: string
+): Promise<Tag[]> => {
+    const tableName = `${entityType}_tags`;
+    const colName = `${entityType}_id`;
+
+    const { data, error } = await supabase
+        .from(tableName as any)
+        .select(`
+            tag_id,
+            tag:tags(*)
+        `)
+        .eq(colName, entityId);
+
+    if (error) return [];
+
+    return (data as any[])
+        .filter(d => d.tag)
+        .map(d => ({
+            id: d.tag.id,
+            name: d.tag.name,
+            slug: d.tag.slug,
+            category: d.tag.category as TagCategory,
+            description: d.tag.description,
+            usageCount: d.tag.usage_count,
+            isOfficial: d.tag.is_official,
+            createdBy: d.tag.created_by,
+            createdAt: d.tag.created_at
+        }));
+};
+
+export const addTagToEntity = async (
+    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityId: string,
+    tagId: string,
+    userId?: string
+): Promise<boolean> => {
+    const tableName = `${entityType}_tags`;
+    const colName = `${entityType}_id`;
+
+    const { error } = await supabase
+        .from(tableName as any)
+        .upsert({
+            [colName]: entityId,
+            tag_id: tagId,
+            added_by: userId
+        });
+
+    if (error) {
+        console.error('Add tag to entity error:', error);
+        return false;
+    }
+    return true;
+};
+
+export const removeTagFromEntity = async (
+    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityId: string,
+    tagId: string
+): Promise<boolean> => {
+    const tableName = `${entityType}_tags`;
+    const colName = `${entityType}_id`;
+
+    const { error } = await supabase
+        .from(tableName as any)
+        .delete()
+        .eq(colName, entityId)
+        .eq('tag_id', tagId);
+
+    return !error;
+};
+
+export const voteOnTag = async (
+    tagId: string,
+    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityId: string,
+    userId: string,
+    voteType: 'up' | 'down'
+): Promise<void> => {
+    const { data: existing } = await supabase
+        .from('tag_votes')
+        .select('id, vote_type')
+        .eq('tag_id', tagId)
+        .eq('entity_type', entityType)
+        .eq('entity_id', entityId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (existing) {
+        if (existing.vote_type === voteType) {
+            await supabase.from('tag_votes').delete().eq('id', existing.id);
+        } else {
+            await supabase.from('tag_votes').update({ vote_type: voteType }).eq('id', existing.id);
+        }
+    } else {
+        await supabase.from('tag_votes').insert({
+            tag_id: tagId,
+            entity_type: entityType,
+            entity_id: entityId,
+            user_id: userId,
+            vote_type: voteType
+        });
+    }
+};
+
+export const getTagVotes = async (
+    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityId: string
+): Promise<Record<string, { up: number; down: number }>> => {
+    const { data, error } = await supabase
+        .from('tag_votes')
+        .select('tag_id, vote_type')
+        .eq('entity_type', entityType)
+        .eq('entity_id', entityId);
+
+    if (error) return {};
+
+    const votes: Record<string, { up: number; down: number }> = {};
+    data.forEach(v => {
+        if (!votes[v.tag_id]) votes[v.tag_id] = { up: 0, down: 0 };
+        votes[v.tag_id][v.vote_type as 'up' | 'down']++;
+    });
+    return votes;
+};
+
+export const getUserTagVotes = async (
+    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityId: string,
+    userId: string
+): Promise<Record<string, 'up' | 'down'>> => {
+    const { data, error } = await supabase
+        .from('tag_votes')
+        .select('tag_id, vote_type')
+        .eq('entity_type', entityType)
+        .eq('entity_id', entityId)
+        .eq('user_id', userId);
+
+    if (error) return {};
+
+    const result: Record<string, 'up' | 'down'> = {};
+    data.forEach(v => {
+        result[v.tag_id] = v.vote_type as 'up' | 'down';
+    });
+    return result;
+};
+
+export const getTrendingTags = async (limit: number = 10): Promise<Tag[]> => {
+    const { data, error } = await supabase
+        .from('tags')
+        .select('*')
+        .order('usage_count', { ascending: false })
+        .limit(limit);
+
+    if (error) return [];
+    return data.map(t => ({
+        id: t.id,
+        name: t.name,
+        slug: t.slug,
+        category: t.category as TagCategory,
+        description: t.description,
+        usageCount: t.usage_count,
+        isOfficial: t.is_official,
+        createdBy: t.created_by,
+        createdAt: t.created_at
+    }));
+};
+
+export const getMangasByTag = async (tagSlug: string): Promise<Manga[]> => {
+    const { data: tagData, error: tagError } = await supabase
+        .from('tags')
+        .select('id')
+        .eq('slug', tagSlug)
+        .maybeSingle();
+
+    if (tagError || !tagData) return [];
+
+    const { data, error } = await supabase
+        .from('manga_tags')
+        .select('manga_id')
+        .eq('tag_id', tagData.id);
+
+    if (error || !data || data.length === 0) return [];
+
+    const mangaIds = data.map(d => d.manga_id);
+
+    const { data: mangaData } = await supabase
+        .from('mangas')
+        .select('*')
+        .in('id', mangaIds);
+
+    if (!mangaData) return [];
+
+    return mangaData.map(m => ({
+        ...m,
+        alternativeTitles: m.alternative_titles || [],
+        lastUpdated: m.last_updated,
+        createdAt: m.created_at,
+        releaseYear: m.release_year,
+        chapters: [],
+        ratings: [],
+    })) as Manga[];
+};
+
+export const getMangasByMultipleTags = async (tagSlugs: string[]): Promise<Manga[]> => {
+    if (tagSlugs.length === 0) return [];
+
+    const { data: tagsData } = await supabase
+        .from('tags')
+        .select('id')
+        .in('slug', tagSlugs);
+
+    if (!tagsData || tagsData.length === 0) return [];
+
+    const tagIds = tagsData.map(t => t.id);
+
+    const { data: mangaTagData } = await supabase
+        .from('manga_tags')
+        .select('manga_id, tag_id')
+        .in('tag_id', tagIds);
+
+    if (!mangaTagData || mangaTagData.length === 0) return [];
+
+    const mangaTagCounts: Record<string, number> = {};
+    mangaTagData.forEach(mt => {
+        mangaTagCounts[mt.manga_id] = (mangaTagCounts[mt.manga_id] || 0) + 1;
+    });
+
+    const matchingMangaIds = Object.entries(mangaTagCounts)
+        .filter(([, count]) => count >= tagIds.length)
+        .map(([id]) => id);
+
+    if (matchingMangaIds.length === 0) return [];
+
+    const { data: mangaData } = await supabase
+        .from('mangas')
+        .select('*')
+        .in('id', matchingMangaIds);
+
+    if (!mangaData) return [];
+
+    return mangaData.map(m => ({
+        ...m,
+        alternativeTitles: m.alternative_titles || [],
+        lastUpdated: m.last_updated,
+        createdAt: m.created_at,
+        releaseYear: m.release_year,
+        chapters: [],
+        ratings: [],
+    })) as Manga[];
+};
+
+
+/**
+ * Get Top 10 Mangas based on a score calculated from engagement
+ * User Formula:
+ * - 1 Comment = 5 pts
+ * - 1 Reaction = 2 pts
+ * - 1 Review = 10 pts
+ * - 1 View (Chapter Read) = 0.5 pts
+ * Uses get_top_engaged_mangas RPC
+ */
+export const getTopTenMangas = async (timeframe: 'today' | 'week' | 'all' = 'today'): Promise<Manga[]> => {
+    try {
+        const { data: rawData, error } = await supabase.rpc('get_top_engaged_mangas', { time_filter: timeframe });
+
+        if (error || !rawData || rawData.length === 0) {
+            if (error) console.error('getTopTenMangas error:', error);
+            // Return top 10 by views if engagement logic fails
+            const all = await getAllMangas();
+            return all.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 10);
+        }
+
+        // Map results to Manga interface
+        return rawData.map((m: any) => ({
+            ...m,
+            alternativeTitles: m.alternative_titles || [],
+            lastUpdated: m.last_updated,
+            createdAt: m.created_at,
+            releaseYear: m.release_year,
+            chapters: [],
+            ratings: [],
+            engagementScore: m.engagement_score,
+            averageRating: m.average_rating || 0
+        })) as Manga[];
+    } catch (error) {
+        console.error('getTopTenMangas exception:', error);
+        return [];
+    }
+};

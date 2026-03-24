@@ -21,6 +21,7 @@ import { ReadingList, Manga } from '@/lib/types';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
+import ReadingListCover from '@/components/manga/ReadingListCover';
 
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
@@ -134,6 +135,7 @@ const ReadingListDetail: React.FC = () => {
             ...prev,
             name: updatedList.name,
             description: updatedList.description,
+            imageUrl: updatedList.imageUrl,
             isPublic: updatedList.isPublic
         } : undefined);
     };
@@ -170,8 +172,14 @@ const ReadingListDetail: React.FC = () => {
                     Listelerime Dön
                 </Link>
 
-                <div className="mb-8 p-6 rounded-2xl border border-border bg-card/50 backdrop-blur-sm">
-                    <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                <div className="mb-8 overflow-hidden rounded-2xl border border-border bg-card/50 backdrop-blur-sm">
+                    <ReadingListCover
+                        imageUrl={list.imageUrl}
+                        alt={list.name}
+                        className="h-56 w-full"
+                        iconClassName="h-14 w-14"
+                    />
+                    <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
                         <div className="flex-1">
                             <div className="flex items-center flex-wrap gap-3 mb-2">
                                 <h1 className="text-3xl font-bold">{list.name}</h1>

@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { allGenres } from '@/lib/mockData';
-import { getAllMangas } from '@/lib/database';
+import { getAllMangas, getMangasByMultipleTags } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import {
   Select,
@@ -16,7 +16,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-
+import TagFilterPanel from '@/components/tags/TagFilterPanel';
 import BrowseSkeleton from '@/components/skeletons/BrowseSkeleton';
 
 const Browse: React.FC = () => {
@@ -29,7 +29,11 @@ const Browse: React.FC = () => {
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'popular');
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || 'all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [selectedTagSlugs, setSelectedTagSlugs] = useState<string[]>(
+    searchParams.get('tags') ? searchParams.get('tags')!.split(',') : []
+  );
   const [mangas, setMangas] = useState<Manga[]>([]);
+  const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
   const [isLoading, setIsLoading] = useState(true);
 
   useEffect(() => {
@@ -45,16 +49,28 @@ const Browse: React.FC = () => {
     fetchMangas();
   }, []);
 
-  // Update URL when filters change
+  useEffect(() => {
+    const loadTagFilteredMangas = async () => {
+      if (selectedTagSlugs.length === 0) {
+        setTagFilteredMangaIds(null);
+        return;
+      }
+      const results = await getMangasByMultipleTags(selectedTagSlugs);
+      setTagFilteredMangaIds(new Set(results.map(m => m.id)));
+    };
+    loadTagFilteredMangas();
+  }, [selectedTagSlugs]);
+
   useEffect(() => {
     const params: Record<string, string> = {};
     if (searchQuery) params.search = searchQuery;
     if (sortBy !== 'popular') params.sort = sortBy;
     if (typeFilter !== 'all') params.type = typeFilter;
     if (selectedGenres.length > 0) params.genre = selectedGenres.join(',');
+    if (selectedTagSlugs.length > 0) params.tags = selectedTagSlugs.join(',');
 
     setSearchParams(params);
-  }, [searchQuery, sortBy, typeFilter, selectedGenres, setSearchParams]);
+  }, [searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, setSearchParams]);
 
   const filteredManga = useMemo(() => {
     let result = [...mangas];
@@ -80,11 +96,14 @@ const Browse: React.FC = () => {
       result = result.filter(manga => manga.status === statusFilter);
     }
 
-    // Genre filter
     if (selectedGenres.length > 0) {
       result = result.filter(manga =>
         selectedGenres.every(genre => manga.genres.includes(genre))
       );
+    }
+
+    if (tagFilteredMangaIds) {
+      result = result.filter(manga => tagFilteredMangaIds.has(manga.id));
     }
 
     // Sort
@@ -114,7 +133,7 @@ const Browse: React.FC = () => {
     }
 
     return result;
-  }, [searchQuery, typeFilter, statusFilter, selectedGenres, sortBy, mangas]);
+  }, [searchQuery, typeFilter, statusFilter, selectedGenres, selectedTagSlugs, tagFilteredMangaIds, sortBy, mangas]);
 
   const toggleGenre = (genre: string) => {
     setSelectedGenres(prev =>
@@ -127,13 +146,14 @@ const Browse: React.FC = () => {
   const clearFilters = () => {
     setSearchQuery('');
     setSelectedGenres([]);
+    setSelectedTagSlugs([]);
     setTypeFilter('all');
     setStatusFilter('all');
     setSortBy('popular');
     setSearchParams({});
   };
 
-  const hasActiveFilters = searchQuery || selectedGenres.length > 0 || typeFilter !== 'all' || statusFilter !== 'all';
+  const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all';
 
   if (isLoading) {
     return (
@@ -235,7 +255,14 @@ const Browse: React.FC = () => {
           </div>
         )}
 
-        {/* Results Count */}
+        {/* Tag Filters */}
+        <div className="mb-6 animate-fade-up opacity-0" style={{ animationDelay: '0.25s', animationFillMode: 'forwards' }}>
+          <TagFilterPanel
+            selectedTags={selectedTagSlugs}
+            onSelectedTagsChange={setSelectedTagSlugs}
+          />
+        </div>
+
         <p className="mb-4 text-sm text-muted-foreground">
           {filteredManga.length} sonuç bulundu
         </p>

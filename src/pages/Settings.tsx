@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,9 +17,12 @@ import {
     Bell,
     Eye,
     EyeOff,
+    ShieldAlert,
+    Loader2,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { getBlockedUsers, unblockUser } from '@/lib/profile';
 
 const Settings: React.FC = () => {
     const { user, updateProfile, updatePassword, updatePreferences, toggle2FA } = useAuth();
@@ -47,6 +50,23 @@ const Settings: React.FC = () => {
         }
     });
     const [isUpdatingPrefs, setIsUpdatingPrefs] = useState(false);
+    const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
+    const [isBlockedUsersLoading, setIsBlockedUsersLoading] = useState(true);
+    const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
+
+    useEffect(() => {
+        if (!user?.id) {
+            setBlockedUsers([]);
+            setIsBlockedUsersLoading(false);
+            return;
+        }
+
+        setIsBlockedUsersLoading(true);
+        getBlockedUsers(user.id).then(({ users }) => {
+            setBlockedUsers(users || []);
+            setIsBlockedUsersLoading(false);
+        });
+    }, [user?.id]);
 
     const handleUpdateProfile = async () => {
         if (!username.trim()) {
@@ -113,6 +133,29 @@ const Settings: React.FC = () => {
         }
     };
 
+    const handleUnblockUser = async (blockedId: string) => {
+        if (!user?.id) {
+            return;
+        }
+
+        try {
+            setUnblockingUserId(blockedId);
+            const { error } = await unblockUser(user.id, blockedId);
+
+            if (error) {
+                toast.error('Engel kaldirilemedi');
+                return;
+            }
+
+            setBlockedUsers((prev) => prev.filter((blockedUser) => blockedUser.id !== blockedId));
+            toast.success('Engel kaldirildi');
+        } catch {
+            toast.error('Islem basarisiz oldu');
+        } finally {
+            setUnblockingUserId(null);
+        }
+    };
+
     if (!user) {
         return (
             <div className="min-h-screen bg-background">
@@ -151,6 +194,10 @@ const Settings: React.FC = () => {
                         <TabsTrigger value="privacy" className="gap-2">
                             <EyeOff className="h-4 w-4" />
                             Gizlilik
+                        </TabsTrigger>
+                        <TabsTrigger value="blocked" className="gap-2">
+                            <ShieldAlert className="h-4 w-4" />
+                            Engellenenler
                         </TabsTrigger>
                     </TabsList>
 
@@ -422,6 +469,60 @@ const Settings: React.FC = () => {
                                         </button>
                                     </div>
                                 </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="blocked">
+                        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                            <CardHeader>
+                                <CardTitle className="flex items-center gap-2">
+                                    <ShieldAlert className="h-5 w-5 text-red-500" />
+                                    Engellenen Kullanıcılar
+                                </CardTitle>
+                                <CardDescription>Kimi engellediğinizi görebilir ve isterseniz engeli kaldırabilirsiniz.</CardDescription>
+                            </CardHeader>
+                            <CardContent className="space-y-4">
+                                {isBlockedUsersLoading ? (
+                                    <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Engellenenler yukleniyor...
+                                    </div>
+                                ) : blockedUsers.length > 0 ? (
+                                    blockedUsers.map((blockedUser) => (
+                                        <div key={blockedUser.id} className="flex flex-col gap-4 rounded-xl border border-border/60 bg-background/40 p-4 sm:flex-row sm:items-center sm:justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <Avatar className="h-12 w-12 border border-border/60">
+                                                    <AvatarImage src={blockedUser.avatar} />
+                                                    <AvatarFallback>{blockedUser.username?.slice(0, 2).toUpperCase() || '??'}</AvatarFallback>
+                                                </Avatar>
+                                                <div>
+                                                    <p className="font-semibold">{blockedUser.username}</p>
+                                                    <p className="text-sm text-muted-foreground">Bu kullanıcı profilinizi ve yorumlarınızı göremez.</p>
+                                                </div>
+                                            </div>
+
+                                            <Button
+                                                variant="outline"
+                                                className="border-red-500/40 text-red-500 hover:bg-red-500/10 hover:text-red-400"
+                                                disabled={unblockingUserId === blockedUser.id}
+                                                onClick={() => handleUnblockUser(blockedUser.id)}
+                                            >
+                                                {unblockingUserId === blockedUser.id ? (
+                                                    <>
+                                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                                        Kaldiriliyor...
+                                                    </>
+                                                ) : 'Engeli Kaldir'}
+                                            </Button>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="rounded-xl border border-dashed border-border/60 bg-background/20 py-12 text-center">
+                                        <ShieldAlert className="mx-auto mb-4 h-10 w-10 text-muted-foreground/60" />
+                                        <p className="font-medium">Engellenen kullanıcı yok</p>
+                                        <p className="mt-1 text-sm text-muted-foreground">Engellediğiniz kişiler burada listelenecek.</p>
+                                    </div>
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>

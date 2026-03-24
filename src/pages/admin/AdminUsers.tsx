@@ -36,10 +36,11 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { getAdminUsers, addAdminUser, deleteAdminUser, AdminUser } from '@/lib/database';
-import { getAdminSession } from '@/lib/storage';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 const AdminUsers: React.FC = () => {
+    const { user } = useAuth();
     const [admins, setAdmins] = useState<AdminUser[]>([]);
     const [showAddDialog, setShowAddDialog] = useState(false);
     const [deleteId, setDeleteId] = useState<string | null>(null);
@@ -49,8 +50,6 @@ const AdminUsers: React.FC = () => {
         password: '',
         role: 'moderator' as 'admin' | 'moderator',
     });
-
-    const currentSession = getAdminSession();
 
     useEffect(() => {
         loadAdmins();
@@ -137,7 +136,7 @@ const AdminUsers: React.FC = () => {
                                             </div>
                                             <div>
                                                 <p className="font-medium">{admin.username}</p>
-                                                {currentSession?.adminId === admin.id && (
+                                                {user?.id === admin.id && (
                                                     <Badge variant="secondary" className="text-xs">Siz</Badge>
                                                 )}
                                             </div>
@@ -168,7 +167,7 @@ const AdminUsers: React.FC = () => {
                                             size="icon"
                                             className="text-destructive hover:text-destructive"
                                             onClick={() => setDeleteId(admin.id)}
-                                            disabled={currentSession?.adminId === admin.id || admins.length <= 1}
+                                            disabled={user?.id === admin.id || admins.length <= 1}
                                         >
                                             <Trash2 className="h-4 w-4" />
                                         </Button>

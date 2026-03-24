@@ -15,30 +15,32 @@ import {
     UserCircle,
     Download,
     RefreshCw,
+    Hash,
+    Megaphone,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getAdminSession, removeAdminSession } from '@/lib/storage';
-import { getStatistics } from '@/lib/database';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 const AdminLayout: React.FC = () => {
     const navigate = useNavigate();
     const location = useLocation();
     const [sidebarOpen, setSidebarOpen] = useState(true);
-    const adminSession = getAdminSession();
+    const { user, isLoading, logout } = useAuth();
+    const isAdmin = user?.role === 'admin' || user?.role === 'moderator';
 
     useEffect(() => {
-        if (!adminSession) {
+        if (!isLoading && !isAdmin) {
             navigate('/admin/login');
         }
-    }, [adminSession, navigate]);
+    }, [isAdmin, isLoading, navigate]);
 
-    if (!adminSession) {
+    if (isLoading || !isAdmin || !user) {
         return null;
     }
 
-    const handleLogout = () => {
-        removeAdminSession();
+    const handleLogout = async () => {
+        await logout();
         toast.success('Çıkış yapıldı');
         navigate('/admin/login');
     };
@@ -51,7 +53,9 @@ const AdminLayout: React.FC = () => {
         { icon: RefreshCw, label: 'Bölüm Çekme', path: '/admin/chapter-scraper' },
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
         { icon: Users, label: 'Karakter & Sanatçı', path: '/admin/entities' },
+        { icon: Hash, label: 'Etiketler', path: '/admin/tags' },
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
+        { icon: Megaphone, label: 'Duyurular', path: '/admin/announcements' },
         { icon: Users, label: 'Adminler', path: '/admin/users' },
     ];
 
@@ -101,16 +105,16 @@ const AdminLayout: React.FC = () => {
                 <div className="absolute bottom-0 left-0 right-0 border-t border-border p-4">
                     <div className={`flex items-center gap-3 ${sidebarOpen ? '' : 'justify-center'}`}>
                         <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                            {adminSession.username[0].toUpperCase()}
+                            {user.username[0].toUpperCase()}
                         </div>
                         {sidebarOpen && (
                             <div className="flex-1">
-                                <p className="text-sm font-medium">{adminSession.username}</p>
-                                <p className="text-xs text-muted-foreground">{adminSession.role}</p>
+                                <p className="text-sm font-medium">{user.username}</p>
+                                <p className="text-xs text-muted-foreground">{user.role}</p>
                             </div>
                         )}
                         {sidebarOpen && (
-                            <Button variant="ghost" size="icon" onClick={handleLogout}>
+                            <Button variant="ghost" size="icon" onClick={() => void handleLogout()}>
                                 <LogOut className="h-5 w-5" />
                             </Button>
                         )}

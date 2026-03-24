@@ -12,6 +12,7 @@ export interface Manga {
   // Rating is now calculated from user votes
   ratings: MangaRating[];
   views: number;
+  engagementScore?: number;
   chapters: Chapter[];
   lastUpdated: string;
   createdAt: string;
@@ -20,6 +21,15 @@ export interface Manga {
   characters?: Character[];
   authorDetails?: Author;
   artistDetails?: Artist;
+  averageRating: number;
+  reviewCount: number;
+  ratingBreakdown?: {
+    story: number;
+    characters: number;
+    art: number;
+    progression: number;
+    engagement: number;
+  };
 }
 
 export interface Character {
@@ -87,9 +97,8 @@ export interface User {
   twoFactorEnabled?: boolean;
 }
 
-
 export interface ReadingProgress {
-  userId: string; // User ID
+  userId: string;
   mangaId: string;
   chapterId: string;
   chapterNumber: number;
@@ -97,17 +106,6 @@ export interface ReadingProgress {
   lastRead: string;
   mangaTitle?: string;
   mangaCover?: string;
-}
-
-export interface Bookmark {
-  id: string;
-  userId: string; // User ID
-  mangaId: string;
-  chapterId: string;
-  chapterNumber: number;
-  page: number;
-  createdAt: string;
-  note?: string;
 }
 
 export interface Favorite {
@@ -176,6 +174,11 @@ export interface Comment {
   username: string;
   userAvatar?: string;
   content: string;
+  title?: string;
+  textColor?: string;
+  mediaUrl?: string;
+  mediaUrls?: string[];
+  isSpoiler?: boolean;
   gifUrl?: string;
   createdAt: string;
   updatedAt?: string;
@@ -189,6 +192,7 @@ export interface ReadingList {
   userId: string;
   name: string;
   description?: string;
+  imageUrl?: string;
   isPublic: boolean;
   createdAt: string;
   items?: Manga[];
@@ -224,5 +228,37 @@ export interface MangaReaction {
   chapterId?: string;
   userId: string;
   reactionType: string;
+  createdAt: string;
+}
+
+export type TagCategory = 'theme' | 'mood' | 'trope' | 'demographic' | 'content' | 'general';
+
+export interface Tag {
+  id: string;
+  name: string;
+  slug: string;
+  category: TagCategory;
+  description?: string;
+  usageCount: number;
+  isOfficial: boolean;
+  createdBy?: string;
+  createdAt: string;
+}
+
+export interface MangaTag {
+  mangaId: string;
+  tagId: string;
+  tag?: Tag;
+  addedBy?: string;
+  createdAt: string;
+}
+
+export interface TagVote {
+  id: string;
+  tagId: string;
+  entityType: 'manga' | 'character' | 'author' | 'artist';
+  entityId: string;
+  userId: string;
+  voteType: 'up' | 'down';
   createdAt: string;
 }

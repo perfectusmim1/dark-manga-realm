@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import NotificationDropdown from '@/components/notifications/NotificationDropdown';
+import AnnouncementDropdown from '@/components/notifications/AnnouncementDropdown';
 import SuperSearch from './SuperSearch';
 import {
   Search,
@@ -30,7 +31,6 @@ import { Manga, Character } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
-import { getAdminSession } from '../../lib/storage';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 import {
@@ -50,7 +50,7 @@ const Header: React.FC = () => {
   const { user, logout } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
-  const adminSession = getAdminSession();
+  const isAdmin = user?.role === 'admin' || user?.role === 'moderator';
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
 
@@ -267,7 +267,7 @@ const Header: React.FC = () => {
         {/* User Actions */}
         <div className="flex items-center gap-2">
           {/* Admin Link */}
-          {adminSession && (
+          {isAdmin && (
             <Button asChild variant="ghost" size="sm" className="hidden md:flex">
               <Link to="/admin">
                 <Shield className="mr-2 h-4 w-4" />
@@ -279,7 +279,12 @@ const Header: React.FC = () => {
           {/* Notifications & Search */}
           <div className="flex items-center gap-1">
             <SuperSearch />
-            {user && <NotificationDropdown />}
+            {user && (
+              <>
+                <AnnouncementDropdown />
+                <NotificationDropdown />
+              </>
+            )}
           </div>
 
           {user ? (
@@ -359,7 +364,7 @@ const Header: React.FC = () => {
                 </DropdownMenuItem>
 
 
-                {adminSession && (
+                {isAdmin && (
                   <>
                     <DropdownMenuSeparator />
                     <DropdownMenuItem asChild>
@@ -446,7 +451,7 @@ const Header: React.FC = () => {
                 </Link>
               </>
             )}
-            {adminSession && (
+            {isAdmin && (
               <Link
                 to="/admin"
                 onClick={() => setIsMenuOpen(false)}

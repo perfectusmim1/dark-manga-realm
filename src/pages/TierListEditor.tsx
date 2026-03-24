@@ -214,7 +214,7 @@ export default function TierListEditor() {
                <Tabs value={type} onValueChange={(v) => {
                  setType(v as any);
                  // Reset tiers when switching type
-                 setTierState({ unranked: [], 'S': [], 'A': [], 'B': [], 'C': [], 'D': [] });
+                 setTierState({ unranked: [], 'S': [], 'A': [], 'B': [], 'C': [], 'D': [], 'F': [] });
                }}>
                  <TabsList>
                    <TabsTrigger value="manga">Mangalar</TabsTrigger>

@@ -14,7 +14,9 @@ import {
   BellOff,
   List,
   Search,
+  ShieldAlert,
 } from 'lucide-react';
+import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
 import ReadingListModal from '@/components/manga/ReadingListModal';
@@ -54,7 +56,7 @@ import {
   isFollowingManga,
   getFavorites,
 } from '../lib/storage';
-import { LibraryCategory, Manga, Review } from '@/lib/types';
+import { LibraryCategory, Manga, Review, Favorite } from '@/lib/types';
 import {
   MessageSquare,
   ThumbsUp,
@@ -78,6 +80,7 @@ import {
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { toast } from 'sonner';
 import MangaDetailSkeleton from '@/components/skeletons/MangaDetailSkeleton';
+import TagSection from '@/components/tags/TagSection';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -200,6 +203,8 @@ const MangaDetail: React.FC = () => {
   const [activeTab, setActiveTab] = useState('overview');
   const [maxLoadedIndex, setMaxLoadedIndex] = useState(0);
   const [currentViewedIndex, setCurrentViewedIndex] = useState(0);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
+  const [revealedBlockedReviews, setRevealedBlockedReviews] = useState<Record<string, boolean>>({});
 
   const handlePreviewInView = React.useCallback((idx: number) => {
     setCurrentViewedIndex(idx);
@@ -232,77 +237,87 @@ const MangaDetail: React.FC = () => {
   const [mangaCharacters, setMangaCharacters] = useState<any[]>([]);
 
 
+  const [isReviewsLoading, setIsReviewsLoading] = useState(true);
+  const [isCharsLoading, setIsCharsLoading] = useState(true);
+
   useEffect(() => {
     const loadMangaData = async () => {
       if (!mangaId) return;
 
       try {
         setIsLoading(true);
-        const [mData, avgRating] = await Promise.all([
-          getMangaById(mangaId),
-          getAverageRating(mangaId)
-        ]);
+        setIsReviewsLoading(true);
+        setIsCharsLoading(true);
 
+        // Wave 1: Fetch the most important thing (Manga Metadata)
+        const mData = await getMangaById(mangaId);
+        
         if (mData) {
           setManga(mData);
-          setAverageRating(avgRating);
+          setAverageRating({ average: mData.averageRating, count: mData.reviewCount });
+          if (mData.ratingBreakdown) {
+            setAvgBreakdown(mData.ratingBreakdown);
+          }
+          
+          // Show page structure immediately after metadata
+          setIsLoading(false);
 
-          // Increment views
-          incrementMangaViews(mangaId);
-
-          if (user) {
-            const [favorited, following, cat, rating, progress, mReviews, uReview] = await Promise.all([
+          // Wave 2: Fetch characters and user-specific info in parallel
+          Promise.all([
+            getMangaCharacters(mangaId),
+            user ? Promise.all([
               isFavorite(user.id, mangaId),
               isFollowingManga(user.id, mangaId),
-              null as any,
               getUserRating(mangaId, user.id),
               getLatestProgress(user.id, mangaId),
               getReviewsForManga(mangaId),
-              getUserReview(mangaId, user.id)
-            ]);
+              getUserReview(mangaId, user.id),
+              getFavorites(user.id)
+            ]) : Promise.all([
+              getReviewsForManga(mangaId)
+            ])
+          ]).then(([mChars, uInfo]) => {
+            setMangaCharacters(mChars);
+            setIsCharsLoading(false);
 
-            setFavorite(favorited);
-            setIsFollowing(following);
-            setUserRating(rating);
-            setLatestProgress(progress);
-            setReviews(mReviews);
-            if (uReview) setUserReview(uReview);
+            if (user && Array.isArray(uInfo) && uInfo.length > 1) {
+              const [favorited, following, rating, progress, mReviews, uReview, userFavorites] = uInfo;
+              setFavorite(favorited as boolean);
+              setIsFollowing(following as boolean);
+              setUserRating(rating as number);
+              setLatestProgress(progress);
+              setReviews(mReviews as Review[]);
+              if (uReview) setUserReview(uReview as Review);
+              
+              const favs = userFavorites as Favorite[];
+              const thisFav = favs.find((f: any) => f.mangaId === mangaId);
+              if (thisFav) setCategory(thisFav.category);
 
+              // Fetch blocked users
+              import('@/lib/profile').then(({ getBlockedUserIds }) => {
+                getBlockedUserIds(user.id).then(({ ids }) => {
+                  if (ids) setBlockedUserIds(ids);
+                });
+              });
+            } else if (uInfo && Array.isArray(uInfo)) {
+              setReviews(uInfo[0] as Review[]);
+            }
+            setIsReviewsLoading(false);
+          });
 
-            const userFavorites = await getFavorites(user.id);
-            const thisFav = userFavorites.find(f => f.mangaId === mangaId);
-            if (thisFav) setCategory(thisFav.category);
-          } else {
-            const mReviews = await getReviewsForManga(mangaId);
-            setReviews(mReviews);
-          }
+          // Parallel & Non-blocking
+          incrementMangaViews(mangaId);
 
-
-          if (avgRating) {
-            setAvgBreakdown({
-              story: (avgRating as any).story || 0,
-              characters: (avgRating as any).characters || 0,
-              art: (avgRating as any).art || 0,
-              progression: (avgRating as any).progression || 0,
-              engagement: (avgRating as any).engagement || 0
+          if (mData.genres && mData.genres.length > 0) {
+            setLoadingSimilar(true);
+            getSimilarMangas(mangaId, mData.genres, 6).then(similar => {
+              setSimilarMangas(similar);
+              setLoadingSimilar(false);
             });
           }
-
-
-          if (mData && mData.genres && mData.genres.length > 0) {
-            setLoadingSimilar(true);
-            const similar = await getSimilarMangas(mangaId, mData.genres, 6);
-            setSimilarMangas(similar);
-            setLoadingSimilar(false);
-          }
-
-
-          const chars = await getMangaCharacters(mangaId);
-          setMangaCharacters(chars);
         }
       } catch (err) {
         console.error('Error loading manga detail:', err);
-      } finally {
         setIsLoading(false);
       }
     };
@@ -883,6 +898,13 @@ const MangaDetail: React.FC = () => {
                     </div>
                   </div>
 
+                  <div className="rounded-xl border border-border bg-card/50 p-6">
+                    <TagSection
+                      entityType="manga"
+                      entityId={manga.id}
+                    />
+                  </div>
+
                   <div className="rounded-xl border border-border bg-primary/5 p-6 border-primary/20">
                     <h3 className="font-semibold mb-2">Hızlı Erişim</h3>
                     <p className="text-sm text-muted-foreground mb-4">Manga hakkında daha fazla bilgi ve tartışma için incelemeler sekmesine göz atın.</p>
@@ -944,24 +966,33 @@ const MangaDetail: React.FC = () => {
 
             <TabsContent value="characters" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
-                {mangaCharacters.map((char) => (
-                  <Link key={char.id} to={`/character/${char.id}`} className="group space-y-3">
-                    <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-lg border border-border bg-secondary/30">
-                      <img
-                        src={char.imageUrl || 'https://via.placeholder.com/300x400?text=Karakter'}
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                        alt={char.name}
-                      />
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
-                        <div className="text-white text-xs font-bold flex items-center gap-1">
-                          <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
+                {isCharsLoading ? (
+                  // Characters Skeleton
+                  Array.from({ length: 6 }).map((_, i) => (
+                    <div key={i} className="space-y-3">
+                      <div className="aspect-[3/4] rounded-xl bg-secondary/30 animate-pulse border border-border" />
+                      <div className="h-4 w-2/3 bg-secondary/50 rounded mx-auto animate-pulse" />
+                    </div>
+                  ))
+                ) : mangaCharacters.length > 0 ? (
+                  mangaCharacters.map((char) => (
+                    <Link key={char.id} to={`/character/${char.id}`} className="group space-y-3">
+                      <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-lg border border-border bg-secondary/30">
+                        <img
+                          src={char.imageUrl || 'https://via.placeholder.com/300x400?text=Karakter'}
+                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                          alt={char.name}
+                        />
+                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                          <div className="text-white text-xs font-bold flex items-center gap-1">
+                            <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
+                          </div>
                         </div>
                       </div>
-                    </div>
-                    <h3 className="text-center font-bold text-sm truncate group-hover:text-primary transition-colors">{char.name}</h3>
-                  </Link>
-                ))}
-                {mangaCharacters.length === 0 && (
+                      <h3 className="text-center font-bold text-sm truncate group-hover:text-primary transition-colors">{char.name}</h3>
+                    </Link>
+                  ))
+                ) : (
                   <div className="col-span-full py-20 text-center text-muted-foreground italic bg-secondary/10 rounded-2xl border border-dashed border-border">
                     Bu seri için henüz karakter eklenmemiş.
                   </div>
@@ -970,181 +1001,215 @@ const MangaDetail: React.FC = () => {
             </TabsContent>
 
             <TabsContent value="reviews" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="rounded-xl border border-border bg-card/50 p-8 shadow-xl">
-                {/* Reviews Summary */}
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 items-center mb-12">
-                  <div className="text-center md:border-r border-border py-4">
-                    <div className="text-7xl font-black mb-2 tracking-tighter text-foreground">{averageRating.average || '0'}</div>
-                    <div className="flex justify-center gap-0.5 mb-2">
-                      {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
-                        <Star key={star} className={`h-4 w-4 ${star <= Math.round(averageRating.average) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`} />
-                      ))}
-                    </div>
-                    <div className="text-muted-foreground font-medium">{reviews.length} inceleme</div>
-                  </div>
-
-                  <div className="lg:col-span-2 space-y-3">
-                    {[
-                      { label: 'Hikaye', value: avgBreakdown.story },
-                      { label: 'Karakterler', value: avgBreakdown.characters },
-                      { label: 'Çizim', value: avgBreakdown.art },
-                      { label: 'İlerleyiş', value: avgBreakdown.progression },
-                      { label: 'Sürükleyicilik', value: avgBreakdown.engagement },
-                    ].map((item) => (
-                      <div key={item.label} className="flex items-center gap-4">
-                        <span className="text-sm font-medium w-24 text-muted-foreground">{item.label}</span>
-                        <Progress value={item.value * 10} className="h-2 flex-1" />
-                        <span className="text-sm font-bold w-12 text-right">{item.value.toFixed(1)}</span>
-                      </div>
-                    ))}
-
-                    <div className="pt-6 flex justify-end">
-                      <Dialog open={isReviewModalOpen} onOpenChange={setIsReviewModalOpen}>
-                        <DialogTrigger asChild>
-                          <Button variant="glow" size="lg" className="rounded-full px-8 shadow-lg shadow-primary/20">
-                            {userReview?.id ? (
-                              <>
-                                <Edit3 className="mr-2 h-4 w-4" />
-                                İncelemeyi Düzenle
-                              </>
-                            ) : (
-                              <>
-                                <Plus className="mr-2 h-4 w-4" />
-                                İnceleme Yaz
-                              </>
-                            )}
-                          </Button>
-                        </DialogTrigger>
-                        <DialogContent className="sm:max-w-[600px] bg-card/95 backdrop-blur-xl border-primary/20">
-                          <DialogHeader>
-                            <DialogTitle className="text-2xl font-bold">
-                              {userReview.id ? 'İncelemeyi Düzenle' : 'İnceleme Yaz'}
-                            </DialogTitle>
-                            <DialogDescription>
-                              {userReview.id ? 'Mevcut incelemenizi güncelleyin.' : 'Manga hakkındaki görüşlerinizi ayrıntılı olarak paylaşın.'}
-                            </DialogDescription>
-                          </DialogHeader>
-
-                          <div className="space-y-6 py-4">
-                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
-                              {[
-                                { label: 'Hikaye', key: 'rating_story' },
-                                { label: 'Karakterler', key: 'rating_characters' },
-                                { label: 'Çizim', key: 'rating_art' },
-                                { label: 'İlerleyiş', key: 'rating_progression' },
-                                { label: 'Sürükleyicilik', key: 'rating_engagement' },
-                              ].map((item) => (
-                                <div key={item.label} className="space-y-2">
-                                  <div className="flex justify-between text-sm font-medium">
-                                    <span>{item.label}</span>
-                                    <span className="text-primary">{userReview[item.key as keyof Partial<Review>]}/10</span>
-                                  </div>
-                                  <div className="flex gap-1">
-                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
-                                      <button
-                                        key={star}
-                                        onClick={() => setUserReview(prev => ({ ...prev, [item.key]: star }))}
-                                        className="p-0.5"
-                                      >
-                                        <Star
-                                          className={`h-4 w-4 ${star <= (userReview[item.key as keyof Partial<Review>] as number) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`}
-                                        />
-                                      </button>
-                                    ))}
-                                  </div>
-                                </div>
-                              ))}
-                            </div>
-
-                            <div className="space-y-2">
-                              <label className="text-sm font-medium">İncelemeniz</label>
-                              <Textarea
-                                placeholder="Manga hakkındaki düşünceleriniz..."
-                                className="min-h-[120px] resize-none bg-secondary/30"
-                                value={userReview.content}
-                                onChange={(e) => setUserReview(prev => ({ ...prev, content: e.target.value }))}
-                              />
-                            </div>
-                          </div>
-
-                          <DialogFooter>
-                            <Button variant="ghost" onClick={() => setIsReviewModalOpen(false)}>İptal</Button>
-                            <Button variant="glow" onClick={handleReviewSubmit} disabled={isSubmittingReview}>
-                              {isSubmittingReview ? 'Kaydediliyor...' : (userReview.id ? 'Güncelle' : 'Yayınla')}
-                            </Button>
-                          </DialogFooter>
-                        </DialogContent>
-                      </Dialog>
-                    </div>
-                  </div>
+              {isReviewsLoading ? (
+                <div className="rounded-xl border border-border bg-card/50 p-8 shadow-xl">
+                   <div className="flex flex-col items-center justify-center py-20 gap-4">
+                      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+                      <p className="text-muted-foreground animate-pulse">İncelemeler yükleniyor...</p>
+                   </div>
                 </div>
+              ) : (
+                <div className="rounded-xl border border-border bg-card/50 p-8 shadow-xl">
+                  {/* Reviews Summary */}
+                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 items-center mb-12">
+                    <div className="text-center md:border-r border-border py-4">
+                      <div className="text-7xl font-black mb-2 tracking-tighter text-foreground">{averageRating.average || '0'}</div>
+                      <div className="flex justify-center gap-0.5 mb-2">
+                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
+                          <Star key={star} className={`h-4 w-4 ${star <= Math.round(averageRating.average) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`} />
+                        ))}
+                      </div>
+                      <div className="text-muted-foreground font-medium">{reviews.length} inceleme</div>
+                    </div>
 
-                {/* Reviews List */}
-                <div className="space-y-6">
-                  <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-                    <MessageSquare className="h-5 w-5 text-primary" />
-                    Kullanıcı İncelemeleri
-                  </h3>
-
-                  {reviews.length > 0 ? (
-                    <div className="grid grid-cols-1 gap-6">
-                      {reviews.map((review) => (
-                        <div key={review.id} className="rounded-xl border border-border bg-card/30 p-6 transition-all hover:bg-card/50">
-                          <div className="flex justify-between items-start mb-4">
-                            <div className="flex gap-4">
-                              <Avatar className="h-12 w-12 border-2 border-primary/20">
-                                <AvatarImage src={review.userAvatar} />
-                                <AvatarFallback>{review.username.substring(0, 2).toUpperCase()}</AvatarFallback>
-                              </Avatar>
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <h4 className="font-bold">{review.username}</h4>
-                                  {/* Optional LV badge can go here */}
-                                </div>
-                                <p className="text-xs text-muted-foreground">{formatDate(review.createdAt)}</p>
-                              </div>
-                            </div>
-                            <div className="flex gap-0.5 text-yellow-400">
-                              {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
-                                const avg = (review.rating_story + review.rating_characters + review.rating_art + review.rating_progression + review.rating_engagement) / 5;
-                                return <Star key={star} className={`h-3 w-3 ${star <= Math.round(avg) ? 'fill-current' : 'text-muted-foreground'}`} />;
-                              })}
-                            </div>
+                    <div className="lg:col-span-2 space-y-3">
+                      {[
+                        { label: 'Hikaye', value: avgBreakdown.story },
+                        { label: 'Karakterler', value: avgBreakdown.characters },
+                        { label: 'Çizim', value: avgBreakdown.art },
+                        { label: 'İlerleyiş', value: avgBreakdown.progression },
+                        { label: 'Sürükleyicilik', value: avgBreakdown.engagement }
+                      ].map((item) => (
+                        <div key={item.label} className="space-y-1">
+                          <div className="flex items-center justify-between text-xs font-bold uppercase tracking-wider text-muted-foreground px-1">
+                            <span>{item.label}</span>
+                            <span className="text-foreground">{item.value}/10</span>
                           </div>
-
-                          <p className="text-foreground/90 leading-relaxed mb-6 whitespace-pre-wrap">{review.content}</p>
-
-                          <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-6 bg-secondary/20 p-3 rounded-lg">
-                            <span>Hikaye: <strong className="text-foreground">{review.rating_story}/10</strong></span>
-                            <span>Karakterler: <strong className="text-foreground">{review.rating_characters}/10</strong></span>
-                            <span>Çizim: <strong className="text-foreground">{review.rating_art}/10</strong></span>
-                            <span>İlerleyiş: <strong className="text-foreground">{review.rating_progression}/10</strong></span>
-                            <span>Sürükleyicilik: <strong className="text-foreground">{review.rating_engagement}/10</strong></span>
-                          </div>
-
-                          <div className="flex items-center justify-between border-t border-border pt-4">
-                            <Button
-                              variant="ghost"
-                              size="sm"
-                              className={`gap-2 ${review.likedBy.includes(user?.id || '') ? 'text-primary bg-primary/10' : ''}`}
-                              onClick={() => toggleLikeReview(review.id)}
-                            >
-                              <ThumbsUp className={`h-4 w-4 ${review.likedBy.includes(user?.id || '') ? 'fill-current' : ''}`} />
-                              <span>{review.likes}</span>
-                            </Button>
-
-                          </div>
+                          <Progress value={item.value * 10} className="h-1.5" />
                         </div>
                       ))}
                     </div>
-                  ) : (
-                    <div className="text-center py-20 bg-secondary/10 rounded-xl border border-dashed border-border">
-                      <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
-                      <p className="text-muted-foreground">Henüz inceleme yapılmamış. İlk inceleyen siz olun!</p>
-                    </div>
-                  )}
+                  </div>
+
+                  <div className="pt-6 flex justify-end mb-12 border-t border-border/50">
+                    <Dialog open={isReviewModalOpen} onOpenChange={setIsReviewModalOpen}>
+                      <DialogTrigger asChild>
+                        <Button variant="glow" size="lg" className="rounded-full px-8 shadow-lg shadow-primary/20">
+                          {userReview?.id ? (
+                            <>
+                              <Edit3 className="mr-2 h-4 w-4" />
+                              İncelemeyi Düzenle
+                            </>
+                          ) : (
+                            <>
+                              <Plus className="mr-2 h-4 w-4" />
+                              İnceleme Yaz
+                            </>
+                          )}
+                        </Button>
+                      </DialogTrigger>
+                      <DialogContent className="sm:max-w-[600px] bg-card/95 backdrop-blur-xl border-primary/20">
+                        <DialogHeader>
+                          <DialogTitle className="text-2xl font-bold">
+                            {userReview.id ? 'İncelemeyi Düzenle' : 'İnceleme Yaz'}
+                          </DialogTitle>
+                          <DialogDescription>
+                            {userReview.id ? 'Mevcut incelemenizi güncelleyin.' : 'Manga hakkındaki görüşlerinizi ayrıntılı olarak paylaşın.'}
+                          </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-6 py-4">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                            {[
+                              { label: 'Hikaye', key: 'rating_story' },
+                              { label: 'Karakterler', key: 'rating_characters' },
+                              { label: 'Çizim', key: 'rating_art' },
+                              { label: 'İlerleyiş', key: 'rating_progression' },
+                              { label: 'Sürükleyicilik', key: 'rating_engagement' },
+                            ].map((item) => (
+                              <div key={item.label} className="space-y-2">
+                                <div className="flex justify-between text-sm font-medium">
+                                  <span>{item.label}</span>
+                                  <span className="text-primary">{userReview[item.key as keyof Partial<Review>]}/10</span>
+                                </div>
+                                <div className="flex gap-1">
+                                  {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
+                                    <button
+                                      key={star}
+                                      onClick={() => setUserReview(prev => ({ ...prev, [item.key]: star }))}
+                                      className="p-0.5"
+                                    >
+                                      <Star
+                                        className={`h-4 w-4 ${star <= (userReview[item.key as keyof Partial<Review>] as number) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`}
+                                      />
+                                    </button>
+                                  ))}
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div className="space-y-2">
+                            <label className="text-sm font-medium">İncelemeniz</label>
+                            <Textarea
+                              placeholder="Manga hakkındaki düşünceleriniz..."
+                              className="min-h-[120px] resize-none bg-secondary/30"
+                              value={userReview.content}
+                              onChange={(e) => setUserReview(prev => ({ ...prev, content: e.target.value }))}
+                            />
+                          </div>
+                        </div>
+
+                        <DialogFooter>
+                          <Button variant="ghost" onClick={() => setIsReviewModalOpen(false)}>İptal</Button>
+                          <Button variant="glow" onClick={handleReviewSubmit} disabled={isSubmittingReview}>
+                            {isSubmittingReview ? 'Kaydediliyor...' : (userReview.id ? 'Güncelle' : 'Yayınla')}
+                          </Button>
+                        </DialogFooter>
+                      </DialogContent>
+                    </Dialog>
+                  </div>
+
+                  {/* Reviews List */}
+                  <div className="space-y-6">
+                    <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
+                      <MessageSquare className="h-5 w-5 text-primary" />
+                      Kullanıcı İncelemeleri
+                    </h3>
+
+                    {reviews.length > 0 ? (
+                      <div className="grid grid-cols-1 gap-6">
+                        {reviews.map((review) => {
+                          const isBlocked = blockedUserIds.includes(review.userId);
+                          const isRevealed = revealedBlockedReviews[review.id];
+
+                          return (
+                            <div key={review.id} className="relative rounded-xl border border-border bg-card/30 p-6 transition-all hover:bg-card/50">
+                              <div className={cn("transition-all duration-300", isBlocked && !isRevealed && "blur-md select-none pointer-events-none grayscale opacity-40 overflow-hidden max-h-40")}>
+                                <div className="flex justify-between items-start mb-4">
+                                  <div className="flex gap-4">
+                                    <Avatar className="h-12 w-12 border-2 border-primary/20">
+                                      <AvatarImage src={review.userAvatar} />
+                                      <AvatarFallback>{review.username.substring(0, 2).toUpperCase()}</AvatarFallback>
+                                    </Avatar>
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <h4 className="font-bold">{review.username}</h4>
+                                      </div>
+                                      <p className="text-xs text-muted-foreground">{formatDate(review.createdAt)}</p>
+                                    </div>
+                                  </div>
+                                  <div className="flex gap-0.5 text-yellow-400">
+                                    {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
+                                      const avg = (review.rating_story + review.rating_characters + review.rating_art + review.rating_progression + review.rating_engagement) / 5;
+                                      return <Star key={star} className={`h-3 w-3 ${star <= Math.round(avg) ? 'fill-current' : 'text-muted-foreground'}`} />;
+                                    })}
+                                  </div>
+                                </div>
+
+                                <p className="text-foreground/90 leading-relaxed mb-6 whitespace-pre-wrap">{review.content}</p>
+
+                                <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-6 bg-secondary/20 p-3 rounded-lg">
+                                  <span>Hikaye: <strong className="text-foreground">{review.rating_story}/10</strong></span>
+                                  <span>Karakterler: <strong className="text-foreground">{review.rating_characters}/10</strong></span>
+                                  <span>Çizim: <strong className="text-foreground">{review.rating_art}/10</strong></span>
+                                  <span>İlerleyiş: <strong className="text-foreground">{review.rating_progression}/10</strong></span>
+                                  <span>Sürükleyicilik: <strong className="text-foreground">{review.rating_engagement}/10</strong></span>
+                                </div>
+
+                                <div className="flex items-center justify-between border-t border-border pt-4">
+                                  <Button
+                                    variant="ghost"
+                                    size="sm"
+                                    className={`gap-2 ${review.likedBy.includes(user?.id || '') ? 'text-primary bg-primary/10' : ''}`}
+                                    onClick={() => toggleLikeReview(review.id)}
+                                  >
+                                    <ThumbsUp className={`h-4 w-4 ${review.likedBy.includes(user?.id || '') ? 'fill-current' : ''}`} />
+                                    <span>{review.likes}</span>
+                                  </Button>
+                                </div>
+                              </div>
+
+                              {isBlocked && !isRevealed && (
+                                <div className="absolute inset-0 z-10 flex flex-col items-center justify-center p-6 text-center bg-background/10 backdrop-blur-[2px]">
+                                  <div className="bg-background/80 p-4 rounded-xl border border-border shadow-2xl max-w-xs">
+                                    <ShieldAlert className="w-8 h-8 mx-auto text-red-500 mb-2" />
+                                    <p className="text-sm font-bold mb-1">Engellenmiş İçerik</p>
+                                    <p className="text-xs text-muted-foreground mb-4">Bu kullanıcıyı engellediğiniz için incelemesi gizlendi.</p>
+                                    <Button 
+                                      size="sm" 
+                                      variant="outline" 
+                                      className="w-full h-8 text-xs font-bold"
+                                      onClick={() => setRevealedBlockedReviews(prev => ({ ...prev, [review.id]: true }))}
+                                    >
+                                      İncelemeyi Göster
+                                    </Button>
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="text-center py-20 bg-secondary/10 rounded-xl border border-dashed border-border">
+                        <MessageSquare className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
+                        <p className="text-muted-foreground">Henüz inceleme yapılmamış. İlk inceleyen siz olun!</p>
+                      </div>
+                    )}
+                  </div>
                 </div>
-              </div>
+              )}
             </TabsContent>
 
             <TabsContent value="discover" className="animate-in fade-in slide-in-from-bottom-4 duration-500">

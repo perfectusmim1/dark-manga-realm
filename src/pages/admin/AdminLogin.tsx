@@ -4,7 +4,6 @@ import { Lock, Mail, Eye, EyeOff } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authenticateAdmin } from '@/lib/database';
-import { setAdminSession } from '../../lib/storage';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -16,22 +15,11 @@ const AdminLogin: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [loading, setLoading] = useState(false);
 
-    // Auto-detect admin status if already logged in via Supabase/Google
     React.useEffect(() => {
         if (user && (user.role === 'admin' || user.role === 'moderator')) {
-            setAdminSession({
-                adminId: user.id,
-                username: user.username,
-                role: user.role,
-            });
-            toast.success('Yönetici oturumu açıldı');
             navigate('/admin');
         }
     }, [user, navigate, loginWithGoogle]);
-
-    // For consistency and security, we now require explicit login
-    // even if already logged in via Supabase for the main site.
-    // This serves as a 'sudo' check.
 
     const handleGoogleLogin = async () => {
         setLoading(true);
@@ -50,11 +38,6 @@ const AdminLogin: React.FC = () => {
         const admin = await authenticateAdmin(email, password);
 
         if (admin) {
-            setAdminSession({
-                adminId: admin.id,
-                username: admin.username,
-                role: admin.role,
-            });
             toast.success('Giriş başarılı!');
             navigate('/admin');
         } else {

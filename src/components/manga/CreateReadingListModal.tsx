@@ -10,12 +10,13 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { List, Lock, Globe } from 'lucide-react';
+import { List, Image as ImageIcon } from 'lucide-react';
 import { createReadingList, updateReadingList } from '@/lib/database';
 import { ReadingList } from '@/lib/types';
 import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import ReadingListCover from './ReadingListCover';
 
 interface CreateReadingListModalProps {
     isOpen: boolean;
@@ -24,6 +25,15 @@ interface CreateReadingListModalProps {
     onSuccess: (list: ReadingList) => void;
     editList?: ReadingList | null;
 }
+
+const isValidImageUrl = (value: string) => {
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+};
 
 const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
     isOpen,
@@ -34,6 +44,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
 }) => {
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
+    const [imageUrl, setImageUrl] = useState('');
     const [isPublic, setIsPublic] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -41,10 +52,12 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
         if (editList) {
             setName(editList.name);
             setDescription(editList.description || '');
+            setImageUrl(editList.imageUrl || '');
             setIsPublic(editList.isPublic);
         } else {
             setName('');
             setDescription('');
+            setImageUrl('');
             setIsPublic(false);
         }
     }, [editList, isOpen]);
@@ -55,18 +68,26 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
             return;
         }
 
+        const normalizedImageUrl = imageUrl.trim();
+        if (normalizedImageUrl && !isValidImageUrl(normalizedImageUrl)) {
+            toast.error('Gorsel linki gecersiz. Lutfen tam bir http/https adresi girin');
+            return;
+        }
+
         try {
             setIsSubmitting(true);
             if (editList) {
                 await updateReadingList(editList.id, {
                     name,
                     description,
+                    imageUrl: normalizedImageUrl || undefined,
                     isPublic
                 });
                 onSuccess({
                     ...editList,
                     name,
                     description,
+                    imageUrl: normalizedImageUrl || undefined,
                     isPublic
                 });
                 toast.success('Liste güncellendi');
@@ -75,6 +96,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                     userId,
                     name,
                     description,
+                    imageUrl: normalizedImageUrl || undefined,
                     isPublic
                 });
                 onSuccess(newList);
@@ -125,6 +147,38 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                             className="resize-none"
                             disabled={isSubmitting}
                         />
+                    </div>
+                    <div className="space-y-2">
+                        <Label htmlFor="list-image">Gorsel Linki (Opsiyonel)</Label>
+                        <Input
+                            id="list-image"
+                            placeholder="https://..."
+                            value={imageUrl}
+                            onChange={(e) => setImageUrl(e.target.value)}
+                            disabled={isSubmitting}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                            Liste kapagi icin dogrudan bir gorsel baglantisi ekleyebilirsiniz.
+                        </p>
+                    </div>
+                    <div className="space-y-2">
+                        <div className="flex items-center gap-2 text-sm font-medium">
+                            <ImageIcon className="h-4 w-4 text-primary" />
+                            Onizleme
+                        </div>
+                        {imageUrl.trim() && !isValidImageUrl(imageUrl.trim()) ? (
+                            <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                                Gecersiz gorsel baglantisi. Onizleme gosterilemiyor.
+                            </div>
+                        ) : (
+                            <ReadingListCover
+                                imageUrl={imageUrl.trim()}
+                                alt={name || 'Okuma listesi kapagi'}
+                                className="h-40 w-full rounded-xl border border-border"
+                                iconClassName="h-8 w-8"
+                                showLabel
+                            />
+                        )}
                     </div>
                     <div className="flex items-center justify-between">
                         <div className="space-y-0.5">

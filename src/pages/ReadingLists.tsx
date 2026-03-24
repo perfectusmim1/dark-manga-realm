@@ -30,6 +30,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
+import ReadingListCover from '@/components/manga/ReadingListCover';
 
 const ReadingLists: React.FC = () => {
     const { user } = useAuth();
@@ -151,50 +152,59 @@ const ReadingLists: React.FC = () => {
                         {lists.map((list) => (
                             <div
                                 key={list.id}
-                                className="group relative overflow-hidden rounded-xl border border-border bg-card p-6 transition-all hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
+                                className="group relative overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
                             >
-                                <div className="mb-4 flex items-start justify-between">
-                                    <div className="flex flex-col gap-1">
-                                        <h3 className="line-clamp-1 text-xl font-bold">{list.name}</h3>
-                                        <div className="flex items-center gap-2">
-                                            <Badge variant="secondary" className="gap-1 px-1.5 py-0 text-[10px]">
-                                                {list.isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
-                                                {list.isPublic ? 'Herkese Açık' : 'Özel'}
-                                            </Badge>
-                                            <span className="text-xs text-muted-foreground">
-                                                {new Date(list.createdAt).toLocaleDateString('tr-TR')}
-                                            </span>
+                                <ReadingListCover
+                                    imageUrl={list.imageUrl}
+                                    alt={list.name}
+                                    className="h-40 w-full"
+                                    iconClassName="h-10 w-10"
+                                />
+
+                                <div className="p-6">
+                                    <div className="mb-4 flex items-start justify-between">
+                                        <div className="flex flex-col gap-1">
+                                            <h3 className="line-clamp-1 text-xl font-bold">{list.name}</h3>
+                                            <div className="flex items-center gap-2">
+                                                <Badge variant="secondary" className="gap-1 px-1.5 py-0 text-[10px]">
+                                                    {list.isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
+                                                    {list.isPublic ? 'Herkese Açık' : 'Özel'}
+                                                </Badge>
+                                                <span className="text-xs text-muted-foreground">
+                                                    {new Date(list.createdAt).toLocaleDateString('tr-TR')}
+                                                </span>
+                                            </div>
+                                        </div>
+
+                                        <div className="flex items-center gap-1">
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-muted-foreground hover:bg-secondary hover:text-foreground"
+                                                onClick={() => handleEdit(list)}
+                                            >
+                                                <Edit2 className="h-4 w-4" />
+                                            </Button>
+                                            <Button
+                                                variant="ghost"
+                                                size="icon"
+                                                className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                                onClick={() => setDeleteConfirmId(list.id)}
+                                            >
+                                                <Trash2 className="h-4 w-4" />
+                                            </Button>
                                         </div>
                                     </div>
-                                </div>
 
-                                <p className="mb-6 line-clamp-2 text-sm text-muted-foreground min-h-[40px]">
-                                    {list.description || 'Açıklama belirtilmemiş.'}
-                                </p>
+                                    <p className="mb-6 min-h-[40px] line-clamp-2 text-sm text-muted-foreground">
+                                        {list.description || 'Açıklama belirtilmemiş.'}
+                                    </p>
 
-                                <div className="flex items-center justify-between pt-4 border-t border-border/50">
-                                    <Button asChild variant="ghost" size="sm" className="gap-2 hover:text-primary">
-                                        <Link to={`/reading-lists/${list.id}`}>
-                                            İncele <ChevronRight className="h-4 w-4" />
-                                        </Link>
-                                    </Button>
-
-                                    <div className="flex items-center gap-1">
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8 text-muted-foreground hover:bg-secondary hover:text-foreground"
-                                            onClick={() => handleEdit(list)}
-                                        >
-                                            <Edit2 className="h-4 w-4" />
-                                        </Button>
-                                        <Button
-                                            variant="ghost"
-                                            size="icon"
-                                            className="h-8 w-8 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                            onClick={() => setDeleteConfirmId(list.id)}
-                                        >
-                                            <Trash2 className="h-4 w-4" />
+                                    <div className="flex items-center justify-between border-t border-border/50 pt-4">
+                                        <Button asChild variant="ghost" size="sm" className="gap-2 hover:text-primary">
+                                            <Link to={`/reading-lists/${list.id}`}>
+                                                İncele <ChevronRight className="h-4 w-4" />
+                                            </Link>
                                         </Button>
                                     </div>
                                 </div>

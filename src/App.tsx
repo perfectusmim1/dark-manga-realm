@@ -46,6 +46,8 @@ import AdminUserManagement from "./pages/admin/AdminUserManagement";
 import AdminScraper from "./pages/admin/AdminScraper";
 import AdminChapterScraper from "./pages/admin/AdminChapterScraper";
 import AdminEntities from "./pages/admin/AdminEntities";
+import AdminTags from "./pages/admin/AdminTags";
+import AdminAnnouncements from "./pages/admin/AdminAnnouncements";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -117,6 +119,8 @@ const App = () => (
                   <Route path="users" element={<AdminUsers />} />
                   <Route path="user-management" element={<AdminUserManagement />} />
                   <Route path="entities" element={<AdminEntities />} />
+                  <Route path="tags" element={<AdminTags />} />
+                  <Route path="announcements" element={<AdminAnnouncements />} />
                 </Route>
 
                 <Route path="*" element={<NotFound />} />

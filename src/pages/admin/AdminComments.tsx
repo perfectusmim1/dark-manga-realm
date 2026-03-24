@@ -102,6 +102,7 @@ const AdminComments: React.FC = () => {
     const filteredComments = comments.filter(comment => {
         const query = searchQuery.toLocaleLowerCase('tr-TR');
         return comment.content.toLocaleLowerCase('tr-TR').includes(query) ||
+            (comment.title || '').toLocaleLowerCase('tr-TR').includes(query) ||
             comment.username.toLocaleLowerCase('tr-TR').includes(query);
     });
 
@@ -186,10 +187,19 @@ const AdminComments: React.FC = () => {
                                         </div>
                                     </td>
                                     <td className="px-4 py-3 max-w-xs">
+                                        {comment.title && (
+                                            <p className="truncate text-xs font-semibold text-primary">{comment.title}</p>
+                                        )}
                                         <p className="truncate text-sm">{comment.content}</p>
                                         <div className="flex gap-1 mt-1">
                                             {comment.gifUrl && (
                                                 <Badge variant="secondary" className="text-[10px] h-4 hover:bg-secondary/70 transition-colors">GIF</Badge>
+                                            )}
+                                            {comment.mediaUrl && (
+                                                <Badge variant="secondary" className="text-[10px] h-4 hover:bg-secondary/70 transition-colors">Medya</Badge>
+                                            )}
+                                            {comment.isSpoiler && (
+                                                <Badge variant="outline" className="text-[10px] h-4 hover:bg-secondary/20 transition-colors">Spoiler</Badge>
                                             )}
                                             {comment.parentId && (
                                                 <Badge variant="outline" className="text-[10px] h-4 hover:bg-secondary/20 transition-colors">Yanıt</Badge>

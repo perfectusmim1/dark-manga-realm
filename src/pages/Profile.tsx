@@ -1,17 +1,23 @@
 import React, { useEffect, useState } from 'react';
 import { useParams, Link, useSearchParams, useNavigate } from 'react-router-dom';
+import { formatDistanceToNow } from 'date-fns';
+import { tr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import HeatMap from '@/components/profile/HeatMap';
-import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List } from 'lucide-react';
+import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { getUserProfile, getReadingActivity, syncAchievements } from '@/lib/profile';
+import { getUserProfile, getReadingActivity, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
 import { ACHIEVEMENTS } from '@/lib/achievements';
 import { supabase } from '@/lib/supabase';
+import { useToast } from "@/components/ui/use-toast";
+import UserListModal from '@/components/profile/UserListModal';
+import ReadingListCover from '@/components/manga/ReadingListCover';
+import { UserPlus, UserMinus, ShieldAlert, ShieldCheck, Loader2 } from 'lucide-react';
 
 const Profile: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
@@ -26,6 +32,10 @@ const Profile: React.FC = () => {
   const [tierLists, setTierLists] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [isFollowLoading, setIsFollowLoading] = useState(false);
+  const [isBlockLoading, setIsBlockLoading] = useState(false);
+  const [listModalType, setListModalType] = useState<'followers' | 'following' | null>(null);
+  const { toast } = useToast();
   
   const isOwnProfile = currentUser?.id === userId;
 
@@ -39,7 +49,7 @@ const Profile: React.FC = () => {
         
         setLoading(true);
         const [profile, activity] = await Promise.all([
-          getUserProfile(userId),
+          getUserProfile(userId, currentUser?.id),
           getReadingActivity(userId, 365) // Last 1 year
         ]);
         
@@ -74,7 +84,7 @@ const Profile: React.FC = () => {
     };
     
     fetchProfile();
-  }, [userId]);
+  }, [userId, currentUser?.id]);
 
   if (loading) {
     return (
@@ -117,6 +127,26 @@ const Profile: React.FC = () => {
     year: 'numeric'
   });
 
+  if (profileData.relationship.isBlockedByOwner) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container pt-24 pb-12 text-center animate-in fade-in duration-500">
+           <div className="max-w-md mx-auto py-16 px-6 bg-card border border-border rounded-2xl shadow-xl">
+             <ShieldAlert className="w-16 h-16 mx-auto text-red-500 mb-6" />
+             <h1 className="text-2xl font-bold mb-4">Profil Erişilemez</h1>
+             <p className="text-muted-foreground leading-relaxed">
+               Bu kullanıcı tarafından engellendiğiniz için profilini ve paylaşımlarını görüntüleyemezsiniz.
+             </p>
+             <Button asChild variant="outline" className="mt-8">
+               <Link to="/">Ana Sayfaya Dön</Link>
+             </Button>
+           </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
@@ -132,21 +162,138 @@ const Profile: React.FC = () => {
           <div className="flex-1 text-center md:text-left space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{profileData.username}</h1>
-                <p className="text-muted-foreground flex items-center justify-center md:justify-start gap-2 mt-1">
-                  <Calendar className="w-4 h-4" />
-                  {joinDate}'den beri üye
-                </p>
+                <div className="flex items-center gap-3">
+                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{profileData.username}</h1>
+                  {profileData.relationship.isBlocked && (
+                    <Badge variant="destructive" className="flex items-center gap-1.5 px-3 py-1 font-bold shadow-lg shadow-red-500/20">
+                      <ShieldAlert className="w-3.5 h-3.5" />
+                      Engellendi
+                    </Badge>
+                  )}
+                </div>
+                <div className="flex flex-col gap-1 mt-1">
+                  <p className="text-muted-foreground flex items-center justify-center md:justify-start gap-2 text-sm">
+                    <Calendar className="w-4 h-4" />
+                    {joinDate}'den beri üye
+                  </p>
+                  {profileData.relationship.isBlocked && (
+                    <p className="text-red-500 text-xs font-medium mt-1 animate-pulse">
+                      Bu kullanıcıyı engellediniz. Paylaşımları otomatik olarak blurlanır.
+                    </p>
+                  )}
+                  
+                  <div className="flex gap-4 justify-center md:justify-start text-sm">
+                    <button 
+                      onClick={() => setListModalType('followers')}
+                      className="hover:text-primary transition-colors flex items-center gap-1.5 py-1"
+                    >
+                      <span className="font-bold text-foreground">{profileData.stats.followersCount}</span>
+                      <span className="text-muted-foreground">Takipçi</span>
+                    </button>
+                    <button 
+                      onClick={() => setListModalType('following')}
+                      className="hover:text-primary transition-colors flex items-center gap-1.5 py-1"
+                    >
+                      <span className="font-bold text-foreground">{profileData.stats.followingCount}</span>
+                      <span className="text-muted-foreground">Takip Edilen</span>
+                    </button>
+                  </div>
+                </div>
               </div>
               
-              {isOwnProfile && (
-                <Button asChild variant="outline" className="gap-2">
-                  <Link to="/settings">
-                    <Settings className="w-4 h-4" />
-                    Profili Düzenle
-                  </Link>
-                </Button>
-              )}
+              <div className="flex flex-wrap items-center justify-center md:justify-end gap-3">
+                {isOwnProfile ? (
+                  <Button asChild variant="outline" className="gap-2">
+                    <Link to="/settings">
+                      <Settings className="w-4 h-4" />
+                      Profili Düzenle
+                    </Link>
+                  </Button>
+                ) : currentUser && (
+                  <>
+                    <Button 
+                      onClick={async () => {
+                        if (!currentUser) return;
+                        setIsFollowLoading(true);
+                        try {
+                          if (profileData.relationship.isFollowing) {
+                            await unfollowUser(currentUser.id, profileData.id);
+                            setProfileData((prev: any) => ({
+                              ...prev,
+                              stats: { ...prev.stats, followersCount: Math.max(0, prev.stats.followersCount - 1) },
+                              relationship: { ...prev.relationship, isFollowing: false }
+                            }));
+                            toast({ title: "Takipten Çıkarıldı", description: `${profileData.username} artık takip edilmiyor.` });
+                          } else {
+                            await followUser(currentUser.id, profileData.id);
+                            setProfileData((prev: any) => ({
+                              ...prev,
+                              stats: { ...prev.stats, followersCount: prev.stats.followersCount + 1 },
+                              relationship: { ...prev.relationship, isFollowing: true }
+                            }));
+                            toast({ title: "Takip Edildi", description: `${profileData.username} başarıyla takip edildi.` });
+                          }
+                        } catch (err: any) {
+                          toast({ title: "Hata", description: "İşlem başarısız oldu.", variant: "destructive" });
+                        } finally {
+                          setIsFollowLoading(false);
+                        }
+                      }}
+                      disabled={isFollowLoading || profileData.relationship.isBlocked}
+                      className={`gap-2 min-w-[120px] transition-all ${
+                        profileData.relationship.isFollowing 
+                        ? 'bg-secondary hover:bg-secondary/80 text-secondary-foreground' 
+                        : 'bg-[#a3e635] hover:bg-[#bef264] text-black font-bold'
+                      }`}
+                    >
+                      {isFollowLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                        profileData.relationship.isFollowing ? <UserMinus className="w-4 h-4" /> : <UserPlus className="w-4 h-4" />
+                      )}
+                      {profileData.relationship.isFollowing ? 'Takipten Çık' : 'Takip Et'}
+                    </Button>
+
+                    <Button 
+                      variant="outline"
+                      onClick={async () => {
+                        if (!currentUser) return;
+                        setIsBlockLoading(true);
+                        try {
+                          if (profileData.relationship.isBlocked) {
+                            await unblockUser(currentUser.id, profileData.id);
+                            setProfileData((prev: any) => ({
+                              ...prev,
+                              relationship: { ...prev.relationship, isBlocked: false }
+                            }));
+                            toast({ title: "Engel Kaldırıldı", description: `${profileData.username} engeli kaldırıldı.` });
+                          } else {
+                            await blockUser(currentUser.id, profileData.id);
+                            setProfileData((prev: any) => ({
+                              ...prev,
+                              stats: { 
+                                ...prev.stats, 
+                                followersCount: profileData.relationship.isFollowing ? Math.max(0, prev.stats.followersCount - 1) : prev.stats.followersCount 
+                              },
+                              relationship: { ...prev.relationship, isBlocked: true, isFollowing: false }
+                            }));
+                            toast({ title: "Engellendi", description: `${profileData.username} başarıyla engellendi.` });
+                          }
+                        } catch (err) {
+                          toast({ title: "Hata", description: "Bir hata oluştu.", variant: "destructive" });
+                        } finally {
+                          setIsBlockLoading(false);
+                        }
+                      }}
+                      disabled={isBlockLoading}
+                      className={`gap-2 min-w-[100px] border-red-500/50 hover:bg-red-500/10 text-red-500 hover:text-red-600 transition-colors`}
+                    >
+                      {isBlockLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : (
+                        profileData.relationship.isBlocked ? <ShieldCheck className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />
+                      )}
+                      {profileData.relationship.isBlocked ? 'Engeli Kaldır' : 'Engelle'}
+                    </Button>
+                  </>
+                )}
+              </div>
             </div>
           </div>
         </div>
@@ -183,6 +330,18 @@ const Profile: React.FC = () => {
                 className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all flex items-center gap-2"
               >
                 Listelerim
+              </TabsTrigger>
+              <TabsTrigger 
+                value="comments" 
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+              >
+                Yorumlar
+              </TabsTrigger>
+              <TabsTrigger 
+                value="following-manga" 
+                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+              >
+                Takip Edilenler
               </TabsTrigger>
             </TabsList>
             
@@ -339,17 +498,25 @@ const Profile: React.FC = () => {
                    ) : (
                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                        {readingLists.map(list => (
-                         <Link key={list.id} to={`/reading-lists/${list.id}`} className="block rounded-lg border border-border bg-secondary/20 p-5 hover:bg-secondary/40 hover:border-primary/50 transition-all group">
-                           <div className="flex justify-between items-start mb-2">
-                             <h4 className="font-bold text-lg group-hover:text-primary transition-colors line-clamp-1">{list.name}</h4>
-                             <Badge variant="outline" className="text-[10px] bg-background">
-                               {list.is_public ? <Globe className="w-3 h-3 mr-1" /> : <Lock className="w-3 h-3 mr-1 text-red-400" />} {list.is_public ? 'Açık' : 'Gizli'}
-                             </Badge>
-                           </div>
-                           <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">{list.description || 'Açıklama belirtilmemiş.'}</p>
-                           <div className="flex justify-between items-center text-xs text-muted-foreground">
-                             <span>{new Date(list.created_at).toLocaleDateString()}</span>
-                             <span className="flex items-center text-primary font-medium">İncele <ChevronRight className="w-3 h-3 ml-1" /></span>
+                         <Link key={list.id} to={`/reading-lists/${list.id}`} className="block overflow-hidden rounded-lg border border-border bg-secondary/20 transition-all group hover:bg-secondary/40 hover:border-primary/50">
+                           <ReadingListCover
+                             imageUrl={list.image_url}
+                             alt={list.name}
+                             className="h-32 w-full"
+                             iconClassName="h-8 w-8"
+                           />
+                           <div className="p-5">
+                             <div className="flex justify-between items-start mb-2 gap-3">
+                               <h4 className="font-bold text-lg group-hover:text-primary transition-colors line-clamp-1">{list.name}</h4>
+                               <Badge variant="outline" className="text-[10px] bg-background shrink-0">
+                                 {list.is_public ? <Globe className="w-3 h-3 mr-1" /> : <Lock className="w-3 h-3 mr-1 text-red-400" />} {list.is_public ? 'Açık' : 'Gizli'}
+                               </Badge>
+                             </div>
+                             <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">{list.description || 'Açıklama belirtilmemiş.'}</p>
+                             <div className="flex justify-between items-center text-xs text-muted-foreground">
+                               <span>{new Date(list.created_at).toLocaleDateString()}</span>
+                               <span className="flex items-center text-primary font-medium">İncele <ChevronRight className="w-3 h-3 ml-1" /></span>
+                             </div>
                            </div>
                          </Link>
                        ))}
@@ -401,8 +568,162 @@ const Profile: React.FC = () => {
                  </div>
                </div>
             </TabsContent>
+            <TabsContent value="comments" className="mt-0">
+               <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
+                 <div className="mb-6 flex items-center justify-between gap-3">
+                   <div className="flex items-center gap-2">
+                     <MessageSquare className="w-5 h-5 text-primary" />
+                     <h3 className="text-xl font-bold">Son Yorumlar</h3>
+                   </div>
+                   <Badge variant="secondary" className="rounded-full px-3 py-1">
+                     {profileData.recentComments?.length || 0} yorum
+                   </Badge>
+                 </div>
+
+                 {profileData.recentComments?.length > 0 ? (
+                   <div className="space-y-4">
+                     {profileData.recentComments.map((comment: any) => (
+                       <Link
+                         key={`${comment.entityType}-${comment.id}`}
+                         to={comment.targetHref}
+                         className="group block rounded-2xl border border-border/70 bg-background/40 p-4 transition-all hover:border-primary/40 hover:bg-background/70"
+                       >
+                         <div className="flex items-start gap-4">
+                           <Avatar className="h-11 w-11 border border-border/70">
+                             <AvatarImage src={profileData.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${profileData.username}`} />
+                             <AvatarFallback>{profileData.username?.substring(0, 2).toUpperCase()}</AvatarFallback>
+                           </Avatar>
+
+                           <div className="min-w-0 flex-1">
+                             <div className="flex flex-wrap items-center gap-2">
+                               <span className="font-semibold group-hover:text-primary transition-colors">{profileData.username}</span>
+                               <span className="text-xs text-muted-foreground">
+                                 {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
+                               </span>
+                               {comment.parentId && (
+                                 <Badge variant="outline" className="rounded-full text-[10px]">
+                                   <Reply className="w-3 h-3 mr-1" />
+                                   Yanit
+                                 </Badge>
+                               )}
+                               {comment.isSpoiler && (
+                                 <Badge variant="outline" className="rounded-full border-amber-500/40 text-[10px] text-amber-300">
+                                   <Sparkles className="w-3 h-3 mr-1" />
+                                   Spoiler
+                                 </Badge>
+                               )}
+                               {comment.hasMedia && (
+                                 <Badge variant="outline" className="rounded-full text-[10px]">
+                                   <ImageIcon className="w-3 h-3 mr-1" />
+                                   Gorsel
+                                 </Badge>
+                               )}
+                               {comment.hasGif && (
+                                 <Badge variant="outline" className="rounded-full text-[10px]">
+                                   <Film className="w-3 h-3 mr-1" />
+                                   GIF
+                                 </Badge>
+                               )}
+                             </div>
+
+                             <p className="mt-2 line-clamp-2 text-sm leading-6 text-foreground/90">
+                               {comment.preview}
+                             </p>
+
+                             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                               <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
+                                 {comment.entityType === 'manga' ? 'Seri' : comment.entityType === 'character' ? 'Karakter' : comment.entityType === 'author' ? 'Yazar' : 'Cizer'}
+                               </Badge>
+                               <span className="max-w-full truncate font-medium text-foreground/80">{comment.targetName}</span>
+                               <span className="hidden sm:inline text-muted-foreground/50">•</span>
+                               <span>{comment.likes || 0} begeni</span>
+                             </div>
+                           </div>
+
+                           <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                         </div>
+                       </Link>
+                     ))}
+                   </div>
+                 ) : (
+                   <div className="rounded-xl border border-border border-dashed bg-card/10 p-12 text-center">
+                     <MessageSquare className="w-10 h-10 mx-auto text-muted-foreground/60 mb-4" />
+                     <h3 className="text-lg font-semibold">Henuz yorum yok</h3>
+                     <p className="text-muted-foreground mt-2">Kullanicinin attigi son yorumlar burada gorunecek.</p>
+                   </div>
+                 )}
+               </div>
+            </TabsContent>
+            <TabsContent value="following-manga" className="mt-0">
+               <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
+                 <div className="mb-6 flex items-center justify-between gap-3">
+                   <div className="flex items-center gap-2">
+                     <BookOpen className="w-5 h-5 text-primary" />
+                     <h3 className="text-xl font-bold">Takip Edilen İçerikler</h3>
+                   </div>
+                   <Badge variant="secondary" className="rounded-full px-3 py-1">
+                     {profileData.followedManga?.length || 0} seri
+                   </Badge>
+                 </div>
+
+                 {profileData.followedManga?.length > 0 ? (
+                   <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
+                     {profileData.followedManga.map((manga: any) => (
+                       <Link
+                         key={manga.id}
+                         to={manga.href}
+                         className="group"
+                       >
+                         <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/40 transition-all hover:border-primary/40 hover:bg-background/70">
+                           <div className="relative aspect-[3/4] overflow-hidden">
+                             <img
+                               src={manga.cover}
+                               alt={manga.title}
+                               className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                             />
+                             <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
+                             <Badge className="absolute left-3 top-3 rounded-full bg-black/70 text-[10px] text-white hover:bg-black/70">
+                               {manga.type === 'manhwa' ? 'Manhwa' : manga.type === 'manhua' ? 'Manhua' : 'Manga'}
+                             </Badge>
+                           </div>
+
+                           <div className="space-y-2 p-3">
+                             <h4 className="line-clamp-2 font-semibold leading-5 group-hover:text-primary transition-colors">
+                               {manga.title}
+                             </h4>
+                             <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                               <span>
+                                 {formatDistanceToNow(new Date(manga.followedAt), { addSuffix: true, locale: tr })}
+                               </span>
+                               {manga.status && (
+                                 <>
+                                   <span className="text-muted-foreground/50">•</span>
+                                   <span>{manga.status === 'ongoing' ? 'Devam Ediyor' : manga.status === 'completed' ? 'Tamamlandi' : 'Ara Verdi'}</span>
+                                 </>
+                               )}
+                             </div>
+                           </div>
+                         </div>
+                       </Link>
+                     ))}
+                   </div>
+                 ) : (
+                   <div className="rounded-xl border border-border border-dashed bg-card/10 p-12 text-center">
+                     <BookOpen className="w-10 h-10 mx-auto text-muted-foreground/60 mb-4" />
+                     <h3 className="text-lg font-semibold">Henuz takip edilen seri yok</h3>
+                     <p className="text-muted-foreground mt-2">Favorilere eklenenler degil, sadece takip edilen seriler burada gorunecek.</p>
+                   </div>
+                 )}
+               </div>
+            </TabsContent>
           </Tabs>
         )}
+        <UserListModal 
+          isOpen={listModalType !== null} 
+          onClose={() => setListModalType(null)} 
+          userId={userId || ''} 
+          type={listModalType || 'followers'} 
+        />
       </main>
     </div>
   );

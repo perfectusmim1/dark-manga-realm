@@ -193,9 +193,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
 
-    // 1. Initial manual check
-    supabase.auth.getSession().then(({ data: { session: initialSession } }) => {
-      syncAuthState(initialSession);
+    // Presence heartbeat
+    const presenceInterval = setInterval(async () => {
+      const { data: { session: s } } = await supabase.auth.getSession();
+      if (s?.user) await supabase.rpc('update_user_presence', { p_user_id: s.user.id });
+    }, 30000);
+
+    // Initial check
+    supabase.auth.getSession().then(({ data: { session: s } }) => {
+      syncAuthState(s);
+      if (s?.user) supabase.rpc('update_user_presence', { p_user_id: s.user.id });
     }).catch(err => {
       console.error('Initial session check failed:', err);
       if (mounted) setIsLoading(false);
@@ -215,6 +222,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       mounted = false;
       subscription.unsubscribe();
+      clearInterval(presenceInterval);
     };
   }, []);
 

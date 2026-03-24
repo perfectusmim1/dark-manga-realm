@@ -1,0 +1,171 @@
+import React, { useState, useEffect } from 'react';
+import { formatDistanceToNow } from 'date-fns';
+import { tr } from 'date-fns/locale';
+import {
+    Megaphone,
+    ChevronRight,
+    Info,
+    X,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+} from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Badge } from '@/components/ui/badge';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+    getAnnouncements,
+    getUnreadAnnouncementCount,
+    markAsRead,
+    getReadList,
+    Announcement
+} from '@/lib/announcements';
+
+const AnnouncementDropdown: React.FC = () => {
+    const { user } = useAuth();
+    const [announcements, setAnnouncements] = useState<Announcement[]>([]);
+    const [unreadCount, setUnreadCount] = useState(0);
+    const [readIds, setReadIds] = useState<string[]>([]);
+    const [isOpen, setIsOpen] = useState(false);
+    const [loading, setLoading] = useState(false);
+
+    const loadAnnouncements = async () => {
+        if (!user) return;
+        setLoading(true);
+        try {
+            const { announcements: allAnnouncements } = await getAnnouncements();
+            const { count } = await getUnreadAnnouncementCount(user.id);
+            const { reads } = await getReadList(user.id);
+            
+            setAnnouncements(allAnnouncements);
+            setUnreadCount(Number(count));
+            setReadIds(reads);
+        } catch (error) {
+            console.error('Error loading announcements:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        if (user) {
+            loadAnnouncements();
+            const interval = setInterval(loadAnnouncements, 60000); // Check every minute
+            return () => clearInterval(interval);
+        }
+    }, [user?.id]);
+
+    useEffect(() => {
+        if (isOpen) {
+            loadAnnouncements();
+        }
+    }, [isOpen]);
+
+    const handleMarkAsRead = async (announcementId: string) => {
+        if (!user || readIds.includes(announcementId)) return;
+        
+        try {
+            await markAsRead(announcementId, user.id);
+            setReadIds(prev => [...prev, announcementId]);
+            setUnreadCount(prev => Math.max(0, prev - 1));
+        } catch (error) {
+            console.error('Error marking as read:', error);
+        }
+    };
+
+    if (!user) return null;
+
+    return (
+        <Popover open={isOpen} onOpenChange={setIsOpen}>
+            <PopoverTrigger asChild>
+                <Button
+                    variant="ghost"
+                    size="icon"
+                    className="relative rounded-full hover:bg-secondary/80 h-9 w-9"
+                    aria-label="Duyurular"
+                >
+                    <Megaphone className="h-5 w-5 text-amber-500" />
+                    {unreadCount > 0 && (
+                        <Badge
+                            className="absolute -right-1 -top-1 flex h-5 w-5 items-center justify-center p-0 text-[10px] font-bold bg-red-500 hover:bg-red-600 text-white animate-pulse border-2 border-background"
+                        >
+                            {unreadCount > 99 ? '99+' : unreadCount}
+                        </Badge>
+                    )}
+                </Button>
+            </PopoverTrigger>
+            <PopoverContent
+                align="end"
+                className="w-80 md:w-96 p-0 border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl"
+                sideOffset={8}
+            >
+                {/* Header */}
+                <div className="flex items-center justify-between border-b border-border/50 p-4">
+                    <div className="flex items-center gap-2">
+                        <Megaphone className="h-4 w-4 text-amber-500" />
+                        <h3 className="font-semibold">Duyurular</h3>
+                        {unreadCount > 0 && (
+                            <Badge variant="secondary" className="text-xs bg-red-500/10 text-red-500 border-none">
+                                {unreadCount} yeni
+                            </Badge>
+                        )}
+                    </div>
+                </div>
+
+                {/* List */}
+                <ScrollArea className="h-[450px]">
+                    {announcements.length === 0 ? (
+                        <div className="flex flex-col items-center justify-center py-12 px-4">
+                            <Megaphone className="h-12 w-12 text-muted-foreground/30 mb-3" />
+                            <p className="text-sm text-muted-foreground text-center">
+                                Henüz duyuru yok
+                            </p>
+                        </div>
+                    ) : (
+                        <div className="divide-y divide-border/30">
+                            {announcements.map((announcement) => {
+                                const isRead = readIds.includes(announcement.id);
+                                return (
+                                    <div
+                                        key={announcement.id}
+                                        className={`w-full p-4 transition-all flex flex-col gap-2 ${!isRead ? 'bg-amber-500/5' : ''}`}
+                                        onMouseEnter={() => !isRead && handleMarkAsRead(announcement.id)}
+                                    >
+                                        <div className="flex items-center justify-between gap-2">
+                                            <div className="flex items-center gap-2">
+                                                {!isRead && <span className="h-2 w-2 rounded-full bg-red-500 flex-shrink-0" />}
+                                                <span className="font-bold text-sm">
+                                                    {announcement.title}
+                                                </span>
+                                            </div>
+                                            <span className="text-[10px] text-muted-foreground whitespace-nowrap">
+                                                {formatDistanceToNow(new Date(announcement.created_at), {
+                                                  addSuffix: true,
+                                                  locale: tr,
+                                                })}
+                                            </span>
+                                        </div>
+                                        <div className="text-xs text-foreground/80 leading-relaxed whitespace-pre-wrap">
+                                            {announcement.content}
+                                        </div>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    )}
+                </ScrollArea>
+                
+                <div className="p-2 border-t border-border/50 bg-secondary/20">
+                    <p className="text-[10px] text-center text-muted-foreground">
+                        Tüm duyuruları burada görebilirsiniz.
+                    </p>
+                </div>
+            </PopoverContent>
+        </Popover>
+    );
+};
+
+export default AnnouncementDropdown;

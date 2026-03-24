@@ -10,7 +10,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Plus, List, Lock, Globe, Check, Trash2 } from 'lucide-react';
+import { Plus, List, Lock, Globe, Check, Image as ImageIcon } from 'lucide-react';
 import {
     getReadingLists,
     createReadingList,
@@ -23,6 +23,7 @@ import { toast } from 'sonner';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
+import ReadingListCover from './ReadingListCover';
 
 interface ReadingListModalProps {
     isOpen: boolean;
@@ -30,6 +31,15 @@ interface ReadingListModalProps {
     mangaId: string;
     userId: string;
 }
+
+const isValidImageUrl = (value: string) => {
+    try {
+        const url = new URL(value);
+        return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+        return false;
+    }
+};
 
 const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, mangaId, userId }) => {
     const [lists, setLists] = useState<ReadingList[]>([]);
@@ -40,6 +50,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
     // New list form
     const [newName, setNewName] = useState('');
     const [newDesc, setNewDesc] = useState('');
+    const [newImageUrl, setNewImageUrl] = useState('');
     const [isPublic, setIsPublic] = useState(false);
 
     useEffect(() => {
@@ -92,11 +103,18 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
             return;
         }
 
+        const normalizedImageUrl = newImageUrl.trim();
+        if (normalizedImageUrl && !isValidImageUrl(normalizedImageUrl)) {
+            toast.error('Gorsel linki gecersiz. Lutfen tam bir http/https adresi girin');
+            return;
+        }
+
         try {
             const newList = await createReadingList({
                 userId,
                 name: newName,
                 description: newDesc,
+                imageUrl: normalizedImageUrl || undefined,
                 isPublic
             });
 
@@ -104,6 +122,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
             setIsCreating(false);
             setNewName('');
             setNewDesc('');
+            setNewImageUrl('');
             setIsPublic(false);
 
             // Automatically add manga to the new list
@@ -152,8 +171,23 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                                                         : 'border-border hover:bg-secondary/50'
                                                     }`}
                                             >
-                                                <div className="flex flex-col items-start text-left">
-                                                    <span className="font-medium">{list.name}</span>
+                                                <div className="flex min-w-0 items-center gap-3 text-left">
+                                                    <ReadingListCover
+                                                        imageUrl={list.imageUrl}
+                                                        alt={list.name}
+                                                        className="h-12 w-12 shrink-0 rounded-lg border border-border/70"
+                                                        iconClassName="h-5 w-5"
+                                                    />
+                                                    <div className="flex min-w-0 flex-col items-start">
+                                                        <span className="line-clamp-1 font-medium">{list.name}</span>
+                                                        {list.description && (
+                                                            <span className="line-clamp-1 text-[11px] text-muted-foreground">
+                                                                {list.description}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                <div className="ml-3 shrink-0">
                                                     <span className="flex items-center gap-1 text-xs text-muted-foreground">
                                                         {list.isPublic ? (
                                                             <Globe className="h-3 w-3" />
@@ -202,6 +236,39 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                                     className="resize-none"
                                 />
                             </div>
+                            <div className="space-y-2">
+                                <Label htmlFor="list-image">Gorsel Linki (Opsiyonel)</Label>
+                                <Input
+                                    id="list-image"
+                                    placeholder="https://..."
+                                    value={newImageUrl}
+                                    onChange={(e) => setNewImageUrl(e.target.value)}
+                                />
+                                <p className="text-xs text-muted-foreground">
+                                    Bu liste icin dis bir gorsel baglantisi ekleyebilirsiniz.
+                                </p>
+                            </div>
+                            {(newImageUrl.trim() || isCreating) && (
+                                <div className="space-y-2">
+                                    <div className="flex items-center gap-2 text-sm font-medium">
+                                        <ImageIcon className="h-4 w-4 text-primary" />
+                                        Onizleme
+                                    </div>
+                                    {newImageUrl.trim() && !isValidImageUrl(newImageUrl.trim()) ? (
+                                        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                                            Gecersiz gorsel baglantisi. Onizleme gosterilemiyor.
+                                        </div>
+                                    ) : (
+                                        <ReadingListCover
+                                            imageUrl={newImageUrl.trim()}
+                                            alt={newName || 'Okuma listesi kapagi'}
+                                            className="h-36 w-full rounded-xl border border-border"
+                                            iconClassName="h-8 w-8"
+                                            showLabel
+                                        />
+                                    )}
+                                </div>
+                            )}
                             <div className="flex items-center justify-between">
                                 <div className="space-y-0.5">
                                     <Label>Herkese Açık</Label>

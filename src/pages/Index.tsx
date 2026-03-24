@@ -2,53 +2,73 @@ import React, { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen } from 'lucide-react';
 import Header from '@/components/layout/Header';
-import FeaturedManga from '@/components/manga/FeaturedManga';
+import TopTenSection from '@/components/manga/TopTenSection';
 import MangaGrid from '@/components/manga/MangaGrid';
 import MangaCard from '@/components/manga/MangaCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getAllMangas } from '@/lib/database';
+import { getAllMangas, getTrendingTags } from '@/lib/database';
+import TagBadge from '@/components/tags/TagBadge';
 import { getReadingHistory, getLatestProgress } from '@/lib/storage';
 import { useAuth } from '@/contexts/AuthContext';
 import HomeSkeleton from '@/components/skeletons/HomeSkeleton';
-import { Manga } from '@/lib/types';
+import { Manga, Tag } from '@/lib/types';
 
 const Index: React.FC = () => {
   const { user } = useAuth();
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [continueReading, setContinueReading] = useState<{ manga: Manga; chapterId: string; chapterNumber: number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
+  const [trendingTags, setTrendingTags] = useState<Tag[]>([]);
+  const [tagsLoading, setTagsLoading] = useState(true);
 
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoading(true);
+        setIsHistoryLoading(true);
+
+        // Wave 1: Fetch mangas (Main content)
         const allMangas = await getAllMangas();
         setMangas(allMangas);
+        
+        // Show page as soon as mangas are ready
+        setIsLoading(false);
 
+        // Wave 2: Fetch history in background
         if (user) {
-          const history = await getReadingHistory(user.id);
-          const uniqueMangaIds = [...new Set(history.map(h => h.mangaId))].slice(0, 6);
+          getReadingHistory(user.id).then(async (history) => {
+            const uniqueMangaIds = [...new Set(history.map(h => h.mangaId))].slice(0, 6);
 
-          const continueList = await Promise.all(uniqueMangaIds.map(async (mangaId) => {
-            const manga = allMangas.find(m => m.id === mangaId);
-            const progress = await getLatestProgress(user.id, mangaId);
-            if (manga && progress) {
-              return { manga, chapterId: progress.chapterId, chapterNumber: progress.chapterNumber };
-            }
-            return null;
-          }));
+            const continueList = await Promise.all(uniqueMangaIds.map(async (mangaId) => {
+              const manga = allMangas.find(m => m.id === mangaId);
+              const progress = await getLatestProgress(user.id, mangaId);
+              if (manga && progress) {
+                return { manga, chapterId: progress.chapterId, chapterNumber: progress.chapterNumber };
+              }
+              return null;
+            }));
 
-          setContinueReading(continueList.filter(Boolean) as { manga: Manga; chapterId: string; chapterNumber: number }[]);
+            setContinueReading(continueList.filter(Boolean) as { manga: Manga; chapterId: string; chapterNumber: number }[]);
+            setIsHistoryLoading(false);
+          });
         }
       } catch (err) {
         console.error('Data loading error:', err);
-      } finally {
         setIsLoading(false);
       }
     };
 
     loadData();
+
+    const loadTrendingTags = async () => {
+      setTagsLoading(true);
+      const tags = await getTrendingTags(20);
+      setTrendingTags(tags);
+      setTagsLoading(false);
+    };
+    loadTrendingTags();
   }, [user]);
 
   if (isLoading) {
@@ -60,7 +80,6 @@ const Index: React.FC = () => {
     );
   }
 
-  const featuredManga = mangas[0];
   const trendingManga = mangas.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8);
   const recentlyUpdated = [...mangas]
     .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
@@ -73,12 +92,10 @@ const Index: React.FC = () => {
       <Header />
 
       <main className="container pb-12 pt-20">
-        {/* Hero Section */}
-        {featuredManga && (
-          <section className="animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
-            <FeaturedManga manga={featuredManga} />
-          </section>
-        )}
+        {/* Top 10 Section */}
+        <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+          <TopTenSection />
+        </div>
 
         {/* Continue Reading Section */}
         {user && continueReading.length > 0 && (
@@ -204,6 +221,30 @@ const Index: React.FC = () => {
             <MangaGrid manga={popularManhua} />
           </section>
         )}
+
+        {/* Trending Tags Section */}
+        <section className="mt-16 animate-fade-up opacity-0" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
+          <div className="mb-6 flex items-center gap-2">
+            <TrendingUp className="h-5 w-5 text-primary" />
+            <h2 className="text-2xl font-bold tracking-tight">Trend Etiketler</h2>
+            <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2 h-5 text-[10px]">
+              Bu Hafta
+            </Badge>
+          </div>
+          <div className="flex flex-wrap gap-2.5 rounded-2xl border border-border bg-card/30 p-8 backdrop-blur-sm">
+            {tagsLoading ? (
+              Array.from({ length: 15 }).map((_, i) => (
+                <div key={i} className="h-8 rounded-full bg-secondary/30 animate-pulse" style={{ width: `${60 + (i % 5) * 20}px` }} />
+              ))
+            ) : (
+              trendingTags.map((tag, index) => (
+                <Link key={tag.id} to={`/browse?tags=${tag.slug}`}>
+                  <TagBadge tag={tag} size={index < 5 ? 'md' : 'sm'} />
+                </Link>
+              ))
+            )}
+          </div>
+        </section>
       </main>
 
       {/* Footer */}
