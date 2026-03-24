@@ -1,12 +1,13 @@
 import React, { useEffect, useState, useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { Play, ChevronLeft, ChevronRight, Star } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { getTopTenMangas } from '@/lib/database';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
 const TopTenSection: React.FC = () => {
+  const cardWidthClass = "w-[calc((100%-16px)/2.3)] sm:w-[calc((100%-120px)/5)]";
   const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'all'>('all');
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -125,7 +126,7 @@ const TopTenSection: React.FC = () => {
         >
           {isLoading ? (
             Array.from({ length: 5 }).map((_, i) => (
-              <div key={i} className="relative shrink-0 w-[calc((100%-80px)/2)] sm:w-[calc((100%-160px)/5)] aspect-[2/3] animate-pulse bg-white/5 rounded-2xl" />
+              <div key={i} className={`relative shrink-0 ${cardWidthClass} aspect-[2/3] animate-pulse bg-white/5 rounded-2xl`} />
             ))
           ) : (
             mangas.map((manga, index) => (
@@ -133,8 +134,8 @@ const TopTenSection: React.FC = () => {
                 key={manga.id}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.5, delay: index * 0.05 }}
-                className="group relative shrink-0 w-[calc((100%-16px)/2.3)] sm:w-[calc((100%-120px)/5)]"
+                transition={{ duration: 0.35, ease: 'easeOut' }}
+                className={`group relative shrink-0 ${cardWidthClass}`}
               >
                 {/* Huge Ranking Number - Netflix Style (Top Left Placement) */}
                 <div className="absolute -top-10 -left-8 sm:-left-12 z-40 pointer-events-none select-none transition-transform duration-500 group-hover:scale-105">

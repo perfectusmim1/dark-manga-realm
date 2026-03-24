@@ -46,6 +46,38 @@ interface UserProfileRow {
   two_factor_enabled?: boolean;
 }
 
+const PROFILE_SELECT_COLUMNS = 'id, username, avatar, role, created_at, preferences, two_factor_enabled';
+const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
+  notifications: {
+    new_chapter: true,
+    replies: true,
+    likes: true,
+  },
+  comments: {
+    auto_show_media: false,
+    auto_show_gifs: false,
+    auto_show_replies: false,
+  },
+  privacy: {
+    visibility: 'public',
+  },
+};
+
+const normalizeUserPreferences = (preferences?: User['preferences']): NonNullable<User['preferences']> => ({
+  notifications: {
+    ...DEFAULT_USER_PREFERENCES.notifications,
+    ...preferences?.notifications,
+  },
+  comments: {
+    ...DEFAULT_USER_PREFERENCES.comments,
+    ...preferences?.comments,
+  },
+  privacy: {
+    ...DEFAULT_USER_PREFERENCES.privacy,
+    ...preferences?.privacy,
+  },
+});
+
 // Convert Supabase user + Profile data to our User type
 const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileRow | null): User => {
   return {
@@ -59,18 +91,7 @@ const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileR
     banReason: profile?.ban_reason || undefined,
     bannedAt: profile?.banned_at || undefined,
     twoFactorEnabled: profile?.two_factor_enabled || false,
-    preferences: profile?.preferences || {
-      notifications: {
-        new_chapter: true,
-        replies: true,
-        likes: true
-      },
-      comments: {
-        auto_show_media: false,
-        auto_show_gifs: false,
-        auto_show_replies: false,
-      }
-    }
+    preferences: normalizeUserPreferences(profile?.preferences),
   };
 };
 
@@ -90,7 +111,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       const fetchReq = supabase
         .from('users')
-        .select('id, username, avatar, role, is_banned, ban_reason, banned_at, created_at, preferences, two_factor_enabled')
+        .select(PROFILE_SELECT_COLUMNS)
         .eq('id', id)
         .maybeSingle();
 
@@ -391,6 +412,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { error: dbError } = await supabase
         .from('users')
         .update({ avatar: updates.avatar })
+        .select(PROFILE_SELECT_COLUMNS)
         .eq('id', user.id);
 
       if (dbError) throw dbError;
@@ -456,17 +478,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: false, error: 'Oturum bulunamadı' };
       }
 
-      await ensureProfile(currentAuthUser, user.username);
-
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('users')
         .update({ preferences: newPreferences })
+        .select(PROFILE_SELECT_COLUMNS)
         .eq('id', user.id);
 
       if (error) throw error;
+      const profile = Array.isArray(data) ? data[0] : data;
 
-      // Refresh local state
-      const profile = await ensureProfile(currentAuthUser, user.username);
+      if (!profile) {
+        return { success: false, error: 'Ayarlar kaydedildi ama doğrulanamadı' };
+      }
+
       setSupabaseUser(currentAuthUser);
       setUser(mapSupabaseUserToUser(currentAuthUser, profile));
 
@@ -519,15 +543,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: false, error: 'Oturum bulunamadı' };
       }
 
-      await ensureProfile(currentAuthUser, user.username);
-
-      const { error } = await supabase
+      const { data, error } = await supabase
         .from('users')
         .update({ two_factor_enabled: enabled })
+        .select(PROFILE_SELECT_COLUMNS)
         .eq('id', user.id);
       if (error) throw error;
 
-      const profile = await ensureProfile(currentAuthUser, user.username);
+      const profile = Array.isArray(data) ? data[0] : data;
+      if (!profile) {
+        return { success: false, error: '2FA durumu doğrulanamadı' };
+      }
+
       setSupabaseUser(currentAuthUser);
       setUser(mapSupabaseUserToUser(currentAuthUser, profile));
       return { success: true };

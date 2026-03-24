@@ -134,12 +134,11 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 };
 
 const Index: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isLoading: offlineLibraryLoading, isOnline } = useOfflineLibrary();
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [continueReading, setContinueReading] = useState<{ manga: Manga; chapterId: string; chapterNumber: number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isHistoryLoading, setIsHistoryLoading] = useState(true);
   const [trendingTags, setTrendingTags] = useState<Tag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
 
@@ -177,51 +176,46 @@ const Index: React.FC = () => {
   ), [offlineSnapshot.series]);
 
   useEffect(() => {
-    const loadData = async () => {
+    let active = true;
+
+    const loadMainContent = async () => {
       try {
         setIsLoading(true);
-        setIsHistoryLoading(true);
 
         if (!isOnline) {
+          if (!active) {
+            return;
+          }
+
           setMangas(offlineManga);
-          setContinueReading([]);
           setIsLoading(false);
-          setIsHistoryLoading(false);
           return;
         }
 
-        // Wave 1: Fetch mangas (Main content)
         const allMangas = await getAllMangas();
-        setMangas(allMangas);
-        
-        // Show page as soon as mangas are ready
-        setIsLoading(false);
-
-        // Wave 2: Fetch history in background
-        if (user) {
-          getReadingHistory(user.id).then(async (history) => {
-            const uniqueMangaIds = [...new Set(history.map(h => h.mangaId))].slice(0, 6);
-
-            const continueList = await Promise.all(uniqueMangaIds.map(async (mangaId) => {
-              const manga = allMangas.find(m => m.id === mangaId);
-              const progress = await getLatestProgress(user.id, mangaId);
-              if (manga && progress) {
-                return { manga, chapterId: progress.chapterId, chapterNumber: progress.chapterNumber };
-              }
-              return null;
-            }));
-
-            setContinueReading(continueList.filter(Boolean) as { manga: Manga; chapterId: string; chapterNumber: number }[]);
-            setIsHistoryLoading(false);
-          });
+        if (!active) {
+          return;
         }
+
+        setMangas(allMangas);
+        setIsLoading(false);
       } catch (err) {
         console.error('Data loading error:', err);
-        setIsLoading(false);
+        if (active) {
+          setIsLoading(false);
+        }
       }
     };
 
-    loadData();
+    loadMainContent();
+
+    return () => {
+      active = false;
+    };
+  }, [isOnline, offlineManga]);
+
+  useEffect(() => {
+    let active = true;
 
     const loadTrendingTags = async () => {
       if (!isOnline) {
@@ -232,11 +226,66 @@ const Index: React.FC = () => {
 
       setTagsLoading(true);
       const tags = await getTrendingTags(20);
+      if (!active) {
+        return;
+      }
+
       setTrendingTags(tags);
       setTagsLoading(false);
     };
+
     loadTrendingTags();
-  }, [isOnline, offlineManga, user]);
+
+    return () => {
+      active = false;
+    };
+  }, [isOnline]);
+
+  useEffect(() => {
+    let active = true;
+
+    const loadContinueReading = async () => {
+      if (authLoading) {
+        return;
+      }
+
+      if (!isOnline || !user || mangas.length === 0) {
+        setContinueReading([]);
+        return;
+      }
+
+      try {
+        const history = await getReadingHistory(user.id);
+        const uniqueMangaIds = [...new Set(history.map((item) => item.mangaId))].slice(0, 6);
+
+        const continueList = await Promise.all(uniqueMangaIds.map(async (mangaId) => {
+          const manga = mangas.find((item) => item.id === mangaId);
+          const progress = await getLatestProgress(user.id, mangaId);
+          if (manga && progress) {
+            return { manga, chapterId: progress.chapterId, chapterNumber: progress.chapterNumber };
+          }
+          return null;
+        }));
+
+        if (!active) {
+          return;
+        }
+
+        setContinueReading(continueList.filter(Boolean) as { manga: Manga; chapterId: string; chapterNumber: number }[]);
+      } catch (err) {
+        console.error('Continue reading loading error:', err);
+        if (active) {
+          setContinueReading([]);
+        }
+      }
+    };
+
+    loadContinueReading();
+
+    return () => {
+      active = false;
+    };
+  }, [authLoading, isOnline, mangas, user]);
 
   if ((isLoading && isOnline) || (!isOnline && offlineLibraryLoading)) {
     return (

@@ -25,7 +25,7 @@ import ReadingListCover from '@/components/manga/ReadingListCover';
 
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
-    const { user } = useAuth();
+    const { user, isLoading: authLoading } = useAuth();
     const navigate = useNavigate();
     const [list, setList] = useState<ReadingList | undefined>();
     const [isLoading, setIsLoading] = useState(true);
@@ -37,55 +37,93 @@ const ReadingListDetail: React.FC = () => {
     const [isLiking, setIsLiking] = useState(false);
 
     useEffect(() => {
-        if (listId) {
-            fetchList();
-        }
-    }, [listId, user?.id]);
-
-    const fetchList = async () => {
         if (!listId) return;
-        try {
-            setIsLoading(true);
-            const data = await getReadingListById(listId);
-            if (!data) {
-                toast.error('Liste bulunamadı');
-                navigate('/reading-lists');
+
+        let isCancelled = false;
+
+        const fetchList = async () => {
+            try {
+                setIsLoading(true);
+                const data = await getReadingListById(listId);
+                if (isCancelled) return;
+
+                if (!data) {
+                    toast.error('Liste bulunamadı');
+                    navigate('/reading-lists');
+                    return;
+                }
+                setList(data);
+
+                const { count: totalLikes } = await supabase
+                    .from('reading_list_likes')
+                    .select('*', { count: 'exact', head: true })
+                    .eq('list_id', listId);
+
+                if (isCancelled) return;
+                setLikesCount(totalLikes || 0);
+            } catch (err) {
+                if (isCancelled) return;
+
+                console.error('Liste detay hatası:', err);
+                toast.error('Liste yüklenemedi');
+            } finally {
+                if (!isCancelled) {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        void fetchList();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [listId, navigate]);
+
+    useEffect(() => {
+        if (!listId || authLoading) {
+            return;
+        }
+
+        let isCancelled = false;
+
+        const fetchLikeState = async () => {
+            if (!user?.id) {
+                setIsLiked(false);
                 return;
             }
-            setList(data);
 
-            // Fetch likes
-            const { count: totalLikes } = await supabase
-                .from('reading_list_likes')
-                .select('*', { count: 'exact', head: true })
-                .eq('list_id', listId);
-            
-            setLikesCount(totalLikes || 0);
-
-            if (user?.id) {
+            try {
                 const { data: likeData, error: likeError } = await supabase
                     .from('reading_list_likes')
                     .select('id')
                     .eq('list_id', listId)
                     .eq('user_id', user.id)
                     .limit(1);
-                
+
+                if (isCancelled) return;
+
                 if (likeError) {
                     console.error('Reading list like fetch error:', likeError);
+                    setIsLiked(false);
+                    return;
                 }
 
                 setIsLiked((likeData?.length || 0) > 0);
-            } else {
-                setIsLiked(false);
+            } catch (err) {
+                if (!isCancelled) {
+                    console.error('Reading list like state error:', err);
+                    setIsLiked(false);
+                }
             }
+        };
 
-        } catch (err) {
-            console.error('Liste detay hatası:', err);
-            toast.error('Liste yüklenemedi');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+        void fetchLikeState();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [authLoading, listId, user?.id]);
 
     const handleToggleLike = async () => {
         if (!user) {

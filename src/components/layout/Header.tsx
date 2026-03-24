@@ -34,6 +34,7 @@ import { getAllMangas, getCharacters } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
@@ -66,7 +67,7 @@ const Header: React.FC = () => {
   const [quickResults, setQuickResults] = useState<Manga[]>([]);
   const [allMangas, setAllMangas] = useState<Manga[]>([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
-  const { user, logout } = useAuth();
+  const { user, logout, isLoading: authLoading } = useAuth();
   const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
   const navigate = useNavigate();
   const location = useLocation();
@@ -423,7 +424,7 @@ const Header: React.FC = () => {
               className="h-9 w-9 text-muted-foreground hover:text-foreground"
               title="Uygulamayı Yükle"
             />
-            {user && (
+            {!authLoading && user && (
               <>
                 <AnnouncementDropdown />
                 <NotificationDropdown />
@@ -431,7 +432,12 @@ const Header: React.FC = () => {
             )}
           </div>
 
-          {user ? (
+          {authLoading ? (
+            <div className="flex items-center gap-2">
+              <Skeleton className="hidden h-9 w-20 rounded-md md:block" />
+              <Skeleton className="h-9 w-9 rounded-full" />
+            </div>
+          ) : user ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-9 w-9 p-0 rounded-full hover:bg-secondary/80">

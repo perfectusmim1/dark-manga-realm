@@ -103,6 +103,15 @@ const categoryLabels: Record<LibraryCategory, string> = {
   dropped: 'Bıraktım',
 };
 
+const DEFAULT_USER_REVIEW: Partial<Review> = {
+  content: '',
+  rating_story: 10,
+  rating_characters: 10,
+  rating_art: 10,
+  rating_progression: 10,
+  rating_engagement: 10,
+};
+
 const PreviewChapter = ({ 
   chapter, 
   index, 
@@ -201,7 +210,7 @@ const PreviewChapter = ({
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
   const [manga, setManga] = useState<Manga | undefined>();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const [favorite, setFavorite] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
@@ -288,14 +297,7 @@ const MangaDetail: React.FC = () => {
     engagement: 0
   });
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
-  const [userReview, setUserReview] = useState<Partial<Review>>({
-    content: '',
-    rating_story: 10,
-    rating_characters: 10,
-    rating_art: 10,
-    rating_progression: 10,
-    rating_engagement: 10
-  });
+  const [userReview, setUserReview] = useState<Partial<Review>>(DEFAULT_USER_REVIEW);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [similarMangas, setSimilarMangas] = useState<Manga[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
@@ -313,7 +315,21 @@ const MangaDetail: React.FC = () => {
     'Diğer',
   ];
 
+  const resetUserScopedState = React.useCallback(() => {
+    setFavorite(false);
+    setIsFollowing(false);
+    setCategory(undefined);
+    setUserRating(undefined);
+    setLatestProgress(null);
+    setBlockedUserIds([]);
+    setChapterReadMap({});
+    setSeriesReadingSeconds(0);
+    setUserReview(DEFAULT_USER_REVIEW);
+  }, []);
+
   useEffect(() => {
+    let isCancelled = false;
+
     const loadMangaData = async () => {
       if (!mangaId) return;
 
@@ -321,16 +337,16 @@ const MangaDetail: React.FC = () => {
         setIsLoading(true);
         setIsReviewsLoading(true);
         setIsCharsLoading(true);
-        setIsSeriesReadingTimeLoading(Boolean(user));
-
-        if (!user) {
-          setSeriesReadingSeconds(0);
-          setBlockedUserIds([]);
-          setChapterReadMap({});
-        }
+        setIsSeriesReadingTimeLoading(false);
+        setLoadingSimilar(false);
+        setSimilarMangas([]);
+        setMangaCharacters([]);
+        setReviews([]);
+        resetUserScopedState();
 
         // Wave 1: Fetch the most important thing (Manga Metadata)
         const mData = isOnline ? await getMangaById(mangaId) : undefined;
+        if (isCancelled) return;
         
         if (mData) {
           setIsOfflineView(false);
@@ -343,70 +359,48 @@ const MangaDetail: React.FC = () => {
           // Show page structure immediately after metadata
           setIsLoading(false);
 
-          // Wave 2: Fetch characters and user-specific info in parallel
-          Promise.all([
+          // Wave 2: Fetch secondary content without re-triggering the page skeleton.
+          void Promise.all([
             getMangaCharacters(mangaId),
-            user ? Promise.all([
-              isOnline ? flushPendingReaderSync() : Promise.resolve(),
-              isFavorite(user.id, mangaId),
-              isFollowingManga(user.id, mangaId),
-              getUserRating(mangaId, user.id),
-              getLatestProgress(user.id, mangaId),
-              getReviewsForManga(mangaId),
-              getUserReview(mangaId, user.id),
-              getFavorites(user.id),
-              getBlockedUserIds(user.id),
-              getChapterReadProgressMap(user.id, mangaId),
-              getMangaReadingTimeTotal(user.id, mangaId),
-            ]) : Promise.all([
-              getReviewsForManga(mangaId)
-            ])
-          ]).then(([mChars, uInfo]) => {
+            getReviewsForManga(mangaId),
+          ]).then(([mChars, mReviews]) => {
+            if (isCancelled) return;
+
             setMangaCharacters(mChars);
+            setReviews(mReviews);
             setIsCharsLoading(false);
-
-            if (user && Array.isArray(uInfo) && uInfo.length > 1) {
-              const [, favorited, following, rating, progress, mReviews, uReview, userFavorites, blockedUsersResult, chapterReadProgress, mangaReadingTime] = uInfo;
-              setFavorite(favorited as boolean);
-              setIsFollowing(following as boolean);
-              setUserRating(rating as number);
-              setLatestProgress(progress);
-              setReviews(mReviews as Review[]);
-              if (uReview) setUserReview(uReview as Review);
-              setBlockedUserIds((blockedUsersResult as { ids?: string[] })?.ids || []);
-              setChapterReadMap((chapterReadProgress as Record<string, { isRead?: boolean; readProgressPercent?: number }>) || {});
-              setSeriesReadingSeconds(Number(mangaReadingTime) || 0);
-              
-              const favs = userFavorites as Favorite[];
-              const thisFav = favs.find((f: any) => f.mangaId === mangaId);
-              if (thisFav) setCategory(thisFav.category);
-            } else if (uInfo && Array.isArray(uInfo)) {
-              setReviews(uInfo[0] as Review[]);
-              setSeriesReadingSeconds(0);
-              setChapterReadMap({});
-            }
-
-            setIsSeriesReadingTimeLoading(false);
             setIsReviewsLoading(false);
           }).catch((error) => {
+            if (isCancelled) return;
+
             console.error('Manga detail secondary load error:', error);
             setIsCharsLoading(false);
             setIsReviewsLoading(false);
-            setIsSeriesReadingTimeLoading(false);
           });
 
           // Parallel & Non-blocking
-          incrementMangaViews(mangaId);
+          void incrementMangaViews(mangaId);
 
           if (mData.genres && mData.genres.length > 0) {
             setLoadingSimilar(true);
-            getSimilarMangas(mangaId, mData.genres, 6).then(similar => {
+            void getSimilarMangas(mangaId, mData.genres, 6).then(similar => {
+              if (isCancelled) return;
+
               setSimilarMangas(similar);
-              setLoadingSimilar(false);
+            }).catch((error) => {
+              if (isCancelled) return;
+
+              console.error('Error loading similar mangas:', error);
+              setSimilarMangas([]);
+            }).finally(() => {
+              if (!isCancelled) {
+                setLoadingSimilar(false);
+              }
             });
           }
         } else {
           const offlineManga = await getOfflineMangaDetail(mangaId);
+          if (isCancelled) return;
 
           if (offlineManga) {
             setManga(offlineManga);
@@ -426,11 +420,15 @@ const MangaDetail: React.FC = () => {
           }
 
           setIsOfflineView(false);
+          setManga(undefined);
           setIsLoading(false);
+          setIsReviewsLoading(false);
+          setIsCharsLoading(false);
         }
       } catch (err) {
         console.error('Error loading manga detail:', err);
         const offlineManga = mangaId ? await getOfflineMangaDetail(mangaId) : undefined;
+        if (isCancelled) return;
 
         if (offlineManga) {
           setManga(offlineManga);
@@ -447,12 +445,96 @@ const MangaDetail: React.FC = () => {
           setIsSeriesReadingTimeLoading(false);
         }
 
+        if (!offlineManga) {
+          setManga(undefined);
+          setIsReviewsLoading(false);
+          setIsCharsLoading(false);
+        }
+
         setIsLoading(false);
       }
     };
 
-    loadMangaData();
-  }, [isOnline, mangaId, user?.id]);
+    void loadMangaData();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOnline, mangaId, resetUserScopedState]);
+
+  useEffect(() => {
+    if (!mangaId || isOfflineView || authLoading) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadUserScopedData = async () => {
+      if (!user) {
+        resetUserScopedState();
+        setIsSeriesReadingTimeLoading(false);
+        return;
+      }
+
+      try {
+        setIsSeriesReadingTimeLoading(true);
+
+        const [
+          ,
+          favorited,
+          following,
+          rating,
+          progress,
+          uReview,
+          userFavorites,
+          blockedUsersResult,
+          chapterReadProgress,
+          mangaReadingTime,
+        ] = await Promise.all([
+          isOnline ? flushPendingReaderSync() : Promise.resolve(),
+          isFavorite(user.id, mangaId),
+          isFollowingManga(user.id, mangaId),
+          getUserRating(mangaId, user.id),
+          getLatestProgress(user.id, mangaId),
+          getUserReview(mangaId, user.id),
+          getFavorites(user.id),
+          getBlockedUserIds(user.id),
+          getChapterReadProgressMap(user.id, mangaId),
+          getMangaReadingTimeTotal(user.id, mangaId),
+        ]);
+
+        if (isCancelled) return;
+
+        setFavorite(Boolean(favorited));
+        setIsFollowing(Boolean(following));
+        setUserRating(rating as number | undefined);
+        setLatestProgress(progress);
+        setUserReview((uReview as Review | null) ?? DEFAULT_USER_REVIEW);
+        setBlockedUserIds((blockedUsersResult as { ids?: string[] })?.ids || []);
+        setChapterReadMap((chapterReadProgress as Record<string, { isRead?: boolean; readProgressPercent?: number }>) || {});
+        setSeriesReadingSeconds(Number(mangaReadingTime) || 0);
+
+        const favs = userFavorites as Favorite[];
+        const thisFav = favs.find((entry) => entry.mangaId === mangaId);
+        setCategory(thisFav?.category);
+      } catch (error) {
+        if (isCancelled) return;
+
+        console.error('Manga detail user load error:', error);
+        resetUserScopedState();
+      } finally {
+        if (!isCancelled) {
+          setIsSeriesReadingTimeLoading(false);
+        }
+      }
+    };
+
+    void loadUserScopedData();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [authLoading, isOfflineView, isOnline, mangaId, resetUserScopedState, user?.id]);
 
   if (isLoading) {
     return (

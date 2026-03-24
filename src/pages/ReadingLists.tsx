@@ -33,7 +33,7 @@ import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
 import ReadingListCover from '@/components/manga/ReadingListCover';
 
 const ReadingLists: React.FC = () => {
-    const { user } = useAuth();
+    const { user, isLoading: authLoading } = useAuth();
     const [lists, setLists] = useState<ReadingList[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -41,24 +41,62 @@ const ReadingLists: React.FC = () => {
     const [editingList, setEditingList] = useState<ReadingList | null>(null);
 
     useEffect(() => {
-        if (user) {
-            fetchLists();
+        if (authLoading) {
+            return;
         }
-    }, [user]);
 
-    const fetchLists = async () => {
-        if (!user) return;
-        try {
-            setIsLoading(true);
-            const userLists = await getReadingLists(user.id);
-            setLists(userLists);
-        } catch (err) {
-            console.error('Liste yükleme hatası:', err);
-            toast.error('Listeler yüklenemedi');
-        } finally {
-            setIsLoading(false);
-        }
-    };
+        let isCancelled = false;
+
+        const fetchLists = async () => {
+            if (!user) {
+                setLists([]);
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                setIsLoading(true);
+                const userLists = await getReadingLists(user.id);
+                if (isCancelled) return;
+
+                setLists(userLists);
+            } catch (err) {
+                if (isCancelled) return;
+
+                console.error('Liste yükleme hatası:', err);
+                toast.error('Listeler yüklenemedi');
+            } finally {
+                if (!isCancelled) {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        void fetchLists();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [authLoading, user?.id]);
+
+    if (authLoading) {
+        return (
+            <div className="min-h-screen bg-background">
+                <Header />
+                <main className="container pb-12 pt-20">
+                    <div className="mb-8">
+                        <Skeleton className="h-10 w-56 mb-3" />
+                        <Skeleton className="h-5 w-80" />
+                    </div>
+                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
+                        {[1, 2, 3].map((i) => (
+                            <Skeleton key={i} className="h-48 w-full rounded-xl" />
+                        ))}
+                    </div>
+                </main>
+            </div>
+        );
+    }
 
     const handleDelete = async () => {
         if (!deleteConfirmId) return;
