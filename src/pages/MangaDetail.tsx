@@ -545,11 +545,20 @@ const MangaDetail: React.FC = () => {
     }
 
     try {
-      await addFavorite(user.id, manga.id, newCategory);
+      if (favorite) {
+        await updateFavoriteCategory(user.id, manga.id, newCategory);
+      } else {
+        await addFavorite(user.id, manga.id, newCategory);
+      }
+
+      const refreshedFavorites = await getFavorites(user.id);
+      const refreshedEntry = refreshedFavorites.find((entry) => entry.mangaId === manga.id);
+
       setFavorite(true);
-      setCategory(newCategory);
-      toast.success(`Kategori: ${categoryLabels[newCategory]}`);
+      setCategory((refreshedEntry?.category as LibraryCategory | undefined) || newCategory);
+      toast.success(`Kategori: ${categoryLabels[(refreshedEntry?.category as LibraryCategory | undefined) || newCategory]}`);
     } catch (err) {
+      console.error('Category update failed on manga detail:', err);
       toast.error('Kategori güncellenemedi');
     }
   };

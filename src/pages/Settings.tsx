@@ -136,17 +136,24 @@ const Settings: React.FC = () => {
         }
     };
 
-    const handleUpdatePreferences = async (newPrefs: typeof prefs) => {
+    const handleUpdatePreferences = async (
+        newPrefs: typeof prefs,
+        successMessage = 'Tercihler güncellendi'
+    ) => {
+        const previousPrefs = prefs;
+
         try {
+            setPrefs(newPrefs);
             setIsUpdatingPrefs(true);
             const { success, error } = await updatePreferences(newPrefs);
             if (success) {
-                setPrefs(newPrefs);
-                toast.success('Bildirim tercihleri güncellendi');
+                toast.success(successMessage);
             } else {
+                setPrefs(previousPrefs);
                 toast.error(error || 'Güncellenemedi');
             }
         } catch (err) {
+            setPrefs(previousPrefs);
             toast.error('Bir hata oluştu');
         } finally {
             setIsUpdatingPrefs(false);
@@ -429,7 +436,7 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             notifications: { ...prefs.notifications, new_chapter: checked }
-                                        })}
+                                        }, 'Bildirim tercihleri güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
@@ -444,7 +451,7 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             notifications: { ...prefs.notifications, replies: checked }
-                                        })}
+                                        }, 'Bildirim tercihleri güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
@@ -459,7 +466,7 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             notifications: { ...prefs.notifications, likes: checked }
-                                        })}
+                                        }, 'Bildirim tercihleri güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
@@ -486,7 +493,7 @@ const Settings: React.FC = () => {
                                             onClick={() => handleUpdatePreferences({
                                                 ...prefs,
                                                 privacy: { ...prefs.privacy, visibility: 'public' }
-                                            })}
+                                            }, 'Gizlilik ayarlari guncellendi')}
                                             className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
                                                 (!prefs.privacy || prefs.privacy.visibility === 'public')
                                                 ? 'bg-background text-foreground shadow-sm'
@@ -499,7 +506,7 @@ const Settings: React.FC = () => {
                                             onClick={() => handleUpdatePreferences({
                                                 ...prefs,
                                                 privacy: { ...prefs.privacy, visibility: 'members' }
-                                            })}
+                                            }, 'Gizlilik ayarlari guncellendi')}
                                             className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
                                                 prefs.privacy?.visibility === 'members'
                                                 ? 'bg-background text-foreground shadow-sm'
@@ -512,7 +519,7 @@ const Settings: React.FC = () => {
                                             onClick={() => handleUpdatePreferences({
                                                 ...prefs,
                                                 privacy: { ...prefs.privacy, visibility: 'private' }
-                                            })}
+                                            }, 'Gizlilik ayarlari guncellendi')}
                                             className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
                                                 prefs.privacy?.visibility === 'private'
                                                 ? 'bg-background text-foreground shadow-sm'
@@ -547,7 +554,7 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             comments: { ...prefs.comments, auto_show_replies: checked }
-                                        })}
+                                        }, 'Tercihler güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
@@ -562,7 +569,7 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             comments: { ...prefs.comments, auto_show_media: checked }
-                                        })}
+                                        }, 'Tercihler güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
@@ -577,7 +584,7 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             comments: { ...prefs.comments, auto_show_gifs: checked }
-                                        })}
+                                        }, 'Tercihler güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>

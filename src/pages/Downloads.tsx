@@ -165,7 +165,7 @@ const Downloads: React.FC = () => {
   const toggleSeries = (mangaId: string) => {
     setExpandedSeries((prev) => ({
       ...prev,
-      [mangaId]: !prev[mangaId],
+      [mangaId]: !(prev[mangaId] ?? true),
     }));
   };
 
