@@ -1,8 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { ReaderSettings } from '@/lib/types';
+import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 
 interface VerticalReaderProps {
-  pages: string[];
+  pages: ResolvedReaderPage[];
   settings: ReaderSettings;
   onPageChange: (page: number) => void;
   initialPage?: number;
@@ -91,7 +91,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
           }}
         >
           <ProtectedImage
-            src={page}
+            src={page.src}
             alt={`Sayfa ${index + 1}`}
             zoom={settings.zoom}
           />

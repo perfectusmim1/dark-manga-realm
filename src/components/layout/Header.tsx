@@ -25,6 +25,7 @@ import {
   Book,
   Clock3,
   Sparkles,
+  Download,
 } from 'lucide-react';
 import { getAllMangas, getCharacters } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
@@ -423,6 +424,12 @@ const Header: React.FC = () => {
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
+                  <Link to="/downloads" className="flex items-center gap-2">
+                    <Download className="h-4 w-4" />
+                    İndirilenler
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
                   <Link to="/reading-time" className="flex items-center gap-2">
                     <Clock3 className="h-4 w-4" />
                     Süre
@@ -538,6 +545,13 @@ const Header: React.FC = () => {
                   className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
                 >
                   Okuma Geçmişi
+                </Link>
+                <Link
+                  to="/downloads"
+                  onClick={() => setIsMenuOpen(false)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+                >
+                  İndirilenler
                 </Link>
                 <Link
                   to="/reading-time"

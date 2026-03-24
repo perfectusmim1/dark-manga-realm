@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import {
   Heart,
@@ -17,6 +17,9 @@ import {
   ShieldAlert,
   Flag,
   Clock3,
+  Download,
+  Trash2,
+  WifiOff,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
@@ -85,6 +88,10 @@ import { toast } from 'sonner';
 import MangaDetailSkeleton from '@/components/skeletons/MangaDetailSkeleton';
 import TagSection from '@/components/tags/TagSection';
 import { formatReadingDuration, getBlockedUserIds, getMangaReadingTimeTotal } from '@/lib/profile';
+import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
+import { offlineDownloadManager } from '@/lib/offline/downloadManager';
+import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { OfflineMangaGroup } from '@/lib/offline/types';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -193,6 +200,7 @@ const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
   const [manga, setManga] = useState<Manga | undefined>();
   const { user } = useAuth();
+  const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const [favorite, setFavorite] = useState(false);
   const [isFollowing, setIsFollowing] = useState(false);
   const [category, setCategory] = useState<LibraryCategory | undefined>();
@@ -215,6 +223,29 @@ const MangaDetail: React.FC = () => {
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [seriesReadingSeconds, setSeriesReadingSeconds] = useState(0);
   const [isSeriesReadingTimeLoading, setIsSeriesReadingTimeLoading] = useState(false);
+  const [isOfflineView, setIsOfflineView] = useState(false);
+  const [isSeriesDownloadDialogOpen, setIsSeriesDownloadDialogOpen] = useState(false);
+  const [isQueueingSeriesDownload, setIsQueueingSeriesDownload] = useState(false);
+
+  const offlineSeriesEntry = useMemo<OfflineMangaGroup | undefined>(() => (
+    offlineSnapshot.series.find((entry) => entry.manga.mangaId === (manga?.id || mangaId))
+  ), [offlineSnapshot.series, manga?.id, mangaId]);
+
+  const offlineChapterMap = useMemo(() => (
+    (offlineSeriesEntry?.chapters || []).reduce<Record<string, OfflineMangaGroup['chapters'][number]>>((map, chapter) => {
+      map[chapter.chapterId] = chapter;
+      return map;
+    }, {})
+  ), [offlineSeriesEntry]);
+
+  const primaryOfflineJob = useMemo(() => {
+    if (!offlineSeriesEntry) {
+      return undefined;
+    }
+
+    return offlineSeriesEntry.jobs.find((job) => ['running', 'queued', 'paused'].includes(job.status))
+      || offlineSeriesEntry.jobs[0];
+  }, [offlineSeriesEntry]);
 
   const handlePreviewInView = React.useCallback((idx: number) => {
     setCurrentViewedIndex(idx);
@@ -277,6 +308,7 @@ const MangaDetail: React.FC = () => {
         const mData = await getMangaById(mangaId);
         
         if (mData) {
+          setIsOfflineView(false);
           setManga(mData);
           setAverageRating({ average: mData.averageRating, count: mData.reviewCount });
           if (mData.ratingBreakdown) {
@@ -344,9 +376,46 @@ const MangaDetail: React.FC = () => {
               setLoadingSimilar(false);
             });
           }
+        } else {
+          const offlineManga = await getOfflineMangaDetail(mangaId);
+
+          if (offlineManga) {
+            setManga(offlineManga);
+            setAverageRating({ average: 0, count: 0 });
+            setReviews([]);
+            setMangaCharacters([]);
+            setSimilarMangas([]);
+            setBlockedUserIds([]);
+            setSeriesReadingSeconds(0);
+            setIsOfflineView(true);
+            setIsLoading(false);
+            setIsReviewsLoading(false);
+            setIsCharsLoading(false);
+            setIsSeriesReadingTimeLoading(false);
+            return;
+          }
+
+          setIsOfflineView(false);
+          setIsLoading(false);
         }
       } catch (err) {
         console.error('Error loading manga detail:', err);
+        const offlineManga = mangaId ? await getOfflineMangaDetail(mangaId) : undefined;
+
+        if (offlineManga) {
+          setManga(offlineManga);
+          setAverageRating({ average: 0, count: 0 });
+          setReviews([]);
+          setMangaCharacters([]);
+          setSimilarMangas([]);
+          setBlockedUserIds([]);
+          setSeriesReadingSeconds(0);
+          setIsOfflineView(true);
+          setIsReviewsLoading(false);
+          setIsCharsLoading(false);
+          setIsSeriesReadingTimeLoading(false);
+        }
+
         setIsLoading(false);
       }
     };
@@ -369,11 +438,36 @@ const MangaDetail: React.FC = () => {
         <Header />
         <main className="container flex min-h-[60vh] items-center justify-center pt-20">
           <div className="text-center">
-            <h1 className="text-2xl font-bold">Manga Bulunamadı</h1>
-            <p className="mt-2 text-muted-foreground">Aradığınız manga mevcut değil.</p>
-            <Button asChild className="mt-4">
-              <Link to="/">Ana Sayfaya Dön</Link>
-            </Button>
+            {!isOnline ? (
+              <>
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-blue-500/10 text-blue-300">
+                  <WifiOff className="h-7 w-7" />
+                </div>
+                <h1 className="mt-5 text-2xl font-bold">Bu seri çevrimdışı hazır değil</h1>
+                <p className="mt-2 text-muted-foreground">
+                  İnternet olmadan yalnızca daha önce indirdiğin seriler açılabilir.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                  <Button asChild variant="glow">
+                    <Link to="/downloads">
+                      <Download className="mr-2 h-4 w-4" />
+                      İndirilenlere Git
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link to="/">Ana Sayfaya Dön</Link>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold">Manga Bulunamadı</h1>
+                <p className="mt-2 text-muted-foreground">Aradığınız manga mevcut değil.</p>
+                <Button asChild className="mt-4">
+                  <Link to="/">Ana Sayfaya Dön</Link>
+                </Button>
+              </>
+            )}
           </div>
         </main>
       </div>
@@ -381,6 +475,11 @@ const MangaDetail: React.FC = () => {
   }
 
   const toggleFavorite = async () => {
+    if (!isOnline) {
+      toast.error('Favori islemi icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) {
       toast.error('Favorilere eklemek için giriş yapmalısınız');
       return;
@@ -404,6 +503,11 @@ const MangaDetail: React.FC = () => {
   };
 
   const handleCategoryChange = async (newCategory: LibraryCategory) => {
+    if (!isOnline) {
+      toast.error('Kategori guncellemek icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) {
       toast.error('Giriş yapmalısınız');
       return;
@@ -420,6 +524,11 @@ const MangaDetail: React.FC = () => {
   };
 
   const toggleFollow = async () => {
+    if (!isOnline) {
+      toast.error('Takip islemi icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) {
       toast.error('Takip etmek için giriş yapmalısınız');
       return;
@@ -441,6 +550,11 @@ const MangaDetail: React.FC = () => {
   };
 
   const handleAddToList = () => {
+    if (!isOnline) {
+      toast.error('Liste islemleri icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) {
       toast.error('Listeye eklemek için giriş yapmalısınız');
       return;
@@ -448,7 +562,59 @@ const MangaDetail: React.FC = () => {
     setIsListModalOpen(true);
   };
 
+  const handleQueueSeriesDownload = async () => {
+    if (!manga) {
+      return;
+    }
+
+    if (!isOnline) {
+      toast.error('Seri indirmek icin internete baglanmalisin');
+      return;
+    }
+
+    try {
+      setIsQueueingSeriesDownload(true);
+      await offlineDownloadManager.queueSeriesDownload(manga, [...manga.chapters].sort((a, b) => a.number - b.number));
+      toast.success('Seri indirilmeye hazirlandi');
+      setIsSeriesDownloadDialogOpen(false);
+    } catch (error) {
+      console.error('Series download queue error:', error);
+      toast.error('Seri indirilemedi');
+    } finally {
+      setIsQueueingSeriesDownload(false);
+    }
+  };
+
+  const handleQueueChapterDownload = async (chapter: Chapter) => {
+    if (!manga) {
+      return;
+    }
+
+    if (!isOnline) {
+      toast.error('Bölüm indirmek icin internete baglanmalisin');
+      return;
+    }
+
+    try {
+      await offlineDownloadManager.queueChapterDownload(manga, chapter);
+      toast.success(`Bölüm ${chapter.number} indirilmeye eklendi`);
+    } catch (error) {
+      console.error('Chapter download queue error:', error);
+      toast.error('Bölüm kuyruğa eklenemedi');
+    }
+  };
+
+  const handleDeleteOfflineChapter = async (chapterId: string) => {
+    await offlineDownloadManager.deleteChapterDownload(chapterId);
+    toast.success('Bölüm indirilenlerden kaldırıldı');
+  };
+
   const openReportDialog = () => {
+    if (!isOnline) {
+      toast.error('Bildirim gondermek icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) {
       toast.error('Bildirim gondermek icin giris yapmalisiniz');
       return;
@@ -460,6 +626,11 @@ const MangaDetail: React.FC = () => {
   };
 
   const handleSubmitReport = async () => {
+    if (!isOnline) {
+      toast.error('Bildirim gondermek icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) {
       toast.error('Bildirim gondermek icin giris yapmalisiniz');
       return;
@@ -491,6 +662,11 @@ const MangaDetail: React.FC = () => {
 
 
   const handleRating = async (rating: number) => {
+    if (!isOnline) {
+      toast.error('Puan vermek icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) {
       toast.error('Puan vermek için giriş yapmalısınız');
       return;
@@ -518,6 +694,11 @@ const MangaDetail: React.FC = () => {
   };
 
   const handleReviewSubmit = async () => {
+    if (!isOnline) {
+      toast.error('Inceleme gondermek icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) return;
     if (!userReview.content?.trim()) {
       toast.error('Lütfen bir inceleme metni yazın');
@@ -564,6 +745,11 @@ const MangaDetail: React.FC = () => {
   };
 
   const toggleLikeReview = async (reviewId: string) => {
+    if (!isOnline) {
+      toast.error('Begeni islemi icin internet baglantisi gerekli');
+      return;
+    }
+
     if (!user) {
       toast.error('Beğenmek için giriş yapmalısınız');
       return;
@@ -715,9 +901,27 @@ const MangaDetail: React.FC = () => {
                       </span>
                     </div>
                   )}
+                  {offlineSeriesEntry && offlineSeriesEntry.downloadedChapters > 0 && (
+                    <div className="flex items-center gap-1 text-blue-400">
+                      <Download className="h-4 w-4" />
+                      <span>{offlineSeriesEntry.downloadedChapters} bölüm çevrimdışı hazır</span>
+                    </div>
+                  )}
                 </div>
 
                 <p className="text-foreground/80 leading-relaxed">{manga.description}</p>
+
+                {isOfflineView && (
+                  <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
+                    <div className="flex items-center gap-2 font-semibold">
+                      <WifiOff className="h-4 w-4" />
+                      Çevrimdışı görünüm
+                    </div>
+                    <p className="mt-1 text-blue-100/80">
+                      Bu seri yerel cache&apos;ten açıldı. Yalnızca indirilen bölümler garanti edilir; yorum, bildirim ve topluluk verileri çevrimdışında güncellenmez.
+                    </p>
+                  </div>
+                )}
 
                 <div className="flex flex-wrap gap-2">
                   {manga.genres.map((genre) => (
@@ -781,6 +985,21 @@ const MangaDetail: React.FC = () => {
                   >
                     <List className="h-4 w-4 text-primary transition-transform group-hover:scale-110" />
                     Listeye Ekle
+                  </Button>
+
+                  <Button
+                    variant="outline"
+                    size="lg"
+                    disabled={primaryOfflineJob?.status === 'running'}
+                    onClick={() => setIsSeriesDownloadDialogOpen(true)}
+                    className="group border-blue-500/30 hover:border-blue-400/60 hover:bg-blue-500/10"
+                  >
+                    <Download className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
+                    {primaryOfflineJob?.status === 'running'
+                      ? 'Seri İndiriliyor'
+                      : primaryOfflineJob && ['paused', 'failed', 'partial', 'queued'].includes(primaryOfflineJob.status)
+                        ? 'İndirmeye Devam Et'
+                        : 'Seriyi İndir'}
                   </Button>
 
                   <Button
@@ -893,16 +1112,18 @@ const MangaDetail: React.FC = () => {
                       <>
                         <div className="divide-y divide-border">
                           {displayedChapters.map((chapter) => (
-                            <Link
+                            <div
                               key={chapter.id}
-                              to={`/manga/${manga.id}/chapter/${chapter.id}`}
-                              className="flex items-center justify-between p-4 transition-colors hover:bg-secondary/50"
+                              className="flex flex-col gap-4 p-4 transition-colors hover:bg-secondary/50 md:flex-row md:items-center md:justify-between"
                             >
-                              <div>
-                                <h3 className="font-medium">
+                              <div className="min-w-0">
+                                <Link
+                                  to={`/manga/${manga.id}/chapter/${chapter.id}`}
+                                  className="font-medium transition-colors hover:text-primary"
+                                >
                                   Bölüm {chapter.number}: {chapter.title}
-                                </h3>
-                                <div className="mt-1 flex items-center gap-3 text-xs text-muted-foreground">
+                                </Link>
+                                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
                                   <span className="flex items-center gap-1">
                                     <Calendar className="h-3 w-3" />
                                     {formatDate(chapter.releaseDate)}
@@ -911,12 +1132,80 @@ const MangaDetail: React.FC = () => {
                                     <Eye className="h-3 w-3" />
                                     {formatViews(chapter.views || 0)}
                                   </span>
+                                  {offlineChapterMap[chapter.id] && (
+                                    <Badge variant="outline" className="text-[10px] capitalize">
+                                      {offlineChapterMap[chapter.id].downloadStatus}
+                                    </Badge>
+                                  )}
                                 </div>
                               </div>
-                              <Badge variant="outline" className="text-xs">
-                                {chapter.pages.length} sayfa
-                              </Badge>
-                            </Link>
+
+                              <div className="flex flex-wrap items-center gap-2 md:justify-end">
+                                <Badge variant="outline" className="text-xs">
+                                  {chapter.pages.length} sayfa
+                                </Badge>
+
+                                {offlineChapterMap[chapter.id]?.downloadStatus === 'completed' ? (
+                                  <>
+                                    <Button asChild size="sm">
+                                      <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
+                                        Çevrimdışı Oku
+                                      </Link>
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => void handleDeleteOfflineChapter(chapter.id)}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Sil
+                                    </Button>
+                                  </>
+                                ) : offlineChapterMap[chapter.id] && ['running', 'queued'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
+                                  <Button variant="outline" size="sm" disabled>
+                                    <Download className="mr-2 h-4 w-4" />
+                                    İndiriliyor
+                                  </Button>
+                                ) : offlineChapterMap[chapter.id]?.downloadStatus === 'paused' ? (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void handleQueueChapterDownload(chapter)}
+                                  >
+                                    <Download className="mr-2 h-4 w-4" />
+                                    Devam Et
+                                  </Button>
+                                ) : offlineChapterMap[chapter.id] && ['failed', 'partial'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
+                                  <>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => void handleQueueChapterDownload(chapter)}
+                                    >
+                                      <Download className="mr-2 h-4 w-4" />
+                                      Yeniden Dene
+                                    </Button>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      onClick={() => void handleDeleteOfflineChapter(chapter.id)}
+                                    >
+                                      <Trash2 className="mr-2 h-4 w-4" />
+                                      Sil
+                                    </Button>
+                                  </>
+                                ) : (
+                                  <Button
+                                    variant="outline"
+                                    size="sm"
+                                    onClick={() => void handleQueueChapterDownload(chapter)}
+                                  >
+                                    <Download className="mr-2 h-4 w-4" />
+                                    İndir
+                                  </Button>
+                                )}
+                              </div>
+                            </div>
                           ))}
                         </div>
 
@@ -1375,6 +1664,50 @@ const MangaDetail: React.FC = () => {
           </Tabs>
         </div>
       </main>
+
+      <Dialog open={isSeriesDownloadDialogOpen} onOpenChange={setIsSeriesDownloadDialogOpen}>
+        <DialogContent className="sm:max-w-[540px]">
+          <DialogHeader>
+            <DialogTitle>Seriyi İndir</DialogTitle>
+            <DialogDescription>
+              Mevcut tüm bölümler cihazına indirilecek ve internet olmadan açılabilecek.
+            </DialogDescription>
+          </DialogHeader>
+
+          {manga && (
+            <div className="space-y-5 py-2">
+              <div className="rounded-xl border border-border/60 bg-card/60 p-4">
+                <p className="text-base font-semibold">{manga.title}</p>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {manga.chapters.length} bölüm • {manga.chapters.reduce((sum, chapter) => sum + chapter.pages.length, 0)} sayfa
+                </p>
+              </div>
+
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-100">
+                <p className="font-semibold">Boyut tahmini</p>
+                <p className="mt-1 text-blue-100/80">
+                  Bazı kaynaklar toplam dosya boyutunu önceden vermiyor. Bu durumda gerçek boyut indirme sırasında netleşecek.
+                </p>
+              </div>
+
+              {offlineSeriesEntry && (
+                <div className="rounded-xl border border-border/60 bg-card/60 p-4 text-sm text-muted-foreground">
+                  {offlineSeriesEntry.downloadedChapters} bölüm zaten çevrimdışı hazır. Eksik veya başarısız olanlar yeniden kuyruğa alınacak.
+                </div>
+              )}
+            </div>
+          )}
+
+          <DialogFooter>
+            <Button variant="ghost" onClick={() => setIsSeriesDownloadDialogOpen(false)}>
+              İptal
+            </Button>
+            <Button onClick={() => void handleQueueSeriesDownload()} disabled={isQueueingSeriesDownload}>
+              {isQueueingSeriesDownload ? 'Kuyruğa Alınıyor...' : 'İndir'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
         <DialogContent className="sm:max-w-[560px]">

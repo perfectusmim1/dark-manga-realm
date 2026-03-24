@@ -19,6 +19,7 @@ import History from "./pages/History";
 import LatestChapters from "./pages/LatestChapters";
 import Bookmarks from "./pages/Bookmarks";
 import Library from "./pages/Library";
+import Downloads from "./pages/Downloads";
 import Notifications from "./pages/Notifications";
 import Announcements from "./pages/Announcements";
 import ReadingLists from "./pages/ReadingLists";
@@ -52,6 +53,8 @@ import AdminEntities from "./pages/admin/AdminEntities";
 import AdminTags from "./pages/admin/AdminTags";
 import AdminAnnouncements from "./pages/admin/AdminAnnouncements";
 import AdminReports from "./pages/admin/AdminReports";
+import { offlineDownloadManager } from "@/lib/offline/downloadManager";
+import { initializeOfflineReaderSync } from "@/lib/offline/offlineReaderSync";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -65,6 +68,8 @@ const queryClient = new QueryClient({
 const AppInitializer = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     initializeMockData();
+    void offlineDownloadManager.initialize();
+    initializeOfflineReaderSync();
   }, []);
 
   return <>{children}</>;
@@ -93,6 +98,7 @@ const App = () => (
                 <Route path="/favorites" element={<Favorites />} />
                 <Route path="/library" element={<Library />} />
                 <Route path="/history" element={<History />} />
+                <Route path="/downloads" element={<Downloads />} />
                 <Route path="/latest-chapters" element={<LatestChapters />} />
                 <Route path="/reading-time" element={<ReadingTime />} />
                 <Route path="/bookmarks" element={<Bookmarks />} />

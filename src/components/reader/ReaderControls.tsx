@@ -45,6 +45,7 @@ interface ReaderControlsProps {
   autoScrollSpeed: number;
   onAutoScrollToggle: () => void;
   onAutoScrollSpeedChange: (speed: number) => void;
+  isOfflineChapter?: boolean;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -66,6 +67,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   autoScrollSpeed,
   onAutoScrollToggle,
   onAutoScrollSpeedChange,
+  isOfflineChapter = false,
 }) => {
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
@@ -116,7 +118,14 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               </Link>
             </Button>
             <div className="flex flex-col">
-              <span className="line-clamp-1 text-sm font-medium">{mangaTitle}</span>
+              <span className="line-clamp-1 text-sm font-medium flex items-center gap-2">
+                {mangaTitle}
+                {isOfflineChapter && (
+                  <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-300">
+                    Offline
+                  </span>
+                )}
+              </span>
               <span className="text-xs text-muted-foreground">
                 Bölüm {currentChapter.number}: {currentChapter.title}
               </span>

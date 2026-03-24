@@ -117,6 +117,17 @@ export interface Favorite {
   mangaCover?: string;
 }
 
+export interface Bookmark {
+  id?: string;
+  userId: string;
+  mangaId: string;
+  chapterId: string;
+  chapterNumber: number;
+  page: number;
+  note?: string | null;
+  createdAt?: string;
+}
+
 export type ReadingMode = 'vertical' | 'horizontal' | 'webtoon';
 
 export interface ReaderSettings {
@@ -127,6 +138,11 @@ export interface ReaderSettings {
   preloadPages: number;
   zoom: number; // 10-300
   autoScrollSpeed: number; // pixels per second
+}
+
+export interface ResolvedReaderPage {
+  src: string;
+  source: 'remote' | 'offline';
 }
 
 // Library categories

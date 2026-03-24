@@ -1,10 +1,10 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ReaderSettings } from '@/lib/types';
+import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 
 interface HorizontalReaderProps {
-  pages: string[];
+  pages: ResolvedReaderPage[];
   settings: ReaderSettings;
   currentPage: number;
   onPageChange: (page: number) => void;
@@ -58,7 +58,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
       {/* Page Display */}
       <div className={`relative flex h-full items-center justify-center px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
         <ProtectedImage
-          src={pages[currentPage - 1]}
+          src={pages[currentPage - 1]?.src || ''}
           alt={`Sayfa ${currentPage}`}
           zoom={settings.zoom}
           className="max-h-full items-center justify-center flex"
