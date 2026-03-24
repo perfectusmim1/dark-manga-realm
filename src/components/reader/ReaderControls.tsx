@@ -46,6 +46,7 @@ interface ReaderControlsProps {
   onAutoScrollToggle: () => void;
   onAutoScrollSpeedChange: (speed: number) => void;
   isOfflineChapter?: boolean;
+  isOnline?: boolean;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -68,6 +69,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   onAutoScrollToggle,
   onAutoScrollSpeedChange,
   isOfflineChapter = false,
+  isOnline = true,
 }) => {
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
@@ -133,21 +135,25 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           </div>
 
           <div className="flex items-center gap-2">
-            <Button
-              variant="ghost"
-              size="icon"
-              title={isIncognito ? "Gizli Mod Açık (Geçmişe Kaydedilmiyor)" : "Gizli Modu Aç"}
-              onClick={() => {
-                onIncognitoToggle(!isIncognito);
-              }}
-              className={isIncognito ? "text-purple-500 bg-purple-500/10 hover:text-purple-400 hover:bg-purple-500/20" : ""}
-            >
-              {isIncognito ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5 opacity-50" />}
-            </Button>
-            
-            <Button variant="ghost" size="icon" onClick={onAddBookmark} title="Yer İmlerime Ekle">
-              <BookmarkPlus className="h-5 w-5" />
-            </Button>
+            {isOnline && (
+              <>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  title={isIncognito ? "Gizli Mod Açık (Geçmişe Kaydedilmiyor)" : "Gizli Modu Aç"}
+                  onClick={() => {
+                    onIncognitoToggle(!isIncognito);
+                  }}
+                  className={isIncognito ? "text-purple-500 bg-purple-500/10 hover:text-purple-400 hover:bg-purple-500/20" : ""}
+                >
+                  {isIncognito ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5 opacity-50" />}
+                </Button>
+
+                <Button variant="ghost" size="icon" onClick={onAddBookmark} title="Yer İmlerime Ekle">
+                  <BookmarkPlus className="h-5 w-5" />
+                </Button>
+              </>
+            )}
 
             <Popover>
               <PopoverTrigger asChild>
@@ -161,7 +167,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   {chapters.slice().reverse().map((ch) => (
                     <Link
                       key={ch.id}
-                      to={`/manga/${mangaId}/chapter/${ch.id}`}
+                      to={`/manga/${mangaId}/chapter/${ch.id}?page=1`}
                       className={`rounded-lg px-3 py-2 text-sm transition-colors ${ch.id === currentChapter.id
                         ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                         : 'hover:bg-secondary text-foreground'
@@ -258,7 +264,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             asChild={!!prevChapter}
           >
             {prevChapter ? (
-              <Link to={`/manga/${mangaId}/chapter/${prevChapter.id}`}>
+              <Link to={`/manga/${mangaId}/chapter/${prevChapter.id}?page=1`}>
                 <ChevronLeft className="h-4 w-4" />
                 Önceki
               </Link>
@@ -389,7 +395,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             asChild={!!nextChapter}
           >
             {nextChapter ? (
-              <Link to={`/manga/${mangaId}/chapter/${nextChapter.id}`}>
+              <Link to={`/manga/${mangaId}/chapter/${nextChapter.id}?page=1`}>
                 Sonraki
                 <ChevronRight className="h-4 w-4" />
               </Link>

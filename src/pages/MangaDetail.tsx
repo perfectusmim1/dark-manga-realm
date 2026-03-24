@@ -55,6 +55,7 @@ import {
   addFavorite,
   removeFavorite,
   isFavorite,
+  getChapterReadProgressMap,
   getLatestProgress,
   updateFavoriteCategory,
   followManga,
@@ -227,6 +228,7 @@ const MangaDetail: React.FC = () => {
   const [isOfflineView, setIsOfflineView] = useState(false);
   const [isSeriesDownloadDialogOpen, setIsSeriesDownloadDialogOpen] = useState(false);
   const [isQueueingSeriesDownload, setIsQueueingSeriesDownload] = useState(false);
+  const [chapterReadMap, setChapterReadMap] = useState<Record<string, { isRead?: boolean; readProgressPercent?: number }>>({});
 
   const offlineSeriesEntry = useMemo<OfflineMangaGroup | undefined>(() => (
     offlineSnapshot.series.find((entry) => entry.manga.mangaId === (manga?.id || mangaId))
@@ -238,6 +240,27 @@ const MangaDetail: React.FC = () => {
       return map;
     }, {})
   ), [offlineSeriesEntry]);
+
+  const mergedChapterReadMap = useMemo(() => {
+    const merged = { ...chapterReadMap };
+
+    Object.entries(offlineChapterMap).forEach(([chapterId, chapter]) => {
+      if (!chapter.isRead && !chapter.readProgressPercent) {
+        return;
+      }
+
+      merged[chapterId] = {
+        ...merged[chapterId],
+        isRead: Boolean(merged[chapterId]?.isRead || chapter.isRead),
+        readProgressPercent: Math.max(
+          Number(merged[chapterId]?.readProgressPercent || 0),
+          Number(chapter.readProgressPercent || 0),
+        ),
+      };
+    });
+
+    return merged;
+  }, [chapterReadMap, offlineChapterMap]);
 
   const primaryOfflineJob = useMemo(() => {
     if (!offlineSeriesEntry) {
@@ -303,6 +326,7 @@ const MangaDetail: React.FC = () => {
         if (!user) {
           setSeriesReadingSeconds(0);
           setBlockedUserIds([]);
+          setChapterReadMap({});
         }
 
         // Wave 1: Fetch the most important thing (Manga Metadata)
@@ -332,6 +356,7 @@ const MangaDetail: React.FC = () => {
               getUserReview(mangaId, user.id),
               getFavorites(user.id),
               getBlockedUserIds(user.id),
+              getChapterReadProgressMap(user.id, mangaId),
               getMangaReadingTimeTotal(user.id, mangaId),
             ]) : Promise.all([
               getReviewsForManga(mangaId)
@@ -341,7 +366,7 @@ const MangaDetail: React.FC = () => {
             setIsCharsLoading(false);
 
             if (user && Array.isArray(uInfo) && uInfo.length > 1) {
-              const [, favorited, following, rating, progress, mReviews, uReview, userFavorites, blockedUsersResult, mangaReadingTime] = uInfo;
+              const [, favorited, following, rating, progress, mReviews, uReview, userFavorites, blockedUsersResult, chapterReadProgress, mangaReadingTime] = uInfo;
               setFavorite(favorited as boolean);
               setIsFollowing(following as boolean);
               setUserRating(rating as number);
@@ -349,6 +374,7 @@ const MangaDetail: React.FC = () => {
               setReviews(mReviews as Review[]);
               if (uReview) setUserReview(uReview as Review);
               setBlockedUserIds((blockedUsersResult as { ids?: string[] })?.ids || []);
+              setChapterReadMap((chapterReadProgress as Record<string, { isRead?: boolean; readProgressPercent?: number }>) || {});
               setSeriesReadingSeconds(Number(mangaReadingTime) || 0);
               
               const favs = userFavorites as Favorite[];
@@ -357,6 +383,7 @@ const MangaDetail: React.FC = () => {
             } else if (uInfo && Array.isArray(uInfo)) {
               setReviews(uInfo[0] as Review[]);
               setSeriesReadingSeconds(0);
+              setChapterReadMap({});
             }
 
             setIsSeriesReadingTimeLoading(false);
@@ -388,6 +415,7 @@ const MangaDetail: React.FC = () => {
             setMangaCharacters([]);
             setSimilarMangas([]);
             setBlockedUserIds([]);
+            setChapterReadMap({});
             setSeriesReadingSeconds(0);
             setIsOfflineView(true);
             setIsLoading(false);
@@ -411,6 +439,7 @@ const MangaDetail: React.FC = () => {
           setMangaCharacters([]);
           setSimilarMangas([]);
           setBlockedUserIds([]);
+          setChapterReadMap({});
           setSeriesReadingSeconds(0);
           setIsOfflineView(true);
           setIsReviewsLoading(false);
@@ -586,8 +615,6 @@ const MangaDetail: React.FC = () => {
         toast.info('Bu serinin tüm bölümleri zaten çevrimdışı hazır');
         return;
       }
-
-      toast.success('Seri arka planda indiriliyor. Sağ alttan takibini görebilirsin.');
     } catch (error) {
       console.error('Series download queue error:', error);
       toast.error('Seri indirilemedi');
@@ -613,8 +640,6 @@ const MangaDetail: React.FC = () => {
         toast.info(`Bölüm ${chapter.number} zaten çevrimdışı hazır`);
         return;
       }
-
-      toast.success(`Bölüm ${chapter.number} arka planda indiriliyor. Sağ alttan takip edebilirsin.`);
     } catch (error) {
       console.error('Chapter download queue error:', error);
       toast.error('Bölüm kuyruğa eklenemedi');
@@ -1136,7 +1161,12 @@ const MangaDetail: React.FC = () => {
                               <div className="min-w-0">
                                 <Link
                                   to={`/manga/${manga.id}/chapter/${chapter.id}`}
-                                  className="font-medium transition-colors hover:text-primary"
+                                  className={cn(
+                                    "font-medium transition-colors",
+                                    mergedChapterReadMap[chapter.id]?.isRead
+                                      ? "text-emerald-400 hover:text-emerald-300"
+                                      : "hover:text-primary",
+                                  )}
                                 >
                                   Bölüm {chapter.number}: {chapter.title}
                                 </Link>
@@ -1149,8 +1179,8 @@ const MangaDetail: React.FC = () => {
                                     <Eye className="h-3 w-3" />
                                     {formatViews(chapter.views || 0)}
                                   </span>
-                                  {offlineChapterMap[chapter.id]?.isRead && (
-                                    <Badge variant="secondary" className="text-[10px]">
+                                  {mergedChapterReadMap[chapter.id]?.isRead && (
+                                    <Badge variant="secondary" className="text-[10px] border-emerald-500/20 bg-emerald-500/15 text-emerald-300">
                                       Okundu
                                     </Badge>
                                   )}

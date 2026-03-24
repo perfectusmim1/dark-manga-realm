@@ -1,4 +1,4 @@
-import { updateReadingProgress } from '@/lib/storage';
+import { syncChapterReadProgress, updateReadingProgress } from '@/lib/storage';
 import {
   addPendingReaderSync,
   getPendingReaderSyncItems,
@@ -97,6 +97,13 @@ export const flushPendingReaderSync = async () => {
             chapterId: payload.chapterId,
             chapterNumber: payload.chapterNumber,
             page: payload.page,
+          });
+          await syncChapterReadProgress(item.userId, {
+            mangaId: payload.mangaId,
+            chapterId: payload.chapterId,
+            chapterNumber: payload.chapterNumber,
+            page: payload.page,
+            pageCount: payload.pageCount || payload.page,
           });
         } else {
           await removePendingReaderSyncItem(item.id);

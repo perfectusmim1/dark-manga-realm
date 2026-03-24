@@ -86,6 +86,7 @@ export interface PendingReaderProgressPayload {
   chapterId: string;
   chapterNumber: number;
   page: number;
+  pageCount?: number;
 }
 
 export interface PendingReaderActivityPayload {

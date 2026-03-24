@@ -10,6 +10,7 @@ import TagBadge from '@/components/tags/TagBadge';
 import ReadingListCover from '@/components/manga/ReadingListCover';
 import { getTrendingTags } from '@/lib/database';
 import { Tag } from '@/lib/types';
+import { getCompletedChapterCountsByUser } from '@/lib/storage';
 
 interface LeaderboardUser {
   id: string;
@@ -92,9 +93,7 @@ const Community: React.FC = () => {
         }
 
         if (category === 'chapters') {
-          const { data, error } = await supabase.from('reading_activity_log').select('user_id');
-          if (error) throw error;
-          data.forEach((r: any) => { userCounts[r.user_id] = (userCounts[r.user_id] || 0) + 1; });
+          userCounts = await getCompletedChapterCountsByUser();
         } else {
           const { data, error } = await supabase.from('comments').select('user_id');
           if (error) throw error;

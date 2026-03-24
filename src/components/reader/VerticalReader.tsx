@@ -68,10 +68,15 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
         const targetElement = document.querySelector(`[data-page-index="${initialPage - 1}"]`);
         if (targetElement) {
           window.scrollTo({
-            top: (targetElement as HTMLElement).offsetTop - 80,
+            top: Math.max(0, (targetElement as HTMLElement).offsetTop - 80),
             behavior: 'auto'
           });
         }
+      } else {
+        window.scrollTo({
+          top: 0,
+          behavior: 'auto'
+        });
       }
       setScrolledToInitial(true);
     }, 500);

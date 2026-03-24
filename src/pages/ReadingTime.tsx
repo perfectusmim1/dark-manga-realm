@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BookOpen, CalendarDays, Clock3, Flame, LineChart } from 'lucide-react';
+import { BookOpen, CalendarDays, Clock3, Flame, Info, LineChart } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
@@ -138,6 +138,14 @@ const ReadingTime: React.FC = () => {
                     <div className="rounded-2xl border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground">
                         Aktif görünüm: <span className="font-semibold text-foreground">{RANGE_LABELS[range]}</span>
                     </div>
+                </div>
+
+                <div className="mb-6 flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/85">
+                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                    <p>
+                        Okuma süresi verileri tahmini olarak hesaplanır. Arka planda açık kalan sekmeler, çevrimdışı kullanım ve bağlantı farkları nedeniyle
+                        gösterilen süre tam birebir olmayabilir.
+                    </p>
                 </div>
 
                 {isOverviewLoading ? (

@@ -2,9 +2,9 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route } from "react-router-dom";
+import { BrowserRouter, Routes, Route, matchPath, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import { initializeMockData } from "@/lib/mockData";
 
 // Pages
@@ -78,6 +78,37 @@ const AppInitializer = ({ children }: { children: React.ReactNode }) => {
 
 import SecurityWrapper from "@/components/security/SecurityWrapper";
 
+const OfflineStartupRedirect = () => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const hasCheckedInitialRoute = useRef(false);
+
+  useEffect(() => {
+    if (hasCheckedInitialRoute.current) {
+      return;
+    }
+
+    hasCheckedInitialRoute.current = true;
+
+    if (typeof window === 'undefined' || navigator.onLine) {
+      return;
+    }
+
+    const path = location.pathname;
+    const isOfflineReadyRoute =
+      path === '/'
+      || path === '/downloads'
+      || Boolean(matchPath('/manga/:mangaId', path))
+      || Boolean(matchPath('/manga/:mangaId/chapter/:chapterId', path));
+
+    if (!isOfflineReadyRoute) {
+      navigate('/downloads', { replace: true });
+    }
+  }, [location.pathname, navigate]);
+
+  return null;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -87,6 +118,7 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter>
+              <OfflineStartupRedirect />
               <ScrollToTop />
               <Routes>
                 {/* Public Routes */}

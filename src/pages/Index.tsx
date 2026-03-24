@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen, ChevronLeft, ChevronRight } from 'lucide-react';
+import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen, ChevronLeft, ChevronRight, Download, WifiOff } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import TopTenSection from '@/components/manga/TopTenSection';
@@ -15,6 +15,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import HomeSkeleton from '@/components/skeletons/HomeSkeleton';
 import { Manga, Tag } from '@/lib/types';
 import { AnimatePresence, motion } from 'framer-motion';
+import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
+import { OfflineMangaGroup } from '@/lib/offline/types';
 
 interface HorizontalMangaSectionProps {
   title: string;
@@ -133,6 +135,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
 const Index: React.FC = () => {
   const { user } = useAuth();
+  const { snapshot: offlineSnapshot, isLoading: offlineLibraryLoading, isOnline } = useOfflineLibrary();
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [continueReading, setContinueReading] = useState<{ manga: Manga; chapterId: string; chapterNumber: number }[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -140,11 +143,52 @@ const Index: React.FC = () => {
   const [trendingTags, setTrendingTags] = useState<Tag[]>([]);
   const [tagsLoading, setTagsLoading] = useState(true);
 
+  const offlineManga = React.useMemo<Manga[]>(() => (
+    offlineSnapshot.series.map((entry: OfflineMangaGroup) => ({
+      id: entry.manga.mangaId,
+      title: entry.manga.title,
+      alternativeTitles: [],
+      cover: entry.manga.cover,
+      banner: entry.manga.banner,
+      author: entry.manga.author,
+      artist: entry.manga.artist,
+      status: entry.manga.status,
+      genres: entry.manga.genres,
+      description: entry.manga.description,
+      ratings: [],
+      views: 0,
+      chapters: entry.chapters
+        .slice()
+        .sort((a, b) => b.chapterNumber - a.chapterNumber)
+        .map((chapter) => ({
+          id: chapter.chapterId,
+          number: chapter.chapterNumber,
+          title: chapter.title,
+          pages: chapter.sourcePageUrls,
+          releaseDate: chapter.releaseDate,
+          views: 0,
+        })),
+      lastUpdated: entry.manga.lastUpdated,
+      createdAt: entry.manga.createdAt,
+      type: entry.manga.type,
+      averageRating: 0,
+      reviewCount: 0,
+    }))
+  ), [offlineSnapshot.series]);
+
   useEffect(() => {
     const loadData = async () => {
       try {
         setIsLoading(true);
         setIsHistoryLoading(true);
+
+        if (!isOnline) {
+          setMangas(offlineManga);
+          setContinueReading([]);
+          setIsLoading(false);
+          setIsHistoryLoading(false);
+          return;
+        }
 
         // Wave 1: Fetch mangas (Main content)
         const allMangas = await getAllMangas();
@@ -180,15 +224,21 @@ const Index: React.FC = () => {
     loadData();
 
     const loadTrendingTags = async () => {
+      if (!isOnline) {
+        setTrendingTags([]);
+        setTagsLoading(false);
+        return;
+      }
+
       setTagsLoading(true);
       const tags = await getTrendingTags(20);
       setTrendingTags(tags);
       setTagsLoading(false);
     };
     loadTrendingTags();
-  }, [user]);
+  }, [isOnline, offlineManga, user]);
 
-  if (isLoading) {
+  if ((isLoading && isOnline) || (!isOnline && offlineLibraryLoading)) {
     return (
       <>
         <Header />
@@ -197,7 +247,7 @@ const Index: React.FC = () => {
     );
   }
 
-  const trendingManga = mangas.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8);
+  const trendingManga = [...mangas].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8);
   const newlyAddedSeries = [...mangas]
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
     .slice(0, 8);
@@ -216,10 +266,36 @@ const Index: React.FC = () => {
           <InstallAppBanner className="mb-8" />
         </div>
 
-        {/* Top 10 Section */}
-        <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
-          <TopTenSection />
-        </div>
+        {!isOnline && (
+          <section className="mb-10 animate-fade-up rounded-[28px] border border-blue-500/20 bg-blue-500/10 p-6 opacity-0 shadow-[0_20px_50px_rgba(14,165,233,0.08)]" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+              <div className="flex items-start gap-3">
+                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/15 text-blue-300">
+                  <WifiOff className="h-5 w-5" />
+                </div>
+                <div>
+                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">Çevrimdışı Mod</p>
+                  <h2 className="mt-1 text-2xl font-black tracking-tight">Ana sayfa yerel kütüphane ile açıldı</h2>
+                  <p className="mt-2 max-w-2xl text-sm text-blue-100/75">
+                    Bu modda yalnızca indirilen seriler güvenli şekilde açılır. Topluluk, arama ve online içerikler internet isteyebilir.
+                  </p>
+                </div>
+              </div>
+              <Button asChild variant="glow" className="rounded-full px-5">
+                <Link to="/downloads">
+                  <Download className="mr-2 h-4 w-4" />
+                  İndirilenlere Git
+                </Link>
+              </Button>
+            </div>
+          </section>
+        )}
+
+        {isOnline && (
+          <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+            <TopTenSection />
+          </div>
+        )}
 
         {/* Continue Reading Section */}
         {user && continueReading.length > 0 && (
@@ -270,83 +346,112 @@ const Index: React.FC = () => {
           </section>
         )}
 
-        {/* Newly Added Series Section */}
-        <HorizontalMangaSection
-          title="Yeni Çıkan Seriler"
-          icon={Sparkles}
-          iconClassName="h-5 w-5 text-amber-400"
-          linkTo="/browse?sort=created"
-          manga={newlyAddedSeries}
-          delay="0.18s"
-        />
+        {isOnline ? (
+          <>
+            <HorizontalMangaSection
+              title="Yeni Çıkan Seriler"
+              icon={Sparkles}
+              iconClassName="h-5 w-5 text-amber-400"
+              linkTo="/browse?sort=created"
+              manga={newlyAddedSeries}
+              delay="0.18s"
+            />
 
-        {/* Recently Updated Section */}
-        <HorizontalMangaSection
-          title="Son Güncellenenler"
-          icon={Clock}
-          iconClassName="h-5 w-5 text-primary"
-          linkTo="/browse?sort=updated"
-          manga={recentlyUpdated}
-          delay="0.2s"
-        />
+            <HorizontalMangaSection
+              title="Son Güncellenenler"
+              icon={Clock}
+              iconClassName="h-5 w-5 text-primary"
+              linkTo="/browse?sort=updated"
+              manga={recentlyUpdated}
+              delay="0.2s"
+            />
 
-        {/* Trending Section */}
-        <HorizontalMangaSection
-          title="Trend Olanlar"
-          icon={TrendingUp}
-          iconClassName="h-5 w-5 text-primary"
-          linkTo="/browse?sort=trending"
-          manga={trendingManga}
-          delay="0.25s"
-        />
+            <HorizontalMangaSection
+              title="Trend Olanlar"
+              icon={TrendingUp}
+              iconClassName="h-5 w-5 text-primary"
+              linkTo="/browse?sort=trending"
+              manga={trendingManga}
+              delay="0.25s"
+            />
 
-        {/* Popular Manhwa Section */}
-        {popularManhwa.length > 0 && (
-          <HorizontalMangaSection
-            title="Popüler Manhwa"
-            icon={Sparkles}
-            iconClassName="h-5 w-5 text-purple-500"
-            linkTo="/browse?type=manhwa"
-            manga={popularManhwa}
-            delay="0.3s"
-          />
-        )}
-
-        {/* Popular Manhua Section */}
-        {popularManhua.length > 0 && (
-          <HorizontalMangaSection
-            title="Popüler Manhua"
-            icon={BookOpen}
-            iconClassName="h-5 w-5 text-green-500"
-            linkTo="/browse?type=manhua"
-            manga={popularManhua}
-            delay="0.35s"
-          />
-        )}
-
-        {/* Trending Tags Section */}
-        <section className="mt-16 animate-fade-up opacity-0" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
-          <div className="mb-6 flex items-center gap-2">
-            <TrendingUp className="h-5 w-5 text-primary" />
-            <h2 className="text-2xl font-bold tracking-tight">Trend Etiketler</h2>
-            <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2 h-5 text-[10px]">
-              Bu Hafta
-            </Badge>
-          </div>
-          <div className="flex flex-wrap gap-2.5 rounded-2xl border border-border bg-card/30 p-8 backdrop-blur-sm">
-            {tagsLoading ? (
-              Array.from({ length: 15 }).map((_, i) => (
-                <div key={i} className="h-8 rounded-full bg-secondary/30 animate-pulse" style={{ width: `${60 + (i % 5) * 20}px` }} />
-              ))
-            ) : (
-              trendingTags.map((tag, index) => (
-                <Link key={tag.id} to={`/browse?tags=${tag.slug}`}>
-                  <TagBadge tag={tag} size={index < 5 ? 'md' : 'sm'} />
-                </Link>
-              ))
+            {popularManhwa.length > 0 && (
+              <HorizontalMangaSection
+                title="Popüler Manhwa"
+                icon={Sparkles}
+                iconClassName="h-5 w-5 text-purple-500"
+                linkTo="/browse?type=manhwa"
+                manga={popularManhwa}
+                delay="0.3s"
+              />
             )}
-          </div>
-        </section>
+
+            {popularManhua.length > 0 && (
+              <HorizontalMangaSection
+                title="Popüler Manhua"
+                icon={BookOpen}
+                iconClassName="h-5 w-5 text-green-500"
+                linkTo="/browse?type=manhua"
+                manga={popularManhua}
+                delay="0.35s"
+              />
+            )}
+
+            <section className="mt-16 animate-fade-up opacity-0" style={{ animationDelay: '0.4s', animationFillMode: 'forwards' }}>
+              <div className="mb-6 flex items-center gap-2">
+                <TrendingUp className="h-5 w-5 text-primary" />
+                <h2 className="text-2xl font-bold tracking-tight">Trend Etiketler</h2>
+                <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2 h-5 text-[10px]">
+                  Bu Hafta
+                </Badge>
+              </div>
+              <div className="flex flex-wrap gap-2.5 rounded-2xl border border-border bg-card/30 p-8 backdrop-blur-sm">
+                {tagsLoading ? (
+                  Array.from({ length: 15 }).map((_, i) => (
+                    <div key={i} className="h-8 rounded-full bg-secondary/30 animate-pulse" style={{ width: `${60 + (i % 5) * 20}px` }} />
+                  ))
+                ) : (
+                  trendingTags.map((tag, index) => (
+                    <Link key={tag.id} to={`/browse?tags=${tag.slug}`}>
+                      <TagBadge tag={tag} size={index < 5 ? 'md' : 'sm'} />
+                    </Link>
+                  ))
+                )}
+              </div>
+            </section>
+          </>
+        ) : (
+          <section className="mt-10 animate-fade-up opacity-0" style={{ animationDelay: '0.16s', animationFillMode: 'forwards' }}>
+            <div className="mb-5 flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Download className="h-5 w-5 text-primary" />
+                <h2 className="text-xl font-bold tracking-tight md:text-2xl">İndirilen Seriler</h2>
+              </div>
+              <Badge variant="outline" className="rounded-full px-3 py-1">
+                {offlineManga.length} seri
+              </Badge>
+            </div>
+
+            {offlineManga.length > 0 ? (
+              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
+                {offlineManga.map((manga, index) => (
+                  <MangaCard key={manga.id} manga={manga} index={index} />
+                ))}
+              </div>
+            ) : (
+              <div className="rounded-[28px] border border-dashed border-border bg-card/30 p-10 text-center">
+                <Download className="mx-auto h-12 w-12 text-muted-foreground" />
+                <h3 className="mt-4 text-xl font-bold">Henüz indirilen seri yok</h3>
+                <p className="mt-2 text-sm text-muted-foreground">
+                  Çevrimdışında ana sayfadan açılabilecek seriler burada görünür.
+                </p>
+                <Button asChild className="mt-5" variant="outline">
+                  <Link to="/downloads">İndirilenler</Link>
+                </Button>
+              </div>
+            )}
+          </section>
+        )}
       </main>
 
       {/* Footer */}

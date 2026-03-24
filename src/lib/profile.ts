@@ -1,6 +1,7 @@
 import { supabase } from './supabase';
 import { User } from './types';
 import { parseCommentContent, stripCommentFormatting } from './commentContent';
+import { getCompletedChapterCount } from './storage';
 
 export interface ProfileRecentComment {
     id: string;
@@ -270,10 +271,7 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         .order('last_read', { ascending: false })
         .limit(4);
         
-    const { count: totalChapters } = await supabase
-        .from('reading_activity_log')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId);
+    const totalChapters = await getCompletedChapterCount(userId);
 
     const { data: readingTimeRows } = await supabase
         .from('reading_activity_log')

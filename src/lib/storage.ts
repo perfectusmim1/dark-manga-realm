@@ -3,7 +3,189 @@ import { supabase } from './supabase';
 
 const STORAGE_KEYS = {
     READER_SETTINGS: 'manga_reader_settings',
+    CHAPTER_READ_FALLBACK: 'toonparrot_chapter_read_progress_fallback',
     // We still keep local reader settings because they are device-specific and often don't need to be in DB
+};
+
+export interface ReadingHistoryEntry extends ReadingProgress {
+    mangaAlternativeTitles?: string[];
+    chapterTitle?: string;
+}
+
+export interface ChapterReadProgressEntry {
+    userId: string;
+    mangaId: string;
+    chapterId: string;
+    chapterNumber: number;
+    page: number;
+    pageCount: number;
+    maxPage: number;
+    readProgressPercent: number;
+    isRead: boolean;
+    lastRead: string;
+}
+
+export interface ChapterHistoryEntry extends ChapterReadProgressEntry {
+    mangaTitle?: string;
+    mangaCover?: string;
+    mangaAlternativeTitles?: string[];
+    chapterTitle?: string;
+}
+
+let chapterReadTableFeatureState: 'unknown' | 'available' | 'unavailable' = 'unknown';
+let chapterReadPublicFeatureState: 'unknown' | 'available' | 'unavailable' = 'unknown';
+
+const isMissingChapterReadFeatureError = (error: any) => {
+    const message = `${error?.message || ''} ${error?.details || ''} ${error?.hint || ''}`.toLowerCase();
+    const code = `${error?.code || ''}`.toLowerCase();
+
+    return (
+        code === '42p01'
+        || code === '42883'
+        || code === 'pgrst202'
+        || message.includes('chapter_read_progress')
+        || message.includes('upsert_chapter_read_progress')
+        || message.includes('does not exist')
+        || message.includes('could not find')
+    );
+};
+
+const handleChapterReadTableFeatureError = (error: any) => {
+    if (isMissingChapterReadFeatureError(error)) {
+        chapterReadTableFeatureState = 'unavailable';
+        return true;
+    }
+
+    console.error('Chapter read progress error:', error);
+    return false;
+};
+
+const handleChapterReadPublicFeatureError = (error: any) => {
+    if (isMissingChapterReadFeatureError(error)) {
+        chapterReadPublicFeatureState = 'unavailable';
+        return true;
+    }
+
+    console.error('Chapter read progress error:', error);
+    return false;
+};
+
+const mapAlternativeTitles = (manga: any): string[] =>
+    Array.isArray(manga?.alternative_titles)
+        ? manga.alternative_titles.filter((title: unknown): title is string => typeof title === 'string' && Boolean(title))
+        : [];
+
+const normalizeChapterReadProgress = (row: any): ChapterReadProgressEntry => ({
+    userId: row.user_id,
+    mangaId: row.manga_id,
+    chapterId: row.chapter_id,
+    chapterNumber: Number(row.chapter_number),
+    page: row.page || 1,
+    pageCount: row.page_count || 1,
+    maxPage: row.max_page || 1,
+    readProgressPercent: Number(row.read_progress_percent || 0),
+    isRead: Boolean(row.is_read),
+    lastRead: row.last_read,
+});
+
+type LocalChapterReadStore = Record<string, Record<string, ChapterReadProgressEntry>>;
+
+const getLocalChapterReadStore = (): LocalChapterReadStore => {
+    if (typeof window === 'undefined') {
+        return {};
+    }
+
+    const raw = window.localStorage.getItem(STORAGE_KEYS.CHAPTER_READ_FALLBACK);
+    if (!raw) {
+        return {};
+    }
+
+    try {
+        return JSON.parse(raw) as LocalChapterReadStore;
+    } catch {
+        return {};
+    }
+};
+
+const setLocalChapterReadStore = (store: LocalChapterReadStore) => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    window.localStorage.setItem(STORAGE_KEYS.CHAPTER_READ_FALLBACK, JSON.stringify(store));
+};
+
+const getLocalChapterReadEntries = (userId: string): ChapterReadProgressEntry[] => {
+    const store = getLocalChapterReadStore();
+    return Object.values(store[userId] || {}).sort(
+        (a, b) => new Date(b.lastRead).getTime() - new Date(a.lastRead).getTime(),
+    );
+};
+
+const upsertLocalChapterReadProgress = (
+    userId: string,
+    progress: {
+        mangaId: string;
+        chapterId: string;
+        chapterNumber: number;
+        page: number;
+        pageCount: number;
+    },
+): ChapterReadProgressEntry => {
+    const safePageCount = Math.max(1, progress.pageCount || 1);
+    const safePage = Math.max(1, Math.min(progress.page || 1, safePageCount));
+    const nextPercent = Math.min(100, (safePage / safePageCount) * 100);
+    const now = new Date().toISOString();
+    const store = getLocalChapterReadStore();
+    const existing = store[userId]?.[progress.chapterId];
+
+    const nextEntry: ChapterReadProgressEntry = {
+        userId,
+        mangaId: progress.mangaId,
+        chapterId: progress.chapterId,
+        chapterNumber: progress.chapterNumber,
+        page: Math.max(existing?.page || 1, safePage),
+        pageCount: Math.max(existing?.pageCount || 1, safePageCount),
+        maxPage: Math.max(existing?.maxPage || 1, safePage),
+        readProgressPercent: Math.max(existing?.readProgressPercent || 0, nextPercent),
+        isRead: Boolean(existing?.isRead || nextPercent >= 60),
+        lastRead: now,
+    };
+
+    store[userId] = {
+        ...(store[userId] || {}),
+        [progress.chapterId]: nextEntry,
+    };
+
+    setLocalChapterReadStore(store);
+    return nextEntry;
+};
+
+const mergeChapterReadEntries = (
+    primary: Record<string, ChapterReadProgressEntry>,
+    fallbackEntries: ChapterReadProgressEntry[],
+) => {
+    const merged = { ...primary };
+
+    fallbackEntries.forEach((entry) => {
+        const current = merged[entry.chapterId];
+        if (!current) {
+            merged[entry.chapterId] = entry;
+            return;
+        }
+
+        merged[entry.chapterId] = {
+            ...current,
+            page: Math.max(current.page, entry.page),
+            pageCount: Math.max(current.pageCount, entry.pageCount),
+            maxPage: Math.max(current.maxPage, entry.maxPage),
+            readProgressPercent: Math.max(current.readProgressPercent, entry.readProgressPercent),
+            isRead: current.isRead || entry.isRead,
+            lastRead: new Date(current.lastRead) > new Date(entry.lastRead) ? current.lastRead : entry.lastRead,
+        };
+    });
+
+    return merged;
 };
 
 // ==================== FAVORITES (USER-SPECIFIC) ====================
@@ -90,6 +272,318 @@ export const getReadingHistory = async (userId: string): Promise<ReadingProgress
         mangaTitle: p.manga?.title,
         mangaCover: p.manga?.cover
     }));
+};
+
+export const getReadingHistoryEntries = async (userId: string): Promise<ReadingHistoryEntry[]> => {
+    const { data, error } = await supabase
+        .from('reading_progress')
+        .select(`
+            user_id,
+            manga_id,
+            chapter_id,
+            chapter_number,
+            page,
+            last_read,
+            manga:mangas(id, title, cover, alternative_titles),
+            chapter:chapters(title)
+        `)
+        .eq('user_id', userId)
+        .order('last_read', { ascending: false });
+
+    if (error) {
+        console.error('Reading history entries fetch error:', error);
+        const fallbackHistory = await getReadingHistory(userId);
+        return fallbackHistory.map((entry) => ({
+            ...entry,
+            mangaAlternativeTitles: [],
+            chapterTitle: undefined,
+        }));
+    }
+
+    return (data || []).map((entry: any) => ({
+        userId: entry.user_id,
+        mangaId: entry.manga_id,
+        chapterId: entry.chapter_id,
+        chapterNumber: Number(entry.chapter_number),
+        page: entry.page,
+        lastRead: entry.last_read,
+        mangaTitle: entry.manga?.title,
+        mangaCover: entry.manga?.cover,
+        mangaAlternativeTitles: mapAlternativeTitles(entry.manga),
+        chapterTitle: entry.chapter?.title,
+    }));
+};
+
+export const syncChapterReadProgress = async (
+    userId: string,
+    progress: {
+        mangaId: string;
+        chapterId: string;
+        chapterNumber: number;
+        page: number;
+        pageCount: number;
+    },
+): Promise<ChapterReadProgressEntry | null> => {
+    if (!userId) {
+        return null;
+    }
+
+    const localEntry = upsertLocalChapterReadProgress(userId, progress);
+
+    if (chapterReadTableFeatureState === 'unavailable') {
+        return localEntry;
+    }
+
+    const { data, error } = await supabase.rpc('upsert_chapter_read_progress', {
+        p_manga_id: progress.mangaId,
+        p_chapter_id: progress.chapterId,
+        p_chapter_number: progress.chapterNumber,
+        p_page: progress.page,
+        p_page_count: progress.pageCount,
+    });
+
+    if (error) {
+        if (handleChapterReadTableFeatureError(error)) {
+            return localEntry;
+        }
+
+        return localEntry;
+    }
+
+    chapterReadTableFeatureState = 'available';
+    return normalizeChapterReadProgress(data);
+};
+
+export const getChapterReadProgressMap = async (
+    userId: string,
+    mangaId: string,
+): Promise<Record<string, ChapterReadProgressEntry>> => {
+    if (!userId) {
+        return {};
+    }
+
+    const localEntries = getLocalChapterReadEntries(userId)
+        .filter((entry) => entry.mangaId === mangaId);
+
+    if (chapterReadTableFeatureState === 'unavailable') {
+        return localEntries.reduce<Record<string, ChapterReadProgressEntry>>((map, entry) => {
+            map[entry.chapterId] = entry;
+            return map;
+        }, {});
+    }
+
+    const { data, error } = await supabase
+        .from('chapter_read_progress')
+        .select(`
+            user_id,
+            manga_id,
+            chapter_id,
+            chapter_number,
+            page,
+            page_count,
+            max_page,
+            read_progress_percent,
+            is_read,
+            last_read
+        `)
+        .eq('user_id', userId)
+        .eq('manga_id', mangaId);
+
+    if (error) {
+        if (handleChapterReadTableFeatureError(error)) {
+            return localEntries.reduce<Record<string, ChapterReadProgressEntry>>((map, entry) => {
+                map[entry.chapterId] = entry;
+                return map;
+            }, {});
+        }
+
+        return localEntries.reduce<Record<string, ChapterReadProgressEntry>>((map, entry) => {
+            map[entry.chapterId] = entry;
+            return map;
+        }, {});
+    }
+
+    chapterReadTableFeatureState = 'available';
+    const remoteEntries = (data || []).reduce<Record<string, ChapterReadProgressEntry>>((map, row: any) => {
+        map[row.chapter_id] = normalizeChapterReadProgress(row);
+        return map;
+    }, {});
+
+    return mergeChapterReadEntries(remoteEntries, localEntries);
+};
+
+export const getChapterHistoryEntries = async (userId: string): Promise<ChapterHistoryEntry[]> => {
+    if (!userId) {
+        return [];
+    }
+
+    const localEntries = getLocalChapterReadEntries(userId);
+
+    const buildLocalFallbackHistory = async () => {
+        if (localEntries.length === 0) {
+            const fallbackHistory = await getReadingHistoryEntries(userId);
+            return fallbackHistory.map((entry) => ({
+                userId: entry.userId,
+                mangaId: entry.mangaId,
+                chapterId: entry.chapterId,
+                chapterNumber: entry.chapterNumber,
+                page: entry.page,
+                pageCount: entry.page,
+                maxPage: entry.page,
+                readProgressPercent: 0,
+                isRead: false,
+                lastRead: entry.lastRead,
+                mangaTitle: entry.mangaTitle,
+                mangaCover: entry.mangaCover,
+                mangaAlternativeTitles: entry.mangaAlternativeTitles,
+                chapterTitle: entry.chapterTitle,
+            }));
+        }
+
+        const mangaIds = [...new Set(localEntries.map((entry) => entry.mangaId))];
+        const chapterIds = [...new Set(localEntries.map((entry) => entry.chapterId))];
+
+        const [{ data: mangas }, { data: chapters }] = await Promise.all([
+            supabase
+                .from('mangas')
+                .select('id, title, cover, alternative_titles')
+                .in('id', mangaIds),
+            supabase
+                .from('chapters')
+                .select('id, title')
+                .in('id', chapterIds),
+        ]);
+
+        const mangaMap = (mangas || []).reduce<Record<string, any>>((map, manga: any) => {
+            map[manga.id] = manga;
+            return map;
+        }, {});
+        const chapterMap = (chapters || []).reduce<Record<string, any>>((map, chapter: any) => {
+            map[chapter.id] = chapter;
+            return map;
+        }, {});
+
+        return localEntries.map((entry) => ({
+            ...entry,
+            mangaTitle: mangaMap[entry.mangaId]?.title,
+            mangaCover: mangaMap[entry.mangaId]?.cover,
+            mangaAlternativeTitles: mapAlternativeTitles(mangaMap[entry.mangaId]),
+            chapterTitle: chapterMap[entry.chapterId]?.title,
+        }));
+    };
+
+    if (chapterReadTableFeatureState === 'unavailable') {
+        return buildLocalFallbackHistory();
+    }
+
+    const { data, error } = await supabase
+        .from('chapter_read_progress')
+        .select(`
+            user_id,
+            manga_id,
+            chapter_id,
+            chapter_number,
+            page,
+            page_count,
+            max_page,
+            read_progress_percent,
+            is_read,
+            last_read,
+            manga:mangas(id, title, cover, alternative_titles),
+            chapter:chapters(title)
+        `)
+        .eq('user_id', userId)
+        .order('last_read', { ascending: false });
+
+    if (error) {
+        if (handleChapterReadTableFeatureError(error)) {
+            return buildLocalFallbackHistory();
+        }
+
+        return buildLocalFallbackHistory();
+    }
+
+    chapterReadTableFeatureState = 'available';
+    const remoteEntries = (data || []).map((entry: any) => ({
+        ...normalizeChapterReadProgress(entry),
+        mangaTitle: entry.manga?.title,
+        mangaCover: entry.manga?.cover,
+        mangaAlternativeTitles: mapAlternativeTitles(entry.manga),
+        chapterTitle: entry.chapter?.title,
+    }));
+
+    const mergedEntries = mergeChapterReadEntries(
+        remoteEntries.reduce<Record<string, ChapterReadProgressEntry>>((map, entry) => {
+            map[entry.chapterId] = entry;
+            return map;
+        }, {}),
+        localEntries,
+    );
+
+    const remoteMetadataMap = remoteEntries.reduce<Record<string, ChapterHistoryEntry>>((map, entry) => {
+        map[entry.chapterId] = entry;
+        return map;
+    }, {});
+
+    return Object.values(mergedEntries)
+        .map((entry) => ({
+            ...entry,
+            mangaTitle: remoteMetadataMap[entry.chapterId]?.mangaTitle,
+            mangaCover: remoteMetadataMap[entry.chapterId]?.mangaCover,
+            mangaAlternativeTitles: remoteMetadataMap[entry.chapterId]?.mangaAlternativeTitles || [],
+            chapterTitle: remoteMetadataMap[entry.chapterId]?.chapterTitle,
+        }))
+        .sort((a, b) => new Date(b.lastRead).getTime() - new Date(a.lastRead).getTime());
+};
+
+export const getCompletedChapterCount = async (userId: string): Promise<number> => {
+    if (!userId) {
+        return 0;
+    }
+
+    if (chapterReadPublicFeatureState !== 'unavailable') {
+        const { data, error } = await supabase.rpc('get_public_chapter_read_count', {
+            p_user_id: userId,
+        });
+
+        if (!error) {
+            chapterReadPublicFeatureState = 'available';
+            return Number(data || 0);
+        }
+
+        if (!handleChapterReadPublicFeatureError(error)) {
+            return 0;
+        }
+    }
+
+    const { count } = await supabase
+        .from('reading_activity_log')
+        .select('id', { count: 'exact', head: true })
+        .eq('user_id', userId);
+
+    return count || 0;
+};
+
+export const getCompletedChapterCountsByUser = async (): Promise<Record<string, number>> => {
+    if (chapterReadPublicFeatureState !== 'unavailable') {
+        const { data, error } = await supabase.rpc('get_public_chapter_read_leaderboard_counts');
+
+        if (!error) {
+            chapterReadPublicFeatureState = 'available';
+            return (data || []).reduce<Record<string, number>>((counts, row: any) => {
+                counts[row.user_id] = Number(row.read_count || 0);
+                return counts;
+            }, {});
+        }
+
+        handleChapterReadPublicFeatureError(error);
+    }
+
+    const { data } = await supabase.from('reading_activity_log').select('user_id');
+    return (data || []).reduce<Record<string, number>>((counts, row: any) => {
+        counts[row.user_id] = (counts[row.user_id] || 0) + 1;
+        return counts;
+    }, {});
 };
 
 export const updateReadingProgress = async (userId: string, progress: Omit<ReadingProgress, 'lastRead' | 'userId'>): Promise<void> => {
