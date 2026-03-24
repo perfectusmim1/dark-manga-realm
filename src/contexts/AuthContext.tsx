@@ -95,11 +95,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const syncCurrentAuthProfile = async (currentUser: SupabaseUser): Promise<UserProfileRow | null> => {
+  const syncCurrentAuthProfile = async (
+    currentUser: SupabaseUser,
+    preferredUsername?: string
+  ): Promise<UserProfileRow | null> => {
     try {
       const baseUsername =
-        currentUser.user_metadata?.full_name ||
+        preferredUsername?.trim() ||
         currentUser.user_metadata?.username ||
+        currentUser.user_metadata?.full_name ||
         currentUser.email?.split('@')[0] ||
         'user';
 
@@ -114,11 +118,27 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       const profileRow = Array.isArray(data) ? data[0] : data;
-      return profileRow || null;
+      if (profileRow) {
+        return profileRow;
+      }
+
+      return await fetchProfile(currentUser.id);
     } catch (error) {
       console.error('Profile sync exception:', error);
       return null;
     }
+  };
+
+  const ensureProfile = async (
+    currentUser: SupabaseUser,
+    preferredUsername?: string
+  ): Promise<UserProfileRow | null> => {
+    const existingProfile = await fetchProfile(currentUser.id);
+    if (existingProfile) {
+      return existingProfile;
+    }
+
+    return await syncCurrentAuthProfile(currentUser, preferredUsername);
   };
 
   useEffect(() => {
@@ -129,18 +149,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       try {
         if (currentSession?.user) {
-          let profile = await fetchProfile(currentSession.user.id);
-          if (!profile && mounted) {
-            profile = await syncCurrentAuthProfile(currentSession.user);
-          }
+          const profile = await ensureProfile(currentSession.user);
 
           if (!mounted) return;
+
+          setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
+          setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(currentSession.user) ? prev : currentSession.user);
 
           // 3. Final safety check: set state
           if (profile) {
             const newUser = mapSupabaseUserToUser(currentSession.user, profile);
-            setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
-            setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(currentSession.user) ? prev : currentSession.user);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(newUser) ? prev : newUser);
           } else {
             console.error('Critical: Could not establish a user profile.');
@@ -234,7 +252,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: false, error: 'Oturum oluşturulamadı' };
       }
 
-      const profile = (await fetchProfile(sessionData.user.id)) || (await syncCurrentAuthProfile(sessionData.user));
+      const profile = await ensureProfile(sessionData.user);
 
       setSession(sessionData.session);
       setSupabaseUser(sessionData.user);
@@ -289,23 +307,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       if (data.user) {
-        // Also save to our users table for profile data
-        const { error: insertError } = await supabase
-          .from('users')
-          .insert([{
-            id: data.user.id,
-            username,
-            email,
-            password_hash: 'managed_by_supabase_auth',
-            role: 'user',
-          }]);
-
-        if (insertError) {
-          console.error('Error saving user profile:', insertError);
-        }
-
         if (data.session) {
-          const profile = await fetchProfile(data.user.id);
+          const profile = await ensureProfile(data.user, username);
           setSession(data.session);
           setSupabaseUser(data.user);
           setUser(mapSupabaseUserToUser(data.user, profile));
@@ -338,6 +341,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return { success: false, error: 'Oturum açılmamış' };
 
     try {
+      const currentAuthUser = supabaseUser || (await supabase.auth.getUser()).data.user;
+      if (!currentAuthUser) {
+        return { success: false, error: 'Oturum bulunamadı' };
+      }
+
+      await ensureProfile(currentAuthUser, updates.username || user.username);
+
       // Update our users table
       const { error: dbError } = await supabase
         .from('users')
@@ -347,16 +357,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (dbError) throw dbError;
 
       // Update Auth metadata if username changed
-      if (updates.username) {
-        const { error: authError } = await supabase.auth.updateUser({
-          data: { username: updates.username }
+      if (updates.username || updates.avatar !== undefined) {
+        const { data: authUpdateData, error: authError } = await supabase.auth.updateUser({
+          data: {
+            ...(updates.username ? { username: updates.username } : {}),
+            ...(updates.avatar !== undefined ? { avatar_url: updates.avatar } : {}),
+          }
         });
         if (authError) console.warn('Auth metadata update failed:', authError);
+        if (authUpdateData?.user) {
+          setSupabaseUser(authUpdateData.user);
+        }
       }
 
       // Refresh local state
-      const profile = await fetchProfile(user.id);
-      setUser(mapSupabaseUserToUser(supabaseUser!, profile));
+      const refreshedAuthUser = (await supabase.auth.getUser()).data.user || currentAuthUser;
+      const profile = await ensureProfile(refreshedAuthUser, updates.username || user.username);
+      setSupabaseUser(refreshedAuthUser);
+      setUser(mapSupabaseUserToUser(refreshedAuthUser, profile));
 
       return { success: true };
     } catch (error: any) {
@@ -395,6 +413,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return { success: false, error: 'Oturum açılmamış' };
 
     try {
+      const currentAuthUser = supabaseUser || (await supabase.auth.getUser()).data.user;
+      if (!currentAuthUser) {
+        return { success: false, error: 'Oturum bulunamadı' };
+      }
+
+      await ensureProfile(currentAuthUser, user.username);
+
       const { error } = await supabase
         .from('users')
         .update({ preferences: newPreferences })
@@ -403,8 +428,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (error) throw error;
 
       // Refresh local state
-      const profile = await fetchProfile(user.id);
-      setUser(mapSupabaseUserToUser(supabaseUser!, profile));
+      const profile = await ensureProfile(currentAuthUser, user.username);
+      setSupabaseUser(currentAuthUser);
+      setUser(mapSupabaseUserToUser(currentAuthUser, profile));
 
       return { success: true };
     } catch (error: any) {
@@ -437,7 +463,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       if (data.session) {
         setSession(data.session);
         setSupabaseUser(data.session.user);
-        const profile = await fetchProfile(data.session.user.id);
+        const profile = await ensureProfile(data.session.user);
         setUser(mapSupabaseUserToUser(data.session.user, profile));
       }
       return { success: true };
@@ -450,13 +476,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const toggle2FA = async (enabled: boolean): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'Oturum açılmamış' };
     try {
+      const currentAuthUser = supabaseUser || (await supabase.auth.getUser()).data.user;
+      if (!currentAuthUser) {
+        return { success: false, error: 'Oturum bulunamadı' };
+      }
+
+      await ensureProfile(currentAuthUser, user.username);
+
       const { error } = await supabase
         .from('users')
         .update({ two_factor_enabled: enabled })
         .eq('id', user.id);
       if (error) throw error;
 
-      setUser(prev => prev ? { ...prev, twoFactorEnabled: enabled } : null);
+      const profile = await ensureProfile(currentAuthUser, user.username);
+      setSupabaseUser(currentAuthUser);
+      setUser(mapSupabaseUserToUser(currentAuthUser, profile));
       return { success: true };
     } catch (error: any) {
       console.error('Toggle 2FA error:', error);

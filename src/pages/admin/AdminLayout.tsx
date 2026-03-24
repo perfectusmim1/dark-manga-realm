@@ -73,53 +73,57 @@ const AdminLayout: React.FC = () => {
                 className={`fixed left-0 top-0 z-40 h-screen bg-card border-r border-border transition-all duration-300 ${sidebarOpen ? 'w-64' : 'w-20'
                     }`}
             >
-                <div className="flex h-16 items-center justify-between border-b border-border px-4">
-                    {sidebarOpen && (
-                        <Link to="/" className="flex items-center">
-                            <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
-                        </Link>
-                    )}
-                    <Button
-                        variant="ghost"
-                        size="icon"
-                        onClick={() => setSidebarOpen(!sidebarOpen)}
-                    >
-                        {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-                    </Button>
-                </div>
-
-                <nav className="flex flex-col gap-1 p-4">
-                    {menuItems.map((item) => (
-                        <Link
-                            key={item.path}
-                            to={item.path}
-                            className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isActive(item.path)
-                                ? 'bg-primary text-primary-foreground'
-                                : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
-                                }`}
+                <div className="flex h-full min-h-0 flex-col">
+                    <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-4">
+                        {sidebarOpen && (
+                            <Link to="/" className="flex items-center">
+                                <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
+                            </Link>
+                        )}
+                        <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setSidebarOpen(!sidebarOpen)}
                         >
-                            <item.icon className="h-5 w-5 shrink-0" />
-                            {sidebarOpen && <span>{item.label}</span>}
-                        </Link>
-                    ))}
-                </nav>
+                            {sidebarOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+                        </Button>
+                    </div>
 
-                <div className="absolute bottom-0 left-0 right-0 border-t border-border p-4">
-                    <div className={`flex items-center gap-3 ${sidebarOpen ? '' : 'justify-center'}`}>
-                        <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                            {user.username[0].toUpperCase()}
+                    <nav className="flex-1 overflow-y-auto px-4 py-4">
+                        <div className="flex flex-col gap-1 pb-6">
+                            {menuItems.map((item) => (
+                                <Link
+                                    key={item.path}
+                                    to={item.path}
+                                    className={`flex items-center gap-3 rounded-lg px-3 py-2.5 transition-colors ${isActive(item.path)
+                                        ? 'bg-primary text-primary-foreground'
+                                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground'
+                                        }`}
+                                >
+                                    <item.icon className="h-5 w-5 shrink-0" />
+                                    {sidebarOpen && <span>{item.label}</span>}
+                                </Link>
+                            ))}
                         </div>
-                        {sidebarOpen && (
-                            <div className="flex-1">
-                                <p className="text-sm font-medium">{user.username}</p>
-                                <p className="text-xs text-muted-foreground">{user.role}</p>
+                    </nav>
+
+                    <div className="shrink-0 border-t border-border p-4">
+                        <div className={`flex items-center gap-3 ${sidebarOpen ? '' : 'justify-center'}`}>
+                            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                {user.username[0].toUpperCase()}
                             </div>
-                        )}
-                        {sidebarOpen && (
-                            <Button variant="ghost" size="icon" onClick={() => void handleLogout()}>
-                                <LogOut className="h-5 w-5" />
-                            </Button>
-                        )}
+                            {sidebarOpen && (
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate text-sm font-medium">{user.username}</p>
+                                    <p className="text-xs text-muted-foreground">{user.role}</p>
+                                </div>
+                            )}
+                            {sidebarOpen && (
+                                <Button variant="ghost" size="icon" onClick={() => void handleLogout()}>
+                                    <LogOut className="h-5 w-5" />
+                                </Button>
+                            )}
+                        </div>
                     </div>
                 </div>
             </aside>

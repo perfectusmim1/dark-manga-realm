@@ -588,7 +588,7 @@ export const searchMangas = async (query: string): Promise<Manga[]> => {
 const mapAdminDirectoryUser = (user: any): User => ({
     id: user.id,
     username: user.username,
-    email: user.email,
+    email: user.email || '',
     avatar: user.avatar,
     role: user.role,
     createdAt: user.created_at,
@@ -596,8 +596,23 @@ const mapAdminDirectoryUser = (user: any): User => ({
 
 export const getAllUsers = async (): Promise<User[]> => {
     const { data, error } = await supabase.rpc('get_admin_user_directory');
-    if (error) return [];
-    return (data || []).map(mapAdminDirectoryUser);
+    if (!error) {
+        return (data || []).map(mapAdminDirectoryUser);
+    }
+
+    console.error('Admin directory RPC error:', error);
+
+    const { data: fallbackData, error: fallbackError } = await supabase
+        .from('users')
+        .select('id, username, avatar, role, created_at')
+        .order('created_at', { ascending: false });
+
+    if (fallbackError) {
+        console.error('Admin directory fallback error:', fallbackError);
+        return [];
+    }
+
+    return (fallbackData || []).map((user: any) => mapAdminDirectoryUser({ ...user, email: '' }));
 };
 
 export const saveUser = async (user: User): Promise<void> => {
@@ -623,11 +638,26 @@ export type AdminUser = User; // Reuse User type for now
 
 export const getAdminUsers = async (): Promise<AdminUser[]> => {
     const { data, error } = await supabase.rpc('get_admin_user_directory');
-    if (error) return [];
+    if (!error) {
+        return (data || [])
+            .filter((user: any) => ['admin', 'moderator'].includes(user.role))
+            .map(mapAdminDirectoryUser) as AdminUser[];
+    }
 
-    return (data || [])
-        .filter((user: any) => ['admin', 'moderator'].includes(user.role))
-        .map(mapAdminDirectoryUser) as AdminUser[];
+    console.error('Admin staff RPC error:', error);
+
+    const { data: fallbackData, error: fallbackError } = await supabase
+        .from('users')
+        .select('id, username, avatar, role, created_at')
+        .in('role', ['admin', 'moderator'])
+        .order('created_at', { ascending: false });
+
+    if (fallbackError) {
+        console.error('Admin staff fallback error:', fallbackError);
+        return [];
+    }
+
+    return (fallbackData || []).map((user: any) => mapAdminDirectoryUser({ ...user, email: '' })) as AdminUser[];
 };
 
 export const addAdminUser = async (admin: any): Promise<void> => {

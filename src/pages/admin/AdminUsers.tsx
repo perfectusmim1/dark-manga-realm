@@ -184,7 +184,7 @@ const AdminUsers: React.FC = () => {
                                                 </div>
                                             </div>
                                         </td>
-                                        <td className="px-4 py-3 text-muted-foreground">{admin.email}</td>
+                                        <td className="px-4 py-3 text-muted-foreground">{admin.email || 'E-posta senkron bekliyor'}</td>
                                         <td className="px-4 py-3">
                                             {isPrimaryAdmin ? (
                                                 <Badge variant="outline" className="border-purple-500/20 bg-purple-500/10 text-purple-500">
@@ -246,7 +246,7 @@ const AdminUsers: React.FC = () => {
                                 <SelectContent>
                                     {eligibleUsers.map((member) => (
                                         <SelectItem key={member.id} value={member.id}>
-                                            {member.username} ({member.email})
+                                            {member.email ? `${member.username} (${member.email})` : member.username}
                                         </SelectItem>
                                     ))}
                                 </SelectContent>

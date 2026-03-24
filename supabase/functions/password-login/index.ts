@@ -6,7 +6,7 @@ const corsHeaders = {
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-const WINDOW_MS = 15 * 60 * 1000;
+const WINDOW_MS = 2 * 60 * 1000;
 const IDENTIFIER_LIMIT = 5;
 const IP_LIMIT = 20;
 
@@ -106,7 +106,7 @@ Deno.serve(async (req: Request) => {
       success: false,
       code: "RATE_LIMITED",
       retryAfterSeconds: Math.floor(WINDOW_MS / 1000),
-      message: "Çok fazla giriş denemesi yaptınız. Lütfen 15 dakika sonra tekrar deneyin.",
+      message: "Çok fazla giriş denemesi yaptınız. Lütfen 2 dakika sonra tekrar deneyin.",
     });
   }
 

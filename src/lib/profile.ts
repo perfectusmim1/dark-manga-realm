@@ -230,11 +230,29 @@ export const getUserFollowedManga = async (userId: string, limit: number = 18): 
 // Fetch profile data including stats
 export const getUserProfile = async (userId: string, currentUserId?: string) => {
     // Get user details
-    const { data: user, error: userError } = await supabase
+    let { data: user, error: userError } = await supabase
         .from('users')
         .select('id, username, avatar, created_at, preferences')
         .eq('id', userId)
         .single();
+
+    if (userError && currentUserId && currentUserId === userId) {
+        const { error: syncError } = await supabase.rpc('sync_current_auth_profile', {
+            p_avatar: null,
+            p_base_username: null,
+        });
+
+        if (!syncError) {
+            const retryResult = await supabase
+                .from('users')
+                .select('id, username, avatar, created_at, preferences')
+                .eq('id', userId)
+                .single();
+
+            user = retryResult.data;
+            userError = retryResult.error;
+        }
+    }
         
     if (userError) throw userError;
     

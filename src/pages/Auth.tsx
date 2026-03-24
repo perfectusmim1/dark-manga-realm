@@ -416,7 +416,7 @@ const Auth: React.FC = () => {
                     fill="#EA4335"
                   />
                 </svg>
-                Google ile Giriş Yap
+                {view === 'register' ? 'Google ile Kayıt Ol' : 'Google ile Giriş Yap'}
               </Button>
             </div>
           )}
