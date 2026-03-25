@@ -4,6 +4,9 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Link } from 'react-router-dom';
 import { Loader2 } from 'lucide-react';
 import { getUserFollowers, getUserFollowing } from '@/lib/profile';
+import StaffBadge from '@/components/user/StaffBadge';
+import { getStaffTextClassName } from '@/lib/staffRoles';
+import { cn } from '@/lib/utils';
 
 interface UserListModalProps {
   isOpen: boolean;
@@ -83,7 +86,17 @@ const UserListModal: React.FC<UserListModalProps> = ({ isOpen, onClose, userId, 
                   <AvatarFallback>{user.username?.substring(0,2).toUpperCase()}</AvatarFallback>
                 </Avatar>
                 <div className="flex-1">
-                  <p className="font-semibold">{user.username}</p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p
+                      className={cn(
+                        'font-semibold',
+                        user.role ? getStaffTextClassName(user.role, false) : 'text-foreground'
+                      )}
+                    >
+                      {user.username}
+                    </p>
+                    <StaffBadge role={user.role} compact />
+                  </div>
                 </div>
               </Link>
             ))}

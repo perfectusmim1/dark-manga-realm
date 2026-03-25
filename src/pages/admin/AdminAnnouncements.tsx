@@ -1,11 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { 
     Megaphone, 
     Plus, 
     Trash2, 
     Calendar,
-    Search,
-    AlertCircle
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -26,6 +25,7 @@ import { tr } from 'date-fns/locale';
 
 const AdminAnnouncements: React.FC = () => {
     const { user } = useAuth();
+    const navigate = useNavigate();
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -34,27 +34,38 @@ const AdminAnnouncements: React.FC = () => {
     const [title, setTitle] = useState('');
     const [content, setContent] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const getErrorMessage = (error: unknown) => error instanceof Error ? error.message : 'Bilinmeyen hata';
 
-    const loadData = async () => {
+    const loadData = useCallback(async () => {
         setIsLoading(true);
         try {
             const { announcements: data, error } = await getAnnouncements();
             if (error) throw error;
             setAnnouncements(data);
-        } catch (err: any) {
-            toast.error('Duyurular yüklenemedi: ' + err.message);
+        } catch (err: unknown) {
+            toast.error('Duyurular yüklenemedi: ' + getErrorMessage(err));
         } finally {
             setIsLoading(false);
         }
-    };
+    }, []);
 
     useEffect(() => {
-        loadData();
-    }, []);
+        if (!user) {
+            return;
+        }
+
+        if (user.role !== 'admin') {
+            toast.error('Bu sayfa yalnızca admin hesabına açıktır');
+            navigate('/admin', { replace: true });
+            return;
+        }
+
+        void loadData();
+    }, [loadData, navigate, user]);
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!user) return;
+        if (!user || user.role !== 'admin') return;
         if (!title.trim() || !content.trim()) {
             toast.error('Lütfen tüm alanları doldurun');
             return;
@@ -70,14 +81,15 @@ const AdminAnnouncements: React.FC = () => {
             setContent('');
             setIsCreateOpen(false);
             loadData();
-        } catch (err: any) {
-            toast.error('Duyuru oluşturulamadı: ' + err.message);
+        } catch (err: unknown) {
+            toast.error('Duyuru oluşturulamadı: ' + getErrorMessage(err));
         } finally {
             setIsSubmitting(false);
         }
     };
 
     const handleDelete = async (id: string) => {
+        if (!user || user.role !== 'admin') return;
         if (!confirm('Bu duyuruyu silmek istediğinize emin misiniz?')) return;
 
         try {
@@ -85,10 +97,14 @@ const AdminAnnouncements: React.FC = () => {
             if (error) throw error;
             toast.success('Duyuru silindi');
             loadData();
-        } catch (err: any) {
-            toast.error('Duyuru silinemedi: ' + err.message);
+        } catch (err: unknown) {
+            toast.error('Duyuru silinemedi: ' + getErrorMessage(err));
         }
     };
+
+    if (!user || user.role !== 'admin') {
+        return null;
+    }
 
     return (
         <div className="space-y-8">

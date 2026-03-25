@@ -84,6 +84,24 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
 
 const sanitizeTotpCode = (value: string) => value.replace(/\D/g, '').slice(0, 6);
 
+const getTotpQrImageSrc = (qrCode: string | undefined) => {
+    const normalized = qrCode?.trim();
+
+    if (!normalized) {
+        return null;
+    }
+
+    if (normalized.startsWith('data:image/')) {
+        return normalized;
+    }
+
+    if (normalized.startsWith('<svg') || normalized.startsWith('<?xml')) {
+        return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(normalized)}`;
+    }
+
+    return normalized;
+};
+
 const Settings: React.FC = () => {
     const {
         user,
@@ -331,9 +349,7 @@ const Settings: React.FC = () => {
         );
     }
 
-    const qrCodeDataUrl = pendingEnrollment
-        ? `data:image/svg+xml;utf8,${encodeURIComponent(pendingEnrollment.qrCodeSvg)}`
-        : null;
+    const qrCodeDataUrl = getTotpQrImageSrc(pendingEnrollment?.qrCodeSvg);
     const activeTotpFactor = mfaState.factors.find((factor) => factor.status === 'verified') || null;
 
     return (

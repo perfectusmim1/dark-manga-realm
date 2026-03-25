@@ -17,6 +17,9 @@ import { supabase } from '@/lib/supabase';
 import { useToast } from "@/components/ui/use-toast";
 import UserListModal from '@/components/profile/UserListModal';
 import ReadingListCover from '@/components/manga/ReadingListCover';
+import StaffBadge from '@/components/user/StaffBadge';
+import { getStaffTextClassName } from '@/lib/staffRoles';
+import { cn } from '@/lib/utils';
 import { UserPlus, UserMinus, ShieldAlert, ShieldCheck, Loader2 } from 'lucide-react';
 
 const Profile: React.FC = () => {
@@ -162,8 +165,16 @@ const Profile: React.FC = () => {
           <div className="flex-1 text-center md:text-left space-y-4">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
-                <div className="flex items-center gap-3">
-                  <h1 className="text-3xl md:text-4xl font-bold tracking-tight">{profileData.username}</h1>
+                <div className="flex flex-wrap items-center justify-center gap-3 md:justify-start">
+                  <h1
+                    className={cn(
+                      'text-3xl md:text-4xl font-bold tracking-tight',
+                      profileData.role ? getStaffTextClassName(profileData.role, false) : ''
+                    )}
+                  >
+                    {profileData.username}
+                  </h1>
+                  <StaffBadge role={profileData.role} />
                   {profileData.relationship.isBlocked && (
                     <Badge variant="destructive" className="flex items-center gap-1.5 px-3 py-1 font-bold shadow-lg shadow-red-500/20">
                       <ShieldAlert className="w-3.5 h-3.5" />
@@ -605,10 +616,20 @@ const Profile: React.FC = () => {
 
                            <div className="min-w-0 flex-1">
                              <div className="flex flex-wrap items-center gap-2">
-                               <span className="font-semibold group-hover:text-primary transition-colors">{profileData.username}</span>
-                               <span className="text-xs text-muted-foreground">
-                                 {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
-                               </span>
+                              <span
+                                className={cn(
+                                  'font-semibold transition-colors',
+                                  profileData.role
+                                    ? getStaffTextClassName(profileData.role)
+                                    : 'text-foreground group-hover:text-primary'
+                                )}
+                              >
+                                {profileData.username}
+                              </span>
+                              <StaffBadge role={profileData.role} compact />
+                              <span className="text-xs text-muted-foreground">
+                                {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
+                              </span>
                                {comment.parentId && (
                                  <Badge variant="outline" className="rounded-full text-[10px]">
                                    <Reply className="w-3 h-3 mr-1" />

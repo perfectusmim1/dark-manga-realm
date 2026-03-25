@@ -941,6 +941,9 @@ const Reader: React.FC = () => {
   const isReaderTransitionActive = isLoading || !isInitialViewportReady;
   const showPageCommentRail = settings.showPageComments;
   const totalPageCount = resolvedPages.length || chapter.pages.length || 0;
+  const commentPagePreviewUrls = resolvedPages.length > 0
+    ? resolvedPages.map((page) => page.src)
+    : chapter.pages;
 
   return (
     <div
@@ -1054,7 +1057,7 @@ const Reader: React.FC = () => {
 
       {/* Yorum Bölümü */}
       <div
-        className="mx-auto max-w-4xl px-4 py-8 mt-8 border-t border-border"
+        className="mx-auto mt-8 max-w-4xl border-t border-border px-4 pt-8 pb-28 md:pb-32"
         onClick={(e) => e.stopPropagation()}
       >
         {isOnlineNow ? (
@@ -1066,9 +1069,9 @@ const Reader: React.FC = () => {
             <CommentSection
               mangaId={manga.id}
               chapterId={chapterId}
-              pageNumber={currentPage}
               totalReaderPages={totalPageCount}
               enablePageComments
+              pagePreviewUrls={commentPagePreviewUrls}
             />
           </div>
         ) : (

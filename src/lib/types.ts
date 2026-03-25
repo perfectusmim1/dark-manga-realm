@@ -206,6 +206,7 @@ export interface Comment {
   userId: string;
   username: string;
   userAvatar?: string;
+  userRole?: User['role'];
   content: string;
   title?: string;
   textColor?: string;
@@ -244,6 +245,7 @@ export interface Review {
   userId: string;
   username: string;
   userAvatar?: string;
+  userRole?: User['role'];
   content: string;
   rating_story: number;
   rating_characters: number;

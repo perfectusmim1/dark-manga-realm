@@ -23,13 +23,19 @@ import {
 import { toast } from 'sonner';
 
 const statusMeta: Record<ReportStatus, { label: string; icon: React.ComponentType<{ className?: string }> }> = {
-    open: { label: 'Acik', icon: Flag },
-    reviewed: { label: 'Inceleniyor', icon: Clock3 },
-    resolved: { label: 'Cozuldu', icon: CheckCircle2 },
+    open: { label: 'Açık', icon: Flag },
+    reviewed: { label: 'İnceleniyor', icon: Clock3 },
+    resolved: { label: 'Çözüldü', icon: CheckCircle2 },
     dismissed: { label: 'Reddedildi', icon: ShieldX },
 };
 
 const statusOrder: ReportStatus[] = ['open', 'reviewed', 'resolved', 'dismissed'];
+const commentEntityTypeLabels: Record<string, string> = {
+    manga: 'Seri',
+    character: 'Karakter',
+    author: 'Yazar',
+    artist: 'Çizer',
+};
 
 const formatDate = (value?: string) => {
     if (!value) {
@@ -73,7 +79,7 @@ const StatusTabs = ({
 const EmptyState = ({ label }: { label: string }) => (
     <div className="rounded-2xl border border-dashed border-border bg-card/30 p-12 text-center">
         <Flag className="mx-auto mb-4 h-12 w-12 text-muted-foreground/30" />
-        <h3 className="text-lg font-semibold">Kayit bulunamadi</h3>
+        <h3 className="text-lg font-semibold">Kayıt bulunamadı</h3>
         <p className="mt-2 text-sm text-muted-foreground">{label}</p>
     </div>
 );
@@ -98,7 +104,7 @@ const AdminReports: React.FC = () => {
             setCommentReports(commentData);
         } catch (error) {
             console.error('Admin reports load error:', error);
-            toast.error('Raporlar yuklenemedi');
+            toast.error('Raporlar yüklenemedi');
         } finally {
             setIsLoading(false);
         }
@@ -141,10 +147,10 @@ const AdminReports: React.FC = () => {
                     ? { ...report, status, updatedAt: new Date().toISOString() }
                     : report
             )));
-            toast.success('Seri bildirimi guncellendi');
+            toast.success('Seri bildirimi güncellendi');
         } catch (error) {
             console.error('Manga report status change error:', error);
-            toast.error('Durum guncellenemedi');
+            toast.error('Durum güncellenemedi');
         } finally {
             setUpdatingId(null);
         }
@@ -159,10 +165,10 @@ const AdminReports: React.FC = () => {
                     ? { ...report, status, updatedAt: new Date().toISOString() }
                     : report
             )));
-            toast.success('Yorum bildirimi guncellendi');
+            toast.success('Yorum bildirimi güncellendi');
         } catch (error) {
             console.error('Comment report status change error:', error);
-            toast.error('Durum guncellenemedi');
+            toast.error('Durum güncellenemedi');
         } finally {
             setUpdatingId(null);
         }
@@ -177,7 +183,7 @@ const AdminReports: React.FC = () => {
                         Bildirilenler
                     </h1>
                     <p className="text-muted-foreground">
-                        Kullanicilarin bildirdigi seri ve yorum sorunlarini buradan yonetebilirsiniz.
+                        Kullanıcıların bildirdiği seri ve yorum sorunlarını buradan yönetebilirsiniz.
                     </p>
                 </div>
 
@@ -190,7 +196,7 @@ const AdminReports: React.FC = () => {
                 <div className="flex min-h-[320px] items-center justify-center rounded-2xl border border-border bg-card/40">
                     <div className="text-center">
                         <Loader2 className="mx-auto h-8 w-8 animate-spin text-primary" />
-                        <p className="mt-3 text-sm text-muted-foreground">Raporlar yukleniyor...</p>
+                        <p className="mt-3 text-sm text-muted-foreground">Raporlar yükleniyor...</p>
                     </div>
                 </div>
             ) : (
@@ -237,7 +243,7 @@ const AdminReports: React.FC = () => {
                                                     <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                                                         <span>bildiren: {report.reporterUsername || report.reporterId}</span>
                                                         <span>{formatDate(report.createdAt)}</span>
-                                                        <span>guncellendi: {formatDate(report.updatedAt)}</span>
+                                                        <span>güncellendi: {formatDate(report.updatedAt)}</span>
                                                     </div>
 
                                                     <div className="rounded-xl border border-border/60 bg-background/40 p-4">
@@ -289,7 +295,7 @@ const AdminReports: React.FC = () => {
                                                 <div className="space-y-3">
                                                     <div className="flex flex-wrap items-center gap-2">
                                                         <h2 className="text-lg font-semibold">{report.targetTitle || 'Bilinmeyen hedef'}</h2>
-                                                        <Badge variant="outline">{report.commentEntityType}</Badge>
+                                                        <Badge variant="outline">{commentEntityTypeLabels[report.commentEntityType] || report.commentEntityType}</Badge>
                                                         <Badge variant="outline" className="gap-1">
                                                             <StatusIcon className="h-3.5 w-3.5" />
                                                             {statusMeta[report.status].label}
@@ -305,7 +311,7 @@ const AdminReports: React.FC = () => {
                                                     <div className="rounded-xl border border-border/60 bg-background/40 p-4">
                                                         <p className="text-sm font-medium">Yorum</p>
                                                         <p className="mt-1 whitespace-pre-wrap text-sm text-foreground/90">
-                                                            {report.commentPreview || 'Yorum bulunamadi veya silinmis.'}
+                                                            {report.commentPreview || 'Yorum bulunamadı veya silinmiş.'}
                                                         </p>
                                                         {report.commentCreatedAt && (
                                                             <p className="mt-2 text-xs text-muted-foreground">

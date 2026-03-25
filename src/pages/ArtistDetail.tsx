@@ -9,6 +9,8 @@ import { Artist } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
+import CommentSection from '@/components/comments/CommentSection';
+import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import { supabase } from '@/lib/supabase';
 
 const ArtistDetail: React.FC = () => {
@@ -111,7 +113,10 @@ const ArtistDetail: React.FC = () => {
                                         className="w-full h-full object-cover"
                                     />
                                 ) : (
-                                    <span className="text-8xl font-black text-muted-foreground/30">{artist.name.charAt(0)}</span>
+                                    <EntityPlaceholderArt
+                                        name={artist.name}
+                                        initialClassName="text-8xl md:text-9xl"
+                                    />
                                 )}
                             </div>
                         </div>
@@ -173,6 +178,12 @@ const ArtistDetail: React.FC = () => {
                             <div className="bg-secondary/30 rounded-2xl p-6 border border-border leading-relaxed text-lg italic text-foreground/90 whitespace-pre-line">
                                 {artist.description || 'Bu çizer için henüz bir bilgi girişi yapılmamış.'}
                             </div>
+                        </div>
+
+                        <Separator className="my-8" />
+
+                        <div className="space-y-6">
+                            <CommentSection entityId={id} entityType="artist" />
                         </div>
                     </div>
                 </div>

@@ -1,4 +1,5 @@
 import { createClient } from '@supabase/supabase-js';
+import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -7,7 +8,73 @@ if (!supabaseUrl || !supabaseAnonKey) {
     throw new Error('Supabase URL veya Anon Key tanımlanmamış! .env dosyasını kontrol edin.');
 }
 
-export const supabase = createClient(supabaseUrl, supabaseAnonKey);
+let cachedDeviceIdentity: Awaited<ReturnType<typeof getDeviceIdentity>> | null = null;
+let cachedDeviceIdentityPromise: Promise<Awaited<ReturnType<typeof getDeviceIdentity>>> | null = null;
+
+const getCachedDeviceIdentity = async () => {
+    if (typeof window === 'undefined') {
+        return null;
+    }
+
+    if (cachedDeviceIdentity) {
+        return cachedDeviceIdentity;
+    }
+
+    if (!cachedDeviceIdentityPromise) {
+        cachedDeviceIdentityPromise = getDeviceIdentity()
+            .then((identity) => {
+                cachedDeviceIdentity = identity;
+                return identity;
+            })
+            .finally(() => {
+                cachedDeviceIdentityPromise = null;
+            });
+    }
+
+    return cachedDeviceIdentityPromise;
+};
+
+const shouldAttachDeviceHeaders = (input: RequestInfo | URL) => {
+    const requestUrl = typeof input === 'string'
+        ? input
+        : input instanceof URL
+            ? input.toString()
+            : input.url;
+
+    return requestUrl.startsWith(`${supabaseUrl}/rest/v1/`);
+};
+
+const supabaseFetch: typeof fetch = async (input, init) => {
+    const headers = new Headers(input instanceof Request ? input.headers : undefined);
+
+    if (init?.headers) {
+        new Headers(init.headers).forEach((value, key) => {
+            headers.set(key, value);
+        });
+    }
+
+    try {
+        if (shouldAttachDeviceHeaders(input)) {
+            const identity = await getCachedDeviceIdentity();
+            if (identity) {
+                headers.set('x-device-hash', identity.deviceHash);
+            }
+        }
+    } catch (error) {
+        console.error('Supabase device header injection failed:', error);
+    }
+
+    return globalThis.fetch(input, {
+        ...init,
+        headers,
+    });
+};
+
+export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
+    global: {
+        fetch: supabaseFetch,
+    },
+});
 
 // Database types (will be expanded as we create tables)
 export type Database = {

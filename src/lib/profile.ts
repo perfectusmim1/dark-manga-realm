@@ -233,7 +233,7 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
     // Get user details
     let { data: user, error: userError } = await supabase
         .from('users')
-        .select('id, username, avatar, created_at, preferences')
+        .select('id, username, avatar, role, created_at, preferences')
         .eq('id', userId)
         .single();
 
@@ -246,7 +246,7 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         if (!syncError) {
             const retryResult = await supabase
                 .from('users')
-                .select('id, username, avatar, created_at, preferences')
+                .select('id, username, avatar, role, created_at, preferences')
                 .eq('id', userId)
                 .single();
 
@@ -745,7 +745,7 @@ export const getUserFollowers = async (userId: string, page: number = 1, limit: 
     
     const { data, error, count } = await supabase
         .from('user_follows')
-        .select('follower:follower_id (id, username, avatar)', { count: 'exact' })
+        .select('follower:follower_id (id, username, avatar, role)', { count: 'exact' })
         .eq('followed_id', userId)
         .range(offset, offset + limit - 1)
         .order('created_at', { ascending: false });
@@ -762,7 +762,7 @@ export const getUserFollowing = async (userId: string, page: number = 1, limit: 
     
     const { data, error, count } = await supabase
         .from('user_follows')
-        .select('followed:followed_id (id, username, avatar)', { count: 'exact' })
+        .select('followed:followed_id (id, username, avatar, role)', { count: 'exact' })
         .eq('follower_id', userId)
         .range(offset, offset + limit - 1)
         .order('created_at', { ascending: false });

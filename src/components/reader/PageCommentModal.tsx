@@ -171,6 +171,7 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                 userId: user.id,
                 username: user.username,
                 userAvatar: user.avatar,
+                userRole: user.role,
                 content: normalizedDraft.body,
                 mediaUrl: normalizedDraft.mediaUrls[0] || undefined,
                 mediaUrls: normalizedDraft.mediaUrls,

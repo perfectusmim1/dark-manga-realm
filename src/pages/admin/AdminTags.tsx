@@ -96,7 +96,7 @@ const AdminTags: React.FC = () => {
     try {
       await updateTag(tag.id, { isOfficial: !tag.isOfficial });
       await loadTags();
-      toast.success(tag.isOfficial ? 'Resmi işareti kaldırıldı' : 'Resmi olarak işaretlendi');
+      toast.success(tag.isOfficial ? 'Resmî işareti kaldırıldı' : 'Resmî olarak işaretlendi');
     } catch {
       toast.error('Güncelleme başarısız');
     }
@@ -120,46 +120,46 @@ const AdminTags: React.FC = () => {
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Hash className="h-6 w-6 text-primary" />
-            Tag Management
+            Etiket Yönetimi
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Manage tags, categories, and official status
+            Etiketleri, kategorileri ve resmî durumlarını yönetin
           </p>
         </div>
         <Button onClick={() => setShowCreateForm(!showCreateForm)} className="gap-1.5">
           <Plus className="h-4 w-4" />
-          New Tag
+          Yeni Etiket
         </Button>
       </div>
 
       <div className="grid grid-cols-3 gap-4">
         <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
           <p className="text-3xl font-bold text-primary">{tagStats.total}</p>
-          <p className="text-xs text-muted-foreground mt-1">Total Tags</p>
+          <p className="text-xs text-muted-foreground mt-1">Toplam Etiket</p>
         </div>
         <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
           <p className="text-3xl font-bold text-green-500">{tagStats.official}</p>
-          <p className="text-xs text-muted-foreground mt-1">Official</p>
+          <p className="text-xs text-muted-foreground mt-1">Resmî</p>
         </div>
         <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
           <p className="text-3xl font-bold text-blue-500">{tagStats.community}</p>
-          <p className="text-xs text-muted-foreground mt-1">Community</p>
+          <p className="text-xs text-muted-foreground mt-1">Topluluk</p>
         </div>
       </div>
 
       {showCreateForm && (
         <div className="rounded-xl border border-primary/20 bg-primary/5 p-6 space-y-4 animate-in fade-in slide-in-from-top-2 duration-200">
           <h3 className="font-semibold flex items-center gap-2">
-            <Plus className="h-4 w-4" /> Create New Tag
+            <Plus className="h-4 w-4" /> Yeni Etiket Oluştur
           </h3>
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <Input
-              placeholder="Tag name..."
+              placeholder="Etiket adı..."
               value={newTag.name}
               onChange={(e) => setNewTag({ ...newTag, name: e.target.value })}
             />
             <Input
-              placeholder="Description (optional)..."
+              placeholder="Açıklama (isteğe bağlı)..."
               value={newTag.description}
               onChange={(e) => setNewTag({ ...newTag, description: e.target.value })}
             />
@@ -182,10 +182,10 @@ const AdminTags: React.FC = () => {
           <div className="flex gap-2">
             <Button onClick={handleCreate} disabled={!newTag.name.trim() || saving} className="gap-1.5">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              Create
+              Oluştur
             </Button>
             <Button variant="outline" onClick={() => setShowCreateForm(false)}>
-              Cancel
+              İptal
             </Button>
           </div>
         </div>
@@ -195,7 +195,7 @@ const AdminTags: React.FC = () => {
         <div className="relative flex-1">
           <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
           <Input
-            placeholder="Search tags..."
+            placeholder="Etiket ara..."
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             className="pl-9"
@@ -208,7 +208,7 @@ const AdminTags: React.FC = () => {
             }`}
             onClick={() => setFilterCategory('all')}
           >
-            All
+            Tümü
           </button>
           {(Object.entries(categoryLabels) as [TagCategory, string][]).map(([key, label]) => (
             <button
@@ -233,15 +233,15 @@ const AdminTags: React.FC = () => {
       ) : (
         <div className="rounded-xl border border-border overflow-hidden">
           <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border bg-secondary/20 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-            <span>Tag</span>
-            <span className="text-center w-20">Category</span>
-            <span className="text-center w-16">Usage</span>
-            <span className="text-center w-16">Status</span>
-            <span className="text-center w-24">Actions</span>
+            <span>Etiket</span>
+            <span className="text-center w-20">Kategori</span>
+            <span className="text-center w-16">Kullanım</span>
+            <span className="text-center w-16">Durum</span>
+            <span className="text-center w-24">İşlemler</span>
           </div>
           <div className="divide-y divide-border">
             {filteredTags.length === 0 ? (
-              <div className="p-8 text-center text-muted-foreground">No tags found</div>
+              <div className="p-8 text-center text-muted-foreground">Hiç etiket bulunamadı</div>
             ) : (
               filteredTags.map(tag => (
                 <div key={tag.id} className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 items-center hover:bg-secondary/20 transition-colors">
@@ -269,11 +269,11 @@ const AdminTags: React.FC = () => {
                     <button onClick={() => toggleOfficial(tag)}>
                       {tag.isOfficial ? (
                         <Badge className="bg-green-500/10 text-green-400 border-green-500/20 text-[10px] gap-1">
-                          <Shield className="h-3 w-3" /> Official
+                          <Shield className="h-3 w-3" /> Resmî
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-[10px] opacity-50 hover:opacity-100 transition-opacity">
-                          Community
+                          Topluluk
                         </Badge>
                       )}
                     </button>

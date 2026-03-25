@@ -47,7 +47,7 @@ import {
 } from '@/lib/database';
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { Manga, Chapter, Character, Author, Artist } from '@/lib/types';
-import { allGenres } from '@/lib/mockData';
+import { allGenres, normalizeGenres } from '@/lib/mockData';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { toast } from 'sonner';
 import { Search } from 'lucide-react';
@@ -119,7 +119,10 @@ const AdminMangaEditor: React.FC = () => {
                     setLoading(true);
                     const existingManga = await getMangaById(mangaId);
                     if (existingManga) {
-                        setManga(existingManga);
+                        setManga({
+                            ...existingManga,
+                            genres: normalizeGenres(existingManga.genres || []),
+                        });
                         setNewChapter(prev => ({
                             ...prev,
                             number: existingManga.chapters.length + 1,
@@ -167,7 +170,7 @@ const AdminMangaEditor: React.FC = () => {
         if (genres.includes(genre)) {
             handleChange('genres', genres.filter(g => g !== genre));
         } else {
-            handleChange('genres', [...genres, genre]);
+            handleChange('genres', normalizeGenres([...genres, genre]));
         }
     };
 
@@ -318,7 +321,7 @@ const AdminMangaEditor: React.FC = () => {
                 artist: manga.artist || manga.author!,
                 status: manga.status as 'ongoing' | 'completed' | 'hiatus',
                 type: manga.type as 'manga' | 'manhwa' | 'manhua' | 'webtoon',
-                genres: manga.genres || [],
+                genres: normalizeGenres(manga.genres || []),
                 description: manga.description || '',
                 ratings: manga.ratings || [],
                 views: manga.views || 0,

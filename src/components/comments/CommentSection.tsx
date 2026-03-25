@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
     AlertTriangle,
     MessageCircle,
@@ -42,6 +42,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
+import StaffBadge from '@/components/user/StaffBadge';
 import { Comment } from '@/lib/types';
 import {
     updateComment,
@@ -49,6 +50,8 @@ import {
     toggleCommentLike,
     getMangaById,
     getCharacterById,
+    getAuthorById,
+    getArtistById,
     getEntityCommentsV2,
     getEntityReactions,
     getUserEntityReaction,
@@ -71,6 +74,7 @@ import {
     PAGE_COMMENTS_UPDATED_EVENT,
     PageCommentsUpdatedDetail,
 } from '@/lib/pageCommentEvents';
+import { getStaffTextClassName } from '@/lib/staffRoles';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -80,9 +84,9 @@ interface CommentSectionProps {
     entityType?: 'manga' | 'character' | 'author' | 'artist';
     chapterId?: string;
     blockedUserIds?: string[];
-    pageNumber?: number;
     totalReaderPages?: number;
     enablePageComments?: boolean;
+    pagePreviewUrls?: string[];
 }
 
 const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
@@ -344,12 +348,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     entityType: propEntityType = 'manga',
     chapterId,
     blockedUserIds = [],
-    pageNumber,
     totalReaderPages = 0,
     enablePageComments = false,
+    pagePreviewUrls = [],
 }) => {
     const { user } = useAuth();
     const location = useLocation();
+    const navigate = useNavigate();
     const entityId = propEntityId || propMangaId || '';
     const entityType = propEntityType;
     const targetCommentId = useMemo(
@@ -382,9 +387,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const [gifTarget, setGifTarget] = useState<'new' | 'edit' | 'reply'>('new');
     const [sortBy, setSortBy] = useState<'newest' | 'popular'>('newest');
     const [currentPage, setCurrentPage] = useState(1);
-    const [feedScope, setFeedScope] = useState<CommentFeedScope>(() => hasReaderPageContext ? 'page' : 'chapter');
-    const [selectedCommentPage, setSelectedCommentPage] = useState(() => Math.max(MIN_COMMENT_PAGE_NUMBER, pageNumber || MIN_COMMENT_PAGE_NUMBER));
-    const [pageJumpValue, setPageJumpValue] = useState(() => String(Math.max(MIN_COMMENT_PAGE_NUMBER, pageNumber || MIN_COMMENT_PAGE_NUMBER)));
+    const [feedScope, setFeedScope] = useState<CommentFeedScope>('chapter');
+    const [selectedCommentPage, setSelectedCommentPage] = useState(MIN_COMMENT_PAGE_NUMBER);
+    const [pageJumpValue, setPageJumpValue] = useState(() => String(MIN_COMMENT_PAGE_NUMBER));
     const [hasManualPageSelection, setHasManualPageSelection] = useState(false);
     const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
     const [pendingScrollCommentId, setPendingScrollCommentId] = useState<string | null>(null);
@@ -402,6 +407,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const highlightTimeoutRef = useRef<number | null>(null);
     const processedTargetCommentRef = useRef<string | null>(null);
     const newCommentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const commentSectionHeaderRef = useRef<HTMLDivElement | null>(null);
+    const paginationScrollFrameRef = useRef<number | null>(null);
+    const detachPaginationInterruptsRef = useRef<(() => void) | null>(null);
     const commentPreferences = {
         autoShowMedia: user?.preferences?.comments?.auto_show_media ?? false,
         autoShowGifs: user?.preferences?.comments?.auto_show_gifs ?? false,
@@ -409,6 +417,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     };
     const activePageNumber = Math.max(MIN_COMMENT_PAGE_NUMBER, selectedCommentPage || MIN_COMMENT_PAGE_NUMBER);
     const activeFilterPageNumber = hasReaderPageContext && feedScope === 'page' ? activePageNumber : undefined;
+    const activePagePreviewUrl = hasReaderPageContext && feedScope === 'page'
+        ? pagePreviewUrls[activePageNumber - 1]
+        : undefined;
 
     useEffect(() => {
         if (!hasReaderPageContext) {
@@ -421,29 +432,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             return;
         }
 
-        setFeedScope('page');
+        setFeedScope('chapter');
     }, [hasReaderPageContext, targetCommentScope]);
-
-    useEffect(() => {
-        if (!hasReaderPageContext) {
-            return;
-        }
-
-        if (targetCommentPageNumber) {
-            setSelectedCommentPage(targetCommentPageNumber);
-            setHasManualPageSelection(true);
-            return;
-        }
-
-        if (!hasManualPageSelection && pageNumber && pageNumber > 0) {
-            setSelectedCommentPage(pageNumber);
-        }
-    }, [hasManualPageSelection, hasReaderPageContext, pageNumber, targetCommentPageNumber]);
 
     useEffect(() => {
         loadComments();
         loadReactions();
-    }, [activeFilterPageNumber, commentsRefreshTick, entityId, entityType, chapterId, sortBy]);
+    }, [activeFilterPageNumber, commentsRefreshTick, entityId, entityType, chapterId, sortBy, user?.id]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -455,6 +450,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     useEffect(() => {
         if (!hasReaderPageContext) {
             setHasManualPageSelection(false);
+            setSelectedCommentPage(MIN_COMMENT_PAGE_NUMBER);
             return;
         }
 
@@ -465,12 +461,20 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         }
 
         setHasManualPageSelection(false);
-        setSelectedCommentPage(Math.max(MIN_COMMENT_PAGE_NUMBER, pageNumber || MIN_COMMENT_PAGE_NUMBER));
-    }, [chapterId, entityId, entityType, hasReaderPageContext, pageNumber, targetCommentPageNumber]);
+        setSelectedCommentPage(MIN_COMMENT_PAGE_NUMBER);
+    }, [chapterId, entityId, entityType, hasReaderPageContext, targetCommentPageNumber]);
 
     useEffect(() => () => {
         if (highlightTimeoutRef.current !== null) {
             window.clearTimeout(highlightTimeoutRef.current);
+        }
+
+        if (paginationScrollFrameRef.current !== null) {
+            window.cancelAnimationFrame(paginationScrollFrameRef.current);
+        }
+
+        if (detachPaginationInterruptsRef.current) {
+            detachPaginationInterruptsRef.current();
         }
     }, []);
 
@@ -503,6 +507,29 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
         const ur = await getUserEntityReaction(entityType, entityId, user.id, chapterId);
         setUserReaction(ur);
+    };
+
+    const getEntityTitle = async () => {
+        switch (entityType) {
+            case 'manga': {
+                const manga = await getMangaById(entityId);
+                return manga?.title || 'Manga';
+            }
+            case 'character': {
+                const character = await getCharacterById(entityId);
+                return character?.name || 'Karakter';
+            }
+            case 'author': {
+                const author = await getAuthorById(entityId);
+                return author?.name || 'Yazar';
+            }
+            case 'artist': {
+                const artist = await getArtistById(entityId);
+                return artist?.name || 'Çizer';
+            }
+            default:
+                return 'İçerik';
+        }
     };
 
     const sortCommentsForState = (items: Comment[]) => items.slice().sort((a, b) => {
@@ -653,6 +680,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             userId: user.id,
             username: user.username,
             userAvatar: user.avatar,
+            userRole: user.role,
             content: normalizedDraft.body,
             title: normalizedDraft.title || undefined,
             mediaUrl: normalizedDraft.mediaUrls[0] || undefined,
@@ -785,6 +813,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             userId: user.id,
             username: user.username,
             userAvatar: user.avatar,
+            userRole: user.role,
             content: normalizedDraft.body,
             title: normalizedDraft.title || undefined,
             mediaUrl: normalizedDraft.mediaUrls[0] || undefined,
@@ -804,14 +833,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
         if (parentComment && parentComment.userId !== user.id) {
             void (async () => {
-                let entityTitle = 'Manga';
-                if (entityType === 'manga') {
-                    const manga = await getMangaById(entityId);
-                    entityTitle = manga?.title || 'Manga';
-                } else if (entityType === 'character') {
-                    const character = await getCharacterById(entityId);
-                    entityTitle = character?.name || 'Karakter';
-                }
+                const entityTitle = await getEntityTitle();
 
                 await createCommentNotification(
                     parentComment.userId,
@@ -841,14 +863,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         await toggleCommentLike(commentId, user.id, entityType);
 
         if (!wasLiked && comment && comment.userId !== user.id) {
-            let entityTitle = 'Manga';
-            if (entityType === 'manga') {
-                const manga = await getMangaById(entityId);
-                entityTitle = manga?.title || 'Manga';
-            } else if (entityType === 'character') {
-                const character = await getCharacterById(entityId);
-                entityTitle = character?.name || 'Karakter';
-            }
+            const entityTitle = await getEntityTitle();
 
             await createCommentNotification(
                 comment.userId,
@@ -1209,23 +1224,35 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
             const targetElement = document.querySelector<HTMLElement>(`[data-comment-id="${pendingScrollCommentId}"]`);
             if (!targetElement) {
-                if (attempts < 10) {
+                if (attempts < 24) {
                     attempts += 1;
                     timerId = window.setTimeout(scrollToComment, 120);
                 }
                 return;
             }
 
-            const targetTop = window.scrollY + targetElement.getBoundingClientRect().top - 140;
+            const hasHiddenAncestor = Boolean(
+                targetElement.closest('[hidden], [aria-hidden="true"], [data-state="inactive"]')
+            );
+            const targetRect = targetElement.getBoundingClientRect();
+            const isTargetVisibleForScroll = !hasHiddenAncestor
+                && targetElement.getClientRects().length > 0
+                && targetRect.height > 0;
+
+            if (!isTargetVisibleForScroll) {
+                if (attempts < 24) {
+                    attempts += 1;
+                    timerId = window.setTimeout(scrollToComment, 120);
+                }
+                return;
+            }
+
+            const targetTop = window.scrollY + targetRect.top - 140;
             animateScrollTo(targetTop);
 
             const nextLocation = getLocationWithoutTargetComment(location.pathname, location.search, location.hash);
             if (nextLocation) {
-                window.history.replaceState(
-                    window.history.state,
-                    '',
-                    `${nextLocation.pathname}${nextLocation.search}${nextLocation.hash}`
-                );
+                navigate(nextLocation, { replace: true });
             }
 
             if (highlightTimeoutRef.current !== null) {
@@ -1249,7 +1276,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 window.clearTimeout(timerId);
             }
         };
-    }, [displayedParentComments, expandedReplies, location.hash, location.pathname, location.search, pendingScrollCommentId]);
+    }, [displayedParentComments, expandedReplies, location.hash, location.pathname, location.search, navigate, pendingScrollCommentId]);
 
     const paginationWindow = useMemo(() => {
         if (totalPages <= 5) {
@@ -1262,6 +1289,95 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
         return Array.from({ length: end - adjustedStart + 1 }, (_, index) => adjustedStart + index);
     }, [safeCurrentPage, totalPages]);
+
+    const stopPaginationAutoScroll = useCallback(() => {
+        if (paginationScrollFrameRef.current !== null) {
+            window.cancelAnimationFrame(paginationScrollFrameRef.current);
+            paginationScrollFrameRef.current = null;
+        }
+
+        if (detachPaginationInterruptsRef.current) {
+            detachPaginationInterruptsRef.current();
+            detachPaginationInterruptsRef.current = null;
+        }
+    }, []);
+
+    const scrollToCommentSectionTop = useCallback(() => {
+        const targetElement = commentSectionHeaderRef.current;
+        if (!targetElement) {
+            return;
+        }
+
+        stopPaginationAutoScroll();
+
+        const finalTop = Math.max(0, window.scrollY + targetElement.getBoundingClientRect().top - 96);
+        const startTop = window.scrollY;
+        const distance = finalTop - startTop;
+
+        if (Math.abs(distance) < 8) {
+            window.scrollTo({ top: finalTop });
+            return;
+        }
+
+        const duration = Math.min(420, Math.max(220, Math.abs(distance) * 0.16));
+        const startedAt = window.performance.now();
+        const easeOutCubic = (progress: number) => 1 - Math.pow(1 - progress, 3);
+        const canInterruptAfter = startedAt + 160;
+        const interrupt = () => {
+            if (window.performance.now() < canInterruptAfter) {
+                return;
+            }
+
+            stopPaginationAutoScroll();
+        };
+
+        window.addEventListener('wheel', interrupt, { passive: true });
+        window.addEventListener('touchstart', interrupt, { passive: true });
+        window.addEventListener('touchmove', interrupt, { passive: true });
+        window.addEventListener('mousedown', interrupt);
+        window.addEventListener('keydown', interrupt);
+
+        detachPaginationInterruptsRef.current = () => {
+            window.removeEventListener('wheel', interrupt);
+            window.removeEventListener('touchstart', interrupt);
+            window.removeEventListener('touchmove', interrupt);
+            window.removeEventListener('mousedown', interrupt);
+            window.removeEventListener('keydown', interrupt);
+        };
+
+        const step = (now: number) => {
+            const progress = Math.min(1, (now - startedAt) / duration);
+            const easedProgress = easeOutCubic(progress);
+
+            window.scrollTo({
+                top: startTop + (distance * easedProgress),
+            });
+
+            if (progress < 1) {
+                paginationScrollFrameRef.current = window.requestAnimationFrame(step);
+                return;
+            }
+
+            window.scrollTo({ top: finalTop });
+            stopPaginationAutoScroll();
+        };
+
+        paginationScrollFrameRef.current = window.requestAnimationFrame(step);
+    }, [stopPaginationAutoScroll]);
+
+    const changeCommentListPage = useCallback((nextPage: number) => {
+        const clampedPage = Math.min(totalPages, Math.max(1, nextPage));
+        if (clampedPage === safeCurrentPage) {
+            return;
+        }
+
+        setCurrentPage(clampedPage);
+        window.requestAnimationFrame(() => {
+            window.requestAnimationFrame(() => {
+                scrollToCommentSectionTop();
+            });
+        });
+    }, [safeCurrentPage, scrollToCommentSectionTop, totalPages]);
 
     const toggleReplies = (commentId: string) => {
         setExpandedReplies(prev => ({ ...prev, [commentId]: !prev[commentId] }));
@@ -1347,10 +1463,19 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
                                 <div className="flex-1">
                                     <div className="flex items-center justify-between gap-2">
-                                        <div className="flex items-center gap-2">
-                                            <Link to={`/profile/${reply.userId}`} className="text-sm font-medium text-foreground transition-colors hover:text-primary hover:underline">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <Link
+                                                to={`/profile/${reply.userId}`}
+                                                className={cn(
+                                                    'text-sm font-medium transition-colors hover:underline',
+                                                    reply.userRole
+                                                        ? getStaffTextClassName(reply.userRole)
+                                                        : 'text-foreground hover:text-primary'
+                                                )}
+                                            >
                                                 {reply.username}
                                             </Link>
+                                            <StaffBadge role={reply.userRole} compact />
                                             {reply.isPinned && (
                                                 <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
                                                     <Pin className="h-3 w-3" />
@@ -1514,7 +1639,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             <div className="text-center space-y-6 py-6 pb-12 border-b border-border/50">
                 <div className="space-y-1">
                     <h2 className="text-2xl font-black tracking-tight">Ne Düşünüyorsun?</h2>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest">Emojiler</p>
+                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest">Tepkiler</p>
                 </div>
 
                 <div className="flex flex-wrap justify-center gap-4">
@@ -1542,7 +1667,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div ref={commentSectionHeaderRef} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
                         <MessageCircle className="h-5 w-5 text-primary" />
@@ -1553,7 +1678,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                         </h3>
                         {parentComments.length > 0 && (
                             <span className="text-xs text-muted-foreground">
-                                Liste {safeCurrentPage} / {totalPages}
+                                Sayfa {safeCurrentPage} / {totalPages}
                             </span>
                         )}
                     </div>
@@ -1561,23 +1686,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     {hasReaderPageContext && (
                         <div className="flex flex-wrap items-center gap-2">
                             <div className="inline-flex rounded-xl border border-border bg-secondary/20 p-1">
-                                <button
-                                    onClick={() => {
-                                        setFeedScope('page');
-                                        setHasManualPageSelection(false);
-                                        if (pageNumber && pageNumber > 0) {
-                                            setSelectedCommentPage(pageNumber);
-                                        }
-                                    }}
-                                    className={cn(
-                                        'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
-                                        feedScope === 'page'
-                                            ? 'bg-background text-foreground shadow-sm'
-                                            : 'text-muted-foreground hover:text-foreground'
-                                    )}
-                                >
-                                    Bu Sayfa
-                                </button>
                                 <button
                                     onClick={() => setFeedScope('chapter')}
                                     className={cn(
@@ -1588,6 +1696,28 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     )}
                                 >
                                     Bölüm Sohbeti
+                                </button>
+                                <button
+                                    onClick={() => {
+                                        setFeedScope('page');
+                                        if (targetCommentPageNumber) {
+                                            setSelectedCommentPage(targetCommentPageNumber);
+                                            setHasManualPageSelection(true);
+                                            return;
+                                        }
+
+                                        if (!hasManualPageSelection) {
+                                            setSelectedCommentPage(MIN_COMMENT_PAGE_NUMBER);
+                                        }
+                                    }}
+                                    className={cn(
+                                        'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
+                                        feedScope === 'page'
+                                            ? 'bg-background text-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    )}
+                                >
+                                    Bu Sayfa
                                 </button>
                             </div>
 
@@ -1669,6 +1799,39 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 </div>
             </div>
 
+            {hasReaderPageContext && feedScope === 'page' && (
+                <div className="rounded-2xl border border-border/70 bg-card/40 p-3 sm:p-4">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
+                        <div className="w-full max-w-[9.5rem] shrink-0 overflow-hidden rounded-xl border border-border/70 bg-background/70">
+                            {activePagePreviewUrl ? (
+                                <img
+                                    src={activePagePreviewUrl}
+                                    alt={`Sayfa ${activePageNumber} önizlemesi`}
+                                    className="h-40 w-full object-cover object-top"
+                                    loading="lazy"
+                                />
+                            ) : (
+                                <div className="flex h-40 items-center justify-center text-muted-foreground">
+                                    <Image className="h-5 w-5" />
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="min-w-0 space-y-1">
+                            <Badge variant="outline" className="h-5 px-2 text-[10px] uppercase tracking-wide">
+                                Seçili Sayfa
+                            </Badge>
+                            <p className="text-sm font-semibold text-foreground">
+                                Sayfa {activePageNumber}{totalReaderPages > 0 ? ` / ${totalReaderPages}` : ''}
+                            </p>
+                            <p className="text-sm text-muted-foreground">
+                                Bu görünümde listelenen yorumlar ve yeni gönderiler yalnızca seçili sayfaya bağlı kalır.
+                            </p>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {user ? (
                 <CommentComposer
                     key={`new-${newComposerVersion}`}
@@ -1723,13 +1886,22 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                             </Link>
                                             <div className="flex-1">
                                                 <div className="flex items-center justify-between">
-                                                    <div className="flex items-center gap-2">
-                                                        <Link to={`/profile/${comment.userId}`} className="font-medium hover:text-primary hover:underline transition-colors cursor-pointer text-foreground">
-                                                            {comment.username}
-                                                        </Link>
-                                                        {comment.isPinned && (
-                                                            <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
-                                                                <Pin className="h-3 w-3" />
+                                                <div className="flex flex-wrap items-center gap-2">
+                                                    <Link
+                                                        to={`/profile/${comment.userId}`}
+                                                        className={cn(
+                                                            'cursor-pointer font-medium transition-colors hover:underline',
+                                                            comment.userRole
+                                                                ? getStaffTextClassName(comment.userRole)
+                                                                : 'text-foreground hover:text-primary'
+                                                        )}
+                                                    >
+                                                        {comment.username}
+                                                    </Link>
+                                                    <StaffBadge role={comment.userRole} compact />
+                                                    {comment.isPinned && (
+                                                        <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
+                                                            <Pin className="h-3 w-3" />
                                                                 Sabit
                                                             </Badge>
                                                         )}
@@ -1973,7 +2145,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     variant="outline"
                                     size="sm"
                                     disabled={safeCurrentPage === 1}
-                                    onClick={() => setCurrentPage((previous) => Math.max(1, previous - 1))}
+                                    onClick={() => changeCommentListPage(safeCurrentPage - 1)}
                                 >
                                     Önceki
                                 </Button>
@@ -1983,7 +2155,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                         key={pageNumber}
                                         variant={pageNumber === safeCurrentPage ? 'default' : 'ghost'}
                                         size="sm"
-                                        onClick={() => setCurrentPage(pageNumber)}
+                                        onClick={() => changeCommentListPage(pageNumber)}
                                     >
                                         {pageNumber}
                                     </Button>
@@ -1993,7 +2165,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     variant="outline"
                                     size="sm"
                                     disabled={safeCurrentPage === totalPages}
-                                    onClick={() => setCurrentPage((previous) => Math.min(totalPages, previous + 1))}
+                                    onClick={() => changeCommentListPage(safeCurrentPage + 1)}
                                 >
                                     Sonraki
                                 </Button>

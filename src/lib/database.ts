@@ -3,6 +3,7 @@
 import { supabase } from './supabase';
 import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
+import { normalizeGenres } from './mockData';
 
 export interface LatestChapterFeedItem {
     chapterId: string;
@@ -213,7 +214,7 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         description: manga.description,
         cover: manga.cover,
         banner: manga.banner,
-        genres: manga.genres,
+        genres: normalizeGenres(manga.genres),
         status: manga.status,
         type: manga.type,
         views: manga.views || 0,
@@ -406,7 +407,7 @@ export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => 
         .from('reviews')
         .select(`
             *,
-            user:users!user_id(username, avatar),
+            user:users!user_id(username, avatar, role),
             likes_count:review_likes(count)
         `)
         .eq('manga_id', mangaId)
@@ -436,6 +437,7 @@ export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => 
         userId: r.user_id,
         username: (r as any).user?.username || 'Anonim',
         userAvatar: (r as any).user?.avatar,
+        userRole: (r as any).user?.role,
         content: r.content,
         rating_story: r.rating_story,
         rating_characters: r.rating_characters,
@@ -768,12 +770,38 @@ export const deleteAdminUser = async (adminId: string): Promise<void> => {
     }
 };
 
-export const banUserAccess = async (userId: string, reason = 'Yönetici tarafından banlandı.'): Promise<void> => {
+export type UserBanMode = 'user' | 'hard';
+
+export interface BanUserAccessOptions {
+    reason?: string;
+    mode?: UserBanMode;
+}
+
+export interface BanUserAccessResult {
+    mode: UserBanMode;
+    ipBanCount: number;
+    deviceBanCount: number;
+    message?: string;
+}
+
+export const banUserAccess = async (
+    userId: string,
+    reasonOrOptions: string | BanUserAccessOptions = {}
+): Promise<BanUserAccessResult> => {
     await ensureAuthenticatedAdminSession();
+
+    const options = typeof reasonOrOptions === 'string'
+        ? { reason: reasonOrOptions }
+        : reasonOrOptions;
+
+    const mode = options.mode ?? 'hard';
+    const reason = options.reason ?? 'Yönetici tarafından banlandı.';
+
     const { data, error } = await supabase.functions.invoke('admin-ban-user', {
         body: {
             targetUserId: userId,
             reason,
+            mode,
         },
     });
 
@@ -784,6 +812,13 @@ export const banUserAccess = async (userId: string, reason = 'Yönetici tarafın
     if (!data?.success) {
         throw new Error(data?.message || 'BAN_FAILED');
     }
+
+    return {
+        mode,
+        ipBanCount: Number(data?.ipBanCount) || 0,
+        deviceBanCount: Number(data?.deviceBanCount) || 0,
+        message: typeof data?.message === 'string' ? data.message : undefined,
+    };
 };
 
 export const unbanUserAccess = async (userId: string): Promise<void> => {
@@ -873,6 +908,18 @@ interface MangaCommentQueryOptions {
     pageNumber?: number | null;
 }
 
+let mangaCommentPageNumberFeatureState: 'unknown' | 'available' | 'unavailable' = 'unknown';
+
+const isMissingMangaCommentPageNumberError = (error: unknown) => {
+    const message = typeof error === 'object' && error !== null && 'message' in error
+        ? String((error as { message?: unknown }).message || '')
+        : '';
+
+    return message.includes("'page_number' column")
+        || message.includes('"page_number"')
+        || message.includes('page_number');
+};
+
 export const getCommentsForManga = async (
     mangaId: string,
     chapterId?: string,
@@ -893,33 +940,53 @@ export const getEntityCommentsV2 = async (
     const colName = entityType === 'manga' ? 'manga_id' : `${entityType}_id`;
     const likesTableName = entityType === 'manga' ? 'comment_likes' : `${entityType}_comment_likes`;
 
-    let query = supabase
-        .from(tableName as any)
-        .select(`
-            *,
-            author:users!user_id(username, avatar),
-            likes_count:${likesTableName}(count)
-        ` as any)
-        .eq(colName, entityId);
+    const createQuery = (includePageNumberFilter: boolean) => {
+        let query = supabase
+            .from(tableName as any)
+            .select(`
+                *,
+                author:users!user_id(username, avatar, role),
+                likes_count:${likesTableName}(count)
+            ` as any)
+            .eq(colName, entityId);
 
-    if (entityType === 'manga') {
-        if (chapterId) {
-            query = query.eq('chapter_id', chapterId);
-            if (typeof options?.pageNumber === 'number') {
-                query = query.eq('page_number', options.pageNumber);
+        if (entityType === 'manga') {
+            if (chapterId) {
+                query = query.eq('chapter_id', chapterId);
+
+                if (includePageNumberFilter) {
+                    if (typeof options?.pageNumber === 'number') {
+                        query = query.eq('page_number', options.pageNumber);
+                    } else {
+                        query = query.is('page_number', null);
+                    }
+                }
             } else {
-                query = query.is('page_number', null);
+                query = query.is('chapter_id', null);
             }
-        } else {
-            query = query.is('chapter_id', null);
         }
-    }
 
-    const { data, error } = await query;
+        return query;
+    };
+
+    const shouldUsePageNumberFilter = entityType === 'manga'
+        && Boolean(chapterId)
+        && mangaCommentPageNumberFeatureState !== 'unavailable';
+
+    let { data, error } = await createQuery(shouldUsePageNumberFilter);
+
+    if (error && shouldUsePageNumberFilter && isMissingMangaCommentPageNumberError(error)) {
+        mangaCommentPageNumberFeatureState = 'unavailable';
+        ({ data, error } = await createQuery(false));
+    }
 
     if (error) {
         console.error(`Fetch ${entityType} comments error:`, error);
         return [];
+    }
+
+    if (shouldUsePageNumberFilter && mangaCommentPageNumberFeatureState === 'unknown') {
+        mangaCommentPageNumberFeatureState = 'available';
     }
 
     // Get current user's likes if authenticated
@@ -948,6 +1015,7 @@ export const getEntityCommentsV2 = async (
             userId: c.user_id,
             username: c.author?.username || c.username || 'Anonim',
             userAvatar: c.author?.avatar || c.user_avatar,
+            userRole: c.author?.role,
             content: parsedContent.body,
             title: parsedContent.title,
             textColor: parsedContent.textColor,
@@ -992,35 +1060,60 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
     const colName = entityType === 'manga' ? 'manga_id' : `${entityType}_id`;
     const entityId = entityType === 'manga' ? comment.mangaId : comment.entityId;
 
-    const insertData: any = {
-        [colName]: entityId,
-        user_id: comment.userId,
-        username: comment.username,
-        user_avatar: comment.userAvatar,
-        content: encodeCommentContent({
-            body: comment.content,
-            title: comment.title,
-            textColor: comment.textColor,
-            mediaUrl: comment.mediaUrl,
-            mediaUrls: comment.mediaUrls,
-            isSpoiler: comment.isSpoiler,
-        }),
-        gif_url: comment.gifUrl,
-        parent_id: comment.parentId
+    const createInsertData = (includePageNumber: boolean) => {
+        const insertData: any = {
+            [colName]: entityId,
+            user_id: comment.userId,
+            username: comment.username,
+            user_avatar: comment.userAvatar,
+            content: encodeCommentContent({
+                body: comment.content,
+                title: comment.title,
+                textColor: comment.textColor,
+                mediaUrl: comment.mediaUrl,
+                mediaUrls: comment.mediaUrls,
+                isSpoiler: comment.isSpoiler,
+            }),
+            gif_url: comment.gifUrl,
+            parent_id: comment.parentId,
+        };
+
+        if (entityType === 'manga') {
+            insertData.chapter_id = comment.chapterId ?? null;
+
+            if (includePageNumber && typeof comment.pageNumber === 'number') {
+                insertData.page_number = comment.pageNumber;
+            }
+        }
+
+        return insertData;
     };
 
-    if (entityType === 'manga') {
-        insertData.chapter_id = comment.chapterId;
-        insertData.page_number = comment.pageNumber ?? null;
-    }
+    const shouldIncludePageNumber = entityType === 'manga'
+        && typeof comment.pageNumber === 'number'
+        && mangaCommentPageNumberFeatureState !== 'unavailable';
 
-    const { data, error } = await supabase
+    let { data, error } = await supabase
         .from(tableName as any)
-        .insert(insertData)
+        .insert(createInsertData(shouldIncludePageNumber))
         .select()
         .single();
 
+    if (error && shouldIncludePageNumber && isMissingMangaCommentPageNumberError(error)) {
+        mangaCommentPageNumberFeatureState = 'unavailable';
+        ({ data, error } = await supabase
+            .from(tableName as any)
+            .insert(createInsertData(false))
+            .select()
+            .single());
+    }
+
     if (error) throw error;
+
+    if (shouldIncludePageNumber && mangaCommentPageNumberFeatureState === 'unknown') {
+        mangaCommentPageNumberFeatureState = 'available';
+    }
+
     return {
         id: data.id,
         mangaId: entityType === 'manga' ? data.manga_id : undefined,
@@ -1031,6 +1124,7 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
         userId: data.user_id,
         username: data.username,
         userAvatar: data.user_avatar,
+        userRole: comment.userRole,
         content: comment.content,
         title: comment.title,
         textColor: comment.textColor,

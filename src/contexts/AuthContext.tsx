@@ -3,7 +3,8 @@ import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/su
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { User } from '@/lib/types';
-import { checkCurrentAccess, getDeviceIdentity } from '@/lib/security/deviceIdentity';
+import { checkCurrentAccess } from '@/lib/security/deviceIdentity';
+import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 import { syncLocalChapterReadFallbackToRemote } from '@/lib/storage';
 import { toast } from 'sonner';
 

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { getArtists } from '@/lib/database';
 import { Artist } from '@/lib/types';
 import Header from '@/components/layout/Header';
+import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 
 const ArtistsBrowse: React.FC = () => {
     const [artists, setArtists] = useState<Artist[]>([]);
@@ -72,9 +73,10 @@ const ArtistsBrowse: React.FC = () => {
                                                  alt={artist.name}
                                              />
                                         ) : (
-                                            <div className="w-full h-full bg-secondary flex items-center justify-center">
-                                                <span className="text-4xl font-black text-muted-foreground/30">{artist.name.charAt(0)}</span>
-                                            </div>
+                                            <EntityPlaceholderArt
+                                                name={artist.name}
+                                                initialClassName="text-5xl sm:text-6xl"
+                                            />
                                         )}
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-90 transition-opacity" />
 

@@ -19,7 +19,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
 import { saveManga } from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
-import { allGenres } from '@/lib/mockData';
+import { normalizeGenres } from '@/lib/mockData';
 
 interface ScrapedMangaCard {
     title: string;
@@ -142,7 +142,7 @@ const AdminScraper: React.FC = () => {
                         title: titleEl.textContent?.trim() || '',
                         link: (titleEl as HTMLAnchorElement).href.replace(window.location.origin, 'https://hayalistic.net'),
                         cover: imgEl?.getAttribute('data-src') || imgEl?.src?.replace(window.location.origin, 'https://hayalistic.net') || '',
-                        genres: Array.from(genresEl).map(g => g.textContent?.trim() || ''),
+                        genres: normalizeGenres(Array.from(genresEl).map(g => g.textContent?.trim() || '')),
                     });
                 }
             });
@@ -223,8 +223,8 @@ const AdminScraper: React.FC = () => {
             // Genres
             const genreElements = doc.querySelectorAll('.genres-content a');
             const genres = genreElements.length > 0
-                ? Array.from(genreElements).map(g => g.textContent?.trim() || '')
-                : card.genres;
+                ? normalizeGenres(Array.from(genreElements).map(g => g.textContent?.trim() || ''))
+                : normalizeGenres(card.genres);
 
             // Chapters
             const chapterElements = doc.querySelectorAll('.wp-manga-chapter');
@@ -259,7 +259,7 @@ const AdminScraper: React.FC = () => {
                 artist,
                 status,
                 type,
-                genres: genres.filter(g => g && g !== ''),
+                genres: normalizeGenres(genres.filter(g => g && g !== '')),
                 releaseYear,
                 chapters: [], // We'll fetch pages for each chapter if needed, but for now just meta
                 views: 0,

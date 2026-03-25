@@ -56,7 +56,7 @@ const AdminLayout: React.FC = () => {
         { icon: Users, label: 'Karakter & Sanatçı', path: '/admin/entities' },
         { icon: Hash, label: 'Etiketler', path: '/admin/tags' },
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
-        { icon: Megaphone, label: 'Duyurular', path: '/admin/announcements' },
+        ...(user?.role === 'admin' ? [{ icon: Megaphone, label: 'Duyurular', path: '/admin/announcements' }] : []),
         { icon: Flag, label: 'Bildirilenler', path: '/admin/reports' },
         ...(user?.role === 'admin' ? [{ icon: Users, label: 'Adminler', path: '/admin/users' }] : []),
     ];

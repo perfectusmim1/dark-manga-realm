@@ -4,7 +4,9 @@ import { tr } from 'date-fns/locale';
 import { MessageCircle, Reply, ThumbsUp } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
+import StaffBadge from '@/components/user/StaffBadge';
 import { useAuth } from '@/contexts/AuthContext';
+import { getStaffTextClassName } from '@/lib/staffRoles';
 import { Comment } from '@/lib/types';
 import { getEntityCommentsV2, toggleCommentLike } from '@/lib/database';
 import { createCommentNotification } from '@/lib/storage';
@@ -321,8 +323,17 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
 
                         <div className="min-w-0 flex-1 space-y-2">
                             <div className="flex items-start justify-between gap-2">
-                                <div className="min-w-0">
-                                    <p className="truncate text-xs font-semibold text-foreground">{comment.username}</p>
+                                <div className="min-w-0 space-y-1">
+                                    <div className="flex items-center gap-1.5">
+                                        <p
+                                            className={`min-w-0 flex-1 truncate text-xs font-semibold ${
+                                                comment.userRole ? getStaffTextClassName(comment.userRole, false) : 'text-foreground'
+                                            }`}
+                                        >
+                                            {comment.username}
+                                        </p>
+                                        <StaffBadge role={comment.userRole} compact />
+                                    </div>
                                     <p className="text-[10px] text-muted-foreground">
                                         {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
                                     </p>

@@ -12,6 +12,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
+import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import { supabase } from '@/lib/supabase'; // Added for like check
 
 const CharacterDetail: React.FC = () => {
@@ -107,11 +108,18 @@ const CharacterDetail: React.FC = () => {
                         <div className="relative group">
                             <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-purple-600/50 rounded-2xl blur opacity-25 group-hover:opacity-100 transition duration-500" />
                             <div className="relative aspect-[3/4] rounded-xl overflow-hidden border border-border shadow-2xl bg-card">
-                                <img
-                                    src={character.imageUrl || 'https://via.placeholder.com/300x400?text=No+Image'}
-                                    alt={character.name}
-                                    className="w-full h-full object-cover"
-                                />
+                                {character.imageUrl ? (
+                                    <img
+                                        src={character.imageUrl}
+                                        alt={character.name}
+                                        className="w-full h-full object-cover"
+                                    />
+                                ) : (
+                                    <EntityPlaceholderArt
+                                        name={character.name}
+                                        initialClassName="text-8xl md:text-9xl"
+                                    />
+                                )}
                                 {character.rank === 1 && (
                                     <div className="absolute top-4 left-4">
                                         <Badge className="bg-yellow-500 text-black font-bold px-3 py-1 text-sm shadow-lg">

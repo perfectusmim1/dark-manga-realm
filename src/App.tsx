@@ -59,6 +59,7 @@ import AdminReports from "./pages/admin/AdminReports";
 import { offlineDownloadManager } from "@/lib/offline/downloadManager";
 import { initializeOfflineReaderSync } from "@/lib/offline/offlineReaderSync";
 import DownloadDock from "@/components/offline/DownloadDock";
+import AdBlockWarning from "@/components/security/AdBlockWarning";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -215,6 +216,7 @@ const App = () => (
                 <MfaGate>
                   <OfflineStartupRedirect />
                   <ScrollToTop />
+                  <AdBlockWarning />
                   <Routes>
                   {/* Public Routes */}
                   <Route path="/" element={<Index />} />

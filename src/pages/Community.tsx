@@ -280,7 +280,7 @@ const Community: React.FC = () => {
               onClick={() => setCategory('comments')}
               className={`px-4 py-2 rounded-full border border-border text-sm font-bold flex items-center gap-2 transition-all ${category === 'comments' ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_15px_rgba(var(--primary),0.3)]' : 'hover:bg-secondary/50'}`}
             >
-              <MessageSquare className="w-4 h-4" /> Lider Birlik
+              <MessageSquare className="w-4 h-4" /> En Çok Yorum
             </button>
             <button
               onClick={() => setCategory('reading_lists')}

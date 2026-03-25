@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import NotificationDropdown from '@/components/notifications/NotificationDropdown';
 import AnnouncementDropdown from '@/components/notifications/AnnouncementDropdown';
@@ -29,6 +29,7 @@ import {
   Clock3,
   Sparkles,
   Download,
+  ChevronDown,
 } from 'lucide-react';
 import { getAllMangas, getCharacters } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
@@ -61,6 +62,21 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 
+const CHARACTER_MENU_LONG_PRESS_MS = 320;
+
+const characterMenuItems = [
+  {
+    path: '/authors',
+    label: 'Yazarlar',
+    description: 'Senaryo ve kurgu tarafını keşfet',
+  },
+  {
+    path: '/artists',
+    label: 'Çizerler',
+    description: 'Çizim ekibi ve görsel kadro',
+  },
+];
+
 const Header: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
@@ -79,6 +95,12 @@ const Header: React.FC = () => {
   const [randomQueue, setRandomQueue] = useState<Manga[]>([]);
   const [randomSpinIndex, setRandomSpinIndex] = useState(0);
   const [randomTransitionMs, setRandomTransitionMs] = useState(120);
+  const [isCharactersDesktopMenuOpen, setIsCharactersDesktopMenuOpen] = useState(false);
+  const [isCharactersMobileMenuOpen, setIsCharactersMobileMenuOpen] = useState(false);
+  const desktopCharactersCloseTimeoutRef = useRef<number | null>(null);
+  const mobileCharactersLongPressTimeoutRef = useRef<number | null>(null);
+  const mobileCharactersLongPressTriggeredRef = useRef(false);
+  const mobileCharactersMenuRef = useRef<HTMLDivElement | null>(null);
 
   // Load all mangas for quick search once
   useEffect(() => {
@@ -138,6 +160,14 @@ const Header: React.FC = () => {
   };
 
   const isActive = (path: string) => location.pathname === path;
+  const isCharactersSectionActive = (
+    location.pathname === '/characters'
+    || location.pathname === '/authors'
+    || location.pathname === '/artists'
+    || location.pathname.startsWith('/character/')
+    || location.pathname.startsWith('/author/')
+    || location.pathname.startsWith('/artist/')
+  );
 
   const navLinks: { path: string; label: string; icon?: any }[] = [
     { path: '/browse', label: 'Keşfet' },
@@ -145,6 +175,138 @@ const Header: React.FC = () => {
     { path: '/characters', label: 'Karakterler' },
     { path: '/community', label: 'Topluluk', icon: Users },
   ];
+
+  const clearDesktopCharactersCloseTimeout = () => {
+    if (desktopCharactersCloseTimeoutRef.current !== null) {
+      window.clearTimeout(desktopCharactersCloseTimeoutRef.current);
+      desktopCharactersCloseTimeoutRef.current = null;
+    }
+  };
+
+  const clearMobileCharactersLongPressTimeout = () => {
+    if (mobileCharactersLongPressTimeoutRef.current !== null) {
+      window.clearTimeout(mobileCharactersLongPressTimeoutRef.current);
+      mobileCharactersLongPressTimeoutRef.current = null;
+    }
+  };
+
+  const closeCharacterMenus = () => {
+    clearDesktopCharactersCloseTimeout();
+    clearMobileCharactersLongPressTimeout();
+    mobileCharactersLongPressTriggeredRef.current = false;
+    setIsCharactersDesktopMenuOpen(false);
+    setIsCharactersMobileMenuOpen(false);
+  };
+
+  const openDesktopCharactersMenu = () => {
+    clearDesktopCharactersCloseTimeout();
+    setIsCharactersDesktopMenuOpen(true);
+  };
+
+  const scheduleDesktopCharactersMenuClose = () => {
+    clearDesktopCharactersCloseTimeout();
+    desktopCharactersCloseTimeoutRef.current = window.setTimeout(() => {
+      setIsCharactersDesktopMenuOpen(false);
+    }, 120);
+  };
+
+  const handleMobileCharactersLongPressStart = () => {
+    mobileCharactersLongPressTriggeredRef.current = false;
+    clearMobileCharactersLongPressTimeout();
+    mobileCharactersLongPressTimeoutRef.current = window.setTimeout(() => {
+      mobileCharactersLongPressTriggeredRef.current = true;
+      setIsCharactersMobileMenuOpen(true);
+    }, CHARACTER_MENU_LONG_PRESS_MS);
+  };
+
+  const handleMobileCharactersLongPressCancel = () => {
+    clearMobileCharactersLongPressTimeout();
+  };
+
+  const handleMobileCharactersLinkClick = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    if (mobileCharactersLongPressTriggeredRef.current) {
+      event.preventDefault();
+      mobileCharactersLongPressTriggeredRef.current = false;
+      return;
+    }
+
+    setIsCharactersMobileMenuOpen(false);
+    setIsMenuOpen(false);
+  };
+
+  const toggleMobileCharactersMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    clearMobileCharactersLongPressTimeout();
+    mobileCharactersLongPressTriggeredRef.current = false;
+    setIsCharactersMobileMenuOpen((previous) => !previous);
+  };
+
+  const renderCharacterMenuLinks = (onNavigate?: () => void) => (
+    <>
+      {characterMenuItems.map((item) => {
+        const isItemActive = item.path === '/authors'
+          ? location.pathname === '/authors' || location.pathname.startsWith('/author/')
+          : location.pathname === '/artists' || location.pathname.startsWith('/artist/');
+
+        return (
+          <Link
+            key={item.path}
+            to={item.path}
+            onClick={onNavigate}
+            className={`block rounded-xl px-4 py-3 transition-colors ${
+              isItemActive
+                ? 'bg-primary/12 text-primary'
+                : 'text-foreground hover:bg-secondary/80'
+            }`}
+          >
+            <p className="text-sm font-semibold">{item.label}</p>
+            <p className={`mt-1 text-xs ${isItemActive ? 'text-primary/80' : 'text-muted-foreground'}`}>
+              {item.description}
+            </p>
+          </Link>
+        );
+      })}
+    </>
+  );
+
+  useEffect(() => {
+    closeCharacterMenus();
+  }, [location.pathname]);
+
+  useEffect(() => {
+    if (isMenuOpen) {
+      return;
+    }
+
+    setIsCharactersMobileMenuOpen(false);
+    mobileCharactersLongPressTriggeredRef.current = false;
+    clearMobileCharactersLongPressTimeout();
+  }, [isMenuOpen]);
+
+  useEffect(() => {
+    if (!isCharactersMobileMenuOpen) {
+      return;
+    }
+
+    const handlePointerDown = (event: PointerEvent) => {
+      const target = event.target as Node;
+      if (mobileCharactersMenuRef.current && !mobileCharactersMenuRef.current.contains(target)) {
+        setIsCharactersMobileMenuOpen(false);
+      }
+    };
+
+    document.addEventListener('pointerdown', handlePointerDown);
+
+    return () => {
+      document.removeEventListener('pointerdown', handlePointerDown);
+    };
+  }, [isCharactersMobileMenuOpen]);
+
+  useEffect(() => () => {
+    clearDesktopCharactersCloseTimeout();
+    clearMobileCharactersLongPressTimeout();
+  }, []);
 
   useEffect(() => {
     if (!isRandomRolling || randomQueue.length === 0) {
@@ -278,6 +440,53 @@ const Header: React.FC = () => {
         <nav className="hidden items-center gap-6 lg:flex">
           {navLinks.map((link) => {
             const Icon = link.icon;
+
+            if (link.path === '/characters') {
+              return (
+                <div
+                  key={link.path}
+                  className="relative -my-3 px-2 py-3"
+                  onMouseEnter={openDesktopCharactersMenu}
+                  onMouseLeave={scheduleDesktopCharactersMenuClose}
+                >
+                  <Link
+                    to={link.path}
+                    className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                      isCharactersSectionActive
+                        ? 'text-primary'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {link.label}
+                    <ChevronDown
+                      className={`h-4 w-4 transition-transform duration-200 ${
+                        isCharactersDesktopMenuOpen ? 'rotate-180' : ''
+                      }`}
+                    />
+                  </Link>
+
+                  <div
+                    className={`absolute left-1/2 top-full z-50 w-[17rem] -translate-x-1/2 pt-2 transition-all duration-150 ${
+                      isCharactersDesktopMenuOpen
+                        ? 'pointer-events-auto translate-y-0 opacity-100'
+                        : 'pointer-events-none -translate-y-1 opacity-0'
+                    }`}
+                  >
+                    <div className="rounded-2xl border border-border/70 bg-background/95 p-2 shadow-2xl backdrop-blur-xl">
+                      <div className="px-2 pb-2 pt-1">
+                        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
+                          Karakterler
+                        </p>
+                      </div>
+                      <div className="space-y-1.5">
+                        {renderCharacterMenuLinks()}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            }
+
             return (
               <Link
                 key={link.path}
@@ -578,16 +787,78 @@ const Header: React.FC = () => {
             </div>
           </form>
           <nav className="flex flex-col gap-2">
-            {navLinks.map((link) => (
-              <Link
-                key={link.path}
-                to={link.path}
-                onClick={() => setIsMenuOpen(false)}
-                className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-              >
-                {link.label}
-              </Link>
-            ))}
+            {navLinks.map((link) => {
+              if (link.path === '/characters') {
+                return (
+                  <div
+                    key={link.path}
+                    ref={mobileCharactersMenuRef}
+                    className={`overflow-hidden rounded-xl border transition-colors ${
+                      isCharactersMobileMenuOpen
+                        ? 'border-primary/30 bg-primary/5'
+                        : 'border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <Link
+                        to={link.path}
+                        onClick={handleMobileCharactersLinkClick}
+                        onTouchStart={handleMobileCharactersLongPressStart}
+                        onTouchEnd={handleMobileCharactersLongPressCancel}
+                        onTouchCancel={handleMobileCharactersLongPressCancel}
+                        onTouchMove={handleMobileCharactersLongPressCancel}
+                        onContextMenu={(event) => event.preventDefault()}
+                        className={`flex-1 rounded-l-xl px-4 py-3 text-sm font-medium transition-colors ${
+                          isCharactersSectionActive
+                            ? 'text-primary'
+                            : 'hover:bg-secondary'
+                        }`}
+                      >
+                        Karakterler
+                      </Link>
+
+                      <button
+                        type="button"
+                        onClick={toggleMobileCharactersMenu}
+                        className={`mr-1 flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
+                          isCharactersMobileMenuOpen
+                            ? 'bg-primary/12 text-primary'
+                            : 'text-muted-foreground hover:bg-secondary'
+                        }`}
+                        aria-expanded={isCharactersMobileMenuOpen}
+                        aria-label="Karakter alt menüsü"
+                      >
+                        <ChevronDown
+                          className={`h-4 w-4 transition-transform duration-200 ${
+                            isCharactersMobileMenuOpen ? 'rotate-180' : ''
+                          }`}
+                        />
+                      </button>
+                    </div>
+
+                    {isCharactersMobileMenuOpen && (
+                      <div className="space-y-1 border-t border-border/60 px-2 pb-2 pt-2">
+                        {renderCharacterMenuLinks(() => {
+                          setIsCharactersMobileMenuOpen(false);
+                          setIsMenuOpen(false);
+                        })}
+                      </div>
+                    )}
+                  </div>
+                );
+              }
+
+              return (
+                <Link
+                  key={link.path}
+                  to={link.path}
+                  onClick={() => setIsMenuOpen(false)}
+                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+                >
+                  {link.label}
+                </Link>
+              );
+            })}
             {user && (
               <>
                 <Link

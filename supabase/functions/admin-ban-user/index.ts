@@ -1,6 +1,11 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
-import { corsHeaders } from "../_shared/cors.ts";
+
+const corsHeaders = {
+  "Access-Control-Allow-Origin": "*",
+  "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type, x-device-hash, x-device-installation-id",
+  "Access-Control-Allow-Methods": "POST, OPTIONS",
+};
 
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), {
@@ -55,9 +60,14 @@ Deno.serve(async (req: Request) => {
     return json({ success: false, message: "Not authorized" }, 403);
   }
 
-  const payload = await req.json().catch(() => null) as { targetUserId?: string; reason?: string } | null;
+  const payload = await req.json().catch(() => null) as {
+    targetUserId?: string;
+    reason?: string;
+    mode?: "user" | "hard";
+  } | null;
   const targetUserId = payload?.targetUserId?.trim();
   const reason = payload?.reason?.trim() || "Yönetici tarafından banlandı.";
+  const mode = payload?.mode === "user" ? "user" : "hard";
 
   if (!targetUserId) {
     return json({ success: false, message: "targetUserId gerekli" }, 400);
@@ -91,41 +101,50 @@ Deno.serve(async (req: Request) => {
     })
     .eq("id", targetUserId);
 
-  const { data: fingerprints } = await serviceClient
-    .from("user_access_fingerprints")
-    .select("ip_hash, device_hash")
-    .eq("user_id", targetUserId);
+  let uniqueIpHashes: string[] = [];
+  let uniqueDeviceHashes: string[] = [];
 
-  const uniqueIpHashes = [...new Set((fingerprints || []).map((item: any) => item.ip_hash).filter(Boolean))];
-  const uniqueDeviceHashes = [...new Set((fingerprints || []).map((item: any) => item.device_hash).filter(Boolean))];
+  if (mode === "hard") {
+    const { data: fingerprints } = await serviceClient
+      .from("user_access_fingerprints")
+      .select("ip_hash, device_hash")
+      .eq("user_id", targetUserId);
 
-  if (uniqueIpHashes.length > 0) {
-    await serviceClient.from("banned_ip_hashes").upsert(
-      uniqueIpHashes.map((ipHash) => ({
-        ip_hash: ipHash,
-        user_id: targetUserId,
-        reason,
-        banned_by: requesterId,
-      })),
-      { onConflict: "ip_hash", ignoreDuplicates: false }
-    );
-  }
+    uniqueIpHashes = [...new Set((fingerprints || []).map((item: any) => item.ip_hash).filter(Boolean))];
+    uniqueDeviceHashes = [...new Set((fingerprints || []).map((item: any) => item.device_hash).filter(Boolean))];
 
-  if (uniqueDeviceHashes.length > 0) {
-    await serviceClient.from("banned_device_hashes").upsert(
-      uniqueDeviceHashes.map((deviceHash) => ({
-        device_hash: deviceHash,
-        user_id: targetUserId,
-        reason,
-        banned_by: requesterId,
-      })),
-      { onConflict: "device_hash", ignoreDuplicates: false }
-    );
+    if (uniqueIpHashes.length > 0) {
+      await serviceClient.from("banned_ip_hashes").upsert(
+        uniqueIpHashes.map((ipHash) => ({
+          ip_hash: ipHash,
+          user_id: targetUserId,
+          reason,
+          banned_by: requesterId,
+        })),
+        { onConflict: "ip_hash", ignoreDuplicates: false }
+      );
+    }
+
+    if (uniqueDeviceHashes.length > 0) {
+      await serviceClient.from("banned_device_hashes").upsert(
+        uniqueDeviceHashes.map((deviceHash) => ({
+          device_hash: deviceHash,
+          user_id: targetUserId,
+          reason,
+          banned_by: requesterId,
+        })),
+        { onConflict: "device_hash", ignoreDuplicates: false }
+      );
+    }
   }
 
   return json({
     success: true,
+    mode,
     ipBanCount: uniqueIpHashes.length,
     deviceBanCount: uniqueDeviceHashes.length,
+    message: mode === "hard"
+      ? "Kullanıcı hesabı ve kayıtlı cihaz izleri banlandı."
+      : "Kullanıcı hesabı banlandı.",
   });
 });

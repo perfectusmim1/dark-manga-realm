@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { getCharacters } from '@/lib/database';
 import { Character } from '@/lib/types';
 import Header from '@/components/layout/Header';
+import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 
 const CharactersBrowse: React.FC = () => {
     const [characters, setCharacters] = useState<Character[]>([]);
@@ -64,11 +65,19 @@ const CharactersBrowse: React.FC = () => {
                                 className="group relative flex flex-col items-center text-center"
                             >
                                 <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-card shadow-lg [transform:translateZ(0)] transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-2xl group-hover:border-primary/50">
-                                    <img
-                                        src={char.imageUrl || 'https://via.placeholder.com/300x400?text=No+Image'}
-                                        className="h-full w-full rounded-[inherit] object-cover transform-gpu transition-transform duration-500 group-hover:scale-110"
-                                        alt={char.name}
-                                    />
+                                    {char.imageUrl ? (
+                                        <img
+                                            src={char.imageUrl}
+                                            className="h-full w-full rounded-[inherit] object-cover transform-gpu transition-transform duration-500 group-hover:scale-110"
+                                            alt={char.name}
+                                        />
+                                    ) : (
+                                        <EntityPlaceholderArt
+                                            name={char.name}
+                                            className="rounded-[inherit]"
+                                            initialClassName="text-5xl sm:text-6xl"
+                                        />
+                                    )}
                                     <div className="absolute inset-0 rounded-[inherit] bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 transition-opacity group-hover:opacity-90" />
 
                                     {/* Rank Badge */}

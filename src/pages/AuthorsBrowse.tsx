@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import { getAuthors } from '@/lib/database';
 import { Author } from '@/lib/types';
 import Header from '@/components/layout/Header';
+import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 
 const AuthorsBrowse: React.FC = () => {
     const [authors, setAuthors] = useState<Author[]>([]);
@@ -73,9 +74,10 @@ const AuthorsBrowse: React.FC = () => {
                                                  alt={author.name}
                                              />
                                         ) : (
-                                            <div className="w-full h-full bg-secondary flex items-center justify-center">
-                                                <span className="text-4xl font-black text-muted-foreground/30">{author.name.charAt(0)}</span>
-                                            </div>
+                                            <EntityPlaceholderArt
+                                                name={author.name}
+                                                initialClassName="text-5xl sm:text-6xl"
+                                            />
                                         )}
                                         <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-90 transition-opacity" />
 

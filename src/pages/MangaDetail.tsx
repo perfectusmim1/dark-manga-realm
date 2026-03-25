@@ -25,6 +25,7 @@ import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
 import ReadingListModal from '@/components/manga/ReadingListModal';
+import StaffBadge from '@/components/user/StaffBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -85,6 +86,7 @@ import {
   DialogFooter,
 } from "@/components/ui/dialog";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { getStaffTextClassName } from '@/lib/staffRoles';
 import { toast } from 'sonner';
 import MangaDetailSkeleton from '@/components/skeletons/MangaDetailSkeleton';
 import TagSection from '@/components/tags/TagSection';
@@ -95,6 +97,7 @@ import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
+import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -1556,11 +1559,19 @@ const MangaDetail: React.FC = () => {
                   mangaCharacters.map((char) => (
                     <Link key={char.id} to={`/character/${char.id}`} className="group space-y-3">
                       <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-lg border border-border bg-secondary/30">
-                        <img
-                          src={char.imageUrl || 'https://via.placeholder.com/300x400?text=Karakter'}
-                          className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                          alt={char.name}
-                        />
+                        {char.imageUrl ? (
+                          <img
+                            src={char.imageUrl}
+                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            alt={char.name}
+                          />
+                        ) : (
+                          <EntityPlaceholderArt
+                            name={char.name}
+                            className="rounded-[inherit]"
+                            initialClassName="text-5xl sm:text-6xl"
+                          />
+                        )}
                         <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
                           <div className="text-white text-xs font-bold flex items-center gap-1">
                             <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
@@ -1716,13 +1727,26 @@ const MangaDetail: React.FC = () => {
                               <div className={cn("transition-all duration-300", isBlocked && !isRevealed && "blur-md select-none pointer-events-none grayscale opacity-40 overflow-hidden max-h-40")}>
                                 <div className="flex justify-between items-start mb-4">
                                   <div className="flex gap-4">
-                                    <Avatar className="h-12 w-12 border-2 border-primary/20">
-                                      <AvatarImage src={review.userAvatar} />
-                                      <AvatarFallback>{review.username.substring(0, 2).toUpperCase()}</AvatarFallback>
-                                    </Avatar>
+                                    <Link to={`/profile/${review.userId}`} className="shrink-0 transition-transform hover:scale-105">
+                                      <Avatar className="h-12 w-12 border-2 border-primary/20">
+                                        <AvatarImage src={review.userAvatar} />
+                                        <AvatarFallback>{review.username.substring(0, 2).toUpperCase()}</AvatarFallback>
+                                      </Avatar>
+                                    </Link>
                                     <div>
-                                      <div className="flex items-center gap-2">
-                                        <h4 className="font-bold">{review.username}</h4>
+                                      <div className="flex flex-wrap items-center gap-2">
+                                        <Link
+                                          to={`/profile/${review.userId}`}
+                                          className={cn(
+                                            'font-bold transition-colors hover:underline',
+                                            review.userRole
+                                              ? getStaffTextClassName(review.userRole)
+                                              : 'text-foreground hover:text-primary'
+                                          )}
+                                        >
+                                          {review.username}
+                                        </Link>
+                                        <StaffBadge role={review.userRole} compact />
                                       </div>
                                       <p className="text-xs text-muted-foreground">{formatDate(review.createdAt)}</p>
                                     </div>

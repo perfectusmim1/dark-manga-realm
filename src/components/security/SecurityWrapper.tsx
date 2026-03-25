@@ -1,23 +1,63 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
+import { useAuth } from '@/contexts/AuthContext';
+import {
+    getSiteSecuritySettings,
+    SiteSecuritySettings,
+    subscribeToSiteSecuritySettings,
+} from '@/lib/siteSecurity';
 import CustomContextMenu from './CustomContextMenu';
 
 const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+    const { user } = useAuth();
+    const [settings, setSettings] = useState<SiteSecuritySettings>({
+        devtoolsProtectionEnabled: false,
+        adblockWarningEnabled: false,
+        updatedAt: null,
+        updatedBy: null,
+    });
+    const isAdmin = user?.role === 'admin';
+    const shouldEnforce = import.meta.env.PROD && settings.devtoolsProtectionEnabled && !isAdmin;
+
     useEffect(() => {
+        let isActive = true;
+
+        void getSiteSecuritySettings()
+            .then((loadedSettings) => {
+                if (isActive) {
+                    setSettings(loadedSettings);
+                }
+            })
+            .catch((error) => {
+                console.error('Site security settings could not be loaded:', error);
+            });
+
+        const unsubscribe = subscribeToSiteSecuritySettings((nextSettings) => {
+            if (isActive) {
+                setSettings(nextSettings);
+            }
+        });
+
+        return () => {
+            isActive = false;
+            unsubscribe();
+        };
+    }, []);
+
+    useEffect(() => {
+        if (!shouldEnforce) {
+            return;
+        }
+
         const infiniteDebugger = () => {
-            const start = Date.now();
             // eslint-disable-next-line no-debugger
             debugger;
-            const end = Date.now();
-            if (end - start > 100) {
-            }
         };
 
-        let debuggerInterval: any;
+        let debuggerInterval: number | undefined;
+        let extensionInterval: number | undefined;
 
-        if (import.meta.env.PROD) {
-            debuggerInterval = setInterval(infiniteDebugger, 2000);
-        }
+        debuggerInterval = window.setInterval(infiniteDebugger, 2000);
 
         const handleContextMenu = (e: MouseEvent) => {
             e.preventDefault();
@@ -31,8 +71,8 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 e.stopPropagation();
                 
                 if (e.keyCode === 123 || (e.ctrlKey && (e.keyCode === 73 || e.keyCode === 74 || e.keyCode === 85))) {
-                    toast.error("Developer Tools are restricted", {
-                        description: "Standard keyboard shortcuts have been disabled for security."
+                    toast.error("Geliştirici araçları kısıtlandı", {
+                        description: "Bu sitede standart geliştirici araçları kısayolları devre dışı."
                     });
                 }
                 
@@ -54,7 +94,7 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
                 adblockInjected.forEach(el => el.remove());
             };
 
-            setInterval(checkExtensions, 3000);
+            extensionInterval = window.setInterval(checkExtensions, 3000);
         };
 
         const observer = new MutationObserver((mutations) => {
@@ -72,45 +112,34 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             subtree: true
         });
 
-        const protectConsole = () => {
-            const dummy = () => { };
-            const methods = ['log', 'debug', 'info', 'warn', 'error', 'table', 'clear'];
-            methods.forEach(method => {
-                try {
-                    // @ts-ignore
-                    window.console[method] = dummy;
-                    Object.defineProperty(window.console, method, {
-                        get: () => dummy,
-                        set: () => dummy,
-                        configurable: false
-                    });
-                } catch (e) { }
-            });
-        };
+        const handleDragStart = (e: DragEvent) => e.preventDefault();
 
-        if (import.meta.env.PROD) {
-            protectConsole();
-            extensionDetector();
-        }
+        extensionDetector();
 
         document.addEventListener('contextmenu', handleContextMenu);
         document.addEventListener('keydown', handleKeyDown, true);
-        document.addEventListener('dragstart', (e) => e.preventDefault());
+        document.addEventListener('dragstart', handleDragStart);
 
         return () => {
             document.removeEventListener('contextmenu', handleContextMenu);
             document.removeEventListener('keydown', handleKeyDown, true);
+            document.removeEventListener('dragstart', handleDragStart);
             observer.disconnect();
-            if (debuggerInterval) clearInterval(debuggerInterval);
+            if (debuggerInterval) window.clearInterval(debuggerInterval);
+            if (extensionInterval) window.clearInterval(extensionInterval);
         };
-    }, []);
+    }, [shouldEnforce]);
 
     return (
-        <div id="app-security-wrapper" className="select-none pointer-events-auto min-h-screen">
+        <div
+            id="app-security-wrapper"
+            className={`pointer-events-auto min-h-screen ${shouldEnforce ? 'select-none' : ''}`}
+        >
             {children}
-            <CustomContextMenu />
+            {shouldEnforce ? <CustomContextMenu /> : null}
             
-            <style dangerouslySetInnerHTML={{
+            {shouldEnforce ? (
+                <style dangerouslySetInnerHTML={{
                 __html: `
           * {
             -webkit-touch-callout: none !important;
@@ -149,7 +178,8 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             body { display: none !important; }
           }
         `
-            }} />
+                }} />
+            ) : null}
         </div>
     );
 };

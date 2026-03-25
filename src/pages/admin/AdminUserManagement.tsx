@@ -31,6 +31,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 const ACTIVE_USER_WINDOW_MS = 15 * 60 * 1000;
+type BanMode = 'user' | 'hard';
+
+const getErrorMessage = (error: unknown, fallback: string) =>
+    error instanceof Error ? error.message : fallback;
 
 const getUserPresence = (user: User) => {
     if (user.isBanned) {
@@ -75,6 +79,7 @@ const AdminUserManagement: React.FC = () => {
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [banTarget, setBanTarget] = useState<User | null>(null);
     const [unbanTarget, setUnbanTarget] = useState<User | null>(null);
+    const [banSubmittingMode, setBanSubmittingMode] = useState<BanMode | null>(null);
 
     useEffect(() => {
         if (authLoading) {
@@ -114,7 +119,7 @@ const AdminUserManagement: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [authLoading, user?.id]);
+    }, [authLoading, user]);
 
     const loadUsers = async () => {
         try {
@@ -142,19 +147,25 @@ const AdminUserManagement: React.FC = () => {
         }
     };
 
-    const handleBanUser = async () => {
+    const handleBanUser = async (mode: BanMode) => {
         if (!banTarget) {
             return;
         }
 
         try {
-            await banUserAccess(banTarget.id);
+            setBanSubmittingMode(mode);
+            const result = await banUserAccess(banTarget.id, { mode });
             await loadUsers();
-            toast.success('Kullanıcı banlandı');
-        } catch (error: any) {
-            toast.error(error?.message || 'Kullanıcı banlanamadı');
-        } finally {
             setBanTarget(null);
+            toast.success(
+                mode === 'hard'
+                    ? `Hard ban uygulandı${result.deviceBanCount || result.ipBanCount ? ` (${result.deviceBanCount} cihaz, ${result.ipBanCount} IP)` : ''}`
+                    : 'Kullanıcı hesabı banlandı'
+            );
+        } catch (error: unknown) {
+            toast.error(getErrorMessage(error, 'Kullanıcı banlanamadı'));
+        } finally {
+            setBanSubmittingMode(null);
         }
     };
 
@@ -167,8 +178,8 @@ const AdminUserManagement: React.FC = () => {
             await unbanUserAccess(unbanTarget.id);
             await loadUsers();
             toast.success('Ban kaldırıldı');
-        } catch (error: any) {
-            toast.error(error?.message || 'Ban kaldırılamadı');
+        } catch (error: unknown) {
+            toast.error(getErrorMessage(error, 'Ban kaldırılamadı'));
         } finally {
             setUnbanTarget(null);
         }
@@ -407,22 +418,44 @@ const AdminUserManagement: React.FC = () => {
                 </AlertDialogContent>
             </AlertDialog>
 
-            <AlertDialog open={!!banTarget} onOpenChange={() => setBanTarget(null)}>
+            <AlertDialog
+                open={!!banTarget}
+                onOpenChange={(open) => {
+                    if (!open && banSubmittingMode === null) {
+                        setBanTarget(null);
+                    }
+                }}
+            >
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>Kullanıcıyı Banla</AlertDialogTitle>
                         <AlertDialogDescription>
-                            Bu işlem kullanıcı hesabını, bilinen IP adreslerini ve mevcut cihaz izlerini ban listesine alır. Kullanıcı siteye yeniden giriş yapamaz.
+                            <div className="space-y-3">
+                                <p>
+                                    <span className="font-medium text-foreground">Sadece kullanıcı</span> seçeneği yalnızca hesabı banlar.
+                                </p>
+                                <p>
+                                    <span className="font-medium text-foreground">Hard ban</span> seçeneği ise hesapla birlikte kayıtlı IP ve cihaz parmak izlerini de engeller.
+                                </p>
+                            </div>
                         </AlertDialogDescription>
                     </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>İptal</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={handleBanUser}
+                    <AlertDialogFooter className="gap-2">
+                        <AlertDialogCancel disabled={banSubmittingMode !== null}>İptal</AlertDialogCancel>
+                        <Button
+                            variant="outline"
+                            disabled={banSubmittingMode !== null}
+                            onClick={() => void handleBanUser('user')}
+                        >
+                            {banSubmittingMode === 'user' ? 'Uygulanıyor...' : 'Sadece Kullanıcı'}
+                        </Button>
+                        <Button
+                            disabled={banSubmittingMode !== null}
+                            onClick={() => void handleBanUser('hard')}
                             className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
                         >
-                            Banla
-                        </AlertDialogAction>
+                            {banSubmittingMode === 'hard' ? 'Uygulanıyor...' : 'Hard Ban'}
+                        </Button>
                     </AlertDialogFooter>
                 </AlertDialogContent>
             </AlertDialog>
