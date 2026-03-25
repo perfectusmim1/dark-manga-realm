@@ -9,9 +9,7 @@ import {
     LogOut,
     Menu,
     X,
-    ChevronRight,
     Plus,
-    BarChart3,
     UserCircle,
     Download,
     RefreshCw,
@@ -58,6 +56,7 @@ const AdminLayout: React.FC = () => {
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
         ...(user?.role === 'admin' ? [{ icon: Megaphone, label: 'Duyurular', path: '/admin/announcements' }] : []),
         { icon: Flag, label: 'Bildirilenler', path: '/admin/reports' },
+        ...(user?.role === 'admin' ? [{ icon: Settings, label: 'Site Settings', path: '/admin/site-settings' }] : []),
         ...(user?.role === 'admin' ? [{ icon: Users, label: 'Adminler', path: '/admin/users' }] : []),
     ];
 

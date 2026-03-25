@@ -96,7 +96,7 @@ const AdminTags: React.FC = () => {
     try {
       await updateTag(tag.id, { isOfficial: !tag.isOfficial });
       await loadTags();
-      toast.success(tag.isOfficial ? 'Resmî işareti kaldırıldı' : 'Resmî olarak işaretlendi');
+      toast.success(tag.isOfficial ? 'Resmi işareti kaldırıldı' : 'Resmi olarak işaretlendi');
     } catch {
       toast.error('Güncelleme başarısız');
     }
@@ -123,7 +123,7 @@ const AdminTags: React.FC = () => {
             Etiket Yönetimi
           </h1>
           <p className="text-sm text-muted-foreground mt-1">
-            Etiketleri, kategorileri ve resmî durumlarını yönetin
+            Etiketleri, kategorileri ve resmi durumlarını yönetin
           </p>
         </div>
         <Button onClick={() => setShowCreateForm(!showCreateForm)} className="gap-1.5">
@@ -139,7 +139,7 @@ const AdminTags: React.FC = () => {
         </div>
         <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
           <p className="text-3xl font-bold text-green-500">{tagStats.official}</p>
-          <p className="text-xs text-muted-foreground mt-1">Resmî</p>
+          <p className="text-xs text-muted-foreground mt-1">Resmi</p>
         </div>
         <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
           <p className="text-3xl font-bold text-blue-500">{tagStats.community}</p>
@@ -269,7 +269,7 @@ const AdminTags: React.FC = () => {
                     <button onClick={() => toggleOfficial(tag)}>
                       {tag.isOfficial ? (
                         <Badge className="bg-green-500/10 text-green-400 border-green-500/20 text-[10px] gap-1">
-                          <Shield className="h-3 w-3" /> Resmî
+                          <Shield className="h-3 w-3" /> Resmi
                         </Badge>
                       ) : (
                         <Badge variant="outline" className="text-[10px] opacity-50 hover:opacity-100 transition-opacity">

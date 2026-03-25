@@ -9,37 +9,16 @@ import {
     Plus,
     ArrowUpRight,
     Users as UsersIcon,
-    Loader2,
-    Shield,
-    ShieldOff,
-    TriangleAlert,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { useAuth } from '@/contexts/AuthContext';
 import { getStatistics, getAllMangas } from '@/lib/database';
-import {
-    getSiteSecuritySettings,
-    setAdblockWarningEnabled,
-    setDevtoolsProtectionEnabled,
-    SiteSecuritySettings,
-} from '@/lib/siteSecurity';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
 
 const AdminDashboard: React.FC = () => {
-    const { user } = useAuth();
     const [stats, setStats] = useState<any | null>(null);
     const [recentMangas, setRecentMangas] = useState<Manga[]>([]);
     const [isLoading, setIsLoading] = useState(true);
-    const [securitySettings, setSecuritySettings] = useState<SiteSecuritySettings>({
-        devtoolsProtectionEnabled: false,
-        adblockWarningEnabled: false,
-        updatedAt: null,
-        updatedBy: null,
-    });
-    const [isSecurityLoading, setIsSecurityLoading] = useState(false);
-    const isPrimaryAdmin = user?.role === 'admin';
 
     useEffect(() => {
         const loadData = async () => {
@@ -63,71 +42,6 @@ const AdminDashboard: React.FC = () => {
         };
         loadData();
     }, []);
-
-    useEffect(() => {
-        if (!isPrimaryAdmin) {
-            return;
-        }
-
-        const loadSecuritySettings = async () => {
-            try {
-                setIsSecurityLoading(true);
-                const nextSettings = await getSiteSecuritySettings();
-                setSecuritySettings(nextSettings);
-            } catch (error) {
-                console.error('Site security settings could not be loaded:', error);
-                toast.error('Site güvenlik ayarı yüklenemedi');
-            } finally {
-                setIsSecurityLoading(false);
-            }
-        };
-
-        void loadSecuritySettings();
-    }, [isPrimaryAdmin]);
-
-    const handleProtectionToggle = async (checked: boolean) => {
-        if (!isPrimaryAdmin || isSecurityLoading) {
-            return;
-        }
-
-        try {
-            setIsSecurityLoading(true);
-            const nextSettings = await setDevtoolsProtectionEnabled(checked);
-            setSecuritySettings(nextSettings);
-            toast.success(
-                checked
-                    ? 'Geliştirici araçları koruması yeniden açıldı'
-                    : 'Geliştirici araçları koruması geçici olarak kapatıldı'
-            );
-        } catch (error) {
-            console.error('Devtools protection toggle failed:', error);
-            toast.error('Koruma ayarı güncellenemedi');
-        } finally {
-            setIsSecurityLoading(false);
-        }
-    };
-
-    const handleAdblockWarningToggle = async (checked: boolean) => {
-        if (!isPrimaryAdmin || isSecurityLoading) {
-            return;
-        }
-
-        try {
-            setIsSecurityLoading(true);
-            const nextSettings = await setAdblockWarningEnabled(checked);
-            setSecuritySettings(nextSettings);
-            toast.success(
-                checked
-                    ? 'Adblock uyarısı yeniden açıldı'
-                    : 'Adblock uyarısı kapatıldı'
-            );
-        } catch (error) {
-            console.error('Adblock warning toggle failed:', error);
-            toast.error('Adblock uyarı ayarı güncellenemedi');
-        } finally {
-            setIsSecurityLoading(false);
-        }
-    };
 
     if (isLoading) {
         return (
@@ -213,94 +127,6 @@ const AdminDashboard: React.FC = () => {
                     </div>
                 ))}
             </div>
-
-            {isPrimaryAdmin ? (
-                <div className="rounded-xl border border-border bg-card p-6">
-                    <div className="space-y-6">
-                        <div className="space-y-2">
-                            <div className="flex items-center gap-3">
-                                <div className="rounded-lg bg-primary/10 p-2 text-primary">
-                                    <Shield className="h-5 w-5" />
-                                </div>
-                                <div>
-                                    <h2 className="text-lg font-semibold">Site Koruma ve Uyarı Ayarları</h2>
-                                    <p className="text-sm text-muted-foreground">
-                                        Bu anahtarlar sadece admin tarafından değiştirilebilir.
-                                    </p>
-                                </div>
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                                {securitySettings.updatedAt
-                                    ? `Son değişiklik ${new Date(securitySettings.updatedAt).toLocaleString('tr-TR')}`
-                                    : 'Henüz panelden bir değişiklik yapılmadı'}
-                            </p>
-                        </div>
-
-                        <div className="grid gap-4 lg:grid-cols-2">
-                            <div className="rounded-2xl border border-border/70 bg-secondary/30 p-4">
-                                <div className="flex items-start justify-between gap-4">
-                                    <div className="space-y-2">
-                                        <div className={`inline-flex rounded-lg p-2 ${securitySettings.devtoolsProtectionEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
-                                            {securitySettings.devtoolsProtectionEnabled ? (
-                                                <Shield className="h-5 w-5" />
-                                            ) : (
-                                                <ShieldOff className="h-5 w-5" />
-                                            )}
-                                        </div>
-                                        <div>
-                                            <h3 className="font-semibold">Geliştirici Aracı Koruması</h3>
-                                            <p className="mt-1 text-sm text-muted-foreground">
-                                                F12, genel sağ tık ve `debugger` döngüsünü kontrol eder. Admin bu kısıttan muaftır.
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <Switch
-                                        checked={securitySettings.devtoolsProtectionEnabled}
-                                        onCheckedChange={handleProtectionToggle}
-                                        disabled={isSecurityLoading}
-                                        aria-label="Geliştirici aracı korumasını aç veya kapat"
-                                    />
-                                </div>
-                                <p className="mt-4 text-xs text-muted-foreground">
-                                    Durum: {securitySettings.devtoolsProtectionEnabled ? 'Açık' : 'Kapalı'}
-                                </p>
-                            </div>
-
-                            <div className="rounded-2xl border border-border/70 bg-secondary/30 p-4">
-                                <div className="flex items-start justify-between gap-4">
-                                    <div className="space-y-2">
-                                        <div className={`inline-flex rounded-lg p-2 ${securitySettings.adblockWarningEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
-                                            <TriangleAlert className="h-5 w-5" />
-                                        </div>
-                                        <div>
-                                            <h3 className="font-semibold">Adblock Uyarısı</h3>
-                                            <p className="mt-1 text-sm text-muted-foreground">
-                                                Reklam engelleyici algılanırsa kapatılabilir bir uyarı gösterir. Kullanıcı siteye yeniden girdiğinde tekrar çıkar.
-                                            </p>
-                                        </div>
-                                    </div>
-                                    <Switch
-                                        checked={securitySettings.adblockWarningEnabled}
-                                        onCheckedChange={handleAdblockWarningToggle}
-                                        disabled={isSecurityLoading}
-                                        aria-label="Adblock uyarısını aç veya kapat"
-                                    />
-                                </div>
-                                <p className="mt-4 text-xs text-muted-foreground">
-                                    Durum: {securitySettings.adblockWarningEnabled ? 'Açık' : 'Kapalı'}
-                                </p>
-                            </div>
-                        </div>
-
-                        {isSecurityLoading ? (
-                            <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                <Loader2 className="h-4 w-4 animate-spin" />
-                                Ayarlar güncelleniyor...
-                            </div>
-                        ) : null}
-                    </div>
-                </div>
-            ) : null}
 
             <div className="grid gap-6 lg:grid-cols-2">
                 <div className="rounded-xl border border-border bg-card p-6">

@@ -56,6 +56,7 @@ import AdminEntities from "./pages/admin/AdminEntities";
 import AdminTags from "./pages/admin/AdminTags";
 import AdminAnnouncements from "./pages/admin/AdminAnnouncements";
 import AdminReports from "./pages/admin/AdminReports";
+import AdminSiteSettings from "./pages/admin/AdminSiteSettings";
 import { offlineDownloadManager } from "@/lib/offline/downloadManager";
 import { initializeOfflineReaderSync } from "@/lib/offline/offlineReaderSync";
 import DownloadDock from "@/components/offline/DownloadDock";
@@ -265,6 +266,7 @@ const App = () => (
                     <Route path="tags" element={<AdminTags />} />
                     <Route path="announcements" element={<AdminAnnouncements />} />
                     <Route path="reports" element={<AdminReports />} />
+                    <Route path="site-settings" element={<AdminSiteSettings />} />
                   </Route>
 
                   <Route path="*" element={<NotFound />} />

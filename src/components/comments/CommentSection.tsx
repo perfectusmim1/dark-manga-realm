@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
     AlertTriangle,
     MessageCircle,
@@ -354,7 +354,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 }) => {
     const { user } = useAuth();
     const location = useLocation();
-    const navigate = useNavigate();
     const entityId = propEntityId || propMangaId || '';
     const entityType = propEntityType;
     const targetCommentId = useMemo(
@@ -1147,8 +1146,36 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         let timerId: number | null = null;
         let animationFrameId: number | null = null;
         let detachScrollInterrupts: (() => void) | null = null;
+        let hasSettled = false;
+        const targetCommentIdForScroll = pendingScrollCommentId;
 
-        const stopAnimatedScroll = () => {
+        const finalizeScroll = () => {
+            if (hasSettled || isCancelled) {
+                return;
+            }
+
+            hasSettled = true;
+
+            const nextLocation = getLocationWithoutTargetComment(
+                window.location.pathname,
+                window.location.search,
+                window.location.hash,
+            );
+
+            if (nextLocation) {
+                window.history.replaceState(
+                    window.history.state,
+                    '',
+                    `${nextLocation.pathname}${nextLocation.search}${nextLocation.hash}`,
+                );
+            }
+
+            setPendingScrollCommentId((current) => (
+                current === targetCommentIdForScroll ? null : current
+            ));
+        };
+
+        const stopAnimatedScroll = (shouldFinalize = false) => {
             if (animationFrameId !== null) {
                 window.cancelAnimationFrame(animationFrameId);
                 animationFrameId = null;
@@ -1157,6 +1184,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             if (detachScrollInterrupts) {
                 detachScrollInterrupts();
                 detachScrollInterrupts = null;
+            }
+
+            if (shouldFinalize) {
+                finalizeScroll();
             }
         };
 
@@ -1167,6 +1198,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
             if (Math.abs(distance) < 8) {
                 window.scrollTo({ top: finalTop });
+                finalizeScroll();
                 return;
             }
 
@@ -1179,7 +1211,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     return;
                 }
 
-                stopAnimatedScroll();
+                stopAnimatedScroll(true);
             };
 
             window.addEventListener('wheel', interrupt, { passive: true });
@@ -1211,7 +1243,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 }
 
                 window.scrollTo({ top: finalTop });
-                stopAnimatedScroll();
+                stopAnimatedScroll(true);
             };
 
             animationFrameId = window.requestAnimationFrame(step);
@@ -1222,7 +1254,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 return;
             }
 
-            const targetElement = document.querySelector<HTMLElement>(`[data-comment-id="${pendingScrollCommentId}"]`);
+            const targetElement = document.querySelector<HTMLElement>(`[data-comment-id="${targetCommentIdForScroll}"]`);
             if (!targetElement) {
                 if (attempts < 24) {
                     attempts += 1;
@@ -1247,24 +1279,17 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 return;
             }
 
-            const targetTop = window.scrollY + targetRect.top - 140;
-            animateScrollTo(targetTop);
-
-            const nextLocation = getLocationWithoutTargetComment(location.pathname, location.search, location.hash);
-            if (nextLocation) {
-                navigate(nextLocation, { replace: true });
-            }
-
             if (highlightTimeoutRef.current !== null) {
                 window.clearTimeout(highlightTimeoutRef.current);
             }
 
-            setHighlightedCommentId(pendingScrollCommentId);
+            setHighlightedCommentId(targetCommentIdForScroll);
             highlightTimeoutRef.current = window.setTimeout(() => {
-                setHighlightedCommentId((current) => current === pendingScrollCommentId ? null : current);
+                setHighlightedCommentId((current) => current === targetCommentIdForScroll ? null : current);
             }, COMMENT_HIGHLIGHT_DURATION_MS);
 
-            setPendingScrollCommentId(null);
+            const targetTop = window.scrollY + targetRect.top - 140;
+            animateScrollTo(targetTop);
         };
 
         timerId = window.setTimeout(scrollToComment, 80);
@@ -1276,7 +1301,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 window.clearTimeout(timerId);
             }
         };
-    }, [displayedParentComments, expandedReplies, location.hash, location.pathname, location.search, navigate, pendingScrollCommentId]);
+    }, [displayedParentComments, expandedReplies, pendingScrollCommentId]);
 
     const paginationWindow = useMemo(() => {
         if (totalPages <= 5) {
