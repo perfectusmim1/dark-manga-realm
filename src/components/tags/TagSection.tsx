@@ -29,20 +29,19 @@ const categoryLabels: Record<TagCategory, string> = {
   general: 'Genel',
 };
 
-const SMART_TAG_ACCEPT_UPVOTES = 8;
-const SMART_TAG_HIDE_SCORE = -4;
-const SMART_TAG_REMOVE_DOWNVOTES = 6;
+const SMART_TAG_ACCEPT_UPVOTES = 5;
+const SMART_TAG_REMOVE_DOWNVOTES = 5;
 
 const getTagModerationState = (
+  tag: Tag,
   votes?: { up: number; down: number },
-  isOfficial: boolean = false
 ) => {
   const up = votes?.up ?? 0;
   const down = votes?.down ?? 0;
   const score = up - down;
-  const isAccepted = isOfficial || up >= SMART_TAG_ACCEPT_UPVOTES;
-  const isRejected = !isOfficial && down >= SMART_TAG_REMOVE_DOWNVOTES;
-  const isHidden = !isOfficial && (isRejected || score <= SMART_TAG_HIDE_SCORE);
+  const isAccepted = tag.isOfficial || !!tag.communityApproved;
+  const isRejected = !tag.isOfficial && down >= SMART_TAG_REMOVE_DOWNVOTES;
+  const isDiscoverable = tag.isOfficial || !!tag.isDiscoverable;
 
   return {
     up,
@@ -50,7 +49,7 @@ const getTagModerationState = (
     score,
     isAccepted,
     isRejected,
-    isHidden,
+    isDiscoverable,
   };
 };
 
@@ -124,7 +123,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     setSearchResults(results.filter(r => !existingTagIds.has(r.id)));
   };
 
-  const handleAddTag = async (tag: Tag) => {
+  const handleAddTag = async (tag: Tag, options?: { discoverable?: boolean }) => {
     if (!user) {
       toast.error('Etiket eklemek için giriş yapmalısınız');
       return;
@@ -132,13 +131,17 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
     setIsAdding(true);
     try {
-      const success = await addTagToEntity(entityType, entityId, tag.id, user.id);
+      const success = await addTagToEntity(entityType, entityId, tag.id, user.id, options);
       if (success) {
         setTags(prev => [...prev, tag]);
         setSearchQuery('');
         setSearchResults([]);
         setIsSearchOpen(false);
-        toast.success(`"${tag.name}" etiketi eklendi`);
+        if (options?.discoverable) {
+          toast.success(`"${tag.name}" etiketi bu sayfada görünür oldu`);
+        } else {
+          toast.success(`"${tag.name}" etiketi eklendi. Keşfette görünmesi için topluluk oyu bekleniyor`);
+        }
       }
     } catch {
       toast.error('Etiket eklenemedi');
@@ -165,36 +168,42 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     }
 
     const targetTag = tags.find((tag) => tag.id === tagId);
-    const previousState = targetTag ? getTagModerationState(votes[tagId], targetTag.isOfficial) : null;
+    const previousState = targetTag ? getTagModerationState(targetTag, votes[tagId]) : null;
 
-    await voteOnTag(tagId, entityType, entityId, user.id, voteType);
-    const [newVotes, newUserVotes] = await Promise.all([
-      getTagVotes(entityType, entityId),
-      getUserTagVotes(entityType, entityId, user.id),
-    ]);
-    setVotes(newVotes);
-    setUserVotes(newUserVotes);
+    const moderationResult = await voteOnTag(tagId, entityType, entityId, user.id, voteType);
+    await loadData();
 
     if (!targetTag) {
       return;
     }
 
-    const nextState = getTagModerationState(newVotes[tagId], targetTag.isOfficial);
+    if (moderationResult?.tagDeleted) {
+      toast.error(`"${targetTag.name}" etiketi topluluk oyuyla sistemden kaldırıldı`);
+      return;
+    }
 
-    if (!previousState?.isAccepted && nextState.isAccepted && !targetTag.isOfficial) {
+    const nextState = getTagModerationState(
+      {
+        ...targetTag,
+        communityApproved: moderationResult?.communityApproved ?? targetTag.communityApproved,
+        isDiscoverable: moderationResult?.relationDiscoverable ?? targetTag.isDiscoverable,
+      },
+      {
+        up: moderationResult?.localUp ?? previousState?.up ?? 0,
+        down: moderationResult?.localDown ?? previousState?.down ?? 0,
+      }
+    );
+
+    if (!previousState?.isAccepted && moderationResult?.communityApproved && !targetTag.isOfficial) {
       toast.success(`"${targetTag.name}" etiketi topluluk tarafından kabul edildi`);
     }
 
-    if (!previousState?.isHidden && nextState.isHidden) {
-      if (nextState.isRejected) {
-        toast.error(`"${targetTag.name}" etiketi topluluk oyuyla kaldırıldı`);
-      } else {
-        toast.message(`"${targetTag.name}" etiketi düşük puan nedeniyle gizlendi`);
-      }
+    if (!previousState?.isDiscoverable && moderationResult?.relationDiscoverable) {
+      toast.success(`"${targetTag.name}" etiketi bu manga için de onaylandı`);
     }
 
-    if (nextState.isRejected) {
-      setTags((previous) => previous.filter((tag) => tag.id !== tagId));
+    if (moderationResult?.relationDeleted || nextState.isRejected) {
+      toast.error(`"${targetTag.name}" etiketi bu sayfadan kaldırıldı`);
     }
   };
 
@@ -205,7 +214,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     try {
       const created = await createTag(newTagName.trim(), newTagCategory, undefined, user.id);
       if (created) {
-        await handleAddTag(created);
+        await handleAddTag(created, { discoverable: true });
         setNewTagName('');
         setShowNewTagForm(false);
       }
@@ -218,13 +227,16 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
   const visibleTags = useMemo(() => {
     return [...tags]
-      .filter((tag) => !getTagModerationState(votes[tag.id], tag.isOfficial).isHidden)
       .sort((left, right) => {
-        const leftState = getTagModerationState(votes[left.id], left.isOfficial);
-        const rightState = getTagModerationState(votes[right.id], right.isOfficial);
+        const leftState = getTagModerationState(left, votes[left.id]);
+        const rightState = getTagModerationState(right, votes[right.id]);
 
         if (leftState.isAccepted !== rightState.isAccepted) {
           return Number(rightState.isAccepted) - Number(leftState.isAccepted);
+        }
+
+        if (leftState.isDiscoverable !== rightState.isDiscoverable) {
+          return Number(rightState.isDiscoverable) - Number(leftState.isDiscoverable);
         }
 
         if (leftState.score !== rightState.score) {
@@ -296,7 +308,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
               </span>
               <div className="flex flex-wrap gap-1.5">
                 {categoryTags.map((tag) => {
-                  const moderationState = getTagModerationState(votes[tag.id], tag.isOfficial);
+                  const moderationState = getTagModerationState(tag, votes[tag.id]);
 
                   return (
                   <TagBadge
@@ -320,16 +332,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-center">
-          {tags.length > 0 ? (
-            <>
-              <p className="text-sm text-muted-foreground">
-                Etiketler topluluk puanı nedeniyle şu anda gizli
-              </p>
-              <p className="text-xs text-muted-foreground mt-1">
-                Yeterli olumlu oy alırlarsa yeniden görünür olurlar
-              </p>
-            </>
-          ) : (
+          {tags.length === 0 ? (
             <>
               <p className="text-sm text-muted-foreground">
                 Henüz etiket eklenmemiş
@@ -339,6 +342,15 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
                   İlk etiketi ekleyen sen ol!
                 </p>
               )}
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Bu sayfadaki tüm etiketler kaldırılmış
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Yeni bir topluluk etiketi önererek yeniden başlatabilirsin
+              </p>
             </>
           )}
         </div>

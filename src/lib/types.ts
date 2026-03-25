@@ -277,6 +277,8 @@ export interface Tag {
   description?: string;
   usageCount: number;
   isOfficial: boolean;
+  communityApproved?: boolean;
+  isDiscoverable?: boolean;
   createdBy?: string;
   createdAt: string;
 }

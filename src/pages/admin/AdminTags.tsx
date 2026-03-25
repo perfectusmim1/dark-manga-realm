@@ -38,7 +38,7 @@ const AdminTags: React.FC = () => {
 
   const loadTags = async () => {
     setLoading(true);
-    const data = await getAllTags();
+    const data = await getAllTags({ includePending: true });
     setTags(data);
     setLoading(false);
   };

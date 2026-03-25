@@ -604,22 +604,28 @@ const mapAdminDirectoryUser = (user: any): User => ({
 
 const ADMIN_DIRECTORY_FALLBACK_COLUMNS = 'id, username, avatar, role, created_at, last_seen_at';
 
-const ensureAuthenticatedAdminSession = async (): Promise<void> => {
-    const { data, error } = await supabase.auth.getUser();
+const ensureAuthenticatedAdminSession = async () => {
+    const { data, error } = await supabase.auth.getSession();
     if (error) {
         throw error;
     }
 
-    if (!data.user) {
+    const session = data.session;
+    if (!session?.user || !session.access_token) {
         throw new Error('ADMIN_SESSION_REQUIRED');
     }
+
+    return session;
 };
 
 const getAdminDirectoryViaEdgeFunction = async (): Promise<User[]> => {
-    await ensureAuthenticatedAdminSession();
+    const session = await ensureAuthenticatedAdminSession();
 
     const { data, error } = await supabase.functions.invoke('admin-user-directory', {
         body: {},
+        headers: {
+            Authorization: `Bearer ${session.access_token}`,
+        },
     });
 
     if (error) {
@@ -788,7 +794,7 @@ export const banUserAccess = async (
     userId: string,
     reasonOrOptions: string | BanUserAccessOptions = {}
 ): Promise<BanUserAccessResult> => {
-    await ensureAuthenticatedAdminSession();
+    const session = await ensureAuthenticatedAdminSession();
 
     const options = typeof reasonOrOptions === 'string'
         ? { reason: reasonOrOptions }
@@ -802,6 +808,9 @@ export const banUserAccess = async (
             targetUserId: userId,
             reason,
             mode,
+        },
+        headers: {
+            Authorization: `Bearer ${session.access_token}`,
         },
     });
 
@@ -822,10 +831,13 @@ export const banUserAccess = async (
 };
 
 export const unbanUserAccess = async (userId: string): Promise<void> => {
-    await ensureAuthenticatedAdminSession();
+    const session = await ensureAuthenticatedAdminSession();
     const { data, error } = await supabase.functions.invoke('admin-unban-user', {
         body: {
             targetUserId: userId,
+        },
+        headers: {
+            Authorization: `Bearer ${session.access_token}`,
         },
     });
 
@@ -2308,67 +2320,88 @@ export const addEntityComment = async (entityType: 'character' | 'author' | 'art
 
 import { Tag, TagCategory, TagVote } from './types';
 
-export const getAllTags = async (): Promise<Tag[]> => {
-    const { data, error } = await supabase
+const COMMUNITY_VISIBLE_TAG_FILTER = 'is_official.eq.true,community_approved.eq.true';
+
+export interface TagModerationSyncResult {
+    tagDeleted: boolean;
+    relationDeleted: boolean;
+    communityApproved: boolean;
+    relationDiscoverable: boolean;
+    globalUp: number;
+    globalDown: number;
+    localUp: number;
+    localDown: number;
+}
+
+const mapTagRow = (tag: any, relation?: { is_discoverable?: boolean } | null): Tag => ({
+    id: tag.id,
+    name: tag.name,
+    slug: tag.slug,
+    category: tag.category as TagCategory,
+    description: tag.description,
+    usageCount: tag.usage_count,
+    isOfficial: tag.is_official,
+    communityApproved: tag.community_approved,
+    isDiscoverable: relation?.is_discoverable ?? tag.is_official ?? false,
+    createdBy: tag.created_by,
+    createdAt: tag.created_at
+});
+
+export const getAllTags = async (options?: { includePending?: boolean }): Promise<Tag[]> => {
+    let query = supabase
         .from('tags')
         .select('*')
         .order('usage_count', { ascending: false });
 
+    if (!options?.includePending) {
+        query = query.or(COMMUNITY_VISIBLE_TAG_FILTER);
+    }
+
+    const { data, error } = await query;
+
     if (error) return [];
-    return data.map(t => ({
-        id: t.id,
-        name: t.name,
-        slug: t.slug,
-        category: t.category as TagCategory,
-        description: t.description,
-        usageCount: t.usage_count,
-        isOfficial: t.is_official,
-        createdBy: t.created_by,
-        createdAt: t.created_at
-    }));
+    return data.map((tag) => mapTagRow(tag));
 };
 
-export const getTagsByCategory = async (category: TagCategory): Promise<Tag[]> => {
-    const { data, error } = await supabase
+export const getTagsByCategory = async (
+    category: TagCategory,
+    options?: { includePending?: boolean }
+): Promise<Tag[]> => {
+    let query = supabase
         .from('tags')
         .select('*')
         .eq('category', category)
         .order('usage_count', { ascending: false });
 
+    if (!options?.includePending) {
+        query = query.or(COMMUNITY_VISIBLE_TAG_FILTER);
+    }
+
+    const { data, error } = await query;
+
     if (error) return [];
-    return data.map(t => ({
-        id: t.id,
-        name: t.name,
-        slug: t.slug,
-        category: t.category as TagCategory,
-        description: t.description,
-        usageCount: t.usage_count,
-        isOfficial: t.is_official,
-        createdBy: t.created_by,
-        createdAt: t.created_at
-    }));
+    return data.map((tag) => mapTagRow(tag));
 };
 
-export const searchTags = async (query: string): Promise<Tag[]> => {
-    const { data, error } = await supabase
+export const searchTags = async (
+    query: string,
+    options?: { includePending?: boolean }
+): Promise<Tag[]> => {
+    let searchQuery = supabase
         .from('tags')
         .select('*')
         .ilike('name', `%${query}%`)
         .order('usage_count', { ascending: false })
         .limit(20);
 
+    if (!options?.includePending) {
+        searchQuery = searchQuery.or(COMMUNITY_VISIBLE_TAG_FILTER);
+    }
+
+    const { data, error } = await searchQuery;
+
     if (error) return [];
-    return data.map(t => ({
-        id: t.id,
-        name: t.name,
-        slug: t.slug,
-        category: t.category as TagCategory,
-        description: t.description,
-        usageCount: t.usage_count,
-        isOfficial: t.is_official,
-        createdBy: t.created_by,
-        createdAt: t.created_at
-    }));
+    return data.map((tag) => mapTagRow(tag));
 };
 
 export const createTag = async (
@@ -2403,15 +2436,7 @@ export const createTag = async (
     }
 
     return {
-        id: data.id,
-        name: data.name,
-        slug: data.slug,
-        category: data.category as TagCategory,
-        description: data.description,
-        usageCount: data.usage_count,
-        isOfficial: data.is_official,
-        createdBy: data.created_by,
-        createdAt: data.created_at
+        ...mapTagRow(data),
     };
 };
 
@@ -2442,6 +2467,7 @@ export const getTagsForEntity = async (
         .from(tableName as any)
         .select(`
             tag_id,
+            is_discoverable,
             tag:tags(*)
         `)
         .eq(colName, entityId);
@@ -2450,34 +2476,40 @@ export const getTagsForEntity = async (
 
     return (data as any[])
         .filter(d => d.tag)
-        .map(d => ({
-            id: d.tag.id,
-            name: d.tag.name,
-            slug: d.tag.slug,
-            category: d.tag.category as TagCategory,
-            description: d.tag.description,
-            usageCount: d.tag.usage_count,
-            isOfficial: d.tag.is_official,
-            createdBy: d.tag.created_by,
-            createdAt: d.tag.created_at
-        }));
+        .map(d => mapTagRow(d.tag, d));
 };
 
 export const addTagToEntity = async (
     entityType: 'manga' | 'character' | 'author' | 'artist',
     entityId: string,
     tagId: string,
-    userId?: string
+    userId?: string,
+    options?: {
+        discoverable?: boolean;
+    }
 ): Promise<boolean> => {
     const tableName = `${entityType}_tags`;
     const colName = `${entityType}_id`;
+
+    let discoverable = options?.discoverable;
+
+    if (discoverable === undefined) {
+        const { data: tagRow } = await supabase
+            .from('tags')
+            .select('is_official')
+            .eq('id', tagId)
+            .maybeSingle();
+
+        discoverable = !!tagRow?.is_official;
+    }
 
     const { error } = await supabase
         .from(tableName as any)
         .upsert({
             [colName]: entityId,
             tag_id: tagId,
-            added_by: userId
+            added_by: userId,
+            is_discoverable: discoverable ?? false,
         });
 
     if (error) {
@@ -2510,7 +2542,7 @@ export const voteOnTag = async (
     entityId: string,
     userId: string,
     voteType: 'up' | 'down'
-): Promise<void> => {
+): Promise<TagModerationSyncResult | null> => {
     const { data: existing } = await supabase
         .from('tag_votes')
         .select('id, vote_type')
@@ -2535,6 +2567,19 @@ export const voteOnTag = async (
             vote_type: voteType
         });
     }
+
+    const { data, error } = await supabase.rpc('sync_tag_moderation', {
+        p_tag_id: tagId,
+        p_entity_type: entityType,
+        p_entity_id: entityId,
+    });
+
+    if (error) {
+        console.error('Sync tag moderation error:', error);
+        return null;
+    }
+
+    return data as TagModerationSyncResult;
 };
 
 export const getTagVotes = async (
@@ -2578,25 +2623,24 @@ export const getUserTagVotes = async (
     return result;
 };
 
-export const getTrendingTags = async (limit: number = 10): Promise<Tag[]> => {
-    const { data, error } = await supabase
+export const getTrendingTags = async (
+    limit: number = 10,
+    options?: { includePending?: boolean }
+): Promise<Tag[]> => {
+    let query = supabase
         .from('tags')
         .select('*')
         .order('usage_count', { ascending: false })
         .limit(limit);
 
+    if (!options?.includePending) {
+        query = query.or(COMMUNITY_VISIBLE_TAG_FILTER);
+    }
+
+    const { data, error } = await query;
+
     if (error) return [];
-    return data.map(t => ({
-        id: t.id,
-        name: t.name,
-        slug: t.slug,
-        category: t.category as TagCategory,
-        description: t.description,
-        usageCount: t.usage_count,
-        isOfficial: t.is_official,
-        createdBy: t.created_by,
-        createdAt: t.created_at
-    }));
+    return data.map((tag) => mapTagRow(tag));
 };
 
 export const getMangasByTag = async (tagSlug: string): Promise<Manga[]> => {
@@ -2611,7 +2655,8 @@ export const getMangasByTag = async (tagSlug: string): Promise<Manga[]> => {
     const { data, error } = await supabase
         .from('manga_tags')
         .select('manga_id')
-        .eq('tag_id', tagData.id);
+        .eq('tag_id', tagData.id)
+        .eq('is_discoverable', true);
 
     if (error || !data || data.length === 0) return [];
 
@@ -2650,7 +2695,8 @@ export const getMangasByMultipleTags = async (tagSlugs: string[]): Promise<Manga
     const { data: mangaTagData } = await supabase
         .from('manga_tags')
         .select('manga_id, tag_id')
-        .in('tag_id', tagIds);
+        .in('tag_id', tagIds)
+        .eq('is_discoverable', true);
 
     if (!mangaTagData || mangaTagData.length === 0) return [];
 
