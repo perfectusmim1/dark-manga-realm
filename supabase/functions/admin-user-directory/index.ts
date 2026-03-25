@@ -25,52 +25,67 @@ Deno.serve(async (req: Request) => {
     return json({ success: false, message: "Unsupported method" }, 405);
   }
 
-  const supabaseUrl = Deno.env.get("SUPABASE_URL");
-  const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
-  if (!supabaseUrl || !serviceRoleKey) {
-    return json({ success: false, message: "Missing Supabase environment variables" }, 500);
+  try {
+    const supabaseUrl = Deno.env.get("SUPABASE_URL");
+    const serviceRoleKey = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+    if (!supabaseUrl || !serviceRoleKey) {
+      console.error("Missing Supabase environment variables");
+      return json({ success: false, message: "Server configuration error" }, 500);
+    }
+
+    const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
+
+    const authHeader = req.headers.get("Authorization");
+    const accessToken = authHeader?.replace(/^Bearer\s+/i, "");
+
+    if (!accessToken) {
+      console.error("Missing access token in Authorization header");
+      return json({ success: false, message: "Unauthorized: Missing token" }, 401);
+    }
+
+    const { data: { user }, error: authError } = await serviceClient.auth.getUser(accessToken);
+    if (authError || !user) {
+      console.error("Auth error:", authError?.message || "User not found");
+      return json({ success: false, message: `Unauthorized: ${authError?.message || "Invalid token"}` }, 401);
+    }
+
+    const { data: requesterProfile, error: profileError } = await serviceClient
+      .from("users")
+      .select("id, role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profileError) {
+      console.error("Profile error:", profileError.message);
+      return json({ success: false, message: "Error fetching user profile" }, 500);
+    }
+
+    if (!requesterProfile || !["admin", "moderator"].includes(requesterProfile.role)) {
+      console.warn(`User ${user.id} (${requesterProfile?.role}) tried to access admin directory`);
+      return json({ success: false, message: "Not authorized" }, 403);
+    }
+
+    const { data: users, error: fetchError } = await serviceClient
+      .from("users")
+      .select("id, username, email, avatar, role, is_banned, ban_reason, banned_at, created_at, last_seen_at")
+      .order("created_at", { ascending: false });
+
+    if (fetchError) {
+      console.error("Database fetch error:", fetchError.message);
+      return json({ success: false, message: fetchError.message }, 500);
+    }
+
+    return json({
+      success: true,
+      users: users || [],
+    });
+  } catch (err) {
+    console.error("Unexpected error in Edge Function:", err);
+    return json({ success: false, message: "An unexpected error occurred" }, 500);
   }
-
-  const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
-    auth: {
-      autoRefreshToken: false,
-      persistSession: false,
-    },
-  });
-
-  const authHeader = req.headers.get("Authorization");
-  const accessToken = authHeader?.startsWith("Bearer ") ? authHeader.slice(7) : null;
-  if (!accessToken) {
-    return json({ success: false, message: "Unauthorized" }, 401);
-  }
-
-  const { data: authData } = await serviceClient.auth.getUser(accessToken);
-  const requesterId = authData.user?.id;
-  if (!requesterId) {
-    return json({ success: false, message: "Unauthorized" }, 401);
-  }
-
-  const { data: requesterProfile } = await serviceClient
-    .from("users")
-    .select("id, role")
-    .eq("id", requesterId)
-    .maybeSingle();
-
-  if (!requesterProfile || !["admin", "moderator"].includes(requesterProfile.role)) {
-    return json({ success: false, message: "Not authorized" }, 403);
-  }
-
-  const { data: users, error } = await serviceClient
-    .from("users")
-    .select("id, username, email, avatar, role, is_banned, ban_reason, banned_at, created_at, last_seen_at")
-    .order("created_at", { ascending: false });
-
-  if (error) {
-    return json({ success: false, message: error.message }, 500);
-  }
-
-  return json({
-    success: true,
-    users: users || [],
-  });
 });
