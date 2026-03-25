@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { getCachedImageAsset, prefetchImageAsset } from '@/lib/imagePrefetch';
 
 interface ProtectedImageProps {
     src: string;
@@ -13,6 +14,13 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, st
     const containerRef = useRef<HTMLDivElement>(null);
     const [useFallback, setUseFallback] = useState(false);
     const [isBroken, setIsBroken] = useState(false);
+    const [isMediaReady, setIsMediaReady] = useState(false);
+
+    useEffect(() => {
+        setUseFallback(false);
+        setIsBroken(false);
+        setIsMediaReady(false);
+    }, [src]);
 
     useEffect(() => {
         if (useFallback) return;
@@ -26,28 +34,38 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, st
             return;
         }
 
-        const img = new Image();
-        // We don't set crossOrigin unless we need to read pixel data.
-        // Drawing to canvas for display only doesn't strictly require it 
-        // unless the canvas becomes "tainted" and we try to export it.
-        img.src = src;
+        let isCancelled = false;
 
-        img.onload = () => {
+        const drawImageToCanvas = (img: HTMLImageElement) => {
+            if (isCancelled) {
+                return;
+            }
+
             try {
                 const width = 1200;
                 const height = (img.height / img.width) * width;
                 canvas.width = width;
                 canvas.height = height;
                 ctx.drawImage(img, 0, 0, width, height);
+                setIsMediaReady(true);
             } catch (e) {
                 console.error("Canvas draw error, falling back to protected img", e);
                 setUseFallback(true);
             }
         };
 
-        img.onerror = () => {
-            setUseFallback(true);
-        };
+        const cachedImage = getCachedImageAsset(src);
+        if (cachedImage) {
+            drawImageToCanvas(cachedImage);
+        } else {
+            void prefetchImageAsset(src)
+                .then((img) => drawImageToCanvas(img))
+                .catch(() => {
+                    if (!isCancelled) {
+                        setUseFallback(true);
+                    }
+                });
+        }
 
         // Tampering detection
         const observer = new MutationObserver(() => {
@@ -60,7 +78,10 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, st
             observer.observe(containerRef.current, { childList: true, subtree: true });
         }
 
-        return () => observer.disconnect();
+        return () => {
+            isCancelled = true;
+            observer.disconnect();
+        };
     }, [src, useFallback]);
 
     if (isBroken) {
@@ -85,6 +106,9 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, st
                     className="w-full h-auto block select-none pointer-events-none"
                     draggable={false}
                     onContextMenu={(e) => e.preventDefault()}
+                    onLoad={() => setIsMediaReady(true)}
+                    onError={() => setIsMediaReady(false)}
+                    data-media-ready={isMediaReady ? 'true' : 'false'}
                     style={{
                         userSelect: 'none',
                         WebkitUserSelect: 'none',
@@ -94,6 +118,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, st
                 <canvas
                     ref={canvasRef}
                     className="w-full h-auto block pointer-events-none"
+                    data-media-ready={isMediaReady ? 'true' : 'false'}
                     style={{ touchAction: 'none' }}
                 />
             )}

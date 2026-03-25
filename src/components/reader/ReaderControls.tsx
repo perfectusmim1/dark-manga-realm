@@ -48,7 +48,7 @@ interface ReaderControlsProps {
   onAutoScrollSpeedChange: (speed: number) => void;
   isOfflineChapter?: boolean;
   isOnline?: boolean;
-  onBeforeChapterChange?: () => void;
+  onBeforeChapterChange?: (chapter?: Chapter) => void;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -105,8 +105,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     setHoverPage(null);
   }, []);
 
-  const handleChapterNavigationStart = useCallback(() => {
-    onBeforeChapterChange?.();
+  const handleChapterNavigationStart = useCallback((chapter?: Chapter) => {
+    onBeforeChapterChange?.(chapter);
   }, [onBeforeChapterChange]);
 
   return (
@@ -175,8 +175,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     <Link
                       key={ch.id}
                       to={`/manga/${mangaId}/chapter/${ch.id}?page=1`}
-                      onMouseDown={handleChapterNavigationStart}
-                      onTouchStart={handleChapterNavigationStart}
+                      onMouseDown={() => handleChapterNavigationStart(ch)}
+                      onTouchStart={() => handleChapterNavigationStart(ch)}
                       className={`rounded-lg px-3 py-2 text-sm transition-colors ${ch.id === currentChapter.id
                         ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                         : 'hover:bg-secondary text-foreground'
@@ -251,6 +251,30 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       onCheckedChange={(checked) => onSettingsChange({ ...settings, showProgress: checked })}
                     />
                   </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label>Sayfa Yorumlarını Göster</Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Mevcut sayfanın yorumlarını kenar boşluklarında gösterir.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={settings.showPageComments}
+                      onCheckedChange={(checked) => onSettingsChange({ ...settings, showPageComments: checked })}
+                    />
+                  </div>
+                  <div className="flex items-center justify-between gap-4">
+                    <div className="space-y-0.5">
+                      <Label>Sonraki Bölümü Önbelleğe Al</Label>
+                      <p className="text-[11px] text-muted-foreground">
+                        Sonraki bölüm arka planda hazırlanır. Geçiş daha hızlı olur.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={settings.prefetchNextChapter}
+                      onCheckedChange={(checked) => onSettingsChange({ ...settings, prefetchNextChapter: checked })}
+                    />
+                  </div>
                 </div>
               </PopoverContent>
             </Popover>
@@ -275,8 +299,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             {prevChapter ? (
               <Link
                 to={`/manga/${mangaId}/chapter/${prevChapter.id}?page=1`}
-                onMouseDown={handleChapterNavigationStart}
-                onTouchStart={handleChapterNavigationStart}
+                onMouseDown={() => handleChapterNavigationStart(prevChapter)}
+                onTouchStart={() => handleChapterNavigationStart(prevChapter)}
               >
                 <ChevronLeft className="h-4 w-4" />
                 Önceki
@@ -410,8 +434,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             {nextChapter ? (
               <Link
                 to={`/manga/${mangaId}/chapter/${nextChapter.id}?page=1`}
-                onMouseDown={handleChapterNavigationStart}
-                onTouchStart={handleChapterNavigationStart}
+                onMouseDown={() => handleChapterNavigationStart(nextChapter)}
+                onTouchStart={() => handleChapterNavigationStart(nextChapter)}
               >
                 Sonraki
                 <ChevronRight className="h-4 w-4" />

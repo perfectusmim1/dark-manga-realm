@@ -597,11 +597,47 @@ const mapAdminDirectoryUser = (user: any): User => ({
     banReason: user.ban_reason || undefined,
     bannedAt: user.banned_at || undefined,
     createdAt: user.created_at,
+    lastSeenAt: user.last_seen_at || undefined,
 });
 
-const ADMIN_DIRECTORY_FALLBACK_COLUMNS = 'id, username, avatar, role, created_at';
+const ADMIN_DIRECTORY_FALLBACK_COLUMNS = 'id, username, avatar, role, created_at, last_seen_at';
+
+const ensureAuthenticatedAdminSession = async (): Promise<void> => {
+    const { data, error } = await supabase.auth.getUser();
+    if (error) {
+        throw error;
+    }
+
+    if (!data.user) {
+        throw new Error('ADMIN_SESSION_REQUIRED');
+    }
+};
+
+const getAdminDirectoryViaEdgeFunction = async (): Promise<User[]> => {
+    await ensureAuthenticatedAdminSession();
+
+    const { data, error } = await supabase.functions.invoke('admin-user-directory', {
+        body: {},
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!data?.success || !Array.isArray(data?.users)) {
+        throw new Error(data?.message || 'ADMIN_DIRECTORY_FAILED');
+    }
+
+    return data.users.map(mapAdminDirectoryUser);
+};
 
 export const getAllUsers = async (): Promise<User[]> => {
+    try {
+        return await getAdminDirectoryViaEdgeFunction();
+    } catch (edgeError) {
+        console.error('Admin directory edge error:', edgeError);
+    }
+
     const { data, error } = await supabase.rpc('get_admin_user_directory');
     if (!error) {
         return (data || []).map(mapAdminDirectoryUser);
@@ -644,6 +680,13 @@ export const deleteUser = async (userId: string): Promise<void> => {
 export type AdminUser = User; // Reuse User type for now
 
 export const getAdminUsers = async (): Promise<AdminUser[]> => {
+    try {
+        const allUsers = await getAdminDirectoryViaEdgeFunction();
+        return allUsers.filter((user) => ['admin', 'moderator'].includes(user.role || 'user')) as AdminUser[];
+    } catch (edgeError) {
+        console.error('Admin staff edge error:', edgeError);
+    }
+
     const { data, error } = await supabase.rpc('get_admin_user_directory');
     if (!error) {
         return (data || [])
@@ -725,26 +768,9 @@ export const deleteAdminUser = async (adminId: string): Promise<void> => {
     }
 };
 
-const getEdgeFunctionAuthHeaders = async (): Promise<Record<string, string>> => {
-    const { data: sessionData, error } = await supabase.auth.getSession();
-    if (error) {
-        throw error;
-    }
-
-    const accessToken = sessionData.session?.access_token;
-    if (!accessToken) {
-        throw new Error('ADMIN_SESSION_REQUIRED');
-    }
-
-    return {
-        Authorization: `Bearer ${accessToken}`,
-    };
-};
-
 export const banUserAccess = async (userId: string, reason = 'Yönetici tarafından banlandı.'): Promise<void> => {
-    const headers = await getEdgeFunctionAuthHeaders();
+    await ensureAuthenticatedAdminSession();
     const { data, error } = await supabase.functions.invoke('admin-ban-user', {
-        headers,
         body: {
             targetUserId: userId,
             reason,
@@ -761,9 +787,8 @@ export const banUserAccess = async (userId: string, reason = 'Yönetici tarafın
 };
 
 export const unbanUserAccess = async (userId: string): Promise<void> => {
-    const headers = await getEdgeFunctionAuthHeaders();
+    await ensureAuthenticatedAdminSession();
     const { data, error } = await supabase.functions.invoke('admin-unban-user', {
-        headers,
         body: {
             targetUserId: userId,
         },
@@ -844,11 +869,26 @@ export const getStatistics = async () => {
 
 // ==================== COMMENT OPERATIONS ====================
 
-export const getCommentsForManga = async (mangaId: string, chapterId?: string, sortBy: 'newest' | 'popular' = 'newest'): Promise<Comment[]> => {
-    return getEntityCommentsV2('manga', mangaId, chapterId, sortBy);
+interface MangaCommentQueryOptions {
+    pageNumber?: number | null;
+}
+
+export const getCommentsForManga = async (
+    mangaId: string,
+    chapterId?: string,
+    sortBy: 'newest' | 'popular' = 'newest',
+    options?: MangaCommentQueryOptions
+): Promise<Comment[]> => {
+    return getEntityCommentsV2('manga', mangaId, chapterId, sortBy, options);
 };
 
-export const getEntityCommentsV2 = async (entityType: 'manga' | 'character' | 'author' | 'artist', entityId: string, chapterId?: string, sortBy: 'newest' | 'popular' = 'newest'): Promise<Comment[]> => {
+export const getEntityCommentsV2 = async (
+    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityId: string,
+    chapterId?: string,
+    sortBy: 'newest' | 'popular' = 'newest',
+    options?: MangaCommentQueryOptions
+): Promise<Comment[]> => {
     const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
     const colName = entityType === 'manga' ? 'manga_id' : `${entityType}_id`;
     const likesTableName = entityType === 'manga' ? 'comment_likes' : `${entityType}_comment_likes`;
@@ -865,6 +905,11 @@ export const getEntityCommentsV2 = async (entityType: 'manga' | 'character' | 'a
     if (entityType === 'manga') {
         if (chapterId) {
             query = query.eq('chapter_id', chapterId);
+            if (typeof options?.pageNumber === 'number') {
+                query = query.eq('page_number', options.pageNumber);
+            } else {
+                query = query.is('page_number', null);
+            }
         } else {
             query = query.is('chapter_id', null);
         }
@@ -899,6 +944,7 @@ export const getEntityCommentsV2 = async (entityType: 'manga' | 'character' | 'a
             entityId: entityType !== 'manga' ? c[colName] : undefined,
             entityType,
             chapterId: c.chapter_id,
+            pageNumber: c.page_number ?? undefined,
             userId: c.user_id,
             username: c.author?.username || c.username || 'Anonim',
             userAvatar: c.author?.avatar || c.user_avatar,
@@ -965,6 +1011,7 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
 
     if (entityType === 'manga') {
         insertData.chapter_id = comment.chapterId;
+        insertData.page_number = comment.pageNumber ?? null;
     }
 
     const { data, error } = await supabase
@@ -980,6 +1027,7 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
         entityId: entityType !== 'manga' ? data[colName] : undefined,
         entityType,
         chapterId: data.chapter_id,
+        pageNumber: data.page_number ?? undefined,
         userId: data.user_id,
         username: data.username,
         userAvatar: data.user_avatar,
@@ -1066,6 +1114,7 @@ export const getAllComments = async (): Promise<Comment[]> => {
             id: c.id,
             mangaId: c.manga_id,
             chapterId: c.chapter_id,
+            pageNumber: c.page_number ?? undefined,
             userId: c.user_id,
             username: c.username,
             userAvatar: c.user_avatar,
@@ -1129,6 +1178,7 @@ export const getAdminCommentsPage = async (
             id: c.id,
             mangaId: c.manga_id,
             chapterId: c.chapter_id,
+            pageNumber: c.page_number ?? undefined,
             userId: c.user_id,
             username: c.username,
             userAvatar: c.user_avatar,

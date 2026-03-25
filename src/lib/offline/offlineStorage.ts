@@ -243,9 +243,12 @@ export const markOfflineChapterReadProgress = async (
 
   return updateOfflineChapter(chapterId, (current) => {
     const nextMaxReadPage = Math.max(current.maxReadPage || 0, Math.min(currentPage, totalPages));
+    const normalizedPercent = totalPages <= 1
+      ? 100
+      : Math.min(100, Math.max(0, Number((((nextMaxReadPage - 1) / Math.max(totalPages - 1, 1)) * 100).toFixed(2))));
     const readProgressPercent = Math.max(
       current.readProgressPercent || 0,
-      Math.min(100, (nextMaxReadPage / totalPages) * 100),
+      normalizedPercent,
     );
     const shouldMarkRead = readProgressPercent >= 60;
 

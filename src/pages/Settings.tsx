@@ -37,6 +37,7 @@ const buildPreferenceState = (preferences?: any) => ({
         auto_show_media: preferences?.comments?.auto_show_media ?? false,
         auto_show_gifs: preferences?.comments?.auto_show_gifs ?? false,
         auto_show_replies: preferences?.comments?.auto_show_replies ?? false,
+        show_page_comments: preferences?.comments?.show_page_comments ?? false,
     },
     privacy: {
         visibility: preferences?.privacy?.visibility ?? 'public',

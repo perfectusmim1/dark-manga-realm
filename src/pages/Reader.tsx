@@ -17,8 +17,10 @@ import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff } from 'lucide-react'
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
+import PageCommentRail from '@/components/reader/PageCommentRail';
+import PageCommentModal from '@/components/reader/PageCommentModal';
 import CommentSection from '@/components/comments/CommentSection';
-import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
+import { Chapter, ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import {
   buildOfflineReaderPages,
   getOfflineChapter,
@@ -31,6 +33,8 @@ import {
   queueReadingProgressSync,
 } from '@/lib/offline/offlineReaderSync';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import { prefetchChapterAssets, retainPrefetchedChapters } from '@/lib/imagePrefetch';
+import { OPEN_PAGE_COMMENT_EVENT, OpenPageCommentDetail } from '@/lib/pageCommentEvents';
 
 let persistedAutoScrollIntent = false;
 
@@ -56,6 +60,8 @@ const Reader: React.FC = () => {
   const [offlineUnavailable, setOfflineUnavailable] = useState(false);
   const [isInitialViewportReady, setIsInitialViewportReady] = useState(false);
   const [isContentReady, setIsContentReady] = useState(false);
+  const [pageCommentModalOpen, setPageCommentModalOpen] = useState(false);
+  const [pageCommentModalPage, setPageCommentModalPage] = useState<number | null>(null);
   const readingSessionStartedAt = useRef<number | null>(null);
   const readerContentRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
@@ -63,7 +69,18 @@ const Reader: React.FC = () => {
   const revokeOfflineUrlsRef = useRef<(() => void) | null>(null);
   const resumeAutoScrollAfterNavigationRef = useRef(false);
   const pendingInitialRestorePageRef = useRef<number | null>(null);
-  const prepareChapterTransition = useCallback(() => {
+  const prepareChapterTransition = useCallback((targetChapter?: Chapter) => {
+    if (
+      isOnlineNow
+      && !isOfflineChapter
+      && settings.prefetchNextChapter
+      && targetChapter
+      && Array.isArray(targetChapter.pages)
+      && targetChapter.pages.length > 0
+    ) {
+      void prefetchChapterAssets(targetChapter.id, targetChapter.pages, { concurrency: 8 });
+    }
+
     setIsLoading(true);
     setIsInitialViewportReady(false);
     setCurrentPage(1);
@@ -76,7 +93,7 @@ const Reader: React.FC = () => {
     }
 
     window.scrollTo({ top: 0, behavior: 'auto' });
-  }, []);
+  }, [isOfflineChapter, isOnlineNow, settings.prefetchNextChapter]);
 
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
@@ -130,6 +147,8 @@ const Reader: React.FC = () => {
     setResolvedPages([]);
     setIsOfflineChapter(false);
     pendingInitialRestorePageRef.current = null;
+    setPageCommentModalOpen(false);
+    setPageCommentModalPage(null);
     revokeOfflineUrlsRef.current?.();
     revokeOfflineUrlsRef.current = null;
   }, [chapterId]);
@@ -150,6 +169,28 @@ const Reader: React.FC = () => {
       window.history.scrollRestoration = previousScrollRestoration;
     };
   }, []);
+
+  useEffect(() => {
+    const handleOpenPageComment = (event: Event) => {
+      const { detail } = event as CustomEvent<OpenPageCommentDetail>;
+      if (!detail?.pageNumber) {
+        return;
+      }
+
+      if (!user) {
+        toast.error('Sayfa yorumu yazmak için giriş yapmalısınız');
+        return;
+      }
+
+      setPageCommentModalPage(detail.pageNumber);
+      setPageCommentModalOpen(true);
+    };
+
+    window.addEventListener(OPEN_PAGE_COMMENT_EVENT, handleOpenPageComment);
+    return () => {
+      window.removeEventListener(OPEN_PAGE_COMMENT_EVENT, handleOpenPageComment);
+    };
+  }, [user]);
 
   useEffect(() => {
     const shouldLockScroll = isLoading || !isInitialViewportReady;
@@ -524,8 +565,65 @@ const Reader: React.FC = () => {
     setIsAutoScrolling(true);
   }, [chapterId, initialized, isAutoScrollAvailable]);
 
+  useEffect(() => {
+    retainPrefetchedChapters(
+      [chapterId, nextChapter?.id].filter((id): id is string => Boolean(id))
+    );
+  }, [chapterId, nextChapter]);
+
+  useEffect(() => {
+    if (
+      !isOnlineNow
+      || isOfflineChapter
+      || !settings.prefetchNextChapter
+      || !initialized
+      || !nextChapter
+      || !Array.isArray(nextChapter.pages)
+      || nextChapter.pages.length === 0
+    ) {
+      return;
+    }
+
+    let delayTimer: number | null = null;
+
+    delayTimer = window.setTimeout(() => {
+      void prefetchChapterAssets(nextChapter.id, nextChapter.pages, { concurrency: 6 });
+    }, 300);
+
+    return () => {
+      if (delayTimer !== null) {
+        window.clearTimeout(delayTimer);
+      }
+    };
+  }, [
+    initialized,
+    isOfflineChapter,
+    isOnlineNow,
+    nextChapter,
+    settings.prefetchNextChapter,
+  ]);
+
   const isScrollingRef = useRef(false);
   const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+
+  const isRestoreLayoutReady = useCallback((targetPage: number) => {
+    const targetIndex = Math.max(0, Math.min(resolvedPages.length, targetPage) - 1);
+
+    for (let index = 0; index <= targetIndex; index += 1) {
+      const pageElement = document.querySelector(`[data-page-index="${index}"]`) as HTMLElement | null;
+
+      if (!pageElement || pageElement.offsetHeight < 32) {
+        return false;
+      }
+
+      const mediaElement = pageElement.querySelector('[data-media-ready="true"]') as HTMLElement | null;
+      if (!mediaElement || mediaElement.getBoundingClientRect().height < 32) {
+        return false;
+      }
+    }
+
+    return true;
+  }, [resolvedPages.length]);
 
   const handlePageChange = useCallback((page: number) => {
     // If we are programmatically scrolling, ignore updates from the observer
@@ -554,7 +652,7 @@ const Reader: React.FC = () => {
 
     const elementTop = (targetElement as HTMLElement).offsetTop;
     window.scrollTo({
-      top: elementTop - 80,
+      top: Math.max(0, elementTop - 80),
       behavior: smooth ? 'smooth' : 'auto'
     });
     setCurrentPage(page);
@@ -614,14 +712,28 @@ const Reader: React.FC = () => {
         return;
       }
 
+      if (!isRestoreLayoutReady(targetPage) && attempt < 80) {
+        restoreTimerId = window.setTimeout(() => restore(attempt + 1), 80);
+        return;
+      }
+
       if (targetPage > 1) {
         const didScroll = scrollToPage(targetPage, false);
-        if (!didScroll && attempt < 2) {
-          restoreTimerId = window.setTimeout(() => restore(attempt + 1), 120);
+        if (!didScroll && attempt < 80) {
+          restoreTimerId = window.setTimeout(() => restore(attempt + 1), 80);
           return;
         }
 
-        finishRestore();
+        window.requestAnimationFrame(() => {
+          window.requestAnimationFrame(() => {
+            if (isCancelled) {
+              return;
+            }
+
+            scrollToPage(targetPage, false);
+            finishRestore();
+          });
+        });
         return;
       }
 
@@ -640,7 +752,7 @@ const Reader: React.FC = () => {
       }
       isScrollingRef.current = false;
     };
-  }, [chapterId, initialized, isLoading, resolvedPages.length, scrollToPage, settings.mode]);
+  }, [chapterId, initialized, isLoading, isRestoreLayoutReady, resolvedPages.length, scrollToPage, settings.mode]);
 
   const handleAddBookmark = useCallback(() => {
     if (!isOnlineNow) {
@@ -745,6 +857,7 @@ const Reader: React.FC = () => {
   };
 
   const isReaderTransitionActive = isLoading || !isInitialViewportReady;
+  const showPageCommentRail = settings.showPageComments;
 
   return (
     <div
@@ -754,6 +867,20 @@ const Reader: React.FC = () => {
       {isReaderTransitionActive && (
         <div className="fixed inset-0 z-40 pointer-events-none bg-background transition-opacity duration-100" />
       )}
+
+      <PageCommentModal
+        open={pageCommentModalOpen}
+        onOpenChange={(open) => {
+          setPageCommentModalOpen(open);
+          if (!open) {
+            setPageCommentModalPage(null);
+          }
+        }}
+        mangaId={manga.id}
+        chapterId={chapterId || ''}
+        pageNumber={pageCommentModalPage}
+        user={user}
+      />
 
       <ReaderControls
         mangaId={manga.id}
@@ -778,6 +905,16 @@ const Reader: React.FC = () => {
         isOnline={isOnlineNow}
         onBeforeChapterChange={prepareChapterTransition}
       />
+
+      {!isReaderTransitionActive && isOnlineNow && showPageCommentRail && (
+        <PageCommentRail
+          mangaId={manga.id}
+          mangaTitle={manga.title}
+          chapterId={chapterId}
+          currentPage={currentPage}
+          enabled={showPageCommentRail}
+        />
+      )}
 
       <div
         className={`transition-all duration-200 ease-out ${isReaderTransitionActive
@@ -838,7 +975,19 @@ const Reader: React.FC = () => {
         onClick={(e) => e.stopPropagation()}
       >
         {isOnlineNow ? (
-          <CommentSection mangaId={manga.id} chapterId={chapterId} />
+            <div className="space-y-4">
+              <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
+                <span className="font-semibold text-foreground">Sayfa bazlı yorumlar aktif.</span>{' '}
+              İstersen sadece bulunduğun sayfanın yorumlarını görebilir, istersen tüm bölüm sohbetine dönebilirsin. Sayfa üzerinde sağ tık menüsünden yorum kısayolunu da kullanabilirsin.
+              </div>
+            <CommentSection
+              mangaId={manga.id}
+              chapterId={chapterId}
+              pageNumber={currentPage}
+              totalReaderPages={resolvedPages.length}
+              enablePageComments
+            />
+          </div>
         ) : (
           <div className="rounded-2xl border border-border bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
             Yorumlar için internet bağlantısı gerekiyor.

@@ -87,6 +87,7 @@ export interface User {
   avatar?: string;
   role?: 'user' | 'admin' | 'moderator';
   createdAt?: string;
+  lastSeenAt?: string;
   isBanned?: boolean;
   banReason?: string;
   bannedAt?: string;
@@ -100,6 +101,7 @@ export interface User {
       auto_show_media: boolean;
       auto_show_gifs: boolean;
       auto_show_replies: boolean;
+      show_page_comments: boolean;
     };
     privacy?: {
       visibility: 'public' | 'members' | 'private';
@@ -145,8 +147,10 @@ export interface ReaderSettings {
   mode: ReadingMode;
   fitWidth: boolean;
   showProgress: boolean;
+  showPageComments: boolean;
   backgroundColor: 'dark' | 'light' | 'sepia';
   preloadPages: number;
+  prefetchNextChapter: boolean;
   zoom: number; // 10-300
   autoScrollSpeed: number; // pixels per second
 }
@@ -198,6 +202,7 @@ export interface Comment {
   entityId?: string;
   entityType?: 'manga' | 'character' | 'author' | 'artist';
   chapterId?: string;
+  pageNumber?: number;
   userId: string;
   username: string;
   userAvatar?: string;

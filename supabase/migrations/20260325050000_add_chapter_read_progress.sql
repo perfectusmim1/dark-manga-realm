@@ -1,7 +1,7 @@
 create table if not exists public.chapter_read_progress (
-    user_id uuid not null references public.users (id) on delete cascade,
-    manga_id uuid not null references public.mangas (id) on delete cascade,
-    chapter_id uuid not null references public.chapters (id) on delete cascade,
+    user_id text not null references public.users (id) on delete cascade,
+    manga_id text not null references public.mangas (id) on delete cascade,
+    chapter_id text not null references public.chapters (id) on delete cascade,
     chapter_number double precision not null,
     page integer not null default 1,
     page_count integer not null default 1,
@@ -59,8 +59,8 @@ create policy "Users can delete own chapter read progress"
     using (auth.uid() = user_id);
 
 create or replace function public.upsert_chapter_read_progress(
-    p_manga_id uuid,
-    p_chapter_id uuid,
+    p_manga_id text,
+    p_chapter_id text,
     p_chapter_number double precision,
     p_page integer,
     p_page_count integer
@@ -70,10 +70,13 @@ language plpgsql
 set search_path = ''
 as $$
 declare
-    v_user_id uuid := auth.uid();
+    v_user_id text := auth.uid()::text;
     v_safe_page_count integer := greatest(1, coalesce(p_page_count, 1));
     v_safe_page integer := greatest(1, least(coalesce(p_page, 1), v_safe_page_count));
-    v_percent numeric(5,2) := least(100, round((v_safe_page::numeric / v_safe_page_count::numeric) * 100, 2));
+    v_percent numeric(5,2) := case
+        when v_safe_page_count <= 1 then 100
+        else least(100, round((((v_safe_page - 1)::numeric / greatest(v_safe_page_count - 1, 1)::numeric) * 100), 2))
+    end;
     v_row public.chapter_read_progress;
 begin
     if v_user_id is null then
@@ -126,10 +129,10 @@ begin
 end;
 $$;
 
-grant execute on function public.upsert_chapter_read_progress(uuid, uuid, double precision, integer, integer) to authenticated;
+grant execute on function public.upsert_chapter_read_progress(text, text, double precision, integer, integer) to authenticated;
 
 create or replace function public.get_public_chapter_read_count(
-    p_user_id uuid
+    p_user_id text
 )
 returns bigint
 language sql
@@ -142,11 +145,11 @@ as $$
       and is_read = true;
 $$;
 
-grant execute on function public.get_public_chapter_read_count(uuid) to anon, authenticated;
+grant execute on function public.get_public_chapter_read_count(text) to anon, authenticated;
 
 create or replace function public.get_public_chapter_read_leaderboard_counts()
 returns table (
-    user_id uuid,
+    user_id text,
     read_count bigint
 )
 language sql

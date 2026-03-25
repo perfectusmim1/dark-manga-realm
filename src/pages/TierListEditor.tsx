@@ -19,6 +19,15 @@ const defaultTiers = [
   { id: 'F', color: 'bg-gray-500' },
 ];
 
+const defaultTierLabels: Record<string, string> = {
+  S: 'S',
+  A: 'A',
+  B: 'B',
+  C: 'C',
+  D: 'D',
+  F: 'F',
+};
+
 export default function TierListEditor() {
   const { id } = useParams<{ id: string }>(); // 'create' or uuid
   const { user } = useAuth();
@@ -39,9 +48,7 @@ export default function TierListEditor() {
   const [isSaving, setIsSaving] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
   const [selectedItem, setSelectedItem] = useState<{ id: string, source: string } | null>(null);
-  const [tierLabels, setTierLabels] = useState<Record<string, string>>({
-    'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D', 'F': 'F'
-  });
+  const [tierLabels, setTierLabels] = useState<Record<string, string>>(defaultTierLabels);
   const [isOwner, setIsOwner] = useState(true);
 
   useEffect(() => {
@@ -66,13 +73,13 @@ export default function TierListEditor() {
               return;
             }
             setIsOwner(true);
-            setTitle(data.title);
-            setType(data.type as any || 'manga');
+            setTitle(data.title || 'Benim Sıralamam');
+            setType(data.type === 'character' ? 'character' : 'manga');
             
             const correctDbItems = data.type === 'character' ? await getCharacters() : await getAllMangas();
             const savedTiers = data.items || {};
-            const savedLabels = data.tier_labels || { 'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D' };
-            setTierLabels(savedLabels);
+            const savedLabels = data.tier_labels || {};
+            setTierLabels({ ...defaultTierLabels, ...savedLabels });
             const unranked = (correctDbItems || []).filter(m => {
                 for (const t in savedTiers) {
                    if (savedTiers[t].includes(m.id)) return false;
@@ -202,7 +209,7 @@ export default function TierListEditor() {
                 <ArrowLeft className="w-5 h-5" />
               </Button>
               <Input 
-                value={title} 
+                value={title ?? ''} 
                 onChange={(e) => setTitle(e.target.value)} 
                 className="text-2xl font-bold bg-transparent border-b border-border focus-visible:ring-0 focus-visible:border-primary w-full max-w-[500px] px-0 h-auto rounded-none"
                 placeholder="Sıralamana efsane bir başlık ver..."
@@ -239,7 +246,7 @@ export default function TierListEditor() {
               >
                   <div className={`w-24 ${tier.color} flex items-center justify-center shadow-inner relative group`}>
                       <Input 
-                        value={tierLabels[tier.id]}
+                        value={tierLabels[tier.id] ?? tier.id}
                         onChange={(e) => setTierLabels(prev => ({ ...prev, [tier.id]: e.target.value }))}
                         className="bg-transparent border-none text-center font-bold text-black text-xl h-full w-full focus-visible:ring-0 focus:bg-white/10"
                       />

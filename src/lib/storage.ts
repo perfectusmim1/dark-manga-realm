@@ -33,6 +33,63 @@ export interface ChapterHistoryEntry extends ChapterReadProgressEntry {
     chapterTitle?: string;
 }
 
+const compareLastReadDesc = (a?: string | null, b?: string | null) => {
+    const aTime = a ? new Date(a).getTime() : 0;
+    const bTime = b ? new Date(b).getTime() : 0;
+
+    if (Number.isNaN(aTime) && Number.isNaN(bTime)) {
+        return 0;
+    }
+
+    if (Number.isNaN(aTime)) {
+        return 1;
+    }
+
+    if (Number.isNaN(bTime)) {
+        return -1;
+    }
+
+    return bTime - aTime;
+};
+
+const sortByLastReadDesc = <T extends { lastRead?: string | null }>(entries: T[]) =>
+    [...entries].sort((a, b) => compareLastReadDesc(a.lastRead, b.lastRead));
+
+const chunkArray = <T>(items: T[], size: number): T[][] => {
+    if (items.length === 0) {
+        return [];
+    }
+
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+
+    return chunks;
+};
+
+const getSafeChapterPageCount = (pageCount: number) =>
+    Math.max(1, Number.isFinite(pageCount) ? Math.round(pageCount) : 1);
+
+const getSafeChapterPage = (page: number, pageCount: number) => {
+    const safePageCount = getSafeChapterPageCount(pageCount);
+    return Math.max(1, Math.min(Number.isFinite(page) ? Math.round(page) : 1, safePageCount));
+};
+
+export const calculateChapterReadProgressPercent = (page: number, pageCount: number) => {
+    const safePageCount = getSafeChapterPageCount(pageCount);
+    const safePage = getSafeChapterPage(page, safePageCount);
+
+    if (safePageCount <= 1) {
+        return 100;
+    }
+
+    return Math.min(
+        100,
+        Math.max(0, Number((((safePage - 1) / (safePageCount - 1)) * 100).toFixed(2))),
+    );
+};
+
 let chapterReadTableFeatureState: 'unknown' | 'available' | 'unavailable' = 'unknown';
 let chapterReadPublicFeatureState: 'unknown' | 'available' | 'unavailable' = 'unknown';
 
@@ -84,7 +141,10 @@ const normalizeChapterReadProgress = (row: any): ChapterReadProgressEntry => ({
     page: row.page || 1,
     pageCount: row.page_count || 1,
     maxPage: row.max_page || 1,
-    readProgressPercent: Number(row.read_progress_percent || 0),
+    readProgressPercent: Number(
+        row.read_progress_percent
+        ?? calculateChapterReadProgressPercent(row.max_page || row.page || 1, row.page_count || 1),
+    ),
     isRead: Boolean(row.is_read),
     lastRead: row.last_read,
 });
@@ -102,7 +162,52 @@ const getLocalChapterReadStore = (): LocalChapterReadStore => {
     }
 
     try {
-        return JSON.parse(raw) as LocalChapterReadStore;
+        const parsed = JSON.parse(raw) as LocalChapterReadStore;
+        let hasChanges = false;
+
+        const normalized = Object.fromEntries(
+            Object.entries(parsed || {}).map(([userId, entries]) => {
+                const normalizedEntries = Object.fromEntries(
+                    Object.entries(entries || {}).map(([chapterId, entry]) => {
+                        const pageCount = getSafeChapterPageCount(entry?.pageCount || 1);
+                        const page = getSafeChapterPage(entry?.page || 1, pageCount);
+                        const maxPage = Math.max(getSafeChapterPage(entry?.maxPage || page, pageCount), page);
+                        const readProgressPercent = calculateChapterReadProgressPercent(maxPage, pageCount);
+                        const normalizedEntry: ChapterReadProgressEntry = {
+                            ...entry,
+                            userId,
+                            chapterId,
+                            page,
+                            pageCount,
+                            maxPage,
+                            readProgressPercent,
+                            isRead: readProgressPercent >= 60,
+                            lastRead: entry?.lastRead || new Date().toISOString(),
+                        };
+
+                        if (
+                            normalizedEntry.page !== entry?.page
+                            || normalizedEntry.pageCount !== entry?.pageCount
+                            || normalizedEntry.maxPage !== entry?.maxPage
+                            || normalizedEntry.readProgressPercent !== entry?.readProgressPercent
+                            || normalizedEntry.isRead !== entry?.isRead
+                        ) {
+                            hasChanges = true;
+                        }
+
+                        return [chapterId, normalizedEntry];
+                    }),
+                );
+
+                return [userId, normalizedEntries];
+            }),
+        ) as LocalChapterReadStore;
+
+        if (hasChanges) {
+            setLocalChapterReadStore(normalized);
+        }
+
+        return normalized;
     } catch {
         return {};
     }
@@ -118,9 +223,7 @@ const setLocalChapterReadStore = (store: LocalChapterReadStore) => {
 
 const getLocalChapterReadEntries = (userId: string): ChapterReadProgressEntry[] => {
     const store = getLocalChapterReadStore();
-    return Object.values(store[userId] || {}).sort(
-        (a, b) => new Date(b.lastRead).getTime() - new Date(a.lastRead).getTime(),
-    );
+    return sortByLastReadDesc(Object.values(store[userId] || {}));
 };
 
 const upsertLocalChapterReadProgress = (
@@ -133,12 +236,13 @@ const upsertLocalChapterReadProgress = (
         pageCount: number;
     },
 ): ChapterReadProgressEntry => {
-    const safePageCount = Math.max(1, progress.pageCount || 1);
-    const safePage = Math.max(1, Math.min(progress.page || 1, safePageCount));
-    const nextPercent = Math.min(100, (safePage / safePageCount) * 100);
+    const safePageCount = getSafeChapterPageCount(progress.pageCount || 1);
+    const safePage = getSafeChapterPage(progress.page || 1, safePageCount);
     const now = new Date().toISOString();
     const store = getLocalChapterReadStore();
     const existing = store[userId]?.[progress.chapterId];
+    const nextMaxPage = Math.max(existing?.maxPage || 1, safePage);
+    const nextPercent = calculateChapterReadProgressPercent(nextMaxPage, safePageCount);
 
     const nextEntry: ChapterReadProgressEntry = {
         userId,
@@ -147,7 +251,7 @@ const upsertLocalChapterReadProgress = (
         chapterNumber: progress.chapterNumber,
         page: Math.max(existing?.page || 1, safePage),
         pageCount: Math.max(existing?.pageCount || 1, safePageCount),
-        maxPage: Math.max(existing?.maxPage || 1, safePage),
+        maxPage: nextMaxPage,
         readProgressPercent: Math.max(existing?.readProgressPercent || 0, nextPercent),
         isRead: Boolean(existing?.isRead || nextPercent >= 60),
         lastRead: now,
@@ -187,6 +291,115 @@ const mergeChapterReadEntries = (
     });
 
     return merged;
+};
+
+const getLocalCompletedChapterReadCount = (userId: string) =>
+    getLocalChapterReadEntries(userId).filter((entry) => entry.isRead || entry.readProgressPercent >= 60).length;
+
+const localChapterReadFallbackSyncQueue = new Map<string, Promise<void>>();
+
+const triggerBackgroundChapterReadFallbackSync = (userId: string) => {
+    if (!userId || chapterReadTableFeatureState === 'unavailable') {
+        return;
+    }
+
+    void syncLocalChapterReadFallbackToRemote(userId).catch((error) => {
+        console.error('Background chapter progress sync error:', error);
+    });
+};
+
+export const syncLocalChapterReadFallbackToRemote = async (userId: string): Promise<void> => {
+    if (!userId || typeof window === 'undefined' || chapterReadTableFeatureState === 'unavailable') {
+        return;
+    }
+
+    const existingSync = localChapterReadFallbackSyncQueue.get(userId);
+    if (existingSync) {
+        return existingSync;
+    }
+
+    const localEntries = getLocalChapterReadEntries(userId);
+    if (localEntries.length === 0) {
+        return;
+    }
+
+    const syncPromise = (async () => {
+        const remoteProgressMap = new Map<string, {
+            chapter_id: string;
+            last_read: string | null;
+            max_page: number | null;
+            read_progress_percent: number | null;
+        }>();
+        const chapterIdChunks = chunkArray(
+            [...new Set(localEntries.map((entry) => entry.chapterId))],
+            100,
+        );
+
+        for (const chunk of chapterIdChunks) {
+            const { data, error } = await supabase
+                .from('chapter_read_progress')
+                .select('chapter_id, last_read, max_page, read_progress_percent')
+                .eq('user_id', userId)
+                .in('chapter_id', chunk);
+
+            if (error) {
+                if (handleChapterReadTableFeatureError(error)) {
+                    return;
+                }
+
+                console.error('Fallback chapter progress prefetch error:', error);
+                return;
+            }
+
+            (data || []).forEach((entry: any) => {
+                remoteProgressMap.set(entry.chapter_id, entry);
+            });
+        }
+
+        const entriesToSync = localEntries.filter((entry) => {
+            const remoteEntry = remoteProgressMap.get(entry.chapterId);
+            if (!remoteEntry) {
+                return true;
+            }
+
+            const remoteLastRead = remoteEntry.last_read ? new Date(remoteEntry.last_read).getTime() : 0;
+            const localLastRead = entry.lastRead ? new Date(entry.lastRead).getTime() : 0;
+
+            return (
+                entry.maxPage > Number(remoteEntry.max_page || 0)
+                || entry.readProgressPercent > Number(remoteEntry.read_progress_percent || 0)
+                || localLastRead > remoteLastRead
+            );
+        });
+
+        for (const entry of entriesToSync) {
+            const { error } = await supabase.rpc('backfill_chapter_read_progress', {
+                p_manga_id: entry.mangaId,
+                p_chapter_id: entry.chapterId,
+                p_chapter_number: entry.chapterNumber,
+                p_page: entry.maxPage || entry.page,
+                p_page_count: entry.pageCount,
+                p_last_read: entry.lastRead,
+            });
+
+            if (error) {
+                if (handleChapterReadTableFeatureError(error)) {
+                    return;
+                }
+
+                console.error('Fallback chapter progress sync error:', error);
+                return;
+            }
+        }
+
+        chapterReadTableFeatureState = 'available';
+        chapterReadPublicFeatureState = 'available';
+    })().finally(() => {
+        localChapterReadFallbackSyncQueue.delete(userId);
+    });
+
+    localChapterReadFallbackSyncQueue.set(userId, syncPromise);
+    return syncPromise;
 };
 
 // ==================== FAVORITES (USER-SPECIFIC) ====================
@@ -285,8 +498,7 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
             chapter_number,
             page,
             last_read,
-            manga:mangas(id, title, cover, alternative_titles),
-            chapter:chapters(title)
+            manga:mangas(id, title, cover, alternative_titles)
         `)
         .eq('user_id', userId)
         .order('last_read', { ascending: false });
@@ -294,14 +506,32 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
     if (error) {
         console.error('Reading history entries fetch error:', error);
         const fallbackHistory = await getReadingHistory(userId);
-        return fallbackHistory.map((entry) => ({
+        return sortByLastReadDesc(fallbackHistory.map((entry) => ({
             ...entry,
             mangaAlternativeTitles: [],
             chapterTitle: undefined,
-        }));
+        })));
     }
 
-    return (data || []).map((entry: any) => ({
+    const chapterIds = [...new Set((data || []).map((entry: any) => entry.chapter_id).filter(Boolean))];
+    const chapterTitleMap = new Map<string, string>();
+
+    if (chapterIds.length > 0) {
+        const { data: chapterRows, error: chapterError } = await supabase
+            .from('chapters')
+            .select('id, title')
+            .in('id', chapterIds);
+
+        if (chapterError) {
+            console.error('Reading history chapter title fetch error:', chapterError);
+        } else {
+            (chapterRows || []).forEach((chapter: any) => {
+                chapterTitleMap.set(chapter.id, chapter.title);
+            });
+        }
+    }
+
+    return sortByLastReadDesc((data || []).map((entry: any) => ({
         userId: entry.user_id,
         mangaId: entry.manga_id,
         chapterId: entry.chapter_id,
@@ -311,8 +541,8 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
         mangaTitle: entry.manga?.title,
         mangaCover: entry.manga?.cover,
         mangaAlternativeTitles: mapAlternativeTitles(entry.manga),
-        chapterTitle: entry.chapter?.title,
-    }));
+        chapterTitle: chapterTitleMap.get(entry.chapter_id),
+    })));
 };
 
 export const syncChapterReadProgress = async (
@@ -371,6 +601,10 @@ export const getChapterReadProgressMap = async (
             map[entry.chapterId] = entry;
             return map;
         }, {});
+    }
+
+    if (localEntries.length > 0) {
+        triggerBackgroundChapterReadFallbackSync(userId);
     }
 
     const { data, error } = await supabase
@@ -477,6 +711,10 @@ export const getChapterHistoryEntries = async (userId: string): Promise<ChapterH
         return buildLocalFallbackHistory();
     }
 
+    if (localEntries.length > 0) {
+        triggerBackgroundChapterReadFallbackSync(userId);
+    }
+
     const { data, error } = await supabase
         .from('chapter_read_progress')
         .select(`
@@ -526,20 +764,25 @@ export const getChapterHistoryEntries = async (userId: string): Promise<ChapterH
         return map;
     }, {});
 
-    return Object.values(mergedEntries)
+    return sortByLastReadDesc(Object.values(mergedEntries)
         .map((entry) => ({
             ...entry,
             mangaTitle: remoteMetadataMap[entry.chapterId]?.mangaTitle,
             mangaCover: remoteMetadataMap[entry.chapterId]?.mangaCover,
             mangaAlternativeTitles: remoteMetadataMap[entry.chapterId]?.mangaAlternativeTitles || [],
             chapterTitle: remoteMetadataMap[entry.chapterId]?.chapterTitle,
-        }))
-        .sort((a, b) => new Date(b.lastRead).getTime() - new Date(a.lastRead).getTime());
+        })));
 };
 
 export const getCompletedChapterCount = async (userId: string): Promise<number> => {
     if (!userId) {
         return 0;
+    }
+
+    const localCompletedCount = getLocalCompletedChapterReadCount(userId);
+
+    if (localCompletedCount > 0 && chapterReadTableFeatureState !== 'unavailable') {
+        triggerBackgroundChapterReadFallbackSync(userId);
     }
 
     if (chapterReadPublicFeatureState !== 'unavailable') {
@@ -549,7 +792,7 @@ export const getCompletedChapterCount = async (userId: string): Promise<number> 
 
         if (!error) {
             chapterReadPublicFeatureState = 'available';
-            return Number(data || 0);
+            return Math.max(Number(data || 0), localCompletedCount);
         }
 
         if (!handleChapterReadPublicFeatureError(error)) {
@@ -557,12 +800,7 @@ export const getCompletedChapterCount = async (userId: string): Promise<number> 
         }
     }
 
-    const { count } = await supabase
-        .from('reading_activity_log')
-        .select('id', { count: 'exact', head: true })
-        .eq('user_id', userId);
-
-    return count || 0;
+    return localCompletedCount;
 };
 
 export const getCompletedChapterCountsByUser = async (): Promise<Record<string, number>> => {
@@ -580,8 +818,16 @@ export const getCompletedChapterCountsByUser = async (): Promise<Record<string, 
         handleChapterReadPublicFeatureError(error);
     }
 
-    const { data } = await supabase.from('reading_activity_log').select('user_id');
+    const { data } = await supabase.from('reading_activity_log').select('user_id, chapter_id');
+    const seenPairs = new Set<string>();
+
     return (data || []).reduce<Record<string, number>>((counts, row: any) => {
+        const pairKey = `${row.user_id}:${row.chapter_id}`;
+        if (seenPairs.has(pairKey)) {
+            return counts;
+        }
+
+        seenPairs.add(pairKey);
         counts[row.user_id] = (counts[row.user_id] || 0) + 1;
         return counts;
     }, {});
@@ -674,8 +920,10 @@ const DEFAULT_READER_SETTINGS: ReaderSettings = {
     mode: 'vertical',
     fitWidth: true,
     showProgress: true,
+    showPageComments: false,
     backgroundColor: 'dark',
     preloadPages: 3,
+    prefetchNextChapter: true,
     zoom: 100,
     autoScrollSpeed: 30,
 };
@@ -769,7 +1017,8 @@ export const createCommentNotification = async (
     entityTitle: string,
     commentId: string,
     chapterId?: string,
-    entityType: string = 'manga'
+    entityType: string = 'manga',
+    pageNumber?: number
 ) => {
     // Check user preferences
     const { data: userData } = await supabase
@@ -788,7 +1037,22 @@ export const createCommentNotification = async (
         : `${fromUsername} ${entityTitle} yorumunuzu beğendi.`;
 
     const rawLink = entityType === 'manga'
-        ? (chapterId ? `/manga/${entityId}/chapter/${chapterId}?commentId=${encodeURIComponent(commentId)}` : `/manga/${entityId}?commentId=${encodeURIComponent(commentId)}`)
+        ? (() => {
+            if (!chapterId) {
+                return `/manga/${entityId}?commentId=${encodeURIComponent(commentId)}`;
+            }
+
+            const params = new URLSearchParams({
+                commentId: commentId,
+            });
+
+            if (pageNumber && pageNumber > 0) {
+                params.set('commentScope', 'page');
+                params.set('commentPage', String(pageNumber));
+            }
+
+            return `/manga/${entityId}/chapter/${chapterId}?${params.toString()}`;
+        })()
         : `/${entityType}/${entityId}?commentId=${encodeURIComponent(commentId)}`;
     const link = normalizeCommentNavigationLink(rawLink) || rawLink;
 

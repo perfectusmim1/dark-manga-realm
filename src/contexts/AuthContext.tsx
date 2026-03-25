@@ -3,6 +3,7 @@ import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { User } from '@/lib/types';
 import { checkCurrentAccess, getDeviceIdentity } from '@/lib/security/deviceIdentity';
+import { syncLocalChapterReadFallbackToRemote } from '@/lib/storage';
 import { toast } from 'sonner';
 
 interface AuthContextType {
@@ -57,6 +58,7 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
     auto_show_media: false,
     auto_show_gifs: false,
     auto_show_replies: false,
+    show_page_comments: false,
   },
   privacy: {
     visibility: 'public',
@@ -205,11 +207,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (profile) {
             const newUser = mapSupabaseUserToUser(currentSession.user, profile);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(newUser) ? prev : newUser);
+            void syncLocalChapterReadFallbackToRemote(currentSession.user.id);
           } else {
             console.error('Critical: Could not establish a user profile.');
             // Even if DB profile fails, let's at least let them see they are logged in via Auth
             const fallbackUser = mapSupabaseUserToUser(currentSession.user, null);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
+            void syncLocalChapterReadFallbackToRemote(currentSession.user.id);
           }
         } else {
           setSession(null);

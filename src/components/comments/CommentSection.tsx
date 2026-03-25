@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Link, useLocation } from 'react-router-dom';
+import { Link, useLocation, useNavigate } from 'react-router-dom';
 import {
     AlertTriangle,
     MessageCircle,
@@ -60,7 +60,17 @@ import {
 import { commentHasRenderableContent, isValidCommentMediaUrls, stripCommentFormatting } from '@/lib/commentContent';
 import { getBlockedUserIds } from '@/lib/profile';
 import { createCommentNotification } from '@/lib/storage';
-import { clearTargetCommentFromCurrentUrl, getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
+import {
+    getLocationWithoutTargetComment,
+    getTargetCommentIdFromLocation,
+    getTargetCommentPageNumberFromLocation,
+    getTargetCommentScopeFromLocation,
+} from '@/lib/commentNavigation';
+import {
+    dispatchPageCommentsUpdated,
+    PAGE_COMMENTS_UPDATED_EVENT,
+    PageCommentsUpdatedDetail,
+} from '@/lib/pageCommentEvents';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -70,6 +80,9 @@ interface CommentSectionProps {
     entityType?: 'manga' | 'character' | 'author' | 'artist';
     chapterId?: string;
     blockedUserIds?: string[];
+    pageNumber?: number;
+    totalReaderPages?: number;
+    enablePageComments?: boolean;
 }
 
 const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
@@ -77,6 +90,9 @@ const PARENT_COMMENTS_PER_PAGE = 15;
 const COMMENT_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_REPLY_INDENT_LEVEL = 3;
 const COMMENT_HIGHLIGHT_DURATION_MS = 3000;
+const MIN_COMMENT_PAGE_NUMBER = 1;
+
+type CommentFeedScope = 'chapter' | 'page';
 
 interface CommentDraft {
     title: string;
@@ -162,6 +178,7 @@ interface CommentComposerProps {
     onOpenGifPicker: () => void;
     onSubmit: () => void;
     onCancel?: () => void;
+    textareaRef?: React.Ref<HTMLTextAreaElement>;
 }
 
 const CommentComposer: React.FC<CommentComposerProps> = ({
@@ -175,6 +192,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
     onOpenGifPicker,
     onSubmit,
     onCancel,
+    textareaRef,
 }) => {
     const hasContent = commentHasRenderableContent({
         body: draft.body,
@@ -227,6 +245,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
 
                 <div className="flex-1 space-y-3">
                     <Textarea
+                        ref={textareaRef}
                         placeholder={placeholder}
                         value={draft.body}
                         onChange={(event) => setField('body', event.target.value)}
@@ -319,11 +338,34 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
     );
 };
 
-const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, entityId: propEntityId, entityType: propEntityType = 'manga', chapterId, blockedUserIds = [] }) => {
+const CommentSection: React.FC<CommentSectionProps> = ({
+    mangaId: propMangaId,
+    entityId: propEntityId,
+    entityType: propEntityType = 'manga',
+    chapterId,
+    blockedUserIds = [],
+    pageNumber,
+    totalReaderPages = 0,
+    enablePageComments = false,
+}) => {
     const { user } = useAuth();
     const location = useLocation();
+    const navigate = useNavigate();
     const entityId = propEntityId || propMangaId || '';
     const entityType = propEntityType;
+    const targetCommentId = useMemo(
+        () => getTargetCommentIdFromLocation(location.search, location.hash),
+        [location.hash, location.search]
+    );
+    const targetCommentScope = useMemo(
+        () => getTargetCommentScopeFromLocation(location.search),
+        [location.search]
+    );
+    const targetCommentPageNumber = useMemo(
+        () => getTargetCommentPageNumberFromLocation(location.search),
+        [location.search]
+    );
+    const hasReaderPageContext = enablePageComments && entityType === 'manga' && Boolean(chapterId);
 
     const [comments, setComments] = useState<Comment[]>([]);
     const [relationshipBlockedUserIds, setRelationshipBlockedUserIds] = useState<string[]>([]);
@@ -341,6 +383,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     const [gifTarget, setGifTarget] = useState<'new' | 'edit' | 'reply'>('new');
     const [sortBy, setSortBy] = useState<'newest' | 'popular'>('newest');
     const [currentPage, setCurrentPage] = useState(1);
+    const [feedScope, setFeedScope] = useState<CommentFeedScope>(() => hasReaderPageContext ? 'page' : 'chapter');
+    const [selectedCommentPage, setSelectedCommentPage] = useState(() => Math.max(MIN_COMMENT_PAGE_NUMBER, pageNumber || MIN_COMMENT_PAGE_NUMBER));
+    const [pageJumpValue, setPageJumpValue] = useState(() => String(Math.max(MIN_COMMENT_PAGE_NUMBER, pageNumber || MIN_COMMENT_PAGE_NUMBER)));
+    const [hasManualPageSelection, setHasManualPageSelection] = useState(false);
     const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
     const [pendingScrollCommentId, setPendingScrollCommentId] = useState<string | null>(null);
     const [reactions, setReactions] = useState<Record<string, number>>({});
@@ -353,25 +399,75 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     const [reportReason, setReportReason] = useState('Spam veya alakasız');
     const [reportDetails, setReportDetails] = useState('');
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+    const [commentsRefreshTick, setCommentsRefreshTick] = useState(0);
     const highlightTimeoutRef = useRef<number | null>(null);
     const processedTargetCommentRef = useRef<string | null>(null);
+    const newCommentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
     const commentPreferences = {
         autoShowMedia: user?.preferences?.comments?.auto_show_media ?? false,
         autoShowGifs: user?.preferences?.comments?.auto_show_gifs ?? false,
         autoShowReplies: user?.preferences?.comments?.auto_show_replies ?? false,
     };
+    const activePageNumber = Math.max(MIN_COMMENT_PAGE_NUMBER, selectedCommentPage || MIN_COMMENT_PAGE_NUMBER);
+    const activeFilterPageNumber = hasReaderPageContext && feedScope === 'page' ? activePageNumber : undefined;
+
+    useEffect(() => {
+        if (!hasReaderPageContext) {
+            setFeedScope('chapter');
+            return;
+        }
+
+        if (targetCommentScope) {
+            setFeedScope(targetCommentScope);
+            return;
+        }
+
+        setFeedScope('page');
+    }, [hasReaderPageContext, targetCommentScope]);
+
+    useEffect(() => {
+        if (!hasReaderPageContext) {
+            return;
+        }
+
+        if (targetCommentPageNumber) {
+            setSelectedCommentPage(targetCommentPageNumber);
+            setHasManualPageSelection(true);
+            return;
+        }
+
+        if (!hasManualPageSelection && pageNumber && pageNumber > 0) {
+            setSelectedCommentPage(pageNumber);
+        }
+    }, [hasManualPageSelection, hasReaderPageContext, pageNumber, targetCommentPageNumber]);
 
     useEffect(() => {
         loadComments();
         loadReactions();
-    }, [entityId, entityType, chapterId, sortBy]);
+    }, [activeFilterPageNumber, commentsRefreshTick, entityId, entityType, chapterId, sortBy]);
 
     useEffect(() => {
         setCurrentPage(1);
         setHighlightedCommentId(null);
         setPendingScrollCommentId(null);
         processedTargetCommentRef.current = null;
-    }, [entityId, entityType, chapterId, sortBy]);
+    }, [activeFilterPageNumber, entityId, entityType, chapterId, sortBy]);
+
+    useEffect(() => {
+        if (!hasReaderPageContext) {
+            setHasManualPageSelection(false);
+            return;
+        }
+
+        if (targetCommentPageNumber) {
+            setSelectedCommentPage(targetCommentPageNumber);
+            setHasManualPageSelection(true);
+            return;
+        }
+
+        setHasManualPageSelection(false);
+        setSelectedCommentPage(Math.max(MIN_COMMENT_PAGE_NUMBER, pageNumber || MIN_COMMENT_PAGE_NUMBER));
+    }, [chapterId, entityId, entityType, hasReaderPageContext, pageNumber, targetCommentPageNumber]);
 
     useEffect(() => () => {
         if (highlightTimeoutRef.current !== null) {
@@ -391,7 +487,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     }, [user?.id]);
 
     const loadComments = async () => {
-        const loadedComments = await getEntityCommentsV2(entityType, entityId, chapterId, sortBy);
+        const loadedComments = await getEntityCommentsV2(entityType, entityId, chapterId, sortBy, {
+            pageNumber: activeFilterPageNumber,
+        });
         setComments(loadedComments);
     };
 
@@ -524,6 +622,18 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         return normalizedDraft;
     };
 
+    const notifyPageCommentsChanged = (commentPageNumber?: number) => {
+        if (!chapterId || entityType !== 'manga' || !entityId || typeof commentPageNumber !== 'number') {
+            return;
+        }
+
+        dispatchPageCommentsUpdated({
+            mangaId: entityId,
+            chapterId,
+            pageNumber: commentPageNumber,
+        });
+    };
+
     const handleSubmitComment = async () => {
         if (!user) {
             toast.error('Yorum yapmak için giriş yapmalısınız');
@@ -540,6 +650,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             entityId: entityType !== 'manga' ? entityId : undefined,
             entityType,
             chapterId,
+            pageNumber: hasReaderPageContext && feedScope === 'page' ? activePageNumber : undefined,
             userId: user.id,
             username: user.username,
             userAvatar: user.avatar,
@@ -555,6 +666,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         setNewComposerVersion((previous) => previous + 1);
         setCurrentPage(1);
         setComments((previous) => sortCommentsForState([createdComment, ...previous]));
+        notifyPageCommentsChanged(createdComment.pageNumber);
         toast.success('Yorum eklendi');
     };
 
@@ -577,12 +689,15 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         setEditDraft(createEmptyDraft());
         setEditMention(null);
         await loadComments();
-            toast.success('Yorum güncellendi');
+        notifyPageCommentsChanged(comments.find((comment) => comment.id === commentId)?.pageNumber);
+        toast.success('Yorum güncellendi');
     };
 
     const handleDeleteComment = async (commentId: string) => {
+        const deletedCommentPageNumber = comments.find((comment) => comment.id === commentId)?.pageNumber;
         await deleteComment(commentId, entityType);
         await loadComments();
+        notifyPageCommentsChanged(deletedCommentPageNumber);
         toast.success('Yorum silindi');
     };
 
@@ -667,6 +782,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             entityId: entityType !== 'manga' ? entityId : undefined,
             entityType,
             chapterId,
+            pageNumber: parentComment.pageNumber,
             userId: user.id,
             username: user.username,
             userAvatar: user.avatar,
@@ -684,7 +800,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         setReplyMention(null);
         setReplyDraft(createEmptyDraft());
         setComments((previous) => sortCommentsForState([newCommentObj, ...previous]));
-            toast.success('Yanıt eklendi');
+        notifyPageCommentsChanged(newCommentObj.pageNumber);
+        toast.success('Yanıt eklendi');
 
         if (parentComment && parentComment.userId !== user.id) {
             void (async () => {
@@ -706,7 +823,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     entityTitle,
                     newCommentObj.id,
                     chapterId,
-                    entityType
+                    entityType,
+                    newCommentObj.pageNumber
                 );
             })();
         }
@@ -742,7 +860,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                 entityTitle,
                 comment.id,
                 chapterId,
-                entityType
+                entityType,
+                comment.pageNumber
             );
         }
 
@@ -869,11 +988,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
         return Math.floor(parentIndex / PARENT_COMMENTS_PER_PAGE) + 1;
     };
-    const targetCommentId = useMemo(
-        () => getTargetCommentIdFromLocation(location.search, location.hash),
-        [location.hash, location.search]
-    );
-
     const getReplyCount = (parentId: string): number => {
         const replies = getReplies(parentId);
 
@@ -883,6 +997,69 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
         return replies.reduce((total, reply) => total + 1 + getReplyCount(reply.id), 0);
     };
+
+    const changeCommentPageSelection = (nextPage: number) => {
+        setHasManualPageSelection(true);
+
+        if (!totalReaderPages) {
+            setSelectedCommentPage(Math.max(MIN_COMMENT_PAGE_NUMBER, nextPage));
+            return;
+        }
+
+        setSelectedCommentPage(Math.min(totalReaderPages, Math.max(MIN_COMMENT_PAGE_NUMBER, nextPage)));
+    };
+
+    useEffect(() => {
+        setPageJumpValue(String(activePageNumber));
+    }, [activePageNumber]);
+
+    const handlePageJumpSubmit = useCallback(() => {
+        const parsedPage = Number.parseInt(pageJumpValue, 10);
+
+        if (!Number.isFinite(parsedPage)) {
+            toast.error('Geçerli bir sayfa numarası girin');
+            setPageJumpValue(String(activePageNumber));
+            return;
+        }
+
+        if (parsedPage < MIN_COMMENT_PAGE_NUMBER) {
+            toast.error('Sayfa numarası 1 veya daha büyük olmalı');
+            setPageJumpValue(String(activePageNumber));
+            return;
+        }
+
+        if (totalReaderPages > 0 && parsedPage > totalReaderPages) {
+            toast.error(`Bu bölümde en fazla ${totalReaderPages}. sayfa var`);
+            setPageJumpValue(String(activePageNumber));
+            return;
+        }
+
+        changeCommentPageSelection(parsedPage);
+    }, [activePageNumber, changeCommentPageSelection, pageJumpValue, totalReaderPages]);
+
+    useEffect(() => {
+        const handlePageCommentsUpdated = (event: Event) => {
+            const { detail } = event as CustomEvent<PageCommentsUpdatedDetail>;
+            if (
+                !detail
+                || entityType !== 'manga'
+                || detail.mangaId !== entityId
+                || detail.chapterId !== chapterId
+                || feedScope !== 'page'
+                || activeFilterPageNumber !== detail.pageNumber
+            ) {
+                return;
+            }
+
+            setCommentsRefreshTick((previous) => previous + 1);
+        };
+
+        window.addEventListener(PAGE_COMMENTS_UPDATED_EVENT, handlePageCommentsUpdated);
+
+        return () => {
+            window.removeEventListener(PAGE_COMMENTS_UPDATED_EVENT, handlePageCommentsUpdated);
+        };
+    }, [activeFilterPageNumber, chapterId, entityId, entityType, feedScope]);
 
     useEffect(() => {
         if (!commentPreferences.autoShowReplies) {
@@ -1041,7 +1218,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             }
 
             const targetTop = window.scrollY + targetElement.getBoundingClientRect().top - 140;
-            clearTargetCommentFromCurrentUrl();
+            const nextLocation = getLocationWithoutTargetComment(location.pathname, location.search, location.hash);
+            if (nextLocation) {
+                navigate(nextLocation, { replace: true });
+            }
             animateScrollTo(targetTop);
 
             if (highlightTimeoutRef.current !== null) {
@@ -1065,7 +1245,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                 window.clearTimeout(timerId);
             }
         };
-    }, [displayedParentComments, expandedReplies, pendingScrollCommentId]);
+    }, [displayedParentComments, expandedReplies, location.hash, location.pathname, location.search, navigate, pendingScrollCommentId]);
 
     const paginationWindow = useMemo(() => {
         if (totalPages <= 5) {
@@ -1171,6 +1351,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                 <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
                                                     <Pin className="h-3 w-3" />
                                                     Sabit
+                                                </Badge>
+                                            )}
+                                            {reply.pageNumber && (
+                                                <Badge variant="outline" className="h-5 px-2 text-[10px] uppercase tracking-wide">
+                                                    Sayfa {reply.pageNumber}
                                                 </Badge>
                                             )}
                                             <span className="text-xs text-muted-foreground">
@@ -1354,13 +1539,107 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div className="flex items-center gap-2">
-                    <MessageCircle className="h-5 w-5 text-primary" />
-                    <h3 className="text-lg font-bold">Yorumlar ({visibleComments.length})</h3>
-                    {parentComments.length > 0 && (
-                        <span className="text-xs text-muted-foreground">
-                            Sayfa {safeCurrentPage} / {totalPages}
-                        </span>
+                <div className="space-y-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                        <MessageCircle className="h-5 w-5 text-primary" />
+                        <h3 className="text-lg font-bold">
+                            {hasReaderPageContext && feedScope === 'page'
+                                ? `Sayfa ${activePageNumber} Yorumları`
+                                : 'Yorumlar'} ({visibleComments.length})
+                        </h3>
+                        {parentComments.length > 0 && (
+                            <span className="text-xs text-muted-foreground">
+                                Liste {safeCurrentPage} / {totalPages}
+                            </span>
+                        )}
+                    </div>
+
+                    {hasReaderPageContext && (
+                        <div className="flex flex-wrap items-center gap-2">
+                            <div className="inline-flex rounded-xl border border-border bg-secondary/20 p-1">
+                                <button
+                                    onClick={() => {
+                                        setFeedScope('page');
+                                        setHasManualPageSelection(false);
+                                        if (pageNumber && pageNumber > 0) {
+                                            setSelectedCommentPage(pageNumber);
+                                        }
+                                    }}
+                                    className={cn(
+                                        'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
+                                        feedScope === 'page'
+                                            ? 'bg-background text-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    )}
+                                >
+                                    Bu Sayfa
+                                </button>
+                                <button
+                                    onClick={() => setFeedScope('chapter')}
+                                    className={cn(
+                                        'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
+                                        feedScope === 'chapter'
+                                            ? 'bg-background text-foreground shadow-sm'
+                                            : 'text-muted-foreground hover:text-foreground'
+                                    )}
+                                >
+                                    Bölüm Sohbeti
+                                </button>
+                            </div>
+
+                            {feedScope === 'page' && (
+                                <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-card/50 px-2 py-1.5">
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        disabled={activePageNumber <= MIN_COMMENT_PAGE_NUMBER}
+                                        onClick={() => changeCommentPageSelection(activePageNumber - 1)}
+                                    >
+                                        <ChevronDown className="h-4 w-4 rotate-90" />
+                                    </Button>
+                                    <Badge variant="secondary" className="h-7 px-3 text-xs font-semibold">
+                                        Sayfa {activePageNumber}{totalReaderPages > 0 ? ` / ${totalReaderPages}` : ''}
+                                    </Badge>
+                                    <Button
+                                        type="button"
+                                        variant="ghost"
+                                        size="icon"
+                                        className="h-7 w-7"
+                                        disabled={totalReaderPages > 0 && activePageNumber >= totalReaderPages}
+                                        onClick={() => changeCommentPageSelection(activePageNumber + 1)}
+                                    >
+                                        <ChevronDown className="h-4 w-4 -rotate-90" />
+                                    </Button>
+                                    <div className="ml-1 flex items-center gap-2 border-l border-border/60 pl-2">
+                                        <Input
+                                            inputMode="numeric"
+                                            pattern="[0-9]*"
+                                            value={pageJumpValue}
+                                            onChange={(event) => setPageJumpValue(event.target.value.replace(/[^\d]/g, ''))}
+                                            onKeyDown={(event) => {
+                                                if (event.key === 'Enter') {
+                                                    event.preventDefault();
+                                                    handlePageJumpSubmit();
+                                                }
+                                            }}
+                                            className="h-8 w-16 text-center text-xs"
+                                            aria-label="Yorum sayfası seç"
+                                        />
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="h-8 px-2 text-xs"
+                                            onClick={handlePageJumpSubmit}
+                                        >
+                                            Git
+                                        </Button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
                     )}
                 </div>
 
@@ -1392,7 +1671,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     avatar={user.avatar}
                     username={user.username}
                     draft={newDraft}
-                    placeholder="Bir yorum yazın, başlık ekleyin, spoiler işaretleyin veya görsel bağlantısı bırakın..."
+                    placeholder={hasReaderPageContext && feedScope === 'page'
+                        ? `Sayfa ${activePageNumber} hakkında yorum yazın...`
+                        : 'Bir yorum yazın, başlık ekleyin, spoiler işaretleyin veya görsel bağlantısı bırakın...'}
                     submitLabel="Gönder"
                     onDraftChange={setNewDraft}
                     onOpenGifPicker={() => {
@@ -1400,6 +1681,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                         setShowGifPicker(true);
                     }}
                     onSubmit={handleSubmitComment}
+                    textareaRef={newCommentTextareaRef}
                 />
             ) : (
                 <div className="rounded-lg border border-border bg-card/50 p-4 text-center">
@@ -1410,7 +1692,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             <div className="space-y-4">
                 {displayedParentComments.length === 0 ? (
                     <div className="py-8 text-center text-muted-foreground">
-                        Henüz yorum yok. İlk yorumu siz yapın!
+                        {hasReaderPageContext && feedScope === 'page'
+                            ? `Sayfa ${activePageNumber} için henüz yorum yok. İlk yorumu siz yapın!`
+                            : 'Henüz yorum yok. İlk yorumu siz yapın!'}
                     </div>
                 ) : (
                     <>
@@ -1443,6 +1727,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                                             <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
                                                                 <Pin className="h-3 w-3" />
                                                                 Sabit
+                                                            </Badge>
+                                                        )}
+                                                        {comment.pageNumber && (
+                                                            <Badge variant="outline" className="h-5 px-2 text-[10px] uppercase tracking-wide">
+                                                                Sayfa {comment.pageNumber}
                                                             </Badge>
                                                         )}
                                                         <span className="text-xs text-muted-foreground">

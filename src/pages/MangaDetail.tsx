@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useLocation, useParams, Link } from 'react-router-dom';
 import {
   Heart,
   Star,
@@ -94,6 +94,7 @@ import { offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
+import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -111,6 +112,8 @@ const DEFAULT_USER_REVIEW: Partial<Review> = {
   rating_progression: 10,
   rating_engagement: 10,
 };
+
+const PREVIEW_CHAPTER_BATCH_SIZE = 3;
 
 const PreviewChapter = ({ 
   chapter, 
@@ -159,11 +162,11 @@ const PreviewChapter = ({
   }, [index, onInView, onNearBottom]);
 
   return (
-    <div ref={containerRef} className="space-y-4 rounded-xl border border-border bg-card/50 p-4 sm:p-6 shadow-sm">
-      <div className="flex items-center justify-between border-b border-border pb-4">
+    <div ref={containerRef} className="space-y-3 rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-5">
+      <div className="flex items-center justify-between border-b border-border pb-3">
         <div>
-          <h3 className="text-xl font-bold">{formatChapterDisplayTitle(chapter.number, chapter.title)}</h3>
-          <p className="text-sm text-muted-foreground mt-1">
+          <h3 className="text-lg font-bold sm:text-xl">{formatChapterDisplayTitle(chapter.number, chapter.title)}</h3>
+          <p className="mt-1 text-sm text-muted-foreground">
             {chapter.pages.length} sayfa
           </p>
         </div>
@@ -175,10 +178,10 @@ const PreviewChapter = ({
         </Button>
       </div>
       
-      <div className="grid grid-cols-2 gap-2 sm:gap-4 md:gap-6">
+      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 lg:grid-cols-5">
         {chapter.pages.map((page: string, pageIndex: number) => (
           <Link key={pageIndex} to={`/manga/${mangaId}/chapter/${chapter.id}?page=${pageIndex + 1}`}>
-            <div className="group relative aspect-square overflow-hidden rounded-lg bg-secondary border border-border cursor-pointer shadow-sm">
+            <div className="group relative aspect-[3/4] overflow-hidden rounded-lg border border-border bg-secondary shadow-sm transition-transform hover:-translate-y-0.5">
               {isImageMounted ? (
                 <img 
                   src={page} 
@@ -192,8 +195,8 @@ const PreviewChapter = ({
                 </div>
               )}
               <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center backdrop-blur-sm">
-                <span className="text-white font-medium flex items-center gap-2">
-                  <Eye className="w-5 h-5"/> Sayfaya Git
+                <span className="flex items-center gap-1.5 text-sm font-medium text-white">
+                  <Eye className="h-4 w-4"/> Sayfaya Git
                 </span>
               </div>
               <div className="absolute bottom-2 right-2 bg-black/70 backdrop-blur-md font-mono text-white text-xs px-2 py-1 rounded shadow">
@@ -209,6 +212,7 @@ const PreviewChapter = ({
 
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
+  const location = useLocation();
   const [manga, setManga] = useState<Manga | undefined>();
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
@@ -224,8 +228,10 @@ const MangaDetail: React.FC = () => {
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState('');
   const [activeTab, setActiveTab] = useState('overview');
+  const [minLoadedPreviewIndex, setMinLoadedPreviewIndex] = useState(0);
   const [maxLoadedIndex, setMaxLoadedIndex] = useState(0);
   const [currentViewedIndex, setCurrentViewedIndex] = useState(0);
+  const [previewStartIndex, setPreviewStartIndex] = useState(0);
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [revealedBlockedReviews, setRevealedBlockedReviews] = useState<Record<string, boolean>>({});
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
@@ -288,6 +294,31 @@ const MangaDetail: React.FC = () => {
     setMaxLoadedIndex(prev => Math.max(prev, idx + 1));
   }, []);
 
+  useEffect(() => {
+    if (!manga?.chapters?.length) {
+      setPreviewStartIndex(0);
+      setMinLoadedPreviewIndex(0);
+      setCurrentViewedIndex(0);
+      setMaxLoadedIndex(0);
+      return;
+    }
+
+    const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
+    const targetChapterId = latestProgress?.chapterId;
+    const targetIndex = targetChapterId
+      ? Math.max(0, sortedChaptersAsc.findIndex((chapter) => chapter.id === targetChapterId))
+      : 0;
+
+    setPreviewStartIndex(targetIndex);
+    setMinLoadedPreviewIndex(targetIndex);
+    setCurrentViewedIndex(targetIndex);
+    setMaxLoadedIndex(Math.min(sortedChaptersAsc.length - 1, targetIndex + 1));
+  }, [latestProgress?.chapterId, manga?.chapters]);
+
+  const handleLoadPreviousPreviewChapters = React.useCallback(() => {
+    setMinLoadedPreviewIndex((previous) => Math.max(0, previous - PREVIEW_CHAPTER_BATCH_SIZE));
+  }, []);
+
   const [reviews, setReviews] = useState<Review[]>([]);
   const [avgBreakdown, setAvgBreakdown] = useState<any>({
     story: 0,
@@ -314,6 +345,14 @@ const MangaDetail: React.FC = () => {
     'Çeviri veya içerik hatası',
     'Diğer',
   ];
+
+  useEffect(() => {
+    const targetCommentId = getTargetCommentIdFromLocation(location.search, location.hash);
+
+    if (targetCommentId && activeTab !== 'overview') {
+      setActiveTab('overview');
+    }
+  }, [activeTab, location.hash, location.search]);
 
   const resetUserScopedState = React.useCallback(() => {
     setFavorite(false);
@@ -1447,7 +1486,10 @@ const MangaDetail: React.FC = () => {
               <div className="space-y-8 max-w-4xl mx-auto">
                 {(() => {
                   const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
-                  const displayedPreviewChapters = sortedChaptersAsc.slice(0, maxLoadedIndex + 1);
+                  const safeStartIndex = Math.max(0, Math.min(previewStartIndex, sortedChaptersAsc.length - 1));
+                  const safeMinLoadedIndex = Math.max(0, Math.min(minLoadedPreviewIndex, safeStartIndex));
+                  const safeLoadedUntilIndex = Math.max(safeStartIndex, Math.min(maxLoadedIndex, sortedChaptersAsc.length - 1));
+                  const displayedPreviewChapters = sortedChaptersAsc.slice(safeMinLoadedIndex, safeLoadedUntilIndex + 1);
                   
                   if (sortedChaptersAsc.length === 0) {
                     return <div className="text-center rounded-xl border border-border bg-card/50 text-muted-foreground p-8">Henüz bölüm eklenmemiş</div>;
@@ -1455,7 +1497,21 @@ const MangaDetail: React.FC = () => {
 
                   return (
                     <>
-                      {displayedPreviewChapters.map((chapter, index) => {
+                      {safeMinLoadedIndex > 0 && (
+                        <div className="flex justify-center">
+                          <Button
+                            variant="outline"
+                            className="rounded-full"
+                            onClick={handleLoadPreviousPreviewChapters}
+                          >
+                            <ChevronUp className="mr-2 h-4 w-4" />
+                            Önceki Bölümleri Yükle
+                          </Button>
+                        </div>
+                      )}
+
+                      {displayedPreviewChapters.map((chapter, localIndex) => {
+                        const index = safeMinLoadedIndex + localIndex;
                         // Only mount images for current, previous, and next chapters (max 3 loaded in memory)
                         const isImageMounted = Math.abs(index - currentViewedIndex) <= 1;
                         
@@ -1472,7 +1528,7 @@ const MangaDetail: React.FC = () => {
                         );
                       })}
                       
-                      {maxLoadedIndex < sortedChaptersAsc.length - 1 && (
+                      {safeLoadedUntilIndex < sortedChaptersAsc.length - 1 && (
                         <div className="flex justify-center p-8 bg-card/20 rounded-xl" style={{ minHeight: '100px' }}>
                           <span className="text-muted-foreground flex items-center gap-2">
                              <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />

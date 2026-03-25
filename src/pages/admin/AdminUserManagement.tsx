@@ -30,6 +30,43 @@ import { User } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
+const ACTIVE_USER_WINDOW_MS = 15 * 60 * 1000;
+
+const getUserPresence = (user: User) => {
+    if (user.isBanned) {
+        return {
+            tone: 'banned' as const,
+            label: 'Banlı',
+            detail: user.banReason || undefined,
+        };
+    }
+
+    if (!user.lastSeenAt) {
+        return {
+            tone: 'unknown' as const,
+            label: 'Bilinmiyor',
+            detail: undefined,
+        };
+    }
+
+    const lastSeenAt = new Date(user.lastSeenAt).getTime();
+    if (!Number.isFinite(lastSeenAt)) {
+        return {
+            tone: 'unknown' as const,
+            label: 'Bilinmiyor',
+            detail: undefined,
+        };
+    }
+
+    const isActive = Date.now() - lastSeenAt <= ACTIVE_USER_WINDOW_MS;
+
+    return {
+        tone: isActive ? 'active' as const : 'inactive' as const,
+        label: isActive ? 'Aktif' : 'Pasif',
+        detail: formatDistanceToNow(new Date(user.lastSeenAt), { addSuffix: true, locale: tr }),
+    };
+};
+
 const AdminUserManagement: React.FC = () => {
     const { user, isLoading: authLoading } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
@@ -243,22 +280,58 @@ const AdminUserManagement: React.FC = () => {
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">
-                                        {user.isBanned ? (
-                                            <div className="space-y-1">
-                                                <Badge variant="destructive" className="gap-1">
-                                                    <ShieldBan className="h-3 w-3" />
-                                                    Banlı
+                                        {(() => {
+                                            const presence = getUserPresence(user);
+
+                                            if (presence.tone === 'banned') {
+                                                return (
+                                                    <div className="space-y-1">
+                                                        <Badge variant="destructive" className="gap-1">
+                                                            <ShieldBan className="h-3 w-3" />
+                                                            {presence.label}
+                                                        </Badge>
+                                                        {presence.detail && (
+                                                            <p className="max-w-48 truncate text-xs text-muted-foreground">{presence.detail}</p>
+                                                        )}
+                                                    </div>
+                                                );
+                                            }
+
+                                            if (presence.tone === 'active') {
+                                                return (
+                                                    <div className="space-y-1">
+                                                        <Badge className="gap-1 border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/10">
+                                                            <ShieldCheck className="h-3 w-3" />
+                                                            {presence.label}
+                                                        </Badge>
+                                                        {presence.detail && (
+                                                            <p className="text-xs text-muted-foreground">Son görülme {presence.detail}</p>
+                                                        )}
+                                                    </div>
+                                                );
+                                            }
+
+                                            if (presence.tone === 'inactive') {
+                                                return (
+                                                    <div className="space-y-1">
+                                                        <Badge variant="secondary" className="gap-1">
+                                                            <ShieldCheck className="h-3 w-3" />
+                                                            {presence.label}
+                                                        </Badge>
+                                                        {presence.detail && (
+                                                            <p className="text-xs text-muted-foreground">Son görülme {presence.detail}</p>
+                                                        )}
+                                                    </div>
+                                                );
+                                            }
+
+                                            return (
+                                                <Badge variant="outline" className="gap-1">
+                                                    <ShieldCheck className="h-3 w-3" />
+                                                    {presence.label}
                                                 </Badge>
-                                                {user.banReason && (
-                                                    <p className="max-w-48 truncate text-xs text-muted-foreground">{user.banReason}</p>
-                                                )}
-                                            </div>
-                                        ) : (
-                                            <Badge variant="secondary" className="gap-1">
-                                                <ShieldCheck className="h-3 w-3" />
-                                                Aktif
-                                            </Badge>
-                                        )}
+                                            );
+                                        })()}
                                     </td>
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-2 text-sm text-muted-foreground">

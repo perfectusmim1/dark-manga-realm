@@ -57,16 +57,18 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
 
       {/* Page Display */}
       <div className={`relative flex h-full items-center justify-center px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
-        <ProtectedImage
-          src={pages[currentPage - 1]?.src || ''}
-          alt={`Sayfa ${currentPage}`}
-          zoom={settings.zoom}
-          className="max-h-full items-center justify-center flex"
-          style={{
-            width: settings.fitWidth ? '100%' : 'auto',
-            maxWidth: settings.fitWidth ? '896px' : 'none',
-          }}
-        />
+        <div data-reader-page-number={currentPage} className="flex w-full justify-center">
+          <ProtectedImage
+            src={pages[currentPage - 1]?.src || ''}
+            alt={`Sayfa ${currentPage}`}
+            zoom={settings.zoom}
+            className="max-h-full items-center justify-center flex"
+            style={{
+              width: settings.fitWidth ? '100%' : 'auto',
+              maxWidth: settings.fitWidth ? '896px' : 'none',
+            }}
+          />
+        </div>
       </div>
 
       {/* Right Navigation Zone */}

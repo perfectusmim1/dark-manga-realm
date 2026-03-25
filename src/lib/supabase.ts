@@ -79,6 +79,7 @@ export type Database = {
                     id: string;
                     manga_id: string;
                     chapter_id: string | null;
+                    page_number: number | null;
                     user_id: string;
                     content: string;
                     gif_url: string | null;
