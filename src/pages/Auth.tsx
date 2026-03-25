@@ -42,6 +42,7 @@ const Auth: React.FC = () => {
     loginWithGoogle,
     challengeTwoFactor,
     logout,
+    resendEmail,
   } = useAuth();
   const navigate = useNavigate();
 
@@ -176,6 +177,34 @@ const Auth: React.FC = () => {
       toast.error(result.error || 'Şifre güncellenemedi');
     }
     setIsLoading(false);
+  };
+  const [resendCooldown, setResendCooldown] = useState(0);
+
+  useEffect(() => {
+    let timer: any;
+    if (resendCooldown > 0) {
+      timer = setTimeout(() => setResendCooldown(resendCooldown - 1), 1000);
+    }
+    return () => clearTimeout(timer);
+  }, [resendCooldown]);
+
+  const handleResendEmail = async () => {
+    if (resendCooldown > 0 || !submittedEmail) return;
+
+    setIsLoading(true);
+    try {
+      const result = await resendEmail(submittedEmail, emailNoticeMode);
+      if (result.success) {
+        toast.success('Yeni bağlantı gönderildi. Lütfen gelen kutunuzu kontrol edin.');
+        setResendCooldown(60); // 1 minute cooldown
+      } else {
+        toast.error(result.error || 'Bağlantı gönderilemedi');
+      }
+    } catch {
+      toast.error('Geri gönderme işlemi başarısız');
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   const heading = {
@@ -375,9 +404,20 @@ const Auth: React.FC = () => {
                 <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs italic leading-relaxed text-muted-foreground">
                   Tek kullanımlık bağlantılar güvenlik için kısa süre geçerlidir. E-posta içindeki bağlantı dışında başka bir bağlantıya güvenmeyin.
                 </div>
-                <Button type="button" variant="ghost" className="w-full" onClick={() => setView('login')}>
-                  Giriş ekranına dön
-                </Button>
+                <div className="flex flex-col gap-2">
+                  <Button
+                    type="button"
+                    variant="glow"
+                    className="w-full"
+                    disabled={isLoading || resendCooldown > 0}
+                    onClick={handleResendEmail}
+                  >
+                    {resendCooldown > 0 ? `Yeniden Gönder (${resendCooldown}s)` : 'Bağlantıyı Yeniden Gönder'}
+                  </Button>
+                  <Button type="button" variant="ghost" className="w-full" onClick={() => setView('login')}>
+                    Giriş ekranına dön
+                  </Button>
+                </div>
               </div>
             )}
 

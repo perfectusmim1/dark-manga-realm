@@ -809,10 +809,11 @@ export const getCompletedChapterCountsByUser = async (): Promise<Record<string, 
 
         if (!error) {
             chapterReadPublicFeatureState = 'available';
-            return (data || []).reduce<Record<string, number>>((counts, row: any) => {
-                counts[row.user_id] = Number(row.read_count || 0);
-                return counts;
-            }, {});
+            const leaderboardMap: Record<string, number> = {};
+            ((data as any) || []).forEach((row: any) => {
+                leaderboardMap[row.user_id] = Number(row.read_count || 0);
+            });
+            return leaderboardMap;
         }
 
         handleChapterReadPublicFeatureError(error);

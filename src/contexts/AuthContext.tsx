@@ -36,6 +36,7 @@ interface AuthContextType {
   challengeTwoFactor: (code: string, factorId?: string) => Promise<{ success: boolean; error?: string }>;
   disableTwoFactor: (code: string, factorId?: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: (redirectTo?: string) => Promise<void>;
+  resendEmail: (email: string, type: 'signup' | 'recovery') => Promise<{ success: boolean; error?: string }>;
 }
 
 type AuthenticatorLevel = 'aal1' | 'aal2' | null;
@@ -252,7 +253,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       throw error;
     }
 
-    const factors = extractTotpFactors(data.all);
+    const factors = extractTotpFactors(data.all as any);
     const verifiedFactors = factors.filter((factor) => factor.status === 'verified');
 
     if (preferredFactorId) {
@@ -287,7 +288,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw factorError;
       }
 
-      const factors = extractTotpFactors(factorData.all);
+      const factors = extractTotpFactors(factorData.all as any);
       const verifiedFactorCount = factors.filter((factor) => factor.status === 'verified').length;
       const nextState: MfaState = {
         isLoading: false,
@@ -322,13 +323,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const accessCheck = await checkCurrentAccess().catch(() => ({ allowed: true }));
           if (!mounted) return;
 
-          if (!accessCheck.allowed) {
+          if (!(accessCheck as any).allowed) {
             await supabase.auth.signOut();
             setSession(null);
             setSupabaseUser(null);
             setUser(null);
             setMfaState(DEFAULT_MFA_STATE);
-            toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için erişim engellendi');
+            toast.error((accessCheck as any).message || 'Bu cihaz veya bağlantı için erişim engellendi');
             return;
           }
 
@@ -475,7 +476,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const accessCheck = await checkCurrentAccess().catch((error) => {
         console.error('Access check error during register:', error);
         return { allowed: true };
-      });
+      }) as any;
 
       if (!accessCheck.allowed) {
         return { success: false, error: accessCheck.message || 'Bu cihaz veya bağlantı için kayıt engellendi' };
@@ -699,7 +700,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw factorError;
       }
 
-      const existingFactors = extractTotpFactors(factorData.all);
+      const existingFactors = extractTotpFactors(factorData.all as any);
       const verifiedFactor = existingFactors.find((factor) => factor.status === 'verified');
       if (verifiedFactor) {
         return { success: false, error: 'Google Authenticator zaten etkin.' };
@@ -868,21 +869,39 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { allowed: true };
       });
 
-      if (!accessCheck.allowed) {
-        toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için erişim engellendi');
-        return;
-      }
+          if (!(accessCheck as any).allowed) {
+            toast.error((accessCheck as any).message || 'Bu cihaz veya bağlantı için bu işleme izin verilmiyor');
+            return;
+          }
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: {
-          redirectTo: redirectTo || `${window.location.origin}/auth`,
-        }
       });
       if (error) throw error;
     } catch (error: unknown) {
       console.error('Google login error:', error);
       toast.error('Google ile giriş yapılırken hata oluştu');
+    }
+  };
+
+  const resendEmail = async (email: string, type: 'signup' | 'recovery'): Promise<{ success: boolean; error?: string }> => {
+    try {
+      if (type === 'signup') {
+        const { error } = await supabase.auth.resend({
+          type: 'signup',
+          email,
+        });
+        if (error) throw error;
+      } else {
+        const { error } = await supabase.auth.resetPasswordForEmail(email, {
+          redirectTo: `${window.location.origin}/auth?type=recovery`,
+        });
+        if (error) throw error;
+      }
+      return { success: true };
+    } catch (error: unknown) {
+      console.error('Resend email error:', error);
+      return { success: false, error: getErrorMessage(error) };
     }
   };
 
@@ -908,10 +927,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       verifyTwoFactorEnrollment,
       challengeTwoFactor,
       disableTwoFactor,
-      loginWithGoogle
+      loginWithGoogle,
+      resendEmail,
     }}>
-
-
       {children}
     </AuthContext.Provider>
   );

@@ -162,7 +162,7 @@ const readStreamToBlob = async (
     }
   }
 
-  const blob = new Blob(chunks, {
+  const blob = new Blob(chunks as any, {
     type: response.headers.get('content-type') || 'image/jpeg',
   });
 
@@ -287,7 +287,7 @@ class OfflineDownloadManager {
         error: undefined,
         updatedAt: nowIso(),
       };
-      await replaceOfflineJob(nextJob);
+      await replaceOfflineJob(nextJob as any);
       await this.processQueue();
       return nextJob;
     }
@@ -577,11 +577,8 @@ class OfflineDownloadManager {
               blob: result.blob,
               mimeType: result.mimeType,
               compressed: false,
-              originalBytes: result.byteSize,
-              storedBytes: result.byteSize,
-              savedBytes: 0,
             };
-          const storedByteSize = processedImage.storedBytes || result.byteSize;
+          const storedByteSize = (processedImage as any).storedBytes || result.byteSize;
 
           downloadedBytes -= result.byteSize;
           downloadedBytes += storedByteSize;

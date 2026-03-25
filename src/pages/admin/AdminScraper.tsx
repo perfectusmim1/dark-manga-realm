@@ -391,6 +391,8 @@ const AdminScraper: React.FC = () => {
                 chapters: chapters,
                 views: 0,
                 ratings: [],
+                averageRating: 0,
+                reviewCount: 0,
                 createdAt: new Date().toISOString(),
                 lastUpdated: new Date().toISOString(),
             };

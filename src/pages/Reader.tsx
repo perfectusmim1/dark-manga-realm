@@ -681,7 +681,7 @@ const Reader: React.FC = () => {
   ]);
 
   const isScrollingRef = useRef(false);
-  const scrollTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const scrollTimeoutRef = useRef<any>(null);
 
   const isRestoreLayoutReady = useCallback((targetPage: number) => {
     const targetIndex = Math.max(0, Math.min(resolvedPages.length, targetPage) - 1);

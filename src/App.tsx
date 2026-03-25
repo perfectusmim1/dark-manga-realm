@@ -145,7 +145,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
           await logout();
         }
 
-        setBlockedMessage(access.message || 'Bu cihaz veya bağlantı için site erişimi engellendi.');
+        setBlockedMessage((access as any).message || 'Bu cihaz veya bağlantı için site erişimi engellendi.');
         return;
       }
 
