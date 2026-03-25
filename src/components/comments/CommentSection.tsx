@@ -76,7 +76,7 @@ const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
 const PARENT_COMMENTS_PER_PAGE = 15;
 const COMMENT_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_REPLY_INDENT_LEVEL = 3;
-const COMMENT_HIGHLIGHT_DURATION_MS = 2600;
+const COMMENT_HIGHLIGHT_DURATION_MS = 3000;
 
 interface CommentDraft {
     title: string;
@@ -354,6 +354,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     const [reportDetails, setReportDetails] = useState('');
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
     const highlightTimeoutRef = useRef<number | null>(null);
+    const processedTargetCommentRef = useRef<string | null>(null);
     const commentPreferences = {
         autoShowMedia: user?.preferences?.comments?.auto_show_media ?? false,
         autoShowGifs: user?.preferences?.comments?.auto_show_gifs ?? false,
@@ -369,6 +370,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         setCurrentPage(1);
         setHighlightedCommentId(null);
         setPendingScrollCommentId(null);
+        processedTargetCommentRef.current = null;
     }, [entityId, entityType, chapterId, sortBy]);
 
     useEffect(() => () => {
@@ -867,6 +869,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
         return Math.floor(parentIndex / PARENT_COMMENTS_PER_PAGE) + 1;
     };
+    const targetCommentId = useMemo(
+        () => getTargetCommentIdFromLocation(location.search, location.hash),
+        [location.hash, location.search]
+    );
 
     const getReplyCount = (parentId: string): number => {
         const replies = getReplies(parentId);
@@ -909,10 +915,16 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     }, [currentPage, totalPages]);
 
     useEffect(() => {
-        const targetCommentId = getTargetCommentIdFromLocation(location.search, location.hash);
-        if (!targetCommentId || !commentById[targetCommentId]) {
+        if (!targetCommentId) {
+            processedTargetCommentRef.current = null;
             return;
         }
+
+        if (processedTargetCommentRef.current === targetCommentId || !commentById[targetCommentId]) {
+            return;
+        }
+
+        processedTargetCommentRef.current = targetCommentId;
 
         const targetPage = getCommentPage(targetCommentId);
         const ancestorIds = getCommentAncestorIds(targetCommentId);
@@ -932,7 +944,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         });
         setCurrentPage(targetPage);
         setPendingScrollCommentId(targetCommentId);
-    }, [commentById, getCommentPage, getCommentAncestorIds, location.hash, location.search]);
+    }, [commentById, getCommentAncestorIds, getCommentPage, targetCommentId]);
 
     useEffect(() => {
         if (!pendingScrollCommentId) {
@@ -942,6 +954,77 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         let attempts = 0;
         let isCancelled = false;
         let timerId: number | null = null;
+        let animationFrameId: number | null = null;
+        let detachScrollInterrupts: (() => void) | null = null;
+
+        const stopAnimatedScroll = () => {
+            if (animationFrameId !== null) {
+                window.cancelAnimationFrame(animationFrameId);
+                animationFrameId = null;
+            }
+
+            if (detachScrollInterrupts) {
+                detachScrollInterrupts();
+                detachScrollInterrupts = null;
+            }
+        };
+
+        const animateScrollTo = (targetTop: number) => {
+            const finalTop = Math.max(0, targetTop);
+            const startTop = window.scrollY;
+            const distance = finalTop - startTop;
+
+            if (Math.abs(distance) < 8) {
+                window.scrollTo({ top: finalTop });
+                return;
+            }
+
+            const duration = Math.min(420, Math.max(220, Math.abs(distance) * 0.18));
+            const startedAt = window.performance.now();
+            const easeOutCubic = (progress: number) => 1 - Math.pow(1 - progress, 3);
+            const canInterruptAfter = startedAt + 180;
+            const interrupt = () => {
+                if (window.performance.now() < canInterruptAfter) {
+                    return;
+                }
+
+                stopAnimatedScroll();
+            };
+
+            window.addEventListener('wheel', interrupt, { passive: true });
+            window.addEventListener('touchmove', interrupt, { passive: true });
+            window.addEventListener('keydown', interrupt);
+
+            detachScrollInterrupts = () => {
+                window.removeEventListener('wheel', interrupt);
+                window.removeEventListener('touchmove', interrupt);
+                window.removeEventListener('keydown', interrupt);
+            };
+
+            const step = (now: number) => {
+                if (isCancelled) {
+                    stopAnimatedScroll();
+                    return;
+                }
+
+                const progress = Math.min(1, (now - startedAt) / duration);
+                const easedProgress = easeOutCubic(progress);
+
+                window.scrollTo({
+                    top: startTop + (distance * easedProgress),
+                });
+
+                if (progress < 1) {
+                    animationFrameId = window.requestAnimationFrame(step);
+                    return;
+                }
+
+                window.scrollTo({ top: finalTop });
+                stopAnimatedScroll();
+            };
+
+            animationFrameId = window.requestAnimationFrame(step);
+        };
 
         const scrollToComment = () => {
             if (isCancelled) {
@@ -958,10 +1041,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             }
 
             const targetTop = window.scrollY + targetElement.getBoundingClientRect().top - 140;
-            window.scrollTo({
-                top: Math.max(0, targetTop),
-                behavior: 'smooth',
-            });
+            clearTargetCommentFromCurrentUrl();
+            animateScrollTo(targetTop);
 
             if (highlightTimeoutRef.current !== null) {
                 window.clearTimeout(highlightTimeoutRef.current);
@@ -973,13 +1054,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             }, COMMENT_HIGHLIGHT_DURATION_MS);
 
             setPendingScrollCommentId(null);
-            clearTargetCommentFromCurrentUrl();
         };
 
         timerId = window.setTimeout(scrollToComment, 80);
 
         return () => {
             isCancelled = true;
+            stopAnimatedScroll();
             if (timerId !== null) {
                 window.clearTimeout(timerId);
             }
@@ -1064,7 +1145,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                             data-comment-id={reply.id}
                             className={cn(
                                 'relative overflow-hidden rounded-lg transition-all',
-                                highlightedCommentId === reply.id && 'ring-2 ring-primary/70 bg-primary/10 shadow-[0_0_28px_rgba(59,130,246,0.22)]',
+                                highlightedCommentId === reply.id && 'animate-pulse ring-2 ring-primary/70 bg-primary/10 shadow-[0_0_28px_rgba(59,130,246,0.22)]',
                                 reply.isPinned
                                     ? 'border border-primary/30 bg-primary/5 p-2'
                                     : useNestedCardStyle
@@ -1340,7 +1421,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                                     data-comment-id={comment.id}
                                     className={cn(
                                         'relative overflow-hidden rounded-lg border p-4 transition-all',
-                                        highlightedCommentId === comment.id && 'ring-2 ring-primary/70 bg-primary/10 shadow-[0_0_32px_rgba(59,130,246,0.22)]',
+                                        highlightedCommentId === comment.id && 'animate-pulse ring-2 ring-primary/70 bg-primary/10 shadow-[0_0_32px_rgba(59,130,246,0.22)]',
                                         comment.isPinned ? 'border-primary/40 bg-primary/5' : 'border-border bg-card/50'
                                     )}
                                 >

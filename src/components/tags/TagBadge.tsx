@@ -1,5 +1,5 @@
 import React from 'react';
-import { ThumbsUp, ThumbsDown, Shield, Hash } from 'lucide-react';
+import { ThumbsUp, ThumbsDown, Shield, CheckCircle2 } from 'lucide-react';
 import { Tag, TagCategory } from '@/lib/types';
 import { cn } from '@/lib/utils';
 
@@ -14,6 +14,7 @@ const categoryConfig: Record<TagCategory, { bg: string; text: string; border: st
 
 interface TagBadgeProps {
   tag: Tag;
+  accepted?: boolean;
   selected?: boolean;
   showVotes?: boolean;
   votes?: { up: number; down: number };
@@ -28,6 +29,7 @@ interface TagBadgeProps {
 
 const TagBadge: React.FC<TagBadgeProps> = ({
   tag,
+  accepted = false,
   selected,
   showVotes,
   votes,
@@ -48,7 +50,9 @@ const TagBadge: React.FC<TagBadgeProps> = ({
         size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm',
         selected
           ? 'bg-primary/20 border-primary/40 text-primary shadow-[0_0_8px_rgba(var(--primary),0.15)]'
-          : `${config.bg} ${config.border} ${config.text}`,
+          : accepted && !tag.isOfficial
+            ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
+            : `${config.bg} ${config.border} ${config.text}`,
         onClick && 'cursor-pointer hover:scale-105 active:scale-95',
         tag.isOfficial && 'ring-1 ring-primary/10'
       )}
@@ -59,6 +63,9 @@ const TagBadge: React.FC<TagBadgeProps> = ({
       
       {tag.isOfficial && (
         <Shield className="h-3 w-3 opacity-50" />
+      )}
+      {!tag.isOfficial && accepted && (
+        <CheckCircle2 className="h-3 w-3 opacity-70" />
       )}
       
       {showVotes && votes && (

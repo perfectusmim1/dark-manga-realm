@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { Search, Plus, X, Hash, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -27,6 +27,31 @@ const categoryLabels: Record<TagCategory, string> = {
   demographic: 'Demografik',
   content: 'İçerik',
   general: 'Genel',
+};
+
+const SMART_TAG_ACCEPT_UPVOTES = 8;
+const SMART_TAG_HIDE_SCORE = -4;
+const SMART_TAG_REMOVE_DOWNVOTES = 6;
+
+const getTagModerationState = (
+  votes?: { up: number; down: number },
+  isOfficial: boolean = false
+) => {
+  const up = votes?.up ?? 0;
+  const down = votes?.down ?? 0;
+  const score = up - down;
+  const isAccepted = isOfficial || up >= SMART_TAG_ACCEPT_UPVOTES;
+  const isRejected = !isOfficial && down >= SMART_TAG_REMOVE_DOWNVOTES;
+  const isHidden = !isOfficial && (isRejected || score <= SMART_TAG_HIDE_SCORE);
+
+  return {
+    up,
+    down,
+    score,
+    isAccepted,
+    isRejected,
+    isHidden,
+  };
 };
 
 interface TagSectionProps {
@@ -139,6 +164,9 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
       return;
     }
 
+    const targetTag = tags.find((tag) => tag.id === tagId);
+    const previousState = targetTag ? getTagModerationState(votes[tagId], targetTag.isOfficial) : null;
+
     await voteOnTag(tagId, entityType, entityId, user.id, voteType);
     const [newVotes, newUserVotes] = await Promise.all([
       getTagVotes(entityType, entityId),
@@ -146,6 +174,28 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     ]);
     setVotes(newVotes);
     setUserVotes(newUserVotes);
+
+    if (!targetTag) {
+      return;
+    }
+
+    const nextState = getTagModerationState(newVotes[tagId], targetTag.isOfficial);
+
+    if (!previousState?.isAccepted && nextState.isAccepted && !targetTag.isOfficial) {
+      toast.success(`"${targetTag.name}" etiketi topluluk tarafından kabul edildi`);
+    }
+
+    if (!previousState?.isHidden && nextState.isHidden) {
+      if (nextState.isRejected) {
+        toast.error(`"${targetTag.name}" etiketi topluluk oyuyla kaldırıldı`);
+      } else {
+        toast.message(`"${targetTag.name}" etiketi düşük puan nedeniyle gizlendi`);
+      }
+    }
+
+    if (nextState.isRejected) {
+      setTags((previous) => previous.filter((tag) => tag.id !== tagId));
+    }
   };
 
   const handleCreateTag = async () => {
@@ -166,11 +216,32 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     }
   };
 
-  const groupedTags = tags.reduce((acc, tag) => {
-    if (!acc[tag.category]) acc[tag.category] = [];
-    acc[tag.category].push(tag);
-    return acc;
-  }, {} as Record<string, Tag[]>);
+  const visibleTags = useMemo(() => {
+    return [...tags]
+      .filter((tag) => !getTagModerationState(votes[tag.id], tag.isOfficial).isHidden)
+      .sort((left, right) => {
+        const leftState = getTagModerationState(votes[left.id], left.isOfficial);
+        const rightState = getTagModerationState(votes[right.id], right.isOfficial);
+
+        if (leftState.isAccepted !== rightState.isAccepted) {
+          return Number(rightState.isAccepted) - Number(leftState.isAccepted);
+        }
+
+        if (leftState.score !== rightState.score) {
+          return rightState.score - leftState.score;
+        }
+
+        return left.name.localeCompare(right.name, 'tr');
+      });
+  }, [tags, votes]);
+
+  const groupedTags = useMemo(() => {
+    return visibleTags.reduce((acc, tag) => {
+      if (!acc[tag.category]) acc[tag.category] = [];
+      acc[tag.category].push(tag);
+      return acc;
+    }, {} as Record<string, Tag[]>);
+  }, [visibleTags]);
 
   if (isLoading) {
     return (
@@ -194,9 +265,9 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
         <div className="flex items-center gap-2">
           <Hash className="h-5 w-5 text-primary" />
           <h3 className="text-lg font-bold">Akıllı Etiketler</h3>
-          {tags.length > 0 && (
+          {visibleTags.length > 0 && (
             <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2 h-5 text-[10px]">
-              {tags.length}
+              {visibleTags.length}
             </Badge>
           )}
         </div>
@@ -216,7 +287,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
         )}
       </div>
 
-      {tags.length > 0 ? (
+      {visibleTags.length > 0 ? (
         <div className="space-y-3">
           {Object.entries(groupedTags).map(([category, categoryTags]) => (
             <div key={category} className="space-y-1.5">
@@ -224,10 +295,14 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
                 {categoryLabels[category as TagCategory] || category}
               </span>
               <div className="flex flex-wrap gap-1.5">
-                {categoryTags.map(tag => (
+                {categoryTags.map((tag) => {
+                  const moderationState = getTagModerationState(votes[tag.id], tag.isOfficial);
+
+                  return (
                   <TagBadge
                     key={tag.id}
                     tag={tag}
+                    accepted={!tag.isOfficial && moderationState.isAccepted}
                     size="sm"
                     showVotes={!!user}
                     votes={votes[tag.id] || { up: 0, down: 0 }}
@@ -237,20 +312,34 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
                     removable={editable && !!user}
                     onRemove={() => handleRemoveTag(tag.id)}
                   />
-                ))}
+                  );
+                })}
               </div>
             </div>
           ))}
         </div>
       ) : (
         <div className="rounded-lg border border-dashed border-border bg-secondary/20 p-4 text-center">
-          <p className="text-sm text-muted-foreground">
-            Henüz etiket eklenmemiş
-          </p>
-          {editable && user && (
-            <p className="text-xs text-muted-foreground mt-1">
-              İlk etiketi ekleyen sen ol!
-            </p>
+          {tags.length > 0 ? (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Etiketler topluluk puanı nedeniyle şu anda gizli
+              </p>
+              <p className="text-xs text-muted-foreground mt-1">
+                Yeterli olumlu oy alırlarsa yeniden görünür olurlar
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-muted-foreground">
+                Henüz etiket eklenmemiş
+              </p>
+              {editable && user && (
+                <p className="text-xs text-muted-foreground mt-1">
+                  İlk etiketi ekleyen sen ol!
+                </p>
+              )}
+            </>
           )}
         </div>
       )}
