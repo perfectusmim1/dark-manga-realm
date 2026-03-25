@@ -157,13 +157,52 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
     };
   }, [isOnline, user?.id, logout]);
 
-  if (blockedMessage) {
+  if (blockedMessage || user?.isBanned) {
+    const finalMessage = blockedMessage || user?.banReason || 'Hesabınız süresiz olarak dondurulmuştur.';
+    
     return (
-      <div className="min-h-screen bg-background text-foreground">
-        <div className="container flex min-h-screen max-w-2xl items-center justify-center py-12">
-          <div className="w-full rounded-2xl border border-destructive/30 bg-card/60 p-8 text-center shadow-xl backdrop-blur-sm">
-            <h1 className="text-3xl font-black">Erişim Engellendi</h1>
-            <p className="mt-4 text-muted-foreground">{blockedMessage}</p>
+      <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center p-4">
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-destructive/10 via-transparent to-transparent pointer-events-none" />
+        
+        <div className="relative w-full max-w-lg">
+          <div className="absolute -inset-1 bg-gradient-to-r from-destructive/50 to-orange-500/50 rounded-2xl blur opacity-25" />
+          
+          <div className="relative bg-[#111] border border-white/10 rounded-2xl p-8 md:p-12 shadow-2xl backdrop-blur-xl text-center">
+            <div className="mb-8 flex justify-center">
+              <div className="w-20 h-20 rounded-full bg-destructive/10 border border-destructive/20 flex items-center justify-center animate-pulse">
+                <svg className="w-10 h-10 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                </svg>
+              </div>
+            </div>
+            
+            <h1 className="text-4xl font-black tracking-tight mb-4 bg-gradient-to-br from-white to-white/60 bg-clip-text text-transparent">
+              Erişim Engellendi
+            </h1>
+            
+            <div className="space-y-4">
+              <p className="text-zinc-400 text-lg leading-relaxed">
+                {finalMessage}
+              </p>
+              
+              <div className="pt-8 border-t border-white/5">
+                <p className="text-zinc-500 text-sm">
+                  Bir hata olduğunu düşünüyorsanız lütfen destek ekibiyle iletişime geçin.
+                </p>
+                <p className="mt-2 text-zinc-600 font-mono text-xs uppercase tracking-widest">
+                  ID: {user?.id?.slice(0, 8) || 'GUEST'}
+                </p>
+              </div>
+            </div>
+            
+            {user?.id && (
+              <button 
+                onClick={() => logout()}
+                className="mt-8 px-6 py-2 rounded-full bg-white/5 border border-white/10 text-white/60 text-sm hover:bg-white/10 hover:text-white transition-all"
+              >
+                Oturumu Kapat
+              </button>
+            )}
           </div>
         </div>
       </div>
