@@ -31,6 +31,7 @@ import {
     getUnreadNotificationCount,
 } from '@/lib/storage';
 import { Notification } from '@/lib/types';
+import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import { toast } from 'sonner';
 
 type FilterType = 'all' | 'unread' | 'new_chapter' | 'reply' | 'like';
@@ -64,7 +65,7 @@ const Notifications: React.FC = () => {
             loadNotifications();
         }
         if (notification.link) {
-            navigate(notification.link);
+            navigate(normalizeCommentNavigationLink(notification.link) || notification.link);
         }
     };
 

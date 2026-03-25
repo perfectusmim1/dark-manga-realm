@@ -1,5 +1,6 @@
 import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow } from './types';
 import { supabase } from './supabase';
+import { normalizeCommentNavigationLink } from './commentNavigation';
 
 const STORAGE_KEYS = {
     READER_SETTINGS: 'manga_reader_settings',
@@ -786,9 +787,10 @@ export const createCommentNotification = async (
         ? `${fromUsername} ${entityTitle} yorumunuza yanıt verdi.`
         : `${fromUsername} ${entityTitle} yorumunuzu beğendi.`;
 
-    const link = entityType === 'manga'
-        ? (chapterId ? `/manga/${entityId}/chapter/${chapterId}#comment-${commentId}` : `/manga/${entityId}#comment-${commentId}`)
-        : `/${entityType}/${entityId}#comment-${commentId}`;
+    const rawLink = entityType === 'manga'
+        ? (chapterId ? `/manga/${entityId}/chapter/${chapterId}?commentId=${encodeURIComponent(commentId)}` : `/manga/${entityId}?commentId=${encodeURIComponent(commentId)}`)
+        : `/${entityType}/${entityId}?commentId=${encodeURIComponent(commentId)}`;
+    const link = normalizeCommentNavigationLink(rawLink) || rawLink;
 
     const { error } = await supabase.from('notifications').insert({
         user_id: targetUserId,

@@ -1,7 +1,7 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Link } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
     AlertTriangle,
     MessageCircle,
@@ -60,6 +60,7 @@ import {
 import { commentHasRenderableContent, isValidCommentMediaUrls, stripCommentFormatting } from '@/lib/commentContent';
 import { getBlockedUserIds } from '@/lib/profile';
 import { createCommentNotification } from '@/lib/storage';
+import { clearTargetCommentFromCurrentUrl, getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -72,9 +73,10 @@ interface CommentSectionProps {
 }
 
 const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
-const MAX_VISIBLE_PARENT_COMMENTS = 8;
+const PARENT_COMMENTS_PER_PAGE = 15;
 const COMMENT_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_REPLY_INDENT_LEVEL = 3;
+const COMMENT_HIGHLIGHT_DURATION_MS = 2600;
 
 interface CommentDraft {
     title: string;
@@ -319,6 +321,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
 
 const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, entityId: propEntityId, entityType: propEntityType = 'manga', chapterId, blockedUserIds = [] }) => {
     const { user } = useAuth();
+    const location = useLocation();
     const entityId = propEntityId || propMangaId || '';
     const entityType = propEntityType;
 
@@ -336,8 +339,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     const [gifSearch, setGifSearch] = useState('');
     const [gifs, setGifs] = useState<any[]>([]);
     const [gifTarget, setGifTarget] = useState<'new' | 'edit' | 'reply'>('new');
-    const [showAllComments, setShowAllComments] = useState(false);
     const [sortBy, setSortBy] = useState<'newest' | 'popular'>('newest');
+    const [currentPage, setCurrentPage] = useState(1);
+    const [highlightedCommentId, setHighlightedCommentId] = useState<string | null>(null);
+    const [pendingScrollCommentId, setPendingScrollCommentId] = useState<string | null>(null);
     const [reactions, setReactions] = useState<Record<string, number>>({});
     const [userReaction, setUserReaction] = useState<string | null>(null);
     const [expandedReplies, setExpandedReplies] = useState<Record<string, boolean>>({});
@@ -348,6 +353,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     const [reportReason, setReportReason] = useState('Spam veya alakasız');
     const [reportDetails, setReportDetails] = useState('');
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+    const highlightTimeoutRef = useRef<number | null>(null);
     const commentPreferences = {
         autoShowMedia: user?.preferences?.comments?.auto_show_media ?? false,
         autoShowGifs: user?.preferences?.comments?.auto_show_gifs ?? false,
@@ -358,6 +364,18 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
         loadComments();
         loadReactions();
     }, [entityId, entityType, chapterId, sortBy]);
+
+    useEffect(() => {
+        setCurrentPage(1);
+        setHighlightedCommentId(null);
+        setPendingScrollCommentId(null);
+    }, [entityId, entityType, chapterId, sortBy]);
+
+    useEffect(() => () => {
+        if (highlightTimeoutRef.current !== null) {
+            window.clearTimeout(highlightTimeoutRef.current);
+        }
+    }, []);
 
     useEffect(() => {
         if (!user?.id) {
@@ -533,6 +551,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
 
         setNewDraft(createEmptyDraft());
         setNewComposerVersion((previous) => previous + 1);
+        setCurrentPage(1);
         setComments((previous) => sortCommentsForState([createdComment, ...previous]));
         toast.success('Yorum eklendi');
     };
@@ -798,8 +817,57 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
     }, {}), [visibleComments]);
 
     const parentComments = commentChildrenMap.root || [];
-    const displayedParentComments = showAllComments ? parentComments : parentComments.slice(0, MAX_VISIBLE_PARENT_COMMENTS);
+    const totalPages = Math.max(1, Math.ceil(parentComments.length / PARENT_COMMENTS_PER_PAGE));
+    const safeCurrentPage = Math.min(currentPage, totalPages);
+    const displayedParentComments = parentComments.slice(
+        (safeCurrentPage - 1) * PARENT_COMMENTS_PER_PAGE,
+        safeCurrentPage * PARENT_COMMENTS_PER_PAGE
+    );
     const getReplies = (parentId: string) => commentChildrenMap[parentId] || [];
+    const commentById = useMemo(
+        () => visibleComments.reduce<Record<string, Comment>>((accumulator, comment) => {
+            accumulator[comment.id] = comment;
+            return accumulator;
+        }, {}),
+        [visibleComments]
+    );
+
+    const getCommentRootParentId = (commentId: string) => {
+        let current = commentById[commentId];
+
+        while (current?.parentId) {
+            current = commentById[current.parentId];
+        }
+
+        return current?.id || null;
+    };
+
+    const getCommentAncestorIds = (commentId: string) => {
+        const ancestors: string[] = [];
+        let current = commentById[commentId];
+
+        while (current?.parentId) {
+            ancestors.push(current.parentId);
+            current = commentById[current.parentId];
+        }
+
+        return ancestors;
+    };
+
+    const getCommentPage = (commentId: string) => {
+        const rootParentId = getCommentRootParentId(commentId);
+        if (!rootParentId) {
+            return 1;
+        }
+
+        const parentIndex = parentComments.findIndex((comment) => comment.id === rootParentId);
+        if (parentIndex === -1) {
+            return 1;
+        }
+
+        return Math.floor(parentIndex / PARENT_COMMENTS_PER_PAGE) + 1;
+    };
+
     const getReplyCount = (parentId: string): number => {
         const replies = getReplies(parentId);
 
@@ -833,6 +901,102 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
             return changed ? next : previous;
         });
     }, [commentChildrenMap, commentPreferences.autoShowReplies]);
+
+    useEffect(() => {
+        if (currentPage > totalPages) {
+            setCurrentPage(totalPages);
+        }
+    }, [currentPage, totalPages]);
+
+    useEffect(() => {
+        const targetCommentId = getTargetCommentIdFromLocation(location.search, location.hash);
+        if (!targetCommentId || !commentById[targetCommentId]) {
+            return;
+        }
+
+        const targetPage = getCommentPage(targetCommentId);
+        const ancestorIds = getCommentAncestorIds(targetCommentId);
+
+        setExpandedReplies((previous) => {
+            const next = { ...previous };
+            let changed = false;
+
+            for (const ancestorId of ancestorIds) {
+                if (!next[ancestorId]) {
+                    next[ancestorId] = true;
+                    changed = true;
+                }
+            }
+
+            return changed ? next : previous;
+        });
+        setCurrentPage(targetPage);
+        setPendingScrollCommentId(targetCommentId);
+    }, [commentById, getCommentPage, getCommentAncestorIds, location.hash, location.search]);
+
+    useEffect(() => {
+        if (!pendingScrollCommentId) {
+            return;
+        }
+
+        let attempts = 0;
+        let isCancelled = false;
+        let timerId: number | null = null;
+
+        const scrollToComment = () => {
+            if (isCancelled) {
+                return;
+            }
+
+            const targetElement = document.querySelector<HTMLElement>(`[data-comment-id="${pendingScrollCommentId}"]`);
+            if (!targetElement) {
+                if (attempts < 10) {
+                    attempts += 1;
+                    timerId = window.setTimeout(scrollToComment, 120);
+                }
+                return;
+            }
+
+            const targetTop = window.scrollY + targetElement.getBoundingClientRect().top - 140;
+            window.scrollTo({
+                top: Math.max(0, targetTop),
+                behavior: 'smooth',
+            });
+
+            if (highlightTimeoutRef.current !== null) {
+                window.clearTimeout(highlightTimeoutRef.current);
+            }
+
+            setHighlightedCommentId(pendingScrollCommentId);
+            highlightTimeoutRef.current = window.setTimeout(() => {
+                setHighlightedCommentId((current) => current === pendingScrollCommentId ? null : current);
+            }, COMMENT_HIGHLIGHT_DURATION_MS);
+
+            setPendingScrollCommentId(null);
+            clearTargetCommentFromCurrentUrl();
+        };
+
+        timerId = window.setTimeout(scrollToComment, 80);
+
+        return () => {
+            isCancelled = true;
+            if (timerId !== null) {
+                window.clearTimeout(timerId);
+            }
+        };
+    }, [displayedParentComments, expandedReplies, pendingScrollCommentId]);
+
+    const paginationWindow = useMemo(() => {
+        if (totalPages <= 5) {
+            return Array.from({ length: totalPages }, (_, index) => index + 1);
+        }
+
+        const start = Math.max(1, safeCurrentPage - 2);
+        const end = Math.min(totalPages, start + 4);
+        const adjustedStart = Math.max(1, end - 4);
+
+        return Array.from({ length: end - adjustedStart + 1 }, (_, index) => adjustedStart + index);
+    }, [safeCurrentPage, totalPages]);
 
     const toggleReplies = (commentId: string) => {
         setExpandedReplies(prev => ({ ...prev, [commentId]: !prev[commentId] }));
@@ -897,8 +1061,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     return (
                         <div
                             key={reply.id}
+                            data-comment-id={reply.id}
                             className={cn(
                                 'relative overflow-hidden rounded-lg transition-all',
+                                highlightedCommentId === reply.id && 'ring-2 ring-primary/70 bg-primary/10 shadow-[0_0_28px_rgba(59,130,246,0.22)]',
                                 reply.isPinned
                                     ? 'border border-primary/30 bg-primary/5 p-2'
                                     : useNestedCardStyle
@@ -1110,6 +1276,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                 <div className="flex items-center gap-2">
                     <MessageCircle className="h-5 w-5 text-primary" />
                     <h3 className="text-lg font-bold">Yorumlar ({visibleComments.length})</h3>
+                    {parentComments.length > 0 && (
+                        <span className="text-xs text-muted-foreground">
+                            Sayfa {safeCurrentPage} / {totalPages}
+                        </span>
+                    )}
                 </div>
 
                 <div className="flex items-center bg-secondary/30 rounded-lg p-1">
@@ -1164,7 +1335,15 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                     <>
                         {displayedParentComments.map((comment) => {
                             return (
-                                <div key={comment.id} className={`relative overflow-hidden rounded-lg border p-4 transition-all ${comment.isPinned ? 'border-primary/40 bg-primary/5' : 'border-border bg-card/50'}`}>
+                                <div
+                                    key={comment.id}
+                                    data-comment-id={comment.id}
+                                    className={cn(
+                                        'relative overflow-hidden rounded-lg border p-4 transition-all',
+                                        highlightedCommentId === comment.id && 'ring-2 ring-primary/70 bg-primary/10 shadow-[0_0_32px_rgba(59,130,246,0.22)]',
+                                        comment.isPinned ? 'border-primary/40 bg-primary/5' : 'border-border bg-card/50'
+                                    )}
+                                >
                                     <div className="transition-all duration-300">
                                         <div className="flex gap-3">
                                             <Link to={`/profile/${comment.userId}`} className="shrink-0 transition-transform hover:scale-105">
@@ -1414,24 +1593,37 @@ const CommentSection: React.FC<CommentSectionProps> = ({ mangaId: propMangaId, e
                             );
                         })}
 
-                        {parentComments.length > MAX_VISIBLE_PARENT_COMMENTS && (
-                            <Button
-                                variant="ghost"
-                                className="w-full mt-4"
-                                onClick={() => setShowAllComments(!showAllComments)}
-                            >
-                                {showAllComments ? (
-                                    <>
-                                        <ChevronUp className="mr-2 h-4 w-4" />
-                                        Daha Az Göster
-                                    </>
-                                ) : (
-                                    <>
-                                        <ChevronDown className="mr-2 h-4 w-4" />
-                                        Tüm Yorumları Gör ({parentComments.length - MAX_VISIBLE_PARENT_COMMENTS} daha)
-                                    </>
-                                )}
-                            </Button>
+                        {totalPages > 1 && (
+                            <div className="mt-6 flex flex-wrap items-center justify-center gap-2 border-t border-border/50 pt-4">
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={safeCurrentPage === 1}
+                                    onClick={() => setCurrentPage((previous) => Math.max(1, previous - 1))}
+                                >
+                                    Önceki
+                                </Button>
+
+                                {paginationWindow.map((pageNumber) => (
+                                    <Button
+                                        key={pageNumber}
+                                        variant={pageNumber === safeCurrentPage ? 'default' : 'ghost'}
+                                        size="sm"
+                                        onClick={() => setCurrentPage(pageNumber)}
+                                    >
+                                        {pageNumber}
+                                    </Button>
+                                ))}
+
+                                <Button
+                                    variant="outline"
+                                    size="sm"
+                                    disabled={safeCurrentPage === totalPages}
+                                    onClick={() => setCurrentPage((previous) => Math.min(totalPages, previous + 1))}
+                                >
+                                    Sonraki
+                                </Button>
+                            </div>
                         )}
                     </>
                 )}

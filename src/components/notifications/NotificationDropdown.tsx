@@ -26,6 +26,7 @@ import {
     markNotificationAsRead,
 } from '@/lib/storage';
 import { Notification } from '@/lib/types';
+import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 
 const NotificationDropdown: React.FC = () => {
     const { user } = useAuth();
@@ -66,7 +67,7 @@ const NotificationDropdown: React.FC = () => {
         }
         setIsOpen(false);
         if (notification.link) {
-            navigate(notification.link);
+            navigate(normalizeCommentNavigationLink(notification.link) || notification.link);
         }
     };
 
