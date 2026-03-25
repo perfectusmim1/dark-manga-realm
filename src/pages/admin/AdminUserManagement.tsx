@@ -24,24 +24,72 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getAllUsers, deleteUser, banUserAccess, unbanUserAccess } from '@/lib/database';
 import { User } from '@/lib/types';
+import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
 const AdminUserManagement: React.FC = () => {
+    const { user, isLoading: authLoading } = useAuth();
     const [users, setUsers] = useState<User[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [searchQuery, setSearchQuery] = useState('');
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [banTarget, setBanTarget] = useState<User | null>(null);
     const [unbanTarget, setUnbanTarget] = useState<User | null>(null);
 
     useEffect(() => {
-        loadUsers();
-    }, []);
+        if (authLoading) {
+            return;
+        }
+
+        let isCancelled = false;
+
+        const loadUsers = async () => {
+            if (!user) {
+                setUsers([]);
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                setIsLoading(true);
+                const data = await getAllUsers();
+                if (isCancelled) return;
+
+                setUsers(data);
+            } catch (error) {
+                if (isCancelled) return;
+
+                console.error('Admin user management load error:', error);
+                toast.error('Kullanıcılar yüklenemedi');
+                setUsers([]);
+            } finally {
+                if (!isCancelled) {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        void loadUsers();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [authLoading, user?.id]);
 
     const loadUsers = async () => {
-        const data = await getAllUsers();
-        setUsers(data);
+        try {
+            setIsLoading(true);
+            const data = await getAllUsers();
+            setUsers(data);
+        } catch (error) {
+            console.error('Admin user management refresh error:', error);
+            toast.error('Kullanıcılar yenilenemedi');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const handleDeleteUser = async () => {
@@ -94,6 +142,36 @@ const AdminUserManagement: React.FC = () => {
         return user.username.toLocaleLowerCase('tr-TR').includes(query) ||
             user.email.toLocaleLowerCase('tr-TR').includes(query);
     });
+
+    if (authLoading || isLoading) {
+        return (
+            <div className="space-y-6">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                        <Skeleton className="h-10 w-64" />
+                        <Skeleton className="mt-2 h-5 w-96" />
+                    </div>
+                    <Skeleton className="h-11 w-full sm:w-72" />
+                </div>
+
+                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    <Skeleton className="h-28 rounded-xl" />
+                </div>
+
+                <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
+                    <div className="space-y-4 p-6">
+                        {[1, 2, 3, 4].map((row) => (
+                            <div key={row} className="grid grid-cols-[2fr_2fr_1fr_1fr_1fr] gap-4">
+                                {Array.from({ length: 5 }).map((_, index) => (
+                                    <Skeleton key={index} className="h-10 w-full" />
+                                ))}
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            </div>
+        );
+    }
 
     return (
         <div className="space-y-6">

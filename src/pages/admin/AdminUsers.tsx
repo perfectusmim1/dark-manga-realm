@@ -35,6 +35,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
+import { Skeleton } from '@/components/ui/skeleton';
 import { getAdminUsers, addAdminUser, deleteAdminUser, getAllUsers, AdminUser } from '@/lib/database';
 import { User } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -43,25 +44,77 @@ import { toast } from 'sonner';
 const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
 
 const AdminUsers: React.FC = () => {
-    const { user } = useAuth();
+    const { user, isLoading: authLoading } = useAuth();
     const [admins, setAdmins] = useState<AdminUser[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
+    const [isLoading, setIsLoading] = useState(true);
     const [showAddDialog, setShowAddDialog] = useState(false);
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [selectedUserId, setSelectedUserId] = useState('');
 
     useEffect(() => {
-        loadData();
-    }, []);
+        if (authLoading) {
+            return;
+        }
+
+        let isCancelled = false;
+
+        const loadData = async () => {
+            if (!user) {
+                setAdmins([]);
+                setAllUsers([]);
+                setIsLoading(false);
+                return;
+            }
+
+            try {
+                setIsLoading(true);
+                const [staffData, usersData] = await Promise.all([
+                    getAdminUsers(),
+                    getAllUsers(),
+                ]);
+
+                if (isCancelled) return;
+
+                setAdmins(staffData);
+                setAllUsers(usersData);
+            } catch (error) {
+                if (isCancelled) return;
+
+                console.error('Admin staff load error:', error);
+                toast.error('Yetkili kullanıcılar yüklenemedi');
+                setAdmins([]);
+                setAllUsers([]);
+            } finally {
+                if (!isCancelled) {
+                    setIsLoading(false);
+                }
+            }
+        };
+
+        void loadData();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [authLoading, user?.id]);
 
     const loadData = async () => {
-        const [staffData, usersData] = await Promise.all([
-            getAdminUsers(),
-            getAllUsers(),
-        ]);
+        try {
+            setIsLoading(true);
+            const [staffData, usersData] = await Promise.all([
+                getAdminUsers(),
+                getAllUsers(),
+            ]);
 
-        setAdmins(staffData);
-        setAllUsers(usersData);
+            setAdmins(staffData);
+            setAllUsers(usersData);
+        } catch (error) {
+            console.error('Admin staff refresh error:', error);
+            toast.error('Yetkili kullanıcılar yenilenemedi');
+        } finally {
+            setIsLoading(false);
+        }
     };
 
     const eligibleUsers = useMemo(
@@ -126,6 +179,34 @@ const AdminUsers: React.FC = () => {
                     <p className="mt-2 text-muted-foreground">
                         Moderatörler staff yönetimi ekranını kullanamaz.
                     </p>
+                </div>
+            </div>
+        );
+    }
+
+    if (authLoading || isLoading) {
+        return (
+            <div className="space-y-6">
+                <div className="flex items-center justify-between gap-4">
+                    <div>
+                        <Skeleton className="h-10 w-40" />
+                        <Skeleton className="mt-2 h-5 w-[32rem]" />
+                    </div>
+                    <Skeleton className="h-10 w-36" />
+                </div>
+
+                <Skeleton className="h-20 rounded-2xl" />
+
+                <div className="rounded-xl border border-border bg-card p-4">
+                    <div className="space-y-4">
+                        {[1, 2, 3].map((row) => (
+                            <div key={row} className="grid grid-cols-[2fr_2fr_1fr_1fr_64px] gap-4">
+                                {Array.from({ length: 5 }).map((_, index) => (
+                                    <Skeleton key={index} className="h-10 w-full" />
+                                ))}
+                            </div>
+                        ))}
+                    </div>
                 </div>
             </div>
         );
