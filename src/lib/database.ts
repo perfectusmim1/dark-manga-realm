@@ -623,9 +623,6 @@ const getAdminDirectoryViaEdgeFunction = async (): Promise<User[]> => {
 
     const { data, error } = await supabase.functions.invoke('admin-user-directory', {
         body: {},
-        headers: {
-            Authorization: `Bearer ${session.access_token}`,
-        },
     });
 
     if (error) {
@@ -809,9 +806,6 @@ export const banUserAccess = async (
             reason,
             mode,
         },
-        headers: {
-            Authorization: `Bearer ${session.access_token}`,
-        },
     });
 
     if (error) {
@@ -835,9 +829,6 @@ export const unbanUserAccess = async (userId: string): Promise<void> => {
     const { data, error } = await supabase.functions.invoke('admin-unban-user', {
         body: {
             targetUserId: userId,
-        },
-        headers: {
-            Authorization: `Bearer ${session.access_token}`,
         },
     });
 
