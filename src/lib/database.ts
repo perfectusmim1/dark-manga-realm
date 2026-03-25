@@ -725,8 +725,26 @@ export const deleteAdminUser = async (adminId: string): Promise<void> => {
     }
 };
 
+const getEdgeFunctionAuthHeaders = async (): Promise<Record<string, string>> => {
+    const { data: sessionData, error } = await supabase.auth.getSession();
+    if (error) {
+        throw error;
+    }
+
+    const accessToken = sessionData.session?.access_token;
+    if (!accessToken) {
+        throw new Error('ADMIN_SESSION_REQUIRED');
+    }
+
+    return {
+        Authorization: `Bearer ${accessToken}`,
+    };
+};
+
 export const banUserAccess = async (userId: string, reason = 'Yönetici tarafından banlandı.'): Promise<void> => {
+    const headers = await getEdgeFunctionAuthHeaders();
     const { data, error } = await supabase.functions.invoke('admin-ban-user', {
+        headers,
         body: {
             targetUserId: userId,
             reason,
@@ -743,7 +761,9 @@ export const banUserAccess = async (userId: string, reason = 'Yönetici tarafın
 };
 
 export const unbanUserAccess = async (userId: string): Promise<void> => {
+    const headers = await getEdgeFunctionAuthHeaders();
     const { data, error } = await supabase.functions.invoke('admin-unban-user', {
+        headers,
         body: {
             targetUserId: userId,
         },
