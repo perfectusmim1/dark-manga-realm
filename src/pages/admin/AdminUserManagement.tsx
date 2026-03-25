@@ -239,7 +239,7 @@ const AdminUserManagement: React.FC = () => {
                                     <td className="px-6 py-4">
                                         <div className="flex items-center gap-2 text-sm text-muted-foreground">
                                             <Mail className="h-4 w-4" />
-                                            {user.email}
+                                            {user.email || 'E-posta alınamadı'}
                                         </div>
                                     </td>
                                     <td className="px-6 py-4">

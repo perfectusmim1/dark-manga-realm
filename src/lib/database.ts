@@ -599,6 +599,8 @@ const mapAdminDirectoryUser = (user: any): User => ({
     createdAt: user.created_at,
 });
 
+const ADMIN_DIRECTORY_FALLBACK_COLUMNS = 'id, username, avatar, role, created_at';
+
 export const getAllUsers = async (): Promise<User[]> => {
     const { data, error } = await supabase.rpc('get_admin_user_directory');
     if (!error) {
@@ -609,7 +611,7 @@ export const getAllUsers = async (): Promise<User[]> => {
 
     const { data: fallbackData, error: fallbackError } = await supabase
         .from('users')
-        .select('id, username, avatar, role, is_banned, ban_reason, banned_at, created_at')
+        .select(ADMIN_DIRECTORY_FALLBACK_COLUMNS)
         .order('created_at', { ascending: false });
 
     if (fallbackError) {
@@ -653,7 +655,7 @@ export const getAdminUsers = async (): Promise<AdminUser[]> => {
 
     const { data: fallbackData, error: fallbackError } = await supabase
         .from('users')
-        .select('id, username, avatar, role, is_banned, ban_reason, banned_at, created_at')
+        .select(ADMIN_DIRECTORY_FALLBACK_COLUMNS)
         .in('role', ['admin', 'moderator'])
         .order('created_at', { ascending: false });
 

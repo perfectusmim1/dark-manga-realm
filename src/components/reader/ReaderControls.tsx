@@ -48,6 +48,7 @@ interface ReaderControlsProps {
   onAutoScrollSpeedChange: (speed: number) => void;
   isOfflineChapter?: boolean;
   isOnline?: boolean;
+  onBeforeChapterChange?: () => void;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -71,6 +72,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   onAutoScrollSpeedChange,
   isOfflineChapter = false,
   isOnline = true,
+  onBeforeChapterChange,
 }) => {
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
@@ -102,6 +104,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const handleBarLeave = useCallback(() => {
     setHoverPage(null);
   }, []);
+
+  const handleChapterNavigationStart = useCallback(() => {
+    onBeforeChapterChange?.();
+  }, [onBeforeChapterChange]);
 
   return (
     <>
@@ -169,6 +175,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     <Link
                       key={ch.id}
                       to={`/manga/${mangaId}/chapter/${ch.id}?page=1`}
+                      onMouseDown={handleChapterNavigationStart}
+                      onTouchStart={handleChapterNavigationStart}
                       className={`rounded-lg px-3 py-2 text-sm transition-colors ${ch.id === currentChapter.id
                         ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                         : 'hover:bg-secondary text-foreground'
@@ -265,7 +273,11 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             asChild={!!prevChapter}
           >
             {prevChapter ? (
-              <Link to={`/manga/${mangaId}/chapter/${prevChapter.id}?page=1`}>
+              <Link
+                to={`/manga/${mangaId}/chapter/${prevChapter.id}?page=1`}
+                onMouseDown={handleChapterNavigationStart}
+                onTouchStart={handleChapterNavigationStart}
+              >
                 <ChevronLeft className="h-4 w-4" />
                 Önceki
               </Link>
@@ -396,7 +408,11 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             asChild={!!nextChapter}
           >
             {nextChapter ? (
-              <Link to={`/manga/${mangaId}/chapter/${nextChapter.id}?page=1`}>
+              <Link
+                to={`/manga/${mangaId}/chapter/${nextChapter.id}?page=1`}
+                onMouseDown={handleChapterNavigationStart}
+                onTouchStart={handleChapterNavigationStart}
+              >
                 Sonraki
                 <ChevronRight className="h-4 w-4" />
               </Link>

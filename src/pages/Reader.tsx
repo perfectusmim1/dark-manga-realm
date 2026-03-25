@@ -19,7 +19,6 @@ import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
 import CommentSection from '@/components/comments/CommentSection';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
-import ReaderSkeleton from '@/components/skeletons/ReaderSkeleton';
 import {
   buildOfflineReaderPages,
   getOfflineChapter,
@@ -38,7 +37,7 @@ let persistedAutoScrollIntent = false;
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
   const navigate = useNavigate();
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const { isOnline: isOnlineNow } = useEffectiveOnlineStatus();
   const viewTracked = useRef(false);
 
@@ -55,6 +54,8 @@ const Reader: React.FC = () => {
   const [isAutoScrolling, setIsAutoScrolling] = useState(() => persistedAutoScrollIntent);
   const [isOfflineChapter, setIsOfflineChapter] = useState(false);
   const [offlineUnavailable, setOfflineUnavailable] = useState(false);
+  const [isInitialViewportReady, setIsInitialViewportReady] = useState(false);
+  const [isContentReady, setIsContentReady] = useState(false);
   const readingSessionStartedAt = useRef<number | null>(null);
   const readerContentRef = useRef<HTMLDivElement | null>(null);
   const autoScrollFrameRef = useRef<number | null>(null);
@@ -62,6 +63,20 @@ const Reader: React.FC = () => {
   const revokeOfflineUrlsRef = useRef<(() => void) | null>(null);
   const resumeAutoScrollAfterNavigationRef = useRef(false);
   const pendingInitialRestorePageRef = useRef<number | null>(null);
+  const prepareChapterTransition = useCallback(() => {
+    setIsLoading(true);
+    setIsInitialViewportReady(false);
+    setCurrentPage(1);
+    pendingInitialRestorePageRef.current = 1;
+    isScrollingRef.current = true;
+
+    if (scrollTimeoutRef.current) {
+      clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = null;
+    }
+
+    window.scrollTo({ top: 0, behavior: 'auto' });
+  }, []);
 
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
@@ -101,9 +116,12 @@ const Reader: React.FC = () => {
   // Reset state and scroll on chapter change
   useEffect(() => {
     setCurrentPage(1);
-    window.scrollTo({ top: 0, behavior: 'instant' });
+    window.scrollTo({ top: 0, behavior: 'auto' });
     viewTracked.current = false;
+    setInitialized(false);
     setIsTrackingReady(false);
+    setIsInitialViewportReady(false);
+    setIsContentReady(false);
     if (!resumeAutoScrollAfterNavigationRef.current) {
       persistedAutoScrollIntent = false;
       setIsAutoScrolling(false);
@@ -111,6 +129,7 @@ const Reader: React.FC = () => {
     setOfflineUnavailable(false);
     setResolvedPages([]);
     setIsOfflineChapter(false);
+    pendingInitialRestorePageRef.current = null;
     revokeOfflineUrlsRef.current?.();
     revokeOfflineUrlsRef.current = null;
   }, [chapterId]);
@@ -132,7 +151,35 @@ const Reader: React.FC = () => {
     };
   }, []);
 
-  // Load Manga and Chapter
+  useEffect(() => {
+    const shouldLockScroll = isLoading || !isInitialViewportReady;
+    const html = document.documentElement;
+    const body = document.body;
+    const previousHtmlOverflow = html.style.overflow;
+    const previousBodyOverflow = body.style.overflow;
+    const previousHtmlOverscroll = html.style.overscrollBehavior;
+    const previousBodyOverscroll = body.style.overscrollBehavior;
+    const previousBodyTouchAction = body.style.touchAction;
+
+    if (shouldLockScroll) {
+      html.style.overflow = 'hidden';
+      body.style.overflow = 'hidden';
+      html.style.overscrollBehavior = 'none';
+      body.style.overscrollBehavior = 'none';
+      body.style.touchAction = 'none';
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
+
+    return () => {
+      html.style.overflow = previousHtmlOverflow;
+      body.style.overflow = previousBodyOverflow;
+      html.style.overscrollBehavior = previousHtmlOverscroll;
+      body.style.overscrollBehavior = previousBodyOverscroll;
+      body.style.touchAction = previousBodyTouchAction;
+    };
+  }, [isInitialViewportReady, isLoading]);
+
+  // Load chapter content only once per route change. User/auth state is resolved separately.
   useEffect(() => {
     const loadContent = async () => {
       if (!mangaId || !chapterId) return;
@@ -183,48 +230,75 @@ const Reader: React.FC = () => {
           setOfflineUnavailable(false);
         }
 
-        // Determine initial page
-        const urlPage = new URLSearchParams(window.location.search).get('page');
-        let initialTargetPage = 1;
-
-        if (urlPage && parseInt(urlPage) > 0) {
-          initialTargetPage = parseInt(urlPage);
-        } else if (user && isOnlineNow) {
-          const progress = await getLatestProgress(user.id, mangaId);
-          if (progress && progress.chapterId === chapterId && progress.page > 1) {
-            initialTargetPage = progress.page;
-          }
-        } else if (user) {
-          const pendingProgress = (await getPendingReaderSyncItems())
-            .filter((item) => item.type === 'progress' && item.userId === user.id)
-            .find((item) => (item.payload as { mangaId?: string }).mangaId === mangaId);
-
-          const pendingPayload = pendingProgress?.payload as { chapterId?: string; page?: number } | undefined;
-          if (pendingPayload?.chapterId === chapterId && pendingPayload.page && pendingPayload.page > 1) {
-            initialTargetPage = pendingPayload.page;
-          }
-        }
-
-        pendingInitialRestorePageRef.current = initialTargetPage;
-        setCurrentPage(initialTargetPage);
-
-        setInitialized(true);
-
-        // Track views (only if not incognito)
-        if (!viewTracked.current && !isIncognito && isOnlineNow) {
-          incrementMangaViews(mangaId);
-          incrementChapterViews(mangaId, chapterId);
-          viewTracked.current = true;
-        }
+        setIsContentReady(true);
       } catch (err) {
         console.error('Reader load error:', err);
-      } finally {
-        setIsLoading(false);
       }
     };
 
     loadContent();
-  }, [chapterId, isIncognito, isOnlineNow, mangaId, navigate, user]);
+  }, [chapterId, isOnlineNow, mangaId, navigate]);
+
+  useEffect(() => {
+    if (initialized || !isContentReady || !mangaId || !chapterId) {
+      return;
+    }
+
+    const urlPage = new URLSearchParams(window.location.search).get('page');
+    const parsedUrlPage = urlPage ? parseInt(urlPage, 10) : NaN;
+    const hasExplicitPage = Number.isFinite(parsedUrlPage) && parsedUrlPage > 0;
+
+    if (authLoading && !hasExplicitPage) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const resolveInitialPage = async () => {
+      let initialTargetPage = hasExplicitPage ? parsedUrlPage : 1;
+
+      if (!hasExplicitPage && user && isOnlineNow) {
+        const progress = await getLatestProgress(user.id, mangaId);
+        if (progress && progress.chapterId === chapterId && progress.page > 1) {
+          initialTargetPage = progress.page;
+        }
+      } else if (!hasExplicitPage && user) {
+        const pendingProgress = (await getPendingReaderSyncItems())
+          .filter((item) => item.type === 'progress' && item.userId === user.id)
+          .find((item) => (item.payload as { mangaId?: string }).mangaId === mangaId);
+
+        const pendingPayload = pendingProgress?.payload as { chapterId?: string; page?: number } | undefined;
+        if (pendingPayload?.chapterId === chapterId && pendingPayload.page && pendingPayload.page > 1) {
+          initialTargetPage = pendingPayload.page;
+        }
+      }
+
+      if (isCancelled) {
+        return;
+      }
+
+      pendingInitialRestorePageRef.current = initialTargetPage;
+      setCurrentPage(initialTargetPage);
+      setInitialized(true);
+      setIsLoading(false);
+    };
+
+    void resolveInitialPage();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [authLoading, chapterId, initialized, isContentReady, isOnlineNow, mangaId, user]);
+
+  useEffect(() => {
+    if (!initialized || !chapter || !mangaId || !chapterId || viewTracked.current || isIncognito || !isOnlineNow) {
+      return;
+    }
+
+    incrementMangaViews(mangaId);
+    incrementChapterViews(mangaId, chapterId);
+    viewTracked.current = true;
+  }, [chapter, chapterId, initialized, isIncognito, isOnlineNow, mangaId]);
 
   useEffect(() => {
     if (!initialized || isLoading || !chapter || resolvedPages.length === 0 || offlineUnavailable) {
@@ -413,6 +487,7 @@ const Reader: React.FC = () => {
       if (window.scrollY >= maxScrollTop - 2) {
         if (nextChapter && mangaId) {
           resumeAutoScrollAfterNavigationRef.current = true;
+          prepareChapterTransition();
           navigate(`/manga/${mangaId}/chapter/${nextChapter.id}?page=1`);
           return;
         }
@@ -437,7 +512,7 @@ const Reader: React.FC = () => {
       }
       autoScrollLastTickRef.current = null;
     };
-  }, [chapter, initialized, isAutoScrolling, isAutoScrollAvailable, isLoading, mangaId, navigate, nextChapter, resolvedPages.length, settings.autoScrollSpeed]);
+  }, [chapter, initialized, isAutoScrolling, isAutoScrollAvailable, isLoading, mangaId, navigate, nextChapter, prepareChapterTransition, resolvedPages.length, settings.autoScrollSpeed]);
 
   useEffect(() => {
     if (!initialized || !isAutoScrollAvailable || !resumeAutoScrollAfterNavigationRef.current) {
@@ -454,33 +529,36 @@ const Reader: React.FC = () => {
 
   const handlePageChange = useCallback((page: number) => {
     // If we are programmatically scrolling, ignore updates from the observer
-    if (isScrollingRef.current) return;
+    if (isScrollingRef.current || !isInitialViewportReady) return;
     setCurrentPage(page);
-  }, []);
+  }, [isInitialViewportReady]);
 
   // Scroll to a specific page (called when user clicks on progress bar)
   const scrollToPage = useCallback((page: number, smooth = true) => {
     const targetIndex = page - 1;
     const targetElement = document.querySelector(`[data-page-index="${targetIndex}"]`);
 
-    if (targetElement) {
-      if (smooth) {
-        isScrollingRef.current = true;
-        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-        scrollTimeoutRef.current = setTimeout(() => {
-          isScrollingRef.current = false;
-        }, 800);
-      } else {
-        isScrollingRef.current = false;
-      }
-
-      const elementTop = (targetElement as HTMLElement).offsetTop;
-      window.scrollTo({
-        top: elementTop - 80,
-        behavior: smooth ? 'smooth' : 'auto'
-      });
-      setCurrentPage(page);
+    if (!targetElement) {
+      return false;
     }
+
+    if (smooth) {
+      isScrollingRef.current = true;
+      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+      scrollTimeoutRef.current = setTimeout(() => {
+        isScrollingRef.current = false;
+      }, 800);
+    } else {
+      isScrollingRef.current = false;
+    }
+
+    const elementTop = (targetElement as HTMLElement).offsetTop;
+    window.scrollTo({
+      top: elementTop - 80,
+      behavior: smooth ? 'smooth' : 'auto'
+    });
+    setCurrentPage(page);
+    return true;
   }, []);
 
   useEffect(() => {
@@ -503,32 +581,66 @@ const Reader: React.FC = () => {
   }, [chapterId, currentPage, initialized]);
 
   useEffect(() => {
-    if (!initialized || isLoading || resolvedPages.length === 0) {
+    if (!initialized || isLoading) {
       return;
     }
 
-    const targetPage = pendingInitialRestorePageRef.current;
-    if (targetPage === null) {
+    if (settings.mode === 'horizontal') {
+      setIsInitialViewportReady(true);
       return;
     }
 
+    if (resolvedPages.length === 0) {
+      return;
+    }
+
+    const targetPage = pendingInitialRestorePageRef.current ?? 1;
     pendingInitialRestorePageRef.current = null;
 
-    const restore = () => {
+    let isCancelled = false;
+    let restoreTimerId: number | null = null;
+
+    const finishRestore = () => {
+      window.requestAnimationFrame(() => {
+        if (!isCancelled) {
+          isScrollingRef.current = false;
+          setIsInitialViewportReady(true);
+        }
+      });
+    };
+
+    const restore = (attempt = 0) => {
+      if (isCancelled) {
+        return;
+      }
+
       if (targetPage > 1) {
-        scrollToPage(targetPage, false);
+        const didScroll = scrollToPage(targetPage, false);
+        if (!didScroll && attempt < 2) {
+          restoreTimerId = window.setTimeout(() => restore(attempt + 1), 120);
+          return;
+        }
+
+        finishRestore();
         return;
       }
 
       window.scrollTo({ top: 0, behavior: 'auto' });
+      setCurrentPage(1);
+      finishRestore();
     };
 
-    const timers = [0, 200, 700, 1400].map((delay) => window.setTimeout(restore, delay));
+    isScrollingRef.current = true;
+    restoreTimerId = window.setTimeout(() => restore(), 0);
 
     return () => {
-      timers.forEach((timerId) => window.clearTimeout(timerId));
+      isCancelled = true;
+      if (restoreTimerId !== null) {
+        window.clearTimeout(restoreTimerId);
+      }
+      isScrollingRef.current = false;
     };
-  }, [chapterId, initialized, isLoading, resolvedPages.length, scrollToPage]);
+  }, [chapterId, initialized, isLoading, resolvedPages.length, scrollToPage, settings.mode]);
 
   const handleAddBookmark = useCallback(() => {
     if (!isOnlineNow) {
@@ -591,10 +703,6 @@ const Reader: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleControls]);
 
-  if (isLoading) {
-    return <ReaderSkeleton />;
-  }
-
   if (offlineUnavailable && manga && chapter) {
     return (
       <div className="min-h-screen bg-background px-4 py-20">
@@ -625,7 +733,7 @@ const Reader: React.FC = () => {
   }
 
   if (!manga || !chapter) {
-    return null;
+    return <div className="min-h-screen bg-background" />;
   }
 
   const scrollToTop = () => {
@@ -636,11 +744,17 @@ const Reader: React.FC = () => {
     window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' });
   };
 
+  const isReaderTransitionActive = isLoading || !isInitialViewportReady;
+
   return (
     <div
       className="min-h-screen bg-background"
       onClick={handleTap}
     >
+      {isReaderTransitionActive && (
+        <div className="fixed inset-0 z-40 pointer-events-none bg-background transition-opacity duration-100" />
+      )}
+
       <ReaderControls
         mangaId={manga.id}
         mangaTitle={manga.title}
@@ -662,26 +776,35 @@ const Reader: React.FC = () => {
         onAutoScrollSpeedChange={handleAutoScrollSpeedChange}
         isOfflineChapter={isOfflineChapter}
         isOnline={isOnlineNow}
+        onBeforeChapterChange={prepareChapterTransition}
       />
 
-      <div ref={readerContentRef}>
-        {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
-          <VerticalReader
-            key={chapterId}
-            pages={resolvedPages}
-            settings={settings}
-            onPageChange={handlePageChange}
-            initialPage={currentPage}
-          />
-        ) : (
-          <HorizontalReader
-            key={chapterId}
-            pages={resolvedPages}
-            settings={settings}
-            currentPage={currentPage}
-            onPageChange={handlePageChange}
-          />
-        )}
+      <div
+        className={`transition-all duration-200 ease-out ${isReaderTransitionActive
+          ? 'pointer-events-none translate-y-1 opacity-0'
+          : 'translate-y-0 opacity-100'
+          }`}
+      >
+        <div ref={readerContentRef}>
+          {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
+            <VerticalReader
+              key={chapterId}
+              pages={resolvedPages}
+              settings={settings}
+              onPageChange={handlePageChange}
+              initialPage={currentPage}
+              trackingEnabled={isInitialViewportReady}
+            />
+          ) : (
+            <HorizontalReader
+              key={chapterId}
+              pages={resolvedPages}
+              settings={settings}
+              currentPage={currentPage}
+              onPageChange={handlePageChange}
+            />
+          )}
+        </div>
       </div>
 
       {/* Scroll controls */}

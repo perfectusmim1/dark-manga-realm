@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 
 interface VerticalReaderProps {
@@ -6,6 +6,7 @@ interface VerticalReaderProps {
   settings: ReaderSettings;
   onPageChange: (page: number) => void;
   initialPage?: number;
+  trackingEnabled?: boolean;
 }
 
 import ProtectedImage from '@/components/security/ProtectedImage';
@@ -14,14 +15,16 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   pages,
   settings,
   onPageChange,
-  initialPage = 1
+  initialPage = 1,
+  trackingEnabled = true,
 }) => {
-  const [scrolledToInitial, setScrolledToInitial] = useState(false);
   const lastReportedPage = useRef<number>(initialPage);
 
   // Intersection Observer for tracking current page
   useEffect(() => {
-    if (!scrolledToInitial) return;
+    if (!trackingEnabled) {
+      return;
+    }
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -55,34 +58,11 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
     });
 
     return () => observer.disconnect();
-  }, [pages, onPageChange, scrolledToInitial]);
+  }, [pages, onPageChange, trackingEnabled]);
 
-  // Handle initial scroll
   useEffect(() => {
-    if (scrolledToInitial) return;
-
-    // For vertical reader, we can just mark as scrolled since ProtectedImage handles its own loading
-    // In a real scenario, we might want to wait for the first image to render on canvas
-    const timeout = setTimeout(() => {
-      if (initialPage > 1) {
-        const targetElement = document.querySelector(`[data-page-index="${initialPage - 1}"]`);
-        if (targetElement) {
-          window.scrollTo({
-            top: Math.max(0, (targetElement as HTMLElement).offsetTop - 80),
-            behavior: 'auto'
-          });
-        }
-      } else {
-        window.scrollTo({
-          top: 0,
-          behavior: 'auto'
-        });
-      }
-      setScrolledToInitial(true);
-    }, 500);
-
-    return () => clearTimeout(timeout);
-  }, [initialPage, scrolledToInitial]);
+    lastReportedPage.current = initialPage;
+  }, [initialPage]);
 
   return (
     <div className="flex flex-col items-center gap-0 pb-20 pt-20">

@@ -796,7 +796,6 @@ export const createCommentNotification = async (
         title,
         message,
         from_user_id: fromUserId,
-        from_username: fromUsername,
         link,
         read: false,
         created_at: new Date().toISOString()
