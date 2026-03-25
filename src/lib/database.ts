@@ -5,6 +5,29 @@ import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListIte
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import { normalizeGenres } from './mockData';
 
+const normalizeNamedEntityValue = (value?: string | null) =>
+    value?.split(/[,，]/)[0]?.trim().replace(/\s+/g, ' ') || '';
+
+const normalizeNamedEntityKey = (value?: string | null) =>
+    normalizeNamedEntityValue(value).toLocaleLowerCase('tr-TR');
+
+const PERSON_PLACEHOLDER_KEYS = new Set(['', 'bilinmiyor', 'unknown', 'n/a', '-']);
+
+const isMeaningfulNamedEntity = (value?: string | null) =>
+    !PERSON_PLACEHOLDER_KEYS.has(normalizeNamedEntityKey(value));
+
+const mapAuthorRow = (row: any): Author => ({
+    ...row,
+    imageUrl: row.image_url,
+    likesCount: row.likes_count ?? 0,
+});
+
+const mapArtistRow = (row: any): Artist => ({
+    ...row,
+    imageUrl: row.image_url,
+    likesCount: row.likes_count ?? 0,
+});
+
 export interface LatestChapterFeedItem {
     chapterId: string;
     mangaId: string;
@@ -2200,12 +2223,12 @@ export const getMangaCharacters = async (mangaId: string): Promise<Character[]> 
 // Same for Authors/Artists (shorter versions)
 export const getAuthors = async () => {
     const { data } = await supabase.from('authors').select('*').order('name');
-    return (data || []).map(d => ({ ...d, imageUrl: d.image_url, likesCount: d.likes_count }));
+    return (data || []).map(mapAuthorRow);
 };
 
 export const getArtists = async () => {
     const { data } = await supabase.from('artists').select('*').order('name');
-    return (data || []).map(d => ({ ...d, imageUrl: d.image_url, likesCount: d.likes_count }));
+    return (data || []).map(mapArtistRow);
 };
 
 export const getAuthorById = async (id: string): Promise<Author | undefined> => {
@@ -2228,8 +2251,45 @@ export const getArtistById = async (id: string): Promise<Artist | undefined> => 
     return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series: (data as any).mangas.map((m: any) => m.manga) };
 };
 
+export const findAuthorByName = async (name: string): Promise<Author | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
+    const { data, error } = await supabase
+        .from('authors')
+        .select('*')
+        .ilike('name', normalizedName)
+        .limit(1);
+
+    if (error) throw error;
+    return data?.[0] ? mapAuthorRow(data[0]) : null;
+};
+
+export const findArtistByName = async (name: string): Promise<Artist | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
+    const { data, error } = await supabase
+        .from('artists')
+        .select('*')
+        .ilike('name', normalizedName)
+        .limit(1);
+
+    if (error) throw error;
+    return data?.[0] ? mapArtistRow(data[0]) : null;
+};
+
 export const saveAuthor = async (author: Partial<Author>) => {
-    const data = { name: author.name, image_url: author.imageUrl, description: author.description };
+    const normalizedName = normalizeNamedEntityValue(author.name);
+    if (!normalizedName) {
+        throw new Error('AUTHOR_NAME_REQUIRED');
+    }
+
+    const data = { name: normalizedName, image_url: author.imageUrl, description: author.description };
     if (author.id) {
         await supabase.from('authors').update(data).eq('id', author.id);
         return author.id;
@@ -2245,7 +2305,12 @@ export const deleteAuthor = async (id: string): Promise<void> => {
 };
 
 export const saveArtist = async (artist: Partial<Artist>) => {
-    const data = { name: artist.name, image_url: artist.imageUrl, description: artist.description };
+    const normalizedName = normalizeNamedEntityValue(artist.name);
+    if (!normalizedName) {
+        throw new Error('ARTIST_NAME_REQUIRED');
+    }
+
+    const data = { name: normalizedName, image_url: artist.imageUrl, description: artist.description };
     if (artist.id) {
         await supabase.from('artists').update(data).eq('id', artist.id);
         return artist.id;
@@ -2258,6 +2323,50 @@ export const saveArtist = async (artist: Partial<Artist>) => {
 export const deleteArtist = async (id: string): Promise<void> => {
     const { error } = await supabase.from('artists').delete().eq('id', id);
     if (error) throw error;
+};
+
+export const ensureAuthorByName = async (name: string): Promise<Author | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
+    const existing = await findAuthorByName(normalizedName);
+    if (existing) {
+        return existing;
+    }
+
+    const id = await saveAuthor({ name: normalizedName });
+    return {
+        id,
+        name: normalizedName,
+        imageUrl: undefined,
+        description: undefined,
+        likesCount: 0,
+        createdAt: new Date().toISOString(),
+    };
+};
+
+export const ensureArtistByName = async (name: string): Promise<Artist | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
+    const existing = await findArtistByName(normalizedName);
+    if (existing) {
+        return existing;
+    }
+
+    const id = await saveArtist({ name: normalizedName });
+    return {
+        id,
+        name: normalizedName,
+        imageUrl: undefined,
+        description: undefined,
+        likesCount: 0,
+        createdAt: new Date().toISOString(),
+    };
 };
 
 export const linkMangaToAuthor = async (mangaId: string, authorId: string) => {

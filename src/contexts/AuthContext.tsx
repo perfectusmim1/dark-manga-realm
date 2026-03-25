@@ -30,7 +30,7 @@ interface AuthContextType {
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   verifyOtp: (email: string, token: string, type: 'signup' | 'recovery' | 'email') => Promise<{ success: boolean; error?: string }>;
   refreshMfaState: () => Promise<void>;
-  enrollTwoFactor: (friendlyName?: string) => Promise<{ success: boolean; error?: string; enrollment?: TotpEnrollment }>;
+  enrollTwoFactor: () => Promise<{ success: boolean; error?: string; enrollment?: TotpEnrollment }>;
   cancelTwoFactorEnrollment: (factorId: string) => Promise<void>;
   verifyTwoFactorEnrollment: (factorId: string, code: string) => Promise<{ success: boolean; error?: string }>;
   challengeTwoFactor: (code: string, factorId?: string) => Promise<{ success: boolean; error?: string }>;
@@ -689,12 +689,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const enrollTwoFactor = async (friendlyName?: string): Promise<{ success: boolean; error?: string; enrollment?: TotpEnrollment }> => {
+  const enrollTwoFactor = async (): Promise<{ success: boolean; error?: string; enrollment?: TotpEnrollment }> => {
     if (!user) {
       return { success: false, error: 'Oturum açılmamış' };
     }
 
     try {
+      const accountLabel = user.email?.trim() || user.username?.trim() || 'user';
+
       const { data: factorData, error: factorError } = await supabase.auth.mfa.listFactors();
       if (factorError) {
         throw factorError;
@@ -716,7 +718,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const { data, error } = await supabase.auth.mfa.enroll({
         factorType: 'totp',
-        friendlyName: friendlyName?.trim() || 'Google Authenticator',
+        friendlyName: accountLabel,
         issuer: 'ToonParrot',
       });
 

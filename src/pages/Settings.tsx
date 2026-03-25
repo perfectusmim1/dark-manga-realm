@@ -102,6 +102,21 @@ const getTotpQrImageSrc = (qrCode: string | undefined) => {
     return normalized;
 };
 
+const getTotpQrSvgMarkup = (qrCode: string | undefined) => {
+    const normalized = qrCode?.trim();
+
+    if (!normalized) {
+        return null;
+    }
+
+    const svgIndex = normalized.indexOf('<svg');
+    if (svgIndex === -1) {
+        return null;
+    }
+
+    return normalized.slice(svgIndex);
+};
+
 const Settings: React.FC = () => {
     const {
         user,
@@ -128,11 +143,9 @@ const Settings: React.FC = () => {
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
     // MFA state
-    const [setupDialogOpen, setSetupDialogOpen] = useState(false);
     const [disableDialogOpen, setDisableDialogOpen] = useState(false);
     const [setupCode, setSetupCode] = useState('');
     const [disableCode, setDisableCode] = useState('');
-    const [factorFriendlyName, setFactorFriendlyName] = useState('Google Authenticator');
     const [pendingEnrollment, setPendingEnrollment] = useState<{
         factorId: string;
         friendlyName?: string;
@@ -227,14 +240,12 @@ const Settings: React.FC = () => {
 
         setPendingEnrollment(null);
         setSetupCode('');
-        setFactorFriendlyName('Google Authenticator');
-        setSetupDialogOpen(false);
     };
 
     const handleStartTwoFactorSetup = async () => {
         try {
             setIsTwoFactorBusy(true);
-            const { success, error, enrollment } = await enrollTwoFactor(factorFriendlyName);
+            const { success, error, enrollment } = await enrollTwoFactor();
 
             if (!success || !enrollment) {
                 toast.error(error || '2FA kurulumu başlatılamadı');
@@ -243,7 +254,6 @@ const Settings: React.FC = () => {
 
             setPendingEnrollment(enrollment);
             setSetupCode('');
-            setSetupDialogOpen(true);
         } finally {
             setIsTwoFactorBusy(false);
         }
@@ -267,7 +277,6 @@ const Settings: React.FC = () => {
             toast.success('Google Authenticator başarıyla etkinleştirildi');
             setPendingEnrollment(null);
             setSetupCode('');
-            setSetupDialogOpen(false);
         } finally {
             setIsTwoFactorBusy(false);
         }
@@ -350,7 +359,47 @@ const Settings: React.FC = () => {
     }
 
     const qrCodeDataUrl = getTotpQrImageSrc(pendingEnrollment?.qrCodeSvg);
+    const qrCodeSvgMarkup = getTotpQrSvgMarkup(pendingEnrollment?.qrCodeSvg);
     const activeTotpFactor = mfaState.factors.find((factor) => factor.status === 'verified') || null;
+
+    const openQrInNewTab = () => {
+        if (!qrCodeDataUrl) {
+            return;
+        }
+
+        const popup = window.open('', '_blank');
+
+        if (!popup) {
+            toast.error('Yeni sekme açılamadı. Tarayıcı popup engelliyor olabilir.');
+            return;
+        }
+
+        const qrMarkup = qrCodeSvgMarkup
+            ? `<div style="width:320px;height:320px;">${qrCodeSvgMarkup}</div>`
+            : `<img src="${qrCodeDataUrl}" alt="Google Authenticator QR" style="width:320px;height:320px;display:block;" />`;
+
+        popup.document.write(`
+          <!doctype html>
+          <html lang="tr">
+            <head>
+              <meta charset="utf-8" />
+              <title>Google Authenticator QR</title>
+              <style>
+                body {
+                  margin: 0;
+                  min-height: 100vh;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  background: #ffffff;
+                }
+              </style>
+            </head>
+            <body>${qrMarkup}</body>
+          </html>
+        `);
+        popup.document.close();
+    };
 
     return (
         <div className="min-h-screen bg-background">
@@ -539,7 +588,10 @@ const Settings: React.FC = () => {
                                                 <div className="space-y-1">
                                                     <p className="flex items-center gap-2 text-sm font-medium">
                                                         <Smartphone className="h-4 w-4 text-primary" />
-                                                        {activeTotpFactor.friendlyName || 'Google Authenticator'}
+                                                        ToonParrot
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        {user.email || activeTotpFactor.friendlyName || 'Google Authenticator'}
                                                     </p>
                                                     <p className="text-xs text-muted-foreground">
                                                         Bu faktör doğrulanmış durumda. 2FA'yı kapatmak için yeni bir 6 haneli kod girmeniz gerekir.
@@ -561,24 +613,107 @@ const Settings: React.FC = () => {
                                         </div>
                                     ) : (
                                         <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
-                                            <div className="space-y-2">
-                                                <Label htmlFor="factor-name">Faktör Adı</Label>
-                                                <Input
-                                                    id="factor-name"
-                                                    value={factorFriendlyName}
-                                                    onChange={(e) => setFactorFriendlyName(e.target.value.slice(0, 64))}
-                                                    placeholder="Google Authenticator"
-                                                />
+                                            <div className="rounded-lg border border-white/10 bg-white/5 p-3 text-sm text-muted-foreground">
+                                                Authenticator uygulamasında bu kayıt `ToonParrot` olarak görünecek ve hesap etiketi olarak `{user.email || 'e-posta adresiniz'}` kullanılacak.
                                             </div>
                                             <Button
                                                 type="button"
                                                 className="gap-2"
                                                 onClick={handleStartTwoFactorSetup}
-                                                disabled={isTwoFactorBusy}
+                                                disabled={isTwoFactorBusy || Boolean(pendingEnrollment)}
                                             >
                                                 {isTwoFactorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
                                                 Google Authenticator Kur
                                             </Button>
+
+                                            {pendingEnrollment && (
+                                                <div className="space-y-5 rounded-2xl border border-primary/20 bg-background/60 p-5">
+                                                    <div className="space-y-1">
+                                                        <p className="text-base font-semibold">Google Authenticator Kurulumu</p>
+                                                        <p className="text-sm text-muted-foreground">
+                                                            QR kodu Google Authenticator ile tarayın. Tarayamıyorsanız alttaki gizli anahtarı manuel girin ve ardından 6 haneli kodu doğrulayın.
+                                                        </p>
+                                                    </div>
+
+                                                    {qrCodeDataUrl && (
+                                                        <div className="flex flex-col items-center gap-3">
+                                                            <div className="select-none rounded-2xl bg-white p-4 shadow-xl" data-allow-image-interaction="true">
+                                                                {qrCodeSvgMarkup ? (
+                                                                    <div
+                                                                        className="h-52 w-52 [&>svg]:h-full [&>svg]:w-full"
+                                                                        data-allow-image-interaction="true"
+                                                                        dangerouslySetInnerHTML={{ __html: qrCodeSvgMarkup }}
+                                                                    />
+                                                                ) : (
+                                                                    <img
+                                                                        src={qrCodeDataUrl}
+                                                                        alt="Google Authenticator QR"
+                                                                        className="h-52 w-52"
+                                                                        data-allow-image-interaction="true"
+                                                                    />
+                                                                )}
+                                                            </div>
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                size="sm"
+                                                                className="border-white/15"
+                                                                onClick={openQrInNewTab}
+                                                            >
+                                                                QR&apos;ı Yeni Sekmede Aç
+                                                            </Button>
+                                                        </div>
+                                                    )}
+
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="totp-secret">Kurulum Anahtarı</Label>
+                                                        <div className="flex gap-2">
+                                                            <Input
+                                                                id="totp-secret"
+                                                                value={pendingEnrollment.secret || ''}
+                                                                readOnly
+                                                                className="font-mono tracking-[0.2em]"
+                                                            />
+                                                            <Button
+                                                                type="button"
+                                                                variant="outline"
+                                                                onClick={async () => {
+                                                                    if (!pendingEnrollment.secret) {
+                                                                        return;
+                                                                    }
+
+                                                                    await navigator.clipboard.writeText(pendingEnrollment.secret);
+                                                                    toast.success('Kurulum anahtarı kopyalandı');
+                                                                }}
+                                                            >
+                                                                <Copy className="h-4 w-4" />
+                                                            </Button>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="space-y-2">
+                                                        <Label htmlFor="setup-code">Authenticator Kodu</Label>
+                                                        <Input
+                                                            id="setup-code"
+                                                            inputMode="numeric"
+                                                            placeholder="123456"
+                                                            value={setupCode}
+                                                            onChange={(e) => setSetupCode(sanitizeTotpCode(e.target.value))}
+                                                            className="text-center text-lg tracking-[0.35em]"
+                                                            maxLength={6}
+                                                        />
+                                                    </div>
+
+                                                    <div className="flex justify-end gap-2">
+                                                        <Button type="button" variant="ghost" onClick={() => void closeSetupDialog()} disabled={isTwoFactorBusy}>
+                                                            Vazgeç
+                                                        </Button>
+                                                        <Button type="button" onClick={handleVerifyTwoFactorSetup} disabled={isTwoFactorBusy || setupCode.length !== 6}>
+                                                            {isTwoFactorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Doğrula ve Etkinleştir'}
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            )}
                                         </div>
                                     )}
 
@@ -853,85 +988,6 @@ const Settings: React.FC = () => {
                         </Card>
                     </TabsContent>
                 </Tabs>
-
-                <Dialog
-                    open={setupDialogOpen}
-                    onOpenChange={(open) => {
-                        if (!open) {
-                            void closeSetupDialog();
-                            return;
-                        }
-
-                        setSetupDialogOpen(true);
-                    }}
-                >
-                    <DialogContent className="max-w-xl border-white/10 bg-[#0f0f10] text-white">
-                        <DialogHeader>
-                            <DialogTitle>Google Authenticator Kurulumu</DialogTitle>
-                            <DialogDescription>
-                                QR kodu Google Authenticator ile tarayın. Tarayamıyorsanız alttaki gizli anahtarı manuel girin ve ardından 6 haneli kodu doğrulayın.
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        <div className="space-y-5">
-                            {qrCodeDataUrl && (
-                                <div className="flex justify-center">
-                                    <div className="rounded-2xl bg-white p-4 shadow-xl">
-                                        <img src={qrCodeDataUrl} alt="Google Authenticator QR" className="h-52 w-52" />
-                                    </div>
-                                </div>
-                            )}
-
-                            <div className="space-y-2">
-                                <Label htmlFor="totp-secret">Kurulum Anahtarı</Label>
-                                <div className="flex gap-2">
-                                    <Input
-                                        id="totp-secret"
-                                        value={pendingEnrollment?.secret || ''}
-                                        readOnly
-                                        className="font-mono tracking-[0.2em]"
-                                    />
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        onClick={async () => {
-                                            if (!pendingEnrollment?.secret) {
-                                                return;
-                                            }
-
-                                            await navigator.clipboard.writeText(pendingEnrollment.secret);
-                                            toast.success('Kurulum anahtarı kopyalandı');
-                                        }}
-                                    >
-                                        <Copy className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            </div>
-
-                            <div className="space-y-2">
-                                <Label htmlFor="setup-code">Authenticator Kodu</Label>
-                                <Input
-                                    id="setup-code"
-                                    inputMode="numeric"
-                                    placeholder="123456"
-                                    value={setupCode}
-                                    onChange={(e) => setSetupCode(sanitizeTotpCode(e.target.value))}
-                                    className="text-center text-lg tracking-[0.35em]"
-                                    maxLength={6}
-                                />
-                            </div>
-                        </div>
-
-                        <DialogFooter>
-                            <Button type="button" variant="ghost" onClick={() => void closeSetupDialog()} disabled={isTwoFactorBusy}>
-                                Vazgeç
-                            </Button>
-                            <Button type="button" onClick={handleVerifyTwoFactorSetup} disabled={isTwoFactorBusy || setupCode.length !== 6}>
-                                {isTwoFactorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Doğrula ve Etkinleştir'}
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
 
                 <Dialog
                     open={disableDialogOpen}

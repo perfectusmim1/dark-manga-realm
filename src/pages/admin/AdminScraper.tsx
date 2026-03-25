@@ -17,7 +17,7 @@ import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter }
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { toast } from 'sonner';
-import { saveManga } from '@/lib/database';
+import { ensureArtistByName, ensureAuthorByName, linkMangaToArtist, linkMangaToAuthor, saveManga } from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
 import { normalizeGenres } from '@/lib/mockData';
 
@@ -33,6 +33,77 @@ interface ScrapedChapter {
     link: string;
     number: number;
 }
+
+const normalizeScrapedText = (value?: string | null) =>
+    value?.replace(/\s+/g, ' ').trim() || '';
+
+const toScrapedKey = (value?: string | null) =>
+    normalizeScrapedText(value).toLocaleLowerCase('tr-TR');
+
+const extractPrimaryScrapedPersonName = (value?: string | null) =>
+    normalizeScrapedText(value).split(/[,，]/)[0]?.trim() || '';
+
+const getScrapedSummaryField = (doc: Document, labels: string[]) => {
+    const normalizedLabels = labels.map((label) => label.toLocaleLowerCase('tr-TR'));
+
+    const matchedItem = Array.from(doc.querySelectorAll('.post-content_item')).find((element) => {
+        const text = element.textContent?.toLocaleLowerCase('tr-TR') || '';
+        return normalizedLabels.some((label) => text.includes(label));
+    });
+
+    return normalizeScrapedText(
+        matchedItem?.querySelector('.summary-content, .author-content a, .artist-content a')?.textContent ||
+        matchedItem?.querySelector('.summary-content')?.textContent
+    );
+};
+
+const inferScrapedMangaType = (doc: Document, genres: string[], fallbackGenres: string[]) => {
+    const typeSource = [
+        getScrapedSummaryField(doc, ['tip', 'type']),
+        getScrapedSummaryField(doc, ['alternatif']),
+        getScrapedSummaryField(doc, ['kategori', 'categories']),
+        genres.join(', '),
+        fallbackGenres.join(', '),
+    ].join(' ');
+
+    const normalizedSource = typeSource.toLocaleLowerCase('tr-TR');
+
+    if (normalizedSource.includes('manhwa')) {
+        return 'manhwa' as const;
+    }
+
+    if (normalizedSource.includes('manhua')) {
+        return 'manhua' as const;
+    }
+
+    if (normalizedSource.includes('webtoon')) {
+        return 'webtoon' as const;
+    }
+
+    return 'manga' as const;
+};
+
+const BLOCKED_ALT_TITLE_PATTERNS = ['güncellenecek', 'guncellenecek'];
+
+const sanitizeAlternativeTitles = (rawText: string, mainTitle?: string) => {
+    const mainKey = toScrapedKey(mainTitle);
+
+    return Array.from(
+        new Set(
+            rawText
+                .split(/[,\n]/)
+                .map((title) => normalizeScrapedText(title))
+                .filter((title) => {
+                    const key = toScrapedKey(title);
+                    return (
+                        key.length > 0 &&
+                        key !== mainKey &&
+                        !BLOCKED_ALT_TITLE_PATTERNS.some((pattern) => key.includes(pattern))
+                    );
+                })
+        )
+    );
+};
 
 const AdminScraper: React.FC = () => {
     const navigate = useNavigate();
@@ -187,32 +258,21 @@ const AdminScraper: React.FC = () => {
 
             const status: Manga['status'] = statusText.toLocaleLowerCase('tr-TR').includes('tamam') || statusText.toLocaleLowerCase('tr-TR').includes('fin') ? 'completed' : 'ongoing';
 
-            // Type
-            const typeText = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.includes('Tip') || el.textContent?.includes('Tür'))
-                ?.querySelector('.summary-content')?.textContent?.trim() || 'manga';
-
-            const normalizedTypeText = typeText.toLocaleLowerCase('tr-TR');
-            const type: Manga['type'] = normalizedTypeText.includes('webtoon') ? 'webtoon'
-                : normalizedTypeText.includes('manhwa') ? 'manhwa'
-                    : normalizedTypeText.includes('manhua') ? 'manhua'
-                        : 'manga';
-
             // Author
-            const author = Array.from(doc.querySelectorAll('.post-content_item'))
+            const author = extractPrimaryScrapedPersonName(Array.from(doc.querySelectorAll('.post-content_item'))
                 .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('yazar'))
-                ?.querySelector('.author-content a, .summary-content')?.textContent?.trim() || 'Bilinmiyor';
+                ?.querySelector('.author-content a, .summary-content')?.textContent) || 'Bilinmiyor';
 
             // Artist
-            const artist = Array.from(doc.querySelectorAll('.post-content_item'))
+            const artist = extractPrimaryScrapedPersonName(Array.from(doc.querySelectorAll('.post-content_item'))
                 .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('çizer'))
-                ?.querySelector('.artist-content a, .summary-content')?.textContent?.trim() || author;
+                ?.querySelector('.artist-content a, .summary-content')?.textContent) || author;
 
             // Alternative Titles
             const altTitlesText = Array.from(doc.querySelectorAll('.post-content_item'))
                 .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('diğer adları') || el.textContent?.toLocaleLowerCase('tr-TR').includes('alt isimler'))
                 ?.querySelector('.summary-content')?.textContent?.trim() || '';
-            const alternativeTitles = altTitlesText ? altTitlesText.split(',').map(t => t.trim()).filter(t => t !== '') : [];
+            const alternativeTitles = sanitizeAlternativeTitles(altTitlesText, detailTitle || card.title);
 
             // Release Year
             const yearText = Array.from(doc.querySelectorAll('.post-content_item'))
@@ -225,6 +285,8 @@ const AdminScraper: React.FC = () => {
             const genres = genreElements.length > 0
                 ? normalizeGenres(Array.from(genreElements).map(g => g.textContent?.trim() || ''))
                 : normalizeGenres(card.genres);
+
+            const type = inferScrapedMangaType(doc, genres, card.genres);
 
             // Chapters
             const chapterElements = doc.querySelectorAll('.wp-manga-chapter');
@@ -246,7 +308,7 @@ const AdminScraper: React.FC = () => {
             // Sort chapters by number ascending
             chapters.sort((a, b) => a.number - b.number);
 
-            const finalTitle = detailTitle || card.title;
+            const finalTitle = normalizeScrapedText(detailTitle || card.title);
             const finalCover = detailCover || card.cover || '';
 
             const scrapedManga: Partial<Manga> = {
@@ -375,6 +437,14 @@ const AdminScraper: React.FC = () => {
                 }
             }
 
+            const normalizedAuthorName = normalizeScrapedText(fetchedData.author) || 'Bilinmiyor';
+            const normalizedArtistName = normalizeScrapedText(fetchedData.artist) || normalizedAuthorName;
+
+            const [authorEntity, artistEntity] = await Promise.all([
+                ensureAuthorByName(normalizedAuthorName),
+                ensureArtistByName(normalizedArtistName),
+            ]);
+
             const finalManga: Manga = {
                 id: mangaId,
                 title: fetchedData.title!,
@@ -382,8 +452,8 @@ const AdminScraper: React.FC = () => {
                 description: fetchedData.description!,
                 cover: fetchedData.cover!,
                 banner: fetchedData.banner!,
-                author: fetchedData.author!,
-                artist: fetchedData.artist!,
+                author: authorEntity?.name || normalizedAuthorName,
+                artist: artistEntity?.name || normalizedArtistName,
                 status: fetchedData.status!,
                 type: fetchedData.type!,
                 genres: fetchedData.genres!,
@@ -398,6 +468,15 @@ const AdminScraper: React.FC = () => {
             };
 
             await saveManga(finalManga);
+
+            if (authorEntity) {
+                await linkMangaToAuthor(mangaId, authorEntity.id);
+            }
+
+            if (artistEntity) {
+                await linkMangaToArtist(mangaId, artistEntity.id);
+            }
+
             toast.success('Manga başarıyla eklendi');
             navigate('/admin/mangas');
         } catch (err) {

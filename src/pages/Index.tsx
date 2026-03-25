@@ -88,6 +88,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
         <AnimatePresence>
           {showLeftArrow && (
             <motion.button
+              key={`${title}-arrow-left`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -101,6 +102,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
           {showRightArrow && (
             <motion.button
+              key={`${title}-arrow-right`}
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}

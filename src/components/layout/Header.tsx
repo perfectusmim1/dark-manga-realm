@@ -22,7 +22,6 @@ import {
   Star,
   BookOpen,
   User as UserIcon,
-  Trophy,
   Dices,
   Users,
   Book,
@@ -673,13 +672,6 @@ const Header: React.FC = () => {
                 </DropdownMenuItem>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link to={`/profile/${user.id}?tab=achievements`} className="flex items-center gap-2">
-                    <Trophy className="h-4 w-4 text-yellow-500" />
-                    Başarımlarım
-                  </Link>
-                </DropdownMenuItem>
-                <DropdownMenuSeparator />
-                <DropdownMenuItem asChild>
                   <Link to="/library" className="flex items-center gap-2">
                     <Library className="h-4 w-4" />
                     Kütüphanem
@@ -706,7 +698,7 @@ const Header: React.FC = () => {
                 <DropdownMenuItem asChild>
                   <Link to="/reading-time" className="flex items-center gap-2">
                     <Clock3 className="h-4 w-4" />
-                    Süre
+                    Okuma Süresi
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>

@@ -11,17 +11,10 @@ import {
     Check,
     CheckCheck,
     Trash2,
-    Filter,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-    DropdownMenu,
-    DropdownMenuContent,
-    DropdownMenuItem,
-    DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import { useAuth } from '@/contexts/AuthContext';
 import {
     getNotifications,
@@ -34,7 +27,7 @@ import { Notification } from '@/lib/types';
 import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import { toast } from 'sonner';
 
-type FilterType = 'all' | 'unread' | 'new_chapter' | 'reply' | 'like';
+type FilterType = 'all' | 'comments' | 'chapters';
 
 const Notifications: React.FC = () => {
     const { user } = useAuth();
@@ -113,16 +106,14 @@ const Notifications: React.FC = () => {
 
     const filteredNotifications = notifications.filter((n) => {
         if (filter === 'all') return true;
-        if (filter === 'unread') return !n.read;
-        return n.type === filter;
+        if (filter === 'comments') return n.type === 'reply' || n.type === 'like';
+        return n.type === 'new_chapter';
     });
 
     const filterLabels: Record<FilterType, string> = {
         all: 'Tümü',
-        unread: 'Okunmamış',
-        new_chapter: 'Yeni Bölümler',
-        reply: 'Yanıtlar',
-        like: 'Beğeniler',
+        comments: 'Yorum Bildirimleri',
+        chapters: 'Bölüm Bildirimleri',
     };
 
     if (!user) {
@@ -167,29 +158,21 @@ const Notifications: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="flex items-center gap-2">
-                            {/* Filter Dropdown */}
-                            <DropdownMenu>
-                                <DropdownMenuTrigger asChild>
-                                    <Button variant="outline" size="sm">
-                                        <Filter className="mr-2 h-4 w-4" />
-                                        {filterLabels[filter]}
+                        <div className="flex flex-wrap items-center justify-end gap-2">
+                            <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border bg-card/60 p-1">
+                                {(Object.entries(filterLabels) as [FilterType, string][]).map(([key, label]) => (
+                                    <Button
+                                        key={key}
+                                        type="button"
+                                        size="sm"
+                                        variant={filter === key ? 'default' : 'ghost'}
+                                        className="h-9 rounded-lg px-3"
+                                        onClick={() => setFilter(key)}
+                                    >
+                                        {label}
                                     </Button>
-                                </DropdownMenuTrigger>
-                                <DropdownMenuContent align="end">
-                                    {(Object.entries(filterLabels) as [FilterType, string][]).map(
-                                        ([key, label]) => (
-                                            <DropdownMenuItem
-                                                key={key}
-                                                onClick={() => setFilter(key)}
-                                                className={filter === key ? 'bg-secondary' : ''}
-                                            >
-                                                {label}
-                                            </DropdownMenuItem>
-                                        )
-                                    )}
-                                </DropdownMenuContent>
-                            </DropdownMenu>
+                                ))}
+                            </div>
 
                             {/* Mark All Read */}
                             {unreadCount > 0 && (
@@ -227,7 +210,7 @@ const Notifications: React.FC = () => {
                             <h2 className="text-xl font-semibold text-muted-foreground mb-2">
                                 {filter === 'all'
                                     ? 'Henüz bildirim yok'
-                                    : `${filterLabels[filter]} bildirim yok`}
+                                    : `${filterLabels[filter]} yok`}
                             </h2>
                             <p className="text-sm text-muted-foreground/70 text-center max-w-md">
                                 Mangaları takip ederek yeni bölüm bildirimleri alabilirsiniz.

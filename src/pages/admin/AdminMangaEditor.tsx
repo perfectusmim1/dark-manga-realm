@@ -43,7 +43,9 @@ import {
     saveCharacter,
     saveAuthor,
     saveArtist,
-    getMangaCharacters
+    getMangaCharacters,
+    ensureAuthorByName,
+    ensureArtistByName,
 } from '@/lib/database';
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { Manga, Chapter, Character, Author, Artist } from '@/lib/types';
@@ -51,6 +53,21 @@ import { allGenres, normalizeGenres } from '@/lib/mockData';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { toast } from 'sonner';
 import { Search } from 'lucide-react';
+
+const normalizeNamedEntityValue = (value?: string | null) =>
+    value?.split(/[,，]/)[0]?.trim().replace(/\s+/g, ' ') || '';
+
+const normalizeNamedEntityKey = (value?: string | null) =>
+    normalizeNamedEntityValue(value).toLocaleLowerCase('tr-TR');
+
+const upsertNamedEntity = <T extends { id: string }>(items: T[], entity: T) => {
+    const existingIndex = items.findIndex((item) => item.id === entity.id);
+    if (existingIndex === -1) {
+        return [...items, entity];
+    }
+
+    return items.map((item) => (item.id === entity.id ? entity : item));
+};
 
 const AdminMangaEditor: React.FC = () => {
     const navigate = useNavigate();
@@ -149,6 +166,28 @@ const AdminMangaEditor: React.FC = () => {
         };
         loadManga();
     }, [mangaId, isEditing, navigate]);
+
+    useEffect(() => {
+        const authorKey = normalizeNamedEntityKey(manga.author);
+        const matchedAuthor = authorKey
+            ? allAuthors.find((author) => normalizeNamedEntityKey(author.name) === authorKey) || null
+            : null;
+
+        if ((matchedAuthor?.id || null) !== (selectedAuthor?.id || null)) {
+            setSelectedAuthor(matchedAuthor);
+        }
+    }, [allAuthors, manga.author, selectedAuthor?.id]);
+
+    useEffect(() => {
+        const artistKey = normalizeNamedEntityKey(manga.artist);
+        const matchedArtist = artistKey
+            ? allArtists.find((artist) => normalizeNamedEntityKey(artist.name) === artistKey) || null
+            : null;
+
+        if ((matchedArtist?.id || null) !== (selectedArtist?.id || null)) {
+            setSelectedArtist(matchedArtist);
+        }
+    }, [allArtists, manga.artist, selectedArtist?.id]);
 
     const handleChange = (field: keyof Manga, value: any) => {
         setManga(prev => ({ ...prev, [field]: value }));
@@ -295,15 +334,20 @@ const AdminMangaEditor: React.FC = () => {
     };
 
     const handleSave = async () => {
-        if (!manga.title?.trim()) {
+        const normalizedTitle = manga.title?.trim();
+        const normalizedCover = manga.cover?.trim();
+        const normalizedAuthorName = normalizeNamedEntityValue(manga.author);
+        const normalizedArtistName = normalizeNamedEntityValue(manga.artist) || normalizedAuthorName;
+
+        if (!normalizedTitle) {
             toast.error('Manga başlığı gerekli');
             return;
         }
-        if (!manga.cover?.trim()) {
+        if (!normalizedCover) {
             toast.error('Kapak resmi URL\'si gerekli');
             return;
         }
-        if (!manga.author?.trim()) {
+        if (!normalizedAuthorName) {
             toast.error('Yazar adı gerekli');
             return;
         }
@@ -311,14 +355,32 @@ const AdminMangaEditor: React.FC = () => {
         setLoading(true);
 
         try {
+            let resolvedAuthor = selectedAuthor;
+            if (!resolvedAuthor || normalizeNamedEntityKey(resolvedAuthor.name) !== normalizeNamedEntityKey(normalizedAuthorName)) {
+                resolvedAuthor = await ensureAuthorByName(normalizedAuthorName);
+                if (resolvedAuthor) {
+                    setAllAuthors((prev) => upsertNamedEntity(prev, resolvedAuthor!));
+                    setSelectedAuthor(resolvedAuthor);
+                }
+            }
+
+            let resolvedArtist = selectedArtist;
+            if (!resolvedArtist || normalizeNamedEntityKey(resolvedArtist.name) !== normalizeNamedEntityKey(normalizedArtistName)) {
+                resolvedArtist = await ensureArtistByName(normalizedArtistName);
+                if (resolvedArtist) {
+                    setAllArtists((prev) => upsertNamedEntity(prev, resolvedArtist!));
+                    setSelectedArtist(resolvedArtist);
+                }
+            }
+
             const mangaToSave: Manga = {
                 id: manga.id || `manga-${Date.now()}-${Math.random().toString(36).substring(7)}`,
-                title: manga.title!,
+                title: normalizedTitle,
                 alternativeTitles: manga.alternativeTitles || [],
-                cover: manga.cover!,
-                banner: manga.banner || manga.cover!,
-                author: manga.author!,
-                artist: manga.artist || manga.author!,
+                cover: normalizedCover,
+                banner: manga.banner?.trim() || normalizedCover,
+                author: resolvedAuthor?.name || normalizedAuthorName,
+                artist: resolvedArtist?.name || normalizedArtistName,
                 status: manga.status as 'ongoing' | 'completed' | 'hiatus',
                 type: manga.type as 'manga' | 'manhwa' | 'manhua' | 'webtoon',
                 genres: normalizeGenres(manga.genres || []),
@@ -335,26 +397,25 @@ const AdminMangaEditor: React.FC = () => {
 
             await saveManga(mangaToSave);
 
-            // Save relationship links if editing
             if (isEditing && manga.id) {
-                // Characters links sync
-                // 1. Unlink deleted characters
                 for (const charId of deletedCharacterIds) {
                     await unlinkMangaFromCharacter(manga.id, charId);
                 }
-
-                // 2. Link current characters (upsert handles duplicates)
-                for (const char of mangaCharacters) {
-                    await linkMangaToCharacter(manga.id, char.id);
-                }
-
-                if (selectedAuthor) await linkMangaToAuthor(manga.id, selectedAuthor.id);
-                if (selectedArtist) await linkMangaToArtist(manga.id, selectedArtist.id);
-
-                // Reset deleted tracking
-                setDeletedCharacterIds([]);
             }
 
+            for (const char of mangaCharacters) {
+                await linkMangaToCharacter(mangaToSave.id, char.id);
+            }
+
+            if (resolvedAuthor) {
+                await linkMangaToAuthor(mangaToSave.id, resolvedAuthor.id);
+            }
+
+            if (resolvedArtist) {
+                await linkMangaToArtist(mangaToSave.id, resolvedArtist.id);
+            }
+
+            setDeletedCharacterIds([]);
             toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
             navigate('/admin/mangas');
         } catch (err) {

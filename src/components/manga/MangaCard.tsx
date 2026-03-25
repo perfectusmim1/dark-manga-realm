@@ -1,8 +1,9 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Star, Eye, BookOpen, Clock, User } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
+import { getTopTenMangas } from '@/lib/database';
 import {
   HoverCard,
   HoverCardContent,
@@ -15,7 +16,28 @@ interface MangaCardProps {
   index?: number;
 }
 
+let topTenTodayIdsCache: Set<string> | null = null;
+let topTenTodayIdsPromise: Promise<Set<string>> | null = null;
+
+const getTopTenTodayIds = async () => {
+  if (topTenTodayIdsCache) return topTenTodayIdsCache;
+
+  if (!topTenTodayIdsPromise) {
+    topTenTodayIdsPromise = getTopTenMangas('today')
+      .then((mangas) => {
+        const ids = new Set(mangas.map((item) => item.id));
+        topTenTodayIdsCache = ids;
+        return ids;
+      })
+      .catch(() => new Set<string>());
+  }
+
+  return topTenTodayIdsPromise;
+};
+
 const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
+  const [isTopTenToday, setIsTopTenToday] = useState(false);
+
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
     if (views >= 1000) return `${(views / 1000).toFixed(0)}K`;
@@ -25,6 +47,32 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
   const averageRating = manga.ratings && manga.ratings.length > 0
     ? (manga.ratings.reduce((acc, curr) => acc + curr.rating, 0) / manga.ratings.length).toFixed(1)
     : '0.0';
+
+  const isNewRelease = useMemo(() => {
+    if (!manga.createdAt) return false;
+
+    const createdTime = new Date(manga.createdAt).getTime();
+    if (Number.isNaN(createdTime)) return false;
+
+    const ageMs = Date.now() - createdTime;
+    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
+
+    return ageMs >= 0 && ageMs < oneWeekMs;
+  }, [manga.createdAt]);
+
+  useEffect(() => {
+    let isActive = true;
+
+    getTopTenTodayIds().then((ids) => {
+      if (isActive) {
+        setIsTopTenToday(ids.has(manga.id));
+      }
+    });
+
+    return () => {
+      isActive = false;
+    };
+  }, [manga.id]);
 
   return (
     <HoverCard openDelay={200} closeDelay={100}>
@@ -43,6 +91,8 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
               loading="lazy"
             />
 
+            <div className="absolute inset-0 bg-black/20" style={{ opacity: 0.9 }} />
+
             {/* Gradient Overlay */}
             <div className="absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
 
@@ -59,6 +109,19 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
             >
               {manga.type.toUpperCase()}
             </Badge>
+
+            <div className="absolute right-2 top-2 z-10 flex flex-col items-end gap-1">
+              {isTopTenToday && (
+                <Badge className="border-none bg-red-500/90 text-white text-[10px] font-bold shadow-lg shadow-red-500/25 backdrop-blur-md">
+                  Top 10
+                </Badge>
+              )}
+              {isNewRelease && (
+                <Badge className="border-none bg-emerald-500/90 text-white text-[10px] font-bold shadow-lg shadow-emerald-500/25 backdrop-blur-md">
+                  Yeni
+                </Badge>
+              )}
+            </div>
 
             {/* Status Badge */}
             <Badge

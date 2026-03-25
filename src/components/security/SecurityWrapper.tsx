@@ -112,7 +112,14 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             subtree: true
         });
 
-        const handleDragStart = (e: DragEvent) => e.preventDefault();
+        const handleDragStart = (e: DragEvent) => {
+            const target = e.target;
+            if (target instanceof Element && target.closest('[data-allow-image-interaction="true"]')) {
+                return;
+            }
+
+            e.preventDefault();
+        };
 
         extensionDetector();
 
@@ -166,6 +173,19 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
           img {
             pointer-events: none !important;
             -webkit-user-drag: none !important;
+          }
+
+          [data-allow-image-interaction="true"],
+          [data-allow-image-interaction="true"] * {
+            pointer-events: auto !important;
+            user-select: none !important;
+            -webkit-user-select: none !important;
+            touch-action: auto !important;
+          }
+
+          [data-allow-image-interaction="true"] img,
+          [data-allow-image-interaction="true"] svg {
+            -webkit-user-drag: element !important;
           }
           
           .protection-layer {

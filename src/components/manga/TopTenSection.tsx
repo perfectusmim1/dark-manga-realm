@@ -36,9 +36,15 @@ const TopTenSection: React.FC = () => {
 
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
-      const scrollAmount = scrollRef.current.clientWidth * 0.8;
-      scrollRef.current.scrollBy({
-        left: direction === 'left' ? -scrollAmount : scrollAmount,
+      const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+      const scrollAmount = clientWidth;
+      const maxScrollLeft = Math.max(0, scrollWidth - clientWidth);
+      const nextScrollLeft = direction === 'left'
+        ? Math.max(0, scrollLeft - scrollAmount)
+        : Math.min(maxScrollLeft, scrollLeft + scrollAmount);
+
+      scrollRef.current.scrollTo({
+        left: nextScrollLeft,
         behavior: 'smooth',
       });
       setTimeout(updateArrows, 500);
@@ -92,6 +98,7 @@ const TopTenSection: React.FC = () => {
         <AnimatePresence>
           {showLeftArrow && (
             <motion.button
+              key="top-ten-arrow-left"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
@@ -105,6 +112,7 @@ const TopTenSection: React.FC = () => {
 
           {showRightArrow && (
             <motion.button
+              key="top-ten-arrow-right"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
