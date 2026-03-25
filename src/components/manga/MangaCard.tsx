@@ -37,6 +37,10 @@ const getTopTenTodayIds = async () => {
 
 const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
   const [isTopTenToday, setIsTopTenToday] = useState(false);
+  const ratings = manga.ratings || [];
+  const genres = manga.genres || [];
+  const chapters = manga.chapters || [];
+  const chapterCount = chapters.length;
 
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -44,8 +48,8 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
     return views.toString();
   };
 
-  const averageRating = manga.ratings && manga.ratings.length > 0
-    ? (manga.ratings.reduce((acc, curr) => acc + curr.rating, 0) / manga.ratings.length).toFixed(1)
+  const averageRating = ratings.length > 0
+    ? (ratings.reduce((acc, curr) => acc + curr.rating, 0) / ratings.length).toFixed(1)
     : '0.0';
 
   const isNewRelease = useMemo(() => {
@@ -149,7 +153,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
                 </span>
                 <span className="flex items-center gap-1 font-medium drop-shadow-md">
                   <BookOpen className="h-3 w-3" />
-                  {manga.chapters.length}
+                  {chapterCount}
                 </span>
               </div>
             </div>
@@ -164,7 +168,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
               {manga.author}
             </p>
             <div className="mt-1.5 flex flex-wrap gap-1">
-              {manga.genres.slice(0, 1).map((genre) => (
+              {genres.slice(0, 1).map((genre) => (
                 <span
                   key={genre}
                   className="rounded-md bg-secondary/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
@@ -173,7 +177,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
                 </span>
               ))}
               <Badge variant="outline" className="h-4 px-1 text-[9px] border-primary/20 bg-primary/5 text-primary">
-                {manga.chapters.length} Bölüm
+                {chapterCount} Bölüm
               </Badge>
             </div>
           </div>
@@ -210,7 +214,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
                   </span>
                   <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     <BookOpen className="h-3 w-3" />
-                    {manga.chapters.length} Bölüm
+                    {chapterCount} Bölüm
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
@@ -231,7 +235,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
             </div>
 
             <div className="mt-4 flex flex-wrap gap-1.5">
-              {manga.genres.slice(0, 4).map((genre) => (
+              {genres.slice(0, 4).map((genre) => (
                 <span key={genre} className="px-2 py-0.5 rounded bg-primary/10 text-primary text-[10px] font-medium border border-primary/10">
                   {genre}
                 </span>

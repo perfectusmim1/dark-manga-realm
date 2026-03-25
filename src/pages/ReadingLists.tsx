@@ -156,10 +156,10 @@ const ReadingLists: React.FC = () => {
             <main className="container pb-12 pt-20">
                 <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                     <div>
-                        <h1 className="text-3xl font-bold">Okuma Listelerim</h1>
+                        <h1 className="text-2xl font-bold sm:text-3xl">Okuma Listelerim</h1>
                         <p className="text-muted-foreground">Oluşturduğunuz tüm manga koleksiyonları</p>
                     </div>
-                    <Button onClick={handleOpenCreateModal} className="gap-2 self-start sm:self-auto">
+                    <Button onClick={handleOpenCreateModal} className="w-full gap-2 self-start sm:w-auto sm:self-auto">
                         <Plus className="h-4 w-4" />
                         Yeni Liste Oluştur
                     </Button>
@@ -200,11 +200,11 @@ const ReadingLists: React.FC = () => {
                                     iconClassName="h-10 w-10"
                                 />
 
-                                <div className="p-6">
-                                    <div className="mb-4 flex items-start justify-between">
+                                <div className="p-4 sm:p-6">
+                                    <div className="mb-4 flex items-start justify-between gap-3">
                                         <div className="flex flex-col gap-1">
-                                            <h3 className="line-clamp-1 text-xl font-bold">{list.name}</h3>
-                                            <div className="flex items-center gap-2">
+                                            <h3 className="line-clamp-1 text-lg font-bold sm:text-xl">{list.name}</h3>
+                                            <div className="flex flex-wrap items-center gap-2">
                                                 <Badge variant="secondary" className="gap-1 px-1.5 py-0 text-[10px]">
                                                     {list.isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
                                                     {list.isPublic ? 'Herkese Açık' : 'Özel'}

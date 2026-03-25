@@ -35,11 +35,13 @@ const OverviewCard = ({
     index: number;
 }) => (
     <div
-        className="animate-fade-up rounded-2xl border border-border bg-card/50 p-5 opacity-0"
+        className="animate-fade-up aspect-[1.05/1] min-h-[8.5rem] rounded-3xl border border-border bg-card/50 p-4 opacity-0 sm:aspect-auto sm:min-h-0 sm:rounded-2xl sm:p-5"
         style={{ animationDelay: `${0.1 + index * 0.03}s`, animationFillMode: 'forwards' }}
     >
-        <p className="text-sm text-muted-foreground">{label}</p>
-        <p className={`mt-2 text-2xl font-bold ${accentClassName}`}>{value}</p>
+        <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">{label}</p>
+        <p className={`mt-2 break-words text-[clamp(1.55rem,5.4vw,2rem)] font-bold leading-tight ${accentClassName}`}>
+            {value}
+        </p>
     </div>
 );
 
@@ -129,7 +131,7 @@ const ReadingTime: React.FC = () => {
             <Header />
 
             <main className="container pb-12 pt-20">
-                <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-end lg:justify-between">
+                <div className="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-end lg:justify-between">
                     <div>
                         <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                             <Clock3 className="h-6 w-6" />
@@ -146,7 +148,7 @@ const ReadingTime: React.FC = () => {
                 </div>
 
                 <div
-                    className="mb-6 animate-fade-up flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm text-amber-100/85 opacity-0"
+                    className="mb-5 animate-fade-up flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100/85 opacity-0 sm:mb-6"
                     style={{ animationDelay: '0.08s', animationFillMode: 'forwards' }}
                 >
                     <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
@@ -157,13 +159,13 @@ const ReadingTime: React.FC = () => {
                 </div>
 
                 {isOverviewLoading ? (
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
                         {Array.from({ length: 4 }).map((_, index) => (
-                            <Skeleton key={index} className="h-28 rounded-2xl" />
+                            <Skeleton key={index} className="aspect-[1.05/1] rounded-3xl sm:h-28 sm:aspect-auto sm:rounded-2xl" />
                         ))}
                     </div>
                 ) : (
-                    <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
                         <OverviewCard label="Bugün" value={formatReadingDuration(overview.todaySeconds)} accentClassName="text-primary" index={0} />
                         <OverviewCard label="Bu Hafta" value={formatReadingDuration(overview.weekSeconds)} accentClassName="text-sky-400" index={1} />
                         <OverviewCard label="Bu Ay" value={formatReadingDuration(overview.monthSeconds)} accentClassName="text-emerald-400" index={2} />
@@ -172,38 +174,46 @@ const ReadingTime: React.FC = () => {
                 )}
 
                 <div
-                    className="mt-8 animate-fade-up rounded-3xl border border-border bg-card/35 p-5 opacity-0 md:p-6"
+                    className="mt-6 animate-fade-up rounded-3xl border border-border bg-card/35 p-4 opacity-0 sm:mt-8 sm:p-5 md:p-6"
                     style={{ animationDelay: '0.18s', animationFillMode: 'forwards' }}
                 >
-                    <Tabs value={range} onValueChange={(value) => setRange(value as ReadingTimeRange)} className="space-y-6">
-                        <TabsList className="h-auto flex-wrap gap-2 rounded-2xl bg-secondary/40 p-1">
-                            <TabsTrigger value="today">Bugün</TabsTrigger>
-                            <TabsTrigger value="week">Haftalık</TabsTrigger>
-                            <TabsTrigger value="month">Aylık</TabsTrigger>
-                            <TabsTrigger value="all">Tüm Zaman</TabsTrigger>
+                    <Tabs value={range} onValueChange={(value) => setRange(value as ReadingTimeRange)} className="space-y-5 sm:space-y-6">
+                        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-secondary/40 p-1 sm:flex sm:flex-wrap">
+                            <TabsTrigger value="today" className="w-full whitespace-normal px-3 py-2 text-center text-sm leading-tight sm:w-auto sm:whitespace-nowrap">
+                                Bugün
+                            </TabsTrigger>
+                            <TabsTrigger value="week" className="w-full whitespace-normal px-3 py-2 text-center text-sm leading-tight sm:w-auto sm:whitespace-nowrap">
+                                Haftalık
+                            </TabsTrigger>
+                            <TabsTrigger value="month" className="w-full whitespace-normal px-3 py-2 text-center text-sm leading-tight sm:w-auto sm:whitespace-nowrap">
+                                Aylık
+                            </TabsTrigger>
+                            <TabsTrigger value="all" className="w-full whitespace-normal px-3 py-2 text-center text-sm leading-tight sm:w-auto sm:whitespace-nowrap">
+                                Tüm Zaman
+                            </TabsTrigger>
                         </TabsList>
 
-                            <div className="grid gap-4 md:grid-cols-3">
-                            <div className="animate-fade-up rounded-2xl border border-border bg-background/40 p-4 opacity-0" style={{ animationDelay: '0.22s', animationFillMode: 'forwards' }}>
+                            <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
+                            <div className="animate-fade-up aspect-[1.02/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 opacity-0 sm:aspect-auto sm:min-h-0 sm:rounded-2xl" style={{ animationDelay: '0.22s', animationFillMode: 'forwards' }}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <Flame className="h-4 w-4 text-primary" />
-                                    <span className="text-sm">Seçili Süre</span>
+                                    <span className="line-clamp-2 text-sm leading-snug">Seçili Süre</span>
                                 </div>
-                                <p className="mt-3 text-2xl font-bold">{formatReadingDuration(selectedTotalSeconds)}</p>
+                                <p className="mt-3 break-words text-[clamp(1.45rem,5.2vw,2rem)] font-bold leading-tight">{formatReadingDuration(selectedTotalSeconds)}</p>
                             </div>
-                            <div className="animate-fade-up rounded-2xl border border-border bg-background/40 p-4 opacity-0" style={{ animationDelay: '0.26s', animationFillMode: 'forwards' }}>
+                            <div className="animate-fade-up aspect-[1.02/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 opacity-0 sm:aspect-auto sm:min-h-0 sm:rounded-2xl" style={{ animationDelay: '0.26s', animationFillMode: 'forwards' }}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <CalendarDays className="h-4 w-4 text-sky-400" />
-                                    <span className="text-sm">Aktif Gün</span>
+                                    <span className="line-clamp-2 text-sm leading-snug">Aktif Gün</span>
                                 </div>
-                                <p className="mt-3 text-2xl font-bold">{timeline.length}</p>
+                                <p className="mt-3 break-words text-[clamp(1.45rem,5.2vw,2rem)] font-bold leading-tight">{timeline.length}</p>
                             </div>
-                            <div className="animate-fade-up rounded-2xl border border-border bg-background/40 p-4 opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
+                            <div className="animate-fade-up col-span-2 aspect-[2.08/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 opacity-0 sm:aspect-auto sm:min-h-0 sm:rounded-2xl md:col-span-1" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <LineChart className="h-4 w-4 text-emerald-400" />
-                                    <span className="text-sm">En Yoğun Gün</span>
+                                    <span className="line-clamp-2 text-sm leading-snug">En Yoğun Gün</span>
                                 </div>
-                                <p className="mt-3 text-2xl font-bold">
+                                <p className="mt-3 break-words text-[clamp(1.45rem,5.2vw,2rem)] font-bold leading-tight">
                                     {maxDaySeconds > 0 ? formatReadingDuration(maxDaySeconds) : '0 sn'}
                                 </p>
                             </div>
@@ -212,7 +222,7 @@ const ReadingTime: React.FC = () => {
                         {isTimelineLoading ? (
                             <div className="space-y-4">
                                 {Array.from({ length: 5 }).map((_, index) => (
-                                    <Skeleton key={index} className="h-36 rounded-2xl" />
+                                    <Skeleton key={index} className="h-32 rounded-2xl sm:h-36" />
                                 ))}
                             </div>
                         ) : timeline.length > 0 ? (
@@ -226,12 +236,12 @@ const ReadingTime: React.FC = () => {
                                     return (
                                         <div
                                             key={day.date}
-                                            className="animate-fade-up rounded-2xl border border-border bg-background/40 p-4 opacity-0"
+                                            className="animate-fade-up rounded-2xl border border-border bg-background/40 p-3 opacity-0 sm:p-4"
                                             style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
                                         >
                                             <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-                                                <div>
-                                                    <p className="text-lg font-semibold capitalize">{day.label}</p>
+                                                <div className="min-w-0">
+                                                    <p className="text-base font-semibold capitalize leading-tight sm:text-lg">{day.label}</p>
                                                     <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                                         <Badge variant="outline">{day.chapters} bölüm</Badge>
                                                         <Badge variant="outline">{day.seriesCount} seri</Badge>
@@ -239,8 +249,8 @@ const ReadingTime: React.FC = () => {
                                                     </div>
                                                 </div>
 
-                                                <div className="min-w-[10rem] text-left md:text-right">
-                                                    <p className="text-xl font-bold text-primary">{formatReadingDuration(day.seconds)}</p>
+                                                <div className="min-w-0 text-left md:min-w-[10rem] md:text-right">
+                                                    <p className="break-words text-lg font-bold leading-tight text-primary sm:text-xl">{formatReadingDuration(day.seconds)}</p>
                                                     <p className="text-xs text-muted-foreground">{RANGE_LABELS[range]} görünümünde</p>
                                                 </div>
                                             </div>
@@ -257,29 +267,29 @@ const ReadingTime: React.FC = () => {
                                                     <Link
                                                         key={entry.id}
                                                         to={entry.chapterId ? `/manga/${entry.mangaId}/chapter/${entry.chapterId}` : `/manga/${entry.mangaId}`}
-                                                        className="flex items-center gap-3 rounded-xl border border-border/70 bg-card/50 p-3 transition-colors hover:border-primary/30 hover:bg-card"
+                                                        className="flex items-start gap-3 rounded-xl border border-border/70 bg-card/50 p-2.5 transition-colors hover:border-primary/30 hover:bg-card sm:items-center sm:p-3"
                                                     >
                                                         {entry.mangaCover ? (
                                                             <img
                                                                 src={entry.mangaCover}
                                                                 alt={entry.mangaTitle}
-                                                                className="h-14 w-10 shrink-0 rounded-lg object-cover"
+                                                                className="h-12 w-9 shrink-0 rounded-lg object-cover sm:h-14 sm:w-10"
                                                             />
                                                         ) : (
-                                                            <div className="flex h-14 w-10 shrink-0 items-center justify-center rounded-lg bg-secondary/60">
+                                                            <div className="flex h-12 w-9 shrink-0 items-center justify-center rounded-lg bg-secondary/60 sm:h-14 sm:w-10">
                                                                 <BookOpen className="h-4 w-4 text-muted-foreground" />
                                                             </div>
                                                         )}
 
                                                         <div className="min-w-0 flex-1">
-                                                            <p className="line-clamp-1 font-medium">{entry.mangaTitle}</p>
-                                                            <p className="mt-1 text-xs text-muted-foreground">
+                                                            <p className="line-clamp-1 text-sm font-medium sm:text-base">{entry.mangaTitle}</p>
+                                                            <p className="mt-1 text-[11px] text-muted-foreground sm:text-xs">
                                                                 {entry.chapterNumber ? `Bölüm ${entry.chapterNumber}` : 'Okuma oturumu'}
                                                             </p>
                                                         </div>
 
-                                                        <div className="text-right">
-                                                            <p className="text-sm font-semibold">{formatReadingDuration(entry.secondsSpent)}</p>
+                                                        <div className="shrink-0 text-right">
+                                                            <p className="text-sm font-semibold leading-tight">{formatReadingDuration(entry.secondsSpent)}</p>
                                                             <p className="text-[11px] text-muted-foreground">
                                                                 {new Date(entry.readAt).toLocaleTimeString('tr-TR', {
                                                                     hour: '2-digit',

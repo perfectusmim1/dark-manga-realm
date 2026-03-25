@@ -8,7 +8,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const TopTenSection: React.FC = () => {
   const cardWidthClass = "w-[calc((100%-16px)/2.3)] sm:w-[calc((100%-120px)/5)]";
-  const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'all'>('all');
+  const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'all'>('today');
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -75,13 +75,13 @@ const TopTenSection: React.FC = () => {
         </div>
 
         {/* Time Filter Buttons */}
-        <div className="flex items-center p-1 rounded-full bg-white/5 border border-white/10 backdrop-blur-md">
+        <div className="grid w-full max-w-[20rem] grid-cols-3 items-stretch rounded-full border border-white/10 bg-white/5 p-1 backdrop-blur-md sm:w-auto sm:max-w-[22rem]">
           {(['today', 'week', 'all'] as const).map((filter) => (
             <button
               key={filter}
               onClick={() => setTimeFilter(filter)}
               className={cn(
-                "px-6 py-2 rounded-full text-[11px] font-black transition-all duration-300 uppercase tracking-wider",
+                "min-h-[2.85rem] w-full rounded-full px-3 py-2 text-center text-[10px] font-black uppercase leading-tight tracking-[0.12em] transition-all duration-300 sm:min-h-[3rem] sm:text-[11px]",
                 timeFilter === filter 
                   ? "bg-primary text-primary-foreground shadow-lg shadow-primary/30 scale-105" 
                   : "text-white/40 hover:text-white"
@@ -146,8 +146,8 @@ const TopTenSection: React.FC = () => {
                 className={`group relative shrink-0 ${cardWidthClass}`}
               >
                 {/* Huge Ranking Number - Netflix Style (Top Left Placement) */}
-                <div className="absolute -top-10 -left-8 sm:-left-12 z-40 pointer-events-none select-none transition-transform duration-500 group-hover:scale-105">
-                  <span className="text-[120px] sm:text-[180px] font-black leading-none text-transparent stroke-netflix transition-all duration-500 block underline-none"
+                <div className="absolute -top-8 -left-6 sm:-left-10 z-40 pointer-events-none select-none transition-transform duration-500 group-hover:scale-105">
+                  <span className="text-[96px] sm:text-[144px] font-black leading-none text-transparent stroke-netflix transition-all duration-500 block underline-none"
                         style={{ fontFamily: '"Arial Black", sans-serif', letterSpacing: '-0.08em' }}>
                     {index + 1}
                   </span>

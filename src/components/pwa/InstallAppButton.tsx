@@ -85,23 +85,23 @@ const InstallAppButton: React.FC<InstallAppButtonProps> = ({
       </Button>
 
       <Dialog open={isIosHelpOpen} onOpenChange={setIsIosHelpOpen}>
-        <DialogContent className="sm:max-w-[460px]">
-          <DialogHeader>
+        <DialogContent className="max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-[2rem] p-0 sm:max-w-[460px] sm:rounded-2xl">
+          <DialogHeader className="px-5 pt-5 sm:px-6 sm:pt-6">
             <DialogTitle>iPhone / iPad Kurulumu</DialogTitle>
             <DialogDescription>
               Safari üzerinden ToonParrot&apos;ı ana ekrana ekleyerek uygulama gibi kullanabilirsin.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-3 py-2 text-sm text-muted-foreground">
+          <div className="space-y-3 px-5 py-2 text-sm text-muted-foreground sm:px-6">
             <p>1. Siteyi Safari içinde açık tut.</p>
             <p>2. Alttaki Paylaş menüsüne dokun.</p>
             <p>3. “Ana Ekrana Ekle” seçeneğini seç.</p>
             <p>4. Kaydet deyince ToonParrot cihazında uygulama gibi açılır.</p>
           </div>
 
-          <DialogFooter>
-            <Button variant="glow" onClick={() => setIsIosHelpOpen(false)}>
+          <DialogFooter className="px-5 pb-5 pt-4 sm:px-6 sm:pb-6">
+            <Button variant="glow" onClick={() => setIsIosHelpOpen(false)} className="w-full sm:w-auto">
               Tamam
             </Button>
           </DialogFooter>

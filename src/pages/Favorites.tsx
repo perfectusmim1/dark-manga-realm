@@ -83,21 +83,23 @@ const Favorites: React.FC = () => {
 
       <main className="container pb-12 pt-20">
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
-          <h1 className="text-3xl font-bold tracking-tight">Favorilerim</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Favorilerim</h1>
           <p className="mt-2 text-muted-foreground">
             {favoriteManga.length} manga ve {favoriteLists.length} beğenilen okuma listesi
           </p>
         </div>
 
         <Tabs defaultValue="manga" className="space-y-6">
-          <TabsList className="h-auto flex-wrap gap-2 rounded-2xl bg-secondary/40 p-1">
-            <TabsTrigger value="manga" className="gap-2">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-secondary/40 p-1 sm:inline-flex sm:w-auto sm:flex-wrap">
+            <TabsTrigger value="manga" className="gap-2 px-3 text-xs sm:text-sm">
               <Heart className="h-4 w-4" />
-              Favori Mangalar
+              <span className="sm:hidden">Mangalar</span>
+              <span className="hidden sm:inline">Favori Mangalar</span>
             </TabsTrigger>
-            <TabsTrigger value="lists" className="gap-2">
+            <TabsTrigger value="lists" className="gap-2 px-3 text-xs sm:text-sm">
               <List className="h-4 w-4" />
-              Beğenilen Okuma Listeleri
+              <span className="sm:hidden">Listeler</span>
+              <span className="hidden sm:inline">Beğenilen Okuma Listeleri</span>
             </TabsTrigger>
           </TabsList>
 
@@ -122,7 +124,7 @@ const Favorites: React.FC = () => {
 
           <TabsContent value="lists" className="mt-0">
             {favoriteLists.length > 0 ? (
-              <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {favoriteLists.map((list, index) => (
                   <Link
                     key={list.id}

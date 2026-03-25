@@ -1,0 +1,19 @@
+- generic [ref=e3]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - banner [ref=e5]:
+      - generic [ref=e6]:
+        - link "Logo" [ref=e7] [cursor=pointer]:
+          - /url: /
+          - img "Logo" [ref=e8]
+        - generic [ref=e9]:
+          - generic [ref=e10]:
+            - button [ref=e11] [cursor=pointer]:
+              - img
+            - button "Çevrimdışı Mod" [ref=e13] [cursor=pointer]:
+              - img
+          - link "Giriş Yap" [ref=e14] [cursor=pointer]:
+            - /url: /auth
+    - main [ref=e15]

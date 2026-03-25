@@ -197,8 +197,8 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="max-w-2xl border-border/80 bg-background/95 p-0 backdrop-blur-xl">
-                <div className="border-b border-border/60 px-6 py-5">
+            <DialogContent className="w-[calc(100%-1.5rem)] max-w-2xl border-border/80 bg-background/95 p-0 backdrop-blur-xl">
+                <div className="border-b border-border/60 px-4 py-5 sm:px-6">
                     <DialogHeader>
                         <DialogTitle>Sayfa {pageNumber ?? '-'} İçin Yorum Yap</DialogTitle>
                         <DialogDescription>
@@ -212,15 +212,15 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                         Yorum yazmak için giriş yapmalısınız.
                     </div>
                 ) : (
-                    <div className="space-y-4 px-6 py-5">
-                        <div className="rounded-2xl border border-border/70 bg-card/60 p-4">
-                            <div className="flex gap-3">
+                    <div className="space-y-4 px-4 py-5 sm:px-6">
+                        <div className="rounded-2xl border border-border/70 bg-card/60 p-3 sm:p-4">
+                            <div className="flex flex-col gap-3 sm:flex-row">
                                 <Avatar className="h-10 w-10">
                                     <AvatarImage src={user.avatar} />
                                     <AvatarFallback>{user.username[0]?.toUpperCase() || '?'}</AvatarFallback>
                                 </Avatar>
 
-                                <div className="flex-1 space-y-3">
+                                <div className="min-w-0 flex-1 space-y-3">
                                     <Textarea
                                         placeholder={`Sayfa ${pageNumber ?? '-'} hakkında yorum yazın...`}
                                         value={draft.body}
@@ -248,7 +248,7 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                                             )}
 
                                             {draft.mediaUrls.filter(Boolean).map((mediaUrl, index) => (
-                                                <div key={`${mediaUrl}-${index}`} className="flex min-w-[220px] items-center gap-2 rounded-xl border border-border bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+                                                <div key={`${mediaUrl}-${index}`} className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-background/70 px-3 py-2 text-sm text-muted-foreground sm:min-w-[220px] sm:w-auto">
                                                     <Link2 className="h-4 w-4 shrink-0" />
                                                     <span className="truncate">{mediaUrl}</span>
                                                 </div>
@@ -259,14 +259,14 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                                     {showMediaFields && (
                                         <div className="space-y-2 rounded-xl border border-border/60 bg-background/30 p-3">
                                             {draft.mediaUrls.map((mediaUrl, index) => (
-                                                <div key={`reader-modal-media-${index}`} className="flex items-center gap-2">
+                                                <div key={`reader-modal-media-${index}`} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                                     <Input
                                                         placeholder={`Görsel Linki ${index + 1}`}
                                                         value={mediaUrl}
                                                         onChange={(event) => updateMediaUrl(index, event.target.value)}
                                                         className="h-10"
                                                     />
-                                                    <Button type="button" variant="ghost" size="sm" onClick={() => removeMediaField(index)}>
+                                                    <Button type="button" variant="ghost" size="sm" className="justify-start sm:justify-center" onClick={() => removeMediaField(index)}>
                                                         Kaldır
                                                     </Button>
                                                 </div>
@@ -278,7 +278,7 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                                         </div>
                                     )}
 
-                                    <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div className="flex flex-wrap items-center gap-2">
                                             <Button
                                                 variant="ghost"
@@ -316,11 +316,11 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                                             </label>
                                         </div>
 
-                                        <div className="flex items-center gap-2">
-                                            <Button variant="ghost" size="sm" onClick={() => onOpenChange(false)}>
+                                        <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center">
+                                            <Button variant="ghost" size="sm" className="w-full sm:w-auto" onClick={() => onOpenChange(false)}>
                                                 İptal
                                             </Button>
-                                            <Button size="sm" onClick={handleSubmit} disabled={!hasContent || isSubmitting}>
+                                            <Button size="sm" className="w-full sm:w-auto" onClick={handleSubmit} disabled={!hasContent || isSubmitting}>
                                                 <Send className="mr-2 h-4 w-4" />
                                                 {isSubmitting ? 'Gönderiliyor...' : 'Gönder'}
                                             </Button>
@@ -346,7 +346,7 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                                     <p className="text-xs text-muted-foreground">Bir GIF seçtiğinde doğrudan bu sayfanın yorumuna eklenir.</p>
                                 </div>
 
-                                <div className="grid max-h-72 grid-cols-3 gap-2 overflow-y-auto">
+                                <div className="grid max-h-72 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
                                     {gifs.map((gif) => {
                                         const gifUrl = gif.media_formats?.tinygif?.url || gif.media_formats?.gif?.url;
                                         if (!gifUrl) {

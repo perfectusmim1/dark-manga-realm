@@ -45,8 +45,9 @@ const TagBadge: React.FC<TagBadgeProps> = ({
 
   return (
     <div
+      title={tag.name}
       className={cn(
-        'group inline-flex items-center gap-1.5 rounded-full border transition-all duration-200',
+        'group inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-full border transition-all duration-200',
         size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm',
         selected
           ? 'bg-primary/20 border-primary/40 text-primary shadow-[0_0_8px_rgba(var(--primary),0.15)]'
@@ -58,18 +59,18 @@ const TagBadge: React.FC<TagBadgeProps> = ({
       )}
       onClick={onClick}
     >
-      <span className="text-[10px]">{config.icon}</span>
-      <span className="font-medium">{tag.name}</span>
+      <span className="shrink-0 text-[10px]">{config.icon}</span>
+      <span className="truncate font-medium">{tag.name}</span>
       
       {tag.isOfficial && (
-        <Shield className="h-3 w-3 opacity-50" />
+        <Shield className="h-3 w-3 shrink-0 opacity-50" />
       )}
       {!tag.isOfficial && accepted && (
-        <CheckCircle2 className="h-3 w-3 opacity-70" />
+        <CheckCircle2 className="h-3 w-3 shrink-0 opacity-70" />
       )}
       
       {showVotes && votes && (
-        <div className="flex items-center gap-1 ml-1 pl-1.5 border-l border-current/20">
+        <div className="ml-1 flex shrink-0 items-center gap-1 border-l border-current/20 pl-1.5">
           <button
             onClick={(e) => { e.stopPropagation(); onVoteUp?.(); }}
             className={cn(
@@ -97,7 +98,7 @@ const TagBadge: React.FC<TagBadgeProps> = ({
       {removable && (
         <button
           onClick={(e) => { e.stopPropagation(); onRemove?.(); }}
-          className="ml-0.5 opacity-0 group-hover:opacity-100 transition-opacity text-current hover:text-destructive"
+          className="ml-0.5 shrink-0 text-current opacity-100 transition-opacity hover:text-destructive md:opacity-0 md:group-hover:opacity-100"
         >
           ×
         </button>

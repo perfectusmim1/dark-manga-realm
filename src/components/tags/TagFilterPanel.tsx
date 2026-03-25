@@ -75,7 +75,7 @@ const TagFilterPanel: React.FC<TagFilterPanelProps> = ({
         variant={isExpanded || selectedTags.length > 0 ? 'default' : 'outline'}
         size="sm"
         onClick={() => setIsExpanded(!isExpanded)}
-        className="gap-1.5"
+        className="w-full justify-between gap-1.5 sm:w-auto sm:justify-center"
       >
         <Hash className="h-4 w-4" />
         Etiketler
@@ -88,7 +88,7 @@ const TagFilterPanel: React.FC<TagFilterPanelProps> = ({
       </Button>
 
       {selectedTags.length > 0 && !isExpanded && (
-        <div className="flex flex-wrap gap-1.5 items-center">
+        <div className="flex flex-wrap items-center gap-2">
           {selectedTags.map(slug => {
             const tag = allTags.find(t => t.slug === slug);
             if (!tag) return null;
@@ -112,7 +112,7 @@ const TagFilterPanel: React.FC<TagFilterPanelProps> = ({
       )}
 
       {isExpanded && (
-        <div className="rounded-xl border border-border bg-card/50 p-4 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300">
+        <div className="rounded-xl border border-border bg-card/50 p-3 space-y-4 animate-in fade-in slide-in-from-top-2 duration-300 sm:p-4">
           <div className="space-y-2">
             <div className="flex items-center gap-1.5 text-sm font-semibold text-muted-foreground">
               <TrendingUp className="h-3.5 w-3.5" />
@@ -148,7 +148,7 @@ const TagFilterPanel: React.FC<TagFilterPanelProps> = ({
                 </button>
 
                 {expandedCategories.has(category) && (
-                  <div className="flex flex-wrap gap-1.5 mt-1 ml-4 animate-in fade-in duration-200">
+                  <div className="mt-2 flex flex-wrap gap-1.5 animate-in fade-in duration-200 sm:ml-4">
                     {categoryTags.map(tag => (
                       <TagBadge
                         key={tag.id}
@@ -165,7 +165,7 @@ const TagFilterPanel: React.FC<TagFilterPanelProps> = ({
           </div>
 
           {selectedTags.length > 0 && (
-            <div className="border-t border-border pt-3 flex items-center justify-between">
+            <div className="flex flex-col gap-3 border-t border-border pt-3 sm:flex-row sm:items-center sm:justify-between">
               <div className="flex flex-wrap gap-1.5">
                 {selectedTags.map(slug => {
                   const tag = allTags.find(t => t.slug === slug);
@@ -184,7 +184,7 @@ const TagFilterPanel: React.FC<TagFilterPanelProps> = ({
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-xs h-7 shrink-0"
+                className="h-8 w-full shrink-0 text-xs sm:w-auto"
                 onClick={() => onSelectedTagsChange([])}
               >
                 <X className="h-3 w-3 mr-1" />

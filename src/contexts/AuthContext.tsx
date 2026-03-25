@@ -100,6 +100,7 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
     new_chapter: true,
     replies: true,
     likes: true,
+    follows: true,
   },
   comments: {
     auto_show_media: false,
@@ -109,6 +110,11 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
   },
   privacy: {
     visibility: 'public',
+    reading_history_visibility: 'public',
+    comments_visibility: 'public',
+    reading_lists_visibility: 'public',
+    tier_lists_visibility: 'public',
+    followed_manga_visibility: 'public',
   },
 };
 

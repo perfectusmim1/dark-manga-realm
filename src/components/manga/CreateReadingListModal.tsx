@@ -113,8 +113,8 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-[425px] flex-col overflow-hidden p-0 sm:max-w-[425px]">
-                <DialogHeader className="px-6 pt-6">
+            <DialogContent className="flex max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-[2rem] p-0 sm:max-h-[85vh] sm:max-w-[425px] sm:rounded-2xl">
+                <DialogHeader className="px-5 pt-5 sm:px-6 sm:pt-6">
                     <DialogTitle className="flex items-center gap-2">
                         <List className="h-5 w-5" />
                         {editList ? 'Listeyi Düzenle' : 'Yeni Liste Oluştur'}
@@ -126,7 +126,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="flex-1 space-y-4 overflow-y-auto px-6 py-4">
+                <div className="flex-1 space-y-4 overflow-y-auto px-5 py-4 sm:px-6">
                     <div className="space-y-2">
                         <Label htmlFor="list-name">Liste Adı</Label>
                         <Input
@@ -167,14 +167,14 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                             Onizleme
                         </div>
                         {imageUrl.trim() && !isValidImageUrl(imageUrl.trim()) ? (
-                            <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                            <div className="rounded-[1.35rem] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive sm:rounded-xl">
                                 Gecersiz gorsel baglantisi. Onizleme gosterilemiyor.
                             </div>
                         ) : (
                             <ReadingListCover
                                 imageUrl={imageUrl.trim()}
                                 alt={name || 'Okuma listesi kapagi'}
-                                className="h-40 w-full rounded-xl border border-border"
+                                className="h-40 w-full rounded-[1.35rem] border border-border sm:rounded-xl"
                                 iconClassName="h-8 w-8"
                                 showLabel
                             />
@@ -195,11 +195,11 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                     </div>
                 </div>
 
-                <DialogFooter className="border-t border-border px-6 py-4">
-                    <Button variant="ghost" onClick={onClose} disabled={isSubmitting}>
+                <DialogFooter className="border-t border-border px-5 py-4 sm:px-6">
+                    <Button variant="ghost" onClick={onClose} disabled={isSubmitting} className="w-full rounded-[1.35rem] sm:w-auto sm:rounded-lg">
                         İptal
                     </Button>
-                    <Button onClick={handleSubmit} disabled={isSubmitting}>
+                    <Button onClick={handleSubmit} disabled={isSubmitting} className="w-full rounded-[1.35rem] sm:w-auto sm:rounded-lg">
                         {isSubmitting ? 'Kaydediliyor...' : editList ? 'Güncelle' : 'Oluştur'}
                     </Button>
                 </DialogFooter>

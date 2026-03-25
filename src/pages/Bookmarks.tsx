@@ -99,14 +99,14 @@ const Bookmarks: React.FC = () => {
 
       <main className="container pb-12 pt-20">
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
-          <h1 className="text-3xl font-bold tracking-tight">Yer İmleri</h1>
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Yer İmleri</h1>
           <p className="mt-2 text-muted-foreground">
             {bookmarks.length} yer imi kaydedildi
           </p>
         </div>
 
         {bookmarks.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-6">
+          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {bookmarks.map((item, index) => {
               const { manga, chapter } = item;
 
@@ -122,7 +122,7 @@ const Bookmarks: React.FC = () => {
                   className="group relative flex flex-col rounded-xl border border-border bg-card/50 overflow-hidden transition-all hover:shadow-xl animate-fade-up opacity-0"
                   style={{ animationDelay: `${0.1 + index * 0.05}s`, animationFillMode: 'forwards' }}
                 >
-                  <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`} className="relative aspect-square w-full overflow-hidden block">
+                  <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`} className="relative aspect-[4/3] w-full overflow-hidden block sm:aspect-square">
                     <img
                       src={previewImage}
                       alt={manga.title}
@@ -130,37 +130,37 @@ const Bookmarks: React.FC = () => {
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
                     
-                    <div className="absolute top-3 left-3 flex px-2 py-1 bg-black/60 backdrop-blur-md rounded-lg text-xs font-bold border border-white/10 text-white shadow-md">
+                    <div className="absolute left-2 top-2 flex rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-white shadow-md backdrop-blur-md sm:left-3 sm:top-3 sm:text-xs">
                         Sayfa {item.page}
                     </div>
                     
-                    <div className="absolute bottom-3 right-3 text-xs text-muted-foreground bg-black/60 backdrop-blur-md px-2 py-1 rounded-md">
+                    <div className="absolute bottom-2 right-2 rounded-md bg-black/60 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur-md sm:bottom-3 sm:right-3 sm:text-xs">
                         {formatDate(item.createdAt)}
                     </div>
                   </Link>
 
-                  <div className="p-4 flex flex-col flex-1">
+                  <div className="flex flex-1 flex-col p-3 sm:p-4">
                     <Link to={`/manga/${manga.id}`} className="hover:text-primary transition-colors">
-                        <h3 className="font-bold line-clamp-1">{manga.title}</h3>
+                        <h3 className="line-clamp-2 text-sm font-bold leading-5 sm:line-clamp-1 sm:text-base">{manga.title}</h3>
                     </Link>
                     
-                    <div className="flex items-center justify-between mt-1">
-                        <p className="text-sm text-primary font-medium">
+                    <div className="mt-1 flex items-center justify-between">
+                        <p className="text-xs font-medium text-primary sm:text-sm">
                             Bölüm {chapter.number}
                         </p>
                     </div>
                     
                     {item.note && (
-                        <div className="mt-3 text-sm text-muted-foreground italic line-clamp-2 bg-secondary/50 p-2 text-center rounded-lg border border-border/50">
+                        <div className="mt-2 line-clamp-2 rounded-lg border border-border/50 bg-secondary/50 p-2 text-center text-xs italic text-muted-foreground sm:mt-3 sm:text-sm">
                           "{item.note}"
                         </div>
                     )}
 
-                    <div className="mt-auto pt-4 flex gap-2 w-full">
+                    <div className="mt-auto flex w-full gap-2 pt-3 sm:pt-4">
                         <Button 
                             variant="default" 
                             size="sm" 
-                            className="flex-1"
+                            className="h-9 flex-1 text-xs sm:text-sm"
                             asChild
                         >
                             <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
@@ -171,7 +171,7 @@ const Bookmarks: React.FC = () => {
                             variant="destructive"
                             size="icon"
                             onClick={() => handleRemoveBookmark(item.id)}
-                            className="shrink-0"
+                            className="h-9 w-9 shrink-0"
                         >
                             <Trash2 className="h-4 w-4" />
                         </Button>

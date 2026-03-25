@@ -238,22 +238,22 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
     };
 
     return (
-        <div className={cn('rounded-2xl border border-border/70 bg-card/80', compact ? 'p-3' : 'p-4')}>
-            <div className="flex gap-3">
+        <div className={cn('rounded-2xl border border-border/70 bg-card/80', compact ? 'p-2.5 sm:p-3' : 'p-2.5 sm:p-4')}>
+            <div className="flex items-start gap-3">
                 {username && (
-                    <Avatar className={compact ? 'h-8 w-8' : 'h-10 w-10'}>
+                    <Avatar className={cn('shrink-0', compact ? 'h-8 w-8' : 'h-10 w-10')}>
                         <AvatarImage src={avatar} />
                         <AvatarFallback>{username[0]?.toUpperCase() || '?'}</AvatarFallback>
                     </Avatar>
                 )}
 
-                <div className="flex-1 space-y-3">
+                <div className="min-w-0 flex-1 space-y-3">
                     <Textarea
                         ref={textareaRef}
                         placeholder={placeholder}
                         value={draft.body}
                         onChange={(event) => setField('body', event.target.value)}
-                        className={compact ? 'min-h-[88px]' : 'min-h-[120px]'}
+                        className={compact ? 'min-h-[80px] sm:min-h-[88px]' : 'min-h-[104px] sm:min-h-[120px]'}
                     />
 
                     {(draft.gifUrl || draft.mediaUrls.length > 0) && (
@@ -268,7 +268,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                             )}
 
                             {draft.mediaUrls.filter(Boolean).map((mediaUrl, index) => (
-                                <div key={`${mediaUrl}-${index}`} className="flex min-w-[220px] items-center gap-2 rounded-xl border border-border bg-background/70 px-3 py-2 text-sm text-muted-foreground">
+                                <div key={`${mediaUrl}-${index}`} className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-background/70 px-3 py-2 text-sm text-muted-foreground sm:min-w-[220px] sm:w-auto">
                                     <Link2 className="h-4 w-4 shrink-0" />
                                     <span className="truncate">{mediaUrl}</span>
                                 </div>
@@ -279,14 +279,14 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                     {showMediaFields && (
                         <div className="space-y-2 rounded-xl border border-border/60 bg-background/30 p-3">
                             {draft.mediaUrls.map((mediaUrl, index) => (
-                                <div key={index} className="flex items-center gap-2">
+                                <div key={index} className="flex flex-col gap-2 sm:flex-row sm:items-center">
                                     <Input
                                         placeholder={`Görsel Linki ${index + 1}`}
                                         value={mediaUrl}
                                         onChange={(event) => updateMediaUrl(index, event.target.value)}
                                         className="h-10"
                                     />
-                                    <Button type="button" variant="ghost" size="sm" onClick={() => removeMediaField(index)}>
+                                    <Button type="button" variant="ghost" size="sm" className="justify-start sm:justify-center" onClick={() => removeMediaField(index)}>
                                         Kaldır
                                     </Button>
                                 </div>
@@ -298,13 +298,13 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                         </div>
                     )}
 
-                    <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Button variant="ghost" size="sm" onClick={onOpenGifPicker}>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
+                            <Button variant="ghost" size="sm" className="h-8 justify-center px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm" onClick={onOpenGifPicker}>
                                 <Image className="mr-2 h-4 w-4" />
                                 GIF Ekle
                             </Button>
-                            <Button variant="ghost" size="sm" onClick={() => {
+                            <Button variant="ghost" size="sm" className="h-8 justify-center px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm" onClick={() => {
                                 if (draft.mediaUrls.length === 0) {
                                     addMediaField();
                                 } else {
@@ -314,7 +314,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                                 <Link2 className="mr-2 h-4 w-4" />
                                 Görsel Ekle
                             </Button>
-                            <label className="ml-1 flex items-center gap-2 text-sm text-muted-foreground">
+                            <label className="col-span-2 flex items-center gap-2 pt-1 text-xs text-muted-foreground sm:ml-1 sm:w-auto sm:pt-0 sm:text-sm">
                                 <Checkbox
                                     checked={draft.isSpoiler}
                                     onCheckedChange={(checked) => setField('isSpoiler', checked === true)}
@@ -323,14 +323,14 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                             </label>
                         </div>
 
-                        <div className="flex items-center gap-2">
+                        <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center">
                             {onCancel && (
-                                <Button variant="ghost" size="sm" onClick={onCancel}>
+                                <Button variant="ghost" size="sm" className="w-full sm:w-auto" onClick={onCancel}>
                                     İptal
                                 </Button>
                             )}
 
-                            <Button size="sm" onClick={onSubmit} disabled={!hasContent}>
+                            <Button size="sm" className="w-full sm:w-auto" onClick={onSubmit} disabled={!hasContent}>
                                 <Send className="mr-2 h-4 w-4" />
                                 {submitLabel}
                             </Button>
@@ -1426,11 +1426,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         }
 
         if (depth === 2) {
-            return 'ml-4';
+            return 'ml-1 sm:ml-4';
         }
 
         if (depth === 3) {
-            return 'ml-8';
+            return 'ml-2 sm:ml-8';
         }
 
         return '';
@@ -1438,14 +1438,14 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
     const getReplyThreadClassName = (depth: number) => {
         if (depth === 1) {
-            return 'space-y-3 border-l-2 border-border pl-4';
+            return 'space-y-2 border-l-2 border-border pl-2 sm:space-y-3 sm:pl-4';
         }
 
         if (depth > MAX_REPLY_INDENT_LEVEL) {
-            return 'mt-3 space-y-3';
+            return 'mt-2 space-y-2 sm:mt-3 sm:space-y-3';
         }
 
-        return cn('mt-3 space-y-3 border-l border-border/60 pl-3', getReplyIndentClass(depth));
+        return cn('mt-2 space-y-2 border-l border-border/60 pl-2 sm:mt-3 sm:space-y-3 sm:pl-3', getReplyIndentClass(depth));
     };
 
     const renderReplyThread = (parentId: string, depth = 1): React.ReactNode => {
@@ -1474,11 +1474,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                 reply.isPinned
                                     ? 'border border-primary/30 bg-primary/5 p-2'
                                     : useNestedCardStyle
-                                        ? 'border border-border/60 bg-background/30 p-3'
+                                        ? 'border border-border/60 bg-background/30 p-2.5 sm:p-3'
                                         : ''
                             )}
                         >
-                            <div className="flex gap-2 transition-all duration-300">
+                            <div className="flex items-start gap-2 transition-all duration-300 sm:flex-row">
                                 <Link to={`/profile/${reply.userId}`} className="shrink-0 transition-transform hover:scale-105">
                                     <Avatar className="h-8 w-8 border border-transparent text-foreground transition-colors hover:border-primary">
                                         <AvatarImage src={reply.userAvatar} />
@@ -1486,33 +1486,35 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     </Avatar>
                                 </Link>
 
-                                <div className="flex-1">
-                                    <div className="flex items-center justify-between gap-2">
-                                        <div className="flex flex-wrap items-center gap-2">
-                                            <Link
-                                                to={`/profile/${reply.userId}`}
-                                                className={cn(
-                                                    'text-sm font-medium transition-colors hover:underline',
-                                                    reply.userRole
-                                                        ? getStaffTextClassName(reply.userRole)
-                                                        : 'text-foreground hover:text-primary'
+                                <div className="min-w-0 flex-1">
+                                    <div className="flex items-start justify-between gap-2">
+                                        <div className="min-w-0 flex-1">
+                                            <div className="flex flex-wrap items-center gap-2">
+                                                <Link
+                                                    to={`/profile/${reply.userId}`}
+                                                    className={cn(
+                                                        'text-sm font-medium transition-colors hover:underline',
+                                                        reply.userRole
+                                                            ? getStaffTextClassName(reply.userRole)
+                                                            : 'text-foreground hover:text-primary'
+                                                    )}
+                                                >
+                                                    {reply.username}
+                                                </Link>
+                                                <StaffBadge role={reply.userRole} compact />
+                                                {reply.isPinned && (
+                                                    <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
+                                                        <Pin className="h-3 w-3" />
+                                                        Sabit
+                                                    </Badge>
                                                 )}
-                                            >
-                                                {reply.username}
-                                            </Link>
-                                            <StaffBadge role={reply.userRole} compact />
-                                            {reply.isPinned && (
-                                                <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
-                                                    <Pin className="h-3 w-3" />
-                                                    Sabit
-                                                </Badge>
-                                            )}
-                                            {reply.pageNumber && (
-                                                <Badge variant="outline" className="h-5 px-2 text-[10px] uppercase tracking-wide">
-                                                    Sayfa {reply.pageNumber}
-                                                </Badge>
-                                            )}
-                                            <span className="text-xs text-muted-foreground">
+                                                {reply.pageNumber && (
+                                                    <Badge variant="outline" className="h-5 px-2 text-[10px] uppercase tracking-wide">
+                                                        Sayfa {reply.pageNumber}
+                                                    </Badge>
+                                                )}
+                                            </div>
+                                            <span className="mt-1 block text-xs text-muted-foreground">
                                                 {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
                                                 {reply.updatedAt && new Date(reply.updatedAt).getTime() - new Date(reply.createdAt).getTime() > 2000 && ' (düzenlendi)'}
                                             </span>
@@ -1521,7 +1523,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                         {(user?.id === reply.userId || user?.role === 'admin' || user?.role === 'moderator') && (
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-7 w-7">
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
                                                         <MoreVertical className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
@@ -1587,7 +1589,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     key={`${reply.id}-media-${index}`}
                                                     src={mediaUrl}
                                                     alt={`Reply media ${index + 1}`}
-                                                    className="mt-2 max-h-64 rounded-lg"
+                                                    className="mt-2 max-h-64 w-full rounded-lg object-contain"
                                                     onError={() => markMediaAsFailed(`${reply.id}:media:${index}`)}
                                                 />
                                             ))}
@@ -1595,7 +1597,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                 <img
                                                     src={reply.gifUrl}
                                                     alt="Reply GIF"
-                                                    className="mt-2 max-h-48 rounded-lg"
+                                                    className="mt-2 max-h-48 w-full rounded-lg object-contain"
                                                     onError={() => markMediaAsFailed(`${reply.id}:gif`)}
                                                 />
                                             )}
@@ -1661,18 +1663,18 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
     return (
         <div className="space-y-8">
-            <div className="text-center space-y-6 py-6 pb-12 border-b border-border/50">
+            <div className="space-y-6 border-b border-border/50 py-6 pb-10 text-center sm:pb-12">
                 <div className="space-y-1">
-                    <h2 className="text-2xl font-black tracking-tight">Ne Düşünüyorsun?</h2>
+                    <h2 className="text-xl font-black tracking-tight sm:text-2xl">Ne Düşünüyorsun?</h2>
                     <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest">Tepkiler</p>
                 </div>
 
-                <div className="flex flex-wrap justify-center gap-4">
+                <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
                     {reactionTypes.map((r) => (
                         <div key={r.type} className="flex flex-col items-center gap-2">
                             <button
                                 onClick={() => handleReaction(r.type)}
-                                className={`group flex items-center gap-2 px-6 py-2.5 rounded-full border-2 transition-all duration-300 ${userReaction === r.type
+                                className={`group flex items-center gap-2 rounded-full border-2 px-4 py-2 text-sm transition-all duration-300 sm:px-6 sm:py-2.5 ${userReaction === r.type
                                     ? 'bg-primary/20 border-primary text-primary shadow-lg shadow-primary/10'
                                     : 'bg-card border-border hover:border-primary/50 hover:bg-secondary/50'
                                     }`}
@@ -1692,7 +1694,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 </div>
             </div>
 
-            <div ref={commentSectionHeaderRef} className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div ref={commentSectionHeaderRef} className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-3">
                     <div className="flex flex-wrap items-center gap-2">
                         <MessageCircle className="h-5 w-5 text-primary" />
@@ -1710,11 +1712,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
                     {hasReaderPageContext && (
                         <div className="flex flex-wrap items-center gap-2">
-                            <div className="inline-flex rounded-xl border border-border bg-secondary/20 p-1">
+                            <div className="inline-flex w-full rounded-xl border border-border bg-secondary/20 p-1 sm:w-auto">
                                 <button
                                     onClick={() => setFeedScope('chapter')}
                                     className={cn(
-                                        'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
+                                        'flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all sm:flex-none',
                                         feedScope === 'chapter'
                                             ? 'bg-background text-foreground shadow-sm'
                                             : 'text-muted-foreground hover:text-foreground'
@@ -1736,7 +1738,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                         }
                                     }}
                                     className={cn(
-                                        'rounded-lg px-3 py-1.5 text-xs font-semibold transition-all',
+                                        'flex-1 rounded-lg px-3 py-1.5 text-xs font-semibold transition-all sm:flex-none',
                                         feedScope === 'page'
                                             ? 'bg-background text-foreground shadow-sm'
                                             : 'text-muted-foreground hover:text-foreground'
@@ -1747,7 +1749,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                             </div>
 
                             {feedScope === 'page' && (
-                                <div className="inline-flex items-center gap-2 rounded-xl border border-border bg-card/50 px-2 py-1.5">
+                                <div className="inline-flex w-full flex-wrap items-center gap-2 rounded-xl border border-border bg-card/50 px-2 py-1.5 sm:w-auto sm:flex-nowrap">
                                     <Button
                                         type="button"
                                         variant="ghost"
@@ -1771,7 +1773,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     >
                                         <ChevronDown className="h-4 w-4 -rotate-90" />
                                     </Button>
-                                    <div className="ml-1 flex items-center gap-2 border-l border-border/60 pl-2">
+                                    <div className="flex w-full items-center justify-end gap-2 border-t border-border/60 pt-2 sm:ml-1 sm:w-auto sm:border-l sm:border-t-0 sm:pl-2 sm:pt-0">
                                         <Input
                                             inputMode="numeric"
                                             pattern="[0-9]*"
@@ -1802,10 +1804,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     )}
                 </div>
 
-                <div className="flex items-center bg-secondary/30 rounded-lg p-1">
+                <div className="hidden w-full items-center rounded-lg bg-secondary/30 p-1 sm:flex sm:w-auto">
                     <button
                         onClick={() => setSortBy('newest')}
-                        className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${sortBy === 'newest'
+                        className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-all sm:flex-none ${sortBy === 'newest'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
                             }`}
@@ -1814,7 +1816,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     </button>
                     <button
                         onClick={() => setSortBy('popular')}
-                        className={`px-4 py-1.5 text-xs font-bold rounded-md transition-all ${sortBy === 'popular'
+                        className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-all sm:flex-none ${sortBy === 'popular'
                             ? 'bg-background text-foreground shadow-sm'
                             : 'text-muted-foreground hover:text-foreground'
                             }`}
@@ -1826,23 +1828,23 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
             {hasReaderPageContext && feedScope === 'page' && (
                 <div className="rounded-2xl border border-border/70 bg-card/40 p-3 sm:p-4">
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                        <div className="w-full max-w-[9.5rem] shrink-0 overflow-hidden rounded-xl border border-border/70 bg-background/70">
+                    <div className="flex items-start gap-3 sm:flex-row sm:items-center">
+                        <div className="w-28 shrink-0 overflow-hidden rounded-xl border border-border/70 bg-background/70 sm:w-full sm:max-w-[9.5rem]">
                             {activePagePreviewUrl ? (
                                 <img
                                     src={activePagePreviewUrl}
                                     alt={`Sayfa ${activePageNumber} önizlemesi`}
-                                    className="h-40 w-full object-cover object-top"
+                                    className="h-28 w-full object-cover object-top sm:h-40"
                                     loading="lazy"
                                 />
                             ) : (
-                                <div className="flex h-40 items-center justify-center text-muted-foreground">
+                                <div className="flex h-28 items-center justify-center text-muted-foreground sm:h-40">
                                     <Image className="h-5 w-5" />
                                 </div>
                             )}
                         </div>
 
-                        <div className="min-w-0 space-y-1">
+                        <div className="min-w-0 flex-1 space-y-1">
                             <Badge variant="outline" className="h-5 px-2 text-[10px] uppercase tracking-wide">
                                 Seçili Sayfa
                             </Badge>
@@ -1856,6 +1858,27 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     </div>
                 </div>
             )}
+
+            <div className="flex w-full items-center rounded-lg bg-secondary/30 p-1 sm:hidden">
+                <button
+                    onClick={() => setSortBy('newest')}
+                    className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-all ${sortBy === 'newest'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                >
+                    En Yeni
+                </button>
+                <button
+                    onClick={() => setSortBy('popular')}
+                    className={`flex-1 rounded-md px-4 py-1.5 text-xs font-bold transition-all ${sortBy === 'popular'
+                        ? 'bg-background text-foreground shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                >
+                    Popüler
+                </button>
+            </div>
 
             {user ? (
                 <CommentComposer
@@ -1896,46 +1919,48 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     key={comment.id}
                                     data-comment-id={comment.id}
                                     className={cn(
-                                        'relative overflow-hidden rounded-lg border p-4 transition-all',
+                                        'relative overflow-hidden rounded-lg border p-2.5 transition-all sm:p-4',
                                         highlightedCommentId === comment.id && 'animate-pulse ring-2 ring-primary/70 bg-primary/10 shadow-[0_0_32px_rgba(59,130,246,0.22)]',
                                         comment.isPinned ? 'border-primary/40 bg-primary/5' : 'border-border bg-card/50'
                                     )}
                                 >
                                     <div className="transition-all duration-300">
-                                        <div className="flex gap-3">
+                                        <div className="flex items-start gap-3">
                                             <Link to={`/profile/${comment.userId}`} className="shrink-0 transition-transform hover:scale-105">
-                                                <Avatar className="h-10 w-10 border border-transparent hover:border-primary transition-colors cursor-pointer text-foreground">
+                                                <Avatar className="h-9 w-9 border border-transparent text-foreground transition-colors cursor-pointer hover:border-primary sm:h-10 sm:w-10">
                                                     <AvatarImage src={comment.userAvatar} />
                                                     <AvatarFallback>{comment.username[0].toUpperCase()}</AvatarFallback>
                                                 </Avatar>
                                             </Link>
-                                            <div className="flex-1">
-                                                <div className="flex items-center justify-between">
-                                                <div className="flex flex-wrap items-center gap-2">
-                                                    <Link
-                                                        to={`/profile/${comment.userId}`}
-                                                        className={cn(
-                                                            'cursor-pointer font-medium transition-colors hover:underline',
-                                                            comment.userRole
-                                                                ? getStaffTextClassName(comment.userRole)
-                                                                : 'text-foreground hover:text-primary'
-                                                        )}
-                                                    >
-                                                        {comment.username}
-                                                    </Link>
-                                                    <StaffBadge role={comment.userRole} compact />
-                                                    {comment.isPinned && (
-                                                        <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
-                                                            <Pin className="h-3 w-3" />
-                                                                Sabit
-                                                            </Badge>
-                                                        )}
-                                                        {comment.pageNumber && (
-                                                            <Badge variant="outline" className="h-5 px-2 text-[10px] uppercase tracking-wide">
-                                                                Sayfa {comment.pageNumber}
-                                                            </Badge>
-                                                        )}
-                                                        <span className="text-xs text-muted-foreground">
+                                            <div className="min-w-0 flex-1">
+                                                <div className="flex items-start justify-between gap-2">
+                                                    <div className="min-w-0 flex-1">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <Link
+                                                                to={`/profile/${comment.userId}`}
+                                                                className={cn(
+                                                                    'cursor-pointer font-medium transition-colors hover:underline',
+                                                                    comment.userRole
+                                                                        ? getStaffTextClassName(comment.userRole)
+                                                                        : 'text-foreground hover:text-primary'
+                                                                )}
+                                                            >
+                                                                {comment.username}
+                                                            </Link>
+                                                            <StaffBadge role={comment.userRole} compact />
+                                                            {comment.isPinned && (
+                                                                <Badge variant="secondary" className="h-5 gap-1 px-2 text-[10px] uppercase tracking-wide">
+                                                                    <Pin className="h-3 w-3" />
+                                                                    Sabit
+                                                                </Badge>
+                                                            )}
+                                                            {comment.pageNumber && (
+                                                                <Badge variant="outline" className="h-5 px-2 text-[10px] uppercase tracking-wide">
+                                                                    Sayfa {comment.pageNumber}
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <span className="mt-1 block text-xs text-muted-foreground">
                                                             {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
                                                             {comment.updatedAt && new Date(comment.updatedAt).getTime() - new Date(comment.createdAt).getTime() > 2000 && ' (düzenlendi)'}
                                                         </span>
@@ -1944,7 +1969,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     {(user?.id === comment.userId || user?.role === 'admin' || user?.role === 'moderator') && (
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
-                                                                <Button variant="ghost" size="icon" className="h-8 w-8">
+                                                                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
                                                                     <MoreVertical className="h-4 w-4" />
                                                                 </Button>
                                                             </DropdownMenuTrigger>
@@ -1955,12 +1980,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                         {comment.isPinned ? 'Sabitlemeyi Kaldır' : 'Sabitle'}
                                                                     </DropdownMenuItem>
                                                                 )}
-                                                                                            {canEditComment(comment) && (
-                                                                                                <DropdownMenuItem onClick={() => startEdit(comment)}>
-                                                                                                    <Edit2 className="mr-2 h-4 w-4" />
-                                                                                                    Düzenle
-                                                                                                </DropdownMenuItem>
-                                                                                            )}
+                                                                {canEditComment(comment) && (
+                                                                    <DropdownMenuItem onClick={() => startEdit(comment)}>
+                                                                        <Edit2 className="mr-2 h-4 w-4" />
+                                                                        Düzenle
+                                                                    </DropdownMenuItem>
+                                                                )}
                                                                 <DropdownMenuItem
                                                                     onClick={() => handleDeleteComment(comment.id)}
                                                                     className="text-destructive"
@@ -1998,12 +2023,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     <div className="mt-2 space-y-2">
                                                         {comment.isSpoiler && !revealedSpoilers[comment.id] ? (
                                                             <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
-                                                                <div className="flex items-center justify-between gap-3">
+                                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                                                     <span className="flex items-center gap-2">
                                                                         <AlertTriangle className="h-4 w-4" />
                                                                         Bu yorum spoiler olarak işaretlendi.
                                                                     </span>
-                                                                    <Button size="sm" variant="secondary" onClick={() => toggleSpoiler(comment.id)}>
+                                                                    <Button size="sm" variant="secondary" className="w-full sm:w-auto" onClick={() => toggleSpoiler(comment.id)}>
                                                                         <Eye className="mr-2 h-4 w-4" />
                                                                         Spoileri Göster
                                                                     </Button>
@@ -2062,7 +2087,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                                         <img
                                                                                             src={comment.gifUrl}
                                                                                             alt="Comment GIF"
-                                                                                            className="max-h-48 rounded-lg"
+                                                                                            className="max-h-48 w-full rounded-lg object-contain"
                                                                                             onError={() => markMediaAsFailed(`${comment.id}:gif`)}
                                                                                         />
                                                                                     )
@@ -2076,12 +2101,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     </div>
                                                 )}
 
-                                                <div className="mt-3 flex items-center gap-4">
+                                                <div className="mt-3 flex flex-wrap items-center gap-1 sm:gap-3">
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => handleLike(comment.id)}
-                                                        className={comment.likedBy.includes(user?.id || '') ? 'text-primary' : ''}
+                                                        data-liked={comment.likedBy.includes(user?.id || '')}
+                                                        className={cn('h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm', comment.likedBy.includes(user?.id || '') && 'text-primary')}
                                                     >
                                                         <ThumbsUp className="mr-1 h-4 w-4" />
                                                         {comment.likes}
@@ -2089,6 +2115,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
+                                                        className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
                                                         onClick={() => openReplyComposer(comment)}
                                                     >
                                                         <Reply className="mr-1 h-4 w-4" />
@@ -2098,15 +2125,15 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
+                                                            className="h-8 px-2.5 text-xs text-muted-foreground hover:text-amber-200 sm:h-9 sm:px-3 sm:text-sm"
                                                             onClick={() => openCommentReport(comment)}
-                                                            className="text-muted-foreground hover:text-amber-200"
                                                         >
                                                             <Flag className="mr-1 h-4 w-4" />
                                                             Bildir
                                                         </Button>
                                                     )}
                                                     {getReplies(comment.id).length > 0 && (
-                                                        <Button variant="ghost" size="sm" onClick={() => toggleReplies(comment.id)}>
+                                                        <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm" onClick={() => toggleReplies(comment.id)}>
                                                             {expandedReplies[comment.id] ? (
                                                                 <>
                                                                     <ChevronUp className="mr-1 h-4 w-4" />
@@ -2149,7 +2176,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     <div
                                                         className={cn(
                                                             'grid transition-all duration-200 ease-out',
-                                                            expandedReplies[comment.id] ? 'mt-4 grid-rows-[1fr] opacity-100' : 'grid-rows-[0fr] opacity-0'
+                                                            expandedReplies[comment.id] ? 'mt-3 grid-rows-[1fr] opacity-100 sm:mt-4' : 'grid-rows-[0fr] opacity-0'
                                                         )}
                                                     >
                                                         <div className="min-h-0 overflow-hidden">
@@ -2206,7 +2233,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     setReportDetails('');
                 }
             }}>
-                <DialogContent className="sm:max-w-[560px]">
+                <DialogContent className="w-[calc(100%-1.5rem)] max-w-[560px]">
                     <DialogHeader>
                         <DialogTitle>Yorumu Bildir</DialogTitle>
                         <DialogDescription>
@@ -2252,9 +2279,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                         </div>
                     </div>
 
-                    <DialogFooter>
+                    <DialogFooter className="flex-col gap-2 sm:flex-row">
                         <Button
                             variant="ghost"
+                            className="w-full sm:w-auto"
                             onClick={() => {
                                 setReportingComment(null);
                                 setReportDetails('');
@@ -2262,7 +2290,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                         >
                             İptal
                         </Button>
-                        <Button onClick={handleSubmitCommentReport} disabled={isSubmittingReport}>
+                        <Button className="w-full sm:w-auto" onClick={handleSubmitCommentReport} disabled={isSubmittingReport}>
                             {isSubmittingReport ? 'Gönderiliyor...' : 'Bildirimi Gönder'}
                         </Button>
                     </DialogFooter>
@@ -2270,7 +2298,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             </Dialog>
 
             <Dialog open={showGifPicker} onOpenChange={setShowGifPicker}>
-                <DialogContent className="max-w-2xl">
+                <DialogContent className="w-[calc(100%-1.5rem)] max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>GIF Seç</DialogTitle>
                     </DialogHeader>
@@ -2285,7 +2313,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                             }}
                             className="w-full rounded-lg border border-border bg-background px-4 py-2"
                         />
-                        <div className="grid max-h-96 grid-cols-3 gap-2 overflow-y-auto">
+                        <div className="grid max-h-96 grid-cols-2 gap-2 overflow-y-auto sm:grid-cols-3">
                             {gifs.map((gif) => (
                                 <button
                                     key={gif.id}

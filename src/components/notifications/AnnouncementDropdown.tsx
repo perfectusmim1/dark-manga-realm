@@ -114,11 +114,11 @@ const AnnouncementDropdown: React.FC = () => {
             </PopoverTrigger>
             <PopoverContent
                 align="end"
-                className="w-80 md:w-96 p-0 border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl"
+                className="w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] border-border/50 bg-background/95 p-0 shadow-2xl backdrop-blur-xl sm:w-80 md:w-96"
                 sideOffset={8}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-border/50 p-4">
+                <div className="flex items-center justify-between border-b border-border/50 p-3 sm:p-4">
                     <div className="flex items-center gap-2">
                         <Megaphone className="h-4 w-4 text-amber-500" />
                         <h3 className="font-semibold">Duyurular</h3>
@@ -131,9 +131,9 @@ const AnnouncementDropdown: React.FC = () => {
                 </div>
 
                 {/* List */}
-                <ScrollArea className="h-[450px]">
+                <ScrollArea className="h-[min(62vh,22rem)] sm:h-[450px]">
                     {announcements.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 px-4">
+                        <div className="flex flex-col items-center justify-center px-4 py-10 sm:py-12">
                             <Megaphone className="h-12 w-12 text-muted-foreground/30 mb-3" />
                             <p className="text-sm text-muted-foreground text-center">
                                 Henüz duyuru yok
@@ -146,13 +146,13 @@ const AnnouncementDropdown: React.FC = () => {
                                 return (
                                     <div
                                         key={announcement.id}
-                                        className={`w-full p-4 transition-all flex flex-col gap-2 ${!isRead ? 'bg-amber-500/5' : ''}`}
+                                        className={`flex w-full flex-col gap-2 p-3 transition-all sm:p-4 ${!isRead ? 'bg-amber-500/5' : ''}`}
                                         onMouseEnter={() => !isRead && handleMarkAsRead(announcement.id)}
                                     >
                                         <div className="flex items-center justify-between gap-2">
                                             <div className="flex items-center gap-2">
                                                 {!isRead && <span className="h-2 w-2 rounded-full bg-red-500 flex-shrink-0" />}
-                                                <span className="font-bold text-sm">
+                                                <span className="font-bold text-sm leading-snug">
                                                     {announcement.title}
                                                 </span>
                                             </div>

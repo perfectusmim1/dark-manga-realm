@@ -131,7 +131,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div
-          className="container flex h-14 items-center justify-between gap-4"
+          className="container flex h-auto items-center justify-between gap-2 py-2 sm:h-14 sm:gap-4 sm:py-0"
         >
           <div className="flex items-center gap-2">
             <Button asChild variant="ghost" size="icon">
@@ -270,6 +270,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       <p className="text-[11px] text-muted-foreground">
                         Mevcut sayfanın yorumlarını kenar boşluklarında gösterir.
                       </p>
+                      <p className="text-[11px] text-amber-300/80">
+                        Not: Mobil görünüm için uyumlu değildir, sıkışık görünebilir.
+                      </p>
                     </div>
                     <Switch
                       checked={settings.showPageComments}
@@ -307,6 +310,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           <Button
             variant="ghost"
             disabled={!prevChapter || navigatingChapterId !== null}
+            className="h-10 shrink-0 px-2 text-sm sm:px-3"
             onClick={() => {
               if (prevChapter) {
                 void handleChapterNavigation(prevChapter);
@@ -314,16 +318,16 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             }}
           >
             <ChevronLeft className="h-4 w-4" />
-            Önceki
+            <span className="hidden sm:inline">Önceki</span>
           </Button>
 
           {settings.showProgress && (
-            <div className="flex flex-1 items-center justify-center gap-3 px-4 overflow-hidden">
-              <span className="text-xs font-semibold tabular-nums text-muted-foreground select-none whitespace-nowrap">
+            <div className="flex min-w-0 flex-1 items-center justify-center gap-2 px-1 sm:gap-3 sm:px-4">
+              <span className="hidden text-xs font-semibold tabular-nums text-muted-foreground select-none whitespace-nowrap sm:inline">
                 {currentPage} / {totalPages}
               </span>
 
-              <div className="relative flex-1 max-w-[500px]">
+              <div className="relative min-w-0 flex-1 max-w-[500px]">
                 {/* Hover tooltip */}
                 {hoverPage !== null && (
                   <div
@@ -368,7 +372,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               </span>
 
               {isAutoScrollAvailable && (
-                <div className="flex items-center gap-1.5 rounded-full border border-border/70 bg-background/70 px-1.5 py-1 shrink-0">
+                <div className="flex shrink-0 items-center gap-1 rounded-full border border-border/70 bg-background/70 px-1 py-1 sm:gap-1.5 sm:px-1.5">
                   <Button
                     variant={isAutoScrolling ? 'default' : 'ghost'}
                     size="icon"
@@ -384,11 +388,11 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-7 gap-1 rounded-full px-2 text-[10px] font-semibold text-muted-foreground hover:text-foreground"
+                        className="h-7 w-7 rounded-full p-0 text-[10px] font-semibold text-muted-foreground hover:text-foreground sm:h-7 sm:w-auto sm:gap-1 sm:px-2"
                         title="Otomatik kaydırma hızı"
                       >
                         <Gauge className="h-3.5 w-3.5" />
-                        {autoScrollSpeed} px/sn
+                        <span className="hidden sm:inline">{autoScrollSpeed} px/sn</span>
                       </Button>
                     </PopoverTrigger>
                     <PopoverContent align="end" className="w-60">
@@ -433,13 +437,14 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           <Button
             variant="ghost"
             disabled={!nextChapter || navigatingChapterId !== null}
+            className="h-10 shrink-0 px-2 text-sm sm:px-3"
             onClick={() => {
               if (nextChapter) {
                 void handleChapterNavigation(nextChapter);
               }
             }}
           >
-            Sonraki
+            <span className="hidden sm:inline">Sonraki</span>
             <ChevronRight className="h-4 w-4" />
           </Button>
         </div>

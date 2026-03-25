@@ -53,12 +53,12 @@ const CustomContextMenu: React.FC = () => {
             setVisible(false);
         };
 
-        document.addEventListener('contextmenu', handleContextMenu);
+        document.addEventListener('contextmenu', handleContextMenu, true);
         document.addEventListener('click', handleClick);
         window.addEventListener('scroll', handleScroll);
 
         return () => {
-            document.removeEventListener('contextmenu', handleContextMenu);
+            document.removeEventListener('contextmenu', handleContextMenu, true);
             document.removeEventListener('click', handleClick);
             window.removeEventListener('scroll', handleScroll);
         };

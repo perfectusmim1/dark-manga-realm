@@ -37,6 +37,8 @@ import { prefetchChapterAssets, prefetchImageAsset, retainPrefetchedChapters } f
 import { OPEN_PAGE_COMMENT_EVENT, OpenPageCommentDetail } from '@/lib/pageCommentEvents';
 
 let persistedAutoScrollIntent = false;
+const MIN_READING_SESSION_SECONDS = 1;
+const READING_SESSION_FLUSH_INTERVAL_MS = 30000;
 
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
@@ -103,6 +105,16 @@ const Reader: React.FC = () => {
     const criticalSources = chapterToPrime.pages.slice(0, Math.min(3, chapterToPrime.pages.length));
     await Promise.allSettled(criticalSources.map((page) => prefetchImageAsset(page)));
   }, [isOfflineChapter, isOnlineNow]);
+
+  useEffect(() => {
+    document.documentElement.classList.add('reader-active');
+    document.body.classList.add('reader-active');
+
+    return () => {
+      document.documentElement.classList.remove('reader-active');
+      document.body.classList.remove('reader-active');
+    };
+  }, []);
 
   const prepareChapterTransition = useCallback((targetChapter?: Chapter) => {
     if (
@@ -485,33 +497,30 @@ const Reader: React.FC = () => {
   }, [chapterId, currentPage, isOfflineChapter, isTrackingReady, resolvedPages.length]);
 
   useEffect(() => {
-    if (!initialized || !isTrackingReady || !user || !mangaId || !chapterId || !chapter || isIncognito) {
+    if (!initialized || !isInitialViewportReady || !user || !mangaId || !chapterId || !chapter || isIncognito) {
       readingSessionStartedAt.current = null;
       return;
     }
 
-    if (isOnlineNow) {
-      logChapterRead(user.id, mangaId, chapterId, chapter.number, 0);
-    }
     readingSessionStartedAt.current = Date.now();
 
     return () => {
-      void flushReadingSession(5, false);
+      void flushReadingSession(MIN_READING_SESSION_SECONDS, false);
     };
-  }, [initialized, isTrackingReady, user, mangaId, chapterId, chapter, isIncognito, flushReadingSession, isOnlineNow]);
+  }, [initialized, isInitialViewportReady, user, mangaId, chapterId, chapter, isIncognito, flushReadingSession]);
 
   useEffect(() => {
-    if (!initialized || !isTrackingReady || !user || !chapter || isIncognito) {
+    if (!initialized || !isInitialViewportReady || !user || !chapter || isIncognito) {
       return;
     }
 
     const intervalId = window.setInterval(() => {
-      void flushReadingSession(30, true);
-    }, 30000);
+      void flushReadingSession(READING_SESSION_FLUSH_INTERVAL_MS / 1000, true);
+    }, READING_SESSION_FLUSH_INTERVAL_MS);
 
     const handleVisibilityChange = () => {
       if (document.visibilityState === 'hidden') {
-        void flushReadingSession(5, false);
+        void flushReadingSession(MIN_READING_SESSION_SECONDS, false);
         return;
       }
 
@@ -519,7 +528,7 @@ const Reader: React.FC = () => {
     };
 
     const handleBeforeUnload = () => {
-      void flushReadingSession(5, false);
+      void flushReadingSession(MIN_READING_SESSION_SECONDS, false);
     };
 
     document.addEventListener('visibilitychange', handleVisibilityChange);
@@ -530,7 +539,7 @@ const Reader: React.FC = () => {
       document.removeEventListener('visibilitychange', handleVisibilityChange);
       window.removeEventListener('beforeunload', handleBeforeUnload);
     };
-  }, [initialized, isTrackingReady, user, chapter, isIncognito, flushReadingSession]);
+  }, [initialized, isInitialViewportReady, user, chapter, isIncognito, flushReadingSession]);
 
   const handleSettingsChange = useCallback((newSettings: ReaderSettings) => {
     setSettings(newSettings);
@@ -1057,15 +1066,11 @@ const Reader: React.FC = () => {
 
       {/* Yorum Bölümü */}
       <div
-        className="mx-auto mt-8 max-w-4xl border-t border-border px-4 pt-8 pb-28 md:pb-32"
+        className="mx-auto mt-6 max-w-4xl border-t border-border px-3 pt-6 pb-28 sm:mt-8 sm:px-4 sm:pt-8 md:pb-32"
         onClick={(e) => e.stopPropagation()}
-      >
+        >
         {isOnlineNow ? (
-            <div className="space-y-4">
-              <div className="rounded-2xl border border-primary/20 bg-primary/5 px-4 py-3 text-sm text-muted-foreground">
-                <span className="font-semibold text-foreground">Sayfa bazlı yorumlar aktif.</span>{' '}
-              İstersen sadece bulunduğun sayfanın yorumlarını görebilir, istersen tüm bölüm sohbetine dönebilirsin. Sayfa üzerinde sağ tık menüsünden yorum kısayolunu da kullanabilirsin.
-              </div>
+            <div>
             <CommentSection
               mangaId={manga.id}
               chapterId={chapterId}

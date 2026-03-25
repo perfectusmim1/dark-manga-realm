@@ -2,13 +2,10 @@ import React, { useEffect, useState } from 'react';
 import Header from '@/components/layout/Header';
 import { supabase } from '@/lib/supabase';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Trophy, BookOpen, MessageSquare, Flame, Heart, TrendingUp } from 'lucide-react';
+import { Trophy, BookOpen, MessageSquare, Flame, Heart } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
-import TagBadge from '@/components/tags/TagBadge';
 import ReadingListCover from '@/components/manga/ReadingListCover';
-import { getTrendingTags } from '@/lib/database';
-import { Tag } from '@/lib/types';
 import { getCompletedChapterCountsByUser } from '@/lib/storage';
 
 interface LeaderboardUser {
@@ -21,8 +18,6 @@ interface LeaderboardUser {
   isList?: boolean;
   listAuthor?: string;
   listLikes?: number;
-  last_seen_at?: string;
-  isOnline?: boolean;
 }
 
 interface UserStats {
@@ -33,33 +28,14 @@ interface UserStats {
 const Community: React.FC = () => {
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(true);
-  const [category, setCategory] = useState<'chapters' | 'comments' | 'reading_lists' | 'users'>('chapters');
-  const [trendingTags, setTrendingTags] = useState<Tag[]>([]);
-  const [tagsLoading, setTagsLoading] = useState(true);
+  const [category, setCategory] = useState<'chapters' | 'comments' | 'reading_lists'>('chapters');
   const [visibleCount, setVisibleCount] = useState(20);
-  
-  // Users list state
-  const [allUsers, setAllUsers] = useState<LeaderboardUser[]>([]);
   const [userStats, setUserStats] = useState<UserStats>({ online: 0, offline: 0 });
-  const [page, setPage] = useState(0);
-  const [hasMore, setHasMore] = useState(true);
   const PAGE_SIZE = 20;
 
   useEffect(() => {
-    const loadTrendingTags = async () => {
-      setTagsLoading(true);
-      const tags = await getTrendingTags(15);
-      setTrendingTags(tags);
-      setTagsLoading(false);
-    };
-    loadTrendingTags();
-  }, []);
-
-  useEffect(() => {
     setVisibleCount(PAGE_SIZE);
-    if (category !== 'users') {
-      setUsers([]);
-    }
+    setUsers([]);
     const fetchLeaderboard = async () => {
       try {
         setLoading(true);
@@ -136,105 +112,48 @@ const Community: React.FC = () => {
     fetchLeaderboard();
   }, [category]);
 
-  const fetchAllUsers = async (pageToFetch: number, isInitial = false) => {
-    try {
-      if (isInitial) {
-        setLoading(true);
-      }
-      
+  useEffect(() => {
+    const fetchUserStats = async () => {
+      try {
       const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
-      
-      // Get counts
-      if (isInitial) {
+
         const { count: onlineCount } = await supabase
           .from('users')
           .select('id', { count: 'exact', head: true })
           .gt('last_seen_at', oneMinuteAgo);
-          
+
         const { count: totalCount } = await supabase
           .from('users')
           .select('id', { count: 'exact', head: true });
-          
+
         setUserStats({
           online: onlineCount || 0,
-          offline: (totalCount || 0) - (onlineCount || 0)
+          offline: Math.max(0, (totalCount || 0) - (onlineCount || 0)),
         });
+      } catch (err) {
+        console.error('User stats fetch error:', err);
       }
+    };
 
-      // Fetch users with presence sorting
-      // We use a custom sort: Online users first, then by last_seen_at
-      const { data: usersData, error } = await supabase
-        .from('users')
-        .select('id, username, avatar, last_seen_at')
-        .order('last_seen_at', { ascending: false })
-        .range(pageToFetch * PAGE_SIZE, (pageToFetch + 1) * PAGE_SIZE - 1);
+    fetchUserStats();
 
-      if (error) throw error;
-
-      const mappedUsers = (usersData || []).map(u => ({
-        id: u.id,
-        username: u.username,
-        avatar: u.avatar,
-        totalChapters: 0,
-        totalComments: 0,
-        last_seen_at: u.last_seen_at,
-        isOnline: u.last_seen_at ? new Date(u.last_seen_at).getTime() > Date.now() - 60000 : false
-      }));
-
-      if (isInitial) {
-        setAllUsers(mappedUsers);
-      } else {
-        setAllUsers(prev => [...prev, ...mappedUsers]);
-      }
-      
-      setHasMore(mappedUsers.length === PAGE_SIZE);
-    } catch (err) {
-      console.error('All users fetch error:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    if (category === 'users') {
-      setPage(0);
-      setAllUsers([]);
-      fetchAllUsers(0, true);
-    }
-  }, [category]);
-
-  // Periodic refresh for presence (every 30s)
-  useEffect(() => {
-    if (category !== 'users') return;
-    
     const interval = setInterval(() => {
-      // We only refresh the first page's presence if we're at the top, or just refresh counts
-      fetchAllUsers(0, true);
-      setPage(0);
+      fetchUserStats();
     }, 30000);
-    
+
     return () => clearInterval(interval);
-  }, [category]);
+  }, []);
 
   const handleLoadMore = () => {
     if (loading) {
       return;
     }
 
-    if (category === 'users' && hasMore) {
-      const nextPage = page + 1;
-      setPage(nextPage);
-      fetchAllUsers(nextPage);
-      return;
-    }
-
-    if (category !== 'users') {
-      setVisibleCount(prev => prev + PAGE_SIZE);
-    }
+    setVisibleCount(prev => prev + PAGE_SIZE);
   };
 
-  const visibleItems = category === 'users' ? allUsers : users.slice(0, visibleCount);
-  const canLoadMore = category === 'users' ? hasMore : users.length > visibleCount;
+  const visibleItems = users.slice(0, visibleCount);
+  const canLoadMore = users.length > visibleCount;
 
   // Intersection Observer for infinite scroll
   useEffect(() => {
@@ -253,62 +172,63 @@ const Community: React.FC = () => {
     if (loader) observer.observe(loader);
 
     return () => observer.disconnect();
-  }, [category, canLoadMore, loading, page, users.length, visibleCount]);
+  }, [canLoadMore, loading, users.length, visibleCount]);
 
   return (
     <div className="min-h-screen bg-background text-foreground">
       <Header />
 
-      <main className="container pt-24 pb-12 max-w-4xl animate-in fade-in slide-in-from-bottom-4 duration-500">
-        <div className="text-center mb-12">
-          <h1 className="text-4xl font-extrabold tracking-tight flex items-center justify-center gap-3">
-            <Trophy className="w-10 h-10 text-yellow-500" />
+      <main className="container max-w-4xl animate-in fade-in slide-in-from-bottom-4 px-3 pb-12 pt-20 duration-500 sm:px-4 sm:pt-24">
+        <div className="mb-8 text-center sm:mb-12">
+          <h1 className="flex items-center justify-center gap-3 text-3xl font-extrabold tracking-tight sm:text-4xl">
+            <Trophy className="h-8 w-8 text-yellow-500 sm:h-10 sm:w-10" />
             Topluluk Liderleri
           </h1>
-          <p className="text-muted-foreground mt-2 max-w-xl mx-auto mb-8">
+          <p className="mx-auto mb-6 mt-2 max-w-xl text-muted-foreground sm:mb-8">
             Platformdaki en aktif okuyucular. Zirveye yerleşmek için daha fazla bölüm oku ve serilere yorum yap.
           </p>
 
-          <div className="flex items-center justify-center gap-4">
+          <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-center sm:justify-center sm:gap-4">
             <button
               onClick={() => setCategory('chapters')}
-              className={`px-4 py-2 rounded-full border border-border text-sm font-bold flex items-center gap-2 transition-all ${category === 'chapters' ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_15px_rgba(var(--primary),0.3)]' : 'hover:bg-secondary/50'}`}
+              className={`rounded-full border border-border px-4 py-2 text-sm font-bold transition-all ${category === 'chapters' ? 'border-primary bg-primary text-primary-foreground shadow-[0_0_15px_rgba(var(--primary),0.3)]' : 'hover:bg-secondary/50'}`}
             >
-              <BookOpen className="w-4 h-4" /> En Çok Okuyanlar
+              <span className="flex items-center justify-center gap-2">
+                <BookOpen className="h-4 w-4 shrink-0" />
+                <span>En Çok Okuyanlar</span>
+              </span>
             </button>
             <button
               onClick={() => setCategory('comments')}
-              className={`px-4 py-2 rounded-full border border-border text-sm font-bold flex items-center gap-2 transition-all ${category === 'comments' ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_15px_rgba(var(--primary),0.3)]' : 'hover:bg-secondary/50'}`}
+              className={`rounded-full border border-border px-4 py-2 text-sm font-bold transition-all ${category === 'comments' ? 'border-primary bg-primary text-primary-foreground shadow-[0_0_15px_rgba(var(--primary),0.3)]' : 'hover:bg-secondary/50'}`}
             >
-              <MessageSquare className="w-4 h-4" /> En Çok Yorum
+              <span className="flex items-center justify-center gap-2">
+                <MessageSquare className="h-4 w-4 shrink-0" />
+                <span>En Çok Yorum</span>
+              </span>
             </button>
             <button
               onClick={() => setCategory('reading_lists')}
-              className={`px-4 py-2 rounded-full border border-border text-sm font-bold flex items-center gap-2 transition-all ${category === 'reading_lists' ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_15px_rgba(var(--primary),0.3)]' : 'hover:bg-secondary/50'}`}
+              className={`rounded-full border border-border px-4 py-2 text-sm font-bold transition-all ${category === 'reading_lists' ? 'border-primary bg-primary text-primary-foreground shadow-[0_0_15px_rgba(var(--primary),0.3)]' : 'hover:bg-secondary/50'}`}
             >
-              <Heart className="w-4 h-4" /> Süper Listeler
-            </button>
-            <button
-              onClick={() => setCategory('users')}
-              className={`px-4 py-2 rounded-full border border-border text-sm font-bold flex items-center gap-2 transition-all ${category === 'users' ? 'bg-primary text-primary-foreground border-primary shadow-[0_0_15px_rgba(var(--primary),0.3)]' : 'hover:bg-secondary/50'}`}
-            >
-              <TrendingUp className="w-4 h-4" /> Tüm Üyeler
+              <span className="flex items-center justify-center gap-2">
+                <Heart className="h-4 w-4 shrink-0" />
+                <span>Süper Listeler</span>
+              </span>
             </button>
           </div>
         </div>
 
-        {category === 'users' && (
-          <div className="flex justify-center gap-6 mb-8 animate-in fade-in zoom-in duration-300">
-            <div className="bg-card/50 px-6 py-3 rounded-2xl border border-border flex items-center gap-3 shadow-sm">
-              <div className="w-3 h-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)] animate-pulse" />
-              <span className="text-sm font-semibold">{userStats.online} Aktif Üye</span>
-            </div>
-            <div className="bg-card/30 px-6 py-3 rounded-2xl border border-border flex items-center gap-3 shadow-sm text-muted-foreground/70">
-              <div className="w-3 h-3 rounded-full bg-muted-foreground/30" />
-              <span className="text-sm font-semibold">{userStats.offline} Çevrimdışı</span>
-            </div>
+        <div className="mb-6 grid grid-cols-2 gap-3 animate-in fade-in zoom-in duration-300 sm:mb-8 sm:flex sm:justify-center sm:gap-6">
+          <div className="flex items-center gap-3 rounded-2xl border border-border bg-card/50 px-4 py-3 shadow-sm sm:px-6">
+            <div className="h-3 w-3 rounded-full bg-green-500 shadow-[0_0_8px_rgba(34,197,94,0.5)] animate-pulse" />
+            <span className="text-sm font-semibold">{userStats.online} Aktif Üye</span>
           </div>
-        )}
+          <div className="flex items-center gap-3 rounded-2xl border border-border bg-card/30 px-4 py-3 text-muted-foreground/70 shadow-sm sm:px-6">
+            <div className="h-3 w-3 rounded-full bg-muted-foreground/30" />
+            <span className="text-sm font-semibold">{userStats.offline} Çevrimdışı</span>
+          </div>
+        </div>
         {loading && visibleItems.length === 0 ? (
           <div className="flex min-h-[240px] items-center justify-center rounded-xl border border-border bg-card/30 animate-fade-in">
             <div className="flex flex-col items-center gap-4">
@@ -317,12 +237,12 @@ const Community: React.FC = () => {
             </div>
           </div>
         ) : (
-          <div className={`bg-card/50 border border-border rounded-xl shadow-sm overflow-hidden backdrop-blur-sm transition-opacity duration-200 ${loading ? 'opacity-75' : 'opacity-100'}`}>
-            <div className="flex items-center px-6 py-4 border-b border-border bg-secondary/20">
+          <div className={`overflow-hidden rounded-xl border border-border bg-card/50 shadow-sm backdrop-blur-sm transition-opacity duration-200 ${loading ? 'opacity-75' : 'opacity-100'}`}>
+            <div className="hidden items-center border-b border-border bg-secondary/20 px-6 py-4 sm:flex">
               <span className="w-12 text-center text-sm font-semibold text-muted-foreground">Sıra</span>
-              <span className="flex-1 text-sm font-semibold text-muted-foreground ml-4">{category === 'reading_lists' ? 'Liste Bilgisi' : category === 'users' ? 'Üye Bilgisi' : 'Kullanıcı'}</span>
+              <span className="ml-4 flex-1 text-sm font-semibold text-muted-foreground">{category === 'reading_lists' ? 'Liste Bilgisi' : 'Kullanıcı'}</span>
               <span className="w-32 text-right text-sm font-semibold text-muted-foreground">
-                {category === 'chapters' ? 'Bölüm' : category === 'comments' ? 'Yorum' : category === 'reading_lists' ? 'Beğeni' : 'Durum'}
+                {category === 'chapters' ? 'Bölüm' : category === 'comments' ? 'Yorum' : 'Beğeni'}
               </span>
             </div>
 
@@ -334,12 +254,10 @@ const Community: React.FC = () => {
                   <Link
                     key={user.id}
                     to={user.isList ? `/reading-lists/${user.id}` : `/profile/${user.id}`}
-                    className={`flex items-center px-6 py-4 hover:bg-secondary/40 transition-all group ${category === 'users' && !user.isOnline ? 'opacity-60 grayscale-[0.3]' : ''}`}
+                    className="group flex items-start gap-3 px-3 py-3 transition-all hover:bg-secondary/40 sm:items-center sm:px-6 sm:py-4"
                   >
-                    <div className="w-12 flex justify-center">
-                      {category === 'users' ? (
-                        <div className={`w-2 h-2 rounded-full ${user.isOnline ? 'bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.5)]' : 'bg-muted-foreground/30'}`} />
-                      ) : index === 0 ? (
+                    <div className="flex w-8 shrink-0 justify-center pt-1 sm:w-12 sm:pt-0">
+                      {index === 0 ? (
                         <div className="relative">
                           <Flame className="w-8 h-8 text-orange-500 animate-pulse absolute -top-1 -left-1 opacity-50 blur-sm" />
                           <Trophy className="w-6 h-6 text-yellow-500 relative z-10" />
@@ -353,54 +271,38 @@ const Community: React.FC = () => {
                       )}
                     </div>
 
-                    <div className="flex-1 flex items-center ml-4 gap-4">
+                    <div className="flex min-w-0 flex-1 items-start gap-3 sm:ml-4 sm:items-center sm:gap-4">
                       {user.isList ? (
                         <ReadingListCover
                           imageUrl={user.imageUrl}
                           alt={user.username}
-                          className="h-12 w-12 shrink-0 rounded-lg border-2 border-transparent group-hover:border-primary"
+                          className="h-10 w-10 shrink-0 rounded-lg border-2 border-transparent group-hover:border-primary sm:h-12 sm:w-12"
                           iconClassName="h-6 w-6"
                         />
                       ) : (
                         <div className="relative">
-                          <Avatar className={`h-12 w-12 border-2 ${category !== 'users' && index === 0 ? 'border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'border-transparent group-hover:border-primary transition-colors'}`}>
+                          <Avatar className={`h-10 w-10 border-2 ${index === 0 ? 'border-yellow-500 shadow-[0_0_15px_rgba(234,179,8,0.3)]' : 'border-transparent group-hover:border-primary transition-colors'} sm:h-12 sm:w-12`}>
                             <AvatarImage src={user.avatar || undefined} />
                             <AvatarFallback>{user.username[0].toUpperCase()}</AvatarFallback>
                           </Avatar>
-                          {category === 'users' && user.isOnline && (
-                            <div className="absolute -bottom-0.5 -right-0.5 w-3.5 h-3.5 bg-background rounded-full flex items-center justify-center">
-                              <div className="w-2.5 h-2.5 bg-green-500 rounded-full border border-background shadow-[0_0_3px_rgba(34,197,94,0.5)]" />
-                            </div>
-                          )}
                         </div>
                       )}
 
-                      <div>
-                        <h3 className={`font-bold text-lg ${category !== 'users' && index === 0 ? 'text-yellow-500 group-hover:text-yellow-400' : 'group-hover:text-primary transition-colors'}`}>
+                      <div className="min-w-0 flex-1">
+                        <h3 className={`line-clamp-2 text-base font-bold leading-5 sm:text-lg ${index === 0 ? 'text-yellow-500 group-hover:text-yellow-400' : 'group-hover:text-primary transition-colors'}`}>
                           {user.username}
                         </h3>
                         {user.isList && <p className="text-xs text-muted-foreground flex gap-1 items-center mt-1">Oluşturan: <span className="text-primary font-medium">{user.listAuthor}</span></p>}
-                        {category !== 'users' && index === 0 && !user.isList && <Badge variant="outline" className="text-[10px] mt-1 border-yellow-500/30 text-yellow-500 bg-yellow-500/10">Sitenin 1 Numarası</Badge>}
-                        {category !== 'users' && index === 0 && user.isList && <Badge variant="outline" className="text-[10px] mt-1 border-yellow-500/30 text-yellow-500 bg-yellow-500/10">Kral Liste</Badge>}
-                        {category === 'users' && (
-                          <p className="text-[10px] text-muted-foreground font-medium mt-0.5">
-                            {user.isOnline ? <span className="text-green-500">Şu an aktif</span> : <span>Son görülme: {user.last_seen_at ? new Date(user.last_seen_at).toLocaleDateString('tr-TR') : 'Bilinmiyor'}</span>}
-                          </p>
-                        )}
+                        {index === 0 && !user.isList && <Badge variant="outline" className="text-[10px] mt-1 border-yellow-500/30 text-yellow-500 bg-yellow-500/10">Sitenin 1 Numarası</Badge>}
+                        {index === 0 && user.isList && <Badge variant="outline" className="text-[10px] mt-1 border-yellow-500/30 text-yellow-500 bg-yellow-500/10">Kral Liste</Badge>}
                       </div>
                     </div>
 
-                    <div className="w-40 flex items-center justify-end gap-2 text-primary font-mono text-xs font-bold">
-                      {category === 'users' ? (
-                        <span className={user.isOnline ? "text-green-500 bg-green-500/10 px-2 py-1 rounded-md" : "text-muted-foreground"}>
-                          {user.isOnline ? 'AKTİF' : 'ÇEVRİMDIŞI'}
-                        </span>
-                      ) : (
-                        <>
-                          {category === 'chapters' ? <BookOpen className="w-4 h-4 text-muted-foreground" /> : category === 'comments' ? <MessageSquare className="w-4 h-4 text-muted-foreground" /> : <Heart className="w-4 h-4 text-red-500" />}
-                          <span className="text-lg font-bold">{category === 'chapters' ? user.totalChapters : category === 'comments' ? user.totalComments : user.listLikes}</span>
-                        </>
-                      )}
+                    <div className="flex shrink-0 items-center justify-end gap-2 self-center text-xs font-bold font-mono text-primary sm:w-40">
+                      <>
+                        {category === 'chapters' ? <BookOpen className="h-4 w-4 text-muted-foreground" /> : category === 'comments' ? <MessageSquare className="h-4 w-4 text-muted-foreground" /> : <Heart className="h-4 w-4 text-red-500" />}
+                        <span className="text-base font-bold sm:text-lg">{category === 'chapters' ? user.totalChapters : category === 'comments' ? user.totalComments : user.listLikes}</span>
+                      </>
                     </div>
                   </Link>
                 ))
@@ -410,7 +312,7 @@ const Community: React.FC = () => {
                 <div id="infinite-scroll-loader" className="p-12 flex flex-col items-center justify-center gap-4">
                   <div className="w-10 h-10 rounded-full border-2 border-primary border-t-transparent animate-spin" />
                   <p className="text-sm font-medium text-muted-foreground animate-pulse text-center">
-                    {category === 'users' ? 'Rakiplerin yükleniyor...' : 'Daha fazla lider yükleniyor...'}
+                    Daha fazla lider yükleniyor...
                   </p>
                 </div>
               )}

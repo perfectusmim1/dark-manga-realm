@@ -166,14 +166,14 @@ const PreviewChapter = ({
 
   return (
     <div ref={containerRef} className="space-y-3 rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-5">
-      <div className="flex items-center justify-between border-b border-border pb-3">
+      <div className="flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-bold sm:text-xl">{formatChapterDisplayTitle(chapter.number, chapter.title)}</h3>
           <p className="mt-1 text-sm text-muted-foreground">
             {chapter.pages.length} sayfa
           </p>
         </div>
-        <Button asChild variant="secondary" size="sm">
+        <Button asChild variant="secondary" size="sm" className="w-full sm:w-auto">
           <Link to={`/manga/${mangaId}/chapter/${chapter.id}`}>
             <Play className="h-4 w-4 mr-2" />
             Oku
@@ -240,6 +240,7 @@ const MangaDetail: React.FC = () => {
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [reportReason, setReportReason] = useState('Yanlış seri bilgisi');
   const [reportDetails, setReportDetails] = useState('');
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [seriesReadingSeconds, setSeriesReadingSeconds] = useState(0);
   const [isSeriesReadingTimeLoading, setIsSeriesReadingTimeLoading] = useState(false);
@@ -348,6 +349,20 @@ const MangaDetail: React.FC = () => {
     'Çeviri veya içerik hatası',
     'Diğer',
   ];
+  const descriptionPreviewLimit = 185;
+  const descriptionPreview = React.useMemo(() => {
+    const rawDescription = manga?.description?.trim() || '';
+
+    if (rawDescription.length <= descriptionPreviewLimit) {
+      return rawDescription;
+    }
+
+    const sliced = rawDescription.slice(0, descriptionPreviewLimit);
+    const lastSpaceIndex = sliced.lastIndexOf(' ');
+
+    return `${(lastSpaceIndex > 120 ? sliced.slice(0, lastSpaceIndex) : sliced).trimEnd()}...`;
+  }, [manga?.description]);
+  const shouldShowDescriptionToggle = Boolean(manga?.description && descriptionPreview !== manga.description.trim());
 
   useEffect(() => {
     const targetCommentId = getTargetCommentIdFromLocation(location.search, location.hash);
@@ -356,6 +371,10 @@ const MangaDetail: React.FC = () => {
       setActiveTab('overview');
     }
   }, [activeTab, location.hash, location.search]);
+
+  useEffect(() => {
+    setIsDescriptionExpanded(false);
+  }, [manga?.id]);
 
   const resetUserScopedState = React.useCallback(() => {
     setFavorite(false);
@@ -985,19 +1004,19 @@ const MangaDetail: React.FC = () => {
           </div>
 
           {/* Content */}
-          <div className="container relative z-10 py-8">
+          <div className="container relative z-10 py-6 sm:py-8">
             <div className="flex flex-col gap-6 md:flex-row md:gap-8">
               {/* Cover */}
-              <div className="shrink-0 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+              <div className="mx-auto w-full max-w-[220px] shrink-0 animate-fade-up opacity-0 md:mx-0 md:w-64 md:max-w-none" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
                 <img
                   src={manga.cover}
                   alt={manga.title}
-                  className="mx-auto h-72 w-48 rounded-xl object-cover shadow-2xl shadow-primary/10 md:h-96 md:w-64"
+                  className="mx-auto h-auto w-full rounded-xl object-cover shadow-2xl shadow-primary/10 md:h-96"
                 />
               </div>
 
               {/* Info */}
-              <div className="flex flex-1 flex-col gap-4 animate-fade-up opacity-0" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
+              <div className="min-w-0 flex flex-1 flex-col gap-4 animate-fade-up opacity-0" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant="default"
@@ -1085,7 +1104,30 @@ const MangaDetail: React.FC = () => {
                   )}
                 </div>
 
-                <p className="text-foreground/80 leading-relaxed">{manga.description}</p>
+                <div>
+                  <p className="hidden text-foreground/80 leading-relaxed md:block">
+                    {manga.description}
+                  </p>
+                  <p className="text-foreground/80 leading-relaxed md:hidden">
+                    {shouldShowDescriptionToggle && !isDescriptionExpanded ? descriptionPreview : manga.description}
+                  </p>
+                  {shouldShowDescriptionToggle && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setIsDescriptionExpanded((previous) => !previous)}
+                      className="mt-2 h-8 px-0 text-sm font-medium text-primary hover:bg-transparent hover:text-primary md:hidden"
+                    >
+                      {isDescriptionExpanded ? 'Daha Az Göster' : 'Tamamını Gör'}
+                      {isDescriptionExpanded ? (
+                        <ChevronUp className="ml-2 h-4 w-4" />
+                      ) : (
+                        <ChevronDown className="ml-2 h-4 w-4" />
+                      )}
+                    </Button>
+                  )}
+                </div>
 
                 {isOfflineView && (
                   <div className="rounded-2xl border border-blue-500/20 bg-blue-500/10 px-4 py-3 text-sm text-blue-100">
@@ -1112,16 +1154,16 @@ const MangaDetail: React.FC = () => {
                   ))}
                 </div>
 
-                <div className="flex flex-wrap gap-3 pt-4">
+                <div className="pt-4">
                   {continueChapter ? (
-                    <Button asChild variant="glow" size="lg">
+                    <Button asChild variant="glow" size="lg" className="w-full">
                       <Link to={`/manga/${manga.id}/chapter/${continueChapter.id}?page=${latestProgress?.page || 1}`}>
                         <Play className="h-4 w-4" />
                         Devam Et (Bölüm {continueChapter.number}, Sayfa {latestProgress?.page || 1})
                       </Link>
                     </Button>
                   ) : manga.chapters.length > 0 ? (
-                    <Button asChild variant="glow" size="lg">
+                    <Button asChild variant="glow" size="lg" className="w-full">
                       <Link to={`/manga/${manga.id}/chapter/${[...manga.chapters].sort((a, b) => a.number - b.number)[0]?.id}`}>
                         <Play className="h-4 w-4" />
                         Okumaya Başla
@@ -1129,88 +1171,90 @@ const MangaDetail: React.FC = () => {
                     </Button>
                   ) : null}
 
-                  <Button
-                    variant={favorite ? 'default' : 'outline'}
-                    size="lg"
-                    onClick={toggleFavorite}
-                    className={favorite ? 'bg-destructive hover:bg-destructive/90' : ''}
-                  >
-                    <Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} />
-                    {favorite ? 'Favorilerde' : 'Favorilere Ekle'}
-                  </Button>
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
+                    <Button
+                      variant={favorite ? 'default' : 'outline'}
+                      size="lg"
+                      onClick={toggleFavorite}
+                      className={cn('h-11 w-full text-sm sm:h-12 sm:w-auto sm:text-base', favorite && 'bg-destructive hover:bg-destructive/90')}
+                    >
+                      <Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} />
+                      {favorite ? 'Favorilerde' : 'Favorilere Ekle'}
+                    </Button>
 
-                  <Button
-                    variant={isFollowing ? 'default' : 'outline'}
-                    size="lg"
-                    onClick={toggleFollow}
-                    className={isFollowing ? 'bg-primary/20 text-primary border-primary/50 hover:bg-primary/30' : ''}
-                  >
-                    {isFollowing ? (
-                      <BellOff className="h-4 w-4" />
-                    ) : (
-                      <Bell className="h-4 w-4" />
+                    <Button
+                      variant={isFollowing ? 'default' : 'outline'}
+                      size="lg"
+                      onClick={toggleFollow}
+                      className={cn('h-11 w-full text-sm sm:h-12 sm:w-auto sm:text-base', isFollowing && 'bg-primary/20 text-primary border-primary/50 hover:bg-primary/30')}
+                    >
+                      {isFollowing ? (
+                        <BellOff className="h-4 w-4" />
+                      ) : (
+                        <Bell className="h-4 w-4" />
+                      )}
+                      {isFollowing ? 'Takibi Bırak' : 'Takip Et'}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={handleAddToList}
+                      className="group h-11 w-full border-primary/30 text-sm transition-all hover:border-primary/60 hover:bg-primary/5 sm:h-12 sm:w-auto sm:text-base"
+                    >
+                      <List className="h-4 w-4 text-primary transition-transform group-hover:scale-110" />
+                      Listeye Ekle
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      disabled={primaryOfflineJob?.status === 'running'}
+                      onClick={() => setIsSeriesDownloadDialogOpen(true)}
+                      className="group h-11 w-full border-blue-500/30 text-sm hover:border-blue-400/60 hover:bg-blue-500/10 sm:h-12 sm:w-auto sm:text-base"
+                    >
+                      <Download className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
+                      {primaryOfflineJob?.status === 'running'
+                        ? 'Seri İndiriliyor'
+                        : primaryOfflineJob && ['paused', 'failed', 'partial', 'queued'].includes(primaryOfflineJob.status)
+                          ? 'İndirmeye Devam Et'
+                          : 'Seriyi İndir'}
+                    </Button>
+
+                    {favorite && (
+                      <DropdownMenu>
+                        <DropdownMenuTrigger asChild>
+                          <Button variant="outline" size="lg" className="col-span-2 h-11 w-full justify-between text-sm sm:h-12 sm:w-auto sm:text-base">
+                            <Library className="h-4 w-4" />
+                            {category ? categoryLabels[category] : 'Kategori'}
+                            <ChevronDown className="ml-1 h-4 w-4" />
+                          </Button>
+                        </DropdownMenuTrigger>
+                        <DropdownMenuContent>
+                          {(Object.entries(categoryLabels) as [LibraryCategory, string][]).map(([key, label]) => (
+                            <DropdownMenuItem
+                              key={key}
+                              onClick={() => handleCategoryChange(key)}
+                              className={category === key ? 'bg-secondary' : ''}
+                            >
+                              {label}
+                            </DropdownMenuItem>
+                          ))}
+                        </DropdownMenuContent>
+                      </DropdownMenu>
                     )}
-                    {isFollowing ? 'Takibi Bırak' : 'Takip Et'}
-                  </Button>
 
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    onClick={handleAddToList}
-                    className="group border-primary/30 hover:border-primary/60 hover:bg-primary/5 transition-all"
-                  >
-                    <List className="h-4 w-4 text-primary transition-transform group-hover:scale-110" />
-                    Listeye Ekle
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    disabled={primaryOfflineJob?.status === 'running'}
-                    onClick={() => setIsSeriesDownloadDialogOpen(true)}
-                    className="group border-blue-500/30 hover:border-blue-400/60 hover:bg-blue-500/10"
-                  >
-                    <Download className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
-                    {primaryOfflineJob?.status === 'running'
-                      ? 'Seri İndiriliyor'
-                      : primaryOfflineJob && ['paused', 'failed', 'partial', 'queued'].includes(primaryOfflineJob.status)
-                        ? 'İndirmeye Devam Et'
-                        : 'Seriyi İndir'}
-                  </Button>
-
-                  <Button
-                    variant="outline"
-                    size="lg"
-                    onClick={openReportDialog}
-                    className="group border-amber-500/30 text-amber-100 hover:border-amber-400/60 hover:bg-amber-500/10"
-                  >
-                    <Flag className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
-                    Bildir
-                  </Button>
-
-
-                  {favorite && (
-                    <DropdownMenu>
-                      <DropdownMenuTrigger asChild>
-                        <Button variant="outline" size="lg">
-                          <Library className="h-4 w-4" />
-                          {category ? categoryLabels[category] : 'Kategori'}
-                          <ChevronDown className="ml-1 h-4 w-4" />
-                        </Button>
-                      </DropdownMenuTrigger>
-                      <DropdownMenuContent>
-                        {(Object.entries(categoryLabels) as [LibraryCategory, string][]).map(([key, label]) => (
-                          <DropdownMenuItem
-                            key={key}
-                            onClick={() => handleCategoryChange(key)}
-                            className={category === key ? 'bg-secondary' : ''}
-                          >
-                            {label}
-                          </DropdownMenuItem>
-                        ))}
-                      </DropdownMenuContent>
-                    </DropdownMenu>
-                  )}
+                    <Button
+                      variant="outline"
+                      size="lg"
+                      onClick={openReportDialog}
+                      className="group h-11 w-full border-amber-500/30 px-0 text-amber-100 hover:border-amber-400/60 hover:bg-amber-500/10 sm:h-12 sm:w-12"
+                      aria-label="Seriyi bildir"
+                      title="Seriyi bildir"
+                    >
+                      <Flag className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
+                    </Button>
+                  </div>
                 </div>
               </div>
             </div>
@@ -1220,55 +1264,57 @@ const MangaDetail: React.FC = () => {
         {/* Tabs System */}
         <div className="container py-8">
           <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
-            <TabsList className="mb-8 w-full justify-start border-b rounded-none bg-transparent h-auto p-0 gap-8">
-              <TabsTrigger
-                value="overview"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all"
-              >
-                GENEL BAKIŞ
-              </TabsTrigger>
-              <TabsTrigger
-                value="preview"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all"
-              >
-                ÖNİZLEME
-              </TabsTrigger>
-              <TabsTrigger
-                value="reviews"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all flex items-center gap-2"
-              >
-                İNCELEMELER
-                {reviews.length > 0 && (
-                  <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 border-none px-2 h-5 text-[10px]">
-                    {reviews.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger
-                value="characters"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all flex items-center gap-2"
-              >
-                KARAKTERLER
-                {mangaCharacters.length > 0 && (
-                  <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 border-none px-2 h-5 text-[10px]">
-                    {mangaCharacters.length}
-                  </Badge>
-                )}
-              </TabsTrigger>
-              <TabsTrigger
-                value="discover"
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary data-[state=active]:bg-transparent bg-transparent px-0 pb-3 text-lg font-semibold transition-all flex items-center gap-2"
-              >
-                KEŞFET
-              </TabsTrigger>
-            </TabsList>
+            <div className="-mx-4 mb-5 overflow-x-auto px-4 pb-2 sm:mx-0 sm:mb-8 sm:px-0">
+              <TabsList className="h-auto min-w-full w-max justify-start gap-3 rounded-none border-b bg-transparent p-0 sm:gap-8">
+                <TabsTrigger
+                  value="overview"
+                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                >
+                  GENEL BAKIŞ
+                </TabsTrigger>
+                <TabsTrigger
+                  value="preview"
+                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                >
+                  ÖNİZLEME
+                </TabsTrigger>
+                <TabsTrigger
+                  value="reviews"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                >
+                  İNCELEMELER
+                  {reviews.length > 0 && (
+                    <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
+                      {reviews.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="characters"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                >
+                  KARAKTERLER
+                  {mangaCharacters.length > 0 && (
+                    <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
+                      {mangaCharacters.length}
+                    </Badge>
+                  )}
+                </TabsTrigger>
+                <TabsTrigger
+                  value="discover"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                >
+                  KEŞFET
+                </TabsTrigger>
+              </TabsList>
+            </div>
 
             <TabsContent value="overview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+              <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
                 {/* Chapters List */}
-                <div className="lg:col-span-2 space-y-8">
+                <div className="space-y-4 sm:space-y-6 lg:col-span-2 lg:space-y-8">
                   <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
-                    <div className="border-b border-border p-4 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                    <div className="flex flex-col justify-between gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4">
                       <div>
                         <h2 className="text-xl font-bold">Bölümler</h2>
                         <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
@@ -1290,13 +1336,13 @@ const MangaDetail: React.FC = () => {
                           {displayedChapters.map((chapter) => (
                             <div
                               key={chapter.id}
-                              className="flex flex-col gap-4 p-4 transition-colors hover:bg-secondary/50 md:flex-row md:items-center md:justify-between"
+                              className="flex items-start justify-between gap-3 p-3 transition-colors hover:bg-secondary/50 sm:p-4 md:items-center"
                             >
-                              <div className="min-w-0">
+                              <div className="min-w-0 flex-1">
                                 <Link
                                   to={`/manga/${manga.id}/chapter/${chapter.id}`}
                                   className={cn(
-                                    "font-medium transition-colors",
+                                    "line-clamp-2 text-sm font-medium leading-snug transition-colors sm:text-base",
                                     mergedChapterReadMap[chapter.id]?.isRead
                                       ? "text-emerald-400 hover:text-emerald-300"
                                       : "hover:text-primary",
@@ -1326,14 +1372,13 @@ const MangaDetail: React.FC = () => {
                                 </div>
                               </div>
 
-                              <div className="flex flex-wrap items-center gap-2 md:justify-end">
-                                <Badge variant="outline" className="text-xs">
-                                  {chapter.pages.length} sayfa
-                                </Badge>
-
+                              <div className="flex shrink-0 flex-col items-end gap-2 self-start md:self-center">
                                 {offlineChapterMap[chapter.id]?.downloadStatus === 'completed' ? (
-                                  <>
-                                    <Button asChild size="sm">
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Badge variant="outline" className="h-7 text-[11px]">
+                                      {chapter.pages.length} sayfa
+                                    </Badge>
+                                    <Button asChild size="sm" className="h-8 px-3 text-xs sm:h-9 sm:text-sm">
                                       <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
                                         Çevrimdışı Oku
                                       </Link>
@@ -1341,31 +1386,47 @@ const MangaDetail: React.FC = () => {
                                     <Button
                                       variant="outline"
                                       size="sm"
+                                      className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
                                       onClick={() => void handleDeleteOfflineChapter(chapter.id)}
                                     >
                                       <Trash2 className="mr-2 h-4 w-4" />
                                       Sil
                                     </Button>
-                                  </>
+                                  </div>
                                 ) : offlineChapterMap[chapter.id] && ['running', 'queued'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
-                                  <Button variant="outline" size="sm" disabled>
-                                    <Download className="mr-2 h-4 w-4" />
-                                    İndiriliyor
-                                  </Button>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Badge variant="outline" className="h-7 text-[11px]">
+                                      {chapter.pages.length} sayfa
+                                    </Badge>
+                                    <Button variant="outline" size="sm" className="h-8 px-3 text-xs sm:h-9 sm:text-sm" disabled>
+                                      <Download className="mr-2 h-4 w-4" />
+                                      İndiriliyor
+                                    </Button>
+                                  </div>
                                 ) : offlineChapterMap[chapter.id]?.downloadStatus === 'paused' ? (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => void handleQueueChapterDownload(chapter)}
-                                  >
-                                    <Download className="mr-2 h-4 w-4" />
-                                    Devam Et
-                                  </Button>
-                                ) : offlineChapterMap[chapter.id] && ['failed', 'partial'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
-                                  <>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Badge variant="outline" className="h-7 text-[11px]">
+                                      {chapter.pages.length} sayfa
+                                    </Badge>
                                     <Button
                                       variant="outline"
                                       size="sm"
+                                      className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
+                                      onClick={() => void handleQueueChapterDownload(chapter)}
+                                    >
+                                      <Download className="mr-2 h-4 w-4" />
+                                      Devam Et
+                                    </Button>
+                                  </div>
+                                ) : offlineChapterMap[chapter.id] && ['failed', 'partial'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Badge variant="outline" className="h-7 text-[11px]">
+                                      {chapter.pages.length} sayfa
+                                    </Badge>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
                                       onClick={() => void handleQueueChapterDownload(chapter)}
                                     >
                                       <Download className="mr-2 h-4 w-4" />
@@ -1374,21 +1435,28 @@ const MangaDetail: React.FC = () => {
                                     <Button
                                       variant="outline"
                                       size="sm"
+                                      className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
                                       onClick={() => void handleDeleteOfflineChapter(chapter.id)}
                                     >
                                       <Trash2 className="mr-2 h-4 w-4" />
                                       Sil
                                     </Button>
-                                  </>
+                                  </div>
                                 ) : (
-                                  <Button
-                                    variant="outline"
-                                    size="sm"
-                                    onClick={() => void handleQueueChapterDownload(chapter)}
-                                  >
-                                    <Download className="mr-2 h-4 w-4" />
-                                    İndir
-                                  </Button>
+                                  <div className="flex items-center justify-end gap-2">
+                                    <Badge variant="outline" className="h-7 text-[11px]">
+                                      {chapter.pages.length} sayfa
+                                    </Badge>
+                                    <Button
+                                      variant="outline"
+                                      size="sm"
+                                      className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
+                                      onClick={() => void handleQueueChapterDownload(chapter)}
+                                    >
+                                      <Download className="mr-2 h-4 w-4" />
+                                      İndir
+                                    </Button>
+                                  </div>
                                 )}
                               </div>
                             </div>
@@ -1396,7 +1464,7 @@ const MangaDetail: React.FC = () => {
                         </div>
 
                         {filteredChapters.length > 8 && (
-                          <div className="border-t border-border p-4">
+                          <div className="border-t border-border p-3 sm:p-4">
                             <Button
                               variant="ghost"
                               className="w-full"
@@ -1427,17 +1495,17 @@ const MangaDetail: React.FC = () => {
                 </div>
 
                 {/* Sidebar Info */}
-                <div className="space-y-6">
+                <div className="space-y-4 sm:space-y-6">
                   <div 
-                    className="rounded-xl border border-border bg-card/50 p-6 cursor-pointer hover:bg-card/70 transition-colors group"
+                    className="group cursor-pointer rounded-xl border border-border bg-card/50 p-3 transition-colors hover:bg-card/70 sm:p-6"
                     onClick={() => setActiveTab('reviews')}
                   >
-                    <h2 className="text-lg font-semibold mb-4 text-center group-hover:text-primary transition-colors">
+                    <h2 className="mb-3 text-lg font-semibold text-center transition-colors group-hover:text-primary sm:mb-4">
                       {userRating ? 'Puanınız' : 'Puan Ver'}
                       <ArrowRight className="inline-block ml-2 h-4 w-4 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
                     </h2>
                     <div className="flex flex-col gap-4">
-                      <div className="flex gap-1 justify-center">
+                      <div className="flex flex-wrap justify-center gap-1">
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
                           <div
                             key={star}
@@ -1462,31 +1530,22 @@ const MangaDetail: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-border bg-card/50 p-6">
+                  <div className="rounded-xl border border-border bg-card/50 p-3 sm:p-6">
                     <TagSection
                       entityType="manga"
                       entityId={manga.id}
                     />
                   </div>
-
-                  <div className="rounded-xl border border-border bg-primary/5 p-6 border-primary/20">
-                    <h3 className="font-semibold mb-2">Hızlı Erişim</h3>
-                    <p className="text-sm text-muted-foreground mb-4">Manga hakkında daha fazla bilgi ve tartışma için incelemeler sekmesine göz atın.</p>
-                    <Button variant="outline" className="w-full group" onClick={() => setActiveTab('reviews')}>
-                      İncelemeleri Gör
-                      <ArrowRight className="ml-2 h-4 w-4 transition-transform group-hover:translate-x-1" />
-                    </Button>
-                  </div>
                 </div>
               </div>
 
-              <div className="mt-8 rounded-xl border border-border bg-card/50 p-6 lg:p-10 shadow-sm">
+              <div className="mt-4 rounded-xl border border-border bg-card/50 p-3 shadow-sm sm:mt-8 sm:p-6 lg:p-10">
                 <CommentSection mangaId={manga.id} />
               </div>
             </TabsContent>
 
             <TabsContent value="preview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="space-y-8 max-w-4xl mx-auto">
+              <div className="mx-auto max-w-4xl space-y-6 sm:space-y-8">
                 {(() => {
                   const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
                   const safeStartIndex = Math.max(0, Math.min(previewStartIndex, sortedChaptersAsc.length - 1));
@@ -1546,7 +1605,7 @@ const MangaDetail: React.FC = () => {
             </TabsContent>
 
             <TabsContent value="characters" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-6">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 md:grid-cols-4 lg:grid-cols-6">
                 {isCharsLoading ? (
                   // Characters Skeleton
                   Array.from({ length: 6 }).map((_, i) => (
@@ -1591,16 +1650,16 @@ const MangaDetail: React.FC = () => {
 
             <TabsContent value="reviews" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
               {isReviewsLoading ? (
-                <div className="rounded-xl border border-border bg-card/50 p-8 shadow-xl">
+                <div className="rounded-xl border border-border bg-card/50 p-4 shadow-xl sm:p-8">
                    <div className="flex flex-col items-center justify-center py-20 gap-4">
                       <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
                       <p className="text-muted-foreground animate-pulse">İncelemeler yükleniyor...</p>
                    </div>
                 </div>
               ) : (
-                <div className="rounded-xl border border-border bg-card/50 p-8 shadow-xl">
+                <div className="rounded-xl border border-border bg-card/50 p-4 shadow-xl sm:p-8">
                   {/* Reviews Summary */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-12 items-center mb-12">
+                  <div className="mb-10 grid grid-cols-1 items-center gap-8 md:grid-cols-2 lg:grid-cols-3 lg:gap-12">
                     <div className="text-center md:border-r border-border py-4">
                       <div className="text-7xl font-black mb-2 tracking-tighter text-foreground">{averageRating.average || '0'}</div>
                       <div className="flex justify-center gap-0.5 mb-2">
@@ -1630,10 +1689,10 @@ const MangaDetail: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="pt-6 flex justify-end mb-12 border-t border-border/50">
+                  <div className="mb-10 flex justify-start border-t border-border/50 pt-6 sm:justify-end">
                     <Dialog open={isReviewModalOpen} onOpenChange={setIsReviewModalOpen}>
                       <DialogTrigger asChild>
-                        <Button variant="glow" size="lg" className="rounded-full px-8 shadow-lg shadow-primary/20">
+                        <Button variant="glow" size="lg" className="w-full rounded-full px-8 shadow-lg shadow-primary/20 sm:w-auto">
                           {userReview?.id ? (
                             <>
                               <Edit3 className="mr-2 h-4 w-4" />
@@ -1647,9 +1706,9 @@ const MangaDetail: React.FC = () => {
                           )}
                         </Button>
                       </DialogTrigger>
-                      <DialogContent className="sm:max-w-[600px] bg-card/95 backdrop-blur-xl border-primary/20">
-                        <DialogHeader>
-                          <DialogTitle className="text-2xl font-bold">
+                      <DialogContent className="max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border-primary/20 bg-card/95 p-4 backdrop-blur-xl sm:max-w-[600px] sm:p-6">
+                        <DialogHeader className="pr-6 text-left sm:pr-8">
+                          <DialogTitle className="text-xl font-bold sm:text-2xl">
                             {userReview.id ? 'İncelemeyi Düzenle' : 'İnceleme Yaz'}
                           </DialogTitle>
                           <DialogDescription>
@@ -1657,8 +1716,8 @@ const MangaDetail: React.FC = () => {
                           </DialogDescription>
                         </DialogHeader>
 
-                        <div className="space-y-6 py-4">
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-6">
+                        <div className="space-y-4 py-2 sm:space-y-6 sm:py-4">
+                          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 sm:gap-6">
                             {[
                               { label: 'Hikaye', key: 'rating_story' },
                               { label: 'Karakterler', key: 'rating_characters' },
@@ -1667,16 +1726,16 @@ const MangaDetail: React.FC = () => {
                               { label: 'Sürükleyicilik', key: 'rating_engagement' },
                             ].map((item) => (
                               <div key={item.label} className="space-y-2">
-                                <div className="flex justify-between text-sm font-medium">
+                                <div className="flex items-center justify-between gap-3 text-sm font-medium">
                                   <span>{item.label}</span>
                                   <span className="text-primary">{userReview[item.key as keyof Partial<Review>]}/10</span>
                                 </div>
-                                <div className="flex gap-1">
+                                <div className="grid grid-cols-10 gap-1">
                                   {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
                                     <button
                                       key={star}
                                       onClick={() => setUserReview(prev => ({ ...prev, [item.key]: star }))}
-                                      className="p-0.5"
+                                      className="flex h-7 w-full items-center justify-center rounded-md p-0.5 transition-colors hover:bg-secondary/60 sm:h-auto sm:w-auto"
                                     >
                                       <Star
                                         className={`h-4 w-4 ${star <= (userReview[item.key as keyof Partial<Review>] as number) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`}
@@ -1699,9 +1758,9 @@ const MangaDetail: React.FC = () => {
                           </div>
                         </div>
 
-                        <DialogFooter>
-                          <Button variant="ghost" onClick={() => setIsReviewModalOpen(false)}>İptal</Button>
-                          <Button variant="glow" onClick={handleReviewSubmit} disabled={isSubmittingReview}>
+                        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+                          <Button className="w-full sm:w-auto" variant="ghost" onClick={() => setIsReviewModalOpen(false)}>İptal</Button>
+                          <Button className="w-full sm:w-auto" variant="glow" onClick={handleReviewSubmit} disabled={isSubmittingReview}>
                             {isSubmittingReview ? 'Kaydediliyor...' : (userReview.id ? 'Güncelle' : 'Yayınla')}
                           </Button>
                         </DialogFooter>
@@ -1723,22 +1782,22 @@ const MangaDetail: React.FC = () => {
                           const isRevealed = revealedBlockedReviews[review.id];
 
                           return (
-                            <div key={review.id} className="relative rounded-xl border border-border bg-card/30 p-6 transition-all hover:bg-card/50">
+                            <div key={review.id} className="relative rounded-xl border border-border bg-card/30 p-4 transition-all hover:bg-card/50 sm:p-6">
                               <div className={cn("transition-all duration-300", isBlocked && !isRevealed && "blur-md select-none pointer-events-none grayscale opacity-40 overflow-hidden max-h-40")}>
-                                <div className="flex justify-between items-start mb-4">
-                                  <div className="flex gap-4">
+                                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="flex min-w-0 gap-3 sm:gap-4">
                                     <Link to={`/profile/${review.userId}`} className="shrink-0 transition-transform hover:scale-105">
-                                      <Avatar className="h-12 w-12 border-2 border-primary/20">
+                                      <Avatar className="h-10 w-10 border-2 border-primary/20 sm:h-12 sm:w-12">
                                         <AvatarImage src={review.userAvatar} />
                                         <AvatarFallback>{review.username.substring(0, 2).toUpperCase()}</AvatarFallback>
                                       </Avatar>
                                     </Link>
-                                    <div>
+                                    <div className="min-w-0">
                                       <div className="flex flex-wrap items-center gap-2">
                                         <Link
                                           to={`/profile/${review.userId}`}
                                           className={cn(
-                                            'font-bold transition-colors hover:underline',
+                                            'min-w-0 truncate font-bold transition-colors hover:underline',
                                             review.userRole
                                               ? getStaffTextClassName(review.userRole)
                                               : 'text-foreground hover:text-primary'
@@ -1751,7 +1810,7 @@ const MangaDetail: React.FC = () => {
                                       <p className="text-xs text-muted-foreground">{formatDate(review.createdAt)}</p>
                                     </div>
                                   </div>
-                                  <div className="flex gap-0.5 text-yellow-400">
+                                  <div className="grid grid-cols-10 gap-0.5 self-start text-yellow-400 sm:flex">
                                     {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => {
                                       const avg = (review.rating_story + review.rating_characters + review.rating_art + review.rating_progression + review.rating_engagement) / 5;
                                       return <Star key={star} className={`h-3 w-3 ${star <= Math.round(avg) ? 'fill-current' : 'text-muted-foreground'}`} />;
@@ -1815,15 +1874,15 @@ const MangaDetail: React.FC = () => {
             </TabsContent>
 
             <TabsContent value="discover" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="rounded-xl border border-border bg-card/50 p-8">
-                <div className="flex items-center justify-between mb-6">
+              <div className="rounded-xl border border-border bg-card/50 p-4 sm:p-8">
+                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
                     <h3 className="text-2xl font-bold">Benzer Seriler</h3>
                     <p className="text-muted-foreground text-sm mt-1">
                       {manga?.genres?.slice(0, 3).join(', ')} türlerinde diğer popüler seriler
                     </p>
                   </div>
-                  <Button variant="outline" asChild>
+                  <Button variant="outline" asChild className="w-full sm:w-auto">
                     <Link to="/browse">Tüm Serilere Göz At</Link>
                   </Button>
                 </div>
@@ -1890,24 +1949,24 @@ const MangaDetail: React.FC = () => {
       </main>
 
       <Dialog open={isSeriesDownloadDialogOpen} onOpenChange={setIsSeriesDownloadDialogOpen}>
-        <DialogContent className="sm:max-w-[540px]">
-          <DialogHeader>
-            <DialogTitle>Seriyi İndir</DialogTitle>
+        <DialogContent className="max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 p-4 sm:max-w-[540px] sm:p-6">
+          <DialogHeader className="space-y-2 pr-6 text-left sm:pr-8">
+            <DialogTitle className="text-xl font-bold sm:text-2xl">Seriyi İndir</DialogTitle>
             <DialogDescription>
               Mevcut tüm bölümler cihazına indirilecek ve internet olmadan açılabilecek.
             </DialogDescription>
           </DialogHeader>
 
           {manga && (
-            <div className="space-y-5 py-2">
-              <div className="rounded-xl border border-border/60 bg-card/60 p-4">
+            <div className="space-y-4 py-1 sm:space-y-5 sm:py-2">
+              <div className="rounded-xl border border-border/60 bg-card/60 p-3 sm:p-4">
                 <p className="text-base font-semibold">{manga.title}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {manga.chapters.length} bölüm • {manga.chapters.reduce((sum, chapter) => sum + chapter.pages.length, 0)} sayfa
                 </p>
               </div>
 
-              <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-100">
+              <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-100 sm:p-4">
                 <p className="font-semibold">Boyut tahmini</p>
                 <p className="mt-1 text-blue-100/80">
                   Bazı kaynaklar toplam dosya boyutunu önceden vermiyor. Bu durumda gerçek boyut indirme sırasında netleşecek.
@@ -1915,18 +1974,18 @@ const MangaDetail: React.FC = () => {
               </div>
 
               {offlineSeriesEntry && (
-                <div className="rounded-xl border border-border/60 bg-card/60 p-4 text-sm text-muted-foreground">
+                <div className="rounded-xl border border-border/60 bg-card/60 p-3 text-sm text-muted-foreground sm:p-4">
                   {offlineSeriesEntry.downloadedChapters} bölüm zaten çevrimdışı hazır. Eksik veya başarısız olanlar yeniden kuyruğa alınacak.
                 </div>
               )}
             </div>
           )}
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsSeriesDownloadDialogOpen(false)}>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <Button className="w-full sm:w-auto" variant="ghost" onClick={() => setIsSeriesDownloadDialogOpen(false)}>
               İptal
             </Button>
-            <Button onClick={() => void handleQueueSeriesDownload()} disabled={isQueueingSeriesDownload}>
+            <Button className="w-full sm:w-auto" onClick={() => void handleQueueSeriesDownload()} disabled={isQueueingSeriesDownload}>
               {isQueueingSeriesDownload ? 'Kuyruğa Alınıyor...' : 'İndir'}
             </Button>
           </DialogFooter>
@@ -1934,16 +1993,16 @@ const MangaDetail: React.FC = () => {
       </Dialog>
 
       <Dialog open={isReportDialogOpen} onOpenChange={setIsReportDialogOpen}>
-        <DialogContent className="sm:max-w-[560px]">
-          <DialogHeader>
-            <DialogTitle>Seriyi Bildir</DialogTitle>
+        <DialogContent className="max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 p-4 sm:max-w-[560px] sm:p-6">
+          <DialogHeader className="space-y-2 pr-6 text-left sm:pr-8">
+            <DialogTitle className="text-xl font-bold sm:text-2xl">Seriyi Bildir</DialogTitle>
             <DialogDescription>
               Hata, eksik bölüm veya yanlış bilgi gibi problemleri buradan admin ekibine iletebilirsiniz.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="space-y-5 py-2">
-            <div className="rounded-xl border border-border/60 bg-card/60 p-4">
+          <div className="space-y-4 py-1 sm:space-y-5 sm:py-2">
+            <div className="rounded-xl border border-border/60 bg-card/60 p-3 sm:p-4">
               <p className="text-sm font-medium">{manga.title}</p>
               <p className="mt-1 text-xs text-muted-foreground">
                 Aynı seri için tekrar bildirim gönderirseniz son notunuzla güncellenir.
@@ -1952,13 +2011,14 @@ const MangaDetail: React.FC = () => {
 
             <div className="space-y-2">
               <label className="text-sm font-medium">Neden</label>
-              <div className="flex flex-wrap gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 {mangaReportReasons.map((reason) => (
                   <Button
                     key={reason}
                     type="button"
                     variant={reportReason === reason ? 'default' : 'outline'}
                     size="sm"
+                    className="h-auto min-h-10 justify-start whitespace-normal px-3 py-2 text-left leading-snug"
                     onClick={() => setReportReason(reason)}
                   >
                     {reason}
@@ -1973,18 +2033,18 @@ const MangaDetail: React.FC = () => {
                 value={reportDetails}
                 onChange={(event) => setReportDetails(event.target.value)}
                 placeholder="Sorunu biraz daha açıklayın. Örnek: 57. bölüm sayfaları kırık."
-                className="min-h-[140px]"
+                className="min-h-[128px] sm:min-h-[140px]"
                 maxLength={600}
               />
               <p className="text-xs text-muted-foreground">{reportDetails.length}/600</p>
             </div>
           </div>
 
-          <DialogFooter>
-            <Button variant="ghost" onClick={() => setIsReportDialogOpen(false)}>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setIsReportDialogOpen(false)}>
               İptal
             </Button>
-            <Button onClick={handleSubmitReport} disabled={isSubmittingReport}>
+            <Button className="w-full sm:w-auto" onClick={handleSubmitReport} disabled={isSubmittingReport}>
               {isSubmittingReport ? 'Gönderiliyor...' : 'Bildirimi Gönder'}
             </Button>
           </DialogFooter>

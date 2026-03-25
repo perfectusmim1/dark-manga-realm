@@ -1,7 +1,36 @@
 import { supabase } from './supabase';
 import { User } from './types';
 import { parseCommentContent, stripCommentFormatting } from './commentContent';
-import { getCompletedChapterCount } from './storage';
+import { createFollowNotification, getCompletedChapterCount } from './storage';
+
+export type PrivacyVisibility = NonNullable<NonNullable<User['preferences']>['privacy']>['visibility'];
+
+export const canAccessPrivacyScope = (
+    visibility: PrivacyVisibility | undefined,
+    ownerId: string,
+    viewerId?: string,
+    isMutualFollow: boolean = false
+) => {
+    if (viewerId && viewerId === ownerId) {
+        return true;
+    }
+
+    const resolvedVisibility = visibility || 'public';
+
+    if (resolvedVisibility === 'public') {
+        return true;
+    }
+
+    if (resolvedVisibility === 'members') {
+        return Boolean(viewerId);
+    }
+
+    if (resolvedVisibility === 'mutuals') {
+        return Boolean(viewerId) && isMutualFollow;
+    }
+
+    return false;
+};
 
 export interface ProfileRecentComment {
     id: string;
@@ -263,14 +292,6 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         .select('manga_id', { count: 'exact', head: true })
         .eq('user_id', userId);
         
-    // Fetch last 4 recently read mangas
-    const { data: recentReads } = await supabase
-        .from('reading_progress')
-        .select('manga_id, chapter_number, page, last_read, mangas:manga_id (id, title, cover)')
-        .eq('user_id', userId)
-        .order('last_read', { ascending: false })
-        .limit(4);
-        
     const totalChapters = await getCompletedChapterCount(userId);
 
     const { data: readingTimeRows } = await supabase
@@ -285,8 +306,6 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         { count: totalCharacterComments },
         { count: totalAuthorComments },
         { count: totalArtistComments },
-        recentComments,
-        followedManga,
     ] = await Promise.all([
         supabase
             .from('comments')
@@ -304,8 +323,6 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
             .from('artist_comments')
             .select('id', { count: 'exact', head: true })
             .eq('user_id', userId),
-        getUserRecentComments(userId),
-        getUserFollowedManga(userId),
     ]);
 
     // Get following/follower counts
@@ -321,20 +338,49 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
 
     // Check relationship with current user
     let isFollowing = false;
+    let isFollowedBy = false;
     let isBlocked = false;
     let isBlockedByOwner = false;
 
     if (currentUserId && currentUserId !== userId) {
-        const [followCheck, blockCheck, blockByOwnerCheck] = await Promise.all([
+        const [followCheck, followedByCheck, blockCheck, blockByOwnerCheck] = await Promise.all([
             supabase.from('user_follows').select('id').eq('follower_id', currentUserId).eq('followed_id', userId).maybeSingle(),
+            supabase.from('user_follows').select('id').eq('follower_id', userId).eq('followed_id', currentUserId).maybeSingle(),
             supabase.from('user_blocks').select('id').eq('blocker_id', currentUserId).eq('blocked_id', userId).maybeSingle(),
             supabase.from('user_blocks').select('id').eq('blocker_id', userId).eq('blocked_id', currentUserId).maybeSingle()
         ]);
         
         isFollowing = !!followCheck.data;
+        isFollowedBy = !!followedByCheck.data;
         isBlocked = !!blockCheck.data;
         isBlockedByOwner = !!blockByOwnerCheck.data;
     }
+
+    const isMutualFollow = isFollowing && isFollowedBy;
+    const privacy = user.preferences?.privacy;
+    const sectionAccess = {
+        profile: canAccessPrivacyScope(privacy?.visibility, userId, currentUserId, isMutualFollow),
+        readingHistory: canAccessPrivacyScope(privacy?.reading_history_visibility, userId, currentUserId, isMutualFollow),
+        comments: canAccessPrivacyScope(privacy?.comments_visibility, userId, currentUserId, isMutualFollow),
+        readingLists: canAccessPrivacyScope(privacy?.reading_lists_visibility, userId, currentUserId, isMutualFollow),
+        tierLists: canAccessPrivacyScope(privacy?.tier_lists_visibility, userId, currentUserId, isMutualFollow),
+        followedManga: canAccessPrivacyScope(privacy?.followed_manga_visibility, userId, currentUserId, isMutualFollow),
+    };
+
+    const recentReadsPromise = sectionAccess.readingHistory
+        ? supabase
+            .from('reading_progress')
+            .select('manga_id, chapter_number, page, last_read, mangas:manga_id (id, title, cover)')
+            .eq('user_id', userId)
+            .order('last_read', { ascending: false })
+            .limit(4)
+        : Promise.resolve({ data: [] as any[] });
+
+    const [recentReadsResult, recentComments, followedManga] = await Promise.all([
+        recentReadsPromise,
+        sectionAccess.comments ? getUserRecentComments(userId) : Promise.resolve([]),
+        sectionAccess.followedManga ? getUserFollowedManga(userId) : Promise.resolve([]),
+    ]);
 
     return {
         ...user,
@@ -348,10 +394,13 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         },
         relationship: {
             isFollowing,
+            isFollowedBy,
+            isMutualFollow,
             isBlocked,
             isBlockedByOwner
         },
-        recentReads: recentReads || [],
+        sectionAccess,
+        recentReads: recentReadsResult.data || [],
         recentComments,
         followedManga,
     };
@@ -590,11 +639,11 @@ export const getReadingTimeTimeline = async (userId: string, range: ReadingTimeR
     return Array.from(dayMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 };
 
-export const updatePrivacySettings = async (userId: string, visibility: 'public' | 'private' | 'members', currentPreferences: any = {}) => {
+export const updatePrivacySettings = async (userId: string, visibility: 'public' | 'private' | 'members' | 'mutuals', currentPreferences: any = {}) => {
     const updatedPreferences = {
         ...currentPreferences,
         privacy: {
-            visibility // public, members, private
+            visibility // public, members, mutuals, private
         }
     };
     
@@ -662,11 +711,25 @@ export const syncAchievements = async (userId: string, stats: { totalSeries: num
 // Social Functions
 export const followUser = async (followerId: string, followedId: string) => {
     if (followerId === followedId) return { error: 'Kendinizi takip edemezsiniz.' };
-    
+
     const { data, error } = await supabase
         .from('user_follows')
         .insert({ follower_id: followerId, followed_id: followedId });
-        
+
+    if (!error) {
+        const { data: followerProfile } = await supabase
+            .from('users')
+            .select('username')
+            .eq('id', followerId)
+            .single();
+
+        await createFollowNotification(
+            followedId,
+            followerId,
+            followerProfile?.username || 'Bir kullanıcı'
+        );
+    }
+
     return { data, error };
 };
 

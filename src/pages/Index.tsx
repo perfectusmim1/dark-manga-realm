@@ -124,7 +124,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
           {manga.map((item, index) => (
             <div
               key={item.id}
-              className="shrink-0 w-[calc((100%-24px)/3)] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/7)] 2xl:w-[calc((100%-112px)/8)]"
+              className="w-[9.75rem] shrink-0 min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/7)] 2xl:w-[calc((100%-96px)/7)]"
             >
               <MangaCard manga={item} index={index} />
             </div>
@@ -492,7 +492,7 @@ const Index: React.FC = () => {
             </div>
 
             {offlineManga.length > 0 ? (
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
+              <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
                 {offlineManga.map((manga, index) => (
                   <MangaCard key={manga.id} manga={manga} index={index} />
                 ))}

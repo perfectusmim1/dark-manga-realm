@@ -18,6 +18,17 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
   currentPage,
   onPageChange
 }) => {
+  const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
+  const effectiveZoom = isMobileViewport && settings.fitWidth
+    ? Math.max(settings.zoom, 100)
+    : settings.zoom;
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileViewport(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
   const goToPrevPage = useCallback(() => {
     if (currentPage > 1) {
       onPageChange(currentPage - 1);
@@ -56,12 +67,12 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
       </button>
 
       {/* Page Display */}
-      <div className={`relative flex h-full items-center justify-center px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
+      <div className={`relative flex h-full items-center justify-center px-0 sm:px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
         <div data-reader-page-number={currentPage} className="flex w-full justify-center">
           <ProtectedImage
             src={pages[currentPage - 1]?.src || ''}
             alt={`Sayfa ${currentPage}`}
-            zoom={settings.zoom}
+            zoom={effectiveZoom}
             className="max-h-full items-center justify-center flex"
             style={{
               width: settings.fitWidth ? '100%' : 'auto',

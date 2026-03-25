@@ -65,6 +65,11 @@ const CHARACTER_MENU_LONG_PRESS_MS = 320;
 
 const characterMenuItems = [
   {
+    path: '/characters',
+    label: 'Karakterler',
+    description: 'Tüm karakter arşivini ve popüler yüzleri keşfet',
+  },
+  {
     path: '/authors',
     label: 'Yazarlar',
     description: 'Senaryo ve kurgu tarafını keşfet',
@@ -244,9 +249,11 @@ const Header: React.FC = () => {
   const renderCharacterMenuLinks = (onNavigate?: () => void) => (
     <>
       {characterMenuItems.map((item) => {
-        const isItemActive = item.path === '/authors'
-          ? location.pathname === '/authors' || location.pathname.startsWith('/author/')
-          : location.pathname === '/artists' || location.pathname.startsWith('/artist/');
+        const isItemActive = item.path === '/characters'
+          ? location.pathname === '/characters' || location.pathname.startsWith('/character/')
+          : item.path === '/authors'
+            ? location.pathname === '/authors' || location.pathname.startsWith('/author/')
+            : location.pathname === '/artists' || location.pathname.startsWith('/artist/');
 
         return (
           <Link
@@ -621,7 +628,19 @@ const Header: React.FC = () => {
 
           {/* Notifications & Search */}
           <div className="flex items-center gap-1">
-            <SuperSearch />
+            <div className="hidden md:block">
+              <SuperSearch />
+            </div>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-9 w-9 md:hidden"
+              onClick={() => setIsMenuOpen(!isMenuOpen)}
+              aria-expanded={isMenuOpen}
+              aria-label="Gezinti menüsü"
+            >
+              {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
+            </Button>
             <div className="md:hidden">
               {renderOfflineToggleButton()}
             </div>
@@ -751,33 +770,12 @@ const Header: React.FC = () => {
             </Button>
           )}
 
-          {/* Mobile Menu Button */}
-          <Button
-            variant="ghost"
-            size="icon"
-            className="lg:hidden"
-            onClick={() => setIsMenuOpen(!isMenuOpen)}
-          >
-            {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </Button>
         </div>
       </div>
 
       {/* Mobile Menu */}
       {isMenuOpen && (
         <div className="animate-fade-in border-t border-border bg-background p-4 lg:hidden">
-          <form onSubmit={handleSearch} className="mb-4">
-            <div className="relative">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder="Ara..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10"
-              />
-            </div>
-          </form>
           <nav className="flex flex-col gap-2">
             {navLinks.map((link) => {
               if (link.path === '/characters') {
@@ -851,54 +849,17 @@ const Header: React.FC = () => {
                 </Link>
               );
             })}
-            {user && (
-              <>
-                <Link
-                  to="/library"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-                >
-                  Kütüphanem
-                </Link>
-                <Link
-                  to="/favorites"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-                >
-                  Favorilerim
-                </Link>
-                <Link
-                  to="/history"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-                >
-                  Okuma Geçmişi
-                </Link>
-                <Link
-                  to="/downloads"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-                >
-                  İndirilenler
-                </Link>
-                <Link
-                  to="/reading-time"
-                  onClick={() => setIsMenuOpen(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
-                >
-                  Süre
-                </Link>
-              </>
-            )}
-            {isAdmin && (
-              <Link
-                to="/admin"
-                onClick={() => setIsMenuOpen(false)}
-                className="rounded-lg px-4 py-2 text-sm font-medium text-primary transition-colors hover:bg-secondary"
-              >
-                Admin Paneli
-              </Link>
-            )}
+            <button
+              type="button"
+              onClick={() => {
+                setIsMenuOpen(false);
+                void handleRandomManga();
+              }}
+              className="flex items-center gap-2 rounded-lg px-4 py-2 text-left text-sm font-medium transition-colors hover:bg-secondary"
+            >
+              <Dices className="h-4 w-4 text-primary" />
+              Zar At
+            </button>
           </nav>
         </div>
       )}
@@ -912,30 +873,30 @@ const Header: React.FC = () => {
           setIsRandomDialogOpen(open);
         }}
       >
-        <DialogContent className="max-w-md overflow-hidden border-primary/20 bg-card/95 p-0 backdrop-blur-xl">
-          <DialogHeader className="border-b border-border/60 px-6 py-5">
+        <DialogContent className="w-[calc(100vw-1.25rem)] max-w-[calc(100vw-1.25rem)] overflow-hidden rounded-[2rem] border-primary/20 bg-card/95 p-0 backdrop-blur-xl sm:max-w-md sm:rounded-2xl">
+          <DialogHeader className="border-b border-border/60 px-4 py-4 sm:px-6 sm:py-5">
             <div className="flex items-center gap-2 text-primary">
               <Sparkles className="h-4 w-4" />
               <span className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Rastgele Seri</span>
             </div>
-            <DialogTitle className="pt-2 text-2xl font-black tracking-tight">
+            <DialogTitle className="pt-2 text-center text-[1.85rem] font-black leading-tight tracking-tight sm:text-left sm:text-2xl">
               Şansın Kimi Seçecek?
             </DialogTitle>
-            <DialogDescription>
+            <DialogDescription className="text-center text-sm leading-relaxed sm:text-left">
               Seri kartları slot gibi akıyor, seçilen manganın üstünde durunca sayfaya geçeceksin.
             </DialogDescription>
           </DialogHeader>
 
-          <div className="relative px-6 py-6">
-            <div className="pointer-events-none absolute inset-x-6 top-6 h-16 rounded-t-3xl bg-gradient-to-b from-card via-card/80 to-transparent z-20" />
-            <div className="pointer-events-none absolute inset-x-6 bottom-6 h-16 rounded-b-3xl bg-gradient-to-t from-card via-card/80 to-transparent z-20" />
-            <div className="pointer-events-none absolute inset-x-7 top-[calc(50%-20px)] z-20 h-[96px] -translate-y-1/2 rounded-[26px] border border-primary/30 bg-primary/10 shadow-[0_0_40px_rgba(59,130,246,0.18)]" />
+          <div className="relative px-4 py-4 sm:px-6 sm:py-6">
+            <div className="pointer-events-none absolute inset-x-4 top-4 z-20 h-12 rounded-t-3xl bg-gradient-to-b from-card via-card/80 to-transparent sm:inset-x-6 sm:top-6 sm:h-16" />
+            <div className="pointer-events-none absolute inset-x-4 bottom-4 z-20 h-12 rounded-b-3xl bg-gradient-to-t from-card via-card/80 to-transparent sm:inset-x-6 sm:bottom-6 sm:h-16" />
+            <div className="pointer-events-none absolute inset-x-5 top-[calc(50%-20px)] z-20 h-[84px] -translate-y-1/2 rounded-[22px] border border-primary/30 bg-primary/10 shadow-[0_0_32px_rgba(59,130,246,0.18)] sm:inset-x-7 sm:h-[96px] sm:rounded-[26px] sm:shadow-[0_0_40px_rgba(59,130,246,0.18)]" />
 
-            <div className="h-[312px] overflow-hidden rounded-[28px] border border-border/60 bg-background/70">
+            <div className="h-[272px] overflow-hidden rounded-[28px] border border-border/60 bg-background/70 sm:h-[312px] sm:rounded-[28px]">
               <div
-                className="px-4 py-[108px]"
+                className="[--random-card-step:84px] px-3 py-[94px] sm:[--random-card-step:96px] sm:px-4 sm:py-[108px]"
                 style={{
-                  transform: `translateY(-${randomSpinIndex * 96}px)`,
+                  transform: `translateY(calc(-${randomSpinIndex} * var(--random-card-step)))`,
                   transitionProperty: 'transform',
                   transitionDuration: `${randomTransitionMs}ms`,
                   transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
@@ -948,19 +909,19 @@ const Header: React.FC = () => {
                     return (
                       <div
                         key={`${manga.id}-${index}`}
-                        className={`flex h-[84px] items-center gap-4 rounded-2xl border px-3 transition-all ${isActive ? 'border-primary/50 bg-primary/10 shadow-[0_0_24px_rgba(59,130,246,0.12)]' : 'border-border/50 bg-card/50 opacity-70'}`}
+                        className={`flex h-[72px] items-center gap-3 rounded-[1.4rem] border px-3 transition-all sm:h-[84px] sm:gap-4 sm:rounded-2xl ${isActive ? 'border-primary/50 bg-primary/10 shadow-[0_0_24px_rgba(59,130,246,0.12)]' : 'border-border/50 bg-card/50 opacity-70'}`}
                       >
                         <img
                           src={manga.cover}
                           alt={manga.title}
-                          className="h-16 w-12 rounded-xl object-cover shadow-md"
+                          className="h-14 w-10 rounded-lg object-cover shadow-md sm:h-16 sm:w-12 sm:rounded-xl"
                         />
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-semibold">{manga.title}</p>
-                          <div className="mt-1 flex items-center gap-2 text-[11px] text-muted-foreground">
+                          <p className="truncate text-[13px] font-semibold sm:text-sm">{manga.title}</p>
+                          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground sm:text-[11px]">
                             <span className="uppercase">{manga.type}</span>
                             <span className="h-1 w-1 rounded-full bg-border" />
-                            <span>{manga.author}</span>
+                            <span className="truncate">{manga.author}</span>
                           </div>
                         </div>
                       </div>
@@ -970,7 +931,7 @@ const Header: React.FC = () => {
               </div>
             </div>
 
-            <p className="pt-4 text-center text-xs text-muted-foreground">
+            <p className="pt-3 text-center text-[11px] text-muted-foreground sm:pt-4 sm:text-xs">
               {isRandomRolling ? 'Karıştırılıyor...' : 'Seçim tamamlandı, seri açılıyor...'}
             </p>
           </div>

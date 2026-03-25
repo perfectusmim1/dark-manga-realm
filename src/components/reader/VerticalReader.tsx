@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 
 interface VerticalReaderProps {
@@ -19,6 +19,16 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   trackingEnabled = true,
 }) => {
   const lastReportedPage = useRef<number>(initialPage);
+  const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
+  const effectiveZoom = isMobileViewport && settings.fitWidth
+    ? Math.max(settings.zoom, 100)
+    : settings.zoom;
+
+  useEffect(() => {
+    const handleResize = () => setIsMobileViewport(window.innerWidth < 640);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // Intersection Observer for tracking current page
   useEffect(() => {
@@ -70,16 +80,16 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
         <div
           key={index}
           data-page-index={index}
-          className="relative flex items-center justify-center w-full"
+          className="relative mx-auto flex w-full items-center justify-center"
           style={{
-            maxWidth: settings.fitWidth ? `${896 * (settings.zoom / 100)}px` : 'none'
+            maxWidth: settings.fitWidth ? `${896 * (effectiveZoom / 100)}px` : 'none'
           }}
         >
-          <div data-reader-page-number={index + 1} className="flex w-full justify-center">
+          <div data-reader-page-number={index + 1} className="mx-auto flex w-full justify-center">
             <ProtectedImage
               src={page.src}
               alt={`Sayfa ${index + 1}`}
-              zoom={settings.zoom}
+              zoom={effectiveZoom}
             />
           </div>
           {/* Page number indicator for debugging/clarity if images fail */}

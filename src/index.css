@@ -70,10 +70,19 @@
     scrollbar-gutter: stable both-edges;
   }
 
+  html.reader-active {
+    scrollbar-gutter: auto;
+    overflow-y: auto;
+  }
+
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
     overflow-y: scroll;
+  }
+
+  body.reader-active {
+    overflow-y: auto;
   }
 
   /* Custom scrollbar */

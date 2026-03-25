@@ -1,7 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
-    List,
     ChevronLeft,
     Trash2,
     Globe,
@@ -9,7 +8,10 @@ import {
     Clock,
     BookOpen,
     Edit2,
-    Heart
+    Heart,
+    CheckSquare,
+    Square,
+    X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import Header from '@/components/layout/Header';
@@ -17,11 +19,13 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getReadingListById, removeMangaFromReadingList } from '@/lib/database';
-import { ReadingList, Manga } from '@/lib/types';
+import { ReadingList } from '@/lib/types';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
 import ReadingListCover from '@/components/manga/ReadingListCover';
+import MangaCard from '@/components/manga/MangaCard';
+import { cn } from '@/lib/utils';
 
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
@@ -30,6 +34,9 @@ const ReadingListDetail: React.FC = () => {
     const [list, setList] = useState<ReadingList | undefined>();
     const [isLoading, setIsLoading] = useState(true);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
+    const [isSelectionMode, setIsSelectionMode] = useState(false);
+    const [selectedMangaIds, setSelectedMangaIds] = useState<string[]>([]);
+    const [isRemovingSelected, setIsRemovingSelected] = useState(false);
     
     // Likes State
     const [likesCount, setLikesCount] = useState(0);
@@ -186,17 +193,64 @@ const ReadingListDetail: React.FC = () => {
         }
     };
 
-    const handleRemoveManga = async (mangaId: string) => {
-        if (!listId || !user || user.id !== list?.userId) return;
+    useEffect(() => {
+        const availableIds = new Set((list?.items || []).map((item) => item.id));
+        setSelectedMangaIds((current) => current.filter((id) => availableIds.has(id)));
+
+        if ((list?.items?.length || 0) === 0) {
+            setIsSelectionMode(false);
+        }
+    }, [list?.items]);
+
+    const toggleSelectionMode = () => {
+        setIsSelectionMode((current) => {
+            if (current) {
+                setSelectedMangaIds([]);
+            }
+
+            return !current;
+        });
+    };
+
+    const toggleMangaSelection = (mangaId: string) => {
+        setSelectedMangaIds((current) => (
+            current.includes(mangaId)
+                ? current.filter((id) => id !== mangaId)
+                : [...current, mangaId]
+        ));
+    };
+
+    const handleToggleSelectAll = () => {
+        const itemIds = (list?.items || []).map((item) => item.id);
+
+        setSelectedMangaIds((current) => (
+            current.length === itemIds.length ? [] : itemIds
+        ));
+    };
+
+    const handleRemoveSelected = async () => {
+        if (!listId || !user || user.id !== list?.userId || selectedMangaIds.length === 0) {
+            return;
+        }
+
         try {
-            await removeMangaFromReadingList(listId, mangaId);
-            setList(prev => prev ? {
-                ...prev,
-                items: prev.items?.filter(m => m.id !== mangaId)
+            setIsRemovingSelected(true);
+            const idsToRemove = [...selectedMangaIds];
+            await Promise.all(idsToRemove.map((mangaId) => removeMangaFromReadingList(listId, mangaId)));
+
+            setList((previous) => previous ? {
+                ...previous,
+                items: previous.items?.filter((item) => !idsToRemove.includes(item.id)),
             } : undefined);
-            toast.success('Manga listeden kaldırıldı');
+
+            setSelectedMangaIds([]);
+            setIsSelectionMode(false);
+            toast.success(`${idsToRemove.length} seri listeden kaldırıldı`);
         } catch (err) {
-            toast.error('Manga kaldırılamadı');
+            console.error(err);
+            toast.error('Seçilen seriler kaldırılamadı');
+        } finally {
+            setIsRemovingSelected(false);
         }
     };
 
@@ -228,6 +282,8 @@ const ReadingListDetail: React.FC = () => {
     if (!list) return null;
 
     const isOwner = user?.id === list.userId;
+    const listItems = list.items || [];
+    const allItemsSelected = listItems.length > 0 && selectedMangaIds.length === listItems.length;
 
     return (
         <div className="min-h-screen bg-background">
@@ -253,10 +309,10 @@ const ReadingListDetail: React.FC = () => {
                         className="h-56 w-full"
                         iconClassName="h-14 w-14"
                     />
-                    <div className="flex flex-col gap-4 p-6 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
                         <div className="flex-1">
-                            <div className="flex items-center flex-wrap gap-3 mb-2">
-                                <h1 className="text-3xl font-bold">{list.name}</h1>
+                            <div className="mb-2 flex flex-wrap items-center gap-3">
+                                <h1 className="text-2xl font-bold sm:text-3xl">{list.name}</h1>
                                 <Badge variant="secondary" className="gap-1">
                                     {list.isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
                                     {list.isPublic ? 'Herkese Açık' : 'Özel'}
@@ -272,11 +328,11 @@ const ReadingListDetail: React.FC = () => {
                                     </Button>
                                 )}
                             </div>
-                            <p className="text-muted-foreground max-w-2xl">{list.description || 'Açıklama belirtilmemiş.'}</p>
+                            <p className="max-w-2xl text-muted-foreground">{list.description || 'Açıklama belirtilmemiş.'}</p>
                         </div>
                         
-                        <div className="flex items-center gap-4 text-sm text-muted-foreground bg-secondary/30 px-4 py-2 rounded-lg">
-                            <div className="flex items-center gap-1 cursor-pointer hover:text-red-500 transition-colors" onClick={handleToggleLike}>
+                        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-secondary/30 px-4 py-3 text-sm text-muted-foreground sm:w-auto sm:flex-nowrap sm:py-2">
+                            <div className="flex cursor-pointer items-center gap-1 transition-colors hover:text-red-500" onClick={handleToggleLike}>
                                 <Heart className={`h-4 w-4 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
                                 <span>{likesCount} Beğeni</span>
                             </div>
@@ -300,54 +356,100 @@ const ReadingListDetail: React.FC = () => {
                     editList={list}
                 />
 
-                {list.items && list.items.length > 0 ? (
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {list.items.map((manga, index) => (
-                            <div
-                                key={manga.id}
-                                className="group animate-fade-up flex gap-4 rounded-xl border border-border bg-card p-3 opacity-0 transition-all hover:border-primary/50 hover:shadow-lg"
-                                style={{ animationDelay: `${140 + (index % 9) * 45}ms`, animationFillMode: 'forwards' }}
-                            >
-                                <Link to={`/manga/${manga.id}`} className="shrink-0">
-                                    <img
-                                        src={manga.cover}
-                                        alt={manga.title}
-                                        className="h-24 w-16 rounded-lg object-cover shadow-sm"
-                                    />
-                                </Link>
+                {listItems.length > 0 ? (
+                    <>
+                        {isOwner && (
+                            <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-border/70 bg-card/40 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <Button
+                                        variant={isSelectionMode ? 'default' : 'outline'}
+                                        size="sm"
+                                        className="gap-2"
+                                        onClick={toggleSelectionMode}
+                                    >
+                                        <CheckSquare className="h-4 w-4" />
+                                        {isSelectionMode ? 'Seçim Modunu Kapat' : 'Seri Seç'}
+                                    </Button>
 
-                                <div className="flex flex-1 flex-col justify-center min-w-0">
-                                    <Link to={`/manga/${manga.id}`}>
-                                        <h3 className="line-clamp-1 font-semibold hover:text-primary transition-colors">
-                                            {manga.title}
-                                        </h3>
-                                    </Link>
-                                    <p className="mt-1 line-clamp-1 text-xs text-muted-foreground">
-                                        {manga.author}
-                                    </p>
-                                    <div className="mt-2 flex items-center gap-2">
-                                        <Badge variant="outline" className="text-[10px] py-0 px-1.5 uppercase">
-                                            {manga.type}
-                                        </Badge>
-                                        <Badge variant="secondary" className="text-[10px] py-0 px-1.5">
-                                            {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara Verildi'}
-                                        </Badge>
-                                    </div>
+                                    {isSelectionMode && (
+                                        <>
+                                            <Button
+                                                variant="outline"
+                                                size="sm"
+                                                onClick={handleToggleSelectAll}
+                                            >
+                                                {allItemsSelected ? 'Seçimi Temizle' : 'Tümünü Seç'}
+                                            </Button>
+                                            <Badge variant="secondary">
+                                                {selectedMangaIds.length} seçili
+                                            </Badge>
+                                        </>
+                                    )}
                                 </div>
 
-                                {isOwner && (
-                                    <Button
-                                        variant="ghost"
-                                        size="icon"
-                                        className="h-8 w-8 self-center text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity hover:text-destructive hover:bg-destructive/10"
-                                        onClick={() => handleRemoveManga(manga.id)}
-                                    >
-                                        <Trash2 className="h-4 w-4" />
-                                    </Button>
+                                {isSelectionMode && (
+                                    <div className="flex flex-col gap-2 sm:flex-row">
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            className="gap-2"
+                                            onClick={toggleSelectionMode}
+                                        >
+                                            <X className="h-4 w-4" />
+                                            İptal
+                                        </Button>
+                                        <Button
+                                            variant="destructive"
+                                            size="sm"
+                                            className="gap-2"
+                                            onClick={handleRemoveSelected}
+                                            disabled={selectedMangaIds.length === 0 || isRemovingSelected}
+                                        >
+                                            <Trash2 className="h-4 w-4" />
+                                            {isRemovingSelected ? 'Kaldırılıyor...' : `Seçilenleri Kaldır${selectedMangaIds.length > 0 ? ` (${selectedMangaIds.length})` : ''}`}
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
-                        ))}
-                    </div>
+                        )}
+
+                        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                            {listItems.map((manga, index) => {
+                                const isSelected = selectedMangaIds.includes(manga.id);
+
+                                return (
+                                    <div key={manga.id} className="relative">
+                                        <div className={cn(isSelectionMode && 'pointer-events-none')}>
+                                            <MangaCard manga={manga} index={index} />
+                                        </div>
+
+                                        {isSelectionMode && (
+                                            <button
+                                                type="button"
+                                                onClick={() => toggleMangaSelection(manga.id)}
+                                                className={cn(
+                                                    'absolute inset-0 z-20 rounded-xl border-2 transition-all',
+                                                    isSelected
+                                                        ? 'border-primary bg-primary/15 shadow-[0_0_0_1px_rgba(59,130,246,0.4)]'
+                                                        : 'border-border/70 bg-background/5 hover:bg-background/10'
+                                                )}
+                                                aria-pressed={isSelected}
+                                                aria-label={`${manga.title} seç`}
+                                            >
+                                                <div className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/65 text-white backdrop-blur-md">
+                                                    {isSelected ? (
+                                                        <CheckSquare className="h-4 w-4 text-primary" />
+                                                    ) : (
+                                                        <Square className="h-4 w-4 text-white/80" />
+                                                    )}
+                                                </div>
+                                            </button>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </>
                 ) : (
                     <div
                         className="flex animate-fade-up flex-col items-center justify-center py-20 text-center opacity-0"

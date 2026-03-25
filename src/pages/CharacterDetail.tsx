@@ -13,6 +13,7 @@ import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
+import EntitySeriesGrid from '@/components/entities/EntitySeriesGrid';
 import { supabase } from '@/lib/supabase'; // Added for like check
 
 const CharacterDetail: React.FC = () => {
@@ -92,6 +93,8 @@ const CharacterDetail: React.FC = () => {
         );
     }
 
+    const hasDescription = Boolean(character.description?.trim());
+
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">
             <Header />
@@ -102,9 +105,9 @@ const CharacterDetail: React.FC = () => {
                     Geri Dön
                 </Link>
 
-                <div className="grid gap-8 md:grid-cols-[1fr,2fr]">
+                <div className="grid gap-8 md:grid-cols-[minmax(0,18rem),minmax(0,1fr)] xl:grid-cols-[minmax(0,19rem),minmax(0,1fr)]">
                     {/* Left Side - Image & Stats */}
-                    <div className="space-y-6">
+                    <div className="space-y-6 md:max-w-[19rem]">
                         <div className="relative group">
                             <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-purple-600/50 rounded-2xl blur opacity-25 group-hover:opacity-100 transition duration-500" />
                             <div className="relative aspect-[3/4] rounded-xl overflow-hidden border border-border shadow-2xl bg-card">
@@ -168,32 +171,20 @@ const CharacterDetail: React.FC = () => {
                                 <BookOpen className="h-6 w-6 text-primary" />
                                 Seri Bağlantıları
                             </h2>
-                            <div className="flex flex-wrap gap-3">
-                                {character.series && character.series.length > 0 ? (
-                                    character.series.map(s => (
-                                        <Link
-                                            key={s.id}
-                                            to={`/manga/${s.id}`}
-                                            className="group relative"
-                                        >
-                                            <div className="absolute -inset-0.5 bg-gradient-to-r from-primary to-purple-600 rounded-lg blur opacity-0 group-hover:opacity-40 transition" />
-                                            <Badge variant="secondary" className="relative px-4 py-2 text-md rounded-lg cursor-pointer bg-card border-border hover:bg-secondary">
-                                                {s.title}
-                                            </Badge>
-                                        </Link>
-                                    ))
-                                ) : (
-                                    <p className="text-muted-foreground">Henüz bir seriyle ilişkilendirilmemiş.</p>
-                                )}
-                            </div>
+                            <EntitySeriesGrid
+                                mangas={character.series}
+                                emptyText="Henüz bir seriyle ilişkilendirilmemiş."
+                            />
                         </div>
 
-                        <div className="space-y-4">
-                            <h2 className="text-2xl font-bold">Hikayesi / Tanımı</h2>
-                            <div className="bg-secondary/30 rounded-2xl p-6 border border-border leading-relaxed text-lg italic text-foreground/90">
-                                {character.description || 'Bu karakter için henüz bir hikaye girişi yapılmamış.'}
+                        {hasDescription && (
+                            <div className="space-y-4">
+                                <h2 className="text-2xl font-bold">Hikayesi / Tanımı</h2>
+                                <div className="bg-secondary/30 rounded-2xl p-6 border border-border leading-relaxed text-lg italic text-foreground/90">
+                                    {character.description}
+                                </div>
                             </div>
-                        </div>
+                        )}
 
                         <Separator className="my-8" />
 

@@ -771,6 +771,83 @@ export const addAdminUser = async (admin: any): Promise<void> => {
     }
 };
 
+export const getMangasByIds = async (mangaIds: string[]): Promise<Manga[]> => {
+    const uniqueIds = [...new Set(mangaIds.filter(Boolean))];
+
+    if (uniqueIds.length === 0) {
+        return [];
+    }
+
+    try {
+        const [
+            { data: mangaData, error: mangaError },
+            { data: chapterData },
+            { data: reviewData },
+        ] = await Promise.all([
+            supabase
+                .from('mangas')
+                .select('*')
+                .in('id', uniqueIds),
+            supabase
+                .from('chapters')
+                .select('id, manga_id, number, title, pages, release_date, views')
+                .in('manga_id', uniqueIds),
+            supabase
+                .from('reviews')
+                .select('manga_id, user_id, created_at, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
+                .in('manga_id', uniqueIds),
+        ]);
+
+        if (mangaError) {
+            throw mangaError;
+        }
+
+        const allChapters = chapterData || [];
+        const allReviews = reviewData || [];
+
+        const mangaMap = new Map(
+            (mangaData || []).map((m) => {
+                const mangaChapters = allChapters.filter((chapter: any) => chapter.manga_id === m.id);
+                const mangaReviews = allReviews.filter((review: any) => review.manga_id === m.id);
+                const normalizedRatings = mangaReviews.map((review: any) => ({
+                    userId: review.user_id,
+                    rating: Math.round((((review.rating_story + review.rating_characters + review.rating_art + review.rating_progression + review.rating_engagement) / 5) * 10)) / 10,
+                    createdAt: review.created_at,
+                }));
+                const averageRating = normalizedRatings.length > 0
+                    ? Math.round(((normalizedRatings.reduce((sum, rating) => sum + rating.rating, 0) / normalizedRatings.length) * 10)) / 10
+                    : 0;
+
+                return [m.id, {
+                    ...m,
+                    alternativeTitles: m.alternative_titles || [],
+                    releaseYear: m.release_year,
+                    lastUpdated: m.last_updated,
+                    createdAt: m.created_at,
+                    chapters: mangaChapters.map((chapter: any) => ({
+                        id: chapter.id,
+                        number: chapter.number,
+                        title: chapter.title || '',
+                        pages: chapter.pages || [],
+                        releaseDate: chapter.release_date || '',
+                        views: chapter.views || 0,
+                    })),
+                    ratings: normalizedRatings,
+                    averageRating,
+                    reviewCount: normalizedRatings.length,
+                } as Manga];
+            }),
+        );
+
+        return uniqueIds
+            .map((id) => mangaMap.get(id))
+            .filter(Boolean) as Manga[];
+    } catch (error) {
+        console.error('Manga by ids fetch error:', error);
+        return [];
+    }
+};
+
 export const deleteAdminUser = async (adminId: string): Promise<void> => {
     const { data: staffUser, error: staffError } = await supabase
         .from('users')
@@ -1675,18 +1752,59 @@ export const getReadingListById = async (listId: string): Promise<ReadingList | 
     let mangas: Manga[] = [];
 
     if (mangaIds.length > 0) {
-        const { data: mangaData } = await supabase
-            .from('mangas')
-            .select('*')
-            .in('id', mangaIds);
+        const [
+            { data: mangaData },
+            { data: chapterData },
+            { data: reviewData },
+        ] = await Promise.all([
+            supabase
+                .from('mangas')
+                .select('*')
+                .in('id', mangaIds),
+            supabase
+                .from('chapters')
+                .select('id, manga_id, number, title, pages, release_date, views')
+                .in('manga_id', mangaIds),
+            supabase
+                .from('reviews')
+                .select('manga_id, user_id, created_at, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
+                .in('manga_id', mangaIds),
+        ]);
 
-        mangas = (mangaData || []).map(m => ({
-            ...m,
-            alternativeTitles: m.alternative_titles || [],
-            releaseYear: m.release_year,
-            lastUpdated: m.last_updated,
-            createdAt: m.created_at
-        })) as Manga[];
+        const allChapters = chapterData || [];
+        const allReviews = reviewData || [];
+
+        mangas = (mangaData || []).map(m => {
+            const mangaChapters = allChapters.filter((chapter: any) => chapter.manga_id === m.id);
+            const mangaReviews = allReviews.filter((review: any) => review.manga_id === m.id);
+            const normalizedRatings = mangaReviews.map((review: any) => ({
+                userId: review.user_id,
+                rating: Math.round((((review.rating_story + review.rating_characters + review.rating_art + review.rating_progression + review.rating_engagement) / 5) * 10)) / 10,
+                createdAt: review.created_at,
+            }));
+            const averageRating = normalizedRatings.length > 0
+                ? Math.round(((normalizedRatings.reduce((sum, rating) => sum + rating.rating, 0) / normalizedRatings.length) * 10)) / 10
+                : 0;
+
+            return {
+                ...m,
+                alternativeTitles: m.alternative_titles || [],
+                releaseYear: m.release_year,
+                lastUpdated: m.last_updated,
+                createdAt: m.created_at,
+                chapters: mangaChapters.map((chapter: any) => ({
+                    id: chapter.id,
+                    number: chapter.number,
+                    title: chapter.title || '',
+                    pages: chapter.pages || [],
+                    releaseDate: chapter.release_date || '',
+                    views: chapter.views || 0,
+                })),
+                ratings: normalizedRatings,
+                averageRating,
+                reviewCount: normalizedRatings.length,
+            };
+        }) as Manga[];
     }
 
     return {
@@ -2154,11 +2272,17 @@ export const getCharacterById = async (id: string): Promise<Character | undefine
 
     if (error || !data) return undefined;
 
-    // Get rank
-    const { count } = await supabase
-        .from('characters')
-        .select('*', { count: 'exact', head: true })
-        .gt('likes_count', data.likes_count);
+    const seriesIds = ((data as any).mangas || [])
+        .map((item: any) => item.manga?.id)
+        .filter(Boolean);
+
+    const [{ count }, series] = await Promise.all([
+        supabase
+            .from('characters')
+            .select('*', { count: 'exact', head: true })
+            .gt('likes_count', data.likes_count),
+        getMangasByIds(seriesIds),
+    ]);
 
     return {
         id: data.id,
@@ -2168,7 +2292,7 @@ export const getCharacterById = async (id: string): Promise<Character | undefine
         likesCount: data.likes_count,
         createdAt: data.created_at,
         rank: (count || 0) + 1,
-        series: (data as any).mangas.map((m: any) => m.manga).filter(Boolean)
+        series,
     };
 };
 
@@ -2238,7 +2362,13 @@ export const getAuthorById = async (id: string): Promise<Author | undefined> => 
         .eq('id', id)
         .maybeSingle();
     if (error || !data) return undefined;
-    return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series: (data as any).mangas.map((m: any) => m.manga) };
+
+    const seriesIds = ((data as any).mangas || [])
+        .map((item: any) => item.manga?.id)
+        .filter(Boolean);
+    const series = await getMangasByIds(seriesIds);
+
+    return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series };
 };
 
 export const getArtistById = async (id: string): Promise<Artist | undefined> => {
@@ -2248,7 +2378,13 @@ export const getArtistById = async (id: string): Promise<Artist | undefined> => 
         .eq('id', id)
         .maybeSingle();
     if (error || !data) return undefined;
-    return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series: (data as any).mangas.map((m: any) => m.manga) };
+
+    const seriesIds = ((data as any).mangas || [])
+        .map((item: any) => item.manga?.id)
+        .filter(Boolean);
+    const series = await getMangasByIds(seriesIds);
+
+    return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series };
 };
 
 export const findAuthorByName = async (name: string): Promise<Author | null> => {
@@ -2422,6 +2558,28 @@ import { Tag, TagCategory, TagVote } from './types';
 
 const COMMUNITY_VISIBLE_TAG_FILTER = 'is_official.eq.true,community_approved.eq.true';
 
+const isGloballyAvailableTag = (
+    tag?: Pick<Tag, 'isOfficial' | 'communityApproved'>
+    | { is_official?: boolean | null; community_approved?: boolean | null }
+    | null
+) => Boolean(
+    tag
+    && ('isOfficial' in tag ? tag.isOfficial : tag.is_official)
+    || (
+        tag
+        && ('communityApproved' in tag ? tag.communityApproved : tag.community_approved)
+    )
+);
+
+const filterGloballyAvailableTagRows = <TRow extends { is_official?: boolean | null; community_approved?: boolean | null }>(
+    rows: TRow[] = [],
+    includePending?: boolean
+) => (
+    includePending
+        ? rows
+        : rows.filter((row) => isGloballyAvailableTag(row))
+);
+
 export interface TagModerationSyncResult {
     tagDeleted: boolean;
     relationDeleted: boolean;
@@ -2460,7 +2618,7 @@ export const getAllTags = async (options?: { includePending?: boolean }): Promis
     const { data, error } = await query;
 
     if (error) return [];
-    return data.map((tag) => mapTagRow(tag));
+    return filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
 };
 
 export const getTagsByCategory = async (
@@ -2480,7 +2638,7 @@ export const getTagsByCategory = async (
     const { data, error } = await query;
 
     if (error) return [];
-    return data.map((tag) => mapTagRow(tag));
+    return filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
 };
 
 export const searchTags = async (
@@ -2501,7 +2659,7 @@ export const searchTags = async (
     const { data, error } = await searchQuery;
 
     if (error) return [];
-    return data.map((tag) => mapTagRow(tag));
+    return filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
 };
 
 export const createTag = async (
@@ -2740,17 +2898,17 @@ export const getTrendingTags = async (
     const { data, error } = await query;
 
     if (error) return [];
-    return data.map((tag) => mapTagRow(tag));
+    return filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
 };
 
 export const getMangasByTag = async (tagSlug: string): Promise<Manga[]> => {
     const { data: tagData, error: tagError } = await supabase
         .from('tags')
-        .select('id')
+        .select('id, is_official, community_approved')
         .eq('slug', tagSlug)
         .maybeSingle();
 
-    if (tagError || !tagData) return [];
+    if (tagError || !tagData || !isGloballyAvailableTag(tagData)) return [];
 
     const { data, error } = await supabase
         .from('manga_tags')
@@ -2781,16 +2939,23 @@ export const getMangasByTag = async (tagSlug: string): Promise<Manga[]> => {
 };
 
 export const getMangasByMultipleTags = async (tagSlugs: string[]): Promise<Manga[]> => {
-    if (tagSlugs.length === 0) return [];
+    const uniqueTagSlugs = [...new Set(tagSlugs.filter(Boolean))];
+
+    if (uniqueTagSlugs.length === 0) return [];
 
     const { data: tagsData } = await supabase
         .from('tags')
-        .select('id')
-        .in('slug', tagSlugs);
+        .select('id, slug, is_official, community_approved')
+        .in('slug', uniqueTagSlugs);
 
     if (!tagsData || tagsData.length === 0) return [];
 
-    const tagIds = tagsData.map(t => t.id);
+    const approvedTags = tagsData.filter((tag) => isGloballyAvailableTag(tag));
+    if (approvedTags.length !== uniqueTagSlugs.length) {
+        return [];
+    }
+
+    const tagIds = approvedTags.map(t => t.id);
 
     const { data: mangaTagData } = await supabase
         .from('manga_tags')

@@ -96,6 +96,7 @@ export interface User {
       new_chapter: boolean;
       replies: boolean;
       likes: boolean;
+      follows?: boolean;
     };
     comments?: {
       auto_show_media: boolean;
@@ -104,7 +105,12 @@ export interface User {
       show_page_comments: boolean;
     };
     privacy?: {
-      visibility: 'public' | 'members' | 'private';
+      visibility: 'public' | 'members' | 'mutuals' | 'private';
+      reading_history_visibility?: 'public' | 'members' | 'mutuals' | 'private';
+      comments_visibility?: 'public' | 'members' | 'mutuals' | 'private';
+      reading_lists_visibility?: 'public' | 'members' | 'mutuals' | 'private';
+      tier_lists_visibility?: 'public' | 'members' | 'mutuals' | 'private';
+      followed_manga_visibility?: 'public' | 'members' | 'mutuals' | 'private';
     };
   };
   twoFactorEnabled?: boolean;
@@ -179,7 +185,7 @@ export interface MangaFollow {
 export interface Notification {
   id: string;
   userId: string;
-  type: 'new_chapter' | 'reply' | 'like' | 'system';
+  type: 'new_chapter' | 'reply' | 'like' | 'follow' | 'system';
   title: string;
   message: string;
   link?: string;

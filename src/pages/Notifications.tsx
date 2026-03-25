@@ -8,6 +8,7 @@ import {
     MessageCircle,
     ThumbsUp,
     Info,
+    UserPlus,
     Check,
     CheckCheck,
     Trash2,
@@ -27,7 +28,7 @@ import { Notification } from '@/lib/types';
 import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import { toast } from 'sonner';
 
-type FilterType = 'all' | 'comments' | 'chapters';
+type FilterType = 'all' | 'comments' | 'chapters' | 'follows';
 
 const Notifications: React.FC = () => {
     const { user } = useAuth();
@@ -84,6 +85,8 @@ const Notifications: React.FC = () => {
                 return <MessageCircle className="h-5 w-5 text-blue-400" />;
             case 'like':
                 return <ThumbsUp className="h-5 w-5 text-pink-400" />;
+            case 'follow':
+                return <UserPlus className="h-5 w-5 text-emerald-400" />;
             case 'system':
             default:
                 return <Info className="h-5 w-5 text-yellow-400" />;
@@ -98,6 +101,8 @@ const Notifications: React.FC = () => {
                 return 'Yanıt';
             case 'like':
                 return 'Beğeni';
+            case 'follow':
+                return 'Takip';
             case 'system':
             default:
                 return 'Sistem';
@@ -107,6 +112,7 @@ const Notifications: React.FC = () => {
     const filteredNotifications = notifications.filter((n) => {
         if (filter === 'all') return true;
         if (filter === 'comments') return n.type === 'reply' || n.type === 'like';
+        if (filter === 'follows') return n.type === 'follow';
         return n.type === 'new_chapter';
     });
 
@@ -114,6 +120,7 @@ const Notifications: React.FC = () => {
         all: 'Tümü',
         comments: 'Yorum Bildirimleri',
         chapters: 'Bölüm Bildirimleri',
+        follows: 'Takip Bildirimleri',
     };
 
     if (!user) {
@@ -237,6 +244,8 @@ const Notifications: React.FC = () => {
                                                 ? 'bg-blue-500/10'
                                                 : notification.type === 'like'
                                                     ? 'bg-pink-500/10'
+                                                    : notification.type === 'follow'
+                                                        ? 'bg-emerald-500/10'
                                                     : 'bg-yellow-500/10'
                                             }`}
                                     >
@@ -255,6 +264,8 @@ const Notifications: React.FC = () => {
                                                     ? 'border-blue-400/50 text-blue-400'
                                                     : notification.type === 'like'
                                                         ? 'border-pink-400/50 text-pink-400'
+                                                        : notification.type === 'follow'
+                                                            ? 'border-emerald-400/50 text-emerald-400'
                                                         : 'border-yellow-400/50 text-yellow-400'
                                                 }`}
                                         >

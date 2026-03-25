@@ -8,6 +8,7 @@ import {
     MessageCircle,
     ThumbsUp,
     Info,
+    UserPlus,
     ChevronRight,
     Check,
 } from 'lucide-react';
@@ -79,6 +80,8 @@ const NotificationDropdown: React.FC = () => {
                 return <MessageCircle className="h-4 w-4 text-blue-400" />;
             case 'like':
                 return <ThumbsUp className="h-4 w-4 text-pink-400" />;
+            case 'follow':
+                return <UserPlus className="h-4 w-4 text-emerald-400" />;
             case 'system':
             default:
                 return <Info className="h-4 w-4 text-yellow-400" />;
@@ -109,11 +112,11 @@ const NotificationDropdown: React.FC = () => {
             </PopoverTrigger>
             <PopoverContent
                 align="end"
-                className="w-80 p-0 border-border/50 bg-background/95 backdrop-blur-xl shadow-2xl"
+                className="w-[min(18rem,calc(100vw-1rem))] max-w-[calc(100vw-1rem)] border-border/50 bg-background/95 p-0 shadow-2xl backdrop-blur-xl sm:w-80"
                 sideOffset={8}
             >
                 {/* Header */}
-                <div className="flex items-center justify-between border-b border-border/50 p-4">
+                <div className="flex items-center justify-between border-b border-border/50 p-3 sm:p-4">
                     <div className="flex items-center gap-2">
                         <Bell className="h-4 w-4 text-primary" />
                         <h3 className="font-semibold">Bildirimler</h3>
@@ -126,9 +129,9 @@ const NotificationDropdown: React.FC = () => {
                 </div>
 
                 {/* Notifications List */}
-                <ScrollArea className="h-[400px]">
+                <ScrollArea className="h-[min(60vh,20rem)] sm:h-[400px]">
                     {notifications.length === 0 ? (
-                        <div className="flex flex-col items-center justify-center py-12 px-4">
+                        <div className="flex flex-col items-center justify-center px-4 py-10 sm:py-12">
                             <Bell className="h-12 w-12 text-muted-foreground/30 mb-3" />
                             <p className="text-sm text-muted-foreground text-center">
                                 Henüz bildiriminiz yok
@@ -143,7 +146,7 @@ const NotificationDropdown: React.FC = () => {
                                 <button
                                     key={notification.id}
                                     onClick={() => handleNotificationClick(notification)}
-                                    className={`w-full text-left p-4 transition-all hover:bg-secondary/50 flex gap-3 ${!notification.read ? 'bg-primary/5' : ''
+                                    className={`flex w-full gap-2 p-3 text-left transition-all hover:bg-secondary/50 sm:gap-3 sm:p-4 ${!notification.read ? 'bg-primary/5' : ''
                                         }`}
                                 >
                                     {/* Icon */}
@@ -151,6 +154,7 @@ const NotificationDropdown: React.FC = () => {
                                         <div className={`flex h-8 w-8 items-center justify-center rounded-full ${notification.type === 'new_chapter' ? 'bg-primary/10' :
                                             notification.type === 'reply' ? 'bg-blue-500/10' :
                                                 notification.type === 'like' ? 'bg-pink-500/10' :
+                                                    notification.type === 'follow' ? 'bg-emerald-500/10' :
                                                     'bg-yellow-500/10'
                                             }`}>
                                             {getNotificationIcon(notification.type)}
@@ -184,7 +188,7 @@ const NotificationDropdown: React.FC = () => {
                                             <img
                                                 src={notification.mangaCover}
                                                 alt=""
-                                                className="h-12 w-8 rounded object-cover"
+                                                className="h-10 w-7 rounded object-cover sm:h-12 sm:w-8"
                                             />
                                         </div>
                                     )}

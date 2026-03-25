@@ -115,14 +115,14 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
         </div>
       </div>
 
-      <div className="flex gap-2 sm:shrink-0">
-        <Button asChild variant="outline" size="sm" className="rounded-full px-4">
+      <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:shrink-0">
+        <Button asChild variant="outline" size="sm" className="w-full rounded-full px-4 sm:w-auto">
           <Link to={`/manga/${item.mangaId}`}>
             Seri
             <ArrowRight className="ml-2 h-4 w-4" />
           </Link>
         </Button>
-        <Button asChild size="sm" className="rounded-full px-5" variant="glow">
+        <Button asChild size="sm" className="w-full rounded-full px-5 sm:w-auto" variant="glow">
           <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`}>
             <Play className="mr-2 h-4 w-4" />
             Devam Et
@@ -340,7 +340,7 @@ const History: React.FC = () => {
                 <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary/80">
                   Okuma Arşivin
                 </p>
-                <h1 className="mt-2 text-3xl font-black tracking-tight sm:text-4xl">
+                <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-4xl">
                   Okuma Geçmişi
                 </h1>
                 <p className="mt-3 max-w-2xl text-sm text-muted-foreground sm:text-base">

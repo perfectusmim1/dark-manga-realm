@@ -30,6 +30,7 @@ const defaultTierLabels: Record<string, string> = {
 
 const AUTO_SCROLL_EDGE_THRESHOLD = 120;
 const AUTO_SCROLL_MAX_SPEED = 18;
+const TOUCH_DRAG_START_THRESHOLD = 10;
 
 const getItemDisplayName = (item: any) => item?.name || item?.title || '';
 
@@ -49,6 +50,26 @@ const getAutoScrollSpeed = (clientY: number, viewportHeight: number) => {
   }
 
   return 0;
+};
+
+const getTierDropTargetFromPoint = (clientX: number, clientY: number) => {
+  if (typeof document === 'undefined') {
+    return null;
+  }
+
+  const target = document.elementFromPoint(clientX, clientY)?.closest<HTMLElement>('[data-tier-dropzone="true"]');
+  return target?.dataset.tierId || null;
+};
+
+type TouchDragState = {
+  id: string;
+  sourceTierId: string;
+  item: any;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  isActive: boolean;
 };
 
 export default function TierListEditor() {
@@ -74,8 +95,12 @@ export default function TierListEditor() {
   const [tierLabels, setTierLabels] = useState<Record<string, string>>(defaultTierLabels);
   const [isOwner, setIsOwner] = useState(true);
   const [poolSearch, setPoolSearch] = useState('');
+  const [touchDragState, setTouchDragState] = useState<TouchDragState | null>(null);
+  const [touchDropTargetId, setTouchDropTargetId] = useState<string | null>(null);
   const autoScrollSpeedRef = useRef(0);
   const autoScrollFrameRef = useRef<number | null>(null);
+  const touchDragStateRef = useRef<TouchDragState | null>(null);
+  const touchDropTargetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     const loadItems = async () => {
@@ -166,6 +191,87 @@ export default function TierListEditor() {
     };
   }, [draggingId]);
 
+  useEffect(() => {
+    touchDragStateRef.current = touchDragState;
+  }, [touchDragState]);
+
+  useEffect(() => {
+    touchDropTargetIdRef.current = touchDropTargetId;
+  }, [touchDropTargetId]);
+
+  useEffect(() => {
+    if (!touchDragState) {
+      return;
+    }
+
+    const handleTouchMove = (event: TouchEvent) => {
+      const currentDrag = touchDragStateRef.current;
+      const touch = event.touches[0];
+
+      if (!currentDrag || !touch) {
+        return;
+      }
+
+      const nextX = touch.clientX;
+      const nextY = touch.clientY;
+      const distance = Math.hypot(nextX - currentDrag.startX, nextY - currentDrag.startY);
+      const isActive = currentDrag.isActive || distance >= TOUCH_DRAG_START_THRESHOLD;
+
+      if (!isActive) {
+        return;
+      }
+
+      event.preventDefault();
+
+      setDraggingId(currentDrag.id);
+      autoScrollSpeedRef.current = getAutoScrollSpeed(nextY, window.innerHeight);
+
+      const nextTargetId = getTierDropTargetFromPoint(nextX, nextY);
+      setTouchDropTargetId(nextTargetId);
+
+      setTouchDragState((prev) => prev ? {
+        ...prev,
+        currentX: nextX,
+        currentY: nextY,
+        isActive: true,
+      } : prev);
+    };
+
+    const endTouchDrag = (event: TouchEvent) => {
+      const currentDrag = touchDragStateRef.current;
+
+      if (!currentDrag) {
+        return;
+      }
+
+      if (currentDrag.isActive) {
+        event.preventDefault();
+        const dropTargetId = touchDropTargetIdRef.current
+          || getTierDropTargetFromPoint(currentDrag.currentX, currentDrag.currentY);
+
+        if (dropTargetId && dropTargetId !== currentDrag.sourceTierId) {
+          moveItem(currentDrag.id, currentDrag.sourceTierId, dropTargetId);
+        }
+      }
+
+      setDraggingId(null);
+      setTouchDragState(null);
+      setTouchDropTargetId(null);
+      autoScrollSpeedRef.current = 0;
+    };
+
+    window.addEventListener('touchmove', handleTouchMove, { passive: false });
+    window.addEventListener('touchend', endTouchDrag, { passive: false });
+    window.addEventListener('touchcancel', endTouchDrag, { passive: false });
+
+    return () => {
+      window.removeEventListener('touchmove', handleTouchMove);
+      window.removeEventListener('touchend', endTouchDrag);
+      window.removeEventListener('touchcancel', endTouchDrag);
+      autoScrollSpeedRef.current = 0;
+    };
+  }, [Boolean(touchDragState)]);
+
   const filteredUnrankedItems = useMemo(() => {
     const query = normalizeSearchValue(poolSearch.trim());
     const unrankedItems = tierState['unranked'] ?? [];
@@ -229,6 +335,27 @@ export default function TierListEditor() {
     }
   };
 
+  const handleTouchDragStart = (event: React.TouchEvent, sourceTierId: string, item: any) => {
+    if (event.touches.length !== 1) {
+      return;
+    }
+
+    event.stopPropagation();
+
+    const touch = event.touches[0];
+    setTouchDropTargetId(sourceTierId);
+    setTouchDragState({
+      id: item.id.toString(),
+      sourceTierId,
+      item,
+      startX: touch.clientX,
+      startY: touch.clientY,
+      currentX: touch.clientX,
+      currentY: touch.clientY,
+      isActive: false,
+    });
+  };
+
   const handleTierAreaClick = (targetTierId: string) => {
     if (selectedItem && selectedItem.source !== targetTierId) {
         moveItem(selectedItem.id, selectedItem.source, targetTierId);
@@ -284,6 +411,8 @@ export default function TierListEditor() {
     const itemId = item.id.toString();
     const isSelected = selectedItem?.id === itemId;
     const itemLabel = getItemDisplayName(item);
+    const itemImage = item.cover || item.imageUrl || item.image_url;
+    const isTouchDragging = touchDragState?.id === itemId && touchDragState.isActive;
 
     return (
       <div
@@ -291,14 +420,15 @@ export default function TierListEditor() {
         draggable
         onDragStart={(e) => onDragStart(e, sourceTierId, item.id)}
         onDragEnd={onDragEnd}
+        onTouchStart={(event) => handleTouchDragStart(event, sourceTierId, item)}
         onClick={(e) => handleItemClick(e, item.id, sourceTierId)}
-        className={`${widthClass} aspect-[3/4] rounded-md overflow-hidden cursor-pointer border-2 transition-all bg-secondary flex items-center justify-center relative ${draggingId === itemId ? 'opacity-30' : ''} ${isSelected ? 'border-primary ring-4 ring-primary/20 scale-110 z-10 shadow-lg' : idleClassName}`}
+        className={`${widthClass} relative flex aspect-[3/4] items-center justify-center overflow-hidden rounded-md border-2 bg-secondary transition-all touch-none select-none ${draggingId === itemId ? 'opacity-30' : ''} ${isSelected ? 'z-10 scale-110 border-primary shadow-lg ring-4 ring-primary/20' : idleClassName} ${isTouchDragging ? 'scale-105 border-primary shadow-xl ring-2 ring-primary/30' : ''}`}
         title={itemLabel}
       >
-        {item.cover || item.imageUrl || item.image_url ? (
-          <img src={item.cover || item.imageUrl || item.image_url} alt={itemLabel} className="w-full h-full object-cover pointer-events-none" draggable={false} />
+        {itemImage ? (
+          <img src={itemImage} alt={itemLabel} className="h-full w-full pointer-events-none object-cover" draggable={false} />
         ) : (
-          <ImageIcon className="w-6 h-6 text-muted-foreground/50 pointer-events-none" />
+          <ImageIcon className="h-6 w-6 pointer-events-none text-muted-foreground/50" />
         )}
 
         {isSelected && (
@@ -318,69 +448,71 @@ export default function TierListEditor() {
   return (
     <div className="min-h-screen bg-background text-foreground flex flex-col">
       <Header />
-      <main className="container flex-1 py-24 flex flex-col gap-6">
-        <div className="flex items-center justify-between flex-wrap gap-4">
-           <div className="flex items-center gap-4">
+      <main className="container flex flex-1 flex-col gap-5 py-20 sm:gap-6 sm:py-24">
+        <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
+           <div className="flex w-full min-w-0 flex-col gap-3 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
               <Button variant="ghost" size="icon" onClick={() => navigate('/tier-lists')}>
                 <ArrowLeft className="w-5 h-5" />
               </Button>
               <Input 
                 value={title ?? ''} 
                 onChange={(e) => setTitle(e.target.value)} 
-                className="text-2xl font-bold bg-transparent border border-border focus-visible:ring-0 focus-visible:border-primary w-full max-w-[500px] px-4 py-3 h-auto rounded-xl"
+                className="h-auto w-full max-w-none rounded-xl border border-border bg-transparent px-4 py-3 text-xl font-bold focus-visible:border-primary focus-visible:ring-0 sm:max-w-[500px] sm:text-2xl"
                 placeholder="Sıralamana efsane bir başlık ver..."
               />
            </div>
            
-           <div className="flex items-center gap-4">
+           <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center sm:gap-4">
              {(!id || id === 'create') && (
-               <Tabs value={type} onValueChange={(v) => {
+               <Tabs className="w-full sm:w-auto" value={type} onValueChange={(v) => {
                  setType(v as any);
                  // Reset tiers when switching type
                  setTierState({ unranked: [], 'S': [], 'A': [], 'B': [], 'C': [], 'D': [], 'F': [] });
                }}>
-                 <TabsList>
-                   <TabsTrigger value="manga">Mangalar</TabsTrigger>
-                   <TabsTrigger value="character">Karakterler</TabsTrigger>
+                 <TabsList className="grid h-auto w-full grid-cols-2 sm:flex sm:w-auto">
+                   <TabsTrigger className="w-full" value="manga">Mangalar</TabsTrigger>
+                   <TabsTrigger className="w-full" value="character">Karakterler</TabsTrigger>
                  </TabsList>
                </Tabs>
              )}
-             <Button onClick={handleSave} disabled={isSaving} className="gap-2">
+             <Button onClick={handleSave} disabled={isSaving} className="w-full gap-2 sm:w-auto">
                 <Save className="w-4 h-4" /> {isSaving ? 'Kaydediliyor...' : 'Kaydet'}
              </Button>
            </div>
         </div>
 
-        <div className="flex-1 bg-card/50 border border-border rounded-xl shadow-xl overflow-hidden flex flex-col p-4 gap-2">
+        <div className="flex flex-1 flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card/50 p-2.5 shadow-xl sm:p-4">
            {defaultTiers.map(tier => (
               <div 
                 key={tier.id} 
-                className={`flex border-b border-border min-h-[100px] last:border-b-0 cursor-pointer transition-colors ${selectedItem ? 'hover:bg-primary/5' : ''}`}
+                data-tier-dropzone="true"
+                data-tier-id={tier.id}
+                className={`flex min-h-[84px] border-b border-border last:border-b-0 cursor-pointer transition-colors sm:min-h-[100px] ${selectedItem ? 'hover:bg-primary/5' : ''} ${touchDropTargetId === tier.id && touchDragState?.isActive ? 'bg-primary/5 ring-1 ring-inset ring-primary/30' : ''}`}
                 onDrop={(e) => onDrop(e, tier.id)}
                 onDragOver={onDragOver}
                 onClick={() => handleTierAreaClick(tier.id)}
               >
-                  <div className={`w-24 ${tier.color} flex items-center justify-center shadow-inner relative group`}>
+                  <div className={`w-20 shrink-0 ${tier.color} relative flex items-center justify-center shadow-inner sm:w-24`}>
                       <Input 
                         value={tierLabels[tier.id] ?? tier.id}
                         onChange={(e) => setTierLabels(prev => ({ ...prev, [tier.id]: e.target.value }))}
-                        className="bg-transparent border-none text-center font-bold text-black text-xl h-full w-full focus-visible:ring-0 focus:bg-white/10"
+                        className="h-full w-full border-none bg-transparent text-center text-lg font-bold text-black focus:bg-white/10 focus-visible:ring-0 sm:text-xl"
                       />
                   </div>
-                  <div className="flex-1 bg-background/50 flex flex-wrap gap-2 p-3 items-center">
+                  <div className="flex flex-1 flex-wrap items-center gap-1.5 bg-background/50 p-2 sm:gap-2 sm:p-3">
                       {tierState[tier.id]?.map((item) =>
-                        renderTierItemCard(item, tier.id, 'w-[70px]', 'border-border/50 shadow-md hover:scale-105')
+                        renderTierItemCard(item, tier.id, 'w-[54px] sm:w-[70px]', 'border-border/50 shadow-md hover:scale-105')
                       )}
-                      {tierState[tier.id]?.length === 0 && <span className="text-muted-foreground/30 text-sm font-medium w-full text-center">İçerikleri buraya sürükleyin...</span>}
+                      {tierState[tier.id]?.length === 0 && <span className="w-full text-center text-xs font-medium text-muted-foreground/30 sm:text-sm">İçerikleri buraya sürükleyin...</span>}
                   </div>
               </div>
            ))}
         </div>
 
          {/* Unranked Items Pool */}
-         <div className="bg-secondary/20 border border-border rounded-xl p-4">
+         <div className="rounded-xl border border-border bg-secondary/20 p-3 sm:p-4">
             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <h3 className="font-bold flex items-center gap-2 text-muted-foreground">
+              <h3 className="flex items-center gap-2 font-bold text-muted-foreground">
                 Havuz (Sıralanmamış)
               </h3>
               <div className="relative w-full md:max-w-xs">
@@ -394,13 +526,15 @@ export default function TierListEditor() {
               </div>
             </div>
             <div 
-              className={`flex flex-wrap gap-3 min-h-[150px] p-2 cursor-pointer transition-colors ${selectedItem ? 'hover:bg-primary/5 rounded-lg' : ''}`}
+              data-tier-dropzone="true"
+              data-tier-id="unranked"
+              className={`flex min-h-[132px] flex-wrap gap-2 rounded-lg p-2 transition-colors sm:min-h-[150px] sm:gap-3 ${selectedItem ? 'cursor-pointer hover:bg-primary/5' : 'cursor-pointer'} ${touchDropTargetId === 'unranked' && touchDragState?.isActive ? 'bg-primary/5 ring-1 ring-inset ring-primary/30' : ''}`}
               onDrop={(e) => onDrop(e, 'unranked')}
               onDragOver={onDragOver}
               onClick={() => handleTierAreaClick('unranked')}
             >
                {filteredUnrankedItems.map((item) =>
-                 renderTierItemCard(item, 'unranked', 'w-[80px]', 'border-transparent shadow-sm hover:shadow-primary/20 hover:border-primary')
+                 renderTierItemCard(item, 'unranked', 'w-[58px] sm:w-[80px]', 'border-transparent shadow-sm hover:shadow-primary/20 hover:border-primary')
                )}
                {tierState['unranked']?.length === 0 && <span className="text-muted-foreground/50 w-full text-center py-8">Tüm içerikler sıralandı! Mükemmel.</span>}
                {tierState['unranked']?.length > 0 && filteredUnrankedItems.length === 0 && (
@@ -410,6 +544,27 @@ export default function TierListEditor() {
                )}
             </div>
          </div>
+
+         {touchDragState?.isActive && (
+           <div
+             className="pointer-events-none fixed left-0 top-0 z-[70] -translate-x-1/2 -translate-y-1/2"
+             style={{ transform: `translate(${touchDragState.currentX}px, ${touchDragState.currentY}px) translate(-50%, -50%)` }}
+           >
+             <div className="w-[64px] overflow-hidden rounded-lg border-2 border-primary bg-card shadow-2xl shadow-primary/30 sm:w-[74px]">
+               {touchDragState.item.cover || touchDragState.item.imageUrl || touchDragState.item.image_url ? (
+                 <img
+                   src={touchDragState.item.cover || touchDragState.item.imageUrl || touchDragState.item.image_url}
+                   alt={getItemDisplayName(touchDragState.item)}
+                   className="aspect-[3/4] w-full object-cover opacity-95"
+                 />
+               ) : (
+                 <div className="flex aspect-[3/4] w-full items-center justify-center bg-secondary">
+                   <ImageIcon className="h-6 w-6 text-muted-foreground/60" />
+                 </div>
+               )}
+             </div>
+           </div>
+         )}
       </main>
     </div>
   );

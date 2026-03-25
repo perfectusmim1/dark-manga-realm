@@ -47,6 +47,7 @@ type PreferenceState = {
         new_chapter: boolean;
         replies: boolean;
         likes: boolean;
+        follows: boolean;
     };
     comments: {
         auto_show_media: boolean;
@@ -56,8 +57,22 @@ type PreferenceState = {
     };
     privacy: {
         visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['visibility'];
+        reading_history_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['reading_history_visibility'];
+        comments_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['comments_visibility'];
+        reading_lists_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['reading_lists_visibility'];
+        tier_lists_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['tier_lists_visibility'];
+        followed_manga_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['followed_manga_visibility'];
     };
 };
+
+type PrivacyVisibility = NonNullable<NonNullable<AppUser['preferences']>['privacy']>['visibility'];
+
+const PRIVACY_VISIBILITY_OPTIONS: Array<{ value: PrivacyVisibility; label: string }> = [
+    { value: 'public', label: 'Herkese Açık' },
+    { value: 'members', label: 'Sadece Üyeler' },
+    { value: 'mutuals', label: 'Karşılıklı Takip' },
+    { value: 'private', label: 'Gizli' },
+];
 
 type BlockedUser = {
     id: string;
@@ -70,6 +85,7 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
         new_chapter: preferences?.notifications?.new_chapter ?? true,
         replies: preferences?.notifications?.replies ?? true,
         likes: preferences?.notifications?.likes ?? true,
+        follows: preferences?.notifications?.follows ?? true,
     },
     comments: {
         auto_show_media: preferences?.comments?.auto_show_media ?? false,
@@ -79,6 +95,11 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
     },
     privacy: {
         visibility: preferences?.privacy?.visibility ?? 'public',
+        reading_history_visibility: preferences?.privacy?.reading_history_visibility ?? 'public',
+        comments_visibility: preferences?.privacy?.comments_visibility ?? 'public',
+        reading_lists_visibility: preferences?.privacy?.reading_lists_visibility ?? 'public',
+        tier_lists_visibility: preferences?.privacy?.tier_lists_visibility ?? 'public',
+        followed_manga_visibility: preferences?.privacy?.followed_manga_visibility ?? 'public',
     },
 });
 
@@ -347,6 +368,37 @@ const Settings: React.FC = () => {
         }
     };
 
+    const renderPrivacySelector = (
+        key: keyof PreferenceState['privacy'],
+        label: string,
+        description: string
+    ) => (
+        <div className="flex flex-col gap-4 border-t border-border/50 pt-6 first:border-t-0 first:pt-0 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+            <div className="flex min-w-0 flex-col space-y-1">
+                <Label>{label}</Label>
+                <p className="text-sm text-muted-foreground">{description}</p>
+            </div>
+            <div className="grid w-full grid-cols-2 gap-2 rounded-lg bg-secondary/30 p-1 lg:grid-cols-4 lg:w-auto">
+                {PRIVACY_VISIBILITY_OPTIONS.map((option) => (
+                    <button
+                        key={`${String(key)}-${option.value}`}
+                        onClick={() => handleUpdatePreferences({
+                            ...prefs,
+                            privacy: { ...prefs.privacy, [key]: option.value }
+                        }, 'Gizlilik ayarlari guncellendi')}
+                        className={`w-full rounded-md px-3 py-2 text-xs font-bold transition-all lg:py-1.5 ${
+                            prefs.privacy?.[key] === option.value
+                                ? 'bg-background text-foreground shadow-sm'
+                                : 'text-muted-foreground hover:text-foreground'
+                        }`}
+                    >
+                        {option.label}
+                    </button>
+                ))}
+            </div>
+        </div>
+    );
+
     if (!user) {
         return (
             <div className="min-h-screen bg-background">
@@ -405,35 +457,35 @@ const Settings: React.FC = () => {
         <div className="min-h-screen bg-background">
             <Header />
 
-            <main className="container max-w-4xl py-24">
+            <main className="container max-w-4xl py-20 sm:py-24">
                 <div className="mb-8">
                     <h1 className="text-3xl font-bold">Ayarlar</h1>
-                    <p className="text-muted-foreground">Profilinizi ve güvenlik tercihlerinizi yönetin</p>
+                    <p className="text-sm text-muted-foreground sm:text-base">Profilinizi ve güvenlik tercihlerinizi yönetin</p>
                 </div>
 
                 <Tabs defaultValue="profile" className="space-y-6">
-                    <TabsList className="bg-secondary/50 p-1">
-                        <TabsTrigger value="profile" className="gap-2">
+                    <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-secondary/50 p-1 md:flex md:flex-nowrap">
+                        <TabsTrigger value="profile" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
                             <User className="h-4 w-4" />
                             Profil
                         </TabsTrigger>
-                        <TabsTrigger value="security" className="gap-2">
+                        <TabsTrigger value="security" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
                             <ShieldCheck className="h-4 w-4" />
                             Güvenlik
                         </TabsTrigger>
-                        <TabsTrigger value="notifications" className="gap-2">
+                        <TabsTrigger value="notifications" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
                             <Bell className="h-4 w-4" />
                             Bildirimler
                         </TabsTrigger>
-                        <TabsTrigger value="privacy" className="gap-2">
+                        <TabsTrigger value="privacy" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
                             <EyeOff className="h-4 w-4" />
                             Gizlilik
                         </TabsTrigger>
-                        <TabsTrigger value="preferences" className="gap-2">
+                        <TabsTrigger value="preferences" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
                             <SlidersHorizontal className="h-4 w-4" />
                             Tercihler
                         </TabsTrigger>
-                        <TabsTrigger value="blocked" className="gap-2">
+                        <TabsTrigger value="blocked" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
                             <ShieldAlert className="h-4 w-4" />
                             Engellenenler
                         </TabsTrigger>
@@ -480,8 +532,8 @@ const Settings: React.FC = () => {
                                         <p className="text-xs text-muted-foreground">Kullanıcı adı kayıt sırasında belirlenir ve sonradan değiştirilemez.</p>
                                     </div>
                             </CardContent>
-                            <CardFooter className="border-t border-border/50 pt-6">
-                                <Button onClick={handleUpdateProfile} disabled={isUpdatingProfile} className="ml-auto gap-2">
+                            <CardFooter className="flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row">
+                                <Button onClick={handleUpdateProfile} disabled={isUpdatingProfile} className="w-full gap-2 sm:ml-auto sm:w-auto">
                                     {isUpdatingProfile ? 'Güncelleniyor...' : <><Save className="h-4 w-4" /> Kaydet</>}
                                 </Button>
                             </CardFooter>
@@ -551,8 +603,8 @@ const Settings: React.FC = () => {
                                         />
                                     </div>
                                 </CardContent>
-                                <CardFooter className="border-t border-border/50 pt-6">
-                                    <Button onClick={handleUpdatePassword} disabled={isUpdatingPassword} className="ml-auto gap-2">
+                                <CardFooter className="flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row">
+                                    <Button onClick={handleUpdatePassword} disabled={isUpdatingPassword} className="w-full gap-2 sm:ml-auto sm:w-auto">
                                         {isUpdatingPassword ? 'Güncelleniyor...' : 'Şifreyi Kaydet'}
                                     </Button>
                                 </CardFooter>
@@ -560,7 +612,7 @@ const Settings: React.FC = () => {
                             {/* Two-Factor Authentication Section */}
                             <Card className="border-border/50 bg-card/50 backdrop-blur-sm border-primary/20">
                                 <CardHeader>
-                                    <div className="flex items-center justify-between gap-4">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div className="space-y-1">
                                             <CardTitle className="flex items-center gap-2">
                                                 <ShieldCheck className="h-5 w-5 text-primary" />
@@ -570,7 +622,7 @@ const Settings: React.FC = () => {
                                                 Google Authenticator uyumlu TOTP kodları ile hesabınızı koruyun.
                                             </CardDescription>
                                         </div>
-                                        <Badge variant={user.twoFactorEnabled ? 'default' : 'secondary'}>
+                                        <Badge className="self-start sm:self-auto" variant={user.twoFactorEnabled ? 'default' : 'secondary'}>
                                             {user.twoFactorEnabled ? 'Etkin' : 'Kapalı'}
                                         </Badge>
                                     </div>
@@ -600,7 +652,7 @@ const Settings: React.FC = () => {
                                                 <Button
                                                     type="button"
                                                     variant="outline"
-                                                    className="gap-2"
+                                                    className="w-full gap-2 sm:w-auto"
                                                     onClick={() => {
                                                         setDisableCode('');
                                                         setDisableDialogOpen(true);
@@ -618,7 +670,7 @@ const Settings: React.FC = () => {
                                             </div>
                                             <Button
                                                 type="button"
-                                                className="gap-2"
+                                                className="w-full gap-2 sm:w-auto"
                                                 onClick={handleStartTwoFactorSetup}
                                                 disabled={isTwoFactorBusy || Boolean(pendingEnrollment)}
                                             >
@@ -657,7 +709,7 @@ const Settings: React.FC = () => {
                                                                 type="button"
                                                                 variant="outline"
                                                                 size="sm"
-                                                                className="border-white/15"
+                                                                className="w-full border-white/15 sm:w-auto"
                                                                 onClick={openQrInNewTab}
                                                             >
                                                                 QR&apos;ı Yeni Sekmede Aç
@@ -667,7 +719,7 @@ const Settings: React.FC = () => {
 
                                                     <div className="space-y-2">
                                                         <Label htmlFor="totp-secret">Kurulum Anahtarı</Label>
-                                                        <div className="flex gap-2">
+                                                        <div className="flex flex-col gap-2 sm:flex-row">
                                                             <Input
                                                                 id="totp-secret"
                                                                 value={pendingEnrollment.secret || ''}
@@ -677,6 +729,7 @@ const Settings: React.FC = () => {
                                                             <Button
                                                                 type="button"
                                                                 variant="outline"
+                                                                className="w-full sm:w-auto"
                                                                 onClick={async () => {
                                                                     if (!pendingEnrollment.secret) {
                                                                         return;
@@ -704,11 +757,11 @@ const Settings: React.FC = () => {
                                                         />
                                                     </div>
 
-                                                    <div className="flex justify-end gap-2">
-                                                        <Button type="button" variant="ghost" onClick={() => void closeSetupDialog()} disabled={isTwoFactorBusy}>
+                                                    <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+                                                        <Button className="w-full sm:w-auto" type="button" variant="ghost" onClick={() => void closeSetupDialog()} disabled={isTwoFactorBusy}>
                                                             Vazgeç
                                                         </Button>
-                                                        <Button type="button" onClick={handleVerifyTwoFactorSetup} disabled={isTwoFactorBusy || setupCode.length !== 6}>
+                                                        <Button className="w-full sm:w-auto" type="button" onClick={handleVerifyTwoFactorSetup} disabled={isTwoFactorBusy || setupCode.length !== 6}>
                                                             {isTwoFactorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Doğrula ve Etkinleştir'}
                                                         </Button>
                                                     </div>
@@ -729,7 +782,7 @@ const Settings: React.FC = () => {
 
                             <Card className="border-border/50 bg-card/50 backdrop-blur-sm border-blue-500/20">
                                 <CardHeader>
-                                    <div className="flex items-center justify-between gap-4">
+                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div className="space-y-1">
                                             <CardTitle className="flex items-center gap-2">
                                                 <WifiOff className="h-5 w-5 text-blue-400" />
@@ -740,6 +793,7 @@ const Settings: React.FC = () => {
                                             </CardDescription>
                                         </div>
                                         <Switch
+                                            className="self-start sm:self-auto"
                                             checked={offlinePreferences.forceOfflineMode}
                                             onCheckedChange={(checked) => {
                                                 updateOfflinePreferences({ forceOfflineMode: checked });
@@ -767,8 +821,8 @@ const Settings: React.FC = () => {
                                 <CardDescription>Hangi durumlarda bildirim almak istediğinizi seçin.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                <div className="flex items-center justify-between space-x-2">
-                                    <div className="flex flex-col space-y-1">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="new-chapter">Yeni Bölüm Bildirimleri</Label>
                                         <p className="text-sm text-muted-foreground">Takip ettiğiniz mangalara yeni bölüm eklendiğinde haber ver.</p>
                                     </div>
@@ -782,8 +836,8 @@ const Settings: React.FC = () => {
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
-                                <div className="flex items-center justify-between space-x-2 border-t border-border/50 pt-6">
-                                    <div className="flex flex-col space-y-1">
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="replies">Yanıt Bildirimleri</Label>
                                         <p className="text-sm text-muted-foreground">Yorumlarınıza yanıt geldiğinde haber ver.</p>
                                     </div>
@@ -797,8 +851,8 @@ const Settings: React.FC = () => {
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
-                                <div className="flex items-center justify-between space-x-2 border-t border-border/50 pt-6">
-                                    <div className="flex flex-col space-y-1">
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="likes">Beğeni Bildirimleri</Label>
                                         <p className="text-sm text-muted-foreground">Yorumlarınız beğenildiğinde haber ver.</p>
                                     </div>
@@ -808,6 +862,21 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             notifications: { ...prefs.notifications, likes: checked }
+                                        }, 'Bildirim tercihleri güncellendi')}
+                                        disabled={isUpdatingPrefs}
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
+                                        <Label htmlFor="follows">Takip Bildirimleri</Label>
+                                        <p className="text-sm text-muted-foreground">Biri sizi takip ettiğinde haber ver.</p>
+                                    </div>
+                                    <Switch
+                                        id="follows"
+                                        checked={prefs.notifications.follows}
+                                        onCheckedChange={(checked) => handleUpdatePreferences({
+                                            ...prefs,
+                                            notifications: { ...prefs.notifications, follows: checked }
                                         }, 'Bildirim tercihleri güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />
@@ -822,56 +891,39 @@ const Settings: React.FC = () => {
                                     <EyeOff className="h-5 w-5" />
                                     Gizlilik Ayarları
                                 </CardTitle>
-                                <CardDescription>Profilinizin ve okuma geçmişinizin kimler tarafından görülebileceğini seçin.</CardDescription>
+                                <CardDescription>Profildeki her bölüm için görünürlük seviyesini ayrı ayrı belirleyin.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                <div className="flex items-center justify-between space-x-2">
-                                    <div className="flex flex-col space-y-1">
-                                        <Label>Profil Görünürlüğü</Label>
-                                        <p className="text-sm text-muted-foreground">Profilinizi (İstatistikler, Tier List, vb.) kimler görebilir?</p>
-                                    </div>
-                                    <div className="flex items-center gap-2 bg-secondary/30 rounded-lg p-1">
-                                        <button
-                                            onClick={() => handleUpdatePreferences({
-                                                ...prefs,
-                                                privacy: { ...prefs.privacy, visibility: 'public' }
-                                            }, 'Gizlilik ayarlari guncellendi')}
-                                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
-                                                (!prefs.privacy || prefs.privacy.visibility === 'public')
-                                                ? 'bg-background text-foreground shadow-sm'
-                                                : 'text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        >
-                                            Herkese Açık
-                                        </button>
-                                        <button
-                                            onClick={() => handleUpdatePreferences({
-                                                ...prefs,
-                                                privacy: { ...prefs.privacy, visibility: 'members' }
-                                            }, 'Gizlilik ayarlari guncellendi')}
-                                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
-                                                prefs.privacy?.visibility === 'members'
-                                                ? 'bg-background text-foreground shadow-sm'
-                                                : 'text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        >
-                                            Sadece Üyeler
-                                        </button>
-                                        <button
-                                            onClick={() => handleUpdatePreferences({
-                                                ...prefs,
-                                                privacy: { ...prefs.privacy, visibility: 'private' }
-                                            }, 'Gizlilik ayarlari guncellendi')}
-                                            className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${
-                                                prefs.privacy?.visibility === 'private'
-                                                ? 'bg-background text-foreground shadow-sm'
-                                                : 'text-muted-foreground hover:text-foreground'
-                                            }`}
-                                        >
-                                            Gizli
-                                        </button>
-                                    </div>
-                                </div>
+                                {renderPrivacySelector(
+                                    'visibility',
+                                    'Profil Görünürlüğü',
+                                    'Profilinizi genel olarak kimler görebilir? Bu ana kilittir.'
+                                )}
+                                {renderPrivacySelector(
+                                    'reading_history_visibility',
+                                    'Okuma Geçmişi',
+                                    'Heatmap ve son okunan seriler bloğunu kimler görebilir?'
+                                )}
+                                {renderPrivacySelector(
+                                    'comments_visibility',
+                                    'Son Yorumlar',
+                                    'Profilinizdeki yorum sekmesini ve son yorumlarınızı kimler görebilir?'
+                                )}
+                                {renderPrivacySelector(
+                                    'reading_lists_visibility',
+                                    'Okuma Listeleri',
+                                    'Profilinizdeki okuma listelerini kimler görebilir?'
+                                )}
+                                {renderPrivacySelector(
+                                    'tier_lists_visibility',
+                                    'Tier Listeleri',
+                                    'Profilinizdeki tier listelerini kimler görebilir?'
+                                )}
+                                {renderPrivacySelector(
+                                    'followed_manga_visibility',
+                                    'Takip / Favori İçerikler',
+                                    'Takip ettiğiniz serileri kimler görebilir?'
+                                )}
                             </CardContent>
                         </Card>
                     </TabsContent>
@@ -885,8 +937,8 @@ const Settings: React.FC = () => {
                                 <CardDescription>Yorum görünümü ve genel kullanım davranışlarını buradan belirleyebilirsiniz.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
-                                <div className="flex items-center justify-between space-x-2">
-                                    <div className="flex flex-col space-y-1">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="auto-show-replies">Yanıtları Otomatik Aç</Label>
                                         <p className="text-sm text-muted-foreground">Yorum başlıklarının altındaki yanıtlar varsayılan olarak açık gelsin.</p>
                                     </div>
@@ -900,8 +952,8 @@ const Settings: React.FC = () => {
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
-                                <div className="flex items-center justify-between space-x-2 border-t border-border/50 pt-6">
-                                    <div className="flex flex-col space-y-1">
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="auto-show-media">Yorum Medyalarını Otomatik Aç</Label>
                                         <p className="text-sm text-muted-foreground">Yorumlardaki görselleri butona basmadan direkt göster.</p>
                                     </div>
@@ -915,8 +967,8 @@ const Settings: React.FC = () => {
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
-                                <div className="flex items-center justify-between space-x-2 border-t border-border/50 pt-6">
-                                    <div className="flex flex-col space-y-1">
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="auto-show-gifs">Yorum GIF'lerini Otomatik Aç</Label>
                                         <p className="text-sm text-muted-foreground">GIF içeren yorumları varsayılan olarak açık göster.</p>
                                     </div>
@@ -964,7 +1016,7 @@ const Settings: React.FC = () => {
 
                                             <Button
                                                 variant="outline"
-                                                className="border-red-500/40 text-red-500 hover:bg-red-500/10 hover:text-red-400"
+                                                className="w-full border-red-500/40 text-red-500 hover:bg-red-500/10 hover:text-red-400 sm:w-auto"
                                                 disabled={unblockingUserId === blockedUser.id}
                                                 onClick={() => handleUnblockUser(blockedUser.id)}
                                             >
@@ -1019,11 +1071,11 @@ const Settings: React.FC = () => {
                             />
                         </div>
 
-                        <DialogFooter>
-                            <Button type="button" variant="ghost" onClick={() => setDisableDialogOpen(false)} disabled={isTwoFactorBusy}>
+                        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+                            <Button className="w-full sm:w-auto" type="button" variant="ghost" onClick={() => setDisableDialogOpen(false)} disabled={isTwoFactorBusy}>
                                 İptal
                             </Button>
-                            <Button type="button" variant="destructive" onClick={handleDisableTwoFactor} disabled={isTwoFactorBusy || disableCode.length !== 6}>
+                            <Button className="w-full sm:w-auto" type="button" variant="destructive" onClick={handleDisableTwoFactor} disabled={isTwoFactorBusy || disableCode.length !== 6}>
                                 {isTwoFactorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '2FA\'yı Kapat'}
                             </Button>
                         </DialogFooter>

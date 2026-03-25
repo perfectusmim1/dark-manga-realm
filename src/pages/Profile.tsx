@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatReadingDuration, getUserProfile, getReadingActivity, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
+import { canAccessPrivacyScope, formatReadingDuration, getUserProfile, getReadingActivity, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
 import { ACHIEVEMENTS } from '@/lib/achievements';
 import { supabase } from '@/lib/supabase';
 import { useToast } from "@/components/ui/use-toast";
@@ -51,33 +51,34 @@ const Profile: React.FC = () => {
         }
         
         setLoading(true);
-        const [profile, activity] = await Promise.all([
-          getUserProfile(userId, currentUser?.id),
-          getReadingActivity(userId, 365) // Last 1 year
-        ]);
+        const profile = await getUserProfile(userId, currentUser?.id);
         
         // Sync & Fetch Achievements in background
         const { data: unlockedData } = await syncAchievements(userId, profile.stats);
         
-        // Fetch Reading Lists
-        const { data: rLists } = await supabase
-           .from('reading_lists')
-           .select('*')
-           .eq('user_id', userId)
-           .eq(isOwnProfile ? 'user_id' : 'is_public', isOwnProfile ? userId : true);
-
-        // Fetch Tier Lists
-        const { data: tLists } = await supabase
-           .from('tier_lists')
-           .select('*')
-           .eq('user_id', userId)
-           .eq(isOwnProfile ? 'user_id' : 'is_public', isOwnProfile ? userId : true);
+        const [activity, readingListsResponse, tierListsResponse] = await Promise.all([
+          profile.sectionAccess?.readingHistory ? getReadingActivity(userId, 365) : Promise.resolve([]),
+          profile.sectionAccess?.readingLists
+            ? supabase
+                .from('reading_lists')
+                .select('*')
+                .eq('user_id', userId)
+                .eq(isOwnProfile ? 'user_id' : 'is_public', isOwnProfile ? userId : true)
+            : Promise.resolve({ data: [] }),
+          profile.sectionAccess?.tierLists
+            ? supabase
+                .from('tier_lists')
+                .select('*')
+                .eq('user_id', userId)
+                .eq(isOwnProfile ? 'user_id' : 'is_public', isOwnProfile ? userId : true)
+            : Promise.resolve({ data: [] }),
+        ]);
 
         setProfileData(profile);
         setActivityData(activity);
         setAchievements(unlockedData || []);
-        setReadingLists(rLists || []);
-        setTierLists(tLists || []);
+        setReadingLists(readingListsResponse.data || []);
+        setTierLists(tierListsResponse.data || []);
       } catch (err) {
         console.error('Profile fetch error:', err);
         setError('Profil yüklenirken bir hata oluştu veya gizli tutuluyor.');
@@ -123,7 +124,22 @@ const Profile: React.FC = () => {
   }
 
   const visibility = profileData.preferences?.privacy?.visibility || 'public';
-  const canView = isOwnProfile || visibility === 'public' || (visibility === 'members' && currentUser);
+  const canView = canAccessPrivacyScope(visibility, profileData.id, currentUser?.id, profileData.relationship.isMutualFollow);
+  const canViewReadingHistory = profileData.sectionAccess?.readingHistory ?? true;
+  const canViewReadingLists = profileData.sectionAccess?.readingLists ?? true;
+  const canViewTierLists = profileData.sectionAccess?.tierLists ?? true;
+  const canViewComments = profileData.sectionAccess?.comments ?? true;
+  const canViewFollowedManga = profileData.sectionAccess?.followedManga ?? true;
+  const canViewAnyLists = canViewReadingLists || canViewTierLists;
+  const visibleTabs = [
+    'overview',
+    'achievements',
+    ...(canViewAnyLists ? ['tierlists'] : []),
+    ...(canViewComments ? ['comments'] : []),
+    ...(canViewFollowedManga ? ['following-manga'] : []),
+  ];
+  const requestedTab = searchParams.get('tab') || 'overview';
+  const activeTab = visibleTabs.includes(requestedTab) ? requestedTab : visibleTabs[0];
   
   const joinDate = new Date(profileData.created_at).toLocaleDateString('tr-TR', {
     month: 'long', 
@@ -232,7 +248,11 @@ const Profile: React.FC = () => {
                             setProfileData((prev: any) => ({
                               ...prev,
                               stats: { ...prev.stats, followersCount: Math.max(0, prev.stats.followersCount - 1) },
-                              relationship: { ...prev.relationship, isFollowing: false }
+                              relationship: {
+                                ...prev.relationship,
+                                isFollowing: false,
+                                isMutualFollow: false,
+                              }
                             }));
                             toast({ title: "Takipten Çıkarıldı", description: `${profileData.username} artık takip edilmiyor.` });
                           } else {
@@ -240,7 +260,11 @@ const Profile: React.FC = () => {
                             setProfileData((prev: any) => ({
                               ...prev,
                               stats: { ...prev.stats, followersCount: prev.stats.followersCount + 1 },
-                              relationship: { ...prev.relationship, isFollowing: true }
+                              relationship: {
+                                ...prev.relationship,
+                                isFollowing: true,
+                                isMutualFollow: Boolean(prev.relationship.isFollowedBy),
+                              }
                             }));
                             toast({ title: "Takip Edildi", description: `${profileData.username} başarıyla takip edildi.` });
                           }
@@ -284,7 +308,13 @@ const Profile: React.FC = () => {
                                 ...prev.stats, 
                                 followersCount: profileData.relationship.isFollowing ? Math.max(0, prev.stats.followersCount - 1) : prev.stats.followersCount 
                               },
-                              relationship: { ...prev.relationship, isBlocked: true, isFollowing: false }
+                              relationship: {
+                                ...prev.relationship,
+                                isBlocked: true,
+                                isFollowing: false,
+                                isFollowedBy: false,
+                                isMutualFollow: false,
+                              }
                             }));
                             toast({ title: "Engellendi", description: `${profileData.username} başarıyla engellendi.` });
                           }
@@ -318,7 +348,7 @@ const Profile: React.FC = () => {
           </div>
         ) : (
           <Tabs 
-            defaultValue={searchParams.get('tab') || "overview"} 
+            value={activeTab}
             onValueChange={(value) => setSearchParams({ tab: value })}
             className="mt-8"
           >
@@ -336,24 +366,30 @@ const Profile: React.FC = () => {
               >
                 Başarımlar
               </TabsTrigger>
-              <TabsTrigger 
-                value="tierlists" 
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all flex items-center gap-2"
-              >
-                Listelerim
-              </TabsTrigger>
-              <TabsTrigger 
-                value="comments" 
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
-              >
-                Yorumlar
-              </TabsTrigger>
-              <TabsTrigger 
-                value="following-manga" 
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
-              >
-                Takip Edilenler
-              </TabsTrigger>
+              {canViewAnyLists && (
+                <TabsTrigger 
+                  value="tierlists" 
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all flex items-center gap-2"
+                >
+                  Listelerim
+                </TabsTrigger>
+              )}
+              {canViewComments && (
+                <TabsTrigger 
+                  value="comments" 
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                >
+                  Yorumlar
+                </TabsTrigger>
+              )}
+              {canViewFollowedManga && (
+                <TabsTrigger 
+                  value="following-manga" 
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                >
+                  Takip Edilenler
+                </TabsTrigger>
+              )}
             </TabsList>
             
             <TabsContent value="overview" className="mt-0 space-y-8">
@@ -393,42 +429,46 @@ const Profile: React.FC = () => {
                 </Link>
               </div>
 
-              {/* Heat Map Section */}
-              <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
-                <div className="flex items-center gap-2 mb-6">
-                  <Calendar className="w-5 h-5 text-primary" />
-                  <h3 className="text-xl font-semibold">Okuma Geçmişi (Son 1 Yıl)</h3>
-                </div>
-                {activityData.length > 0 ? (
-                  <HeatMap data={activityData} days={365} />
-                ) : (
-                  <div className="text-center py-12 bg-secondary/30 rounded-lg border border-border border-dashed">
-                    <p className="text-muted-foreground">Henüz kaydedilmiş okuma aktivitesi yok.</p>
+              {canViewReadingHistory && (
+                <>
+                  {/* Heat Map Section */}
+                  <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
+                    <div className="flex items-center gap-2 mb-6">
+                      <Calendar className="w-5 h-5 text-primary" />
+                      <h3 className="text-xl font-semibold">Okuma Geçmişi (Son 1 Yıl)</h3>
+                    </div>
+                    {activityData.length > 0 ? (
+                      <HeatMap data={activityData} days={365} />
+                    ) : (
+                      <div className="text-center py-12 bg-secondary/30 rounded-lg border border-border border-dashed">
+                        <p className="text-muted-foreground">Henüz kaydedilmiş okuma aktivitesi yok.</p>
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
 
-              {/* Recent Reads Section */}
-              {profileData.recentReads && profileData.recentReads.length > 0 && (
-                <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm mt-8">
-                  <div className="flex items-center gap-2 mb-6">
-                    <History className="w-5 h-5 text-primary" />
-                    <h3 className="text-xl font-semibold">En Son Neler Okudu?</h3>
-                  </div>
-                  <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    {profileData.recentReads.map((read: any) => (
-                      <Link key={read.manga_id} to={`/manga/${read.manga_id}`} className="group block rounded-lg overflow-hidden border border-border bg-secondary/30 hover:bg-secondary/50 transition-colors">
-                        <div className="relative aspect-[3/4] overflow-hidden">
-                          <img src={read.mangas?.cover} alt={read.mangas?.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-3">
-                            <p className="text-white font-medium text-sm line-clamp-1">{read.mangas?.title}</p>
-                            <p className="text-primary text-xs font-bold mt-0.5">Bölüm {read.chapter_number}</p>
-                          </div>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
-                </div>
+                  {/* Recent Reads Section */}
+                  {profileData.recentReads && profileData.recentReads.length > 0 && (
+                    <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm mt-8">
+                      <div className="flex items-center gap-2 mb-6">
+                        <History className="w-5 h-5 text-primary" />
+                        <h3 className="text-xl font-semibold">En Son Neler Okudu?</h3>
+                      </div>
+                      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {profileData.recentReads.map((read: any) => (
+                          <Link key={read.manga_id} to={`/manga/${read.manga_id}`} className="group block rounded-lg overflow-hidden border border-border bg-secondary/30 hover:bg-secondary/50 transition-colors">
+                            <div className="relative aspect-[3/4] overflow-hidden">
+                              <img src={read.mangas?.cover} alt={read.mangas?.title} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-3">
+                                <p className="text-white font-medium text-sm line-clamp-1">{read.mangas?.title}</p>
+                                <p className="text-primary text-xs font-bold mt-0.5">Bölüm {read.chapter_number}</p>
+                              </div>
+                            </div>
+                          </Link>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </TabsContent>
             
@@ -497,100 +537,105 @@ const Profile: React.FC = () => {
                  })}
                </div>
             </TabsContent>
+            {canViewAnyLists && (
             <TabsContent value="tierlists" className="mt-0">
                <div className="space-y-8">
-                 {/* Reading Lists */}
-                 <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
-                   <div className="flex items-center gap-2 mb-6">
-                     <List className="w-6 h-6 text-primary" />
-                     <h3 className="text-xl font-bold">Okuma Listeleri</h3>
+                 {canViewReadingLists && (
+                   <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
+                     <div className="flex items-center gap-2 mb-6">
+                       <List className="w-6 h-6 text-primary" />
+                       <h3 className="text-xl font-bold">Okuma Listeleri</h3>
+                     </div>
+                     
+                     {readingLists.length === 0 ? (
+                       <div className="text-center py-12 bg-secondary/30 rounded-lg border border-border border-dashed">
+                         <p className="text-muted-foreground mb-4">Henüz oluşturulmuş açık bir okuma listesi bulunmuyor.</p>
+                         {isOwnProfile && (
+                           <Button asChild variant="outline">
+                             <Link to="/library">Kütüphanene Git</Link>
+                           </Button>
+                         )}
+                       </div>
+                     ) : (
+                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                         {readingLists.map(list => (
+                           <Link key={list.id} to={`/reading-lists/${list.id}`} className="block overflow-hidden rounded-lg border border-border bg-secondary/20 transition-all group hover:bg-secondary/40 hover:border-primary/50">
+                             <ReadingListCover
+                               imageUrl={list.image_url}
+                               alt={list.name}
+                               className="h-32 w-full"
+                               iconClassName="h-8 w-8"
+                             />
+                             <div className="p-5">
+                               <div className="flex justify-between items-start mb-2 gap-3">
+                                 <h4 className="font-bold text-lg group-hover:text-primary transition-colors line-clamp-1">{list.name}</h4>
+                                 <Badge variant="outline" className="text-[10px] bg-background shrink-0">
+                                   {list.is_public ? <Globe className="w-3 h-3 mr-1" /> : <Lock className="w-3 h-3 mr-1 text-red-400" />} {list.is_public ? 'Açık' : 'Gizli'}
+                                 </Badge>
+                               </div>
+                               <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">{list.description || 'Açıklama belirtilmemiş.'}</p>
+                               <div className="flex justify-between items-center text-xs text-muted-foreground">
+                                 <span>{new Date(list.created_at).toLocaleDateString()}</span>
+                                 <span className="flex items-center text-primary font-medium">İncele <ChevronRight className="w-3 h-3 ml-1" /></span>
+                               </div>
+                             </div>
+                           </Link>
+                         ))}
+                       </div>
+                     )}
                    </div>
-                   
-                   {readingLists.length === 0 ? (
-                     <div className="text-center py-12 bg-secondary/30 rounded-lg border border-border border-dashed">
-                       <p className="text-muted-foreground mb-4">Henüz oluşturulmuş açık bir okuma listesi bulunmuyor.</p>
+                 )}
+
+                 {canViewTierLists && (
+                   <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
+                     <div className="flex items-center justify-between mb-6">
+                       <div className="flex items-center gap-2">
+                         <Book className="w-6 h-6 text-yellow-500" />
+                         <h3 className="text-xl font-bold">Tier Listeleri</h3>
+                       </div>
                        {isOwnProfile && (
-                         <Button asChild variant="outline">
-                           <Link to="/library">Kütüphanene Git</Link>
+                         <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate('/tier-lists/create')}>
+                           Yeni Tier Listesi
                          </Button>
                        )}
                      </div>
-                   ) : (
-                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                       {readingLists.map(list => (
-                         <Link key={list.id} to={`/reading-lists/${list.id}`} className="block overflow-hidden rounded-lg border border-border bg-secondary/20 transition-all group hover:bg-secondary/40 hover:border-primary/50">
-                           <ReadingListCover
-                             imageUrl={list.image_url}
-                             alt={list.name}
-                             className="h-32 w-full"
-                             iconClassName="h-8 w-8"
-                           />
-                           <div className="p-5">
-                             <div className="flex justify-between items-start mb-2 gap-3">
-                               <h4 className="font-bold text-lg group-hover:text-primary transition-colors line-clamp-1">{list.name}</h4>
-                               <Badge variant="outline" className="text-[10px] bg-background shrink-0">
-                                 {list.is_public ? <Globe className="w-3 h-3 mr-1" /> : <Lock className="w-3 h-3 mr-1 text-red-400" />} {list.is_public ? 'Açık' : 'Gizli'}
+                     
+                     {tierLists.length === 0 ? (
+                       <div className="rounded-xl border border-border border-dashed bg-card/10 p-12 flex flex-col items-center justify-center text-center">
+                         <div className="p-4 bg-primary/10 text-primary rounded-full mb-4">
+                           <Trophy className="w-8 h-8" />
+                         </div>
+                         <h3 className="text-xl font-bold mb-2">Tier Listesi Yok</h3>
+                         <p className="text-muted-foreground max-w-md">Kullanıcının yarattığı özel manga/karakter sıralamaları varsa burada gözükecektir!</p>
+                       </div>
+                     ) : (
+                       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {tierLists.map(list => (
+                           <div key={list.id} onClick={() => navigate(`/tier-lists/${list.id}`)} className="block rounded-lg border border-border bg-secondary/20 p-5 hover:bg-secondary/40 hover:border-primary/50 transition-all cursor-pointer group">
+                             <div className="flex justify-between items-start mb-2">
+                               <h4 className="font-bold text-lg group-hover:text-primary transition-colors line-clamp-1">{list.title}</h4>
+                               <Badge variant="outline" className="text-[10px] bg-background">
+                                 {list.is_public ? <Globe className="w-3 h-3 mr-1" /> : <Lock className="w-3 h-3 mr-1 text-red-400" />} {list.type === 'character' ? 'Karakter' : 'Manga'}
                                </Badge>
                              </div>
-                             <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">{list.description || 'Açıklama belirtilmemiş.'}</p>
-                             <div className="flex justify-between items-center text-xs text-muted-foreground">
+                             <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">Kendi sıralamasını oluşturdu.</p>
+                             <div className="flex justify-between items-center text-xs text-muted-foreground border-t border-border pt-3">
+                               <span>Sıralamayı Göster <ChevronRight className="w-3 h-3 inline pb-0.5" /></span>
                                <span>{new Date(list.created_at).toLocaleDateString()}</span>
-                               <span className="flex items-center text-primary font-medium">İncele <ChevronRight className="w-3 h-3 ml-1" /></span>
                              </div>
                            </div>
-                         </Link>
-                       ))}
-                     </div>
-                   )}
-                 </div>
-
-                 {/* Tier Lists */}
-                 <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
-                   <div className="flex items-center justify-between mb-6">
-                     <div className="flex items-center gap-2">
-                       <Book className="w-6 h-6 text-yellow-500" />
-                       <h3 className="text-xl font-bold">Tier Listeleri</h3>
-                     </div>
-                     {isOwnProfile && (
-                       <Button size="sm" variant="outline" className="gap-2" onClick={() => navigate('/tier-lists/create')}>
-                         Yeni Tier Listesi
-                       </Button>
+                         ))}
+                       </div>
                      )}
                    </div>
-                   
-                   {tierLists.length === 0 ? (
-                     <div className="rounded-xl border border-border border-dashed bg-card/10 p-12 flex flex-col items-center justify-center text-center">
-                       <div className="p-4 bg-primary/10 text-primary rounded-full mb-4">
-                         <Trophy className="w-8 h-8" />
-                       </div>
-                       <h3 className="text-xl font-bold mb-2">Tier Listesi Yok</h3>
-                       <p className="text-muted-foreground max-w-md">Kullanıcının yarattığı özel manga/karakter sıralamaları varsa burada gözükecektir!</p>
-                     </div>
-                   ) : (
-                     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                        {tierLists.map(list => (
-                         <div key={list.id} onClick={() => navigate(`/tier-lists/${list.id}`)} className="block rounded-lg border border-border bg-secondary/20 p-5 hover:bg-secondary/40 hover:border-primary/50 transition-all cursor-pointer group">
-                           <div className="flex justify-between items-start mb-2">
-                             <h4 className="font-bold text-lg group-hover:text-primary transition-colors line-clamp-1">{list.title}</h4>
-                             <Badge variant="outline" className="text-[10px] bg-background">
-                               {list.is_public ? <Globe className="w-3 h-3 mr-1" /> : <Lock className="w-3 h-3 mr-1 text-red-400" />} {list.type === 'character' ? 'Karakter' : 'Manga'}
-                             </Badge>
-                           </div>
-                           <p className="text-sm text-muted-foreground line-clamp-2 mb-4 h-10">Kendi sıralamasını oluşturdu.</p>
-                           <div className="flex justify-between items-center text-xs text-muted-foreground border-t border-border pt-3">
-                             <span>Sıralamayı Göster <ChevronRight className="w-3 h-3 inline pb-0.5" /></span>
-                             <span>{new Date(list.created_at).toLocaleDateString()}</span>
-                           </div>
-                         </div>
-                       ))}
-                     </div>
-                   )}
-                 </div>
-               </div>
-            </TabsContent>
+                 )}
+                </div>
+             </TabsContent>
+            )}
+            {canViewComments && (
             <TabsContent value="comments" className="mt-0">
-               <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
-                 <div className="mb-6 flex items-center justify-between gap-3">
+                <div className="rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-6 md:p-8">
+                 <div className="mb-4 flex items-center justify-between gap-3 sm:mb-6">
                    <div className="flex items-center gap-2">
                      <MessageSquare className="w-5 h-5 text-primary" />
                      <h3 className="text-xl font-bold">Son Yorumlar</h3>
@@ -606,19 +651,19 @@ const Profile: React.FC = () => {
                        <Link
                          key={`${comment.entityType}-${comment.id}`}
                          to={comment.targetHref}
-                         className="group block rounded-2xl border border-border/70 bg-background/40 p-4 transition-all hover:border-primary/40 hover:bg-background/70"
+                         className="group block rounded-2xl border border-border/70 bg-background/40 p-3 transition-all hover:border-primary/40 hover:bg-background/70 sm:p-4"
                        >
-                         <div className="flex items-start gap-4">
-                           <Avatar className="h-11 w-11 border border-border/70">
+                         <div className="flex items-start gap-3 sm:gap-4">
+                           <Avatar className="h-9 w-9 border border-border/70 sm:h-11 sm:w-11">
                              <AvatarImage src={profileData.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${profileData.username}`} />
                              <AvatarFallback>{profileData.username?.substring(0, 2).toUpperCase()}</AvatarFallback>
                            </Avatar>
 
                            <div className="min-w-0 flex-1">
-                             <div className="flex flex-wrap items-center gap-2">
+                             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
                               <span
                                 className={cn(
-                                  'font-semibold transition-colors',
+                                  'text-sm font-semibold transition-colors sm:text-base',
                                   profileData.role
                                     ? getStaffTextClassName(profileData.role)
                                     : 'text-foreground group-hover:text-primary'
@@ -627,7 +672,7 @@ const Profile: React.FC = () => {
                                 {profileData.username}
                               </span>
                               <StaffBadge role={profileData.role} compact />
-                              <span className="text-xs text-muted-foreground">
+                              <span className="text-[11px] text-muted-foreground">
                                 {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
                               </span>
                                {comment.parentId && (
@@ -656,11 +701,11 @@ const Profile: React.FC = () => {
                                )}
                              </div>
 
-                             <p className="mt-2 line-clamp-2 text-sm leading-6 text-foreground/90">
+                             <p className="mt-2 line-clamp-2 text-sm leading-5 text-foreground/90">
                                {comment.preview}
                              </p>
 
-                             <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                             <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
                                  {comment.entityType === 'manga' ? 'Seri' : comment.entityType === 'character' ? 'Karakter' : comment.entityType === 'author' ? 'Yazar' : 'Cizer'}
                                </Badge>
@@ -670,7 +715,7 @@ const Profile: React.FC = () => {
                              </div>
                            </div>
 
-                           <ChevronRight className="mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary" />
+                           <ChevronRight className="mt-1 hidden h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary sm:block" />
                          </div>
                        </Link>
                      ))}
@@ -682,10 +727,12 @@ const Profile: React.FC = () => {
                      <p className="text-muted-foreground mt-2">Kullanicinin attigi son yorumlar burada gorunecek.</p>
                    </div>
                  )}
-               </div>
-            </TabsContent>
+                </div>
+             </TabsContent>
+            )}
+            {canViewFollowedManga && (
             <TabsContent value="following-manga" className="mt-0">
-               <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
+                <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
                  <div className="mb-6 flex items-center justify-between gap-3">
                    <div className="flex items-center gap-2">
                      <BookOpen className="w-5 h-5 text-primary" />
@@ -744,8 +791,9 @@ const Profile: React.FC = () => {
                      <p className="text-muted-foreground mt-2">Favorilere eklenenler degil, sadece takip edilen seriler burada gorunecek.</p>
                    </div>
                  )}
-               </div>
-            </TabsContent>
+                </div>
+             </TabsContent>
+            )}
           </Tabs>
         )}
         <UserListModal 

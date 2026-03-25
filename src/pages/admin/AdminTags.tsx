@@ -27,6 +27,8 @@ const AdminTags: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterCategory, setFilterCategory] = useState<TagCategory | 'all'>('all');
+  const [filterSource, setFilterSource] = useState<'all' | 'official' | 'community'>('all');
+  const [filterApproval, setFilterApproval] = useState<'all' | 'approved' | 'pending'>('all');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
   const [newTag, setNewTag] = useState({ name: '', category: 'general' as TagCategory, description: '' });
@@ -102,10 +104,29 @@ const AdminTags: React.FC = () => {
     }
   };
 
+  const isTagApproved = (tag: Tag) => tag.isOfficial || !!tag.communityApproved;
+
+  const getFilterChipClassName = (active: boolean) =>
+    `px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
+      active
+        ? 'bg-primary/20 border-primary/40 text-primary'
+        : 'border-border text-muted-foreground hover:border-primary/30 hover:text-foreground'
+    }`;
+
   const filteredTags = tags.filter(t => {
-    const matchesSearch = t.name.toLowerCase().includes(searchQuery.toLowerCase());
+    const normalizedQuery = searchQuery.toLowerCase();
+    const matchesSearch =
+      t.name.toLowerCase().includes(normalizedQuery) ||
+      (t.description?.toLowerCase().includes(normalizedQuery) ?? false);
     const matchesCategory = filterCategory === 'all' || t.category === filterCategory;
-    return matchesSearch && matchesCategory;
+    const matchesSource =
+      filterSource === 'all' ||
+      (filterSource === 'official' ? t.isOfficial : !t.isOfficial);
+    const matchesApproval =
+      filterApproval === 'all' ||
+      (filterApproval === 'approved' ? isTagApproved(t) : !isTagApproved(t));
+
+    return matchesSearch && matchesCategory && matchesSource && matchesApproval;
   });
 
   const tagStats = {
@@ -191,36 +212,84 @@ const AdminTags: React.FC = () => {
         </div>
       )}
 
-      <div className="flex items-center gap-4">
-        <div className="relative flex-1">
-          <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            placeholder="Etiket ara..."
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            className="pl-9"
-          />
-        </div>
-        <div className="flex gap-1.5">
-          <button
-            className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-              filterCategory === 'all' ? 'bg-primary/20 border-primary/40 text-primary' : 'border-border text-muted-foreground'
-            }`}
-            onClick={() => setFilterCategory('all')}
-          >
-            Tümü
-          </button>
-          {(Object.entries(categoryLabels) as [TagCategory, string][]).map(([key, label]) => (
+      <div className="space-y-3">
+        <div className="flex items-center gap-4">
+          <div className="relative flex-1">
+            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              placeholder="Etiket ara..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="pl-9"
+            />
+          </div>
+          <div className="flex gap-1.5">
             <button
-              key={key}
-              className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${
-                filterCategory === key ? 'bg-primary/20 border-primary/40 text-primary' : 'border-border text-muted-foreground'
-              }`}
-              onClick={() => setFilterCategory(key)}
+              className={getFilterChipClassName(filterCategory === 'all')}
+              onClick={() => setFilterCategory('all')}
             >
-              {label}
+              Tümü
             </button>
-          ))}
+            {(Object.entries(categoryLabels) as [TagCategory, string][]).map(([key, label]) => (
+              <button
+                key={key}
+                className={getFilterChipClassName(filterCategory === key)}
+                onClick={() => setFilterCategory(key)}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        <div className="flex flex-wrap items-center gap-5 rounded-xl border border-border bg-card/30 px-4 py-3">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Kaynak
+            </span>
+            <button
+              className={getFilterChipClassName(filterSource === 'all')}
+              onClick={() => setFilterSource('all')}
+            >
+              Tümü
+            </button>
+            <button
+              className={getFilterChipClassName(filterSource === 'official')}
+              onClick={() => setFilterSource('official')}
+            >
+              Resmi
+            </button>
+            <button
+              className={getFilterChipClassName(filterSource === 'community')}
+              onClick={() => setFilterSource('community')}
+            >
+              Topluluk
+            </button>
+          </div>
+
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="mr-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">
+              Onay
+            </span>
+            <button
+              className={getFilterChipClassName(filterApproval === 'all')}
+              onClick={() => setFilterApproval('all')}
+            >
+              Tümü
+            </button>
+            <button
+              className={getFilterChipClassName(filterApproval === 'approved')}
+              onClick={() => setFilterApproval('approved')}
+            >
+              Onaylı
+            </button>
+            <button
+              className={getFilterChipClassName(filterApproval === 'pending')}
+              onClick={() => setFilterApproval('pending')}
+            >
+              Onaysız
+            </button>
+          </div>
         </div>
       </div>
 
@@ -232,11 +301,12 @@ const AdminTags: React.FC = () => {
         </div>
       ) : (
         <div className="rounded-xl border border-border overflow-hidden">
-          <div className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border bg-secondary/20 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border bg-secondary/20 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             <span>Etiket</span>
             <span className="text-center w-20">Kategori</span>
             <span className="text-center w-16">Kullanım</span>
-            <span className="text-center w-16">Durum</span>
+            <span className="text-center w-20">Kaynak</span>
+            <span className="text-center w-20">Onay</span>
             <span className="text-center w-24">İşlemler</span>
           </div>
           <div className="divide-y divide-border">
@@ -244,7 +314,7 @@ const AdminTags: React.FC = () => {
               <div className="p-8 text-center text-muted-foreground">Hiç etiket bulunamadı</div>
             ) : (
               filteredTags.map(tag => (
-                <div key={tag.id} className="grid grid-cols-[1fr_auto_auto_auto_auto] gap-4 px-4 py-3 items-center hover:bg-secondary/20 transition-colors">
+                <div key={tag.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto_auto] gap-4 px-4 py-3 items-center hover:bg-secondary/20 transition-colors">
                   {editingTag?.id === tag.id ? (
                     <Input
                       value={editingTag.name}
@@ -265,7 +335,7 @@ const AdminTags: React.FC = () => {
                     </Badge>
                   </div>
                   <div className="w-16 text-center text-sm font-mono">{tag.usageCount}</div>
-                  <div className="w-16 text-center">
+                  <div className="w-20 text-center">
                     <button onClick={() => toggleOfficial(tag)}>
                       {tag.isOfficial ? (
                         <Badge className="bg-green-500/10 text-green-400 border-green-500/20 text-[10px] gap-1">
@@ -277,6 +347,17 @@ const AdminTags: React.FC = () => {
                         </Badge>
                       )}
                     </button>
+                  </div>
+                  <div className="w-20 text-center">
+                    {isTagApproved(tag) ? (
+                      <Badge className="border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-400">
+                        Onaylı
+                      </Badge>
+                    ) : (
+                      <Badge className="border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-300">
+                        Onaysız
+                      </Badge>
+                    )}
                   </div>
                   <div className="w-24 flex items-center justify-center gap-1">
                     {editingTag?.id === tag.id ? (

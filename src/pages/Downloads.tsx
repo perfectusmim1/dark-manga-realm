@@ -200,7 +200,7 @@ const Downloads: React.FC = () => {
           )}
         </div>
 
-        <div className="mt-8 grid gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-5">
           {[
             { label: 'Toplam Boyut', value: formatBytes(snapshot.stats.usedBytes) },
             { label: 'İndirilen Seri', value: `${snapshot.stats.seriesCount}` },
@@ -210,11 +210,11 @@ const Downloads: React.FC = () => {
           ].map((item, index) => (
             <div
               key={item.label}
-              className="animate-fade-up rounded-2xl border border-border bg-card/40 p-5 opacity-0 backdrop-blur-sm"
+              className="animate-fade-up aspect-[1/1] min-h-[8.25rem] rounded-2xl border border-border bg-card/40 p-4 opacity-0 backdrop-blur-sm sm:aspect-auto sm:min-h-0 sm:p-5"
               style={{ animationDelay: `${0.08 + index * 0.03}s`, animationFillMode: 'forwards' }}
             >
-              <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">{item.label}</p>
-              <p className="mt-3 text-2xl font-black tracking-tight">{item.value}</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-xs">{item.label}</p>
+              <p className="mt-3 text-xl font-black tracking-tight sm:text-2xl">{item.value}</p>
             </div>
           ))}
         </div>
@@ -224,30 +224,30 @@ const Downloads: React.FC = () => {
         </p>
 
         <section
-          className="mt-6 animate-fade-up rounded-2xl border border-border bg-card/35 p-5 opacity-0 backdrop-blur-sm"
+          className="mt-6 animate-fade-up rounded-2xl border border-border bg-card/35 p-4 opacity-0 backdrop-blur-sm sm:p-5"
           style={{ animationDelay: '0.22s', animationFillMode: 'forwards' }}
         >
-          <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+          <div className="flex flex-col gap-3 sm:gap-4 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
               <div className="flex items-center gap-2">
                 <p className="text-sm font-bold">Sıkıştırılmış İndirme</p>
                 <Badge variant="secondary">Önerilen</Badge>
               </div>
-              <p className="mt-2 max-w-3xl text-sm text-muted-foreground">
+              <p className="mt-2 hidden max-w-3xl text-sm text-muted-foreground sm:block">
                 Yeni indirmelerde sayfalar kaliteyi neredeyse fark edilmeyecek seviyede koruyarak WebP olarak optimize edilir.
                 Bu, özellikle uzun bölümlerde dosya boyutunu ciddi şekilde düşürür.
               </p>
-              <p className="mt-2 text-xs text-muted-foreground">
+              <p className="mt-2 hidden text-xs text-muted-foreground sm:block">
                 Not: Bu ayar yeni indirilen sayfalara uygulanır. Mevcut indirilmiş bölümler aynı kalır.
               </p>
             </div>
 
-            <div className="flex shrink-0 items-center gap-3 rounded-full border border-border/70 bg-background/50 px-4 py-3">
-              <div className="text-right">
+            <div className="flex w-full shrink-0 items-center justify-between gap-3 rounded-full border border-border/70 bg-background/50 px-4 py-3 sm:w-auto">
+              <div className="min-w-0 text-left sm:text-right">
                 <p className="text-sm font-semibold">
                   {preferences.compressedDownloads ? 'Açık' : 'Kapalı'}
                 </p>
-                <p className="text-xs text-muted-foreground">Yeni indirmelerde geçerli</p>
+                <p className="hidden text-xs text-muted-foreground sm:block">Yeni indirmelerde geçerli</p>
               </div>
               <Switch
                 checked={preferences.compressedDownloads}
@@ -305,13 +305,13 @@ const Downloads: React.FC = () => {
                   className="animate-fade-up overflow-hidden rounded-3xl border border-border bg-card/35 opacity-0 backdrop-blur-sm"
                   style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.035}s`, animationFillMode: 'forwards' }}
                 >
-                  <div className="p-5 sm:p-6">
-                    <div className="flex flex-col gap-5 lg:flex-row lg:items-start lg:justify-between">
-                      <div className="flex min-w-0 gap-4">
+                  <div className="p-4 sm:p-6">
+                    <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                      <div className="flex min-w-0 gap-3 sm:gap-4">
                         <img
                           src={entry.manga.cover}
                           alt={entry.manga.title}
-                          className="h-28 w-20 rounded-2xl object-cover shadow-lg"
+                          className="h-24 w-[4.5rem] rounded-[1.35rem] object-cover shadow-lg sm:h-28 sm:w-20 sm:rounded-2xl"
                         />
 
                         <div className="min-w-0">
@@ -328,14 +328,14 @@ const Downloads: React.FC = () => {
                             )}
                           </div>
 
-                          <h2 className="mt-3 text-2xl font-black tracking-tight">
+                          <h2 className="mt-2 text-xl font-black leading-tight tracking-tight sm:mt-3 sm:text-2xl">
                             <Link to={`/manga/${entry.manga.mangaId}`} className="hover:text-primary transition-colors">
                               {entry.manga.title}
                             </Link>
                           </h2>
-                          <p className="mt-1 text-sm text-muted-foreground">{entry.manga.author}</p>
+                          <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{entry.manga.author}</p>
 
-                          <div className="mt-4 flex flex-wrap items-center gap-4 text-sm text-muted-foreground">
+                          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-muted-foreground sm:mt-4 sm:flex sm:flex-wrap sm:items-center sm:gap-4 sm:text-sm">
                             <span>{entry.downloadedChapters}/{entry.manga.chapterCount} bölüm indirildi</span>
                             <span>{readChapterCount} okundu</span>
                             <span>{formatBytes(entry.totalBytes)}</span>
@@ -343,8 +343,8 @@ const Downloads: React.FC = () => {
                           </div>
 
                           {primaryJob && (
-                            <div className="mt-4 max-w-xl space-y-2">
-                              <div className="flex items-center justify-between text-xs font-medium text-muted-foreground">
+                            <div className="mt-3 max-w-xl space-y-2 sm:mt-4">
+                              <div className="flex items-center justify-between gap-3 text-[11px] font-medium text-muted-foreground sm:text-xs">
                                 <span>
                                   {Math.round(primaryJob.progressPercent)}% tamamlandı
                                   {primaryJob.currentChapterId ? ' • aktif bölüm indiriliyor' : ''}
@@ -357,9 +357,9 @@ const Downloads: React.FC = () => {
                         </div>
                       </div>
 
-                      <div className="flex flex-wrap gap-2 lg:justify-end">
+                      <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:justify-end">
                         {canRead && firstReadableChapter && (
-                          <Button asChild variant="glow">
+                          <Button asChild variant="glow" className="h-10 text-sm sm:h-11">
                             <Link to={`/manga/${entry.manga.mangaId}/chapter/${firstReadableChapter.chapterId}`}>
                               Oku
                             </Link>
@@ -367,32 +367,32 @@ const Downloads: React.FC = () => {
                         )}
 
                         {primaryJob && primaryJob.status === 'running' && (
-                          <Button variant="outline" onClick={() => offlineDownloadManager.pauseJob(primaryJob.id)}>
+                          <Button variant="outline" onClick={() => offlineDownloadManager.pauseJob(primaryJob.id)} className="h-10 text-sm sm:h-11">
                             <PauseCircle className="mr-2 h-4 w-4" />
                             Duraklat
                           </Button>
                         )}
 
                         {primaryJob && ['paused', 'failed', 'partial', 'queued'].includes(primaryJob.status) && (
-                          <Button variant="outline" onClick={() => void handleRetrySeries(entry)}>
+                          <Button variant="outline" onClick={() => void handleRetrySeries(entry)} className="h-10 text-sm sm:h-11">
                             <PlayCircle className="mr-2 h-4 w-4" />
                             Devam Et
                           </Button>
                         )}
 
-                        <Button variant="outline" onClick={() => toggleSeries(entry.manga.mangaId)}>
+                        <Button variant="outline" onClick={() => toggleSeries(entry.manga.mangaId)} className="h-10 text-sm sm:h-11">
                           {isExpanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
                           Bölümler
                         </Button>
 
                         {readChapterCount > 0 && (
-                          <Button variant="outline" onClick={() => void handleDeleteReadChapters(entry)}>
+                          <Button variant="outline" onClick={() => void handleDeleteReadChapters(entry)} className="h-10 text-sm sm:h-11">
                             <Trash2 className="mr-2 h-4 w-4" />
                             Okunanları Sil
                           </Button>
                         )}
 
-                        <Button variant="outline" onClick={() => void handleDeleteSeries(entry.manga.mangaId)}>
+                        <Button variant="outline" onClick={() => void handleDeleteSeries(entry.manga.mangaId)} className="h-10 text-sm sm:h-11">
                           <Trash2 className="mr-2 h-4 w-4" />
                           Sil
                         </Button>
@@ -409,12 +409,12 @@ const Downloads: React.FC = () => {
                           const isChapterRecoverable = ['paused', 'failed', 'partial', 'cancelled'].includes(chapter.downloadStatus);
 
                           return (
-                            <div key={chapter.chapterId} className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between">
+                            <div key={chapter.chapterId} className="flex flex-col gap-3 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
                               <div className="min-w-0">
                                 <p className="font-semibold">
                                   {formatChapterDisplayTitle(chapter.chapterNumber, chapter.title)}
                                 </p>
-                                <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+                                <div className="mt-1 grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-muted-foreground sm:flex sm:flex-wrap sm:items-center sm:gap-3 sm:text-xs">
                                   <span>{formatBytes(chapter.downloadedBytes || 0)}</span>
                                   <span>{chapter.pageCount} sayfa</span>
                                   <span>{formatDateTime(chapter.downloadedAt || chapter.lastAttemptAt)}</span>
@@ -425,9 +425,9 @@ const Downloads: React.FC = () => {
                                 </div>
                               </div>
 
-                              <div className="flex flex-wrap gap-2 sm:justify-end">
+                              <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                                 {isChapterReady && (
-                                  <Button asChild size="sm">
+                                  <Button asChild size="sm" className="h-9 text-xs sm:text-sm">
                                     <Link to={`/manga/${entry.manga.mangaId}/chapter/${chapter.chapterId}`}>
                                       Çevrimdışı Oku
                                     </Link>
@@ -438,6 +438,7 @@ const Downloads: React.FC = () => {
                                   <Button
                                     variant="outline"
                                     size="sm"
+                                    className="h-9 text-xs sm:text-sm"
                                     onClick={() => void handleRetryChapter(entry, chapter)}
                                   >
                                     <RefreshCcw className="mr-2 h-4 w-4" />
@@ -446,7 +447,7 @@ const Downloads: React.FC = () => {
                                 )}
 
                                 {!isChapterReady && isChapterBusy && (
-                                  <Button variant="outline" size="sm" disabled>
+                                  <Button variant="outline" size="sm" className="h-9 text-xs sm:text-sm" disabled>
                                     <Download className="mr-2 h-4 w-4" />
                                     {chapter.downloadStatus === 'queued' ? 'Kuyrukta' : 'İndiriliyor'}
                                   </Button>
@@ -455,6 +456,7 @@ const Downloads: React.FC = () => {
                                 <Button
                                   variant="outline"
                                   size="sm"
+                                  className="h-9 text-xs sm:text-sm"
                                   onClick={() => void offlineDownloadManager.deleteChapterDownload(chapter.chapterId)}
                                 >
                                   <Trash2 className="mr-2 h-4 w-4" />

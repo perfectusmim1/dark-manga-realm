@@ -136,8 +136,8 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
 
     return (
         <Dialog open={isOpen} onOpenChange={onClose}>
-            <DialogContent className="flex max-h-[85vh] w-[calc(100vw-2rem)] max-w-[425px] flex-col overflow-hidden p-0 sm:max-w-[425px]">
-                <DialogHeader className="px-6 pt-6">
+            <DialogContent className="flex max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] flex-col overflow-hidden rounded-[2rem] p-0 sm:max-h-[85vh] sm:max-w-[425px] sm:rounded-2xl">
+                <DialogHeader className="px-5 pt-5 sm:px-6 sm:pt-6">
                     <DialogTitle className="flex items-center gap-2">
                         <List className="h-5 w-5" />
                         Okuma Listelerim
@@ -147,10 +147,10 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                     </DialogDescription>
                 </DialogHeader>
 
-                <div className="flex-1 overflow-y-auto px-6 py-4">
+                <div className="flex-1 overflow-y-auto px-5 py-4 sm:px-6">
                     {!isCreating ? (
                         <>
-                            <ScrollArea className="h-[300px] pr-4">
+                            <ScrollArea className="h-[min(50vh,300px)] pr-2 sm:pr-4">
                                 {isLoading ? (
                                     <div className="flex h-full items-center justify-center">
                                         <div className="h-6 w-6 animate-spin rounded-full border-2 border-primary border-t-transparent" />
@@ -166,7 +166,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                                             <button
                                                 key={list.id}
                                                 onClick={() => handleToggleMangaInList(list.id)}
-                                                className={`flex w-full items-center justify-between rounded-lg border p-3 transition-colors ${inLists[list.id]
+                                                className={`flex w-full items-center justify-between rounded-[1.35rem] border p-3 transition-colors sm:rounded-lg ${inLists[list.id]
                                                         ? 'border-primary bg-primary/5'
                                                         : 'border-border hover:bg-secondary/50'
                                                     }`}
@@ -175,7 +175,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                                                     <ReadingListCover
                                                         imageUrl={list.imageUrl}
                                                         alt={list.name}
-                                                        className="h-12 w-12 shrink-0 rounded-lg border border-border/70"
+                                                        className="h-12 w-12 shrink-0 rounded-[1rem] border border-border/70 sm:rounded-lg"
                                                         iconClassName="h-5 w-5"
                                                     />
                                                     <div className="flex min-w-0 flex-col items-start">
@@ -208,7 +208,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
 
                             <Button
                                 variant="outline"
-                                className="mt-4 w-full gap-2"
+                                className="mt-4 h-12 w-full gap-2 rounded-[1.35rem] sm:rounded-lg"
                                 onClick={() => setIsCreating(true)}
                             >
                                 <Plus className="h-4 w-4" />
@@ -255,14 +255,14 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                                         Onizleme
                                     </div>
                                     {newImageUrl.trim() && !isValidImageUrl(newImageUrl.trim()) ? (
-                                        <div className="rounded-xl border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
+                                        <div className="rounded-[1.35rem] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive sm:rounded-xl">
                                             Gecersiz gorsel baglantisi. Onizleme gosterilemiyor.
                                         </div>
                                     ) : (
                                         <ReadingListCover
                                             imageUrl={newImageUrl.trim()}
                                             alt={newName || 'Okuma listesi kapagi'}
-                                            className="h-36 w-full rounded-xl border border-border"
+                                            className="h-36 w-full rounded-[1.35rem] border border-border sm:rounded-xl"
                                             iconClassName="h-8 w-8"
                                             showLabel
                                         />
@@ -285,21 +285,22 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                     )}
                 </div>
 
-                <DialogFooter className="border-t border-border px-6 py-4">
+                <DialogFooter className="border-t border-border px-5 py-4 sm:px-6">
                     {isCreating ? (
                         <>
                             <Button
                                 variant="ghost"
                                 onClick={() => setIsCreating(false)}
+                                className="w-full rounded-[1.35rem] sm:w-auto sm:rounded-lg"
                             >
                                 İptal
                             </Button>
-                            <Button onClick={handleCreateList}>
+                            <Button onClick={handleCreateList} className="w-full rounded-[1.35rem] sm:w-auto sm:rounded-lg">
                                 Oluştur ve Ekle
                             </Button>
                         </>
                     ) : (
-                        <Button variant="ghost" className="w-full" onClick={onClose}>
+                        <Button variant="ghost" className="w-full rounded-[1.35rem] sm:rounded-lg" onClick={onClose}>
                             Kapat
                         </Button>
                     )}

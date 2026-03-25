@@ -166,18 +166,18 @@ const Library: React.FC = () => {
 
             <main className="container pb-12 pt-20">
                 <div className="mb-8">
-                    <h1 className="text-3xl font-bold">Kütüphanem</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Kütüphanem</h1>
                     <p className="text-muted-foreground">Favori mangalarınızı kategorilere ayırın</p>
                 </div>
 
                 <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as LibraryCategory | 'all')}>
-                    <TabsList className="mb-6 flex-wrap h-auto gap-2">
-                        <TabsTrigger value="all" className="gap-2">
+                    <TabsList className="mb-6 flex h-auto w-full justify-start gap-2 overflow-x-auto rounded-2xl bg-secondary/40 p-1">
+                        <TabsTrigger value="all" className="shrink-0 gap-2">
                             <LibraryIcon className="h-4 w-4" />
                             Tümü
                         </TabsTrigger>
                         {categoryConfig.map((cat) => (
-                            <TabsTrigger key={cat.key} value={cat.key} className="gap-2">
+                            <TabsTrigger key={cat.key} value={cat.key} className="shrink-0 gap-2">
                                 <cat.icon className={`h-4 w-4 ${cat.color}`} />
                                 {cat.label}
                             </TabsTrigger>
@@ -202,10 +202,10 @@ const Library: React.FC = () => {
                                 {libraryItems.map(({ favorite, manga, progress }, index) => (
                                     <div
                                         key={favorite.mangaId}
-                                        className="animate-fade-up flex items-center gap-4 rounded-xl border border-border bg-card p-4 opacity-0 transition-shadow hover:shadow-lg"
+                                        className="animate-fade-up flex flex-col gap-4 rounded-xl border border-border bg-card p-4 opacity-0 transition-shadow hover:shadow-lg sm:flex-row sm:items-center"
                                         style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
                                     >
-                                        <Link to={`/manga/${manga!.id}`}>
+                                        <Link to={`/manga/${manga!.id}`} className="mx-auto sm:mx-0">
                                             <img
                                                 src={manga!.cover}
                                                 alt={manga!.title}
@@ -213,7 +213,7 @@ const Library: React.FC = () => {
                                             />
                                         </Link>
 
-                                        <div className="flex-1 min-w-0">
+                                        <div className="min-w-0 flex-1">
                                             <Link to={`/manga/${manga!.id}`}>
                                                 <h3 className="font-semibold hover:text-primary transition-colors">
                                                     {manga!.title}
@@ -223,7 +223,7 @@ const Library: React.FC = () => {
                                                 {manga!.author} • {manga!.chapters.length} bölüm
                                             </p>
 
-                                            <div className="flex items-center gap-2 mt-2">
+                                            <div className="mt-2 flex flex-wrap items-center gap-2">
                                                 {getCategoryBadge(favorite.category)}
                                                 <Badge variant="outline" className="capitalize">
                                                     {manga!.type}
@@ -236,16 +236,16 @@ const Library: React.FC = () => {
                                             </div>
                                         </div>
 
-                                        <div className="flex items-center gap-2">
+                                        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
                                             {progress ? (
-                                                <Button asChild size="sm">
+                                                <Button asChild size="sm" className="w-full sm:w-auto">
                                                     <Link to={`/manga/${manga!.id}/chapter/${progress.chapterId}`}>
                                                         <Play className="mr-1 h-4 w-4" />
                                                         Devam Et
                                                     </Link>
                                                 </Button>
                                             ) : (
-                                                <Button asChild size="sm">
+                                                <Button asChild size="sm" className="w-full sm:w-auto">
                                                     <Link to={`/manga/${manga!.id}/chapter/${manga!.chapters[0]?.id}`}>
                                                         <Play className="mr-1 h-4 w-4" />
                                                         Başla
@@ -255,7 +255,7 @@ const Library: React.FC = () => {
 
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="outline" size="sm">
+                                                    <Button variant="outline" size="sm" className="w-full sm:w-auto">
                                                         Kategori
                                                         <ChevronDown className="ml-1 h-4 w-4" />
                                                     </Button>

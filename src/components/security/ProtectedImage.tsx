@@ -96,7 +96,9 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, st
                 ...style,
                 width: `${zoom}%`,
                 maxWidth: '100%',
-                lineHeight: 0
+                lineHeight: 0,
+                marginLeft: 'auto',
+                marginRight: 'auto',
             }}
         >
             {useFallback ? (

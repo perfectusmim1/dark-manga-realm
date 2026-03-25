@@ -961,7 +961,8 @@ export const getNotifications = async (userId: string): Promise<Notification[]> 
         chapterId: n.chapter_id,
         chapterNumber: Number(n.chapter_number),
         createdAt: n.created_at,
-        fromUserId: n.from_user_id
+        fromUserId: n.from_user_id,
+        fromUsername: n.from_username
     }));
 };
 
@@ -1069,6 +1070,38 @@ export const createCommentNotification = async (
     });
 
     if (error) console.error('Notification error:', error);
+};
+
+export const createFollowNotification = async (
+    targetUserId: string,
+    fromUserId: string,
+    fromUsername: string
+) => {
+    if (targetUserId === fromUserId) {
+        return;
+    }
+
+    const { data: userData } = await supabase
+        .from('users')
+        .select('preferences')
+        .eq('id', targetUserId)
+        .single();
+
+    const prefs = userData?.preferences;
+    if (prefs?.notifications?.follows === false) return;
+
+    const { error } = await supabase.from('notifications').insert({
+        user_id: targetUserId,
+        type: 'follow',
+        title: 'Yeni Takipçi',
+        message: `${fromUsername} sizi takip etmeye başladı.`,
+        from_user_id: fromUserId,
+        link: `/profile/${fromUserId}`,
+        read: false,
+        created_at: new Date().toISOString()
+    });
+
+    if (error) console.error('Follow notification error:', error);
 };
 
 export const createNotificationForFollowers = async (

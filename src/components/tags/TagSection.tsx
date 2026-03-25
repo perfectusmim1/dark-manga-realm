@@ -214,7 +214,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     try {
       const created = await createTag(newTagName.trim(), newTagCategory, undefined, user.id);
       if (created) {
-        await handleAddTag(created, { discoverable: true });
+        await handleAddTag(created);
         setNewTagName('');
         setShowNewTagForm(false);
       }
@@ -273,7 +273,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="flex items-center gap-2">
           <Hash className="h-5 w-5 text-primary" />
           <h3 className="text-lg font-bold">Akıllı Etiketler</h3>
@@ -285,12 +285,12 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
         </div>
 
         {editable && user && (
-          <div className="flex items-center gap-2">
+          <div className="flex w-full items-center gap-2 sm:w-auto sm:justify-end">
             <Button
               variant="outline"
               size="sm"
               onClick={() => setShowNewTagForm(!showNewTagForm)}
-              className="text-xs h-7"
+              className="h-8 w-full text-xs sm:w-auto"
             >
               <Plus className="h-3 w-3 mr-1" />
               Yeni Etiket
@@ -374,7 +374,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
           {isSearchOpen && searchResults.length > 0 && (
             <div className="absolute z-50 mt-1 w-full rounded-lg border border-border bg-card shadow-xl overflow-hidden animate-in fade-in slide-in-from-top-2 duration-200">
-              <div className="max-h-48 overflow-y-auto p-1">
+              <div className="max-h-60 overflow-y-auto p-1">
                 {searchResults.map(tag => (
                   <button
                     key={tag.id}

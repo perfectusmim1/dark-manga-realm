@@ -207,8 +207,8 @@ const Browse: React.FC = () => {
         </div>
 
         {/* Filters Bar */}
-        <div className="mb-6 flex flex-wrap items-center gap-4 animate-fade-up opacity-0" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
-          <div className="flex-1 min-w-[200px]">
+        <div className="mb-6 flex flex-wrap items-center gap-3 animate-fade-up opacity-0 sm:gap-4" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
+          <div className="w-full md:min-w-[240px] md:flex-1">
             <Input
               type="search"
               placeholder="Ara..."
@@ -218,55 +218,62 @@ const Browse: React.FC = () => {
             />
           </div>
 
-          <Select value={typeFilter} onValueChange={setTypeFilter}>
-            <SelectTrigger className="w-32">
-              <SelectValue placeholder="Tür" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tümü</SelectItem>
-              <SelectItem value="manga">Manga</SelectItem>
-              <SelectItem value="manhwa">Manhwa</SelectItem>
-              <SelectItem value="manhua">Manhua</SelectItem>
-              <SelectItem value="webtoon">Webtoon</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-32">
+            <Select value={typeFilter} onValueChange={setTypeFilter}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Tür" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tümü</SelectItem>
+                <SelectItem value="manga">Manga</SelectItem>
+                <SelectItem value="manhwa">Manhwa</SelectItem>
+                <SelectItem value="manhua">Manhua</SelectItem>
+                <SelectItem value="webtoon">Webtoon</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-          <Select value={statusFilter} onValueChange={setStatusFilter}>
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder="Durum" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="all">Tümü</SelectItem>
-              <SelectItem value="ongoing">Devam Ediyor</SelectItem>
-              <SelectItem value="completed">Tamamlandı</SelectItem>
-              <SelectItem value="hiatus">Ara Verildi</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-36">
+            <Select value={statusFilter} onValueChange={setStatusFilter}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Durum" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tümü</SelectItem>
+                <SelectItem value="ongoing">Devam Ediyor</SelectItem>
+                <SelectItem value="completed">Tamamlandı</SelectItem>
+                <SelectItem value="hiatus">Ara Verildi</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
-          <Select value={sortBy} onValueChange={setSortBy}>
-            <SelectTrigger className="w-36">
-              <SelectValue placeholder="Sırala" />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="popular">Popüler</SelectItem>
-              <SelectItem value="rating">Puan</SelectItem>
-              <SelectItem value="created">Yeni Eklenen</SelectItem>
-              <SelectItem value="updated">Son Güncellenen</SelectItem>
-              <SelectItem value="views">Görüntülenme</SelectItem>
-              <SelectItem value="chapters">Bölüm Sayısı</SelectItem>
-            </SelectContent>
-          </Select>
+          <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-36">
+            <Select value={sortBy} onValueChange={setSortBy}>
+              <SelectTrigger className="w-full">
+                <SelectValue placeholder="Sırala" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="popular">Popüler</SelectItem>
+                <SelectItem value="rating">Puan</SelectItem>
+                <SelectItem value="created">Yeni Eklenen</SelectItem>
+                <SelectItem value="updated">Son Güncellenen</SelectItem>
+                <SelectItem value="views">Görüntülenme</SelectItem>
+                <SelectItem value="chapters">Bölüm Sayısı</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
 
           <Button
             variant={showFilters ? 'default' : 'outline'}
             onClick={() => setShowFilters(!showFilters)}
+            className="w-full sm:w-[calc(50%-0.375rem)] md:w-auto"
           >
             <Filter className="mr-2 h-4 w-4" />
             Türler
           </Button>
 
           {hasActiveFilters && (
-            <Button variant="ghost" onClick={clearFilters}>
+            <Button variant="ghost" onClick={clearFilters} className="w-full sm:w-[calc(50%-0.375rem)] md:w-auto">
               <X className="mr-2 h-4 w-4" />
               Temizle
             </Button>

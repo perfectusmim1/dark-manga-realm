@@ -1,8 +1,19 @@
 import React from 'react';
-import { Download } from 'lucide-react';
+import { Download, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import InstallAppButton from '@/components/pwa/InstallAppButton';
 import { usePwaInstall } from '@/hooks/usePwaInstall';
+import { Button } from '@/components/ui/button';
+
+const PWA_INSTALL_BANNER_DISMISSED_KEY = 'toonparrot_pwa_install_banner_dismissed';
+
+const getInstallBannerDismissedState = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  return window.localStorage.getItem(PWA_INSTALL_BANNER_DISMISSED_KEY) === 'true';
+};
 
 interface InstallAppBannerProps {
   compact?: boolean;
@@ -14,19 +25,39 @@ const InstallAppBanner: React.FC<InstallAppBannerProps> = ({
   className,
 }) => {
   const { canInstall, isInstalled, isIos } = usePwaInstall();
+  const [isDismissed, setIsDismissed] = React.useState(getInstallBannerDismissedState);
 
-  if (isInstalled || (!canInstall && !isIos)) {
+  const handleDismiss = () => {
+    if (typeof window !== 'undefined') {
+      window.localStorage.setItem(PWA_INSTALL_BANNER_DISMISSED_KEY, 'true');
+    }
+
+    setIsDismissed(true);
+  };
+
+  if (isInstalled || isDismissed || (!canInstall && !isIos)) {
     return null;
   }
 
   return (
     <section
       className={cn(
-        'rounded-3xl border border-blue-500/20 bg-gradient-to-br from-blue-500/12 via-card/80 to-card/60 backdrop-blur-sm',
+        'relative rounded-3xl border border-blue-500/20 bg-gradient-to-br from-blue-500/12 via-card/80 to-card/60 backdrop-blur-sm',
         compact ? 'p-4' : 'p-6 md:p-7',
         className,
       )}
     >
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon"
+        className="absolute right-3 top-3 h-8 w-8 rounded-full text-muted-foreground hover:bg-white/10 hover:text-foreground"
+        onClick={handleDismiss}
+        aria-label="Uygulama kurulumu kartını kapat"
+      >
+        <X className="h-4 w-4" />
+      </Button>
+
       <div className={cn('flex gap-4', compact ? 'items-center justify-between' : 'flex-col md:flex-row md:items-center md:justify-between')}>
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-primary">

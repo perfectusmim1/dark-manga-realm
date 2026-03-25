@@ -17,7 +17,7 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
         updatedBy: null,
     });
     const isAdmin = user?.role === 'admin';
-    const shouldEnforce = import.meta.env.PROD && settings.devtoolsProtectionEnabled && !isAdmin;
+    const shouldEnforce = settings.devtoolsProtectionEnabled && !isAdmin;
 
     useEffect(() => {
         let isActive = true;
@@ -123,12 +123,12 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
 
         extensionDetector();
 
-        document.addEventListener('contextmenu', handleContextMenu);
+        document.addEventListener('contextmenu', handleContextMenu, true);
         document.addEventListener('keydown', handleKeyDown, true);
         document.addEventListener('dragstart', handleDragStart);
 
         return () => {
-            document.removeEventListener('contextmenu', handleContextMenu);
+            document.removeEventListener('contextmenu', handleContextMenu, true);
             document.removeEventListener('keydown', handleKeyDown, true);
             document.removeEventListener('dragstart', handleDragStart);
             observer.disconnect();
