@@ -1,4 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/supabase-js';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { User } from '@/lib/types';
@@ -11,6 +12,7 @@ interface AuthContextType {
   supabaseUser: SupabaseUser | null;
   session: Session | null;
   isLoading: boolean;
+  mfaState: MfaState;
   login: (email: string, password: string) => Promise<{
     success: boolean;
     error?: string;
@@ -23,12 +25,53 @@ interface AuthContextType {
   updateProfile: (updates: { username?: string, avatar?: string }) => Promise<{ success: boolean; error?: string }>;
   updatePassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
   updateEmail: (newEmail: string) => Promise<{ success: boolean; error?: string }>;
-  updatePreferences: (newPreferences: any) => Promise<{ success: boolean; error?: string }>;
+  updatePreferences: (newPreferences: User['preferences']) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
   verifyOtp: (email: string, token: string, type: 'signup' | 'recovery' | 'email') => Promise<{ success: boolean; error?: string }>;
-  toggle2FA: (enabled: boolean) => Promise<{ success: boolean; error?: string }>;
+  refreshMfaState: () => Promise<void>;
+  enrollTwoFactor: (friendlyName?: string) => Promise<{ success: boolean; error?: string; enrollment?: TotpEnrollment }>;
+  cancelTwoFactorEnrollment: (factorId: string) => Promise<void>;
+  verifyTwoFactorEnrollment: (factorId: string, code: string) => Promise<{ success: boolean; error?: string }>;
+  challengeTwoFactor: (code: string, factorId?: string) => Promise<{ success: boolean; error?: string }>;
+  disableTwoFactor: (code: string, factorId?: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: (redirectTo?: string) => Promise<void>;
 }
+
+type AuthenticatorLevel = 'aal1' | 'aal2' | null;
+
+export interface TotpFactor {
+  id: string;
+  friendlyName?: string;
+  status: 'verified' | 'unverified';
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface TotpEnrollment {
+  factorId: string;
+  friendlyName?: string;
+  qrCodeSvg: string;
+  secret: string;
+  uri: string;
+}
+
+export interface MfaState {
+  isLoading: boolean;
+  currentLevel: AuthenticatorLevel;
+  nextLevel: AuthenticatorLevel;
+  needsVerification: boolean;
+  verifiedFactorCount: number;
+  factors: TotpFactor[];
+}
+
+const DEFAULT_MFA_STATE: MfaState = {
+  isLoading: false,
+  currentLevel: null,
+  nextLevel: null,
+  needsVerification: false,
+  verifiedFactorCount: 0,
+  factors: [],
+};
 
 
 
@@ -46,6 +89,8 @@ interface UserProfileRow {
   preferences?: User['preferences'];
   two_factor_enabled?: boolean;
 }
+
+type TotpFactorRecord = Factor<'totp', 'verified' | 'unverified'>;
 
 const PROFILE_SELECT_COLUMNS = 'id, username, avatar, role, created_at, preferences, two_factor_enabled';
 const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
@@ -80,6 +125,10 @@ const normalizeUserPreferences = (preferences?: User['preferences']): NonNullabl
   },
 });
 
+const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
+  error instanceof Error ? error.message : fallback
+);
+
 // Convert Supabase user + Profile data to our User type
 const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileRow | null): User => {
   return {
@@ -103,10 +152,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [mfaState, setMfaState] = useState<MfaState>(DEFAULT_MFA_STATE);
 
   const fetchProfile = async (id: string): Promise<UserProfileRow | null> => {
     // Add a 5s timeout to prevent infinite hangs on DB calls during initialization
-    const timeout = new Promise((_, reject) =>
+    const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
     );
 
@@ -117,7 +167,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         .eq('id', id)
         .maybeSingle();
 
-      const { data, error } = (await Promise.race([fetchReq, timeout])) as any;
+      const { data, error } = await Promise.race([
+        fetchReq,
+        timeout,
+      ]) as PostgrestSingleResponse<UserProfileRow>;
 
       if (error) {
         console.error('Error fetching profile:', error);
@@ -168,12 +221,93 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     currentUser: SupabaseUser,
     preferredUsername?: string
   ): Promise<UserProfileRow | null> => {
-    const existingProfile = await fetchProfile(currentUser.id);
-    if (existingProfile) {
-      return existingProfile;
+    const syncedProfile = await syncCurrentAuthProfile(currentUser, preferredUsername);
+    if (syncedProfile) {
+      return syncedProfile;
     }
 
-    return await syncCurrentAuthProfile(currentUser, preferredUsername);
+    return await fetchProfile(currentUser.id);
+  };
+
+  const updateLocalTwoFactorState = (enabled: boolean) => {
+    setUser((prev) => (prev ? { ...prev, twoFactorEnabled: enabled } : prev));
+  };
+
+  const extractTotpFactors = (factors: TotpFactorRecord[] | undefined): TotpFactor[] => (
+    (factors || [])
+      .filter((factor) => factor.factor_type === 'totp')
+      .map((factor) => ({
+        id: factor.id,
+        friendlyName: factor.friendly_name || undefined,
+        status: factor.status,
+        createdAt: factor.created_at,
+        updatedAt: factor.updated_at,
+      }))
+  );
+
+  const getPrimaryVerifiedTotpFactor = async (preferredFactorId?: string): Promise<TotpFactor | null> => {
+    const { data, error } = await supabase.auth.mfa.listFactors();
+    if (error) {
+      throw error;
+    }
+
+    const factors = extractTotpFactors(data.all);
+    const verifiedFactors = factors.filter((factor) => factor.status === 'verified');
+
+    if (preferredFactorId) {
+      return verifiedFactors.find((factor) => factor.id === preferredFactorId) || null;
+    }
+
+    return verifiedFactors[0] || null;
+  };
+
+  const refreshMfaState = async (): Promise<void> => {
+    const activeSession = (await supabase.auth.getSession()).data.session;
+
+    if (!activeSession?.user) {
+      setMfaState(DEFAULT_MFA_STATE);
+      updateLocalTwoFactorState(false);
+      return;
+    }
+
+    setMfaState((prev) => ({ ...prev, isLoading: true }));
+
+    try {
+      const [{ data: assuranceData, error: assuranceError }, { data: factorData, error: factorError }] = await Promise.all([
+        supabase.auth.mfa.getAuthenticatorAssuranceLevel(),
+        supabase.auth.mfa.listFactors(),
+      ]);
+
+      if (assuranceError) {
+        throw assuranceError;
+      }
+
+      if (factorError) {
+        throw factorError;
+      }
+
+      const factors = extractTotpFactors(factorData.all);
+      const verifiedFactorCount = factors.filter((factor) => factor.status === 'verified').length;
+      const nextState: MfaState = {
+        isLoading: false,
+        currentLevel: assuranceData.currentLevel,
+        nextLevel: assuranceData.nextLevel,
+        needsVerification: verifiedFactorCount > 0
+          && assuranceData.nextLevel === 'aal2'
+          && assuranceData.currentLevel !== 'aal2',
+        verifiedFactorCount,
+        factors,
+      };
+
+      setMfaState(nextState);
+      updateLocalTwoFactorState(verifiedFactorCount > 0);
+    } catch (error) {
+      console.error('MFA state refresh failed:', error);
+      setMfaState({
+        ...DEFAULT_MFA_STATE,
+        isLoading: false,
+      });
+    }
   };
 
   useEffect(() => {
@@ -192,6 +326,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setSession(null);
             setSupabaseUser(null);
             setUser(null);
+            setMfaState(DEFAULT_MFA_STATE);
             toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için erişim engellendi');
             return;
           }
@@ -215,10 +350,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
             void syncLocalChapterReadFallbackToRemote(currentSession.user.id);
           }
+
+          await refreshMfaState();
         } else {
           setSession(null);
           setSupabaseUser(null);
           setUser(null);
+          setMfaState(DEFAULT_MFA_STATE);
         }
       } catch (err) {
         console.error('Failed to sync auth state:', err);
@@ -309,14 +447,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setSupabaseUser(sessionData.user);
       setUser(mapSupabaseUserToUser(sessionData.user, profile));
 
+      const { data: assuranceData, error: assuranceError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (assuranceError) {
+        throw assuranceError;
+      }
+
+      await refreshMfaState();
+
       return {
         success: true,
         email: sessionData.user.email || undefined,
-        requiresTwoFactor: Boolean(profile?.two_factor_enabled),
+        requiresTwoFactor: assuranceData.nextLevel === 'aal2' && assuranceData.currentLevel !== 'aal2',
       };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Login error:', error);
-      return { success: false, error: error.message || 'Bir hata oluştu' };
+      return { success: false, error: getErrorMessage(error) };
     } finally {
       setIsLoading(false);
     }
@@ -372,15 +517,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setSession(data.session);
           setSupabaseUser(data.user);
           setUser(mapSupabaseUserToUser(data.user, profile));
+          await refreshMfaState();
         }
 
         return { success: true };
       }
 
       return { success: false, error: 'Kayıt başarısız' };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Register error:', error);
-      return { success: false, error: error.message || 'Bir hata oluştu' };
+      return { success: false, error: getErrorMessage(error) };
     } finally {
       setIsLoading(false);
     }
@@ -392,6 +538,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(null);
       setSupabaseUser(null);
       setSession(null);
+      setMfaState(DEFAULT_MFA_STATE);
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -441,9 +588,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(mapSupabaseUserToUser(refreshedAuthUser, profile));
 
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Update profile error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: getErrorMessage(error) };
     }
   };
 
@@ -454,9 +601,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       if (error) throw error;
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Update password error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: getErrorMessage(error) };
     }
   };
 
@@ -467,13 +614,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       if (error) throw error;
       return { success: true, error: 'E-posta güncelleme onayı gönderildi. Lütfen yeni e-postanızı kontrol edin.' };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Update email error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: getErrorMessage(error) };
     }
   };
 
-  const updatePreferences = async (newPreferences: any): Promise<{ success: boolean; error?: string }> => {
+  const updatePreferences = async (newPreferences: User['preferences']): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'Oturum açılmamış' };
 
     try {
@@ -499,9 +646,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setUser(mapSupabaseUserToUser(currentAuthUser, profile));
 
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Update preferences error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: getErrorMessage(error) };
     }
   };
 
@@ -512,9 +659,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
       if (error) throw error;
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Reset password error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: getErrorMessage(error) };
     }
   };
 
@@ -523,7 +670,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const { data, error } = await supabase.auth.verifyOtp({
         email,
         token,
-        type: type as any,
+        type: type as EmailOtpType,
       });
       if (error) throw error;
       if (data.session) {
@@ -531,40 +678,185 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         setSupabaseUser(data.session.user);
         const profile = await ensureProfile(data.session.user);
         setUser(mapSupabaseUserToUser(data.session.user, profile));
+        await refreshMfaState();
       }
       return { success: true };
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Verify OTP error:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: getErrorMessage(error) };
     }
   };
 
-  const toggle2FA = async (enabled: boolean): Promise<{ success: boolean; error?: string }> => {
-    if (!user) return { success: false, error: 'Oturum açılmamış' };
+  const enrollTwoFactor = async (friendlyName?: string): Promise<{ success: boolean; error?: string; enrollment?: TotpEnrollment }> => {
+    if (!user) {
+      return { success: false, error: 'Oturum açılmamış' };
+    }
+
     try {
-      const currentAuthUser = supabaseUser || (await supabase.auth.getUser()).data.user;
-      if (!currentAuthUser) {
-        return { success: false, error: 'Oturum bulunamadı' };
+      const { data: factorData, error: factorError } = await supabase.auth.mfa.listFactors();
+      if (factorError) {
+        throw factorError;
       }
 
-      const { data, error } = await supabase
-        .from('users')
-        .update({ two_factor_enabled: enabled })
-        .select(PROFILE_SELECT_COLUMNS)
-        .eq('id', user.id);
-      if (error) throw error;
-
-      const profile = Array.isArray(data) ? data[0] : data;
-      if (!profile) {
-        return { success: false, error: '2FA durumu doğrulanamadı' };
+      const existingFactors = extractTotpFactors(factorData.all);
+      const verifiedFactor = existingFactors.find((factor) => factor.status === 'verified');
+      if (verifiedFactor) {
+        return { success: false, error: 'Google Authenticator zaten etkin.' };
       }
 
-      setSupabaseUser(currentAuthUser);
-      setUser(mapSupabaseUserToUser(currentAuthUser, profile));
+      const unverifiedFactors = existingFactors.filter((factor) => factor.status === 'unverified');
+      for (const factor of unverifiedFactors) {
+        const { error } = await supabase.auth.mfa.unenroll({ factorId: factor.id });
+        if (error) {
+          throw error;
+        }
+      }
+
+      const { data, error } = await supabase.auth.mfa.enroll({
+        factorType: 'totp',
+        friendlyName: friendlyName?.trim() || 'Google Authenticator',
+        issuer: 'ToonParrot',
+      });
+
+      if (error) {
+        throw error;
+      }
+
+      await refreshMfaState();
+
+      return {
+        success: true,
+        enrollment: {
+          factorId: data.id,
+          friendlyName: data.friendly_name || undefined,
+          qrCodeSvg: data.totp.qr_code,
+          secret: data.totp.secret,
+          uri: data.totp.uri,
+        },
+      };
+    } catch (error: unknown) {
+      console.error('Enroll 2FA error:', error);
+      return { success: false, error: getErrorMessage(error, '2FA kurulumu başlatılamadı') };
+    }
+  };
+
+  const cancelTwoFactorEnrollment = async (factorId: string): Promise<void> => {
+    try {
+      const { error } = await supabase.auth.mfa.unenroll({ factorId });
+      if (error) {
+        throw error;
+      }
+      await refreshMfaState();
+    } catch (error) {
+      console.error('Cancel 2FA enrollment error:', error);
+    }
+  };
+
+  const verifyTwoFactorEnrollment = async (factorId: string, code: string): Promise<{ success: boolean; error?: string }> => {
+    if (!user) {
+      return { success: false, error: 'Oturum açılmamış' };
+    }
+
+    try {
+      const verificationCode = code.trim();
+      if (!/^\d{6}$/.test(verificationCode)) {
+        return { success: false, error: '6 haneli doğrulama kodu girin.' };
+      }
+
+      const challenge = await supabase.auth.mfa.challenge({ factorId });
+      if (challenge.error) {
+        throw challenge.error;
+      }
+
+      const verify = await supabase.auth.mfa.verify({
+        factorId,
+        challengeId: challenge.data.id,
+        code: verificationCode,
+      });
+
+      if (verify.error) {
+        throw verify.error;
+      }
+
+      const activeSession = (await supabase.auth.getSession()).data.session;
+      if (activeSession?.user) {
+        const profile = await ensureProfile(activeSession.user);
+        setSession(activeSession);
+        setSupabaseUser(activeSession.user);
+        setUser(mapSupabaseUserToUser(activeSession.user, profile));
+      }
+
+      await refreshMfaState();
       return { success: true };
-    } catch (error: any) {
-      console.error('Toggle 2FA error:', error);
-      return { success: false, error: error.message };
+    } catch (error: unknown) {
+      console.error('Verify 2FA enrollment error:', error);
+      return { success: false, error: getErrorMessage(error, 'Doğrulama başarısız oldu') };
+    }
+  };
+
+  const challengeTwoFactor = async (code: string, factorId?: string): Promise<{ success: boolean; error?: string }> => {
+    try {
+      const verificationCode = code.trim();
+      if (!/^\d{6}$/.test(verificationCode)) {
+        return { success: false, error: '6 haneli doğrulama kodu girin.' };
+      }
+
+      const factor = await getPrimaryVerifiedTotpFactor(factorId);
+      if (!factor) {
+        return { success: false, error: 'Doğrulanmış bir TOTP faktörü bulunamadı.' };
+      }
+
+      const verify = await supabase.auth.mfa.challengeAndVerify({
+        factorId: factor.id,
+        code: verificationCode,
+      });
+
+      if (verify.error) {
+        throw verify.error;
+      }
+
+      const activeSession = (await supabase.auth.getSession()).data.session;
+      if (activeSession?.user) {
+        const profile = await ensureProfile(activeSession.user);
+        setSession(activeSession);
+        setSupabaseUser(activeSession.user);
+        setUser(mapSupabaseUserToUser(activeSession.user, profile));
+      }
+
+      await refreshMfaState();
+      return { success: true };
+    } catch (error: unknown) {
+      console.error('2FA challenge error:', error);
+      return { success: false, error: getErrorMessage(error, 'Doğrulama başarısız oldu') };
+    }
+  };
+
+  const disableTwoFactor = async (code: string, factorId?: string): Promise<{ success: boolean; error?: string }> => {
+    if (!user) {
+      return { success: false, error: 'Oturum açılmamış' };
+    }
+
+    try {
+      const factor = await getPrimaryVerifiedTotpFactor(factorId);
+      if (!factor) {
+        return { success: false, error: 'Kapatılacak TOTP faktörü bulunamadı.' };
+      }
+
+      const verification = await challengeTwoFactor(code, factor.id);
+      if (!verification.success) {
+        return verification;
+      }
+
+      const { error } = await supabase.auth.mfa.unenroll({ factorId: factor.id });
+      if (error) {
+        throw error;
+      }
+
+      await refreshMfaState();
+      return { success: true };
+    } catch (error: unknown) {
+      console.error('Disable 2FA error:', error);
+      return { success: false, error: getErrorMessage(error, '2FA kapatılamadı') };
     }
   };
 
@@ -587,7 +879,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         }
       });
       if (error) throw error;
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Google login error:', error);
       toast.error('Google ile giriş yapılırken hata oluştu');
     }
@@ -599,6 +891,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       supabaseUser,
       session,
       isLoading,
+      mfaState,
       login,
       register,
       logout,
@@ -608,7 +901,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       updatePreferences,
       resetPassword,
       verifyOtp,
-      toggle2FA,
+      refreshMfaState,
+      enrollTwoFactor,
+      cancelTwoFactorEnrollment,
+      verifyTwoFactorEnrollment,
+      challengeTwoFactor,
+      disableTwoFactor,
       loginWithGoogle
     }}>
 

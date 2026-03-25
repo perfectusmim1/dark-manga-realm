@@ -33,7 +33,7 @@ import {
   queueReadingProgressSync,
 } from '@/lib/offline/offlineReaderSync';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
-import { prefetchChapterAssets, retainPrefetchedChapters } from '@/lib/imagePrefetch';
+import { prefetchChapterAssets, prefetchImageAsset, retainPrefetchedChapters } from '@/lib/imagePrefetch';
 import { OPEN_PAGE_COMMENT_EVENT, OpenPageCommentDetail } from '@/lib/pageCommentEvents';
 
 let persistedAutoScrollIntent = false;
@@ -69,6 +69,26 @@ const Reader: React.FC = () => {
   const revokeOfflineUrlsRef = useRef<(() => void) | null>(null);
   const resumeAutoScrollAfterNavigationRef = useRef(false);
   const pendingInitialRestorePageRef = useRef<number | null>(null);
+  const preparedTransitionRef = useRef<{
+    mangaId: string;
+    chapterId: string;
+    chapter: Chapter;
+    resolvedPages: ResolvedReaderPage[];
+  } | null>(null);
+  const warmCriticalChapterPages = useCallback((chapterToWarm?: Chapter) => {
+    if (!chapterToWarm || !Array.isArray(chapterToWarm.pages) || chapterToWarm.pages.length === 0) {
+      return;
+    }
+
+    chapterToWarm.pages.slice(0, 10).forEach((page) => {
+      if (!page) {
+        return;
+      }
+
+      void prefetchImageAsset(page).catch(() => undefined);
+    });
+  }, []);
+
   const prepareChapterTransition = useCallback((targetChapter?: Chapter) => {
     if (
       isOnlineNow
@@ -78,7 +98,16 @@ const Reader: React.FC = () => {
       && Array.isArray(targetChapter.pages)
       && targetChapter.pages.length > 0
     ) {
+      preparedTransitionRef.current = {
+        mangaId: mangaId || '',
+        chapterId: targetChapter.id,
+        chapter: targetChapter,
+        resolvedPages: targetChapter.pages.map((page) => ({ src: page, source: 'remote' })),
+      };
+      warmCriticalChapterPages(targetChapter);
       void prefetchChapterAssets(targetChapter.id, targetChapter.pages, { concurrency: 8 });
+    } else {
+      preparedTransitionRef.current = null;
     }
 
     setIsLoading(true);
@@ -93,7 +122,7 @@ const Reader: React.FC = () => {
     }
 
     window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [isOfflineChapter, isOnlineNow, settings.prefetchNextChapter]);
+  }, [isOfflineChapter, isOnlineNow, mangaId, settings.prefetchNextChapter, warmCriticalChapterPages]);
 
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
@@ -132,20 +161,33 @@ const Reader: React.FC = () => {
 
   // Reset state and scroll on chapter change
   useEffect(() => {
+    const preparedTransition = preparedTransitionRef.current;
+    const canUsePreparedTransition = Boolean(
+      preparedTransition
+      && preparedTransition.mangaId === mangaId
+      && preparedTransition.chapterId === chapterId
+    );
+
     setCurrentPage(1);
     window.scrollTo({ top: 0, behavior: 'auto' });
     viewTracked.current = false;
     setInitialized(false);
     setIsTrackingReady(false);
     setIsInitialViewportReady(false);
-    setIsContentReady(false);
+    setIsContentReady(canUsePreparedTransition);
     if (!resumeAutoScrollAfterNavigationRef.current) {
       persistedAutoScrollIntent = false;
       setIsAutoScrolling(false);
     }
     setOfflineUnavailable(false);
-    setResolvedPages([]);
-    setIsOfflineChapter(false);
+    if (canUsePreparedTransition && preparedTransition) {
+      setChapter(preparedTransition.chapter);
+      setResolvedPages(preparedTransition.resolvedPages);
+      setIsOfflineChapter(false);
+    } else {
+      setResolvedPages([]);
+      setIsOfflineChapter(false);
+    }
     pendingInitialRestorePageRef.current = null;
     setPageCommentModalOpen(false);
     setPageCommentModalPage(null);
@@ -227,8 +269,15 @@ const Reader: React.FC = () => {
 
       try {
         setIsLoading(true);
+        const preparedTransition = preparedTransitionRef.current;
+        const hasPreparedTransition = Boolean(
+          preparedTransition
+          && preparedTransition.mangaId === mangaId
+          && preparedTransition.chapterId === chapterId
+        );
         const offlineChapter = await getOfflineChapter(chapterId);
-        const mData = isOnlineNow ? await getMangaById(mangaId) : undefined;
+        const existingManga = manga && manga.id === mangaId ? manga : null;
+        const mData = isOnlineNow ? (existingManga ?? await getMangaById(mangaId)) : undefined;
         const fallbackManga = mData || await getOfflineMangaDetail(mangaId);
 
         if (!fallbackManga) {
@@ -252,9 +301,8 @@ const Reader: React.FC = () => {
           return;
         }
 
-        setChapter(resolvedChapter);
-
         if (!isOnlineNow && offlineChapter?.downloadStatus === 'completed') {
+          setChapter(resolvedChapter);
           const offlinePages = await buildOfflineReaderPages(chapterId);
           revokeOfflineUrlsRef.current?.();
           revokeOfflineUrlsRef.current = offlinePages.revoke;
@@ -262,15 +310,23 @@ const Reader: React.FC = () => {
           setIsOfflineChapter(true);
           setOfflineUnavailable(false);
         } else if (!isOnlineNow) {
+          setChapter(resolvedChapter);
           setResolvedPages([]);
           setIsOfflineChapter(false);
           setOfflineUnavailable(true);
+        } else if (hasPreparedTransition && preparedTransition) {
+          setChapter(preparedTransition.chapter);
+          setResolvedPages(preparedTransition.resolvedPages);
+          setIsOfflineChapter(false);
+          setOfflineUnavailable(false);
         } else {
+          setChapter(resolvedChapter);
           setResolvedPages(resolvedChapter.pages.map((page) => ({ src: page, source: 'remote' })));
           setIsOfflineChapter(false);
           setOfflineUnavailable(false);
         }
 
+        preparedTransitionRef.current = null;
         setIsContentReady(true);
       } catch (err) {
         console.error('Reader load error:', err);
@@ -278,7 +334,7 @@ const Reader: React.FC = () => {
     };
 
     loadContent();
-  }, [chapterId, isOnlineNow, mangaId, navigate]);
+  }, [chapterId, isOnlineNow, manga, mangaId, navigate]);
 
   useEffect(() => {
     if (initialized || !isContentReady || !mangaId || !chapterId) {
@@ -576,7 +632,6 @@ const Reader: React.FC = () => {
       !isOnlineNow
       || isOfflineChapter
       || !settings.prefetchNextChapter
-      || !initialized
       || !nextChapter
       || !Array.isArray(nextChapter.pages)
       || nextChapter.pages.length === 0
@@ -584,23 +639,14 @@ const Reader: React.FC = () => {
       return;
     }
 
-    let delayTimer: number | null = null;
-
-    delayTimer = window.setTimeout(() => {
-      void prefetchChapterAssets(nextChapter.id, nextChapter.pages, { concurrency: 6 });
-    }, 300);
-
-    return () => {
-      if (delayTimer !== null) {
-        window.clearTimeout(delayTimer);
-      }
-    };
+    warmCriticalChapterPages(nextChapter);
+    void prefetchChapterAssets(nextChapter.id, nextChapter.pages, { concurrency: 8 });
   }, [
-    initialized,
     isOfflineChapter,
     isOnlineNow,
     nextChapter,
     settings.prefetchNextChapter,
+    warmCriticalChapterPages,
   ]);
 
   const isScrollingRef = useRef(false);
@@ -712,14 +758,21 @@ const Reader: React.FC = () => {
         return;
       }
 
-      if (!isRestoreLayoutReady(targetPage) && attempt < 80) {
+      if (targetPage <= 1) {
+        window.scrollTo({ top: 0, behavior: 'auto' });
+        setCurrentPage(1);
+        finishRestore();
+        return;
+      }
+
+      if (!isRestoreLayoutReady(targetPage) && attempt < 40) {
         restoreTimerId = window.setTimeout(() => restore(attempt + 1), 80);
         return;
       }
 
       if (targetPage > 1) {
         const didScroll = scrollToPage(targetPage, false);
-        if (!didScroll && attempt < 80) {
+        if (!didScroll && attempt < 40) {
           restoreTimerId = window.setTimeout(() => restore(attempt + 1), 80);
           return;
         }
@@ -737,8 +790,6 @@ const Reader: React.FC = () => {
         return;
       }
 
-      window.scrollTo({ top: 0, behavior: 'auto' });
-      setCurrentPage(1);
       finishRestore();
     };
 
@@ -858,6 +909,7 @@ const Reader: React.FC = () => {
 
   const isReaderTransitionActive = isLoading || !isInitialViewportReady;
   const showPageCommentRail = settings.showPageComments;
+  const totalPageCount = resolvedPages.length || chapter.pages.length || 0;
 
   return (
     <div
@@ -865,7 +917,7 @@ const Reader: React.FC = () => {
       onClick={handleTap}
     >
       {isReaderTransitionActive && (
-        <div className="fixed inset-0 z-40 pointer-events-none bg-background transition-opacity duration-100" />
+        <div className="fixed inset-0 z-40 pointer-events-none bg-background transition-opacity duration-75" />
       )}
 
       <PageCommentModal
@@ -891,7 +943,7 @@ const Reader: React.FC = () => {
         onSettingsChange={handleSettingsChange}
         onAddBookmark={handleAddBookmark}
         currentPage={currentPage}
-        totalPages={resolvedPages.length}
+        totalPages={totalPageCount}
         visible={controlsVisible}
         onPageChange={scrollToPage}
         isIncognito={isIncognito}
@@ -917,9 +969,9 @@ const Reader: React.FC = () => {
       )}
 
       <div
-        className={`transition-all duration-200 ease-out ${isReaderTransitionActive
-          ? 'pointer-events-none translate-y-1 opacity-0'
-          : 'translate-y-0 opacity-100'
+        className={`transition-opacity duration-100 ease-out ${isReaderTransitionActive
+          ? 'pointer-events-none opacity-0'
+          : 'opacity-100'
           }`}
       >
         <div ref={readerContentRef}>
@@ -984,7 +1036,7 @@ const Reader: React.FC = () => {
               mangaId={manga.id}
               chapterId={chapterId}
               pageNumber={currentPage}
-              totalReaderPages={resolvedPages.length}
+              totalReaderPages={totalPageCount}
               enablePageComments
             />
           </div>

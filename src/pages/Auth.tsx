@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { Eye, EyeOff, Mail, Lock, User, AtSign, ArrowLeft, ShieldCheck, KeyRound } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -6,46 +6,63 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
-import { supabase } from '@/lib/supabase';
-import { User as UserType } from '@/lib/types'; // Renamed to avoid conflict with lucide-react User icon
 
-type AuthView = 'login' | 'register' | 'forgot-password' | 'verify-otp' | 'reset-password';
+type AuthView = 'login' | 'register' | 'forgot-password' | 'email-check' | 'reset-password' | 'verify-mfa';
+type EmailNoticeMode = 'signup' | 'recovery';
+
+const MIN_PASSWORD_LENGTH = 8;
+
+const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
+  error instanceof Error ? error.message : fallback
+);
 
 const Auth: React.FC = () => {
   const [searchParams] = useSearchParams();
   const [view, setView] = useState<AuthView>('login');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
-  const [is2FAProcessing, setIs2FAProcessing] = useState(false); // Added state
-  const [otpEmail, setOtpEmail] = useState('');
-  const [otpType, setOtpType] = useState<'signup' | 'recovery' | 'email'>('signup');
-
+  const [emailNoticeMode, setEmailNoticeMode] = useState<EmailNoticeMode>('signup');
+  const [submittedEmail, setSubmittedEmail] = useState('');
   const [formData, setFormData] = useState({
     username: '',
     email: '',
     emailOrUsername: '',
     password: '',
-    otpToken: '',
+    mfaCode: '',
     newPassword: '',
   });
 
-  const { user, login, register, resetPassword, verifyOtp, updatePassword, loginWithGoogle } = useAuth();
+  const {
+    user,
+    mfaState,
+    login,
+    register,
+    resetPassword,
+    updatePassword,
+    loginWithGoogle,
+    challengeTwoFactor,
+    logout,
+  } = useAuth();
   const navigate = useNavigate();
 
   useEffect(() => {
-    // If user is already logged in (e.g. after Google OAuth return), redirect to home
-    // BUT only if we are not in the middle of a 2FA flow
-    if (user && !is2FAProcessing && view !== 'verify-otp') {
-      navigate('/');
-    }
-  }, [user, navigate, is2FAProcessing, view]);
-
-  useEffect(() => {
     const type = searchParams.get('type');
+    const step = searchParams.get('step');
+
     if (type === 'recovery') {
       setView('reset-password');
+      return;
     }
-  }, [searchParams]);
+
+    if (mfaState.needsVerification || step === 'mfa') {
+      setView('verify-mfa');
+      return;
+    }
+
+    if (user) {
+      navigate('/');
+    }
+  }, [mfaState.needsVerification, navigate, searchParams, user]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -54,37 +71,22 @@ const Auth: React.FC = () => {
     try {
       const result = await login(formData.emailOrUsername, formData.password);
 
-      if (result.success) {
-        if (result.requiresTwoFactor && result.email) {
-          // Flag that we are handling 2FA to prevent early redirect
-          setIs2FAProcessing(true);
-
-          // Sign out current session and request OTP for 2FA
-          await supabase.auth.signOut();
-          setOtpEmail(result.email);
-          setOtpType('email');
-
-          const { error: otpError } = await supabase.auth.signInWithOtp({
-            email: result.email,
-            options: { shouldCreateUser: false }
-          });
-
-          if (otpError) {
-            setIs2FAProcessing(false);
-            throw otpError;
-          }
-
-          setView('verify-otp');
-          toast.info('2FA: Giriş yapmak için e-postanıza gönderilen doğrulama kodunu girin.');
-        } else {
-          toast.success('Giriş başarılı!');
-          navigate('/');
-        }
-      } else {
+      if (!result.success) {
         toast.error(result.error || 'Giriş başarısız');
+        return;
       }
-    } catch (error: any) {
-      toast.error(error.message || 'Bir hata oluştu');
+
+      if (result.requiresTwoFactor) {
+        setView('verify-mfa');
+        setFormData((prev) => ({ ...prev, mfaCode: '' }));
+        toast.info('Girişinizi tamamlamak için Google Authenticator kodunu girin.');
+        return;
+      }
+
+      toast.success('Giriş başarılı!');
+      navigate('/');
+    } catch (error: unknown) {
+      toast.error(getErrorMessage(error));
     } finally {
       setIsLoading(false);
     }
@@ -92,24 +94,25 @@ const Auth: React.FC = () => {
 
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (formData.password.length < 6) {
-      toast.error('Şifre en az 6 karakter olmalıdır');
+
+    if (formData.password.length < MIN_PASSWORD_LENGTH) {
+      toast.error(`Şifre en az ${MIN_PASSWORD_LENGTH} karakter olmalıdır`);
       return;
     }
 
     setIsLoading(true);
     try {
       const result = await register(formData.username, formData.email, formData.password);
-      if (result.success) {
-        // If Supabase sends confirmation email, user is not logged in yet
-        setView('verify-otp');
-        setOtpEmail(formData.email);
-        setOtpType('signup');
-        toast.success('Kayıt başarılı! E-postanıza gelen doğrulama kodunu girin.');
-      } else {
+      if (!result.success) {
         toast.error(result.error || 'Kayıt başarısız');
+        return;
       }
-    } catch (error) {
+
+      setSubmittedEmail(formData.email);
+      setEmailNoticeMode('signup');
+      setView('email-check');
+      toast.success('Kayıt tamamlandı. E-posta onay bağlantısını kontrol edin.');
+    } catch {
       toast.error('Bir hata oluştu');
     } finally {
       setIsLoading(false);
@@ -121,47 +124,53 @@ const Auth: React.FC = () => {
     setIsLoading(true);
 
     try {
-      // We'll use the generic resetPassword which sends a link. 
-      // If the user wants OTP, they should check if they can verify with OTP.
       const result = await resetPassword(formData.email);
-      if (result.success) {
-        toast.success('Şifre sıfırlama bağlantısı e-postanıza gönderildi.');
-        setOtpEmail(formData.email);
-        setOtpType('recovery');
-        setView('verify-otp'); // Let's allow them to enter a code if they got one instead of a link
-      } else {
+      if (!result.success) {
         toast.error(result.error || 'İşlem başarısız');
+        return;
       }
-    } catch (error) {
-      toast.error('Giriş başarısız');
+
+      setSubmittedEmail(formData.email);
+      setEmailNoticeMode('recovery');
+      setView('email-check');
+      toast.success('Şifre sıfırlama bağlantısı e-postanıza gönderildi.');
+    } catch {
+      toast.error('İşlem başarısız');
     } finally {
       setIsLoading(false);
     }
   };
 
-  const handleOtpVerify = async (e: React.FormEvent) => {
+  const handleMfaVerify = async (e: React.FormEvent) => {
     e.preventDefault();
     setIsLoading(true);
-    const result = await verifyOtp(otpEmail, formData.otpToken, otpType);
-    if (result.success) {
-      toast.success('Doğrulama başarılı!');
-      if (otpType === 'recovery') {
-        setView('reset-password');
-      } else {
-        navigate('/');
+
+    try {
+      const result = await challengeTwoFactor(formData.mfaCode);
+      if (!result.success) {
+        toast.error(result.error || 'Kod hatalı veya süresi dolmuş');
+        return;
       }
-    } else {
-      toast.error(result.error || 'Kod hatalı veya süresi dolmuş');
+
+      toast.success('Doğrulama başarılı!');
+      navigate('/');
+    } finally {
+      setIsLoading(false);
     }
-    setIsLoading(false);
   };
 
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
+
+    if (formData.newPassword.length < MIN_PASSWORD_LENGTH) {
+      toast.error(`Şifre en az ${MIN_PASSWORD_LENGTH} karakter olmalıdır`);
+      return;
+    }
+
     setIsLoading(true);
     const result = await updatePassword(formData.newPassword);
     if (result.success) {
-      toast.success('Şifreniz başarıyla güncellendi!');
+      toast.success('Şifreniz başarıyla güncellendi.');
       navigate('/');
     } else {
       toast.error(result.error || 'Şifre güncellenemedi');
@@ -169,66 +178,74 @@ const Auth: React.FC = () => {
     setIsLoading(false);
   };
 
+  const heading = {
+    login: 'Hoş Geldiniz',
+    register: 'Hesap Oluştur',
+    'forgot-password': 'Şifremi Unuttum',
+    'email-check': 'E-postanızı Kontrol Edin',
+    'reset-password': 'Yeni Şifre Belirle',
+    'verify-mfa': 'Google Authenticator',
+  }[view];
+
+  const description = {
+    login: 'Hesabınıza güvenli şekilde giriş yapın',
+    register: 'Topluluğumuza katılın',
+    'forgot-password': 'Şifre sıfırlama bağlantısı e-posta adresinize gönderilir',
+    'email-check': emailNoticeMode === 'signup'
+      ? `${submittedEmail} adresine gönderilen hesap onay bağlantısını açın.`
+      : `${submittedEmail} adresine gönderilen şifre sıfırlama bağlantısını açın.`,
+    'reset-password': 'Hesabınız için yeni ve güçlü bir şifre belirleyin',
+    'verify-mfa': user?.email
+      ? `${user.email} hesabı için authenticator uygulamasındaki 6 haneli kodu girin.`
+      : 'Authenticator uygulamanızdaki 6 haneli kodu girin.',
+  }[view];
+
+  const showBackButton = view !== 'login' && view !== 'register' && view !== 'verify-mfa';
+  const showSubmitButton = view !== 'email-check';
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4 relative overflow-hidden">
-      {/* Background Effects */}
+    <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
       <div className="absolute -left-1/4 top-0 h-96 w-96 rounded-full bg-primary/10 blur-[100px]" />
       <div className="absolute -right-1/4 bottom-0 h-96 w-96 rounded-full bg-primary/10 blur-[100px]" />
 
       <div className="relative z-10 w-full max-w-md animate-fade-up">
-        {/* Logo */}
         <Link to="/" className="mb-8 flex justify-center">
-          <img src="/logo.png" alt="Logo" className="h-16 w-auto object-contain hover:scale-105 transition-transform" />
+          <img src="/logo.png" alt="Logo" className="h-16 w-auto object-contain transition-transform hover:scale-105" />
         </Link>
 
-        {/* Card */}
-        <div className="rounded-2xl border border-white/10 bg-black/40 p-8 shadow-2xl backdrop-blur-2xl ring-1 ring-white/20">
-
-          {view !== 'login' && view !== 'register' && (
+        <div className="rounded-2xl border border-white/10 bg-black/40 p-8 shadow-2xl ring-1 ring-white/20 backdrop-blur-2xl">
+          {showBackButton && (
             <button
               onClick={() => setView('login')}
-              className="mb-4 flex items-center gap-2 text-sm text-muted-foreground hover:text-primary transition-colors"
+              className="mb-4 flex items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-primary"
             >
               <ArrowLeft className="h-4 w-4" /> Geri Dön
             </button>
           )}
 
-          <h1 className="text-2xl font-bold tracking-tight text-center">
-            {view === 'login' && 'Hoş Geldiniz'}
-            {view === 'register' && 'Hesap Oluştur'}
-            {view === 'forgot-password' && 'Şifremi Unuttum'}
-            {view === 'verify-otp' && 'Doğrulama Gerekli'}
-            {view === 'reset-password' && 'Yeni Şifre Belirle'}
-          </h1>
-
-          <p className="mt-2 text-center text-sm text-muted-foreground mb-8">
-            {view === 'login' && 'Sizleri tekrar görmek çok güzel'}
-            {view === 'register' && 'Topluluğumuza katılın'}
-            {view === 'forgot-password' && 'E-posta adresinize kod gönderilecektir'}
-            {view === 'verify-otp' && `${otpEmail} adresine gönderilen kodu girin.`}
-            {view === 'reset-password' && 'Hesabınız için yeni ve güvenli bir şifre girin'}
-          </p>
+          <h1 className="text-center text-2xl font-bold tracking-tight">{heading}</h1>
+          <p className="mb-8 mt-2 text-center text-sm text-muted-foreground">{description}</p>
 
           <form
             onSubmit={
-              view === 'login' ? handleLogin :
-                view === 'register' ? handleRegister :
-                  view === 'forgot-password' ? handleForgotPassword :
-                    view === 'verify-otp' ? handleOtpVerify :
-                      handleResetPassword
+              view === 'login' ? handleLogin
+                : view === 'register' ? handleRegister
+                  : view === 'forgot-password' ? handleForgotPassword
+                    : view === 'verify-mfa' ? handleMfaVerify
+                      : handleResetPassword
             }
             className="space-y-4"
           >
             {view === 'register' && (
               <div className="space-y-2">
                 <Label className="text-xs font-bold uppercase tracking-wider opacity-60">Kullanıcı Adı</Label>
-                <div className="relative group">
-                  <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                <div className="group relative">
+                  <User className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
                   <Input
                     placeholder="kullanici_adi"
                     value={formData.username}
-                    onChange={(e) => setFormData({ ...formData, username: e.target.value })}
-                    className="pl-10 bg-white/5 border-white/10 focus:border-primary/50 transition-all"
+                    onChange={(e) => setFormData((prev) => ({ ...prev, username: e.target.value }))}
+                    className="border-white/10 bg-white/5 pl-10 transition-all focus:border-primary/50"
                     required
                   />
                 </div>
@@ -240,17 +257,17 @@ const Auth: React.FC = () => {
                 <Label className="text-xs font-bold uppercase tracking-wider opacity-60">
                   {view === 'login' ? 'E-posta veya Kullanıcı Adı' : 'E-posta'}
                 </Label>
-                <div className="relative group">
-                  <AtSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                <div className="group relative">
+                  <AtSign className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
                   <Input
                     type={view === 'login' ? 'text' : 'email'}
-                    placeholder={view === 'login' ? "E-posta veya kullanıcı adı" : "ornek@email.com"}
+                    placeholder={view === 'login' ? 'E-posta veya kullanıcı adı' : 'ornek@email.com'}
                     value={view === 'login' ? formData.emailOrUsername : formData.email}
-                    onChange={(e) => setFormData({
-                      ...formData,
-                      [view === 'login' ? 'emailOrUsername' : 'email']: e.target.value
-                    })}
-                    className="pl-10 bg-white/5 border-white/10 focus:border-primary/50 transition-all"
+                    onChange={(e) => setFormData((prev) => ({
+                      ...prev,
+                      [view === 'login' ? 'emailOrUsername' : 'email']: e.target.value,
+                    }))}
+                    className="border-white/10 bg-white/5 pl-10 transition-all focus:border-primary/50"
                     required
                   />
                 </div>
@@ -259,133 +276,163 @@ const Auth: React.FC = () => {
 
             {(view === 'login' || view === 'register') && (
               <div className="space-y-2">
-                <div className="flex justify-between items-center">
+                <div className="flex items-center justify-between">
                   <Label className="text-xs font-bold uppercase tracking-wider opacity-60">Şifre</Label>
                   {view === 'login' && (
                     <button
                       type="button"
                       onClick={() => setView('forgot-password')}
-                      className="text-[11px] text-primary hover:underline font-medium"
+                      className="text-[11px] font-medium text-primary hover:underline"
                     >
                       Şifremi Unuttum?
                     </button>
                   )}
                 </div>
-                <div className="relative group">
-                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                <div className="group relative">
+                  <Lock className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
                   <Input
                     type={showPassword ? 'text' : 'password'}
                     placeholder="••••••••"
                     value={formData.password}
-                    onChange={(e) => setFormData({ ...formData, password: e.target.value })}
-                    className="pl-10 pr-10 bg-white/5 border-white/10 focus:border-primary/50 transition-all"
+                    onChange={(e) => setFormData((prev) => ({ ...prev, password: e.target.value }))}
+                    className="border-white/10 bg-white/5 pl-10 pr-10 transition-all focus:border-primary/50"
                     required
                   />
                   <button
                     type="button"
-                    onClick={() => setShowPassword(!showPassword)}
-                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 transition-colors"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground transition-colors hover:text-foreground"
                   >
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
+                {view === 'register' && (
+                  <p className="text-xs text-muted-foreground">
+                    En az {MIN_PASSWORD_LENGTH} karakter kullanın. Tahmin edilmesi kolay şifrelerden kaçının.
+                  </p>
+                )}
               </div>
             )}
 
-            {view === 'verify-otp' && (
-              <div className="text-center py-8 space-y-6">
-                <div className="mx-auto w-20 h-20 bg-primary/10 rounded-full flex items-center justify-center mb-4">
-                  <Mail className="h-10 w-10 text-primary animate-pulse" />
+            {view === 'verify-mfa' && (
+              <div className="space-y-4 rounded-2xl border border-primary/15 bg-primary/5 p-5">
+                <div className="mx-auto flex h-16 w-16 items-center justify-center rounded-full bg-primary/10">
+                  <ShieldCheck className="h-8 w-8 text-primary" />
                 </div>
-                <div className="space-y-4">
-                  <div className="space-y-2">
-                    <h3 className="text-xl font-bold">Bağlantıyı Kontrol Edin</h3>
-                    <p className="text-sm text-muted-foreground leading-relaxed">
-                      Güvenliğiniz için <span className="font-medium text-white">{otpEmail}</span> adresine bir <b>tek kullanımlık giriş bağlantısı</b> gönderdik.
-                    </p>
-                  </div>
-
-                  <div className="bg-white/5 border border-white/10 rounded-xl p-4 text-xs text-muted-foreground leading-relaxed italic">
-                    "E-postanızdaki bağlantıya tıkladığınızda bu sekme otomatik olarak güncellenecektir."
-                  </div>
-
-                  <div className="flex flex-col gap-3 pt-4">
-                    <Button
-                      variant="ghost"
-                      type="button"
-                      className="text-xs text-primary hover:text-primary/80 hover:bg-primary/5"
-                      onClick={async () => {
-                        setIsLoading(true);
-                        const { error } = await supabase.auth.signInWithOtp({
-                          email: otpEmail,
-                          options: { shouldCreateUser: false }
-                        });
-                        setIsLoading(false);
-                        if (error) toast.error('Hata: ' + error.message);
-                        else toast.success('Yeni bağlantı gönderildi!');
-                      }}
-                      disabled={isLoading}
-                    >
-                      <ArrowLeft className="h-3 w-3 mr-2 rotate-180" /> Bağlantıyı Tekrar Gönder
-                    </Button>
-                  </div>
+                <div className="space-y-2 text-center">
+                  <h3 className="text-lg font-semibold">İkinci adımı tamamlayın</h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Giriş oturumunuz oluşturuldu ancak hesaba erişmek için authenticator doğrulaması gerekiyor.
+                  </p>
                 </div>
-
-                <div className="pt-6 border-t border-white/5 text-center">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setIs2FAProcessing(false);
-                      setView('login');
-                    }}
-                    className="text-xs text-muted-foreground hover:text-white transition-colors"
-                  >
-                    Geri dön ve başka bir hesapla dene
-                  </button>
+                <div className="space-y-2">
+                  <Label htmlFor="mfa-code" className="text-xs font-bold uppercase tracking-wider opacity-60">
+                    6 Haneli Kod
+                  </Label>
+                  <Input
+                    id="mfa-code"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    placeholder="123456"
+                    value={formData.mfaCode}
+                    onChange={(e) => setFormData((prev) => ({
+                      ...prev,
+                      mfaCode: e.target.value.replace(/\D/g, '').slice(0, 6),
+                    }))}
+                    className="border-white/10 bg-white/5 text-center text-lg tracking-[0.35em]"
+                    maxLength={6}
+                    required
+                  />
                 </div>
+                <Button
+                  variant="ghost"
+                  type="button"
+                  className="w-full text-xs text-muted-foreground hover:bg-white/5 hover:text-white"
+                  onClick={async () => {
+                    await logout();
+                    setFormData((prev) => ({ ...prev, password: '', mfaCode: '' }));
+                    setView('login');
+                  }}
+                >
+                  Oturumu kapat ve başka hesapla dene
+                </Button>
+              </div>
+            )}
+
+            {view === 'email-check' && (
+              <div className="space-y-6 py-6 text-center">
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
+                  <Mail className="h-10 w-10 text-primary" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-bold">Bağlantıyı e-postanızdan açın</h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    {emailNoticeMode === 'signup'
+                      ? 'Hesabınızı etkinleştirmek için gelen onay bağlantısını kullanın.'
+                      : 'Şifrenizi güvenli şekilde yenilemek için gelen sıfırlama bağlantısını kullanın.'}
+                  </p>
+                </div>
+                <div className="rounded-xl border border-white/10 bg-white/5 p-4 text-xs italic leading-relaxed text-muted-foreground">
+                  Tek kullanımlık bağlantılar güvenlik için kısa süre geçerlidir. E-posta içindeki bağlantı dışında başka bir bağlantıya güvenmeyin.
+                </div>
+                <Button type="button" variant="ghost" className="w-full" onClick={() => setView('login')}>
+                  Giriş ekranına dön
+                </Button>
               </div>
             )}
 
             {view === 'reset-password' && (
               <div className="space-y-2">
                 <Label className="text-xs font-bold uppercase tracking-wider opacity-60">Yeni Şifre</Label>
-                <div className="relative group">
-                  <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground group-focus-within:text-primary transition-colors" />
+                <div className="group relative">
+                  <KeyRound className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground transition-colors group-focus-within:text-primary" />
                   <Input
                     type={showPassword ? 'text' : 'password'}
                     placeholder="Yeni şifreniz"
                     value={formData.newPassword}
-                    onChange={(e) => setFormData({ ...formData, newPassword: e.target.value })}
-                    className="pl-10 pr-10 bg-white/5 border-white/10"
+                    onChange={(e) => setFormData((prev) => ({ ...prev, newPassword: e.target.value }))}
+                    className="border-white/10 bg-white/5 pl-10 pr-10"
                     required
                   />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((prev) => !prev)}
+                    className="absolute right-3 top-1/2 -translate-y-1/2 p-1 text-muted-foreground transition-colors hover:text-foreground"
+                  >
+                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                  </button>
                 </div>
+                <p className="text-xs text-muted-foreground">
+                  En az {MIN_PASSWORD_LENGTH} karakter kullanın. Şifre sıfırlama MFA doğrulamasını kapatmaz.
+                </p>
               </div>
             )}
 
-            <Button type="submit" variant="glow" className="w-full h-11 rounded-xl shadow-lg shadow-primary/20 mt-4" disabled={isLoading}>
-              {isLoading ? (
-                <div className="flex items-center gap-2">
-                  <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
-                  İşleniyor...
-                </div>
-              ) : (
-                <>
-                  {view === 'login' && 'Giriş Yap'}
-                  {view === 'register' && 'Hesap Oluştur'}
-                  {view === 'forgot-password' && 'Kod Gönder'}
-                  {view === 'verify-otp' && 'Doğrula ve Giriş Yap'}
-                  {view === 'reset-password' && 'Şifreyi Güncelle'}
-                </>
-              )}
-            </Button>
+            {showSubmitButton && (
+              <Button type="submit" variant="glow" className="mt-4 h-11 w-full rounded-xl shadow-lg shadow-primary/20" disabled={isLoading}>
+                {isLoading ? (
+                  <div className="flex items-center gap-2">
+                    <div className="h-4 w-4 animate-spin rounded-full border-2 border-white/20 border-t-white" />
+                    İşleniyor...
+                  </div>
+                ) : (
+                  <>
+                    {view === 'login' && 'Giriş Yap'}
+                    {view === 'register' && 'Hesap Oluştur'}
+                    {view === 'forgot-password' && 'Şifre Sıfırlama Bağlantısı Gönder'}
+                    {view === 'verify-mfa' && 'Doğrula ve Giriş Yap'}
+                    {view === 'reset-password' && 'Şifreyi Güncelle'}
+                  </>
+                )}
+              </Button>
+            )}
           </form>
 
           {(view === 'login' || view === 'register') && (
             <div className="mt-6">
               <div className="relative mb-6">
                 <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-white/5"></div>
+                  <div className="w-full border-t border-white/5" />
                 </div>
                 <div className="relative flex justify-center text-xs uppercase">
                   <span className="bg-[#0c0c0c]/80 px-2 text-muted-foreground backdrop-blur-sm">veya şununla devam et</span>
@@ -395,7 +442,7 @@ const Auth: React.FC = () => {
               <Button
                 variant="outline"
                 type="button"
-                className="w-full bg-white/5 border-white/10 hover:bg-white/10 text-white h-11 rounded-xl gap-3"
+                className="h-11 w-full gap-3 rounded-xl border-white/10 bg-white/5 text-white hover:bg-white/10"
                 onClick={() => loginWithGoogle()}
               >
                 <svg className="h-5 w-5" viewBox="0 0 24 24">
@@ -422,13 +469,13 @@ const Auth: React.FC = () => {
           )}
 
           {(view === 'login' || view === 'register') && (
-            <div className="mt-8 text-center text-sm border-t border-white/5 pt-6">
+            <div className="mt-8 border-t border-white/5 pt-6 text-center text-sm">
               <span className="text-muted-foreground">
                 {view === 'login' ? 'Henüz hesabınız yok mu? ' : 'Zaten hesabınız var mı? '}
               </span>
               <button
                 onClick={() => setView(view === 'login' ? 'register' : 'login')}
-                className="font-bold text-primary hover:underline transition-all"
+                className="font-bold text-primary transition-all hover:underline"
               >
                 {view === 'login' ? 'Kayıt Ol' : 'Giriş Yap'}
               </button>
@@ -437,12 +484,12 @@ const Auth: React.FC = () => {
         </div>
 
         <div className="mt-8 text-center">
-          <Link to="/" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground hover:text-white transition-colors duration-300">
+          <Link to="/" className="text-[11px] font-bold uppercase tracking-widest text-muted-foreground transition-colors duration-300 hover:text-white">
             &larr; Ana Sayfaya Dön
           </Link>
         </div>
-      </div >
-    </div >
+      </div>
+    </div>
   );
 };
 

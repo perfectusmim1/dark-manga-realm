@@ -21,13 +21,51 @@ import {
     SlidersHorizontal,
     Loader2,
     WifiOff,
+    Smartphone,
+    ShieldOff,
+    Copy,
+    TriangleAlert,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
+import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { getBlockedUsers, unblockUser } from '@/lib/profile';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
+import type { User as AppUser } from '@/lib/types';
 
-const buildPreferenceState = (preferences?: any) => ({
+type PreferenceState = {
+    notifications: {
+        new_chapter: boolean;
+        replies: boolean;
+        likes: boolean;
+    };
+    comments: {
+        auto_show_media: boolean;
+        auto_show_gifs: boolean;
+        auto_show_replies: boolean;
+        show_page_comments: boolean;
+    };
+    privacy: {
+        visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['visibility'];
+    };
+};
+
+type BlockedUser = {
+    id: string;
+    username: string;
+    avatar?: string | null;
+};
+
+const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceState => ({
     notifications: {
         new_chapter: preferences?.notifications?.new_chapter ?? true,
         replies: preferences?.notifications?.replies ?? true,
@@ -44,8 +82,20 @@ const buildPreferenceState = (preferences?: any) => ({
     },
 });
 
+const sanitizeTotpCode = (value: string) => value.replace(/\D/g, '').slice(0, 6);
+
 const Settings: React.FC = () => {
-    const { user, updateProfile, updatePassword, updatePreferences, toggle2FA } = useAuth();
+    const {
+        user,
+        mfaState,
+        updateProfile,
+        updatePassword,
+        updatePreferences,
+        enrollTwoFactor,
+        cancelTwoFactorEnrollment,
+        verifyTwoFactorEnrollment,
+        disableTwoFactor,
+    } = useAuth();
     const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
 
     // Profile state
@@ -59,10 +109,25 @@ const Settings: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
 
+    // MFA state
+    const [setupDialogOpen, setSetupDialogOpen] = useState(false);
+    const [disableDialogOpen, setDisableDialogOpen] = useState(false);
+    const [setupCode, setSetupCode] = useState('');
+    const [disableCode, setDisableCode] = useState('');
+    const [factorFriendlyName, setFactorFriendlyName] = useState('Google Authenticator');
+    const [pendingEnrollment, setPendingEnrollment] = useState<{
+        factorId: string;
+        friendlyName?: string;
+        qrCodeSvg: string;
+        secret: string;
+        uri: string;
+    } | null>(null);
+    const [isTwoFactorBusy, setIsTwoFactorBusy] = useState(false);
+
     // Notification state
-    const [prefs, setPrefs] = useState<any>(buildPreferenceState(user?.preferences));
+    const [prefs, setPrefs] = useState<PreferenceState>(buildPreferenceState(user?.preferences));
     const [isUpdatingPrefs, setIsUpdatingPrefs] = useState(false);
-    const [blockedUsers, setBlockedUsers] = useState<any[]>([]);
+    const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
     const [isBlockedUsersLoading, setIsBlockedUsersLoading] = useState(true);
     const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
 
@@ -75,7 +140,7 @@ const Settings: React.FC = () => {
 
         setIsBlockedUsersLoading(true);
         getBlockedUsers(user.id).then(({ users }) => {
-            setBlockedUsers(users || []);
+            setBlockedUsers((users || []) as BlockedUser[]);
             setIsBlockedUsersLoading(false);
         });
     }, [user?.id]);
@@ -111,8 +176,8 @@ const Settings: React.FC = () => {
     };
 
     const handleUpdatePassword = async () => {
-        if (newPassword.length < 6) {
-            toast.error('Şifre en az 6 karakter olmalıdır');
+        if (newPassword.length < 8) {
+            toast.error('Şifre en az 8 karakter olmalıdır');
             return;
         }
         if (newPassword !== confirmPassword) {
@@ -134,6 +199,77 @@ const Settings: React.FC = () => {
             toast.error('İşlem başarısız oldu');
         } finally {
             setIsUpdatingPassword(false);
+        }
+    };
+
+    const closeSetupDialog = async () => {
+        if (pendingEnrollment?.factorId) {
+            await cancelTwoFactorEnrollment(pendingEnrollment.factorId);
+        }
+
+        setPendingEnrollment(null);
+        setSetupCode('');
+        setFactorFriendlyName('Google Authenticator');
+        setSetupDialogOpen(false);
+    };
+
+    const handleStartTwoFactorSetup = async () => {
+        try {
+            setIsTwoFactorBusy(true);
+            const { success, error, enrollment } = await enrollTwoFactor(factorFriendlyName);
+
+            if (!success || !enrollment) {
+                toast.error(error || '2FA kurulumu başlatılamadı');
+                return;
+            }
+
+            setPendingEnrollment(enrollment);
+            setSetupCode('');
+            setSetupDialogOpen(true);
+        } finally {
+            setIsTwoFactorBusy(false);
+        }
+    };
+
+    const handleVerifyTwoFactorSetup = async () => {
+        if (!pendingEnrollment) {
+            toast.error('Aktif bir kurulum bulunamadı');
+            return;
+        }
+
+        try {
+            setIsTwoFactorBusy(true);
+            const { success, error } = await verifyTwoFactorEnrollment(pendingEnrollment.factorId, setupCode);
+
+            if (!success) {
+                toast.error(error || 'Doğrulama başarısız oldu');
+                return;
+            }
+
+            toast.success('Google Authenticator başarıyla etkinleştirildi');
+            setPendingEnrollment(null);
+            setSetupCode('');
+            setSetupDialogOpen(false);
+        } finally {
+            setIsTwoFactorBusy(false);
+        }
+    };
+
+    const handleDisableTwoFactor = async () => {
+        try {
+            setIsTwoFactorBusy(true);
+            const { success, error } = await disableTwoFactor(disableCode);
+
+            if (!success) {
+                toast.error(error || '2FA kapatılamadı');
+                return;
+            }
+
+            toast.success('2FA kapatıldı');
+            setDisableCode('');
+            setDisableDialogOpen(false);
+        } finally {
+            setIsTwoFactorBusy(false);
         }
     };
 
@@ -194,6 +330,11 @@ const Settings: React.FC = () => {
             </div>
         );
     }
+
+    const qrCodeDataUrl = pendingEnrollment
+        ? `data:image/svg+xml;utf8,${encodeURIComponent(pendingEnrollment.qrCodeSvg)}`
+        : null;
+    const activeTotpFactor = mfaState.factors.find((factor) => factor.status === 'verified') || null;
 
     return (
         <div className="min-h-screen bg-background">
@@ -354,35 +495,84 @@ const Settings: React.FC = () => {
                             {/* Two-Factor Authentication Section */}
                             <Card className="border-border/50 bg-card/50 backdrop-blur-sm border-primary/20">
                                 <CardHeader>
-                                    <div className="flex items-center justify-between">
+                                    <div className="flex items-center justify-between gap-4">
                                         <div className="space-y-1">
                                             <CardTitle className="flex items-center gap-2">
                                                 <ShieldCheck className="h-5 w-5 text-primary" />
                                                 İki Faktörlü Doğrulama (2FA)
                                             </CardTitle>
                                             <CardDescription>
-                                                Hesabınıza her girişte e-posta adresinize tek kullanımlık bir giriş bağlantısı gönderilir.
+                                                Google Authenticator uyumlu TOTP kodları ile hesabınızı koruyun.
                                             </CardDescription>
                                         </div>
-                                        <Switch
-                                            checked={user?.twoFactorEnabled}
-                                            onCheckedChange={async (checked) => {
-                                                const { success, error } = await toggle2FA(checked);
-                                                if (success) {
-                                                    toast.success(checked ? '2FA Aktif Edildi' : '2FA Kapatıldı');
-                                                } else {
-                                                    toast.error(error || 'Hata oluştu');
-                                                }
-                                            }}
-                                        />
+                                        <Badge variant={user.twoFactorEnabled ? 'default' : 'secondary'}>
+                                            {user.twoFactorEnabled ? 'Etkin' : 'Kapalı'}
+                                        </Badge>
                                     </div>
                                 </CardHeader>
-                                <CardContent>
-                                    <div className="rounded-lg bg-primary/5 p-4 border border-primary/10">
+                                <CardContent className="space-y-4">
+                                    <div className="rounded-lg border border-primary/10 bg-primary/5 p-4">
                                         <p className="text-sm text-primary/90">
-                                            Güvenliğiniz için 2FA'yı açmanızı öneririz. Bu özellik aktif olduğunda, şifreniz doğru olsa bile e-postanıza gelecek <b>tek kullanımlık giriş bağlantısı</b> olmadan giriş yapılamaz.
+                                            2FA etkin olduğunda giriş şifreniz doğru olsa bile Google Authenticator uygulamasındaki 6 haneli kod olmadan hesabınıza erişilemez.
                                         </p>
                                     </div>
+
+                                    {activeTotpFactor ? (
+                                        <div className="rounded-xl border border-white/10 bg-white/5 p-4">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className="space-y-1">
+                                                    <p className="flex items-center gap-2 text-sm font-medium">
+                                                        <Smartphone className="h-4 w-4 text-primary" />
+                                                        {activeTotpFactor.friendlyName || 'Google Authenticator'}
+                                                    </p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Bu faktör doğrulanmış durumda. 2FA'yı kapatmak için yeni bir 6 haneli kod girmeniz gerekir.
+                                                    </p>
+                                                </div>
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    className="gap-2"
+                                                    onClick={() => {
+                                                        setDisableCode('');
+                                                        setDisableDialogOpen(true);
+                                                    }}
+                                                >
+                                                    <ShieldOff className="h-4 w-4" />
+                                                    2FA'yı Kapat
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="space-y-3 rounded-xl border border-white/10 bg-white/5 p-4">
+                                            <div className="space-y-2">
+                                                <Label htmlFor="factor-name">Faktör Adı</Label>
+                                                <Input
+                                                    id="factor-name"
+                                                    value={factorFriendlyName}
+                                                    onChange={(e) => setFactorFriendlyName(e.target.value.slice(0, 64))}
+                                                    placeholder="Google Authenticator"
+                                                />
+                                            </div>
+                                            <Button
+                                                type="button"
+                                                className="gap-2"
+                                                onClick={handleStartTwoFactorSetup}
+                                                disabled={isTwoFactorBusy}
+                                            >
+                                                {isTwoFactorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : <ShieldCheck className="h-4 w-4" />}
+                                                Google Authenticator Kur
+                                            </Button>
+                                        </div>
+                                    )}
+
+                                    <Alert>
+                                        <TriangleAlert className="h-4 w-4" />
+                                        <AlertTitle>Önemli</AlertTitle>
+                                        <AlertDescription>
+                                            Şifre sıfırlama bağlantısı yalnızca şifreyi yeniler. Google Authenticator açıksa sonraki girişte yine TOTP kodu gerekir.
+                                        </AlertDescription>
+                                    </Alert>
                                 </CardContent>
                             </Card>
 
@@ -647,6 +837,126 @@ const Settings: React.FC = () => {
                         </Card>
                     </TabsContent>
                 </Tabs>
+
+                <Dialog
+                    open={setupDialogOpen}
+                    onOpenChange={(open) => {
+                        if (!open) {
+                            void closeSetupDialog();
+                            return;
+                        }
+
+                        setSetupDialogOpen(true);
+                    }}
+                >
+                    <DialogContent className="max-w-xl border-white/10 bg-[#0f0f10] text-white">
+                        <DialogHeader>
+                            <DialogTitle>Google Authenticator Kurulumu</DialogTitle>
+                            <DialogDescription>
+                                QR kodu Google Authenticator ile tarayın. Tarayamıyorsanız alttaki gizli anahtarı manuel girin ve ardından 6 haneli kodu doğrulayın.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-5">
+                            {qrCodeDataUrl && (
+                                <div className="flex justify-center">
+                                    <div className="rounded-2xl bg-white p-4 shadow-xl">
+                                        <img src={qrCodeDataUrl} alt="Google Authenticator QR" className="h-52 w-52" />
+                                    </div>
+                                </div>
+                            )}
+
+                            <div className="space-y-2">
+                                <Label htmlFor="totp-secret">Kurulum Anahtarı</Label>
+                                <div className="flex gap-2">
+                                    <Input
+                                        id="totp-secret"
+                                        value={pendingEnrollment?.secret || ''}
+                                        readOnly
+                                        className="font-mono tracking-[0.2em]"
+                                    />
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        onClick={async () => {
+                                            if (!pendingEnrollment?.secret) {
+                                                return;
+                                            }
+
+                                            await navigator.clipboard.writeText(pendingEnrollment.secret);
+                                            toast.success('Kurulum anahtarı kopyalandı');
+                                        }}
+                                    >
+                                        <Copy className="h-4 w-4" />
+                                    </Button>
+                                </div>
+                            </div>
+
+                            <div className="space-y-2">
+                                <Label htmlFor="setup-code">Authenticator Kodu</Label>
+                                <Input
+                                    id="setup-code"
+                                    inputMode="numeric"
+                                    placeholder="123456"
+                                    value={setupCode}
+                                    onChange={(e) => setSetupCode(sanitizeTotpCode(e.target.value))}
+                                    className="text-center text-lg tracking-[0.35em]"
+                                    maxLength={6}
+                                />
+                            </div>
+                        </div>
+
+                        <DialogFooter>
+                            <Button type="button" variant="ghost" onClick={() => void closeSetupDialog()} disabled={isTwoFactorBusy}>
+                                Vazgeç
+                            </Button>
+                            <Button type="button" onClick={handleVerifyTwoFactorSetup} disabled={isTwoFactorBusy || setupCode.length !== 6}>
+                                {isTwoFactorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : 'Doğrula ve Etkinleştir'}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                <Dialog
+                    open={disableDialogOpen}
+                    onOpenChange={(open) => {
+                        setDisableDialogOpen(open);
+                        if (!open) {
+                            setDisableCode('');
+                        }
+                    }}
+                >
+                    <DialogContent className="max-w-md border-white/10 bg-[#0f0f10] text-white">
+                        <DialogHeader>
+                            <DialogTitle>2FA'yı Kapat</DialogTitle>
+                            <DialogDescription>
+                                Güvenlik gereği 2FA'yı kapatmadan önce authenticator uygulamanızdaki güncel 6 haneli kodu doğrulamanız gerekiyor.
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-2">
+                            <Label htmlFor="disable-code">Authenticator Kodu</Label>
+                            <Input
+                                id="disable-code"
+                                inputMode="numeric"
+                                placeholder="123456"
+                                value={disableCode}
+                                onChange={(e) => setDisableCode(sanitizeTotpCode(e.target.value))}
+                                className="text-center text-lg tracking-[0.35em]"
+                                maxLength={6}
+                            />
+                        </div>
+
+                        <DialogFooter>
+                            <Button type="button" variant="ghost" onClick={() => setDisableDialogOpen(false)} disabled={isTwoFactorBusy}>
+                                İptal
+                            </Button>
+                            <Button type="button" variant="destructive" onClick={handleDisableTwoFactor} disabled={isTwoFactorBusy || disableCode.length !== 6}>
+                                {isTwoFactorBusy ? <Loader2 className="h-4 w-4 animate-spin" /> : '2FA\'yı Kapat'}
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
             </main >
         </div >
     );

@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Link, useLocation, useNavigate } from 'react-router-dom';
+import { Link, useLocation } from 'react-router-dom';
 import {
     AlertTriangle,
     MessageCircle,
@@ -350,7 +350,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 }) => {
     const { user } = useAuth();
     const location = useLocation();
-    const navigate = useNavigate();
     const entityId = propEntityId || propMangaId || '';
     const entityType = propEntityType;
     const targetCommentId = useMemo(
@@ -1218,11 +1217,16 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             }
 
             const targetTop = window.scrollY + targetElement.getBoundingClientRect().top - 140;
+            animateScrollTo(targetTop);
+
             const nextLocation = getLocationWithoutTargetComment(location.pathname, location.search, location.hash);
             if (nextLocation) {
-                navigate(nextLocation, { replace: true });
+                window.history.replaceState(
+                    window.history.state,
+                    '',
+                    `${nextLocation.pathname}${nextLocation.search}${nextLocation.hash}`
+                );
             }
-            animateScrollTo(targetTop);
 
             if (highlightTimeoutRef.current !== null) {
                 window.clearTimeout(highlightTimeoutRef.current);
@@ -1245,7 +1249,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 window.clearTimeout(timerId);
             }
         };
-    }, [displayedParentComments, expandedReplies, location.hash, location.pathname, location.search, navigate, pendingScrollCommentId]);
+    }, [displayedParentComments, expandedReplies, location.hash, location.pathname, location.search, pendingScrollCommentId]);
 
     const paginationWindow = useMemo(() => {
         if (totalPages <= 5) {

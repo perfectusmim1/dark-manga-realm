@@ -139,7 +139,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (!access.allowed) {
-        if (user) {
+        if (user?.id) {
           await logout();
         }
 
@@ -171,6 +171,37 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+const MfaGate = ({ children }: { children: React.ReactNode }) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { isLoading, mfaState } = useAuth();
+
+  useEffect(() => {
+    if (isLoading || !mfaState.needsVerification || location.pathname === '/auth') {
+      return;
+    }
+
+    navigate('/auth?step=mfa', { replace: true });
+  }, [isLoading, location.pathname, mfaState.needsVerification, navigate]);
+
+  if (!isLoading && mfaState.needsVerification && location.pathname !== '/auth') {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <div className="container flex min-h-screen max-w-2xl items-center justify-center py-12">
+          <div className="w-full rounded-2xl border border-primary/20 bg-card/60 p-8 text-center shadow-xl backdrop-blur-sm">
+            <h1 className="text-3xl font-black">Ek Doğrulama Gerekli</h1>
+            <p className="mt-4 text-muted-foreground">
+              Hesabınız için Google Authenticator doğrulaması zorunlu. Girişinizi tamamlamak için doğrulama ekranına yönlendiriliyorsunuz.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return <>{children}</>;
+};
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -181,61 +212,63 @@ const App = () => (
             <Sonner />
             <BrowserRouter>
               <AccessGate>
-                <OfflineStartupRedirect />
-                <ScrollToTop />
-                <Routes>
-                {/* Public Routes */}
-                <Route path="/" element={<Index />} />
-                <Route path="/community" element={<Community />} />
-                <Route path="/browse" element={<Browse />} />
-                <Route path="/manga/:mangaId" element={<MangaDetail />} />
-                <Route path="/manga/:mangaId/chapter/:chapterId" element={<Reader />} />
-                <Route path="/auth" element={<Auth />} />
-                <Route path="/favorites" element={<Favorites />} />
-                <Route path="/library" element={<Library />} />
-                <Route path="/history" element={<History />} />
-                <Route path="/downloads" element={<Downloads />} />
-                <Route path="/latest-chapters" element={<LatestChapters />} />
-                <Route path="/reading-time" element={<ReadingTime />} />
-                <Route path="/bookmarks" element={<Bookmarks />} />
-                <Route path="/notifications" element={<Notifications />} />
-                <Route path="/announcements" element={<Announcements />} />
-                <Route path="/reading-lists" element={<ReadingLists />} />
-                <Route path="/tier-lists" element={<TierLists />} />
-                <Route path="/tier-lists/create" element={<TierListEditor />} />
-                <Route path="/tier-lists/:id" element={<TierListView />} />
-                <Route path="/tier-lists/:id/edit" element={<TierListEditor />} />
-                <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
-                <Route path="/settings" element={<Settings />} />
-                <Route path="/profile/:userId" element={<Profile />} />
-                <Route path="/character/:id" element={<CharacterDetail />} />
-                <Route path="/author/:id" element={<AuthorDetail />} />
-                <Route path="/artist/:id" element={<ArtistDetail />} />
-                <Route path="/characters" element={<CharactersBrowse />} />
-                <Route path="/authors" element={<AuthorsBrowse />} />
-                <Route path="/artists" element={<ArtistsBrowse />} />
+                <MfaGate>
+                  <OfflineStartupRedirect />
+                  <ScrollToTop />
+                  <Routes>
+                  {/* Public Routes */}
+                  <Route path="/" element={<Index />} />
+                  <Route path="/community" element={<Community />} />
+                  <Route path="/browse" element={<Browse />} />
+                  <Route path="/manga/:mangaId" element={<MangaDetail />} />
+                  <Route path="/manga/:mangaId/chapter/:chapterId" element={<Reader />} />
+                  <Route path="/auth" element={<Auth />} />
+                  <Route path="/favorites" element={<Favorites />} />
+                  <Route path="/library" element={<Library />} />
+                  <Route path="/history" element={<History />} />
+                  <Route path="/downloads" element={<Downloads />} />
+                  <Route path="/latest-chapters" element={<LatestChapters />} />
+                  <Route path="/reading-time" element={<ReadingTime />} />
+                  <Route path="/bookmarks" element={<Bookmarks />} />
+                  <Route path="/notifications" element={<Notifications />} />
+                  <Route path="/announcements" element={<Announcements />} />
+                  <Route path="/reading-lists" element={<ReadingLists />} />
+                  <Route path="/tier-lists" element={<TierLists />} />
+                  <Route path="/tier-lists/create" element={<TierListEditor />} />
+                  <Route path="/tier-lists/:id" element={<TierListView />} />
+                  <Route path="/tier-lists/:id/edit" element={<TierListEditor />} />
+                  <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
+                  <Route path="/settings" element={<Settings />} />
+                  <Route path="/profile/:userId" element={<Profile />} />
+                  <Route path="/character/:id" element={<CharacterDetail />} />
+                  <Route path="/author/:id" element={<AuthorDetail />} />
+                  <Route path="/artist/:id" element={<ArtistDetail />} />
+                  <Route path="/characters" element={<CharactersBrowse />} />
+                  <Route path="/authors" element={<AuthorsBrowse />} />
+                  <Route path="/artists" element={<ArtistsBrowse />} />
 
-                {/* Admin Routes */}
-                <Route path="/admin/login" element={<AdminLogin />} />
-                <Route path="/admin" element={<AdminLayout />}>
-                  <Route index element={<AdminDashboard />} />
-                  <Route path="mangas" element={<AdminMangaList />} />
-                  <Route path="mangas/new" element={<AdminMangaEditor />} />
-                  <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
-                  <Route path="comments" element={<AdminComments />} />
-                  <Route path="scraper" element={<AdminScraper />} />
-                  <Route path="chapter-scraper" element={<AdminChapterScraper />} />
-                  <Route path="users" element={<AdminUsers />} />
-                  <Route path="user-management" element={<AdminUserManagement />} />
-                  <Route path="entities" element={<AdminEntities />} />
-                  <Route path="tags" element={<AdminTags />} />
-                  <Route path="announcements" element={<AdminAnnouncements />} />
-                  <Route path="reports" element={<AdminReports />} />
-                </Route>
+                  {/* Admin Routes */}
+                  <Route path="/admin/login" element={<AdminLogin />} />
+                  <Route path="/admin" element={<AdminLayout />}>
+                    <Route index element={<AdminDashboard />} />
+                    <Route path="mangas" element={<AdminMangaList />} />
+                    <Route path="mangas/new" element={<AdminMangaEditor />} />
+                    <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
+                    <Route path="comments" element={<AdminComments />} />
+                    <Route path="scraper" element={<AdminScraper />} />
+                    <Route path="chapter-scraper" element={<AdminChapterScraper />} />
+                    <Route path="users" element={<AdminUsers />} />
+                    <Route path="user-management" element={<AdminUserManagement />} />
+                    <Route path="entities" element={<AdminEntities />} />
+                    <Route path="tags" element={<AdminTags />} />
+                    <Route path="announcements" element={<AdminAnnouncements />} />
+                    <Route path="reports" element={<AdminReports />} />
+                  </Route>
 
-                <Route path="*" element={<NotFound />} />
-                </Routes>
-                <DownloadDock />
+                  <Route path="*" element={<NotFound />} />
+                  </Routes>
+                  <DownloadDock />
+                </MfaGate>
               </AccessGate>
             </BrowserRouter>
           </AppInitializer>

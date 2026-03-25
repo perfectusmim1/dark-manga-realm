@@ -733,10 +733,10 @@ export const addAdminUser = async (admin: any): Promise<void> => {
         throw new Error('ADMIN_PROMOTION_BLOCKED');
     }
 
-    const { error } = await supabase
-        .from('users')
-        .update({ role: 'moderator' })
-        .eq('id', admin.userId);
+    const { error } = await supabase.rpc('admin_set_user_role', {
+        p_role: 'moderator',
+        p_user_id: admin.userId,
+    });
 
     if (error) {
         throw error;
@@ -758,10 +758,10 @@ export const deleteAdminUser = async (adminId: string): Promise<void> => {
         throw new Error('PRIMARY_ADMIN_PROTECTED');
     }
 
-    const { error } = await supabase
-        .from('users')
-        .update({ role: 'user' })
-        .eq('id', adminId);
+    const { error } = await supabase.rpc('admin_set_user_role', {
+        p_role: 'user',
+        p_user_id: adminId,
+    });
 
     if (error) {
         throw error;
