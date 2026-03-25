@@ -93,7 +93,7 @@ export const prefetchChapterAssets = async (
     }
 
     chapterSources.set(chapterId, [...sources]);
-    const concurrency = Math.max(2, Math.min(options?.concurrency ?? 6, 8));
+    const concurrency = Math.max(4, Math.min(options?.concurrency ?? 12, 24));
 
     const promise = (async () => {
         let currentIndex = 0;

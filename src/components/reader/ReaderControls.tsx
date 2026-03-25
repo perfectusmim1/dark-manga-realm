@@ -1,5 +1,5 @@
 import React, { useState, useCallback } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import {
   ChevronLeft,
   ChevronRight,
@@ -48,7 +48,7 @@ interface ReaderControlsProps {
   onAutoScrollSpeedChange: (speed: number) => void;
   isOfflineChapter?: boolean;
   isOnline?: boolean;
-  onBeforeChapterChange?: (chapter?: Chapter) => void;
+  onBeforeChapterChange?: (chapter?: Chapter) => Promise<void> | void;
 }
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
@@ -74,11 +74,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   isOnline = true,
   onBeforeChapterChange,
 }) => {
+  const navigate = useNavigate();
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
   const nextChapter = chapters[currentIndex - 1];
 
   const [hoverPage, setHoverPage] = useState<number | null>(null);
+  const [navigatingChapterId, setNavigatingChapterId] = useState<string | null>(null);
 
   const progressPercent = totalPages > 1 ? ((currentPage - 1) / (totalPages - 1)) * 100 : 0;
 
@@ -105,9 +107,20 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     setHoverPage(null);
   }, []);
 
-  const handleChapterNavigationStart = useCallback((chapter?: Chapter) => {
-    onBeforeChapterChange?.(chapter);
-  }, [onBeforeChapterChange]);
+  const handleChapterNavigation = useCallback(async (chapter?: Chapter) => {
+    if (!chapter || navigatingChapterId) {
+      return;
+    }
+
+    setNavigatingChapterId(chapter.id);
+
+    try {
+      await onBeforeChapterChange?.(chapter);
+      navigate(`/manga/${mangaId}/chapter/${chapter.id}?page=1`);
+    } finally {
+      setNavigatingChapterId(null);
+    }
+  }, [mangaId, navigate, navigatingChapterId, onBeforeChapterChange]);
 
   return (
     <>
@@ -172,18 +185,18 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 <h4 className="mb-2 font-semibold">Bölümler</h4>
                 <div className="flex flex-col gap-1">
                   {chapters.slice().reverse().map((ch) => (
-                    <Link
+                    <button
                       key={ch.id}
-                      to={`/manga/${mangaId}/chapter/${ch.id}?page=1`}
-                      onMouseDown={() => handleChapterNavigationStart(ch)}
-                      onTouchStart={() => handleChapterNavigationStart(ch)}
+                      type="button"
+                      onClick={() => void handleChapterNavigation(ch)}
+                      disabled={navigatingChapterId === ch.id}
                       className={`rounded-lg px-3 py-2 text-sm transition-colors ${ch.id === currentChapter.id
                         ? 'bg-primary text-primary-foreground hover:bg-primary/90'
                         : 'hover:bg-secondary text-foreground'
                         }`}
                     >
                       Bölüm {ch.number}
-                    </Link>
+                    </button>
                   ))}
                 </div>
               </PopoverContent>
@@ -293,24 +306,15 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         >
           <Button
             variant="ghost"
-            disabled={!prevChapter}
-            asChild={!!prevChapter}
+            disabled={!prevChapter || navigatingChapterId !== null}
+            onClick={() => {
+              if (prevChapter) {
+                void handleChapterNavigation(prevChapter);
+              }
+            }}
           >
-            {prevChapter ? (
-              <Link
-                to={`/manga/${mangaId}/chapter/${prevChapter.id}?page=1`}
-                onMouseDown={() => handleChapterNavigationStart(prevChapter)}
-                onTouchStart={() => handleChapterNavigationStart(prevChapter)}
-              >
-                <ChevronLeft className="h-4 w-4" />
-                Önceki
-              </Link>
-            ) : (
-              <>
-                <ChevronLeft className="h-4 w-4" />
-                Önceki
-              </>
-            )}
+            <ChevronLeft className="h-4 w-4" />
+            Önceki
           </Button>
 
           {settings.showProgress && (
@@ -428,24 +432,15 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
           <Button
             variant="ghost"
-            disabled={!nextChapter}
-            asChild={!!nextChapter}
+            disabled={!nextChapter || navigatingChapterId !== null}
+            onClick={() => {
+              if (nextChapter) {
+                void handleChapterNavigation(nextChapter);
+              }
+            }}
           >
-            {nextChapter ? (
-              <Link
-                to={`/manga/${mangaId}/chapter/${nextChapter.id}?page=1`}
-                onMouseDown={() => handleChapterNavigationStart(nextChapter)}
-                onTouchStart={() => handleChapterNavigationStart(nextChapter)}
-              >
-                Sonraki
-                <ChevronRight className="h-4 w-4" />
-              </Link>
-            ) : (
-              <>
-                Sonraki
-                <ChevronRight className="h-4 w-4" />
-              </>
-            )}
+            Sonraki
+            <ChevronRight className="h-4 w-4" />
           </Button>
         </div>
       </div>

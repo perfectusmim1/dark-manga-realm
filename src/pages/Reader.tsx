@@ -89,6 +89,21 @@ const Reader: React.FC = () => {
     });
   }, []);
 
+  const primeChapterEntry = useCallback(async (chapterToPrime?: Chapter) => {
+    if (
+      !chapterToPrime
+      || !isOnlineNow
+      || isOfflineChapter
+      || !Array.isArray(chapterToPrime.pages)
+      || chapterToPrime.pages.length === 0
+    ) {
+      return;
+    }
+
+    const criticalSources = chapterToPrime.pages.slice(0, Math.min(3, chapterToPrime.pages.length));
+    await Promise.allSettled(criticalSources.map((page) => prefetchImageAsset(page)));
+  }, [isOfflineChapter, isOnlineNow]);
+
   const prepareChapterTransition = useCallback((targetChapter?: Chapter) => {
     if (
       isOnlineNow
@@ -105,7 +120,11 @@ const Reader: React.FC = () => {
         resolvedPages: targetChapter.pages.map((page) => ({ src: page, source: 'remote' })),
       };
       warmCriticalChapterPages(targetChapter);
-      void prefetchChapterAssets(targetChapter.id, targetChapter.pages, { concurrency: 8 });
+      void prefetchChapterAssets(
+        targetChapter.id,
+        targetChapter.pages,
+        { concurrency: Math.min(targetChapter.pages.length, 24) }
+      );
     } else {
       preparedTransitionRef.current = null;
     }
@@ -123,6 +142,14 @@ const Reader: React.FC = () => {
 
     window.scrollTo({ top: 0, behavior: 'auto' });
   }, [isOfflineChapter, isOnlineNow, mangaId, settings.prefetchNextChapter, warmCriticalChapterPages]);
+
+  const handleBeforeChapterChange = useCallback(async (targetChapter?: Chapter) => {
+    if (targetChapter) {
+      await primeChapterEntry(targetChapter);
+    }
+
+    prepareChapterTransition(targetChapter);
+  }, [prepareChapterTransition, primeChapterEntry]);
 
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
@@ -640,7 +667,11 @@ const Reader: React.FC = () => {
     }
 
     warmCriticalChapterPages(nextChapter);
-    void prefetchChapterAssets(nextChapter.id, nextChapter.pages, { concurrency: 8 });
+    void prefetchChapterAssets(
+      nextChapter.id,
+      nextChapter.pages,
+      { concurrency: Math.min(nextChapter.pages.length, 24) }
+    );
   }, [
     isOfflineChapter,
     isOnlineNow,
@@ -955,7 +986,7 @@ const Reader: React.FC = () => {
         onAutoScrollSpeedChange={handleAutoScrollSpeedChange}
         isOfflineChapter={isOfflineChapter}
         isOnline={isOnlineNow}
-        onBeforeChapterChange={prepareChapterTransition}
+        onBeforeChapterChange={handleBeforeChapterChange}
       />
 
       {!isReaderTransitionActive && isOnlineNow && showPageCommentRail && (
