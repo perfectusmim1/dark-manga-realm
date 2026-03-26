@@ -11,9 +11,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { formatReadingDuration, getUserProfile, getReadingActivity, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
+import { formatReadingDuration, getUserProfile, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
 import { ACHIEVEMENTS } from '@/lib/achievements';
-import { supabase } from '@/lib/supabase';
 import { useToast } from "@/components/ui/use-toast";
 import UserListModal from '@/components/profile/UserListModal';
 import ReadingListCover from '@/components/manga/ReadingListCover';
@@ -68,29 +67,11 @@ const Profile: React.FC = () => {
           ? await syncAchievements(userId, profile.stats)
           : { data: [] };
         
-        const [activity, readingListsResponse, tierListsResponse] = await Promise.all([
-          profile.sectionAccess?.readingHistory ? getReadingActivity(userId, 365) : Promise.resolve([]),
-          profile.sectionAccess?.readingLists
-            ? supabase
-                .from('reading_lists')
-                .select('*')
-                .eq('user_id', userId)
-                .eq(isOwnProfile ? 'user_id' : 'is_public', isOwnProfile ? userId : true)
-            : Promise.resolve({ data: [] }),
-          profile.sectionAccess?.tierLists
-            ? supabase
-                .from('tier_lists')
-                .select('*')
-                .eq('user_id', userId)
-                .eq(isOwnProfile ? 'user_id' : 'is_public', isOwnProfile ? userId : true)
-            : Promise.resolve({ data: [] }),
-        ]);
-
         setProfileData(profile);
-        setActivityData(activity);
+        setActivityData(profile.activity || []);
         setAchievements(unlockedData || []);
-        setReadingLists(readingListsResponse.data || []);
-        setTierLists(tierListsResponse.data || []);
+        setReadingLists(profile.readingLists || []);
+        setTierLists(profile.tierLists || []);
       } catch (err) {
         console.error('Profile fetch error:', err);
         setError('Profil yüklenirken bir hata oluştu veya gizli tutuluyor.');

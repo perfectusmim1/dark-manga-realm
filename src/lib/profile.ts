@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { User } from './types';
 import { parseCommentContent, stripCommentFormatting } from './commentContent';
-import { createFollowNotification, getCompletedChapterCount } from './storage';
+import { createFollowNotification } from './storage';
 
 export type PrivacyVisibility = NonNullable<NonNullable<User['preferences']>['privacy']>['visibility'];
 
@@ -103,6 +103,23 @@ interface ProfileAccessContextRow {
     can_view_reading_lists: boolean;
     can_view_tier_lists: boolean;
     can_view_followed_manga: boolean;
+}
+
+interface ProfileRouteBundle {
+    stats?: {
+        totalSeries?: number;
+        totalChapters?: number;
+        totalReadingSeconds?: number;
+        totalComments?: number;
+        followersCount?: number;
+        followingCount?: number;
+    };
+    recentReads?: any[];
+    recentComments?: any[];
+    followedManga?: any[];
+    readingActivity?: { date: string; count: number }[];
+    readingLists?: any[];
+    tierLists?: any[];
 }
 
 export type ReadingTimeRange = 'today' | 'week' | 'month' | 'all';
@@ -321,6 +338,18 @@ const getProfileAccessContext = async (userId: string): Promise<ProfileAccessCon
     return (data as ProfileAccessContextRow | null) || null;
 };
 
+const getProfileRouteBundle = async (userId: string): Promise<ProfileRouteBundle> => {
+    const { data, error } = await supabase.rpc('get_profile_route_bundle', {
+        p_target_user_id: userId,
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    return (data as ProfileRouteBundle | null) || {};
+};
+
 // Fetch profile data including stats
 export const getUserProfile = async (userId: string, currentUserId?: string) => {
     let context: ProfileAccessContextRow | null = null;
@@ -365,6 +394,12 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         followedManga: context.can_view_followed_manga,
     };
 
+    let bundle: ProfileRouteBundle = {};
+
+    if (sectionAccess.profile) {
+        bundle = await getProfileRouteBundle(userId);
+    }
+
     if (!sectionAccess.profile) {
         return {
             ...user,
@@ -387,104 +422,21 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
             recentReads: [],
             recentComments: [],
             followedManga: [],
+            activity: [],
+            readingLists: [],
+            tierLists: [],
         };
     }
-
-    const readingHistoryStatsPromise = sectionAccess.readingHistory
-        ? (async () => {
-            const [{ count: totalSeries }, totalChapters, { data: readingTimeRows }] = await Promise.all([
-                supabase
-                    .from('reading_progress')
-                    .select('manga_id', { count: 'exact', head: true })
-                    .eq('user_id', userId),
-                getCompletedChapterCount(userId),
-                supabase
-                    .from('reading_activity_log')
-                    .select('seconds_spent')
-                    .eq('user_id', userId),
-            ]);
-
-            return {
-                totalSeries: totalSeries || 0,
-                totalChapters: totalChapters || 0,
-                totalReadingSeconds: (readingTimeRows || []).reduce((sum: number, row: any) => sum + (row.seconds_spent || 0), 0),
-            };
-        })()
-        : Promise.resolve({
-            totalSeries: 0,
-            totalChapters: 0,
-            totalReadingSeconds: 0,
-        });
-
-    const commentsStatsPromise = sectionAccess.comments
-        ? Promise.all([
-            supabase
-                .from('comments')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', userId),
-            supabase
-                .from('character_comments')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', userId),
-            supabase
-                .from('author_comments')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', userId),
-            supabase
-                .from('artist_comments')
-                .select('id', { count: 'exact', head: true })
-                .eq('user_id', userId),
-        ]).then(([
-            { count: totalComments },
-            { count: totalCharacterComments },
-            { count: totalAuthorComments },
-            { count: totalArtistComments },
-        ]) => ({
-            totalComments: (totalComments || 0) + (totalCharacterComments || 0) + (totalAuthorComments || 0) + (totalArtistComments || 0),
-        }))
-        : Promise.resolve({ totalComments: 0 });
-
-    const socialStatsPromise = Promise.all([
-        supabase
-            .from('user_follows')
-            .select('id', { count: 'exact', head: true })
-            .eq('followed_id', userId),
-        supabase
-            .from('user_follows')
-            .select('id', { count: 'exact', head: true })
-            .eq('follower_id', userId),
-    ]).then(([{ count: followersCount }, { count: followingCount }]) => ({
-        followersCount: followersCount || 0,
-        followingCount: followingCount || 0,
-    }));
-
-    const recentReadsPromise = sectionAccess.readingHistory
-        ? supabase
-            .from('reading_progress')
-            .select('manga_id, chapter_number, page, last_read, mangas:manga_id (id, title, cover)')
-            .eq('user_id', userId)
-            .order('last_read', { ascending: false })
-            .limit(4)
-        : Promise.resolve({ data: [] as any[] });
-
-    const [{ totalSeries, totalChapters, totalReadingSeconds }, { totalComments }, { followersCount, followingCount }, recentReadsResult, recentComments, followedManga] = await Promise.all([
-        readingHistoryStatsPromise,
-        commentsStatsPromise,
-        socialStatsPromise,
-        recentReadsPromise,
-        sectionAccess.comments ? getUserRecentComments(userId) : Promise.resolve([]),
-        sectionAccess.followedManga ? getUserFollowedManga(userId) : Promise.resolve([]),
-    ]);
 
     return {
         ...user,
         stats: {
-            totalSeries: totalSeries || 0,
-            totalChapters: totalChapters || 0,
-            totalReadingSeconds,
-            totalComments,
-            followersCount: followersCount || 0,
-            followingCount: followingCount || 0,
+            totalSeries: bundle.stats?.totalSeries || 0,
+            totalChapters: bundle.stats?.totalChapters || 0,
+            totalReadingSeconds: bundle.stats?.totalReadingSeconds || 0,
+            totalComments: bundle.stats?.totalComments || 0,
+            followersCount: bundle.stats?.followersCount || 0,
+            followingCount: bundle.stats?.followingCount || 0,
         },
         relationship: {
             isFollowing: context.is_following,
@@ -494,9 +446,29 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
             isBlockedByOwner: context.is_blocked_by_owner
         },
         sectionAccess,
-        recentReads: recentReadsResult.data || [],
-        recentComments,
-        followedManga,
+        recentReads: bundle.recentReads || [],
+        recentComments: (bundle.recentComments || []).map((comment: any) => {
+            const parsed = parseCommentContent(comment.content || '');
+
+            return {
+                id: comment.id,
+                entityType: comment.entityType,
+                entityId: comment.entityId,
+                targetName: comment.targetName,
+                targetHref: comment.targetHref,
+                preview: buildCommentPreview(comment.content || ''),
+                createdAt: comment.createdAt,
+                likes: comment.likes || 0,
+                isSpoiler: Boolean(parsed.isSpoiler),
+                hasMedia: Boolean(parsed.mediaUrls?.length),
+                hasGif: Boolean(comment.gifUrl),
+                parentId: comment.parentId || undefined,
+            };
+        }),
+        followedManga: bundle.followedManga || [],
+        activity: bundle.readingActivity || [],
+        readingLists: bundle.readingLists || [],
+        tierLists: bundle.tierLists || [],
     };
 };
 
