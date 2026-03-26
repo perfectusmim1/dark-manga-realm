@@ -146,6 +146,10 @@ export interface Bookmark {
   page: number;
   note?: string | null;
   createdAt?: string;
+  mangaTitle?: string;
+  mangaCover?: string;
+  mangaAlternativeTitles?: string[];
+  chapterTitle?: string;
 }
 
 export type ReadingMode = 'vertical' | 'horizontal' | 'webtoon';

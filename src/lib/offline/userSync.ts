@@ -169,7 +169,7 @@ const cloneReadingListItem = (item: CachedReadingListItem): CachedReadingListIte
 
 const cloneReadingList = (list: CachedReadingList): CachedReadingList => ({
   ...list,
-  mangaIds: [...list.mangaIds],
+  mangaIds: [...(list.mangaIds || list.itemSummaries?.map((item) => item.id) || [])],
   itemSummaries: (list.itemSummaries || []).map(cloneReadingListItem),
 });
 

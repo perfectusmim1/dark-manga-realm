@@ -47,7 +47,7 @@ const Bookmarks: React.FC = () => {
           const chapter = manga.chapters.find(c => c.id === b.chapterId);
           return { ...b, manga, chapter };
         }
-        return null;
+        return { ...b };
       }));
 
       setBookmarks(enrichedBookmarks.filter((bookmark): bookmark is EnrichedBookmark => Boolean(bookmark)));
@@ -70,8 +70,8 @@ const Bookmarks: React.FC = () => {
     }
 
     return bookmarks.filter((bookmark) => {
-      const mangaTitle = bookmark.manga?.title?.toLocaleLowerCase('tr-TR') || '';
-      const alternativeTitles = (bookmark.manga?.alternativeTitles || [])
+      const mangaTitle = (bookmark.manga?.title || bookmark.mangaTitle || '').toLocaleLowerCase('tr-TR');
+      const alternativeTitles = (bookmark.manga?.alternativeTitles || bookmark.mangaAlternativeTitles || [])
         .join(' ')
         .toLocaleLowerCase('tr-TR');
 
@@ -215,14 +215,15 @@ const Bookmarks: React.FC = () => {
             <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
               {visibleBookmarks.map((item, index) => {
               const { manga, chapter } = item;
-
-              if (!manga || !chapter) return null;
+              const mangaTitle = manga?.title || item.mangaTitle || 'Seri';
+              const chapterLabel = chapter?.number || item.chapterNumber;
+              const chapterTitle = chapter?.title || item.chapterTitle;
               
               const previewImage = !isOnline
-                ? manga.cover
-                : (chapter.pages && chapter.pages.length >= item.page)
+                ? (manga?.cover || item.mangaCover)
+                : (chapter?.pages && chapter.pages.length >= item.page)
                   ? chapter.pages[item.page - 1]
-                  : manga.cover;
+                  : (manga?.cover || item.mangaCover);
 
                 return (
                   <div
@@ -230,14 +231,20 @@ const Bookmarks: React.FC = () => {
                     className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-all hover:shadow-xl animate-fade-up opacity-0"
                     style={{ animationDelay: `${0.08 + (index % BOOKMARKS_PAGE_SIZE) * 0.03}s`, animationFillMode: 'forwards' }}
                   >
-                    <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`} className="relative block aspect-[4/3] w-full overflow-hidden sm:aspect-square">
-                      <img
-                        src={previewImage}
-                        alt={manga.title}
-                        loading="lazy"
-                        decoding="async"
-                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
+                    <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`} className="relative block aspect-[4/3] w-full overflow-hidden sm:aspect-square">
+                      {previewImage ? (
+                        <img
+                          src={previewImage}
+                          alt={mangaTitle}
+                          loading="lazy"
+                          decoding="async"
+                          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                        />
+                      ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 via-secondary/50 to-background text-lg font-bold text-muted-foreground">
+                          {mangaTitle.slice(0, 1).toLocaleUpperCase('tr-TR')}
+                        </div>
+                      )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
                       <div className="absolute left-2 top-2 flex rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-white shadow-md backdrop-blur-md sm:left-3 sm:top-3 sm:text-xs">
@@ -250,15 +257,21 @@ const Bookmarks: React.FC = () => {
                     </Link>
 
                     <div className="flex flex-1 flex-col p-3 sm:p-4">
-                      <Link to={`/manga/${manga.id}`} className="transition-colors hover:text-primary">
-                          <h3 className="line-clamp-2 text-sm font-bold leading-5 sm:line-clamp-1 sm:text-base">{manga.title}</h3>
+                      <Link to={`/manga/${item.mangaId}`} className="transition-colors hover:text-primary">
+                          <h3 className="line-clamp-2 text-sm font-bold leading-5 sm:line-clamp-1 sm:text-base">{mangaTitle}</h3>
                       </Link>
 
                       <div className="mt-1 flex items-center justify-between">
                           <p className="text-xs font-medium text-primary sm:text-sm">
-                              Bölüm {chapter.number}
+                              Bölüm {chapterLabel}
                           </p>
                       </div>
+
+                      {chapterTitle && (
+                          <p className="mt-1 line-clamp-1 text-xs text-muted-foreground sm:text-sm">
+                            {chapterTitle}
+                          </p>
+                      )}
 
                       {item.note && (
                           <div className="mt-2 line-clamp-2 rounded-lg border border-border/50 bg-secondary/50 p-2 text-center text-xs italic text-muted-foreground sm:mt-3 sm:text-sm">
@@ -273,7 +286,7 @@ const Bookmarks: React.FC = () => {
                               className="h-9 flex-1 text-xs sm:text-sm"
                               asChild
                           >
-                              <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
+                              <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`}>
                                   Oku
                               </Link>
                           </Button>

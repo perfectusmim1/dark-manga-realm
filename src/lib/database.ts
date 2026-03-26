@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import { normalizeGenres } from './mockData';
-import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { cacheOfflineManga, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import {
     areReadingListsInitialized,
     createClientEntityId,
@@ -2190,6 +2190,10 @@ const fetchRemoteReadingLists = async (userId: string): Promise<Array<ReturnType
             ...list.itemSummaries.map((item) => item.cover),
         ]),
     );
+    void Promise.all(
+        Object.values(itemSummariesById)
+            .map((itemSummary) => cacheOfflineManga(mapCachedReadingListItemToManga(itemSummary))),
+    ).catch(() => undefined);
 
     return remoteLists;
 };
@@ -2199,21 +2203,25 @@ const loadReadingListMangas = async (
     offlineOnly: boolean,
     itemSummaries: ReturnType<typeof mapMangaToCachedReadingListItem>[] = [],
 ): Promise<Manga[]> => {
-    if (mangaIds.length === 0) {
+    const resolvedMangaIds = mangaIds.length > 0
+        ? mangaIds
+        : itemSummaries.map((item) => item.id);
+
+    if (resolvedMangaIds.length === 0) {
         return [];
     }
 
     const itemSummaryMap = new Map(itemSummaries.map((item) => [item.id, item]));
 
     if (offlineOnly) {
-        const offlineMangas = await Promise.all(mangaIds.map(async (mangaId) => (
+        const offlineMangas = await Promise.all(resolvedMangaIds.map(async (mangaId) => (
             (await getOfflineMangaDetail(mangaId))
             || (itemSummaryMap.get(mangaId) ? mapCachedReadingListItemToManga(itemSummaryMap.get(mangaId)!) : undefined)
         )));
         return offlineMangas.filter(Boolean) as Manga[];
     }
 
-    const mangas = await Promise.all(mangaIds.map(async (mangaId) => (
+    const mangas = await Promise.all(resolvedMangaIds.map(async (mangaId) => (
         (await getMangaById(mangaId))
         || (await getOfflineMangaDetail(mangaId))
         || (itemSummaryMap.get(mangaId) ? mapCachedReadingListItemToManga(itemSummaryMap.get(mangaId)!) : undefined)
@@ -2226,20 +2234,32 @@ export const getReadingLists = async (userId: string, onlyPublic: boolean = fals
         return [];
     }
 
-    if (!areReadingListsInitialized(userId) && isEffectivelyOnline()) {
+    const cachedLists = getCachedReadingListsState(userId);
+    const shouldRefreshRemote = isEffectivelyOnline() && (
+        !areReadingListsInitialized(userId)
+        || cachedLists.some((list) => list.mangaIds.length === 0 && list.itemSummaries.length === 0)
+    );
+
+    if (shouldRefreshRemote) {
         const remoteLists = await fetchRemoteReadingLists(userId);
         setCachedReadingLists(userId, remoteLists);
         return remoteLists.map(mapCachedReadingListToReadingList);
     }
 
-    return getCachedReadingListsState(userId).map(mapCachedReadingListToReadingList);
+    return cachedLists.map(mapCachedReadingListToReadingList);
 };
 
 export const getReadingListById = async (listId: string, viewerId?: string): Promise<ReadingList | undefined> => {
     const offlineOnly = !isEffectivelyOnline();
     const cachedList = viewerId ? getCachedReadingListRecord(viewerId, listId) : undefined;
+    const shouldUseRemoteForRepair = Boolean(
+        !offlineOnly
+        && cachedList
+        && cachedList.mangaIds.length === 0
+        && cachedList.itemSummaries.length === 0,
+    );
 
-    if (cachedList && viewerId === cachedList.userId) {
+    if (cachedList && viewerId === cachedList.userId && !shouldUseRemoteForRepair) {
         const mangas = await loadReadingListMangas(
             cachedList.mangaIds,
             offlineOnly,
@@ -2532,6 +2552,10 @@ export const addMangaToReadingList = async (listId: string, mangaId: string): Pr
     );
     const itemSummary = summary ? mapMangaToCachedReadingListItem(summary) : undefined;
 
+    if (summary) {
+        void cacheOfflineManga(summary).catch(() => undefined);
+    }
+
     updateCachedReadingList(cachedEntry.userId, listId, (list) => ({
         ...list,
         mangaIds: list.mangaIds.includes(mangaId) ? list.mangaIds : [...list.mangaIds, mangaId],
@@ -2621,7 +2645,8 @@ export const checkIfMangaInList = async (listId: string, mangaId: string): Promi
     const cachedEntry = findCachedReadingListRecord(listId);
 
     if (cachedEntry) {
-        return cachedEntry.list.mangaIds.includes(mangaId);
+        return cachedEntry.list.mangaIds.includes(mangaId)
+            || cachedEntry.list.itemSummaries.some((item) => item.id === mangaId);
     }
 
     if (!isEffectivelyOnline()) {

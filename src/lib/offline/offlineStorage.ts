@@ -152,6 +152,7 @@ const mapCharactersToOffline = (characters: Character[]): OfflineCharacterCard[]
     id: character.id,
     name: character.name,
     imageUrl: character.imageUrl,
+    imageSourceUrl: character.imageUrl,
     likesCount: character.likesCount || 0,
   }))
 );
@@ -289,9 +290,26 @@ export const cacheOfflineMangaCharacters = async (mangaId: string, characters: C
     return undefined;
   }
 
+  const persistedCharacters = await Promise.all(
+    characters.map(async (character) => {
+      const imageSourceUrl = resolveArtworkSourceUrl(character.imageUrl);
+      const imageUrl = imageSourceUrl
+        ? await cachePersistentImageDataUrl(imageSourceUrl) || character.imageUrl
+        : character.imageUrl;
+
+      return {
+        id: character.id,
+        name: character.name,
+        imageUrl,
+        imageSourceUrl,
+        likesCount: character.likesCount || 0,
+      } satisfies OfflineCharacterCard;
+    }),
+  );
+
   const nextValue: OfflineManga = {
     ...current,
-    characters: mapCharactersToOffline(characters),
+    characters: persistedCharacters,
   };
 
   await db.put('mangas', nextValue);

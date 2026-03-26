@@ -24,6 +24,7 @@ import OfflineNotice from '@/components/offline/OfflineNotice';
 import { Chapter, ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import {
   buildOfflineReaderPages,
+  cacheOfflineManga,
   getOfflineChapter,
   getOfflineMangaDetail,
   markOfflineChapterReadProgress,
@@ -327,6 +328,10 @@ const Reader: React.FC = () => {
         const mData = isOnlineNow ? (existingManga ?? await getMangaById(mangaId)) : undefined;
         const fallbackManga = mData || await getOfflineMangaDetail(mangaId);
 
+        if (mData) {
+          void cacheOfflineManga(mData);
+        }
+
         if (!fallbackManga) {
           navigate('/');
           return;
@@ -421,19 +426,28 @@ const Reader: React.FC = () => {
     const resolveInitialPage = async () => {
       let initialTargetPage = hasExplicitPage ? parsedUrlPage : 1;
 
-      if (!hasExplicitPage && user && isOnlineNow) {
+      if (!hasExplicitPage && user) {
         const progress = await getLatestProgress(user.id, mangaId);
         if (progress && progress.chapterId === chapterId && progress.page > 1) {
           initialTargetPage = progress.page;
         }
-      } else if (!hasExplicitPage && user) {
-        const pendingProgress = (await getPendingReaderSyncItems())
-          .filter((item) => item.type === 'progress' && item.userId === user.id)
-          .find((item) => (item.payload as { mangaId?: string }).mangaId === mangaId);
 
-        const pendingPayload = pendingProgress?.payload as { chapterId?: string; page?: number } | undefined;
-        if (pendingPayload?.chapterId === chapterId && pendingPayload.page && pendingPayload.page > 1) {
-          initialTargetPage = pendingPayload.page;
+        if (initialTargetPage <= 1) {
+          const pendingProgress = (await getPendingReaderSyncItems())
+            .filter((item) => item.type === 'progress' && item.userId === user.id)
+            .find((item) => (item.payload as { mangaId?: string }).mangaId === mangaId);
+
+          const pendingPayload = pendingProgress?.payload as { chapterId?: string; page?: number } | undefined;
+          if (pendingPayload?.chapterId === chapterId && pendingPayload.page && pendingPayload.page > 1) {
+            initialTargetPage = pendingPayload.page;
+          }
+        }
+
+        if (initialTargetPage <= 1) {
+          const offlineChapter = await getOfflineChapter(chapterId);
+          if (offlineChapter?.maxReadPage && offlineChapter.maxReadPage > 1) {
+            initialTargetPage = offlineChapter.maxReadPage;
+          }
         }
       }
 
@@ -483,19 +497,24 @@ const Reader: React.FC = () => {
     const saveProgress = async () => {
       if (mangaId && chapterId && chapter && initialized && isTrackingReady && user && !isIncognito) {
         try {
+          await syncChapterReadProgress(user.id, {
+            mangaId,
+            chapterId,
+            chapterNumber: chapter.number,
+            page: currentPage,
+            pageCount: resolvedPages.length || chapter.pages.length || currentPage,
+            mangaTitle: manga?.title,
+            mangaCover: manga?.cover,
+            mangaAlternativeTitles: manga?.alternativeTitles || [],
+            chapterTitle: chapter.title,
+          });
+
           if (isOnlineNow) {
             await updateReadingProgress(user.id, {
               mangaId,
               chapterId,
               chapterNumber: chapter.number,
               page: currentPage,
-            });
-            await syncChapterReadProgress(user.id, {
-              mangaId,
-              chapterId,
-              chapterNumber: chapter.number,
-              page: currentPage,
-              pageCount: resolvedPages.length || chapter.pages.length || currentPage,
             });
             await flushPendingReaderSync();
             return;
@@ -514,7 +533,7 @@ const Reader: React.FC = () => {
       }
     };
     saveProgress();
-  }, [mangaId, chapterId, chapter, currentPage, initialized, isOnlineNow, isTrackingReady, resolvedPages.length, user]);
+  }, [chapter, chapterId, currentPage, initialized, isOnlineNow, isTrackingReady, manga, mangaId, resolvedPages.length, user]);
 
   useEffect(() => {
     if (!isTrackingReady || !isOfflineChapter || !chapterId || resolvedPages.length === 0) {
@@ -885,6 +904,10 @@ const Reader: React.FC = () => {
         chapterId,
         chapterNumber: chapter.number,
         page: currentPage,
+        mangaTitle: manga?.title,
+        mangaCover: manga?.cover,
+        mangaAlternativeTitles: manga?.alternativeTitles || [],
+        chapterTitle: chapter.title,
       }).then(() => {
         toast.success(
           isOnlineNow
@@ -900,7 +923,7 @@ const Reader: React.FC = () => {
         }
       });
     }
-  }, [user, mangaId, chapterId, chapter, currentPage, isOnlineNow]);
+  }, [chapter, chapterId, currentPage, isOnlineNow, manga, mangaId, user]);
 
   const toggleControls = useCallback(() => {
     setControlsVisible(prev => !prev);

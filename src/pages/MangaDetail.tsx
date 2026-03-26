@@ -95,7 +95,7 @@ import OfflineNotice from '@/components/offline/OfflineNotice';
 import { formatReadingDuration, getBlockedUserIds, getMangaReadingTimeTotal } from '@/lib/profile';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { offlineDownloadManager } from '@/lib/offline/downloadManager';
-import { cacheOfflineMangaCharacters, getOfflineMangaCharacters, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { cacheOfflineManga, cacheOfflineMangaCharacters, getOfflineMangaCharacters, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
@@ -627,6 +627,7 @@ const MangaDetail: React.FC = () => {
           setIsOfflineView(false);
           setManga(mData);
           setAverageRating({ average: mData.averageRating, count: mData.reviewCount });
+          void cacheOfflineManga(mData);
           if (mData.ratingBreakdown) {
             setAvgBreakdown(mData.ratingBreakdown);
           }
@@ -741,7 +742,7 @@ const MangaDetail: React.FC = () => {
   }, [isOnline, mangaId, resetUserScopedState]);
 
   useEffect(() => {
-    if (!mangaId || isOfflineView || authLoading) {
+    if (!mangaId || authLoading) {
       return;
     }
 
@@ -772,13 +773,13 @@ const MangaDetail: React.FC = () => {
           isOnline ? flushPendingReaderSync() : Promise.resolve(),
           isFavorite(user.id, mangaId),
           isFollowingManga(user.id, mangaId),
-          getUserRating(mangaId, user.id),
+          isOnline ? getUserRating(mangaId, user.id) : Promise.resolve(undefined),
           getLatestProgress(user.id, mangaId),
-          getUserReview(mangaId, user.id),
+          isOnline ? getUserReview(mangaId, user.id) : Promise.resolve(null),
           getFavorites(user.id),
-          getBlockedUserIds(user.id),
+          isOnline ? getBlockedUserIds(user.id) : Promise.resolve({ ids: [] }),
           getChapterReadProgressMap(user.id, mangaId),
-          getMangaReadingTimeTotal(user.id, mangaId),
+          isOnline ? getMangaReadingTimeTotal(user.id, mangaId) : Promise.resolve(0),
         ]);
 
         if (isCancelled) return;
@@ -812,7 +813,7 @@ const MangaDetail: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [authLoading, isOfflineView, isOnline, mangaId, resetUserScopedState, user?.id]);
+  }, [authLoading, isOnline, mangaId, resetUserScopedState, user?.id]);
 
   if (isLoading) {
     return (

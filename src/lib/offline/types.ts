@@ -13,6 +13,7 @@ export interface OfflineCharacterCard {
   id: string;
   name: string;
   imageUrl?: string;
+  imageSourceUrl?: string;
   likesCount: number;
 }
 

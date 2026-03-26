@@ -1,7 +1,7 @@
-import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow } from './types';
+import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow, Manga } from './types';
 import { supabase } from './supabase';
 import { normalizeCommentNavigationLink } from './commentNavigation';
-import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { cacheOfflineManga, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import {
     addCachedBookmark,
     addCachedFollowedManga,
@@ -51,6 +51,10 @@ export interface ChapterReadProgressEntry {
     readProgressPercent: number;
     isRead: boolean;
     lastRead: string;
+    mangaTitle?: string;
+    mangaCover?: string;
+    mangaAlternativeTitles?: string[];
+    chapterTitle?: string;
 }
 
 export interface ChapterHistoryEntry extends ChapterReadProgressEntry {
@@ -101,6 +105,78 @@ const getSafeChapterPageCount = (pageCount: number) =>
 const getSafeChapterPage = (page: number, pageCount: number) => {
     const safePageCount = getSafeChapterPageCount(pageCount);
     return Math.max(1, Math.min(Number.isFinite(page) ? Math.round(page) : 1, safePageCount));
+};
+
+const cacheOfflineMangaMetadata = async (mangaIds: string[]) => {
+    const uniqueMangaIds = [...new Set(mangaIds.filter(Boolean))];
+    if (uniqueMangaIds.length === 0 || !isEffectivelyOnline()) {
+        return;
+    }
+
+    const [{ data: mangaRows, error: mangaError }, { data: chapterRows, error: chapterError }] = await Promise.all([
+        supabase
+            .from('mangas')
+            .select('id, title, alternative_titles, cover, banner, author, artist, status, genres, description, type, views, last_updated, created_at')
+            .in('id', uniqueMangaIds),
+        supabase
+            .from('chapters')
+            .select('id, manga_id, number, title, pages, views, release_date')
+            .in('manga_id', uniqueMangaIds),
+    ]);
+
+    if (mangaError || !mangaRows) {
+        if (mangaError) {
+            console.error('Offline manga metadata cache error:', mangaError);
+        }
+        return;
+    }
+
+    if (chapterError) {
+        console.error('Offline manga chapter metadata cache error:', chapterError);
+    }
+
+    const chaptersByMangaId = (chapterRows || []).reduce<Record<string, Manga['chapters']>>((map, chapter: any) => {
+        if (!map[chapter.manga_id]) {
+            map[chapter.manga_id] = [];
+        }
+
+        map[chapter.manga_id].push({
+            id: chapter.id,
+            number: Number(chapter.number),
+            title: chapter.title,
+            pages: Array.isArray(chapter.pages) ? chapter.pages : [],
+            releaseDate: chapter.release_date,
+            views: Number(chapter.views || 0),
+        });
+        return map;
+    }, {});
+
+    await Promise.all(
+        mangaRows.map(async (mangaRow: any) => {
+            const manga: Manga = {
+                id: mangaRow.id,
+                title: mangaRow.title,
+                alternativeTitles: mangaRow.alternative_titles || [],
+                cover: mangaRow.cover,
+                banner: mangaRow.banner,
+                author: mangaRow.author,
+                artist: mangaRow.artist,
+                status: mangaRow.status,
+                genres: mangaRow.genres || [],
+                description: mangaRow.description || '',
+                ratings: [],
+                views: Number(mangaRow.views || 0),
+                chapters: [...(chaptersByMangaId[mangaRow.id] || [])].sort((left, right) => right.number - left.number),
+                lastUpdated: mangaRow.last_updated,
+                createdAt: mangaRow.created_at,
+                type: mangaRow.type,
+                averageRating: 0,
+                reviewCount: 0,
+            };
+
+            await cacheOfflineManga(manga);
+        }),
+    );
 };
 
 export const calculateChapterReadProgressPercent = (page: number, pageCount: number) => {
@@ -261,6 +337,10 @@ const upsertLocalChapterReadProgress = (
         chapterNumber: number;
         page: number;
         pageCount: number;
+        mangaTitle?: string;
+        mangaCover?: string;
+        mangaAlternativeTitles?: string[];
+        chapterTitle?: string;
     },
 ): ChapterReadProgressEntry => {
     const safePageCount = getSafeChapterPageCount(progress.pageCount || 1);
@@ -282,6 +362,12 @@ const upsertLocalChapterReadProgress = (
         readProgressPercent: Math.max(existing?.readProgressPercent || 0, nextPercent),
         isRead: Boolean(existing?.isRead || nextPercent >= 60),
         lastRead: now,
+        mangaTitle: progress.mangaTitle || existing?.mangaTitle,
+        mangaCover: progress.mangaCover || existing?.mangaCover,
+        mangaAlternativeTitles: progress.mangaAlternativeTitles?.length
+            ? [...progress.mangaAlternativeTitles]
+            : existing?.mangaAlternativeTitles || [],
+        chapterTitle: progress.chapterTitle || existing?.chapterTitle,
     };
 
     store[userId] = {
@@ -291,6 +377,53 @@ const upsertLocalChapterReadProgress = (
 
     setLocalChapterReadStore(store);
     return nextEntry;
+};
+
+const hydrateLocalChapterReadMetadata = (
+    userId: string,
+    entries: Array<Partial<ChapterReadProgressEntry> & Pick<ChapterReadProgressEntry, 'mangaId' | 'chapterId' | 'chapterNumber'>>,
+) => {
+    if (!userId || entries.length === 0) {
+        return;
+    }
+
+    const store = getLocalChapterReadStore();
+    const userEntries = { ...(store[userId] || {}) };
+    let hasChanges = false;
+
+    entries.forEach((entry) => {
+        const current = userEntries[entry.chapterId];
+        if (!current) {
+            return;
+        }
+
+        const nextEntry: ChapterReadProgressEntry = {
+            ...current,
+            mangaTitle: entry.mangaTitle || current.mangaTitle,
+            mangaCover: entry.mangaCover || current.mangaCover,
+            mangaAlternativeTitles: entry.mangaAlternativeTitles?.length
+                ? [...entry.mangaAlternativeTitles]
+                : current.mangaAlternativeTitles || [],
+            chapterTitle: entry.chapterTitle || current.chapterTitle,
+        };
+
+        if (
+            nextEntry.mangaTitle !== current.mangaTitle
+            || nextEntry.mangaCover !== current.mangaCover
+            || JSON.stringify(nextEntry.mangaAlternativeTitles || []) !== JSON.stringify(current.mangaAlternativeTitles || [])
+            || nextEntry.chapterTitle !== current.chapterTitle
+        ) {
+            userEntries[entry.chapterId] = nextEntry;
+            hasChanges = true;
+        }
+    });
+
+    if (!hasChanges) {
+        return;
+    }
+
+    store[userId] = userEntries;
+    setLocalChapterReadStore(store);
 };
 
 const mergeChapterReadEntries = (
@@ -601,10 +734,10 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
                     chapterNumber: entry.chapterNumber,
                     page: entry.page,
                     lastRead: entry.lastRead,
-                    mangaTitle: offlineManga?.title,
-                    mangaCover: offlineManga?.cover,
-                    mangaAlternativeTitles: offlineManga?.alternativeTitles || [],
-                    chapterTitle: offlineChapter?.title,
+                    mangaTitle: offlineManga?.title || entry.mangaTitle,
+                    mangaCover: offlineManga?.cover || entry.mangaCover,
+                    mangaAlternativeTitles: offlineManga?.alternativeTitles || entry.mangaAlternativeTitles || [],
+                    chapterTitle: offlineChapter?.title || entry.chapterTitle,
                 } satisfies ReadingHistoryEntry;
             }),
         );
@@ -659,7 +792,9 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
         }
     }
 
-    return sortByLastReadDesc((data || []).map((entry: any) => ({
+    void cacheOfflineMangaMetadata((data || []).map((entry: any) => entry.manga_id));
+
+    const remoteEntries = (data || []).map((entry: any) => ({
         userId: entry.user_id,
         mangaId: entry.manga_id,
         chapterId: entry.chapter_id,
@@ -670,7 +805,11 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
         mangaCover: entry.manga?.cover,
         mangaAlternativeTitles: mapAlternativeTitles(entry.manga),
         chapterTitle: chapterTitleMap.get(entry.chapter_id),
-    })));
+    }));
+
+    hydrateLocalChapterReadMetadata(userId, remoteEntries);
+
+    return sortByLastReadDesc(remoteEntries);
 };
 
 export const syncChapterReadProgress = async (
@@ -681,6 +820,10 @@ export const syncChapterReadProgress = async (
         chapterNumber: number;
         page: number;
         pageCount: number;
+        mangaTitle?: string;
+        mangaCover?: string;
+        mangaAlternativeTitles?: string[];
+        chapterTitle?: string;
     },
 ): Promise<ChapterReadProgressEntry | null> => {
     if (!userId) {
@@ -693,24 +836,28 @@ export const syncChapterReadProgress = async (
         return localEntry;
     }
 
-    const { data, error } = await supabase.rpc('upsert_chapter_read_progress', {
-        p_manga_id: progress.mangaId,
-        p_chapter_id: progress.chapterId,
-        p_chapter_number: progress.chapterNumber,
-        p_page: progress.page,
-        p_page_count: progress.pageCount,
-    });
+    try {
+        const { data, error } = await supabase.rpc('upsert_chapter_read_progress', {
+            p_manga_id: progress.mangaId,
+            p_chapter_id: progress.chapterId,
+            p_chapter_number: progress.chapterNumber,
+            p_page: progress.page,
+            p_page_count: progress.pageCount,
+        });
 
-    if (error) {
-        if (handleChapterReadTableFeatureError(error)) {
+        if (error) {
+            if (handleChapterReadTableFeatureError(error)) {
+                return localEntry;
+            }
+
             return localEntry;
         }
 
+        chapterReadTableFeatureState = 'available';
+        return normalizeChapterReadProgress(data);
+    } catch {
         return localEntry;
     }
-
-    chapterReadTableFeatureState = 'available';
-    return normalizeChapterReadProgress(data);
 };
 
 export const getChapterReadProgressMap = async (
@@ -810,10 +957,10 @@ export const getChapterHistoryEntries = async (userId: string): Promise<ChapterH
 
                 return {
                     ...entry,
-                    mangaTitle: offlineManga?.title,
-                    mangaCover: offlineManga?.cover,
-                    mangaAlternativeTitles: offlineManga?.alternativeTitles || [],
-                    chapterTitle: offlineChapter?.title,
+                    mangaTitle: offlineManga?.title || entry.mangaTitle,
+                    mangaCover: offlineManga?.cover || entry.mangaCover,
+                    mangaAlternativeTitles: offlineManga?.alternativeTitles || entry.mangaAlternativeTitles || [],
+                    chapterTitle: offlineChapter?.title || entry.chapterTitle,
                 } satisfies ChapterHistoryEntry;
             }),
         );
@@ -915,6 +1062,9 @@ export const getChapterHistoryEntries = async (userId: string): Promise<ChapterH
         mangaAlternativeTitles: mapAlternativeTitles(entry.manga),
         chapterTitle: entry.chapter?.title,
     }));
+
+    void cacheOfflineMangaMetadata(remoteEntries.map((entry) => entry.mangaId));
+    hydrateLocalChapterReadMetadata(userId, remoteEntries);
 
     const mergedEntries = mergeChapterReadEntries(
         remoteEntries.reduce<Record<string, ChapterReadProgressEntry>>((map, entry) => {
@@ -1029,25 +1179,30 @@ export const getLatestProgress = async (userId: string, mangaId: string): Promis
         } satisfies ReadingProgress;
     };
 
-    const { data, error } = await supabase
-        .from('reading_progress')
-        .select('*')
-        .eq('user_id', userId)
-        .eq('manga_id', mangaId)
-        .maybeSingle();
+    try {
+        const { data, error } = await supabase
+            .from('reading_progress')
+            .select('*')
+            .eq('user_id', userId)
+            .eq('manga_id', mangaId)
+            .maybeSingle();
 
-    if (error || !data) {
+        if (error || !data) {
+            return buildFallbackProgress();
+        }
+
+        return {
+            ...data,
+            userId: data.user_id,
+            mangaId: data.manga_id,
+            chapterId: data.chapter_id,
+            chapterNumber: Number(data.chapter_number),
+            page: data.page,
+            lastRead: data.last_read
+        };
+    } catch {
         return buildFallbackProgress();
     }
-
-    return {
-        ...data,
-        userId: data.user_id,
-        mangaId: data.manga_id,
-        chapterId: data.chapter_id,
-        chapterNumber: Number(data.chapter_number),
-        lastRead: data.last_read
-    };
 };
 
 export const removeFromHistory = async (userId: string, mangaId: string): Promise<void> => {
@@ -1069,15 +1224,67 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
             .order('created_at', { ascending: false });
 
         if (!error) {
-            const bookmarks = (data || []).map(b => ({
-                ...b,
-                userId: b.user_id,
-                mangaId: b.manga_id,
-                chapterId: b.chapter_id,
-                chapterNumber: Number(b.chapter_number),
-                createdAt: b.created_at
-            }));
+            const rawBookmarks = (data || []).map((bookmark: any) => ({
+                ...bookmark,
+                userId: bookmark.user_id,
+                mangaId: bookmark.manga_id,
+                chapterId: bookmark.chapter_id,
+                chapterNumber: Number(bookmark.chapter_number),
+                createdAt: bookmark.created_at,
+            })) as Bookmark[];
+            const existingBookmarks = getCachedBookmarksState(userId);
+            const mangaIds = [...new Set(rawBookmarks.map((bookmark) => bookmark.mangaId).filter(Boolean))];
+            const chapterIds = [...new Set(rawBookmarks.map((bookmark) => bookmark.chapterId).filter(Boolean))];
+
+            const [{ data: mangaRows }, { data: chapterRows }] = await Promise.all([
+                mangaIds.length > 0
+                    ? supabase
+                        .from('mangas')
+                        .select('id, title, cover, alternative_titles')
+                        .in('id', mangaIds)
+                    : Promise.resolve({ data: [] as any[] }),
+                chapterIds.length > 0
+                    ? supabase
+                        .from('chapters')
+                        .select('id, title')
+                        .in('id', chapterIds)
+                    : Promise.resolve({ data: [] as any[] }),
+            ]);
+
+            const mangaMap = (mangaRows || []).reduce<Record<string, any>>((map, manga: any) => {
+                map[manga.id] = manga;
+                return map;
+            }, {});
+            const chapterMap = (chapterRows || []).reduce<Record<string, any>>((map, chapter: any) => {
+                map[chapter.id] = chapter;
+                return map;
+            }, {});
+            const existingBookmarkMap = existingBookmarks.reduce<Record<string, Bookmark>>((map, bookmark) => {
+                if (bookmark.id) {
+                    map[bookmark.id] = bookmark;
+                }
+
+                map[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}`] = bookmark;
+                return map;
+            }, {});
+
+            const bookmarks = rawBookmarks.map((bookmark) => {
+                const existingBookmark = (bookmark.id && existingBookmarkMap[bookmark.id])
+                    || existingBookmarkMap[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}`];
+                const manga = mangaMap[bookmark.mangaId];
+                const chapter = chapterMap[bookmark.chapterId];
+
+                return {
+                    ...bookmark,
+                    mangaTitle: manga?.title || existingBookmark?.mangaTitle,
+                    mangaCover: manga?.cover || existingBookmark?.mangaCover,
+                    mangaAlternativeTitles: manga?.alternative_titles || existingBookmark?.mangaAlternativeTitles || [],
+                    chapterTitle: chapter?.title || existingBookmark?.chapterTitle,
+                } satisfies Bookmark;
+            });
+
             setCachedBookmarks(userId, bookmarks);
+            void cacheOfflineMangaMetadata(mangaIds);
             return bookmarks;
         }
     }
@@ -1105,6 +1312,10 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         page: bookmark.page,
         note: bookmark.note,
         createdAt: new Date().toISOString(),
+        mangaTitle: bookmark.mangaTitle,
+        mangaCover: bookmark.mangaCover,
+        mangaAlternativeTitles: bookmark.mangaAlternativeTitles || [],
+        chapterTitle: bookmark.chapterTitle,
     };
 
     addCachedBookmark(userId, nextBookmark);

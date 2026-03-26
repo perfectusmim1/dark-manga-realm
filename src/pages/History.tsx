@@ -78,11 +78,17 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_45%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
     <div className="relative flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
       <Link to={`/manga/${item.mangaId}`} className="shrink-0">
-        <img
-          src={item.mangaCover}
-          alt={item.mangaTitle}
-          className="h-28 w-20 rounded-[22px] object-cover shadow-[0_16px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/10 transition-transform duration-300 group-hover:scale-[1.02]"
-        />
+        {item.mangaCover ? (
+          <img
+            src={item.mangaCover}
+            alt={item.mangaTitle}
+            className="h-28 w-20 rounded-[22px] object-cover shadow-[0_16px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/10 transition-transform duration-300 group-hover:scale-[1.02]"
+          />
+        ) : (
+          <div className="flex h-28 w-20 items-center justify-center rounded-[22px] bg-gradient-to-br from-primary/20 via-secondary/50 to-background text-2xl font-black text-muted-foreground shadow-[0_16px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/10">
+            {(item.mangaTitle || '?').slice(0, 1).toLocaleUpperCase('tr-TR')}
+          </div>
+        )}
       </Link>
 
       <div className="min-w-0 flex-1">
@@ -142,11 +148,17 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
     style={{ animationDelay: `${0.08 + Math.min(index, 11) * 0.02}s`, animationFillMode: 'forwards' }}
   >
     <div className="relative aspect-square overflow-hidden">
-      <img
-        src={item.mangaCover}
-        alt={item.mangaTitle}
-        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-      />
+      {item.mangaCover ? (
+        <img
+          src={item.mangaCover}
+          alt={item.mangaTitle}
+          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+        />
+      ) : (
+        <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 via-secondary/40 to-background text-4xl font-black text-muted-foreground">
+          {(item.mangaTitle || '?').slice(0, 1).toLocaleUpperCase('tr-TR')}
+        </div>
+      )}
       <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
       <div className="absolute left-3 top-3 flex flex-wrap gap-2">
         <Badge
