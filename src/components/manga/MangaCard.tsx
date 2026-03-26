@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Star, Eye, BookOpen, Clock, User } from 'lucide-react';
 import { Manga } from '@/lib/types';
@@ -35,7 +35,7 @@ const getTopTenWeekIds = async () => {
   return topTenWeekIdsPromise;
 };
 
-const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
+const MangaCardComponent: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
   const [isTopTenWeek, setIsTopTenWeek] = useState(false);
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
@@ -262,6 +262,8 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
     </HoverCard>
   );
 };
+
+const MangaCard = memo(MangaCardComponent);
 
 export default MangaCard;
 

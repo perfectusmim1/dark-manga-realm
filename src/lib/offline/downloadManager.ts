@@ -1,5 +1,4 @@
 import { Chapter, Manga } from '@/lib/types';
-import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase';
 import {
   cacheOfflineChapterMetadata,
   cacheOfflineManga,
@@ -23,8 +22,8 @@ import {
 } from '@/lib/offline/types';
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
+import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
 
-const PROXY_FUNCTION_URL = `${supabaseUrl}/functions/v1/offline-image-proxy`;
 const PAGE_DOWNLOAD_CONCURRENCY = 3;
 
 interface DownloadedPageResult {
@@ -179,14 +178,28 @@ const downloadImageViaProxy = async (
   signal: AbortSignal,
   onChunk: (delta: number) => void,
 ) => {
-  const response = await fetch(PROXY_FUNCTION_URL, {
-    method: 'POST',
-    headers: {
+  if (offlineProxyConfig.usesSupabaseAuth) {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
-      apikey: supabaseAnonKey,
-      Authorization: `Bearer ${supabaseAnonKey}`,
-    },
-    body: JSON.stringify({ url: sourceUrl }),
+    };
+
+    headers.apikey = offlineProxyConfig.supabaseAnonKey;
+    headers.Authorization = `Bearer ${offlineProxyConfig.supabaseAnonKey}`;
+
+    const response = await fetch(offlineProxyConfig.url, {
+      method: 'POST',
+      headers,
+      body: JSON.stringify({ url: sourceUrl }),
+      signal,
+    });
+
+    return readStreamToBlob(response, signal, onChunk);
+  }
+
+  // Use a simple text/plain POST for custom proxies so the browser skips CORS preflight.
+  const response = await fetch(offlineProxyConfig.url, {
+    method: 'POST',
+    body: sourceUrl,
     signal,
   });
 

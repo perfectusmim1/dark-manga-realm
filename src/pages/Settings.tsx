@@ -591,7 +591,7 @@ const Settings: React.FC = () => {
                         </TabsTrigger>
                     </TabsList>
 
-                    <TabsContent value="profile">
+                    <TabsContent value="profile" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle>Genel Bilgiler</CardTitle>
@@ -645,7 +645,7 @@ const Settings: React.FC = () => {
                         </Card>
                     </TabsContent>
 
-                    <TabsContent value="security">
+                    <TabsContent value="security" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <div className="grid gap-6">
                             {/* Email Section */}
                             <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
@@ -972,7 +972,7 @@ const Settings: React.FC = () => {
                         </div>
                     </TabsContent>
 
-                    <TabsContent value="notifications">
+                    <TabsContent value="notifications" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -1045,7 +1045,7 @@ const Settings: React.FC = () => {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="privacy">
+                    <TabsContent value="privacy" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -1088,7 +1088,7 @@ const Settings: React.FC = () => {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="preferences">
+                    <TabsContent value="preferences" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">
@@ -1146,7 +1146,7 @@ const Settings: React.FC = () => {
                             </CardContent>
                         </Card>
                     </TabsContent>
-                    <TabsContent value="blocked">
+                    <TabsContent value="blocked" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
                             <CardHeader>
                                 <CardTitle className="flex items-center gap-2">

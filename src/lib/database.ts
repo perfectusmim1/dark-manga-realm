@@ -132,6 +132,14 @@ let adminAccessContextCache:
     | { authUserId: string | null; value: AdminAccessContext }
     | null = null;
 let adminAccessContextPromise: Promise<AdminAccessContext> | null = null;
+const ALL_MANGAS_CACHE_TTL_MS = 60_000;
+let allMangasCache: { fetchedAt: number; value: Manga[] } | null = null;
+let allMangasPromise: Promise<Manga[]> | null = null;
+
+const invalidateAllMangasCache = () => {
+    allMangasCache = null;
+    allMangasPromise = null;
+};
 
 export const getCachedAdminAccessContext = (authUserId?: string | null): AdminAccessContext | null => {
     if (!authUserId || adminAccessContextCache?.authUserId !== authUserId) {
@@ -192,6 +200,14 @@ export const canAccessOwnedContent = async (
  * Fetch all mangas from Supabase
  */
 export const getAllMangas = async (): Promise<Manga[]> => {
+    if (allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+        return allMangasCache.value;
+    }
+
+    if (allMangasPromise) {
+        return allMangasPromise;
+    }
+
     // Add a safety timeout
     const timeout = new Promise((_, reject) =>
         setTimeout(() => reject(new Error('Manga fetch timeout')), 8000)
@@ -199,32 +215,63 @@ export const getAllMangas = async (): Promise<Manga[]> => {
 
     try {
         const fetchManga = async () => {
-            const { data, error } = await supabase
-                .from('mangas')
-                .select('*')
-                .order('last_updated', { ascending: false });
+            const [
+                { data, error },
+                { data: revData, error: reviewsError },
+                { data: cData, error: chaptersError },
+            ] = await Promise.all([
+                supabase
+                    .from('mangas')
+                    .select('*')
+                    .order('last_updated', { ascending: false }),
+                supabase
+                    .from('reviews')
+                    .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
+                supabase
+                    .from('chapters')
+                    .select('id, manga_id, number')
+                    .order('number', { ascending: true }),
+            ]);
 
             if (error) throw error;
+            if (reviewsError) console.error('Manga list review aggregate fetch error:', reviewsError);
+            if (chaptersError) console.error('Manga list chapter aggregate fetch error:', chaptersError);
 
-            // Get all reviews to calculate averages
-            const { data: revData } = await supabase.from('reviews').select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement');
-            const allReviews = revData || [];
+            const chaptersByMangaId = new Map<string, { id: string; number: number }[]>();
+            for (const chapter of cData || []) {
+                const mangaChapters = chaptersByMangaId.get(chapter.manga_id) || [];
+                mangaChapters.push({ id: chapter.id, number: chapter.number });
+                chaptersByMangaId.set(chapter.manga_id, mangaChapters);
+            }
 
-            // Get chapter counts and first chapters
-            const { data: cData } = await supabase.from('chapters').select('id, manga_id, number').order('number', { ascending: true });
-            const allChapters = cData || [];
+            const reviewStatsByMangaId = new Map<string, { average: number; reviewCount: number }>();
+            const reviewBuckets = new Map<string, { total: number; count: number }>();
+            for (const review of revData || []) {
+                const rating =
+                    (review.rating_story +
+                        review.rating_characters +
+                        review.rating_art +
+                        review.rating_progression +
+                        review.rating_engagement) / 5;
 
-            return data.map((m) => {
-                const mangaChapters = allChapters.filter(c => c.manga_id === m.id);
-                const mangaReviews = allReviews.filter(r => r.manga_id === m.id);
+                const currentBucket = reviewBuckets.get(review.manga_id) || { total: 0, count: 0 };
+                currentBucket.total += rating;
+                currentBucket.count += 1;
+                reviewBuckets.set(review.manga_id, currentBucket);
+            }
 
-                let average = 0;
-                if (mangaReviews.length > 0) {
-                    const totalPoints = mangaReviews.reduce((sum, r) =>
-                        sum + (r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5
-                        , 0);
-                    average = Math.round((totalPoints / mangaReviews.length) * 10) / 10;
-                }
+            for (const [mangaId, bucket] of reviewBuckets.entries()) {
+                reviewStatsByMangaId.set(mangaId, {
+                    average: Math.round((bucket.total / bucket.count) * 10) / 10,
+                    reviewCount: bucket.count,
+                });
+            }
+
+            return (data || []).map((m) => {
+                const mangaChapters = chaptersByMangaId.get(m.id) || [];
+                const reviewStats = reviewStatsByMangaId.get(m.id);
+                const average = reviewStats?.average || 0;
+                const reviewCount = reviewStats?.reviewCount || 0;
 
                 return {
                     ...m,
@@ -232,18 +279,28 @@ export const getAllMangas = async (): Promise<Manga[]> => {
                     lastUpdated: m.last_updated,
                     createdAt: m.created_at,
                     releaseYear: m.release_year,
-                    chapters: mangaChapters.map(c => ({ id: c.id, number: c.number })),
-                    ratings: Array(mangaReviews.length).fill({ rating: average }), // Simplified for list view
+                    chapters: mangaChapters,
+                    ratings: Array(reviewCount).fill({ rating: average }), // Simplified for list view
                     averageRating: average,
-                    reviewCount: mangaReviews.length
+                    reviewCount,
                 } as any;
             });
         };
 
-        return (await Promise.race([fetchManga(), timeout])) as Manga[];
+        allMangasPromise = Promise.race([fetchManga(), timeout]) as Promise<Manga[]>;
+        const mangas = await allMangasPromise;
+        allMangasCache = {
+            fetchedAt: Date.now(),
+            value: mangas,
+        };
+
+        return mangas;
     } catch (error) {
+        invalidateAllMangasCache();
         console.error('Manga fetch global error:', error);
         return [];
+    } finally {
+        allMangasPromise = null;
     }
 };
 
@@ -351,6 +408,7 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         .upsert(mangaData);
 
     if (error) throw error;
+    invalidateAllMangasCache();
 
     // Sync chapters as well
     if (manga.chapters && manga.chapters.length > 0) {
@@ -382,6 +440,7 @@ export const deleteManga = async (mangaId: string): Promise<void> => {
         .eq('id', mangaId);
 
     if (error) throw error;
+    invalidateAllMangasCache();
 };
 
 // ==================== CHAPTER OPERATIONS ====================
@@ -408,6 +467,7 @@ export const addChapterToManga = async (mangaId: string, chapter: Chapter): Prom
 
     // Update manga last_updated
     await supabase.from('mangas').update({ last_updated: new Date().toISOString() }).eq('id', mangaId);
+    invalidateAllMangasCache();
     return true;
 };
 
@@ -417,6 +477,10 @@ export const deleteChapter = async (mangaId: string, chapterId: string): Promise
         .delete()
         .eq('id', chapterId)
         .eq('manga_id', mangaId);
+
+    if (!error) {
+        invalidateAllMangasCache();
+    }
 
     return !error;
 };

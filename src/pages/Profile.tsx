@@ -470,7 +470,7 @@ const Profile: React.FC = () => {
               )}
             </TabsList>
             
-            <TabsContent value="overview" className="mt-0 space-y-8">
+            <TabsContent value="overview" className="mt-0 space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-300">
               {/* Detailed Stats Grid */}
               <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-5">
                 <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
@@ -558,7 +558,7 @@ const Profile: React.FC = () => {
               )}
             </TabsContent>
             
-            <TabsContent value="favorites" className="mt-0">
+            <TabsContent value="favorites" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                <div className="text-center py-16 rounded-xl border border-border bg-card/50">
                  <Info className="w-12 h-12 mx-auto text-muted-foreground mb-4" />
                  <h3 className="text-lg font-medium">Yakında</h3>
@@ -567,7 +567,7 @@ const Profile: React.FC = () => {
             </TabsContent>
             
             {canViewAchievements && (
-            <TabsContent value="achievements" className="mt-0">
+            <TabsContent value="achievements" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {Object.values(ACHIEVEMENTS).map((achievement) => {
                    const unlockedRecord = achievements.find(a => a.achievement_id === achievement.id);
@@ -626,7 +626,7 @@ const Profile: React.FC = () => {
             </TabsContent>
             )}
             {canViewAnyLists && (
-            <TabsContent value="tierlists" className="mt-0">
+            <TabsContent value="tierlists" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                <div className="space-y-8">
                  {canViewReadingLists && (
                    <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
@@ -721,7 +721,7 @@ const Profile: React.FC = () => {
              </TabsContent>
             )}
             {canViewComments && (
-            <TabsContent value="comments" className="mt-0">
+            <TabsContent value="comments" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <div className="rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-6 md:p-8">
                  <div className="mb-4 flex items-center justify-between gap-3 sm:mb-6">
                    <div className="flex items-center gap-2">
@@ -819,7 +819,7 @@ const Profile: React.FC = () => {
              </TabsContent>
             )}
             {canViewFollowedManga && (
-            <TabsContent value="following-manga" className="mt-0">
+            <TabsContent value="following-manga" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                 <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">
                  <div className="mb-6 flex items-center justify-between gap-3">
                    <div className="flex items-center gap-2">

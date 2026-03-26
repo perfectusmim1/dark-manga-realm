@@ -445,12 +445,12 @@ const ReadingListDetail: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+                        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
                             {listItems.map((manga, index) => {
                                 const isSelected = selectedMangaIds.includes(manga.id);
 
                                 return (
-                                    <div key={manga.id} className="relative">
+                                    <div key={manga.id} className="relative mx-auto w-full max-w-[9rem] sm:max-w-[9.5rem]">
                                         <div className={cn(isSelectionMode && 'pointer-events-none')}>
                                             <MangaCard manga={manga} index={index} />
                                         </div>

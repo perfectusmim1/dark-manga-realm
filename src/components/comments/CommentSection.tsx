@@ -220,6 +220,72 @@ interface CommentComposerProps {
     textareaRef?: React.Ref<HTMLTextAreaElement>;
 }
 
+interface AnimatedComposerProps {
+    open: boolean;
+    children: React.ReactNode;
+    className?: string;
+}
+
+const REPLY_COMPOSER_ANIMATION_MS = 200;
+
+const AnimatedComposer: React.FC<AnimatedComposerProps> = ({ open, children, className }) => {
+    const [shouldRender, setShouldRender] = useState(open);
+    const [isVisible, setIsVisible] = useState(open);
+
+    useEffect(() => {
+        let frameId: number | null = null;
+        let nestedFrameId: number | null = null;
+        let timeoutId: number | null = null;
+
+        if (open) {
+            setShouldRender(true);
+            setIsVisible(false);
+            frameId = window.requestAnimationFrame(() => {
+                nestedFrameId = window.requestAnimationFrame(() => {
+                    setIsVisible(true);
+                });
+            });
+        } else {
+            setIsVisible(false);
+            timeoutId = window.setTimeout(() => {
+                setShouldRender(false);
+            }, REPLY_COMPOSER_ANIMATION_MS);
+        }
+
+        return () => {
+            if (frameId !== null) {
+                window.cancelAnimationFrame(frameId);
+            }
+            if (nestedFrameId !== null) {
+                window.cancelAnimationFrame(nestedFrameId);
+            }
+            if (timeoutId !== null) {
+                window.clearTimeout(timeoutId);
+            }
+        };
+    }, [open]);
+
+    if (!shouldRender) {
+        return null;
+    }
+
+    return (
+        <div
+            className={cn(
+                'grid overflow-hidden transition-[grid-template-rows,opacity,transform,margin] duration-200 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)]',
+                isVisible ? 'mt-3 grid-rows-[1fr] translate-y-0 opacity-100' : 'mt-0 grid-rows-[0fr] -translate-y-1 opacity-0',
+                className
+            )}
+        >
+            <div className="min-h-0 overflow-hidden">
+                <div className={cn('transition-[opacity,transform] duration-200 [transition-timing-function:cubic-bezier(0.22,1,0.36,1)]', isVisible ? 'translate-y-0 opacity-100' : '-translate-y-1 opacity-0')}>
+                    {children}
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const CommentComposer: React.FC<CommentComposerProps> = ({
     draft,
     placeholder,
@@ -1839,8 +1905,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                         )}
                                     </div>
 
-                                    {replyingTo === reply.id && user && (
-                                        <div className="mt-3">
+                                    <AnimatedComposer open={replyingTo === reply.id && Boolean(user)}>
+                                        {user && (
                                             <CommentComposer
                                                 key={`reply-${reply.id}`}
                                                 draft={replyDraft}
@@ -1859,8 +1925,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     setReplyDraft(createEmptyDraft());
                                                 }}
                                             />
-                                        </div>
-                                    )}
+                                        )}
+                                    </AnimatedComposer>
 
                                     {!renderNestedAsSibling && nestedReplies}
                                 </div>
@@ -2368,8 +2434,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     )}
                                                 </div>
 
-                                                {replyingTo === comment.id && user && (
-                                                    <div className="mt-3">
+                                                <AnimatedComposer open={replyingTo === comment.id && Boolean(user)}>
+                                                    {user && (
                                                         <CommentComposer
                                                             key={`reply-${comment.id}`}
                                                             draft={replyDraft}
@@ -2388,8 +2454,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                 setReplyDraft(createEmptyDraft());
                                                             }}
                                                         />
-                                                    </div>
-                                                )}
+                                                    )}
+                                                </AnimatedComposer>
 
                                                 {getReplies(comment.id).length > 0 && (
                                                     <div

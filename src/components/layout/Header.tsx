@@ -111,27 +111,74 @@ const Header: React.FC = () => {
   const mobileCharactersLongPressTimeoutRef = useRef<number | null>(null);
   const mobileCharactersLongPressTriggeredRef = useRef(false);
   const mobileCharactersMenuRef = useRef<HTMLDivElement | null>(null);
+  const mangaSearchLoadPromiseRef = useRef<Promise<Manga[]> | null>(null);
+  const characterSearchLoadPromiseRef = useRef<Promise<Character[]> | null>(null);
 
-  // Load all mangas for quick search once
-  useEffect(() => {
-    const loadInitialData = async () => {
-      try {
-        const [mangaData, charData] = await Promise.all([
-          getAllMangas(),
-          getCharacters()
-        ]);
-        setAllMangas(mangaData);
-        setAllCharacters(charData);
-      } catch (err) {
-        console.error('Quick search data load failed:', err);
-      }
-    };
-    loadInitialData();
-  }, []);
+  const ensureMangasLoaded = async () => {
+    if (!isOnline) {
+      return allMangas;
+    }
+
+    if (allMangas.length > 0) {
+      return allMangas;
+    }
+
+    if (!mangaSearchLoadPromiseRef.current) {
+      mangaSearchLoadPromiseRef.current = getAllMangas()
+        .then((data) => {
+          setAllMangas((current) => (current.length > 0 ? current : data));
+          return data;
+        })
+        .catch((err) => {
+          console.error('Quick search manga load failed:', err);
+          return [];
+        })
+        .finally(() => {
+          mangaSearchLoadPromiseRef.current = null;
+        });
+    }
+
+    return mangaSearchLoadPromiseRef.current;
+  };
+
+  const ensureCharactersLoaded = async () => {
+    if (!isOnline) {
+      return allCharacters;
+    }
+
+    if (allCharacters.length > 0) {
+      return allCharacters;
+    }
+
+    if (!characterSearchLoadPromiseRef.current) {
+      characterSearchLoadPromiseRef.current = getCharacters()
+        .then((data) => {
+          setAllCharacters((current) => (current.length > 0 ? current : data));
+          return data;
+        })
+        .catch((err) => {
+          console.error('Quick search character load failed:', err);
+          return [];
+        })
+        .finally(() => {
+          characterSearchLoadPromiseRef.current = null;
+        });
+    }
+
+    return characterSearchLoadPromiseRef.current;
+  };
+
+  const ensureQuickSearchData = async () => {
+    await Promise.all([ensureMangasLoaded(), ensureCharactersLoaded()]);
+  };
 
   // Filter for quick results
   useEffect(() => {
     if (searchQuery.trim().length > 1) {
+      if (allMangas.length === 0 || allCharacters.length === 0) {
+        void ensureQuickSearchData();
+      }
+
       const query = searchQuery.toLocaleLowerCase('tr-TR');
       const filtered = allMangas
         .filter(m =>
@@ -158,6 +205,7 @@ const Header: React.FC = () => {
       navigate(`/browse?search=${encodeURIComponent(searchQuery)}`);
       setSearchQuery('');
       setQuickResults([]);
+      setQuickCharacterResults([]);
       setIsSearchFocused(false);
     }
   };
@@ -388,7 +436,7 @@ const Header: React.FC = () => {
       }
 
       const mangas = isOnline
-        ? (allMangas.length > 0 ? allMangas : await getAllMangas())
+        ? (allMangas.length > 0 ? allMangas : await ensureMangasLoaded())
         : snapshot.series.map(({ manga }) => ({
           id: manga.mangaId,
           title: manga.title,
@@ -559,41 +607,48 @@ const Header: React.FC = () => {
               placeholder="Manga, manhwa, webtoon veya yazar ara..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => setIsSearchFocused(true)}
+              onFocus={() => {
+                setIsSearchFocused(true);
+                void ensureQuickSearchData();
+              }}
               onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
               className="w-full pl-10"
             />
             {/* Quick Search Dropdown */}
-            {isSearchFocused && quickResults.length > 0 && (
+            {isSearchFocused && (quickResults.length > 0 || quickCharacterResults.length > 0) && (
               <div className="absolute top-full left-0 right-0 mt-2 overflow-hidden rounded-xl border border-border bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
                 <div className="p-2">
-                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Seriler</p>
-                  <div className="mt-1 space-y-1">
-                    {quickResults.map((manga) => (
-                      <button
-                        key={manga.id}
-                        onClick={() => handleResultClick(manga.id)}
-                        className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
-                      >
-                        <img
-                          src={manga.cover}
-                          alt={manga.title}
-                          className="h-12 w-9 rounded object-cover shadow-sm group-hover:scale-105 transition-transform"
-                        />
-                        <div className="flex-1 min-w-0">
-                          <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
-                          <div className="flex items-center gap-2 mt-0.5">
-                            <span className="text-[10px] text-muted-foreground capitalize">{manga.type}</span>
-                            <span className="h-1 w-1 rounded-full bg-border" />
-                            <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
-                              <Star className="h-2.5 w-2.5 fill-current" />
-                              {(manga as any).averageRating || '0.0'}
+                  {quickResults.length > 0 && (
+                    <>
+                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Seriler</p>
+                      <div className="mt-1 space-y-1">
+                        {quickResults.map((manga) => (
+                          <button
+                            key={manga.id}
+                            onClick={() => handleResultClick(manga.id)}
+                            className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
+                          >
+                            <img
+                              src={manga.cover}
+                              alt={manga.title}
+                              className="h-12 w-9 rounded object-cover shadow-sm group-hover:scale-105 transition-transform"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[10px] text-muted-foreground capitalize">{manga.type}</span>
+                                <span className="h-1 w-1 rounded-full bg-border" />
+                                <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
+                                  <Star className="h-2.5 w-2.5 fill-current" />
+                                  {(manga as any).averageRating || '0.0'}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        </div>
-                      </button>
-                    ))}
-                  </div>
+                          </button>
+                        ))}
+                      </div>
+                    </>
+                  )}
 
                   {quickCharacterResults.length > 0 && (
                     <div className="mt-3">

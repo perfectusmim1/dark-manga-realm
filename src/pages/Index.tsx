@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen, ChevronLeft, ChevronRight, Download, WifiOff } from 'lucide-react';
 import Header from '@/components/layout/Header';
@@ -289,6 +289,26 @@ const Index: React.FC = () => {
     };
   }, [authLoading, isOnline, mangas, user]);
 
+  const {
+    trendingManga,
+    newlyAddedSeries,
+    recentlyUpdated,
+    popularManhwa,
+    popularManhua,
+    popularWebtoon,
+  } = useMemo(() => ({
+    trendingManga: [...mangas].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8),
+    newlyAddedSeries: [...mangas]
+      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+      .slice(0, 8),
+    recentlyUpdated: [...mangas]
+      .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
+      .slice(0, 12),
+    popularManhwa: mangas.filter(m => m.type === 'manhwa').slice(0, 8),
+    popularManhua: mangas.filter(m => m.type === 'manhua').slice(0, 8),
+    popularWebtoon: mangas.filter(m => m.type === 'webtoon').slice(0, 8),
+  }), [mangas]);
+
   if ((isLoading && isOnline) || (!isOnline && offlineLibraryLoading)) {
     return (
       <>
@@ -297,17 +317,6 @@ const Index: React.FC = () => {
       </>
     );
   }
-
-  const trendingManga = [...mangas].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8);
-  const newlyAddedSeries = [...mangas]
-    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-    .slice(0, 8);
-  const recentlyUpdated = [...mangas]
-    .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
-    .slice(0, 12);
-  const popularManhwa = mangas.filter(m => m.type === 'manhwa').slice(0, 8);
-  const popularManhua = mangas.filter(m => m.type === 'manhua').slice(0, 8);
-  const popularWebtoon = mangas.filter(m => m.type === 'webtoon').slice(0, 8);
 
   return (
     <div className="min-h-screen bg-background">
