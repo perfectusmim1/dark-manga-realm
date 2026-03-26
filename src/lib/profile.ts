@@ -32,6 +32,35 @@ export const canAccessPrivacyScope = (
     return false;
 };
 
+const buildProfileSectionAccess = (
+    privacy: NonNullable<User['preferences']>['privacy'] | undefined,
+    ownerId: string,
+    viewerId?: string,
+    isMutualFollow: boolean = false
+) => {
+    const profile = canAccessPrivacyScope(privacy?.visibility, ownerId, viewerId, isMutualFollow);
+
+    if (!profile) {
+        return {
+            profile: false,
+            readingHistory: false,
+            comments: false,
+            readingLists: false,
+            tierLists: false,
+            followedManga: false,
+        };
+    }
+
+    return {
+        profile: true,
+        readingHistory: canAccessPrivacyScope(privacy?.reading_history_visibility, ownerId, viewerId, isMutualFollow),
+        comments: canAccessPrivacyScope(privacy?.comments_visibility, ownerId, viewerId, isMutualFollow),
+        readingLists: canAccessPrivacyScope(privacy?.reading_lists_visibility, ownerId, viewerId, isMutualFollow),
+        tierLists: canAccessPrivacyScope(privacy?.tier_lists_visibility, ownerId, viewerId, isMutualFollow),
+        followedManga: canAccessPrivacyScope(privacy?.followed_manga_visibility, ownerId, viewerId, isMutualFollow),
+    };
+};
+
 export interface ProfileRecentComment {
     id: string;
     entityType: 'manga' | 'character' | 'author' | 'artist';
@@ -286,56 +315,6 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         
     if (userError) throw userError;
     
-    // Get stats: total distinct series read, total chapters read
-    const { count: totalSeries } = await supabase
-        .from('reading_progress')
-        .select('manga_id', { count: 'exact', head: true })
-        .eq('user_id', userId);
-        
-    const totalChapters = await getCompletedChapterCount(userId);
-
-    const { data: readingTimeRows } = await supabase
-        .from('reading_activity_log')
-        .select('seconds_spent')
-        .eq('user_id', userId);
-
-    const totalReadingSeconds = (readingTimeRows || []).reduce((sum: number, row: any) => sum + (row.seconds_spent || 0), 0);
-        
-    const [
-        { count: totalComments },
-        { count: totalCharacterComments },
-        { count: totalAuthorComments },
-        { count: totalArtistComments },
-    ] = await Promise.all([
-        supabase
-            .from('comments')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
-        supabase
-            .from('character_comments')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
-        supabase
-            .from('author_comments')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
-        supabase
-            .from('artist_comments')
-            .select('id', { count: 'exact', head: true })
-            .eq('user_id', userId),
-    ]);
-
-    // Get following/follower counts
-    const { count: followersCount } = await supabase
-        .from('user_follows')
-        .select('id', { count: 'exact', head: true })
-        .eq('followed_id', userId);
-
-    const { count: followingCount } = await supabase
-        .from('user_follows')
-        .select('id', { count: 'exact', head: true })
-        .eq('follower_id', userId);
-
     // Check relationship with current user
     let isFollowing = false;
     let isFollowedBy = false;
@@ -358,14 +337,100 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
 
     const isMutualFollow = isFollowing && isFollowedBy;
     const privacy = user.preferences?.privacy;
-    const sectionAccess = {
-        profile: canAccessPrivacyScope(privacy?.visibility, userId, currentUserId, isMutualFollow),
-        readingHistory: canAccessPrivacyScope(privacy?.reading_history_visibility, userId, currentUserId, isMutualFollow),
-        comments: canAccessPrivacyScope(privacy?.comments_visibility, userId, currentUserId, isMutualFollow),
-        readingLists: canAccessPrivacyScope(privacy?.reading_lists_visibility, userId, currentUserId, isMutualFollow),
-        tierLists: canAccessPrivacyScope(privacy?.tier_lists_visibility, userId, currentUserId, isMutualFollow),
-        followedManga: canAccessPrivacyScope(privacy?.followed_manga_visibility, userId, currentUserId, isMutualFollow),
-    };
+    const sectionAccess = buildProfileSectionAccess(privacy, userId, currentUserId, isMutualFollow);
+
+    if (!sectionAccess.profile) {
+        return {
+            ...user,
+            stats: {
+                totalSeries: 0,
+                totalChapters: 0,
+                totalReadingSeconds: 0,
+                totalComments: 0,
+                followersCount: 0,
+                followingCount: 0,
+            },
+            relationship: {
+                isFollowing,
+                isFollowedBy,
+                isMutualFollow,
+                isBlocked,
+                isBlockedByOwner,
+            },
+            sectionAccess,
+            recentReads: [],
+            recentComments: [],
+            followedManga: [],
+        };
+    }
+
+    const readingHistoryStatsPromise = sectionAccess.readingHistory
+        ? (async () => {
+            const [{ count: totalSeries }, totalChapters, { data: readingTimeRows }] = await Promise.all([
+                supabase
+                    .from('reading_progress')
+                    .select('manga_id', { count: 'exact', head: true })
+                    .eq('user_id', userId),
+                getCompletedChapterCount(userId),
+                supabase
+                    .from('reading_activity_log')
+                    .select('seconds_spent')
+                    .eq('user_id', userId),
+            ]);
+
+            return {
+                totalSeries: totalSeries || 0,
+                totalChapters: totalChapters || 0,
+                totalReadingSeconds: (readingTimeRows || []).reduce((sum: number, row: any) => sum + (row.seconds_spent || 0), 0),
+            };
+        })()
+        : Promise.resolve({
+            totalSeries: 0,
+            totalChapters: 0,
+            totalReadingSeconds: 0,
+        });
+
+    const commentsStatsPromise = sectionAccess.comments
+        ? Promise.all([
+            supabase
+                .from('comments')
+                .select('id', { count: 'exact', head: true })
+                .eq('user_id', userId),
+            supabase
+                .from('character_comments')
+                .select('id', { count: 'exact', head: true })
+                .eq('user_id', userId),
+            supabase
+                .from('author_comments')
+                .select('id', { count: 'exact', head: true })
+                .eq('user_id', userId),
+            supabase
+                .from('artist_comments')
+                .select('id', { count: 'exact', head: true })
+                .eq('user_id', userId),
+        ]).then(([
+            { count: totalComments },
+            { count: totalCharacterComments },
+            { count: totalAuthorComments },
+            { count: totalArtistComments },
+        ]) => ({
+            totalComments: (totalComments || 0) + (totalCharacterComments || 0) + (totalAuthorComments || 0) + (totalArtistComments || 0),
+        }))
+        : Promise.resolve({ totalComments: 0 });
+
+    const socialStatsPromise = Promise.all([
+        supabase
+            .from('user_follows')
+            .select('id', { count: 'exact', head: true })
+            .eq('followed_id', userId),
+        supabase
+            .from('user_follows')
+            .select('id', { count: 'exact', head: true })
+            .eq('follower_id', userId),
+    ]).then(([{ count: followersCount }, { count: followingCount }]) => ({
+        followersCount: followersCount || 0,
+        followingCount: followingCount || 0,
+    }));
 
     const recentReadsPromise = sectionAccess.readingHistory
         ? supabase
@@ -376,7 +441,10 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
             .limit(4)
         : Promise.resolve({ data: [] as any[] });
 
-    const [recentReadsResult, recentComments, followedManga] = await Promise.all([
+    const [{ totalSeries, totalChapters, totalReadingSeconds }, { totalComments }, { followersCount, followingCount }, recentReadsResult, recentComments, followedManga] = await Promise.all([
+        readingHistoryStatsPromise,
+        commentsStatsPromise,
+        socialStatsPromise,
         recentReadsPromise,
         sectionAccess.comments ? getUserRecentComments(userId) : Promise.resolve([]),
         sectionAccess.followedManga ? getUserFollowedManga(userId) : Promise.resolve([]),
@@ -388,7 +456,7 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
             totalSeries: totalSeries || 0,
             totalChapters: totalChapters || 0,
             totalReadingSeconds,
-            totalComments: (totalComments || 0) + (totalCharacterComments || 0) + (totalAuthorComments || 0) + (totalArtistComments || 0),
+            totalComments,
             followersCount: followersCount || 0,
             followingCount: followingCount || 0,
         },

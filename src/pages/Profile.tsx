@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { canAccessPrivacyScope, formatReadingDuration, getUserProfile, getReadingActivity, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
+import { formatReadingDuration, getUserProfile, getReadingActivity, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
 import { ACHIEVEMENTS } from '@/lib/achievements';
 import { supabase } from '@/lib/supabase';
 import { useToast } from "@/components/ui/use-toast";
@@ -52,9 +52,21 @@ const Profile: React.FC = () => {
         
         setLoading(true);
         const profile = await getUserProfile(userId, currentUser?.id);
-        
-        // Sync & Fetch Achievements in background
-        const { data: unlockedData } = await syncAchievements(userId, profile.stats);
+        const profileVisible = profile.sectionAccess?.profile ?? true;
+        const canLoadAchievements = profileVisible && (profile.sectionAccess?.readingHistory ?? true) && (profile.sectionAccess?.comments ?? true);
+
+        if (!profileVisible) {
+          setProfileData(profile);
+          setActivityData([]);
+          setAchievements([]);
+          setReadingLists([]);
+          setTierLists([]);
+          return;
+        }
+
+        const { data: unlockedData } = canLoadAchievements
+          ? await syncAchievements(userId, profile.stats)
+          : { data: [] };
         
         const [activity, readingListsResponse, tierListsResponse] = await Promise.all([
           profile.sectionAccess?.readingHistory ? getReadingActivity(userId, 365) : Promise.resolve([]),
@@ -123,17 +135,17 @@ const Profile: React.FC = () => {
     );
   }
 
-  const visibility = profileData.preferences?.privacy?.visibility || 'public';
-  const canView = canAccessPrivacyScope(visibility, profileData.id, currentUser?.id, profileData.relationship.isMutualFollow);
+  const canView = profileData.sectionAccess?.profile ?? true;
   const canViewReadingHistory = profileData.sectionAccess?.readingHistory ?? true;
   const canViewReadingLists = profileData.sectionAccess?.readingLists ?? true;
   const canViewTierLists = profileData.sectionAccess?.tierLists ?? true;
   const canViewComments = profileData.sectionAccess?.comments ?? true;
   const canViewFollowedManga = profileData.sectionAccess?.followedManga ?? true;
   const canViewAnyLists = canViewReadingLists || canViewTierLists;
+  const canViewAchievements = canViewReadingHistory && canViewComments;
   const visibleTabs = [
     'overview',
-    'achievements',
+    ...(canViewAchievements ? ['achievements'] : []),
     ...(canViewAnyLists ? ['tierlists'] : []),
     ...(canViewComments ? ['comments'] : []),
     ...(canViewFollowedManga ? ['following-manga'] : []),
@@ -360,12 +372,14 @@ const Profile: React.FC = () => {
                 Genel Bakış
               </TabsTrigger>
 
-              <TabsTrigger 
-                value="achievements" 
-                className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
-              >
-                Başarımlar
-              </TabsTrigger>
+              {canViewAchievements && (
+                <TabsTrigger 
+                  value="achievements" 
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                >
+                  Başarımlar
+                </TabsTrigger>
+              )}
               {canViewAnyLists && (
                 <TabsTrigger 
                   value="tierlists" 
@@ -400,33 +414,41 @@ const Profile: React.FC = () => {
                   <p className="text-2xl font-bold">{joinDate}</p>
                   <p className="text-sm text-muted-foreground mt-1">Kayıt Tarihi</p>
                 </div>
-                
-                <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
-                  <BookOpen className="w-6 h-6 text-primary mb-3 mx-auto" />
-                  <p className="text-2xl font-bold">{profileData.stats.totalChapters}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Bölüm Okundu</p>
-                </div>
-                
-                <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
-                  <Book className="w-6 h-6 text-primary mb-3 mx-auto" />
-                  <p className="text-2xl font-bold">{profileData.stats.totalSeries}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Farklı Seri</p>
-                </div>
-                
-                <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
-                  <MessageSquare className="w-6 h-6 text-primary mb-3 mx-auto" />
-                  <p className="text-2xl font-bold">{profileData.stats.totalComments || 0}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Yorum Yapıldı</p>
-                </div>
 
-                <Link
-                  to="/reading-time"
-                  className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center transition-colors hover:border-primary/40 hover:bg-card"
-                >
-                  <Clock3 className="w-6 h-6 text-primary mb-3 mx-auto" />
-                  <p className="text-2xl font-bold">{formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}</p>
-                  <p className="text-sm text-muted-foreground mt-1">Toplam Okuma Süresi</p>
-                </Link>
+                {canViewReadingHistory && (
+                  <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
+                    <BookOpen className="w-6 h-6 text-primary mb-3 mx-auto" />
+                    <p className="text-2xl font-bold">{profileData.stats.totalChapters}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Bölüm Okundu</p>
+                  </div>
+                )}
+
+                {canViewReadingHistory && (
+                  <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
+                    <Book className="w-6 h-6 text-primary mb-3 mx-auto" />
+                    <p className="text-2xl font-bold">{profileData.stats.totalSeries}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Farklı Seri</p>
+                  </div>
+                )}
+
+                {canViewComments && (
+                  <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
+                    <MessageSquare className="w-6 h-6 text-primary mb-3 mx-auto" />
+                    <p className="text-2xl font-bold">{profileData.stats.totalComments || 0}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Yorum Yapıldı</p>
+                  </div>
+                )}
+
+                {canViewReadingHistory && (
+                  <Link
+                    to="/reading-time"
+                    className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center transition-colors hover:border-primary/40 hover:bg-card"
+                  >
+                    <Clock3 className="w-6 h-6 text-primary mb-3 mx-auto" />
+                    <p className="text-2xl font-bold">{formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}</p>
+                    <p className="text-sm text-muted-foreground mt-1">Toplam Okuma Süresi</p>
+                  </Link>
+                )}
               </div>
 
               {canViewReadingHistory && (
@@ -480,6 +502,7 @@ const Profile: React.FC = () => {
                </div>
             </TabsContent>
             
+            {canViewAchievements && (
             <TabsContent value="achievements" className="mt-0">
                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                  {Object.values(ACHIEVEMENTS).map((achievement) => {
@@ -537,6 +560,7 @@ const Profile: React.FC = () => {
                  })}
                </div>
             </TabsContent>
+            )}
             {canViewAnyLists && (
             <TabsContent value="tierlists" className="mt-0">
                <div className="space-y-8">
