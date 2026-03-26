@@ -1,0 +1,700 @@
+- generic [ref=e3]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e198]:
+    - banner [ref=e199]:
+      - generic [ref=e200]:
+        - link "Logo" [ref=e201] [cursor=pointer]:
+          - /url: /
+          - img "Logo"
+        - navigation [ref=e202]:
+          - link "Keşfet" [ref=e203] [cursor=pointer]:
+            - /url: /browse
+          - link "Son Bölümler" [ref=e204] [cursor=pointer]:
+            - /url: /latest-chapters
+          - generic [ref=e205]:
+            - link "Karakterler" [ref=e206] [cursor=pointer]:
+              - /url: /characters
+              - text: Karakterler
+              - img [ref=e207]
+            - generic:
+              - generic:
+                - generic:
+                  - paragraph: Karakterler
+                - generic:
+                  - link "Karakterler Tüm karakter arşivini ve popüler yüzleri keşfet":
+                    - /url: /characters
+                    - paragraph: Karakterler
+                    - paragraph: Tüm karakter arşivini ve popüler yüzleri keşfet
+                  - link "Yazarlar Senaryo ve kurgu tarafını keşfet":
+                    - /url: /authors
+                    - paragraph: Yazarlar
+                    - paragraph: Senaryo ve kurgu tarafını keşfet
+                  - link "Çizerler Çizim ekibi ve görsel kadro":
+                    - /url: /artists
+                    - paragraph: Çizerler
+                    - paragraph: Çizim ekibi ve görsel kadro
+          - link "Topluluk" [ref=e209] [cursor=pointer]:
+            - /url: /community
+            - img [ref=e210]
+            - text: Topluluk
+        - generic [ref=e215]:
+          - button "Rastgele Manga" [ref=e216] [cursor=pointer]:
+            - img
+          - button "Çevrimdışı Mod" [ref=e217] [cursor=pointer]:
+            - img
+          - generic [ref=e219]:
+            - img [ref=e220]
+            - searchbox "Manga, manhwa, webtoon veya yazar ara..." [ref=e223]
+        - generic [ref=e224]:
+          - button [ref=e227] [cursor=pointer]:
+            - img
+          - link "Giriş Yap" [ref=e228] [cursor=pointer]:
+            - /url: /auth
+    - main [ref=e229]:
+      - generic [ref=e231]:
+        - generic [ref=e232]:
+          - generic [ref=e233]:
+            - generic [ref=e234]:
+              - generic [ref=e235]: Top 10
+              - heading "Bugün Top 10" [level=2] [ref=e236]
+            - paragraph [ref=e237]: Popülerlik skoruna göre sıralı
+          - generic [ref=e238]:
+            - button "Bugün" [ref=e239] [cursor=pointer]: Bugün
+            - button "Bu Hafta" [ref=e241] [cursor=pointer]
+            - button "Tüm Zamanlar" [ref=e242] [cursor=pointer]
+        - generic [ref=e246]:
+          - generic [ref=e247]:
+            - generic:
+              - generic: "1"
+            - link "Penceremiz Kapandığında Penceremiz Kapandığında manga 10.0" [ref=e248] [cursor=pointer]:
+              - /url: /manga/manga-1774456664402
+              - img "Penceremiz Kapandığında"
+              - generic [ref=e250]:
+                - heading "Penceremiz Kapandığında" [level=3] [ref=e251]
+                - generic [ref=e252]:
+                  - generic [ref=e253]: manga
+                  - generic [ref=e254]:
+                    - img [ref=e255]
+                    - text: "10.0"
+          - generic [ref=e257]:
+            - generic:
+              - generic: "2"
+            - link "4000 Yılın Ardından Dönen Kadim Büyücü 4000 Yılın Ardından Dönen Kadim Büyücü manhwa 8.8" [ref=e258] [cursor=pointer]:
+              - /url: /manga/manga-1767813305364
+              - img "4000 Yılın Ardından Dönen Kadim Büyücü"
+              - generic [ref=e260]:
+                - heading "4000 Yılın Ardından Dönen Kadim Büyücü" [level=3] [ref=e261]
+                - generic [ref=e262]:
+                  - generic [ref=e263]: manhwa
+                  - generic [ref=e264]:
+                    - img [ref=e265]
+                    - text: "8.8"
+          - generic [ref=e267]:
+            - generic:
+              - generic: "3"
+            - link "The Wandering Knight’s Survival Manual The Wandering Knight’s Survival Manual manhwa 0.0" [ref=e268] [cursor=pointer]:
+              - /url: /manga/manga-1774365291736
+              - img "The Wandering Knight’s Survival Manual"
+              - generic [ref=e270]:
+                - heading "The Wandering Knight’s Survival Manual" [level=3] [ref=e271]
+                - generic [ref=e272]:
+                  - generic [ref=e273]: manhwa
+                  - generic [ref=e274]:
+                    - img [ref=e275]
+                    - text: "0.0"
+          - generic [ref=e277]:
+            - generic:
+              - generic: "4"
+            - link "Paralı Askerin Eve Dönüşü Paralı Askerin Eve Dönüşü manhwa 8.4" [ref=e278] [cursor=pointer]:
+              - /url: /manga/manga-1767816589947
+              - img "Paralı Askerin Eve Dönüşü"
+              - generic [ref=e280]:
+                - heading "Paralı Askerin Eve Dönüşü" [level=3] [ref=e281]
+                - generic [ref=e282]:
+                  - generic [ref=e283]: manhwa
+                  - generic [ref=e284]:
+                    - img [ref=e285]
+                    - text: "8.4"
+          - generic [ref=e287]:
+            - generic:
+              - generic: "5"
+            - link "Kidnapped Dragons Kidnapped Dragons manhwa 0.0" [ref=e288] [cursor=pointer]:
+              - /url: /manga/manga-1774464850934
+              - img "Kidnapped Dragons"
+              - generic [ref=e290]:
+                - heading "Kidnapped Dragons" [level=3] [ref=e291]
+                - generic [ref=e292]:
+                  - generic [ref=e293]: manhwa
+                  - generic [ref=e294]:
+                    - img [ref=e295]
+                    - text: "0.0"
+          - generic [ref=e297]:
+            - generic:
+              - generic: "6"
+            - link "Hasat Tanrıçasının Asi Havarisi Hasat Tanrıçasının Asi Havarisi manhwa 0.0" [ref=e298] [cursor=pointer]:
+              - /url: /manga/manga-1774359830722
+              - img "Hasat Tanrıçasının Asi Havarisi"
+              - generic [ref=e300]:
+                - heading "Hasat Tanrıçasının Asi Havarisi" [level=3] [ref=e301]
+                - generic [ref=e302]:
+                  - generic [ref=e303]: manhwa
+                  - generic [ref=e304]:
+                    - img [ref=e305]
+                    - text: "0.0"
+          - generic [ref=e307]:
+            - generic:
+              - generic: "7"
+            - link "The Divine Demon’s Grand Ascension The Divine Demon’s Grand Ascension manhwa 6.8" [ref=e308] [cursor=pointer]:
+              - /url: /manga/manga-1766850285397
+              - img "The Divine Demon’s Grand Ascension"
+              - generic [ref=e310]:
+                - heading "The Divine Demon’s Grand Ascension" [level=3] [ref=e311]
+                - generic [ref=e312]:
+                  - generic [ref=e313]: manhwa
+                  - generic [ref=e314]:
+                    - img [ref=e315]
+                    - text: "6.8"
+          - generic [ref=e317]:
+            - generic:
+              - generic: "8"
+            - link "Solo Leveling Solo Leveling manhwa 9.4" [ref=e318] [cursor=pointer]:
+              - /url: /manga/manga-1766836691794
+              - img "Solo Leveling"
+              - generic [ref=e320]:
+                - heading "Solo Leveling" [level=3] [ref=e321]
+                - generic [ref=e322]:
+                  - generic [ref=e323]: manhwa
+                  - generic [ref=e324]:
+                    - img [ref=e325]
+                    - text: "9.4"
+          - generic [ref=e327]:
+            - generic:
+              - generic: "9"
+            - link "What Do You Think of Cosmic Horror? What Do You Think of Cosmic Horror? manhwa 0.0" [ref=e328] [cursor=pointer]:
+              - /url: /manga/manga-1766842486008
+              - img "What Do You Think of Cosmic Horror?"
+              - generic [ref=e330]:
+                - heading "What Do You Think of Cosmic Horror?" [level=3] [ref=e331]
+                - generic [ref=e332]:
+                  - generic [ref=e333]: manhwa
+                  - generic [ref=e334]:
+                    - img [ref=e335]
+                    - text: "0.0"
+          - generic [ref=e337]:
+            - generic:
+              - generic: "10"
+            - link "Nihayetin Ardındaki Başlangıç Nihayetin Ardındaki Başlangıç manhwa 0.0" [ref=e338] [cursor=pointer]:
+              - /url: /manga/manga-1767817147261
+              - img "Nihayetin Ardındaki Başlangıç"
+              - generic [ref=e340]:
+                - heading "Nihayetin Ardındaki Başlangıç" [level=3] [ref=e341]
+                - generic [ref=e342]:
+                  - generic [ref=e343]: manhwa
+                  - generic [ref=e344]:
+                    - img [ref=e345]
+                    - text: "0.0"
+      - generic [ref=e348]:
+        - generic [ref=e349]:
+          - generic [ref=e350]:
+            - img [ref=e351]
+            - heading "Yeni Çıkan Seriler" [level=2] [ref=e353]
+          - link "Tümünü Gör" [ref=e354] [cursor=pointer]:
+            - /url: /browse?sort=created
+            - text: Tümünü Gör
+            - img
+        - generic [ref=e355]:
+          - button "Yeni Çıkan Seriler sağa kaydır" [ref=e356] [cursor=pointer]:
+            - img [ref=e357]
+          - generic [ref=e359]:
+            - link "Kidnapped Dragons MANHWA Top 10 Yeni Devam Ediyor 0.0 50 19 Kidnapped Dragons Choi Jinhyung Aksiyon 19 Bölüm" [ref=e361] [cursor=pointer]:
+              - /url: /manga/manga-1774464850934
+              - generic [ref=e362]:
+                - generic [ref=e363]:
+                  - img "Kidnapped Dragons"
+                - generic [ref=e366]: MANHWA
+                - generic [ref=e367]:
+                  - generic [ref=e368]: Top 10
+                  - generic [ref=e369]: Yeni
+                - generic [ref=e370]: Devam Ediyor
+                - generic [ref=e372]:
+                  - generic [ref=e373]:
+                    - img [ref=e374]
+                    - text: "0.0"
+                  - generic [ref=e376]:
+                    - img [ref=e377]
+                    - text: "50"
+                  - generic [ref=e380]:
+                    - img [ref=e381]
+                    - text: "19"
+              - generic [ref=e383]:
+                - heading "Kidnapped Dragons" [level=3] [ref=e384]
+                - paragraph [ref=e385]: Choi Jinhyung
+                - generic [ref=e386]:
+                  - generic [ref=e387]: Aksiyon
+                  - generic [ref=e388]: 19 Bölüm
+            - link "Penceremiz Kapandığında MANGA Top 10 Yeni Devam Ediyor 10.0 50 14 Penceremiz Kapandığında Serena Ryan Romantik 14 Bölüm" [ref=e390] [cursor=pointer]:
+              - /url: /manga/manga-1774456664402
+              - generic [ref=e391]:
+                - generic [ref=e392]:
+                  - img "Penceremiz Kapandığında"
+                - generic [ref=e395]: MANGA
+                - generic [ref=e396]:
+                  - generic [ref=e397]: Top 10
+                  - generic [ref=e398]: Yeni
+                - generic [ref=e399]: Devam Ediyor
+                - generic [ref=e401]:
+                  - generic [ref=e402]:
+                    - img [ref=e403]
+                    - text: "10.0"
+                  - generic [ref=e405]:
+                    - img [ref=e406]
+                    - text: "50"
+                  - generic [ref=e409]:
+                    - img [ref=e410]
+                    - text: "14"
+              - generic [ref=e412]:
+                - heading "Penceremiz Kapandığında" [level=3] [ref=e413]
+                - paragraph [ref=e414]: Serena Ryan
+                - generic [ref=e415]:
+                  - generic [ref=e416]: Romantik
+                  - generic [ref=e417]: 14 Bölüm
+            - link "The Wandering Knight’s Survival Manual MANHWA Top 10 Yeni Devam Ediyor 0.0 26 11 The Wandering Knight’s Survival Manual 박준호 Aksiyon 11 Bölüm" [ref=e419] [cursor=pointer]:
+              - /url: /manga/manga-1774365291736
+              - generic [ref=e420]:
+                - generic [ref=e421]:
+                  - img "The Wandering Knight’s Survival Manual"
+                - generic [ref=e424]: MANHWA
+                - generic [ref=e425]:
+                  - generic [ref=e426]: Top 10
+                  - generic [ref=e427]: Yeni
+                - generic [ref=e428]: Devam Ediyor
+                - generic [ref=e430]:
+                  - generic [ref=e431]:
+                    - img [ref=e432]
+                    - text: "0.0"
+                  - generic [ref=e434]:
+                    - img [ref=e435]
+                    - text: "26"
+                  - generic [ref=e438]:
+                    - img [ref=e439]
+                    - text: "11"
+              - generic [ref=e441]:
+                - heading "The Wandering Knight’s Survival Manual" [level=3] [ref=e442]
+                - paragraph [ref=e443]: 박준호
+                - generic [ref=e444]:
+                  - generic [ref=e445]: Aksiyon
+                  - generic [ref=e446]: 11 Bölüm
+            - link "Senin Cinayetin İçin MANHWA Yeni Devam Ediyor 0.0 11 29 Senin Cinayetin İçin Seyoon Dram 29 Bölüm" [ref=e448] [cursor=pointer]:
+              - /url: /manga/manga-1774361258252
+              - generic [ref=e449]:
+                - generic [ref=e450]:
+                  - img "Senin Cinayetin İçin"
+                - generic [ref=e453]: MANHWA
+                - generic [ref=e455]: Yeni
+                - generic [ref=e456]: Devam Ediyor
+                - generic [ref=e458]:
+                  - generic [ref=e459]:
+                    - img [ref=e460]
+                    - text: "0.0"
+                  - generic [ref=e462]:
+                    - img [ref=e463]
+                    - text: "11"
+                  - generic [ref=e466]:
+                    - img [ref=e467]
+                    - text: "29"
+              - generic [ref=e469]:
+                - heading "Senin Cinayetin İçin" [level=3] [ref=e470]
+                - paragraph [ref=e471]: Seyoon
+                - generic [ref=e472]:
+                  - generic [ref=e473]: Dram
+                  - generic [ref=e474]: 29 Bölüm
+            - link "Hasat Tanrıçasının Asi Havarisi MANHWA Top 10 Yeni Devam Ediyor 0.0 30 20 Hasat Tanrıçasının Asi Havarisi 곰산타 Aksiyon 20 Bölüm" [ref=e476] [cursor=pointer]:
+              - /url: /manga/manga-1774359830722
+              - generic [ref=e477]:
+                - generic [ref=e478]:
+                  - img "Hasat Tanrıçasının Asi Havarisi"
+                - generic [ref=e481]: MANHWA
+                - generic [ref=e482]:
+                  - generic [ref=e483]: Top 10
+                  - generic [ref=e484]: Yeni
+                - generic [ref=e485]: Devam Ediyor
+                - generic [ref=e487]:
+                  - generic [ref=e488]:
+                    - img [ref=e489]
+                    - text: "0.0"
+                  - generic [ref=e491]:
+                    - img [ref=e492]
+                    - text: "30"
+                  - generic [ref=e495]:
+                    - img [ref=e496]
+                    - text: "20"
+              - generic [ref=e498]:
+                - heading "Hasat Tanrıçasının Asi Havarisi" [level=3] [ref=e499]
+                - paragraph [ref=e500]: 곰산타
+                - generic [ref=e501]:
+                  - generic [ref=e502]: Aksiyon
+                  - generic [ref=e503]: 20 Bölüm
+            - link "Nihayetin Ardındaki Başlangıç MANHWA Top 10 Devam Ediyor 0.0 21 1 Nihayetin Ardındaki Başlangıç TurtleMe (Brandon Lee) Doğa Üstü 1 Bölüm" [ref=e505] [cursor=pointer]:
+              - /url: /manga/manga-1767817147261
+              - generic [ref=e506]:
+                - generic [ref=e507]:
+                  - img "Nihayetin Ardındaki Başlangıç"
+                - generic [ref=e510]: MANHWA
+                - generic [ref=e512]: Top 10
+                - generic [ref=e513]: Devam Ediyor
+                - generic [ref=e515]:
+                  - generic [ref=e516]:
+                    - img [ref=e517]
+                    - text: "0.0"
+                  - generic [ref=e519]:
+                    - img [ref=e520]
+                    - text: "21"
+                  - generic [ref=e523]:
+                    - img [ref=e524]
+                    - text: "1"
+              - generic [ref=e526]:
+                - heading "Nihayetin Ardındaki Başlangıç" [level=3] [ref=e527]
+                - paragraph [ref=e528]: TurtleMe (Brandon Lee)
+                - generic [ref=e529]:
+                  - generic [ref=e530]: Doğa Üstü
+                  - generic [ref=e531]: 1 Bölüm
+            - link "MANHWA Top 10 Devam Ediyor 8.4 126 256 Paralı Askerin Eve Dönüşü YC Aksiyon 256 Bölüm" [ref=e533] [cursor=pointer]:
+              - /url: /manga/manga-1767816589947
+              - generic [ref=e534]:
+                - generic [ref=e539]: MANHWA
+                - generic [ref=e541]: Top 10
+                - generic [ref=e542]: Devam Ediyor
+                - generic [ref=e544]:
+                  - generic [ref=e545]:
+                    - img [ref=e546]
+                    - text: "8.4"
+                  - generic [ref=e548]:
+                    - img [ref=e549]
+                    - text: "126"
+                  - generic [ref=e552]:
+                    - img [ref=e553]
+                    - text: "256"
+              - generic [ref=e555]:
+                - heading "Paralı Askerin Eve Dönüşü" [level=3] [ref=e556]
+                - paragraph [ref=e557]: YC
+                - generic [ref=e558]:
+                  - generic [ref=e559]: Aksiyon
+                  - generic [ref=e560]: 256 Bölüm
+            - link "MANHWA Top 10 Devam Ediyor 8.8 574 247 4000 Yılın Ardından Dönen Kadim Büyücü Barnicle,Nakhasan Aksiyon 247 Bölüm" [ref=e562] [cursor=pointer]:
+              - /url: /manga/manga-1767813305364
+              - generic [ref=e563]:
+                - generic [ref=e568]: MANHWA
+                - generic [ref=e570]: Top 10
+                - generic [ref=e571]: Devam Ediyor
+                - generic [ref=e573]:
+                  - generic [ref=e574]:
+                    - img [ref=e575]
+                    - text: "8.8"
+                  - generic [ref=e577]:
+                    - img [ref=e578]
+                    - text: "574"
+                  - generic [ref=e581]:
+                    - img [ref=e582]
+                    - text: "247"
+              - generic [ref=e584]:
+                - heading "4000 Yılın Ardından Dönen Kadim Büyücü" [level=3] [ref=e585]
+                - paragraph [ref=e586]: Barnicle,Nakhasan
+                - generic [ref=e587]:
+                  - generic [ref=e588]: Aksiyon
+                  - generic [ref=e589]: 247 Bölüm
+      - generic [ref=e591]:
+        - generic [ref=e592]:
+          - generic [ref=e593]:
+            - img [ref=e594]
+            - heading "Son Güncellenenler" [level=2] [ref=e597]
+          - link "Tümünü Gör" [ref=e598] [cursor=pointer]:
+            - /url: /browse?sort=updated
+            - text: Tümünü Gör
+            - img
+        - generic [ref=e599]:
+          - button "Son Güncellenenler sağa kaydır" [ref=e600] [cursor=pointer]:
+            - img [ref=e601]
+          - generic [ref=e603]:
+            - link "Kidnapped Dragons MANHWA Top 10 Yeni Devam Ediyor 0.0 50 19 Kidnapped Dragons Choi Jinhyung Aksiyon 19 Bölüm" [ref=e605] [cursor=pointer]:
+              - /url: /manga/manga-1774464850934
+              - generic [ref=e606]:
+                - generic [ref=e607]:
+                  - img "Kidnapped Dragons"
+                - generic [ref=e610]: MANHWA
+                - generic [ref=e611]:
+                  - generic [ref=e612]: Top 10
+                  - generic [ref=e613]: Yeni
+                - generic [ref=e614]: Devam Ediyor
+                - generic [ref=e616]:
+                  - generic [ref=e617]:
+                    - img [ref=e618]
+                    - text: "0.0"
+                  - generic [ref=e620]:
+                    - img [ref=e621]
+                    - text: "50"
+                  - generic [ref=e624]:
+                    - img [ref=e625]
+                    - text: "19"
+              - generic [ref=e627]:
+                - heading "Kidnapped Dragons" [level=3] [ref=e628]
+                - paragraph [ref=e629]: Choi Jinhyung
+                - generic [ref=e630]:
+                  - generic [ref=e631]: Aksiyon
+                  - generic [ref=e632]: 19 Bölüm
+            - link "Penceremiz Kapandığında MANGA Top 10 Yeni Devam Ediyor 10.0 50 14 Penceremiz Kapandığında Serena Ryan Romantik 14 Bölüm" [ref=e634] [cursor=pointer]:
+              - /url: /manga/manga-1774456664402
+              - generic [ref=e635]:
+                - generic [ref=e636]:
+                  - img "Penceremiz Kapandığında"
+                - generic [ref=e639]: MANGA
+                - generic [ref=e640]:
+                  - generic [ref=e641]: Top 10
+                  - generic [ref=e642]: Yeni
+                - generic [ref=e643]: Devam Ediyor
+                - generic [ref=e645]:
+                  - generic [ref=e646]:
+                    - img [ref=e647]
+                    - text: "10.0"
+                  - generic [ref=e649]:
+                    - img [ref=e650]
+                    - text: "50"
+                  - generic [ref=e653]:
+                    - img [ref=e654]
+                    - text: "14"
+              - generic [ref=e656]:
+                - heading "Penceremiz Kapandığında" [level=3] [ref=e657]
+                - paragraph [ref=e658]: Serena Ryan
+                - generic [ref=e659]:
+                  - generic [ref=e660]: Romantik
+                  - generic [ref=e661]: 14 Bölüm
+            - link "The Divine Demon’s Grand Ascension MANHWA Top 10 Devam Ediyor 6.8 385 38 The Divine Demon’s Grand Ascension In-Gye (인계) Aksiyon 38 Bölüm" [ref=e663] [cursor=pointer]:
+              - /url: /manga/manga-1766850285397
+              - generic [ref=e664]:
+                - generic [ref=e665]:
+                  - img "The Divine Demon’s Grand Ascension"
+                - generic [ref=e668]: MANHWA
+                - generic [ref=e670]: Top 10
+                - generic [ref=e671]: Devam Ediyor
+                - generic [ref=e673]:
+                  - generic [ref=e674]:
+                    - img [ref=e675]
+                    - text: "6.8"
+                  - generic [ref=e677]:
+                    - img [ref=e678]
+                    - text: "385"
+                  - generic [ref=e681]:
+                    - img [ref=e682]
+                    - text: "38"
+              - generic [ref=e684]:
+                - heading "The Divine Demon’s Grand Ascension" [level=3] [ref=e685]
+                - paragraph [ref=e686]: In-Gye (인계)
+                - generic [ref=e687]:
+                  - generic [ref=e688]: Aksiyon
+                  - generic [ref=e689]: 38 Bölüm
+            - link "Paralı Askerin Eve Dönüşü MANHWA Top 10 Devam Ediyor 8.4 126 256 Paralı Askerin Eve Dönüşü YC Aksiyon 256 Bölüm" [ref=e691] [cursor=pointer]:
+              - /url: /manga/manga-1767816589947
+              - generic [ref=e692]:
+                - generic [ref=e693]:
+                  - img "Paralı Askerin Eve Dönüşü"
+                - generic [ref=e696]: MANHWA
+                - generic [ref=e698]: Top 10
+                - generic [ref=e699]: Devam Ediyor
+                - generic [ref=e701]:
+                  - generic [ref=e702]:
+                    - img [ref=e703]
+                    - text: "8.4"
+                  - generic [ref=e705]:
+                    - img [ref=e706]
+                    - text: "126"
+                  - generic [ref=e709]:
+                    - img [ref=e710]
+                    - text: "256"
+              - generic [ref=e712]:
+                - heading "Paralı Askerin Eve Dönüşü" [level=3] [ref=e713]
+                - paragraph [ref=e714]: YC
+                - generic [ref=e715]:
+                  - generic [ref=e716]: Aksiyon
+                  - generic [ref=e717]: 256 Bölüm
+            - link "4000 Yılın Ardından Dönen Kadim Büyücü MANHWA Top 10 Devam Ediyor 8.8 574 247 4000 Yılın Ardından Dönen Kadim Büyücü Barnicle,Nakhasan Aksiyon 247 Bölüm" [ref=e719] [cursor=pointer]:
+              - /url: /manga/manga-1767813305364
+              - generic [ref=e720]:
+                - generic [ref=e721]:
+                  - img "4000 Yılın Ardından Dönen Kadim Büyücü"
+                - generic [ref=e724]: MANHWA
+                - generic [ref=e726]: Top 10
+                - generic [ref=e727]: Devam Ediyor
+                - generic [ref=e729]:
+                  - generic [ref=e730]:
+                    - img [ref=e731]
+                    - text: "8.8"
+                  - generic [ref=e733]:
+                    - img [ref=e734]
+                    - text: "574"
+                  - generic [ref=e737]:
+                    - img [ref=e738]
+                    - text: "247"
+              - generic [ref=e740]:
+                - heading "4000 Yılın Ardından Dönen Kadim Büyücü" [level=3] [ref=e741]
+                - paragraph [ref=e742]: Barnicle,Nakhasan
+                - generic [ref=e743]:
+                  - generic [ref=e744]: Aksiyon
+                  - generic [ref=e745]: 247 Bölüm
+            - link "The Wandering Knight’s Survival Manual MANHWA Top 10 Yeni Devam Ediyor 0.0 26 11 The Wandering Knight’s Survival Manual 박준호 Aksiyon 11 Bölüm" [ref=e747] [cursor=pointer]:
+              - /url: /manga/manga-1774365291736
+              - generic [ref=e748]:
+                - generic [ref=e749]:
+                  - img "The Wandering Knight’s Survival Manual"
+                - generic [ref=e752]: MANHWA
+                - generic [ref=e753]:
+                  - generic [ref=e754]: Top 10
+                  - generic [ref=e755]: Yeni
+                - generic [ref=e756]: Devam Ediyor
+                - generic [ref=e758]:
+                  - generic [ref=e759]:
+                    - img [ref=e760]
+                    - text: "0.0"
+                  - generic [ref=e762]:
+                    - img [ref=e763]
+                    - text: "26"
+                  - generic [ref=e766]:
+                    - img [ref=e767]
+                    - text: "11"
+              - generic [ref=e769]:
+                - heading "The Wandering Knight’s Survival Manual" [level=3] [ref=e770]
+                - paragraph [ref=e771]: 박준호
+                - generic [ref=e772]:
+                  - generic [ref=e773]: Aksiyon
+                  - generic [ref=e774]: 11 Bölüm
+            - link "MANHWA Yeni Devam Ediyor 0.0 11 29 Senin Cinayetin İçin Seyoon Dram 29 Bölüm" [ref=e776] [cursor=pointer]:
+              - /url: /manga/manga-1774361258252
+              - generic [ref=e777]:
+                - generic [ref=e782]: MANHWA
+                - generic [ref=e784]: Yeni
+                - generic [ref=e785]: Devam Ediyor
+                - generic [ref=e787]:
+                  - generic [ref=e788]:
+                    - img [ref=e789]
+                    - text: "0.0"
+                  - generic [ref=e791]:
+                    - img [ref=e792]
+                    - text: "11"
+                  - generic [ref=e795]:
+                    - img [ref=e796]
+                    - text: "29"
+              - generic [ref=e798]:
+                - heading "Senin Cinayetin İçin" [level=3] [ref=e799]
+                - paragraph [ref=e800]: Seyoon
+                - generic [ref=e801]:
+                  - generic [ref=e802]: Dram
+                  - generic [ref=e803]: 29 Bölüm
+            - link "MANHWA Top 10 Yeni Devam Ediyor 0.0 30 20 Hasat Tanrıçasının Asi Havarisi 곰산타 Aksiyon 20 Bölüm" [ref=e805] [cursor=pointer]:
+              - /url: /manga/manga-1774359830722
+              - generic [ref=e806]:
+                - generic [ref=e811]: MANHWA
+                - generic [ref=e812]:
+                  - generic [ref=e813]: Top 10
+                  - generic [ref=e814]: Yeni
+                - generic [ref=e815]: Devam Ediyor
+                - generic [ref=e817]:
+                  - generic [ref=e818]:
+                    - img [ref=e819]
+                    - text: "0.0"
+                  - generic [ref=e821]:
+                    - img [ref=e822]
+                    - text: "30"
+                  - generic [ref=e825]:
+                    - img [ref=e826]
+                    - text: "20"
+              - generic [ref=e828]:
+                - heading "Hasat Tanrıçasının Asi Havarisi" [level=3] [ref=e829]
+                - paragraph [ref=e830]: 곰산타
+                - generic [ref=e831]:
+                  - generic [ref=e832]: Aksiyon
+                  - generic [ref=e833]: 20 Bölüm
+            - link "MANHWA Top 10 Devam Ediyor 0.0 21 1 Nihayetin Ardındaki Başlangıç TurtleMe (Brandon Lee) Doğa Üstü 1 Bölüm" [ref=e835] [cursor=pointer]:
+              - /url: /manga/manga-1767817147261
+              - generic [ref=e836]:
+                - generic [ref=e841]: MANHWA
+                - generic [ref=e843]: Top 10
+                - generic [ref=e844]: Devam Ediyor
+                - generic [ref=e846]:
+                  - generic [ref=e847]:
+                    - img [ref=e848]
+                    - text: "0.0"
+                  - generic [ref=e850]:
+                    - img [ref=e851]
+                    - text: "21"
+                  - generic [ref=e854]:
+                    - img [ref=e855]
+                    - text: "1"
+              - generic [ref=e857]:
+                - heading "Nihayetin Ardındaki Başlangıç" [level=3] [ref=e858]
+                - paragraph [ref=e859]: TurtleMe (Brandon Lee)
+                - generic [ref=e860]:
+                  - generic [ref=e861]: Doğa Üstü
+                  - generic [ref=e862]: 1 Bölüm
+            - link "MANHWA Top 10 Devam Ediyor 0.0 125 9 What Do You Think of Cosmic Horror? Galpil / Lee Jeong Woon Bilim-Kurgu 9 Bölüm" [ref=e864] [cursor=pointer]:
+              - /url: /manga/manga-1766842486008
+              - generic [ref=e865]:
+                - generic [ref=e870]: MANHWA
+                - generic [ref=e872]: Top 10
+                - generic [ref=e873]: Devam Ediyor
+                - generic [ref=e875]:
+                  - generic [ref=e876]:
+                    - img [ref=e877]
+                    - text: "0.0"
+                  - generic [ref=e879]:
+                    - img [ref=e880]
+                    - text: "125"
+                  - generic [ref=e883]:
+                    - img [ref=e884]
+                    - text: "9"
+              - generic [ref=e886]:
+                - heading "What Do You Think of Cosmic Horror?" [level=3] [ref=e887]
+                - paragraph [ref=e888]: Galpil / Lee Jeong Woon
+                - generic [ref=e889]:
+                  - generic [ref=e890]: Bilim-Kurgu
+                  - generic [ref=e891]: 9 Bölüm
+            - link "MANHWA Top 10 Tamamlandı 9.4 325 201 Solo Leveling Chugong Aksiyon 201 Bölüm" [ref=e893] [cursor=pointer]:
+              - /url: /manga/manga-1766836691794
+              - generic [ref=e894]:
+                - generic [ref=e899]: MANHWA
+                - generic [ref=e901]: Top 10
+                - generic [ref=e902]: Tamamlandı
+                - generic [ref=e904]:
+                  - generic [ref=e905]:
+                    - img [ref=e906]
+                    - text: "9.4"
+                  - generic [ref=e908]:
+                    - img [ref=e909]
+                    - text: "325"
+                  - generic [ref=e912]:
+                    - img [ref=e913]
+                    - text: "201"
+              - generic [ref=e915]:
+                - heading "Solo Leveling" [level=3] [ref=e916]
+                - paragraph [ref=e917]: Chugong
+                - generic [ref=e918]:
+                  - generic [ref=e919]: Aksiyon
+                  - generic [ref=e920]: 201 Bölüm
+    - contentinfo [ref=e927]:
+      - generic [ref=e928]:
+        - generic [ref=e929]:
+          - generic [ref=e930]:
+            - heading "Logo" [level=3] [ref=e931]:
+              - img "Logo"
+            - paragraph [ref=e932]: En iyi manga, manhwa, manhua ve webtoon okuma deneyimi
+          - generic [ref=e933]:
+            - link "Keşfet" [ref=e934] [cursor=pointer]:
+              - /url: /browse
+            - link "Manhwa" [ref=e935] [cursor=pointer]:
+              - /url: /browse?type=manhwa
+            - link "Manga" [ref=e936] [cursor=pointer]:
+              - /url: /browse?type=manga
+            - link "Manhua" [ref=e937] [cursor=pointer]:
+              - /url: /browse?type=manhua
+            - link "Webtoon" [ref=e938] [cursor=pointer]:
+              - /url: /browse?type=webtoon
+        - paragraph [ref=e940]: © 2026 ToonParrot. Tüm hakları saklıdır.

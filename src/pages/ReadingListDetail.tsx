@@ -29,6 +29,7 @@ import { cn } from '@/lib/utils';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OfflineNotice from '@/components/offline/OfflineNotice';
+import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
 
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
@@ -454,12 +455,28 @@ const ReadingListDetail: React.FC = () => {
                             </div>
                         )}
 
-                        <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
-                            {listItems.map((manga, index) => {
+                        <VirtualCardGrid
+                            items={listItems}
+                            getItemKey={(manga) => manga.id}
+                            gridClassName="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8"
+                            getColumnCount={(width) => {
+                                if (width >= 1536) return 8;
+                                if (width >= 1280) return 7;
+                                if (width >= 1024) return 6;
+                                if (width >= 640) return 4;
+                                return 3;
+                            }}
+                            gapPx={12}
+                            estimatedItemHeight={320}
+                            overscanRows={4}
+                            minRowsBeforeVirtualize={5}
+                            renderItem={(manga, index) => {
                                 const isSelected = selectedMangaIds.includes(manga.id);
 
                                 return (
-                                    <div key={manga.id} className="relative mx-auto w-full max-w-[9rem] sm:max-w-[9.5rem]">
+                                    <div
+                                        className="relative mx-auto w-full max-w-[9rem] sm:max-w-[9.5rem]"
+                                    >
                                         <div className={cn(isSelectionMode && 'pointer-events-none')}>
                                             <MangaCard manga={manga} index={index} />
                                         </div>
@@ -488,8 +505,8 @@ const ReadingListDetail: React.FC = () => {
                                         )}
                                     </div>
                                 );
-                            })}
-                        </div>
+                            }}
+                        />
                     </>
                 ) : (
                     <div

@@ -19,9 +19,10 @@ import { Progress } from '@/components/ui/progress';
 import { Switch } from '@/components/ui/switch';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
+import { useAuth } from '@/contexts/AuthContext';
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { OfflineChapter, OfflineDownloadStatus, OfflineMangaGroup } from '@/lib/offline/types';
-import { offlineDownloadManager } from '@/lib/offline/downloadManager';
+import { isDownloadAuthRequiredError, offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { formatBytes, formatSpeed } from '@/lib/offline/utils';
 import { Manga, Chapter } from '@/lib/types';
 import { toast } from 'sonner';
@@ -95,6 +96,7 @@ const formatDateTime = (value?: string) => {
 const Downloads: React.FC = () => {
   const { snapshot, isLoading, isOnline } = useOfflineLibrary();
   const { preferences, updatePreferences } = useOfflinePreferences();
+  const { user } = useAuth();
   const [activeFilter, setActiveFilter] = useState<DownloadsFilter>('Tümü');
   const [expandedSeries, setExpandedSeries] = useState<Record<string, boolean>>({});
 
@@ -137,29 +139,47 @@ const Downloads: React.FC = () => {
   };
 
   const handleRetrySeries = async (entry: OfflineMangaGroup) => {
-    const job = getPrimaryJob(entry);
-
-    if (job) {
-      if (job.status === 'paused') {
-        await offlineDownloadManager.resumeJob(job.id);
-      } else {
-        await offlineDownloadManager.retryJob(job.id);
-      }
+    if (!user) {
+      toast.error('İndirmeye devam etmek için giriş yapmalısınız');
       return;
     }
 
-    await offlineDownloadManager.queueSeriesDownload(
-      buildMangaFromOffline(entry),
-      entry.chapters.map(buildChapterFromOffline),
-    );
+    const job = getPrimaryJob(entry);
+
+    try {
+      if (job) {
+        if (job.status === 'paused') {
+          await offlineDownloadManager.resumeJob(job.id);
+        } else {
+          await offlineDownloadManager.retryJob(job.id);
+        }
+        return;
+      }
+
+      await offlineDownloadManager.queueSeriesDownload(
+        buildMangaFromOffline(entry),
+        entry.chapters.map(buildChapterFromOffline),
+      );
+    } catch (error) {
+      toast.error(isDownloadAuthRequiredError(error) ? error.message : 'İndirme tekrar başlatılamadı');
+    }
   };
 
   const handleRetryChapter = async (entry: OfflineMangaGroup, chapter: OfflineChapter) => {
-    await offlineDownloadManager.queueChapterDownload(
-      buildMangaFromOffline(entry),
-      buildChapterFromOffline(chapter),
-    );
-    toast.success(`Bölüm ${chapter.chapterNumber} tekrar kuyruğa alındı.`);
+    if (!user) {
+      toast.error('İndirmeye devam etmek için giriş yapmalısınız');
+      return;
+    }
+
+    try {
+      await offlineDownloadManager.queueChapterDownload(
+        buildMangaFromOffline(entry),
+        buildChapterFromOffline(chapter),
+      );
+      toast.success(`Bölüm ${chapter.chapterNumber} tekrar kuyruğa alındı.`);
+    } catch (error) {
+      toast.error(isDownloadAuthRequiredError(error) ? error.message : 'Bölüm yeniden kuyruğa alınamadı');
+    }
   };
 
   const toggleSeries = (mangaId: string) => {
@@ -259,6 +279,19 @@ const Downloads: React.FC = () => {
         </section>
 
         <InstallAppBanner compact className="mt-6" />
+
+        {!user && (
+          <section className="mt-6 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-100">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p>
+                Yeni indirme başlatmak, duraklayan indirmeyi sürdürmek ve yeniden denemek için giriş yapmalısın.
+              </p>
+              <Button asChild variant="outline" className="border-blue-400/30 bg-transparent text-blue-50 hover:bg-blue-500/10 hover:text-white">
+                <Link to="/auth">Giriş Yap</Link>
+              </Button>
+            </div>
+          </section>
+        )}
 
         <div className="mt-8 animate-fade-up flex flex-wrap gap-2 opacity-0" style={{ animationDelay: '0.28s', animationFillMode: 'forwards' }}>
           {FILTERS.map((filter) => (

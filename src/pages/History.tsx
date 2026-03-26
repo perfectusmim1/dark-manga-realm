@@ -25,8 +25,8 @@ import { formatChapterDisplayTitle, sanitizeChapterTitle } from '@/lib/chapterTi
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
-
-const PAGE_SIZE = 20;
+import OptimizedImage from '@/components/media/OptimizedImage';
+import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
 
 const normalizeSearchValue = (value?: string | null) =>
   (value || '').toLocaleLowerCase('tr-TR').trim();
@@ -73,15 +73,25 @@ const matchesHistorySearch = (
 const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: number }) => (
   <article
     className="group relative animate-fade-up overflow-hidden rounded-[28px] border border-border/70 bg-card/60 opacity-0 shadow-[0_20px_50px_rgba(0,0,0,0.18)] transition-all duration-300 hover:border-primary/35 hover:bg-card"
-    style={{ animationDelay: `${0.08 + Math.min(index, 9) * 0.03}s`, animationFillMode: 'forwards' }}
+    style={{
+      animationDelay: `${0.08 + Math.min(index, 9) * 0.03}s`,
+      animationFillMode: 'forwards',
+      contentVisibility: 'auto',
+      containIntrinsicSize: '720px 180px',
+    }}
   >
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_45%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
     <div className="relative flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:p-5">
       <Link to={`/manga/${item.mangaId}`} className="shrink-0">
         {item.mangaCover ? (
-          <img
+          <OptimizedImage
             src={item.mangaCover}
             alt={item.mangaTitle}
+            priority={index < 4}
+            rootMargin="520px 0px"
+            containerClassName="h-28 w-20"
+            placeholderClassName="rounded-[22px]"
+            sizes="80px"
             className="h-28 w-20 rounded-[22px] object-cover shadow-[0_16px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/10 transition-transform duration-300 group-hover:scale-[1.02]"
           />
         ) : (
@@ -145,13 +155,23 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
   <Link
     to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`}
     className="group animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 opacity-0 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:bg-card"
-    style={{ animationDelay: `${0.08 + Math.min(index, 11) * 0.02}s`, animationFillMode: 'forwards' }}
+    style={{
+      animationDelay: `${0.08 + Math.min(index, 11) * 0.02}s`,
+      animationFillMode: 'forwards',
+      contentVisibility: 'auto',
+      containIntrinsicSize: '220px 300px',
+    }}
   >
     <div className="relative aspect-square overflow-hidden">
       {item.mangaCover ? (
-        <img
+        <OptimizedImage
           src={item.mangaCover}
           alt={item.mangaTitle}
+          priority={index < 6}
+          rootMargin="520px 0px"
+          containerClassName="h-full w-full"
+          placeholderClassName="rounded-none"
+          sizes="(min-width: 1280px) 16vw, (min-width: 1024px) 20vw, (min-width: 640px) 28vw, 45vw"
           className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
         />
       ) : (
@@ -199,12 +219,9 @@ const History: React.FC = () => {
   const [chapterHistory, setChapterHistory] = React.useState<ChapterHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [searchQuery, setSearchQuery] = React.useState('');
-  const [seriesVisibleCount, setSeriesVisibleCount] = React.useState(PAGE_SIZE);
-  const [chapterVisibleCount, setChapterVisibleCount] = React.useState(PAGE_SIZE);
+  const [activeTab, setActiveTab] = React.useState<'series' | 'chapters'>('series');
 
   const deferredSearchQuery = React.useDeferredValue(normalizeSearchValue(searchQuery));
-  const seriesSentinelRef = React.useRef<HTMLDivElement | null>(null);
-  const chapterSentinelRef = React.useRef<HTMLDivElement | null>(null);
 
   React.useEffect(() => {
     const fetchHistory = async () => {
@@ -254,60 +271,6 @@ const History: React.FC = () => {
     [chapterHistory, deferredSearchQuery],
   );
 
-  React.useEffect(() => {
-    setSeriesVisibleCount(PAGE_SIZE);
-  }, [deferredSearchQuery, seriesHistory.length]);
-
-  React.useEffect(() => {
-    setChapterVisibleCount(PAGE_SIZE);
-  }, [chapterHistory.length, deferredSearchQuery]);
-
-  React.useEffect(() => {
-    if (seriesVisibleCount >= filteredSeriesHistory.length) {
-      return;
-    }
-
-    const node = seriesSentinelRef.current;
-    if (!node) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setSeriesVisibleCount((prev) => Math.min(prev + PAGE_SIZE, filteredSeriesHistory.length));
-        }
-      },
-      { rootMargin: '240px 0px' },
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [filteredSeriesHistory.length, seriesVisibleCount]);
-
-  React.useEffect(() => {
-    if (chapterVisibleCount >= filteredChapterHistory.length) {
-      return;
-    }
-
-    const node = chapterSentinelRef.current;
-    if (!node) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setChapterVisibleCount((prev) => Math.min(prev + PAGE_SIZE, filteredChapterHistory.length));
-        }
-      },
-      { rootMargin: '240px 0px' },
-    );
-
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, [chapterVisibleCount, filteredChapterHistory.length]);
-
   if (isLoading && user) {
     return (
       <>
@@ -336,9 +299,6 @@ const History: React.FC = () => {
       </div>
     );
   }
-
-  const visibleSeriesHistory = filteredSeriesHistory.slice(0, seriesVisibleCount);
-  const visibleChapterHistory = filteredChapterHistory.slice(0, chapterVisibleCount);
 
   return (
     <div className="min-h-screen bg-background">
@@ -394,7 +354,7 @@ const History: React.FC = () => {
           />
         )}
 
-        <Tabs defaultValue="series" className="space-y-6">
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'series' | 'chapters')} className="space-y-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
             <TabsList className="h-auto flex-wrap gap-2 rounded-2xl bg-secondary/40 p-1">
               <TabsTrigger value="series" className="gap-2 rounded-xl px-4 py-2.5">
@@ -419,75 +379,89 @@ const History: React.FC = () => {
           </div>
 
           <TabsContent value="series" className="mt-0 space-y-5">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
-                {filteredSeriesHistory.length} seri
-              </Badge>
-              <span>Her seriden son kaldığın tek kayıt gösterilir.</span>
-            </div>
-
-            {filteredSeriesHistory.length > 0 ? (
+            {activeTab === 'series' ? (
               <>
-                <div className="space-y-4">
-                  {visibleSeriesHistory.map((item, index) => (
-                    <SeriesHistoryCard key={`${item.mangaId}-${item.chapterId}`} item={item} index={index} />
-                  ))}
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
+                    {filteredSeriesHistory.length} seri
+                  </Badge>
+                  <span>Her seriden son kaldığın tek kayıt gösterilir.</span>
                 </div>
-                {seriesVisibleCount < filteredSeriesHistory.length && (
-                  <div ref={seriesSentinelRef} className="h-10" />
+
+                {filteredSeriesHistory.length > 0 ? (
+                  <VirtualCardGrid
+                    items={filteredSeriesHistory}
+                    getItemKey={(item) => `${item.mangaId}-${item.chapterId}`}
+                    renderItem={(item, index) => <SeriesHistoryCard item={item} index={index} />}
+                    gridClassName="grid grid-cols-1 gap-4"
+                    getColumnCount={() => 1}
+                    gapPx={16}
+                    estimatedItemHeight={176}
+                    overscanRows={6}
+                    minRowsBeforeVirtualize={4}
+                  />
+                ) : (
+                  <div className="flex min-h-[36vh] items-center justify-center rounded-[28px] border border-dashed border-border bg-card/30">
+                    <div className="max-w-md px-6 text-center">
+                      <BookCopy className="mx-auto h-14 w-14 text-muted-foreground" />
+                      <h2 className="mt-4 text-xl font-semibold">
+                        {deferredSearchQuery ? 'Eşleşen seri bulunamadı' : 'Henüz seri geçmişiniz yok'}
+                      </h2>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {deferredSearchQuery
+                          ? 'Başlık ya da alternatif isim aramasını değiştirip tekrar deneyin.'
+                          : 'Bir seri okumaya başladığınızda burada son kaldığınız yer görünecek.'}
+                      </p>
+                    </div>
+                  </div>
                 )}
               </>
-            ) : (
-              <div className="flex min-h-[36vh] items-center justify-center rounded-[28px] border border-dashed border-border bg-card/30">
-                <div className="max-w-md px-6 text-center">
-                  <BookCopy className="mx-auto h-14 w-14 text-muted-foreground" />
-                  <h2 className="mt-4 text-xl font-semibold">
-                    {deferredSearchQuery ? 'Eşleşen seri bulunamadı' : 'Henüz seri geçmişiniz yok'}
-                  </h2>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {deferredSearchQuery
-                      ? 'Başlık ya da alternatif isim aramasını değiştirip tekrar deneyin.'
-                      : 'Bir seri okumaya başladığınızda burada son kaldığınız yer görünecek.'}
-                  </p>
-                </div>
-              </div>
-            )}
+            ) : null}
           </TabsContent>
 
           <TabsContent value="chapters" className="mt-0 space-y-5">
-            <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
-              <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
-                {filteredChapterHistory.length} bölüm
-              </Badge>
-              <span>Okuduğun bölümler tek tek listelenir ve 20’li akışla yüklenir.</span>
-            </div>
-
-            {filteredChapterHistory.length > 0 ? (
+            {activeTab === 'chapters' ? (
               <>
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6">
-                  {visibleChapterHistory.map((item, index) => (
-                    <ChapterHistoryCard key={`${item.chapterId}-${item.lastRead}`} item={item} index={index} />
-                  ))}
+                <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
+                    {filteredChapterHistory.length} bölüm
+                  </Badge>
+                  <span>Okuduğun bölümler sadece görünür pencere çevresinde mount edilir.</span>
                 </div>
-                {chapterVisibleCount < filteredChapterHistory.length && (
-                  <div ref={chapterSentinelRef} className="h-10" />
+
+                {filteredChapterHistory.length > 0 ? (
+                  <VirtualCardGrid
+                    items={filteredChapterHistory}
+                    getItemKey={(item) => `${item.chapterId}-${item.lastRead}`}
+                    renderItem={(item, index) => <ChapterHistoryCard item={item} index={index} />}
+                    gridClassName="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6"
+                    getColumnCount={(width) => {
+                      if (width >= 1280) return 6;
+                      if (width >= 1024) return 4;
+                      if (width >= 640) return 3;
+                      return 2;
+                    }}
+                    gapPx={16}
+                    estimatedItemHeight={320}
+                    overscanRows={4}
+                  />
+                ) : (
+                  <div className="flex min-h-[36vh] items-center justify-center rounded-[28px] border border-dashed border-border bg-card/30">
+                    <div className="max-w-md px-6 text-center">
+                      <Layers3 className="mx-auto h-14 w-14 text-muted-foreground" />
+                      <h2 className="mt-4 text-xl font-semibold">
+                        {deferredSearchQuery ? 'Eşleşen bölüm bulunamadı' : 'Henüz bölüm geçmişiniz yok'}
+                      </h2>
+                      <p className="mt-2 text-sm text-muted-foreground">
+                        {deferredSearchQuery
+                          ? 'Arama metnini değiştirip tekrar deneyin.'
+                          : 'Bölüm ilerlemeleri oluştukça burada tek tek listelenecek.'}
+                      </p>
+                    </div>
+                  </div>
                 )}
               </>
-            ) : (
-              <div className="flex min-h-[36vh] items-center justify-center rounded-[28px] border border-dashed border-border bg-card/30">
-                <div className="max-w-md px-6 text-center">
-                  <Layers3 className="mx-auto h-14 w-14 text-muted-foreground" />
-                  <h2 className="mt-4 text-xl font-semibold">
-                    {deferredSearchQuery ? 'Eşleşen bölüm bulunamadı' : 'Henüz bölüm geçmişiniz yok'}
-                  </h2>
-                  <p className="mt-2 text-sm text-muted-foreground">
-                    {deferredSearchQuery
-                      ? 'Arama metnini değiştirip tekrar deneyin.'
-                      : 'Bölüm ilerlemeleri oluştukça burada tek tek listelenecek.'}
-                  </p>
-                </div>
-              </div>
-            )}
+            ) : null}
           </TabsContent>
         </Tabs>
       </main>

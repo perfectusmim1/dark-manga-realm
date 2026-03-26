@@ -1,10 +1,7 @@
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
-import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
-
 const DATA_URL_IMAGE_PREFIX = 'data:image';
 const IMAGE_FAILURE_CACHE_KEY = 'toonparrot_offline_image_failures_v1';
-const PROXY_BLOCK_COOLDOWN_MS = 24 * 60 * 60 * 1000;
-const TRANSIENT_FAILURE_COOLDOWN_MS = 30 * 60 * 1000;
+const IMAGE_FAILURE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 export const isPersistentImageDataUrl = (value?: string | null): value is string =>
   typeof value === 'string' && value.startsWith(DATA_URL_IMAGE_PREFIX);
@@ -94,6 +91,20 @@ const clearImageFailure = (sourceUrl: string) => {
   writeFailureCache(failures);
 };
 
+const shouldUsePersistentRemoteFetch = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const { hostname, protocol } = window.location;
+  return !(
+    protocol === 'file:'
+    || hostname === 'localhost'
+    || hostname === '127.0.0.1'
+    || hostname === '::1'
+  );
+};
+
 export const shouldAttemptPersistentImageCache = (sourceUrl?: string | null) => {
   if (!sourceUrl?.trim()) {
     return false;
@@ -123,51 +134,6 @@ const blobToDataUrl = (blob: Blob) =>
     reader.readAsDataURL(blob);
   });
 
-const fetchImageViaProxy = async (sourceUrl: string) => {
-  if (offlineProxyConfig.usesSupabaseAuth) {
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      apikey: offlineProxyConfig.supabaseAnonKey,
-      Authorization: `Bearer ${offlineProxyConfig.supabaseAnonKey}`,
-    };
-
-    const response = await fetch(offlineProxyConfig.url, {
-      method: 'POST',
-      headers,
-      body: JSON.stringify({ url: sourceUrl }),
-    });
-
-    if (!response.ok) {
-      throw new PersistentImageRequestError(
-        `Image proxy request failed (${response.status})`,
-        response.status,
-      );
-    }
-
-    return response.blob();
-  }
-
-  const headers: Record<string, string> = {};
-  if (offlineProxyConfig.token) {
-    headers.Authorization = `Bearer ${offlineProxyConfig.token}`;
-  }
-
-  const response = await fetch(offlineProxyConfig.url, {
-    method: 'POST',
-    headers,
-    body: sourceUrl,
-  });
-
-  if (!response.ok) {
-    throw new PersistentImageRequestError(
-      `Image proxy request failed (${response.status})`,
-      response.status,
-    );
-  }
-
-  return response.blob();
-};
-
 const fetchImageDirectly = async (sourceUrl: string) => {
   let response: Response;
   try {
@@ -194,6 +160,10 @@ export const cachePersistentImageDataUrl = async (sourceUrl?: string | null) => 
     return undefined;
   }
 
+  if (!shouldUsePersistentRemoteFetch()) {
+    return undefined;
+  }
+
   const normalizedSourceUrl = sourceUrl.trim();
   if (isPersistentImageDataUrl(normalizedSourceUrl)) {
     return normalizedSourceUrl;
@@ -206,27 +176,15 @@ export const cachePersistentImageDataUrl = async (sourceUrl?: string | null) => 
   let imageBlob: Blob;
 
   try {
-    imageBlob = await fetchImageViaProxy(normalizedSourceUrl);
+    imageBlob = await fetchImageDirectly(normalizedSourceUrl);
     clearImageFailure(normalizedSourceUrl);
-  } catch (proxyError) {
-    const status = proxyError instanceof PersistentImageRequestError ? proxyError.status : undefined;
-
-    if (status === 401 || status === 403) {
-      rememberImageFailure(normalizedSourceUrl, PROXY_BLOCK_COOLDOWN_MS);
-      return undefined;
+  } catch (directError) {
+    const directStatus = directError instanceof PersistentImageRequestError ? directError.status : undefined;
+    rememberImageFailure(normalizedSourceUrl, IMAGE_FAILURE_COOLDOWN_MS);
+    if (directStatus) {
+      void directStatus;
     }
-
-    try {
-      imageBlob = await fetchImageDirectly(normalizedSourceUrl);
-      clearImageFailure(normalizedSourceUrl);
-    } catch (directError) {
-      const directStatus = directError instanceof PersistentImageRequestError ? directError.status : undefined;
-      rememberImageFailure(
-        normalizedSourceUrl,
-        directStatus && directStatus >= 500 ? TRANSIENT_FAILURE_COOLDOWN_MS : PROXY_BLOCK_COOLDOWN_MS,
-      );
-      return undefined;
-    }
+    return undefined;
   }
 
   const normalizedBlob = imageBlob.type

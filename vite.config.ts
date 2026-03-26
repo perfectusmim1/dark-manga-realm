@@ -15,7 +15,7 @@ export default defineConfig(({ mode }) => ({
     VitePWA({
       registerType: "autoUpdate",
       injectRegister: false,
-      includeAssets: ["favicon.ico", "logo.png", "robots.txt"],
+      includeAssets: ["favicon.ico", "logo.webp", "logo-192.png", "logo-512.png", "robots.txt"],
       manifest: {
         name: "ToonParrot",
         short_name: "ToonParrot",
@@ -26,12 +26,12 @@ export default defineConfig(({ mode }) => ({
         start_url: "/",
         icons: [
           {
-            src: "/logo.png",
+            src: "/logo-192.png",
             sizes: "192x192",
             type: "image/png",
           },
           {
-            src: "/logo.png",
+            src: "/logo-512.png",
             sizes: "512x512",
             type: "image/png",
             purpose: "any maskable",
@@ -39,7 +39,7 @@ export default defineConfig(({ mode }) => ({
         ],
       },
       workbox: {
-        globPatterns: ["**/*.{js,css,html,ico,png,svg,woff2}"],
+        globPatterns: ["**/*.{js,css,html,ico,png,webp,svg,woff2}"],
         navigateFallback: "/index.html",
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,

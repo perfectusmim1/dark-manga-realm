@@ -33,6 +33,7 @@ import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
 import ReadingListCover from '@/components/manga/ReadingListCover';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OfflineNotice from '@/components/offline/OfflineNotice';
+import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
 
 const ReadingLists: React.FC = () => {
     const { user, isLoading: authLoading } = useAuth();
@@ -197,12 +198,26 @@ const ReadingLists: React.FC = () => {
                         </Button>
                     </div>
                 ) : (
-                    <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">
-                        {lists.map((list, index) => (
+                    <VirtualCardGrid
+                        items={lists}
+                        getItemKey={(list) => list.id}
+                        gridClassName="grid gap-6 sm:grid-cols-2 lg:grid-cols-3"
+                        getColumnCount={(width) => {
+                            if (width >= 1024) return 3;
+                            if (width >= 640) return 2;
+                            return 1;
+                        }}
+                        gapPx={24}
+                        estimatedItemHeight={272}
+                        overscanRows={3}
+                        minRowsBeforeVirtualize={4}
+                        renderItem={(list, index) => (
                             <div
-                                key={list.id}
                                 className="group relative animate-fade-up overflow-hidden rounded-xl border border-border bg-card opacity-0 transition-all hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
-                                style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
+                                style={{
+                                    animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
+                                    animationFillMode: 'forwards',
+                                }}
                             >
                                 <ReadingListCover
                                     imageUrl={list.imageUrl}
@@ -259,8 +274,8 @@ const ReadingLists: React.FC = () => {
                                     </div>
                                 </div>
                             </div>
-                        ))}
-                    </div>
+                        )}
+                    />
                 )}
             </main>
 

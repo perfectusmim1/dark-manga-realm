@@ -95,7 +95,7 @@ const AdminLayout: React.FC = () => {
                     <div className="flex h-16 shrink-0 items-center justify-between border-b border-border px-4">
                         {(sidebarOpen || mobileSidebarOpen) && (
                             <Link to="/" className="flex items-center">
-                                <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
+                                <img src="/logo.webp" alt="Logo" className="h-12 w-auto object-contain" decoding="async" />
                             </Link>
                         )}
                         <div className="flex items-center gap-2">

@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
-import { useEffect, useRef, useState } from "react";
+import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { initializeMockData } from "@/lib/mockData";
 import { useEffectiveOnlineStatus } from "@/hooks/useEffectiveOnlineStatus";
 import { checkCurrentAccess } from "@/lib/security/deviceIdentity";
@@ -12,51 +12,6 @@ import { useAuth } from "@/contexts/AuthContext";
 
 // Pages
 import ScrollToTop from "./components/layout/ScrollToTop";
-import Index from "./pages/Index";
-import Browse from "./pages/Browse";
-import MangaDetail from "./pages/MangaDetail";
-import Reader from "./pages/Reader";
-import Auth from "./pages/Auth";
-import Favorites from "./pages/Favorites";
-import History from "./pages/History";
-import LatestChapters from "./pages/LatestChapters";
-import Bookmarks from "./pages/Bookmarks";
-import Library from "./pages/Library";
-import Downloads from "./pages/Downloads";
-import Notifications from "./pages/Notifications";
-import Announcements from "./pages/Announcements";
-import ReadingLists from "./pages/ReadingLists";
-import ReadingTime from "./pages/ReadingTime";
-import ReadingListDetail from "./pages/ReadingListDetail";
-import Settings from "./pages/Settings";
-import NotFound from "./pages/NotFound";
-import Profile from "./pages/Profile";
-import Community from "./pages/Community";
-import TierLists from "./pages/TierLists";
-import TierListEditor from "./pages/TierListEditor";
-import TierListView from "./pages/TierListView";
-import CharacterDetail from "./pages/CharacterDetail";
-import AuthorDetail from "./pages/AuthorDetail";
-import ArtistDetail from "./pages/ArtistDetail";
-import CharactersBrowse from "./pages/CharactersBrowse";
-import AuthorsBrowse from "./pages/AuthorsBrowse";
-import ArtistsBrowse from "./pages/ArtistsBrowse";
-// Admin Pages
-import AdminLogin from "./pages/admin/AdminLogin";
-import AdminLayout from "./pages/admin/AdminLayout";
-import AdminDashboard from "./pages/admin/AdminDashboard";
-import AdminMangaList from "./pages/admin/AdminMangaList";
-import AdminMangaEditor from "./pages/admin/AdminMangaEditor";
-import AdminComments from "./pages/admin/AdminComments";
-import AdminUsers from "./pages/admin/AdminUsers";
-import AdminUserManagement from "./pages/admin/AdminUserManagement";
-import AdminScraper from "./pages/admin/AdminScraper";
-import AdminChapterScraper from "./pages/admin/AdminChapterScraper";
-import AdminEntities from "./pages/admin/AdminEntities";
-import AdminTags from "./pages/admin/AdminTags";
-import AdminAnnouncements from "./pages/admin/AdminAnnouncements";
-import AdminReports from "./pages/admin/AdminReports";
-import AdminSiteSettings from "./pages/admin/AdminSiteSettings";
 import { offlineDownloadManager } from "@/lib/offline/downloadManager";
 import { initializeOfflineReaderSync } from "@/lib/offline/offlineReaderSync";
 import { initializeOfflineUserSync } from "@/lib/offline/userSync";
@@ -84,6 +39,51 @@ const AppInitializer = ({ children }: { children: React.ReactNode }) => {
 };
 
 import SecurityWrapper from "@/components/security/SecurityWrapper";
+
+const Index = lazy(() => import("./pages/Index"));
+const Browse = lazy(() => import("./pages/Browse"));
+const MangaDetail = lazy(() => import("./pages/MangaDetail"));
+const Reader = lazy(() => import("./pages/Reader"));
+const Auth = lazy(() => import("./pages/Auth"));
+const Favorites = lazy(() => import("./pages/Favorites"));
+const History = lazy(() => import("./pages/History"));
+const LatestChapters = lazy(() => import("./pages/LatestChapters"));
+const Bookmarks = lazy(() => import("./pages/Bookmarks"));
+const Library = lazy(() => import("./pages/Library"));
+const Downloads = lazy(() => import("./pages/Downloads"));
+const Notifications = lazy(() => import("./pages/Notifications"));
+const Announcements = lazy(() => import("./pages/Announcements"));
+const ReadingLists = lazy(() => import("./pages/ReadingLists"));
+const ReadingTime = lazy(() => import("./pages/ReadingTime"));
+const ReadingListDetail = lazy(() => import("./pages/ReadingListDetail"));
+const Settings = lazy(() => import("./pages/Settings"));
+const NotFound = lazy(() => import("./pages/NotFound"));
+const Profile = lazy(() => import("./pages/Profile"));
+const Community = lazy(() => import("./pages/Community"));
+const TierLists = lazy(() => import("./pages/TierLists"));
+const TierListEditor = lazy(() => import("./pages/TierListEditor"));
+const TierListView = lazy(() => import("./pages/TierListView"));
+const CharacterDetail = lazy(() => import("./pages/CharacterDetail"));
+const AuthorDetail = lazy(() => import("./pages/AuthorDetail"));
+const ArtistDetail = lazy(() => import("./pages/ArtistDetail"));
+const CharactersBrowse = lazy(() => import("./pages/CharactersBrowse"));
+const AuthorsBrowse = lazy(() => import("./pages/AuthorsBrowse"));
+const ArtistsBrowse = lazy(() => import("./pages/ArtistsBrowse"));
+const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
+const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
+const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
+const AdminMangaList = lazy(() => import("./pages/admin/AdminMangaList"));
+const AdminMangaEditor = lazy(() => import("./pages/admin/AdminMangaEditor"));
+const AdminComments = lazy(() => import("./pages/admin/AdminComments"));
+const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
+const AdminUserManagement = lazy(() => import("./pages/admin/AdminUserManagement"));
+const AdminScraper = lazy(() => import("./pages/admin/AdminScraper"));
+const AdminChapterScraper = lazy(() => import("./pages/admin/AdminChapterScraper"));
+const AdminEntities = lazy(() => import("./pages/admin/AdminEntities"));
+const AdminTags = lazy(() => import("./pages/admin/AdminTags"));
+const AdminAnnouncements = lazy(() => import("./pages/admin/AdminAnnouncements"));
+const AdminReports = lazy(() => import("./pages/admin/AdminReports"));
+const AdminSiteSettings = lazy(() => import("./pages/admin/AdminSiteSettings"));
 
 const OfflineStartupRedirect = () => {
   const navigate = useNavigate();
@@ -241,6 +241,14 @@ const MfaGate = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
+const RouteFallback = () => (
+  <div className="min-h-screen bg-background text-foreground">
+    <div className="container flex min-h-screen items-center justify-center py-12">
+      <div className="h-12 w-12 animate-pulse rounded-full border border-primary/20 bg-primary/10" />
+    </div>
+  </div>
+);
+
 const App = () => (
   <QueryClientProvider client={queryClient}>
     <AuthProvider>
@@ -255,59 +263,61 @@ const App = () => (
                   <OfflineStartupRedirect />
                   <ScrollToTop />
                   <AdBlockWarning />
-                  <Routes>
-                  {/* Public Routes */}
-                  <Route path="/" element={<Index />} />
-                  <Route path="/community" element={<Community />} />
-                  <Route path="/browse" element={<Browse />} />
-                  <Route path="/manga/:mangaId" element={<MangaDetail />} />
-                  <Route path="/manga/:mangaId/chapter/:chapterId" element={<Reader />} />
-                  <Route path="/auth" element={<Auth />} />
-                  <Route path="/favorites" element={<Favorites />} />
-                  <Route path="/library" element={<Library />} />
-                  <Route path="/history" element={<History />} />
-                  <Route path="/downloads" element={<Downloads />} />
-                  <Route path="/latest-chapters" element={<LatestChapters />} />
-                  <Route path="/reading-time" element={<ReadingTime />} />
-                  <Route path="/bookmarks" element={<Bookmarks />} />
-                  <Route path="/notifications" element={<Notifications />} />
-                  <Route path="/announcements" element={<Announcements />} />
-                  <Route path="/reading-lists" element={<ReadingLists />} />
-                  <Route path="/tier-lists" element={<TierLists />} />
-                  <Route path="/tier-lists/create" element={<TierListEditor />} />
-                  <Route path="/tier-lists/:id" element={<TierListView />} />
-                  <Route path="/tier-lists/:id/edit" element={<TierListEditor />} />
-                  <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
-                  <Route path="/settings" element={<Settings />} />
-                  <Route path="/profile/:userId" element={<Profile />} />
-                  <Route path="/character/:id" element={<CharacterDetail />} />
-                  <Route path="/author/:id" element={<AuthorDetail />} />
-                  <Route path="/artist/:id" element={<ArtistDetail />} />
-                  <Route path="/characters" element={<CharactersBrowse />} />
-                  <Route path="/authors" element={<AuthorsBrowse />} />
-                  <Route path="/artists" element={<ArtistsBrowse />} />
+                  <Suspense fallback={<RouteFallback />}>
+                    <Routes>
+                    {/* Public Routes */}
+                    <Route path="/" element={<Index />} />
+                    <Route path="/community" element={<Community />} />
+                    <Route path="/browse" element={<Browse />} />
+                    <Route path="/manga/:mangaId" element={<MangaDetail />} />
+                    <Route path="/manga/:mangaId/chapter/:chapterId" element={<Reader />} />
+                    <Route path="/auth" element={<Auth />} />
+                    <Route path="/favorites" element={<Favorites />} />
+                    <Route path="/library" element={<Library />} />
+                    <Route path="/history" element={<History />} />
+                    <Route path="/downloads" element={<Downloads />} />
+                    <Route path="/latest-chapters" element={<LatestChapters />} />
+                    <Route path="/reading-time" element={<ReadingTime />} />
+                    <Route path="/bookmarks" element={<Bookmarks />} />
+                    <Route path="/notifications" element={<Notifications />} />
+                    <Route path="/announcements" element={<Announcements />} />
+                    <Route path="/reading-lists" element={<ReadingLists />} />
+                    <Route path="/tier-lists" element={<TierLists />} />
+                    <Route path="/tier-lists/create" element={<TierListEditor />} />
+                    <Route path="/tier-lists/:id" element={<TierListView />} />
+                    <Route path="/tier-lists/:id/edit" element={<TierListEditor />} />
+                    <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
+                    <Route path="/settings" element={<Settings />} />
+                    <Route path="/profile/:userId" element={<Profile />} />
+                    <Route path="/character/:id" element={<CharacterDetail />} />
+                    <Route path="/author/:id" element={<AuthorDetail />} />
+                    <Route path="/artist/:id" element={<ArtistDetail />} />
+                    <Route path="/characters" element={<CharactersBrowse />} />
+                    <Route path="/authors" element={<AuthorsBrowse />} />
+                    <Route path="/artists" element={<ArtistsBrowse />} />
 
-                  {/* Admin Routes */}
-                  <Route path="/admin/login" element={<AdminLogin />} />
-                  <Route path="/admin" element={<AdminLayout />}>
-                    <Route index element={<AdminDashboard />} />
-                    <Route path="mangas" element={<AdminMangaList />} />
-                    <Route path="mangas/new" element={<AdminMangaEditor />} />
-                    <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
-                    <Route path="comments" element={<AdminComments />} />
-                    <Route path="scraper" element={<AdminScraper />} />
-                    <Route path="chapter-scraper" element={<AdminChapterScraper />} />
-                    <Route path="users" element={<AdminUsers />} />
-                    <Route path="user-management" element={<AdminUserManagement />} />
-                    <Route path="entities" element={<AdminEntities />} />
-                    <Route path="tags" element={<AdminTags />} />
-                    <Route path="announcements" element={<AdminAnnouncements />} />
-                    <Route path="reports" element={<AdminReports />} />
-                    <Route path="site-settings" element={<AdminSiteSettings />} />
-                  </Route>
+                    {/* Admin Routes */}
+                    <Route path="/admin/login" element={<AdminLogin />} />
+                    <Route path="/admin" element={<AdminLayout />}>
+                      <Route index element={<AdminDashboard />} />
+                      <Route path="mangas" element={<AdminMangaList />} />
+                      <Route path="mangas/new" element={<AdminMangaEditor />} />
+                      <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
+                      <Route path="comments" element={<AdminComments />} />
+                      <Route path="scraper" element={<AdminScraper />} />
+                      <Route path="chapter-scraper" element={<AdminChapterScraper />} />
+                      <Route path="users" element={<AdminUsers />} />
+                      <Route path="user-management" element={<AdminUserManagement />} />
+                      <Route path="entities" element={<AdminEntities />} />
+                      <Route path="tags" element={<AdminTags />} />
+                      <Route path="announcements" element={<AdminAnnouncements />} />
+                      <Route path="reports" element={<AdminReports />} />
+                      <Route path="site-settings" element={<AdminSiteSettings />} />
+                    </Route>
 
-                  <Route path="*" element={<NotFound />} />
-                  </Routes>
+                    <Route path="*" element={<NotFound />} />
+                    </Routes>
+                  </Suspense>
                   <DownloadDock />
                 </MfaGate>
               </AccessGate>

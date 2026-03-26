@@ -4,7 +4,15 @@ This Worker accepts two request shapes:
 
 - `POST /` with `{ "url": "https://target-host/path/to/image.webp" }`
 - `POST /` with `text/plain` body containing the full image URL
+- `GET /?url=https://target-host/path/to/image.webp&width=320&quality=62&format=webp`
 - optional `Authorization: Bearer <token>` for non-browser/manual calls
+
+Optional thumbnail transform params:
+
+- `width`
+- `quality`
+- `format` (`webp`, `avif`, `jpeg`, `png`)
+- `fit` (`scale-down`, `contain`, `cover`)
 
 It is meant to replace the Supabase `offline-image-proxy` function for offline chapter downloads.
 
@@ -14,6 +22,7 @@ It is meant to replace the Supabase `offline-image-proxy` function for offline c
 - keeps the frontend download flow unchanged
 - lets you limit which source hosts and frontend origins are allowed
 - avoids CORS preflight for browser downloads by using a simple `text/plain` POST
+- can serve small preview thumbnails through Cloudflare image transforms
 
 ## What it does not solve
 

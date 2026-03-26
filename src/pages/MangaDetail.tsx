@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useLocation, useParams, Link } from 'react-router-dom';
 import {
   Heart,
@@ -94,13 +94,15 @@ import TagSection from '@/components/tags/TagSection';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import { formatReadingDuration, getBlockedUserIds, getMangaReadingTimeTotal } from '@/lib/profile';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
-import { offlineDownloadManager } from '@/lib/offline/downloadManager';
+import { isDownloadAuthRequiredError, offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { cacheOfflineManga, cacheOfflineMangaCharacters, getOfflineMangaCharacters, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
-import { AnimatePresence, motion } from 'framer-motion';
+import OptimizedImage from '@/components/media/OptimizedImage';
+import DeferredMount from '@/components/performance/DeferredMount';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -120,6 +122,7 @@ const DEFAULT_USER_REVIEW: Partial<Review> = {
 };
 
 const PREVIEW_CHAPTER_BATCH_SIZE = 3;
+const OVERVIEW_CHAPTER_BATCH_SIZE = 28;
 
 const PreviewPageThumbnail = React.memo(({
   page,
@@ -179,7 +182,9 @@ const PreviewPageThumbnail = React.memo(({
               decoding="async"
               width={240}
               height={320}
+              sizes="(min-width: 1280px) 180px, (min-width: 1024px) 16vw, (min-width: 640px) 22vw, 31vw"
               draggable={false}
+              referrerPolicy="no-referrer"
               className="h-full w-full object-cover [transform:translateZ(0)] [backface-visibility:hidden] transition-transform duration-300 group-hover:scale-[1.02]"
             />
           ) : (
@@ -329,7 +334,9 @@ const BookmarkPagePreview = React.memo(({
           decoding="async"
           width={160}
           height={224}
+          sizes="96px"
           draggable={false}
+          referrerPolicy="no-referrer"
           className="h-full w-full object-cover"
         />
       ) : (
@@ -349,6 +356,7 @@ const BookmarkPagePreview = React.memo(({
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
   const location = useLocation();
+  const { disableHeavyEffects } = useDeviceProfile();
   const [manga, setManga] = useState<Manga | undefined>();
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
@@ -363,11 +371,13 @@ const MangaDetail: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState('');
+  const deferredChapterSearch = useDeferredValue(chapterSearch);
   const [activeTab, setActiveTab] = useState('overview');
   const [minLoadedPreviewIndex, setMinLoadedPreviewIndex] = useState(0);
   const [maxLoadedIndex, setMaxLoadedIndex] = useState(0);
   const [currentViewedIndex, setCurrentViewedIndex] = useState(0);
   const [previewStartIndex, setPreviewStartIndex] = useState(0);
+  const [overviewVisibleCount, setOverviewVisibleCount] = useState(OVERVIEW_CHAPTER_BATCH_SIZE);
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [revealedBlockedReviews, setRevealedBlockedReviews] = useState<Record<string, boolean>>({});
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
@@ -383,6 +393,8 @@ const MangaDetail: React.FC = () => {
   const [chapterReadMap, setChapterReadMap] = useState<Record<string, { isRead?: boolean; readProgressPercent?: number }>>({});
   const [seriesBookmarks, setSeriesBookmarks] = useState<Bookmark[]>([]);
   const [isSeriesBookmarksLoading, setIsSeriesBookmarksLoading] = useState(false);
+  const [hasLoadedBookmarks, setHasLoadedBookmarks] = useState(false);
+  const overviewLoadMoreRef = React.useRef<HTMLDivElement | null>(null);
 
   const offlineSeriesEntry = useMemo<OfflineMangaGroup | undefined>(() => (
     offlineSnapshot.series.find((entry) => entry.manga.mangaId === (manga?.id || mangaId))
@@ -424,6 +436,13 @@ const MangaDetail: React.FC = () => {
     return offlineSeriesEntry.jobs.find((job) => ['running', 'queued', 'paused'].includes(job.status))
       || offlineSeriesEntry.jobs[0];
   }, [offlineSeriesEntry]);
+
+  const isOverviewTabActive = activeTab === 'overview';
+  const isPreviewTabActive = activeTab === 'preview';
+  const isBookmarksTabActive = activeTab === 'bookmarks';
+  const isReviewsTabActive = activeTab === 'reviews';
+  const isCharactersTabActive = activeTab === 'characters';
+  const isDiscoverTabActive = activeTab === 'discover';
 
   const handlePreviewInView = React.useCallback((idx: number) => {
     setCurrentViewedIndex(idx);
@@ -472,6 +491,9 @@ const MangaDetail: React.FC = () => {
   const [similarMangas, setSimilarMangas] = useState<Manga[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [mangaCharacters, setMangaCharacters] = useState<any[]>([]);
+  const [hasLoadedReviews, setHasLoadedReviews] = useState(false);
+  const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false);
+  const [hasLoadedSimilar, setHasLoadedSimilar] = useState(false);
 
 
   const [isReviewsLoading, setIsReviewsLoading] = useState(true);
@@ -500,6 +522,10 @@ const MangaDetail: React.FC = () => {
   const shouldShowDescriptionToggle = Boolean(manga?.description && descriptionPreview !== manga.description.trim());
   const activeMangaId = manga?.id || mangaId || '';
   const seriesBookmarkEntries = useMemo(() => {
+    if (!hasLoadedBookmarks) {
+      return [];
+    }
+
     const chapterMap = new Map((manga?.chapters || []).map((chapter) => [chapter.id, chapter]));
 
     return seriesBookmarks.map((bookmark) => {
@@ -528,7 +554,27 @@ const MangaDetail: React.FC = () => {
           : 'Az önce',
       };
     });
-  }, [isOnline, manga?.chapters, manga?.cover, seriesBookmarks]);
+  }, [hasLoadedBookmarks, isOnline, manga?.chapters, manga?.cover, seriesBookmarks]);
+
+  const handleActiveTabChange = React.useCallback((nextTab: string) => {
+    setActiveTab(nextTab);
+
+    if (nextTab === 'reviews' && !hasLoadedReviews) {
+      setIsReviewsLoading(true);
+    }
+
+    if (nextTab === 'characters' && !hasLoadedCharacters) {
+      setIsCharsLoading(true);
+    }
+
+    if (nextTab === 'discover' && !hasLoadedSimilar) {
+      setLoadingSimilar(true);
+    }
+
+    if (nextTab === 'bookmarks' && !hasLoadedBookmarks) {
+      setIsSeriesBookmarksLoading(true);
+    }
+  }, [hasLoadedBookmarks, hasLoadedCharacters, hasLoadedReviews, hasLoadedSimilar]);
 
   useEffect(() => {
     const targetCommentId = getTargetCommentIdFromLocation(location.search, location.hash);
@@ -548,6 +594,11 @@ const MangaDetail: React.FC = () => {
     if (!user?.id || !activeMangaId) {
       setSeriesBookmarks([]);
       setIsSeriesBookmarksLoading(false);
+      setHasLoadedBookmarks(false);
+      return;
+    }
+
+    if (!isBookmarksTabActive || hasLoadedBookmarks) {
       return;
     }
 
@@ -568,6 +619,7 @@ const MangaDetail: React.FC = () => {
           });
 
         setSeriesBookmarks(currentSeriesBookmarks);
+        setHasLoadedBookmarks(true);
       })
       .catch((error) => {
         if (isCancelled) {
@@ -576,6 +628,7 @@ const MangaDetail: React.FC = () => {
 
         console.error('Series bookmarks load error:', error);
         setSeriesBookmarks([]);
+        setHasLoadedBookmarks(true);
       })
       .finally(() => {
         if (!isCancelled) {
@@ -586,7 +639,7 @@ const MangaDetail: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [activeMangaId, user?.id]);
+  }, [activeMangaId, hasLoadedBookmarks, isBookmarksTabActive, user?.id]);
 
   const resetUserScopedState = React.useCallback(() => {
     setFavorite(false);
@@ -599,6 +652,7 @@ const MangaDetail: React.FC = () => {
     setSeriesReadingSeconds(0);
     setSeriesBookmarks([]);
     setIsSeriesBookmarksLoading(false);
+    setHasLoadedBookmarks(false);
     setUserReview(DEFAULT_USER_REVIEW);
   }, []);
 
@@ -614,6 +668,9 @@ const MangaDetail: React.FC = () => {
         setIsCharsLoading(true);
         setIsSeriesReadingTimeLoading(false);
         setLoadingSimilar(false);
+        setHasLoadedReviews(false);
+        setHasLoadedCharacters(false);
+        setHasLoadedSimilar(false);
         setSimilarMangas([]);
         setMangaCharacters([]);
         setReviews([]);
@@ -634,47 +691,11 @@ const MangaDetail: React.FC = () => {
           
           // Show page structure immediately after metadata
           setIsLoading(false);
-
-          // Wave 2: Fetch secondary content without re-triggering the page skeleton.
-          void Promise.all([
-            getMangaCharacters(mangaId),
-            getReviewsForManga(mangaId),
-          ]).then(([mChars, mReviews]) => {
-            if (isCancelled) return;
-
-            setMangaCharacters(mChars);
-            setReviews(mReviews);
-            setIsCharsLoading(false);
-            setIsReviewsLoading(false);
-            void cacheOfflineMangaCharacters(mangaId, mChars);
-          }).catch((error) => {
-            if (isCancelled) return;
-
-            console.error('Manga detail secondary load error:', error);
-            setIsCharsLoading(false);
-            setIsReviewsLoading(false);
-          });
+          setIsCharsLoading(false);
+          setIsReviewsLoading(false);
 
           // Parallel & Non-blocking
           void incrementMangaViews(mangaId);
-
-          if (mData.genres && mData.genres.length > 0) {
-            setLoadingSimilar(true);
-            void getSimilarMangas(mangaId, mData.genres, 6).then(similar => {
-              if (isCancelled) return;
-
-              setSimilarMangas(similar);
-            }).catch((error) => {
-              if (isCancelled) return;
-
-              console.error('Error loading similar mangas:', error);
-              setSimilarMangas([]);
-            }).finally(() => {
-              if (!isCancelled) {
-                setLoadingSimilar(false);
-              }
-            });
-          }
         } else {
           const offlineManga = await getOfflineMangaDetail(mangaId);
           if (isCancelled) return;
@@ -686,6 +707,9 @@ const MangaDetail: React.FC = () => {
             setReviews([]);
             setMangaCharacters(offlineCharacters);
             setSimilarMangas([]);
+            setHasLoadedReviews(true);
+            setHasLoadedCharacters(true);
+            setHasLoadedSimilar(true);
             setBlockedUserIds([]);
             setChapterReadMap({});
             setSeriesReadingSeconds(0);
@@ -699,6 +723,9 @@ const MangaDetail: React.FC = () => {
 
           setIsOfflineView(false);
           setManga(undefined);
+          setHasLoadedReviews(true);
+          setHasLoadedCharacters(true);
+          setHasLoadedSimilar(true);
           setIsLoading(false);
           setIsReviewsLoading(false);
           setIsCharsLoading(false);
@@ -715,6 +742,9 @@ const MangaDetail: React.FC = () => {
           setReviews([]);
           setMangaCharacters(offlineCharacters);
           setSimilarMangas([]);
+          setHasLoadedReviews(true);
+          setHasLoadedCharacters(true);
+          setHasLoadedSimilar(true);
           setBlockedUserIds([]);
           setChapterReadMap({});
           setSeriesReadingSeconds(0);
@@ -740,6 +770,143 @@ const MangaDetail: React.FC = () => {
       isCancelled = true;
     };
   }, [isOnline, mangaId, resetUserScopedState]);
+
+  useEffect(() => {
+    if (
+      !mangaId
+      || !isOnline
+      || isOfflineView
+      || isLoading
+      || activeTab !== 'characters'
+      || hasLoadedCharacters
+    ) {
+      return;
+    }
+
+    let isCancelled = false;
+    setIsCharsLoading(true);
+
+    void getMangaCharacters(mangaId)
+      .then((characters) => {
+        if (isCancelled) {
+          return;
+        }
+
+        setMangaCharacters(characters);
+        setHasLoadedCharacters(true);
+        void cacheOfflineMangaCharacters(mangaId, characters);
+      })
+      .catch((error) => {
+        if (isCancelled) {
+          return;
+        }
+
+        console.error('Manga characters load error:', error);
+        setMangaCharacters([]);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsCharsLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeTab, hasLoadedCharacters, isLoading, isOfflineView, isOnline, mangaId]);
+
+  useEffect(() => {
+    if (
+      !mangaId
+      || !isOnline
+      || isOfflineView
+      || isLoading
+      || activeTab !== 'reviews'
+      || hasLoadedReviews
+    ) {
+      return;
+    }
+
+    let isCancelled = false;
+    setIsReviewsLoading(true);
+
+    void getReviewsForManga(mangaId)
+      .then((nextReviews) => {
+        if (isCancelled) {
+          return;
+        }
+
+        setReviews(nextReviews);
+        setHasLoadedReviews(true);
+      })
+      .catch((error) => {
+        if (isCancelled) {
+          return;
+        }
+
+        console.error('Manga reviews load error:', error);
+        setReviews([]);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsReviewsLoading(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeTab, hasLoadedReviews, isLoading, isOfflineView, isOnline, mangaId]);
+
+  useEffect(() => {
+    if (
+      !mangaId
+      || !manga
+      || !isOnline
+      || isOfflineView
+      || isLoading
+      || activeTab !== 'discover'
+      || hasLoadedSimilar
+    ) {
+      return;
+    }
+
+    if (!manga.genres || manga.genres.length === 0) {
+      setHasLoadedSimilar(true);
+      setLoadingSimilar(false);
+      return;
+    }
+
+    let isCancelled = false;
+    setLoadingSimilar(true);
+
+    void getSimilarMangas(mangaId, manga.genres, 6)
+      .then((similar) => {
+        if (isCancelled) {
+          return;
+        }
+
+        setSimilarMangas(similar);
+        setHasLoadedSimilar(true);
+      })
+      .catch((error) => {
+        if (isCancelled) {
+          return;
+        }
+
+        console.error('Error loading similar mangas:', error);
+        setSimilarMangas([]);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setLoadingSimilar(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeTab, hasLoadedSimilar, isLoading, isOfflineView, isOnline, manga, mangaId]);
 
   useEffect(() => {
     if (!mangaId || authLoading) {
@@ -814,57 +981,6 @@ const MangaDetail: React.FC = () => {
       isCancelled = true;
     };
   }, [authLoading, isOnline, mangaId, resetUserScopedState, user?.id]);
-
-  if (isLoading) {
-    return (
-      <>
-        <Header />
-        <MangaDetailSkeleton />
-      </>
-    );
-  }
-
-  if (!manga) {
-    return (
-      <div className="min-h-screen bg-background">
-        <Header />
-        <main className="container flex min-h-[60vh] items-center justify-center pt-20">
-          <div className="text-center">
-            {!isOnline ? (
-              <>
-                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-blue-500/10 text-blue-300">
-                  <WifiOff className="h-7 w-7" />
-                </div>
-                <h1 className="mt-5 text-2xl font-bold">Bu seri çevrimdışı hazır değil</h1>
-                <p className="mt-2 text-muted-foreground">
-                  İnternet olmadan yalnızca daha önce indirdiğin seriler açılabilir.
-                </p>
-                <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
-                  <Button asChild variant="glow">
-                    <Link to="/downloads">
-                      <Download className="mr-2 h-4 w-4" />
-                      İndirilenlere Git
-                    </Link>
-                  </Button>
-                  <Button asChild variant="outline">
-                    <Link to="/">Ana Sayfaya Dön</Link>
-                  </Button>
-                </div>
-              </>
-            ) : (
-              <>
-                <h1 className="text-2xl font-bold">Manga Bulunamadı</h1>
-                <p className="mt-2 text-muted-foreground">Aradığınız manga mevcut değil.</p>
-                <Button asChild className="mt-4">
-                  <Link to="/">Ana Sayfaya Dön</Link>
-                </Button>
-              </>
-            )}
-          </div>
-        </main>
-      </div>
-    );
-  }
 
   const toggleFavorite = async () => {
     if (!user) {
@@ -968,6 +1084,11 @@ const MangaDetail: React.FC = () => {
       return;
     }
 
+    if (!user) {
+      toast.error('İndirme yapmak için giriş yapmalısınız');
+      return;
+    }
+
     if (!isOnline) {
       toast.error('Seri indirmek icin internete baglanmalisin');
       return;
@@ -987,7 +1108,7 @@ const MangaDetail: React.FC = () => {
       }
     } catch (error) {
       console.error('Series download queue error:', error);
-      toast.error('Seri indirilemedi');
+      toast.error(isDownloadAuthRequiredError(error) ? error.message : 'Seri indirilemedi');
     } finally {
       setIsQueueingSeriesDownload(false);
     }
@@ -995,6 +1116,11 @@ const MangaDetail: React.FC = () => {
 
   const handleQueueChapterDownload = async (chapter: Chapter) => {
     if (!manga) {
+      return;
+    }
+
+    if (!user) {
+      toast.error('İndirme yapmak için giriş yapmalısınız');
       return;
     }
 
@@ -1012,8 +1138,17 @@ const MangaDetail: React.FC = () => {
       }
     } catch (error) {
       console.error('Chapter download queue error:', error);
-      toast.error('Bölüm kuyruğa eklenemedi');
+      toast.error(isDownloadAuthRequiredError(error) ? error.message : 'Bölüm kuyruğa eklenemedi');
     }
+  };
+
+  const openSeriesDownloadDialog = () => {
+    if (!user) {
+      toast.error('İndirme yapmak için giriş yapmalısınız');
+      return;
+    }
+
+    setIsSeriesDownloadDialogOpen(true);
   };
 
   const handleDeleteOfflineChapter = async (chapterId: string) => {
@@ -1139,6 +1274,7 @@ const MangaDetail: React.FC = () => {
 
       setAverageRating(newAvg);
       setReviews(newReviews);
+      setHasLoadedReviews(true);
       setAvgBreakdown({
         story: (newAvg as any).story || 0,
         characters: (newAvg as any).characters || 0,
@@ -1171,6 +1307,7 @@ const MangaDetail: React.FC = () => {
       await toggleReviewLike(reviewId, user.id);
       const newReviews = await getReviewsForManga(manga.id);
       setReviews(newReviews);
+      setHasLoadedReviews(true);
     } catch (err) {
       console.error('Like error:', err);
     }
@@ -1190,13 +1327,109 @@ const MangaDetail: React.FC = () => {
     return views.toString();
   };
 
-  const filteredChapters = manga.chapters.slice().reverse().filter(ch =>
-    ch.number.toString().includes(chapterSearch) ||
-    ch.title.toLocaleLowerCase('tr-TR').includes(chapterSearch.toLocaleLowerCase('tr-TR'))
-  );
+  const filteredChapters = useMemo(() => {
+    if (!manga) {
+      return [];
+    }
 
-  const visibleChapters = filteredChapters.slice(0, 8);
-  const additionalChapters = filteredChapters.slice(8);
+    const normalizedQuery = deferredChapterSearch.toLocaleLowerCase('tr-TR');
+
+    return manga.chapters
+      .slice()
+      .reverse()
+      .filter((chapter) => (
+        chapter.number.toString().includes(deferredChapterSearch)
+        || chapter.title.toLocaleLowerCase('tr-TR').includes(normalizedQuery)
+      ));
+  }, [deferredChapterSearch, manga?.chapters]);
+
+  const visibleChapters = useMemo(() => filteredChapters.slice(0, 8), [filteredChapters]);
+  const visibleOverviewChapters = useMemo(() => (
+    showAllChapters
+      ? filteredChapters.slice(0, overviewVisibleCount)
+      : visibleChapters
+  ), [filteredChapters, overviewVisibleCount, showAllChapters, visibleChapters]);
+  const remainingOverviewChapterCount = Math.max(0, filteredChapters.length - visibleOverviewChapters.length);
+
+  useEffect(() => {
+    setOverviewVisibleCount(OVERVIEW_CHAPTER_BATCH_SIZE);
+  }, [deferredChapterSearch, manga?.id]);
+
+  useEffect(() => {
+    if (!showAllChapters) {
+      return;
+    }
+
+    const sentinel = overviewLoadMoreRef.current;
+    if (!sentinel || overviewVisibleCount >= filteredChapters.length) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (!entries[0]?.isIntersecting) {
+          return;
+        }
+
+        setOverviewVisibleCount((current) => Math.min(current + OVERVIEW_CHAPTER_BATCH_SIZE, filteredChapters.length));
+      },
+      { rootMargin: '420px 0px', threshold: 0.01 },
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filteredChapters.length, overviewVisibleCount, showAllChapters]);
+
+  if (isLoading) {
+    return (
+      <>
+        <Header />
+        <MangaDetailSkeleton />
+      </>
+    );
+  }
+
+  if (!manga) {
+    return (
+      <div className="min-h-screen bg-background">
+        <Header />
+        <main className="container flex min-h-[60vh] items-center justify-center pt-20">
+          <div className="text-center">
+            {!isOnline ? (
+              <>
+                <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-full bg-blue-500/10 text-blue-300">
+                  <WifiOff className="h-7 w-7" />
+                </div>
+                <h1 className="mt-5 text-2xl font-bold">Bu seri çevrimdışı hazır değil</h1>
+                <p className="mt-2 text-muted-foreground">
+                  İnternet olmadan yalnızca daha önce indirdiğin seriler açılabilir.
+                </p>
+                <div className="mt-4 flex flex-wrap items-center justify-center gap-3">
+                  <Button asChild variant="glow">
+                    <Link to="/downloads">
+                      <Download className="mr-2 h-4 w-4" />
+                      İndirilenlere Git
+                    </Link>
+                  </Button>
+                  <Button asChild variant="outline">
+                    <Link to="/">Ana Sayfaya Dön</Link>
+                  </Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <h1 className="text-2xl font-bold">Manga Bulunamadı</h1>
+                <p className="mt-2 text-muted-foreground">Aradığınız manga mevcut değil.</p>
+                <Button asChild className="mt-4">
+                  <Link to="/">Ana Sayfaya Dön</Link>
+                </Button>
+              </>
+            )}
+          </div>
+        </main>
+      </div>
+    );
+  }
 
   const renderChapterRow = (chapter: Chapter) => (
     <div
@@ -1329,6 +1562,7 @@ const MangaDetail: React.FC = () => {
   const continueChapter = latestProgress
     ? manga.chapters.find(ch => ch.id === latestProgress.chapterId)
     : null;
+  const heroArtwork = manga.banner || manga.cover;
 
   return (
     <div className="min-h-screen bg-background">
@@ -1339,13 +1573,24 @@ const MangaDetail: React.FC = () => {
         <div className="relative overflow-hidden">
           {/* Background */}
           <div className="pointer-events-none absolute inset-x-0 top-0 h-[30rem] overflow-hidden md:h-[34rem]">
-            <img
-              src={manga.banner || manga.cover}
+            <OptimizedImage
+              src={heroArtwork}
               alt=""
-              className="h-full w-full scale-110 object-cover blur-3xl [mask-image:linear-gradient(to_bottom,rgba(0,0,0,0.98)_0%,rgba(0,0,0,0.88)_48%,rgba(0,0,0,0.55)_72%,transparent_100%)]"
+              aria-hidden
+              priority
+              containerClassName="h-full w-full"
+              className={cn(
+                'h-full w-full object-cover [mask-image:linear-gradient(to_bottom,rgba(0,0,0,0.98)_0%,rgba(0,0,0,0.88)_48%,rgba(0,0,0,0.55)_72%,transparent_100%)]',
+                disableHeavyEffects
+                  ? 'scale-105 blur-lg opacity-80'
+                  : 'scale-[1.08] blur-xl lg:blur-2xl opacity-90',
+              )}
             />
             <div className="absolute inset-0 bg-gradient-to-b from-background/30 via-background/72 to-background" />
-            <div className="absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-background/60 to-background blur-xl" />
+            <div className={cn(
+              'absolute inset-x-0 bottom-0 h-32 bg-gradient-to-b from-transparent via-background/60 to-background',
+              disableHeavyEffects ? '' : 'blur-md',
+            )} />
           </div>
 
           {/* Content */}
@@ -1353,9 +1598,11 @@ const MangaDetail: React.FC = () => {
             <div className="flex flex-col gap-6 md:flex-row md:gap-8">
               {/* Cover */}
               <div className="mx-auto w-full max-w-[220px] shrink-0 animate-fade-up opacity-0 md:mx-0 md:w-64 md:max-w-none" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
-                <img
+                <OptimizedImage
                   src={manga.cover}
                   alt={manga.title}
+                  priority
+                  containerClassName="mx-auto"
                   className="mx-auto h-auto w-full rounded-xl object-cover shadow-2xl shadow-primary/10 md:h-96"
                 />
               </div>
@@ -1555,7 +1802,7 @@ const MangaDetail: React.FC = () => {
                       variant="outline"
                       size="lg"
                       disabled={primaryOfflineJob?.status === 'running'}
-                      onClick={() => setIsSeriesDownloadDialogOpen(true)}
+                      onClick={openSeriesDownloadDialog}
                       className="group h-11 w-full border-blue-500/30 text-sm hover:border-blue-400/60 hover:bg-blue-500/10 sm:h-12 sm:w-auto sm:text-base"
                     >
                       <Download className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
@@ -1608,7 +1855,7 @@ const MangaDetail: React.FC = () => {
 
         {/* Tabs System */}
         <div className="container py-8">
-          <Tabs value={activeTab} className="w-full" onValueChange={setActiveTab}>
+          <Tabs value={activeTab} className="w-full" onValueChange={handleActiveTabChange}>
             <div className="-mx-4 mb-5 overflow-x-auto px-4 pb-2 sm:mx-0 sm:mb-8 sm:px-0">
               <TabsList className="h-auto min-w-full w-max justify-start gap-3 rounded-none border-b bg-transparent p-0 sm:gap-8">
                 <TabsTrigger
@@ -1666,221 +1913,217 @@ const MangaDetail: React.FC = () => {
             </div>
 
             <TabsContent value="overview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
-                {/* Chapters List */}
-                <div className="space-y-4 sm:space-y-6 lg:col-span-2 lg:space-y-8">
-                  <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
-                    <div className="flex flex-col justify-between gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4">
-                      <div>
-                        <h2 className="text-xl font-bold">Bölümler</h2>
-                        <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
-                      </div>
-                      <div className="relative w-full sm:w-64">
-                        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                        <Input
-                          placeholder="Bölüm ara (örn: 97)"
-                          className="pl-9"
-                          value={chapterSearch}
-                          onChange={(e) => setChapterSearch(e.target.value)}
-                        />
-                      </div>
-                    </div>
-
-                    {manga.chapters.length > 0 ? (
-                      <>
-                        <motion.div layout className="divide-y divide-border overflow-hidden">
-                          {visibleChapters.map((chapter) => (
-                            <motion.div key={chapter.id} layout="position">
-                              {renderChapterRow(chapter)}
-                            </motion.div>
-                          ))}
-
-                          <AnimatePresence initial={false}>
-                            {showAllChapters && additionalChapters.map((chapter, index) => (
-                              <motion.div
-                                key={chapter.id}
-                                layout
-                                initial={{ height: 0, opacity: 0, y: -10 }}
-                                animate={{ height: 'auto', opacity: 1, y: 0 }}
-                                exit={{ height: 0, opacity: 0, y: -10 }}
-                                transition={{
-                                  duration: 0.28,
-                                  delay: index * 0.02,
-                                  ease: [0.22, 1, 0.36, 1],
-                                }}
-                                className="overflow-hidden"
-                              >
-                                {renderChapterRow(chapter)}
-                              </motion.div>
-                            ))}
-                          </AnimatePresence>
-                        </motion.div>
-
-                        {filteredChapters.length > 8 && (
-                          <motion.div layout className="border-t border-border p-3 sm:p-4">
-                            <Button
-                              variant="ghost"
-                              className="w-full"
-                              onClick={() => setShowAllChapters(!showAllChapters)}
-                            >
-                              <motion.span
-                                animate={{ rotate: showAllChapters ? 180 : 0 }}
-                                transition={{ duration: 0.24, ease: [0.22, 1, 0.36, 1] }}
-                                className="mr-2 inline-flex"
-                              >
-                                <ChevronDown className="h-4 w-4" />
-                              </motion.span>
-                              {showAllChapters
-                                ? 'Daha Az Göster'
-                                : `Tüm Bölümleri Göster (${additionalChapters.length} daha)`}
-                            </Button>
-                          </motion.div>
-                        )}
-                      </>
-                    ) : (
-                      <div className="p-8 text-center text-muted-foreground">
-                        Henüz bölüm eklenmemiş
-                      </div>
-                    )}
-                  </div>
-
-                </div>
-
-                {/* Sidebar Info */}
-                <div className="space-y-4 sm:space-y-6">
-                  <div 
-                    className="group cursor-pointer rounded-xl border border-border bg-card/50 p-3 transition-colors hover:bg-card/70 sm:p-6"
-                    onClick={() => setActiveTab('reviews')}
-                  >
-                    <h2 className="mb-3 text-lg font-semibold text-center transition-colors group-hover:text-primary sm:mb-4">
-                      {userRating ? 'Puanınız' : 'Puan Ver'}
-                      <ArrowRight className="inline-block ml-2 h-4 w-4 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
-                    </h2>
-                    <div className="flex flex-col gap-4">
-                      <div className="flex flex-wrap justify-center gap-1">
-                        {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
-                          <div
-                            key={star}
-                            className="p-1"
-                          >
-                            <Star
-                              className={`h-5 w-5 transition-colors ${star <= (userRating || 0)
-                                ? 'fill-yellow-400 text-yellow-400'
-                                : 'text-muted-foreground'
-                                }`}
+              {isOverviewTabActive ? (
+                <>
+                  <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
+                    {/* Chapters List */}
+                    <div className="space-y-4 sm:space-y-6 lg:col-span-2 lg:space-y-8">
+                      <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
+                        <div className="flex flex-col justify-between gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4">
+                          <div>
+                            <h2 className="text-xl font-bold">Bölümler</h2>
+                            <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
+                          </div>
+                          <div className="relative w-full sm:w-64">
+                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              placeholder="Bölüm ara (örn: 97)"
+                              className="pl-9"
+                              value={chapterSearch}
+                              onChange={(e) => setChapterSearch(e.target.value)}
                             />
                           </div>
-                        ))}
-                      </div>
-                      <div className="text-sm text-center text-muted-foreground group-hover:text-foreground transition-colors">
-                        {userRating ? (
-                          <span>Puanınız: <strong className="text-foreground">{userRating}/10</strong></span>
+                        </div>
+
+                        {manga.chapters.length > 0 ? (
+                          <>
+                            <div className="divide-y divide-border overflow-hidden">
+                              {visibleOverviewChapters.map((chapter) => (
+                                <div key={chapter.id}>
+                                  {renderChapterRow(chapter)}
+                                </div>
+                              ))}
+                            </div>
+
+                            {showAllChapters && visibleOverviewChapters.length < filteredChapters.length && (
+                              <div ref={overviewLoadMoreRef} className="px-4 py-5 text-center text-sm text-muted-foreground">
+                                Daha fazla bölüm yükleniyor...
+                              </div>
+                            )}
+
+                            {filteredChapters.length > 8 && (
+                              <div className="border-t border-border p-3 sm:p-4">
+                                <Button
+                                  variant="ghost"
+                                  className="w-full"
+                                  onClick={() => setShowAllChapters(!showAllChapters)}
+                                >
+                                  <span
+                                    className={cn(
+                                      'mr-2 inline-flex transition-transform duration-200',
+                                      showAllChapters && 'rotate-180',
+                                    )}
+                                  >
+                                    <ChevronDown className="h-4 w-4" />
+                                  </span>
+                                  {showAllChapters
+                                    ? 'Daha Az Göster'
+                                    : `Tüm Bölümleri Göster (${remainingOverviewChapterCount} daha)`}
+                                </Button>
+                              </div>
+                            )}
+                          </>
                         ) : (
-                          <span>Puanlamak için tıklayın</span>
+                          <div className="p-8 text-center text-muted-foreground">
+                            Henüz bölüm eklenmemiş
+                          </div>
+                        )}
+                      </div>
+
+                    </div>
+
+                    {/* Sidebar Info */}
+                    <div className="space-y-4 sm:space-y-6">
+                      <div 
+                        className="group cursor-pointer rounded-xl border border-border bg-card/50 p-3 transition-colors hover:bg-card/70 sm:p-6"
+                        onClick={() => setActiveTab('reviews')}
+                      >
+                        <h2 className="mb-3 text-lg font-semibold text-center transition-colors group-hover:text-primary sm:mb-4">
+                          {userRating ? 'Puanınız' : 'Puan Ver'}
+                          <ArrowRight className="inline-block ml-2 h-4 w-4 opacity-0 group-hover:opacity-100 transition-all -translate-x-2 group-hover:translate-x-0" />
+                        </h2>
+                        <div className="flex flex-col gap-4">
+                          <div className="flex flex-wrap justify-center gap-1">
+                            {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
+                              <div
+                                key={star}
+                                className="p-1"
+                              >
+                                <Star
+                                  className={`h-5 w-5 transition-colors ${star <= (userRating || 0)
+                                    ? 'fill-yellow-400 text-yellow-400'
+                                    : 'text-muted-foreground'
+                                    }`}
+                                />
+                              </div>
+                            ))}
+                          </div>
+                          <div className="text-sm text-center text-muted-foreground group-hover:text-foreground transition-colors">
+                            {userRating ? (
+                              <span>Puanınız: <strong className="text-foreground">{userRating}/10</strong></span>
+                            ) : (
+                              <span>Puanlamak için tıklayın</span>
+                            )}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-border bg-card/50 p-3 sm:p-6">
+                        {isOnline ? (
+                          <TagSection
+                            entityType="manga"
+                            entityId={manga.id}
+                          />
+                        ) : (
+                          <OfflineNotice
+                            compact
+                            title="Çevrimdışısınız"
+                            description="Akıllı etiketler için internete bağlanmanız gerekiyor."
+                          />
                         )}
                       </div>
                     </div>
                   </div>
 
-                  <div className="rounded-xl border border-border bg-card/50 p-3 sm:p-6">
-                    {isOnline ? (
-                      <TagSection
-                        entityType="manga"
-                        entityId={manga.id}
-                      />
-                    ) : (
-                      <OfflineNotice
-                        compact
-                        title="Çevrimdışısınız"
-                        description="Akıllı etiketler için internete bağlanmanız gerekiyor."
-                      />
-                    )}
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-4 rounded-xl border border-border bg-card/50 p-3 shadow-sm sm:mt-8 sm:p-6 lg:p-10">
-                {isOnline ? (
-                  <CommentSection mangaId={manga.id} />
-                ) : (
-                  <OfflineNotice
-                    compact
-                    title="Çevrimdışısınız"
-                    description="Yorumlar ve inceleme yorumları için internete bağlanın."
-                  />
-                )}
-              </div>
+                  <DeferredMount className="mt-4 sm:mt-8" placeholderMinHeight={420} rootMargin="240px 0px">
+                    <div className="rounded-xl border border-border bg-card/50 p-3 shadow-sm sm:p-6 lg:p-10">
+                      {isOnline ? (
+                        <CommentSection mangaId={manga.id} />
+                      ) : (
+                        <OfflineNotice
+                          compact
+                          title="Çevrimdışısınız"
+                          description="Yorumlar ve inceleme yorumları için internete bağlanın."
+                        />
+                      )}
+                    </div>
+                  </DeferredMount>
+                </>
+              ) : null}
             </TabsContent>
 
             <TabsContent value="preview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              {!isOnline ? (
+              {isPreviewTabActive ? (
+              !isOnline ? (
                 <OfflineNotice
                   description="Seri önizlemesi internet bağlantısı gerektirir."
                   actionHref={`/manga/${manga.id}`}
                   actionLabel="Genel Bakışa Dön"
                 />
               ) : (
-              <div className="mx-auto max-w-4xl space-y-6 sm:space-y-8">
-                {(() => {
-                  const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
-                  const safeStartIndex = Math.max(0, Math.min(previewStartIndex, sortedChaptersAsc.length - 1));
-                  const safeMinLoadedIndex = Math.max(0, Math.min(minLoadedPreviewIndex, safeStartIndex));
-                  const safeLoadedUntilIndex = Math.max(safeStartIndex, Math.min(maxLoadedIndex, sortedChaptersAsc.length - 1));
-                  const displayedPreviewChapters = sortedChaptersAsc.slice(safeMinLoadedIndex, safeLoadedUntilIndex + 1);
-                  
-                  if (sortedChaptersAsc.length === 0) {
-                    return <div className="text-center rounded-xl border border-border bg-card/50 text-muted-foreground p-8">Henüz bölüm eklenmemiş</div>;
-                  }
+                <div className="mx-auto max-w-4xl space-y-6 sm:space-y-8">
+                  {(() => {
+                    const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
+                    const safeStartIndex = Math.max(0, Math.min(previewStartIndex, sortedChaptersAsc.length - 1));
+                    const safeMinLoadedIndex = Math.max(0, Math.min(minLoadedPreviewIndex, safeStartIndex));
+                    const safeLoadedUntilIndex = Math.max(safeStartIndex, Math.min(maxLoadedIndex, sortedChaptersAsc.length - 1));
+                    const displayedPreviewChapters = sortedChaptersAsc.slice(safeMinLoadedIndex, safeLoadedUntilIndex + 1);
+                    
+                    if (sortedChaptersAsc.length === 0) {
+                      return <div className="text-center rounded-xl border border-border bg-card/50 text-muted-foreground p-8">Henüz bölüm eklenmemiş</div>;
+                    }
 
-                  return (
-                    <>
-                      {safeMinLoadedIndex > 0 && (
-                        <div className="flex justify-center">
-                          <Button
-                            variant="outline"
-                            className="rounded-full"
-                            onClick={handleLoadPreviousPreviewChapters}
-                          >
-                            <ChevronUp className="mr-2 h-4 w-4" />
-                            Önceki Bölümleri Yükle
-                          </Button>
-                        </div>
-                      )}
+                    return (
+                      <>
+                        {safeMinLoadedIndex > 0 && (
+                          <div className="flex justify-center">
+                            <Button
+                              variant="outline"
+                              className="rounded-full"
+                              onClick={handleLoadPreviousPreviewChapters}
+                            >
+                              <ChevronUp className="mr-2 h-4 w-4" />
+                              Önceki Bölümleri Yükle
+                            </Button>
+                          </div>
+                        )}
 
-                      {displayedPreviewChapters.map((chapter, localIndex) => {
-                        const index = safeMinLoadedIndex + localIndex;
-                        // Only mount images for current, previous, and next chapters (max 3 loaded in memory)
-                        const isImageMounted = Math.abs(index - currentViewedIndex) <= 1;
+                        {displayedPreviewChapters.map((chapter, localIndex) => {
+                          const index = safeMinLoadedIndex + localIndex;
+                          // Only mount images for current, previous, and next chapters (max 3 loaded in memory)
+                          const isImageMounted = Math.abs(index - currentViewedIndex) <= 1;
+                          
+                          return (
+                            <PreviewChapter 
+                              key={chapter.id}
+                              chapter={chapter}
+                              index={index}
+                              mangaId={manga.id}
+                              isImageMounted={isImageMounted}
+                              onInView={handlePreviewInView}
+                              onNearBottom={handlePreviewNearBottom}
+                            />
+                          );
+                        })}
                         
-                        return (
-                          <PreviewChapter 
-                            key={chapter.id}
-                            chapter={chapter}
-                            index={index}
-                            mangaId={manga.id}
-                            isImageMounted={isImageMounted}
-                            onInView={handlePreviewInView}
-                            onNearBottom={handlePreviewNearBottom}
-                          />
-                        );
-                      })}
-                      
-                      {safeLoadedUntilIndex < sortedChaptersAsc.length - 1 && (
-                        <div className="flex justify-center p-8 bg-card/20 rounded-xl" style={{ minHeight: '100px' }}>
-                          <span className="text-muted-foreground flex items-center gap-2">
-                             <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
-                             Sonraki bölüm yükleniyor...
-                          </span>
-                        </div>
-                      )}
-                    </>
-                  );
-                })()}
-              </div>
-              )}
+                        {safeLoadedUntilIndex < sortedChaptersAsc.length - 1 && (
+                          <div className="flex justify-center p-8 bg-card/20 rounded-xl" style={{ minHeight: '100px' }}>
+                            <span className="text-muted-foreground flex items-center gap-2">
+                               <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
+                               Sonraki bölüm yükleniyor...
+                            </span>
+                          </div>
+                        )}
+                      </>
+                    );
+                  })()}
+                </div>
+              )
+              ) : null}
             </TabsContent>
 
             <TabsContent value="bookmarks" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {isBookmarksTabActive ? (
               <div className="mx-auto max-w-5xl space-y-6">
                 {!user ? (
                   <div className="rounded-xl border border-border bg-card/50 p-8 text-center shadow-sm">
@@ -1968,70 +2211,77 @@ const MangaDetail: React.FC = () => {
                   </div>
                 )}
               </div>
+              ) : null}
             </TabsContent>
 
             <TabsContent value="characters" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 md:grid-cols-4 lg:grid-cols-6">
-                {isCharsLoading ? (
-                  // Characters Skeleton
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="space-y-3">
-                      <div className="aspect-[3/4] rounded-xl bg-secondary/30 animate-pulse border border-border" />
-                      <div className="h-4 w-2/3 bg-secondary/50 rounded mx-auto animate-pulse" />
-                    </div>
-                  ))
-                ) : mangaCharacters.length > 0 ? (
-                  mangaCharacters.map((char) => (
-                    <Link key={char.id} to={`/character/${char.id}`} className="group space-y-3">
-                      <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-lg border border-border bg-secondary/30">
-                        {char.imageUrl ? (
-                          <img
-                            src={char.imageUrl}
-                            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                            alt={char.name}
-                          />
-                        ) : (
-                          <EntityPlaceholderArt
-                            name={char.name}
-                            className="rounded-[inherit]"
-                            initialClassName="text-5xl sm:text-6xl"
-                          />
-                        )}
-                        <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
-                          <div className="text-white text-xs font-bold flex items-center gap-1">
-                            <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
+              {isCharactersTabActive ? (
+                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 md:grid-cols-4 lg:grid-cols-6">
+                  {isCharsLoading ? (
+                    // Characters Skeleton
+                    Array.from({ length: 6 }).map((_, i) => (
+                      <div key={i} className="space-y-3">
+                        <div className="aspect-[3/4] rounded-xl bg-secondary/30 animate-pulse border border-border" />
+                        <div className="h-4 w-2/3 bg-secondary/50 rounded mx-auto animate-pulse" />
+                      </div>
+                    ))
+                  ) : mangaCharacters.length > 0 ? (
+                    mangaCharacters.map((char) => (
+                      <Link key={char.id} to={`/character/${char.id}`} className="group space-y-3">
+                        <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-lg border border-border bg-secondary/30">
+                          {char.imageUrl ? (
+                            <OptimizedImage
+                              src={char.imageUrl}
+                              alt={char.name}
+                              rootMargin="420px 0px"
+                              containerClassName="h-full w-full"
+                              placeholderClassName="rounded-[inherit]"
+                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            />
+                          ) : (
+                            <EntityPlaceholderArt
+                              name={char.name}
+                              className="rounded-[inherit]"
+                              initialClassName="text-5xl sm:text-6xl"
+                            />
+                          )}
+                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
+                            <div className="text-white text-xs font-bold flex items-center gap-1">
+                              <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
+                            </div>
                           </div>
                         </div>
-                      </div>
-                      <h3 className="text-center font-bold text-sm truncate group-hover:text-primary transition-colors">{char.name}</h3>
-                    </Link>
-                  ))
-                ) : (
-                  <div className="col-span-full py-20 text-center text-muted-foreground italic bg-secondary/10 rounded-2xl border border-dashed border-border">
-                    {isOnline
-                      ? 'Bu seri için henüz karakter eklenmemiş.'
-                      : 'Çevrimdışıyken sadece daha önce önbelleğe alınan karakter kartları gösterilebilir.'}
-                  </div>
-                )}
-              </div>
+                        <h3 className="text-center font-bold text-sm truncate group-hover:text-primary transition-colors">{char.name}</h3>
+                      </Link>
+                    ))
+                  ) : (
+                    <div className="col-span-full py-20 text-center text-muted-foreground italic bg-secondary/10 rounded-2xl border border-dashed border-border">
+                      {isOnline
+                        ? 'Bu seri için henüz karakter eklenmemiş.'
+                        : 'Çevrimdışıyken sadece daha önce önbelleğe alınan karakter kartları gösterilebilir.'}
+                    </div>
+                  )}
+                </div>
+              ) : null}
             </TabsContent>
 
             <TabsContent value="reviews" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              {!isOnline ? (
-                <OfflineNotice
-                  description="İncelemeler için internete bağlanmanız gerekiyor."
-                  actionHref={`/manga/${manga.id}`}
-                  actionLabel="Genel Bakışa Dön"
-                />
-              ) : isReviewsLoading ? (
-                <div className="rounded-xl border border-border bg-card/50 p-4 shadow-xl sm:p-8">
-                   <div className="flex flex-col items-center justify-center py-20 gap-4">
-                      <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
-                      <p className="text-muted-foreground animate-pulse">İncelemeler yükleniyor...</p>
-                   </div>
-                </div>
-              ) : (
-                <div className="rounded-xl border border-border bg-card/50 p-4 shadow-xl sm:p-8">
+              {isReviewsTabActive ? (
+                !isOnline ? (
+                  <OfflineNotice
+                    description="İncelemeler için internete bağlanmanız gerekiyor."
+                    actionHref={`/manga/${manga.id}`}
+                    actionLabel="Genel Bakışa Dön"
+                  />
+                ) : isReviewsLoading ? (
+                  <div className="rounded-xl border border-border bg-card/50 p-4 shadow-xl sm:p-8">
+                     <div className="flex flex-col items-center justify-center py-20 gap-4">
+                        <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
+                        <p className="text-muted-foreground animate-pulse">İncelemeler yükleniyor...</p>
+                     </div>
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-border bg-card/50 p-4 shadow-xl sm:p-8">
                   {/* Reviews Summary */}
                   <div className="mb-10 grid grid-cols-1 items-center gap-8 md:grid-cols-2 lg:grid-cols-3 lg:gap-12">
                     <div className="text-center md:border-r border-border py-4">
@@ -2243,88 +2493,95 @@ const MangaDetail: React.FC = () => {
                       </div>
                     )}
                   </div>
-                </div>
-              )}
+                  </div>
+                )
+              ) : null}
             </TabsContent>
 
             <TabsContent value="discover" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              {!isOnline ? (
-                <OfflineNotice
-                  description="Keşfet ve benzer seri önerileri internet bağlantısı gerektirir."
-                  actionHref="/downloads"
-                  actionLabel="İndirilenlere Git"
-                />
-              ) : (
-              <div className="rounded-xl border border-border bg-card/50 p-4 sm:p-8">
-                <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                  <div>
-                    <h3 className="text-2xl font-bold">Benzer Seriler</h3>
-                    <p className="text-muted-foreground text-sm mt-1">
-                      {manga?.genres?.slice(0, 3).join(', ')} türlerinde diğer popüler seriler
-                    </p>
-                  </div>
-                  <Button variant="outline" asChild className="w-full sm:w-auto">
-                    <Link to="/browse">Tüm Serilere Göz At</Link>
-                  </Button>
-                </div>
-
-                {loadingSimilar ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    {[1, 2, 3, 4, 5, 6].map(i => (
-                      <div key={i} className="animate-pulse">
-                        <div className="aspect-[2/3] bg-muted rounded-lg" />
-                        <div className="h-4 bg-muted rounded mt-2 w-3/4" />
-                      </div>
-                    ))}
-                  </div>
-                ) : similarMangas.length > 0 ? (
-                  <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
-                    {similarMangas.map((m) => (
-                      <Link
-                        key={m.id}
-                        to={`/manga/${m.id}`}
-                        className="group relative overflow-hidden rounded-lg border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
-                      >
-                        <div className="aspect-[2/3] overflow-hidden">
-                          <img
-                            src={m.cover}
-                            alt={m.title}
-                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                          />
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
-                        </div>
-                        <div className="absolute bottom-0 left-0 right-0 p-3 translate-y-full group-hover:translate-y-0 transition-transform">
-                          <h4 className="text-sm font-semibold text-white line-clamp-2">{m.title}</h4>
-                          <div className="flex items-center gap-2 mt-1">
-                            <Badge variant="secondary" className="text-[10px] px-1.5 h-5">
-                              {m.type.toUpperCase()}
-                            </Badge>
-                            {(m as any).averageRating > 0 && (
-                              <span className="text-xs text-yellow-400 flex items-center gap-0.5">
-                                <Star className="h-3 w-3 fill-current" />
-                                {(m as any).averageRating}
-                              </span>
-                            )}
-                          </div>
-                        </div>
-                        {/* Always visible title overlay */}
-                        <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/90 to-transparent group-hover:opacity-0 transition-opacity">
-                          <h4 className="text-xs font-medium text-white line-clamp-2">{m.title}</h4>
-                        </div>
-                      </Link>
-                    ))}
-                  </div>
+              {isDiscoverTabActive ? (
+                !isOnline ? (
+                  <OfflineNotice
+                    description="Keşfet ve benzer seri önerileri internet bağlantısı gerektirir."
+                    actionHref="/downloads"
+                    actionLabel="İndirilenlere Git"
+                  />
                 ) : (
-                  <div className="text-center py-16 bg-secondary/10 rounded-xl border border-dashed border-border">
-                    <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
-                    <p className="text-muted-foreground">Benzer seri bulunamadı.</p>
-                    <p className="text-sm text-muted-foreground/70 mt-1">
-                      Daha fazla içerik eklendiğinde öneriler burada görünecek.
-                    </p>
+                <div className="rounded-xl border border-border bg-card/50 p-4 sm:p-8">
+                  <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                    <div>
+                      <h3 className="text-2xl font-bold">Benzer Seriler</h3>
+                      <p className="text-muted-foreground text-sm mt-1">
+                        {manga?.genres?.slice(0, 3).join(', ')} türlerinde diğer popüler seriler
+                      </p>
+                    </div>
+                    <Button variant="outline" asChild className="w-full sm:w-auto">
+                      <Link to="/browse">Tüm Serilere Göz At</Link>
+                    </Button>
                   </div>
-                )}
-              </div>
-              )}
+
+                  {loadingSimilar ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                      {[1, 2, 3, 4, 5, 6].map(i => (
+                        <div key={i} className="animate-pulse">
+                          <div className="aspect-[2/3] bg-muted rounded-lg" />
+                          <div className="h-4 bg-muted rounded mt-2 w-3/4" />
+                        </div>
+                      ))}
+                    </div>
+                  ) : similarMangas.length > 0 ? (
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                      {similarMangas.map((m, index) => (
+                        <Link
+                          key={m.id}
+                          to={`/manga/${m.id}`}
+                          className="group relative overflow-hidden rounded-lg border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+                        >
+                          <div className="aspect-[2/3] overflow-hidden">
+                            <OptimizedImage
+                              src={m.cover}
+                              alt={m.title}
+                              priority={index < 2}
+                              rootMargin="420px 0px"
+                              containerClassName="h-full w-full"
+                              placeholderClassName="rounded-none"
+                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                            />
+                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 group-hover:opacity-100 transition-opacity" />
+                          </div>
+                          <div className="absolute bottom-0 left-0 right-0 p-3 translate-y-full group-hover:translate-y-0 transition-transform">
+                            <h4 className="text-sm font-semibold text-white line-clamp-2">{m.title}</h4>
+                            <div className="flex items-center gap-2 mt-1">
+                              <Badge variant="secondary" className="text-[10px] px-1.5 h-5">
+                                {m.type.toUpperCase()}
+                              </Badge>
+                              {(m as any).averageRating > 0 && (
+                                <span className="text-xs text-yellow-400 flex items-center gap-0.5">
+                                  <Star className="h-3 w-3 fill-current" />
+                                  {(m as any).averageRating}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          {/* Always visible title overlay */}
+                          <div className="absolute bottom-0 left-0 right-0 p-2 bg-gradient-to-t from-black/90 to-transparent group-hover:opacity-0 transition-opacity">
+                            <h4 className="text-xs font-medium text-white line-clamp-2">{m.title}</h4>
+                          </div>
+                        </Link>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="text-center py-16 bg-secondary/10 rounded-xl border border-dashed border-border">
+                      <BookOpen className="h-12 w-12 text-muted-foreground mx-auto mb-4 opacity-20" />
+                      <p className="text-muted-foreground">Benzer seri bulunamadı.</p>
+                      <p className="text-sm text-muted-foreground/70 mt-1">
+                        Daha fazla içerik eklendiğinde öneriler burada görünecek.
+                      </p>
+                    </div>
+                  )}
+                </div>
+                )
+              ) : null}
             </TabsContent>
           </Tabs>
         </div>

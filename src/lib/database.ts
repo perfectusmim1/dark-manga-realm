@@ -138,10 +138,14 @@ let adminAccessContextPromise: Promise<AdminAccessContext> | null = null;
 const ALL_MANGAS_CACHE_TTL_MS = 60_000;
 let allMangasCache: { fetchedAt: number; value: Manga[] } | null = null;
 let allMangasPromise: Promise<Manga[]> | null = null;
+let mangaSummariesCache: { fetchedAt: number; value: Manga[] } | null = null;
+let mangaSummariesPromise: Promise<Manga[]> | null = null;
 
 const invalidateAllMangasCache = () => {
     allMangasCache = null;
     allMangasPromise = null;
+    mangaSummariesCache = null;
+    mangaSummariesPromise = null;
 };
 
 export const getCachedAdminAccessContext = (authUserId?: string | null): AdminAccessContext | null => {
@@ -195,6 +199,47 @@ export const canAccessOwnedContent = async (
     }
 
     return !(await hasUserBlockRelationship(viewerId, ownerId));
+};
+
+const buildReviewStatsByMangaId = (reviews: any[] = []) => {
+    const reviewStatsByMangaId = new Map<string, { average: number; reviewCount: number }>();
+    const reviewBuckets = new Map<string, { total: number; count: number }>();
+
+    for (const review of reviews) {
+        const rating =
+            (review.rating_story +
+                review.rating_characters +
+                review.rating_art +
+                review.rating_progression +
+                review.rating_engagement) / 5;
+
+        const currentBucket = reviewBuckets.get(review.manga_id) || { total: 0, count: 0 };
+        currentBucket.total += rating;
+        currentBucket.count += 1;
+        reviewBuckets.set(review.manga_id, currentBucket);
+    }
+
+    for (const [mangaId, bucket] of reviewBuckets.entries()) {
+        reviewStatsByMangaId.set(mangaId, {
+            average: Math.round((bucket.total / bucket.count) * 10) / 10,
+            reviewCount: bucket.count,
+        });
+    }
+
+    return reviewStatsByMangaId;
+};
+
+const buildChapterCountByMangaId = (chapters: any[] = []) => {
+    const chapterCountByMangaId = new Map<string, number>();
+
+    for (const chapter of chapters) {
+        chapterCountByMangaId.set(
+            chapter.manga_id,
+            (chapterCountByMangaId.get(chapter.manga_id) || 0) + 1,
+        );
+    }
+
+    return chapterCountByMangaId;
 };
 
 // ==================== MANGA OPERATIONS ====================
@@ -304,6 +349,103 @@ export const getAllMangas = async (): Promise<Manga[]> => {
         return [];
     } finally {
         allMangasPromise = null;
+    }
+};
+
+export const getMangaSummaries = async (): Promise<Manga[]> => {
+    if (mangaSummariesCache && Date.now() - mangaSummariesCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+        return mangaSummariesCache.value;
+    }
+
+    if (allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+        const summarized = allMangasCache.value.map((manga) => ({
+            ...manga,
+            chapters: [],
+            ratings: [],
+            chapterCount: typeof manga.chapterCount === 'number' ? manga.chapterCount : manga.chapters.length,
+        }));
+        mangaSummariesCache = {
+            fetchedAt: allMangasCache.fetchedAt,
+            value: summarized,
+        };
+        return summarized;
+    }
+
+    if (mangaSummariesPromise) {
+        return mangaSummariesPromise;
+    }
+
+    const timeout = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error('Manga summary fetch timeout')), 8000)
+    );
+
+    try {
+        const fetchSummaries = async () => {
+            const [
+                { data: mangaRows, error: mangaError },
+                { data: reviewRows, error: reviewError },
+                { data: chapterRows, error: chapterError },
+            ] = await Promise.all([
+                supabase
+                    .from('mangas')
+                    .select('id, title, alternative_titles, cover, banner, author, artist, status, genres, description, views, last_updated, created_at, type, release_year')
+                    .order('last_updated', { ascending: false }),
+                supabase
+                    .from('reviews')
+                    .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
+                supabase
+                    .from('chapters')
+                    .select('manga_id'),
+            ]);
+
+            if (mangaError) {
+                throw mangaError;
+            }
+
+            if (reviewError) {
+                console.error('Manga summary review aggregate fetch error:', reviewError);
+            }
+
+            if (chapterError) {
+                console.error('Manga summary chapter aggregate fetch error:', chapterError);
+            }
+
+            const reviewStatsByMangaId = buildReviewStatsByMangaId(reviewRows || []);
+            const chapterCountByMangaId = buildChapterCountByMangaId(chapterRows || []);
+
+            return (mangaRows || []).map((manga: any) => {
+                const reviewStats = reviewStatsByMangaId.get(manga.id);
+
+                return {
+                    ...manga,
+                    alternativeTitles: manga.alternative_titles || [],
+                    lastUpdated: manga.last_updated,
+                    createdAt: manga.created_at,
+                    releaseYear: manga.release_year,
+                    chapters: [],
+                    ratings: [],
+                    chapterCount: chapterCountByMangaId.get(manga.id) || 0,
+                    averageRating: reviewStats?.average || 0,
+                    reviewCount: reviewStats?.reviewCount || 0,
+                } as Manga;
+            });
+        };
+
+        mangaSummariesPromise = Promise.race([fetchSummaries(), timeout]) as Promise<Manga[]>;
+        const summaries = await mangaSummariesPromise;
+        mangaSummariesCache = {
+            fetchedAt: Date.now(),
+            value: summaries,
+        };
+
+        return summaries;
+    } catch (error) {
+        mangaSummariesCache = null;
+        mangaSummariesPromise = null;
+        console.error('Manga summary fetch global error:', error);
+        return [];
+    } finally {
+        mangaSummariesPromise = null;
     }
 };
 
@@ -3656,7 +3798,7 @@ export const getTopTenMangas = async (timeframe: 'today' | 'week' | 'all' = 'tod
         if (error || !rawData || rawData.length === 0) {
             if (error) console.error('getTopTenMangas error:', error);
             // Return top 10 by views if engagement logic fails
-            const all = await getAllMangas();
+            const all = await getMangaSummaries();
             return all.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 10);
         }
 

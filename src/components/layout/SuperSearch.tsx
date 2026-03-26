@@ -7,7 +7,7 @@ import {
     BookOpen
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getAllMangas } from '@/lib/database';
+import { getMangaSummaries } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import {
     Dialog,
@@ -43,7 +43,7 @@ const SuperSearch: React.FC = () => {
             const loadData = async () => {
                 setIsLoading(true);
                 try {
-                    const data = await getAllMangas();
+                    const data = await getMangaSummaries();
                     setAllMangas(data);
 
                     // Set popular mangas (top 5 by views or just first 5 if views are equal)
@@ -327,7 +327,7 @@ const SuperSearch: React.FC = () => {
                                                     </p>
                                                     <div className="flex items-center gap-1.5 text-[10px] text-primary/90">
                                                         <BookOpen className="h-3 w-3" />
-                                                        <span>{manga.chapters.length} bölüm</span>
+                                                        <span>{typeof manga.chapterCount === 'number' ? manga.chapterCount : manga.chapters.length} bölüm</span>
                                                     </div>
                                                 </div>
                                             </button>

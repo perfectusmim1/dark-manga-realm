@@ -50,20 +50,98 @@ const buildCorsHeaders = (request, allowedOrigins) => {
   };
 };
 
-const readTargetUrl = async (request) => {
-  if (request.method === 'GET') {
-    const requestUrl = new URL(request.url);
-    return requestUrl.searchParams.get('url');
+const getOriginFromValue = (value) => {
+  if (!value) {
+    return null;
   }
 
+  try {
+    return new URL(value).origin;
+  } catch {
+    return null;
+  }
+};
+
+const clampInteger = (value, min, max) => Math.min(max, Math.max(min, Math.round(value)));
+
+const parseIntegerWithinRange = (value, min, max) => {
+  if (value === null || value === undefined || value === '') {
+    return undefined;
+  }
+
+  const parsedValue = Number(value);
+  if (!Number.isFinite(parsedValue)) {
+    return undefined;
+  }
+
+  return clampInteger(parsedValue, min, max);
+};
+
+const normalizeTransform = (transform) => {
+  if (!transform || typeof transform !== 'object') {
+    return null;
+  }
+
+  const width = parseIntegerWithinRange(transform.width, 64, 1600);
+  const quality = parseIntegerWithinRange(transform.quality, 35, 90);
+  const format = ['webp', 'avif', 'jpeg', 'png'].includes(transform.format) ? transform.format : undefined;
+  const fit = ['scale-down', 'contain', 'cover'].includes(transform.fit) ? transform.fit : undefined;
+
+  if (!width && !quality && !format && !fit) {
+    return null;
+  }
+
+  return {
+    ...(width ? { width } : {}),
+    ...(quality ? { quality } : {}),
+    ...(format ? { format } : {}),
+    ...(fit ? { fit } : {}),
+  };
+};
+
+const readTransformFromSearchParams = (searchParams) =>
+  normalizeTransform({
+    width: searchParams.get('width'),
+    quality: searchParams.get('quality'),
+    format: searchParams.get('format'),
+    fit: searchParams.get('fit'),
+  });
+
+const readRequestPayload = async (request) => {
+  const requestUrl = new URL(request.url);
+
+  if (request.method === 'GET') {
+    return {
+      sourceUrl: requestUrl.searchParams.get('url'),
+      transform: readTransformFromSearchParams(requestUrl.searchParams),
+    };
+  }
+
+  const searchTransform = readTransformFromSearchParams(requestUrl.searchParams);
   const contentType = (request.headers.get('Content-Type') || '').toLowerCase();
+
   if (contentType.includes('text/plain')) {
-    const textBody = await request.text();
-    return textBody.trim();
+    const textBody = (await request.text()).trim();
+    if (!textBody) {
+      return { sourceUrl: '', transform: searchTransform };
+    }
+
+    try {
+      const parsedBody = JSON.parse(textBody);
+      return {
+        sourceUrl: typeof parsedBody?.url === 'string' ? parsedBody.url : '',
+        transform: normalizeTransform(parsedBody?.transform) || searchTransform,
+      };
+    } catch {
+      return { sourceUrl: textBody, transform: searchTransform };
+    }
   }
 
   const body = await request.json().catch(() => null);
-  return body?.url;
+  return {
+    sourceUrl: typeof body?.url === 'string' ? body.url : '',
+    transform: normalizeTransform(body?.transform) || searchTransform,
+  };
 };
 
 export default {
@@ -72,7 +150,10 @@ export default {
     const allowedOrigins = parseCsv(env.ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS);
     const corsHeaders = buildCorsHeaders(request, allowedOrigins);
     const requestOrigin = request.headers.get('Origin');
+    const refererOrigin = getOriginFromValue(request.headers.get('Referer'));
     const isAllowedOrigin = !!requestOrigin && allowedOrigins.includes(requestOrigin);
+    const isAllowedReferer = !!refererOrigin && allowedOrigins.includes(refererOrigin);
+    const isTrustedBrowserRequest = isAllowedOrigin || isAllowedReferer;
 
     if (request.method === 'OPTIONS') {
       return new Response(null, { headers: corsHeaders });
@@ -87,17 +168,21 @@ export default {
       return jsonResponse({ error: 'Origin is not allowed' }, 403, corsHeaders);
     }
 
-    if (!isAllowedOrigin && expectedToken) {
+    if (!requestOrigin && refererOrigin && !isAllowedReferer) {
+      return jsonResponse({ error: 'Referer is not allowed' }, 403, corsHeaders);
+    }
+
+    if (!isTrustedBrowserRequest && expectedToken) {
       const authHeader = request.headers.get('Authorization') || '';
       const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
       if (bearerToken !== expectedToken) {
         return jsonResponse({ error: 'Unauthorized' }, 401, corsHeaders);
       }
-    } else if (!isAllowedOrigin && !expectedToken) {
+    } else if (!isTrustedBrowserRequest && !expectedToken) {
       return jsonResponse({ error: 'Unauthorized' }, 401, corsHeaders);
     }
 
-    const sourceUrl = await readTargetUrl(request);
+    const { sourceUrl, transform } = await readRequestPayload(request);
     if (!sourceUrl || typeof sourceUrl !== 'string') {
       return jsonResponse({ error: 'Valid url is required' }, 400, corsHeaders);
     }
@@ -129,6 +214,7 @@ export default {
       redirect: 'follow',
       cf: {
         cacheEverything: false,
+        ...(transform ? { image: transform } : {}),
       },
     }).catch((error) => {
       console.error('Upstream request failed', error);
@@ -157,7 +243,9 @@ export default {
     );
     responseHeaders.set(
       'Cache-Control',
-      upstreamResponse.headers.get('Cache-Control') || 'public, max-age=3600',
+      transform
+        ? 'public, max-age=86400, stale-while-revalidate=604800'
+        : upstreamResponse.headers.get('Cache-Control') || 'public, max-age=3600',
     );
     responseHeaders.set('X-Proxy-Upstream-Status', String(upstreamResponse.status));
 

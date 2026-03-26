@@ -23,8 +23,29 @@ import {
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
 import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
+import { supabase } from '@/lib/supabase';
 
 const PAGE_DOWNLOAD_CONCURRENCY = 3;
+export const DOWNLOAD_AUTH_REQUIRED_ERROR_CODE = 'DOWNLOAD_AUTH_REQUIRED';
+
+export class DownloadAuthRequiredError extends Error {
+  code = DOWNLOAD_AUTH_REQUIRED_ERROR_CODE;
+
+  constructor(message = 'Bölüm indirmek için giriş yapmalısınız') {
+    super(message);
+    this.name = 'DownloadAuthRequiredError';
+  }
+}
+
+export const isDownloadAuthRequiredError = (error: unknown): error is DownloadAuthRequiredError => (
+  error instanceof DownloadAuthRequiredError
+  || (
+    typeof error === 'object'
+    && error !== null
+    && 'code' in error
+    && (error as { code?: string }).code === DOWNLOAD_AUTH_REQUIRED_ERROR_CODE
+  )
+);
 
 interface DownloadedPageResult {
   blob: Blob;
@@ -36,6 +57,27 @@ interface DownloadedPageResult {
 const nowIso = () => new Date().toISOString();
 
 const createJobId = (prefix: string, mangaId: string) => `${prefix}:${mangaId}:${crypto.randomUUID()}`;
+
+const getAuthenticatedDownloadUserId = async () => {
+  const { data, error } = await supabase.auth.getSession();
+
+  if (error) {
+    console.error('Download auth session check failed:', error);
+    return null;
+  }
+
+  return data.session?.user?.id || null;
+};
+
+const ensureAuthenticatedDownloadAccess = async () => {
+  const userId = await getAuthenticatedDownloadUserId();
+
+  if (!userId) {
+    throw new DownloadAuthRequiredError();
+  }
+
+  return userId;
+};
 
 const calculateProgressPercent = (
   chapters: OfflineChapter[],
@@ -227,11 +269,22 @@ class OfflineDownloadManager {
 
     await clearInterruptedJobs();
 
-    for (const jobId of interruptedJobIds) {
-      await this.resumeJob(jobId);
+    if (await this.hasAuthenticatedDownloadAccess()) {
+      for (const jobId of interruptedJobIds) {
+        await this.resumeJob(jobId);
+      }
     }
 
     window.addEventListener('online', () => {
+      void this.processQueue();
+    });
+
+    supabase.auth.onAuthStateChange((_event, session) => {
+      if (!session?.user) {
+        void this.pauseJobsForSignedOutState();
+        return;
+      }
+
       void this.processQueue();
     });
 
@@ -239,6 +292,7 @@ class OfflineDownloadManager {
   }
 
   async queueChapterDownload(manga: Manga, chapter: Chapter) {
+    await ensureAuthenticatedDownloadAccess();
     await cacheOfflineManga(manga);
     const offlineChapter = await cacheOfflineChapterMetadata(manga.id, chapter, 'queued');
 
@@ -269,6 +323,7 @@ class OfflineDownloadManager {
   }
 
   async queueSeriesDownload(manga: Manga, chapters: Chapter[]) {
+    await ensureAuthenticatedDownloadAccess();
     await cacheOfflineManga(manga);
 
     const chapterRecords = await Promise.all(
@@ -332,6 +387,7 @@ class OfflineDownloadManager {
   }
 
   async resumeJob(jobId: string) {
+    await ensureAuthenticatedDownloadAccess();
     await updateOfflineJob(jobId, (job) => ({
       ...job,
       status: 'queued',
@@ -343,6 +399,7 @@ class OfflineDownloadManager {
   }
 
   async retryJob(jobId: string) {
+    await ensureAuthenticatedDownloadAccess();
     await updateOfflineJob(jobId, (job) => ({
       ...job,
       status: 'queued',
@@ -404,6 +461,10 @@ class OfflineDownloadManager {
       return;
     }
 
+    if (!(await this.hasAuthenticatedDownloadAccess())) {
+      return;
+    }
+
     const jobs = await getOfflineJobs();
     const nextJob = jobs
       .filter((job) => job.status === 'queued')
@@ -432,6 +493,37 @@ class OfflineDownloadManager {
       this.processing = false;
       await this.processQueue();
     }
+  }
+
+  private async hasAuthenticatedDownloadAccess() {
+    return Boolean(await getAuthenticatedDownloadUserId());
+  }
+
+  private async pauseJobsForSignedOutState() {
+    const jobs = await getOfflineJobs();
+
+    await Promise.all(jobs.map(async (job) => {
+      if (!['running', 'queued'].includes(job.status)) {
+        return;
+      }
+
+      if (job.id === this.activeJobId) {
+        const controller = this.abortControllers.get(job.id);
+        if (controller) {
+          this.stopReasons.set(job.id, 'paused');
+          controller.abort();
+          return;
+        }
+      }
+
+      await updateOfflineJob(job.id, (currentJob) => ({
+        ...currentJob,
+        status: 'paused',
+        speedBps: 0,
+        error: 'Oturum kapandığı için indirme duraklatıldı.',
+        updatedAt: nowIso(),
+      }));
+    }));
   }
 
   private async runJob(job: DownloadJob, signal: AbortSignal) {

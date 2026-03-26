@@ -242,7 +242,7 @@ const Auth: React.FC = () => {
 
       <div className="relative z-10 w-full max-w-md animate-fade-up">
         <Link to="/" className="mb-8 flex justify-center">
-          <img src="/logo.png" alt="Logo" className="h-16 w-auto object-contain transition-transform hover:scale-105" />
+          <img src="/logo.webp" alt="Logo" className="h-16 w-auto object-contain transition-transform hover:scale-105" decoding="async" />
         </Link>
 
         <div className="rounded-2xl border border-white/10 bg-black/40 p-8 shadow-2xl ring-1 ring-white/20 backdrop-blur-2xl">

@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { List } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import OptimizedImage from '@/components/media/OptimizedImage';
 
 interface ReadingListCoverProps {
     imageUrl?: string | null;
@@ -33,10 +34,14 @@ const ReadingListCover: React.FC<ReadingListCoverProps> = ({
         <div className={cn('relative overflow-hidden bg-gradient-to-br from-primary/20 via-secondary/70 to-background', className)}>
             {showImage ? (
                 <>
-                    <img
-                        src={imageUrl || undefined}
+                    <OptimizedImage
+                        src={imageUrl as string}
                         alt={alt}
+                        rootMargin="420px 0px"
+                        containerClassName="h-full w-full"
+                        placeholderClassName="rounded-none"
                         className={cn('h-full w-full object-cover', imageClassName)}
+                        sizes="(min-width: 1280px) 28vw, (min-width: 640px) 44vw, 100vw"
                         onError={() => setHasError(true)}
                     />
                     <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-black/10 to-transparent" />

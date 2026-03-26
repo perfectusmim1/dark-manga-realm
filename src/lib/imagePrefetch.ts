@@ -17,6 +17,9 @@ const createImagePromise = (src: string) => {
     image.decoding = 'async';
     image.loading = 'eager';
     image.referrerPolicy = 'no-referrer';
+    if ('fetchPriority' in image) {
+        (image as HTMLImageElement & { fetchPriority?: string }).fetchPriority = 'low';
+    }
 
     const promise = new Promise<HTMLImageElement>((resolve, reject) => {
         const finalizeSuccess = () => {

@@ -13,10 +13,11 @@ import {
 import { Button } from '@/components/ui/button';
 import { Progress } from '@/components/ui/progress';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
-import { offlineDownloadManager } from '@/lib/offline/downloadManager';
+import { isDownloadAuthRequiredError, offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { DownloadJob, OfflineDownloadStatus } from '@/lib/offline/types';
 import { formatBytes, formatSpeed } from '@/lib/offline/utils';
 import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 
 const STORAGE_KEYS = {
   minimized: 'toonparrot_download_dock_minimized',
@@ -133,7 +134,11 @@ const DownloadDock: React.FC = () => {
   };
 
   const handleResume = async (jobId: string) => {
-    await offlineDownloadManager.resumeJob(jobId);
+    try {
+      await offlineDownloadManager.resumeJob(jobId);
+    } catch (error) {
+      toast.error(isDownloadAuthRequiredError(error) ? error.message : 'İndirme devam ettirilemedi');
+    }
   };
 
   const handleDismiss = () => {

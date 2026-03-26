@@ -30,7 +30,7 @@ import {
   Download,
   ChevronDown,
 } from 'lucide-react';
-import { getAllMangas, getCharacters } from '@/lib/database';
+import { getCharacters, getMangaSummaries } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -63,6 +63,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 
 const CHARACTER_MENU_LONG_PRESS_MS = 320;
 
@@ -100,6 +101,7 @@ const Header: React.FC = () => {
   const isAdmin = access.canAccessAdminPanel;
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
+  const { disableHeavyEffects } = useDeviceProfile();
   const [isRandomDialogOpen, setIsRandomDialogOpen] = useState(false);
   const [isRandomRolling, setIsRandomRolling] = useState(false);
   const [randomQueue, setRandomQueue] = useState<Manga[]>([]);
@@ -124,7 +126,7 @@ const Header: React.FC = () => {
     }
 
     if (!mangaSearchLoadPromiseRef.current) {
-      mangaSearchLoadPromiseRef.current = getAllMangas()
+      mangaSearchLoadPromiseRef.current = getMangaSummaries()
         .then((data) => {
           setAllMangas((current) => (current.length > 0 ? current : data));
           return data;
@@ -509,14 +511,14 @@ const Header: React.FC = () => {
 
   return (
     <TooltipProvider>
-    <header className="fixed top-0 left-0 right-0 z-50 border-b border-border/50 bg-background/80 backdrop-blur-xl">
+    <header className={`fixed top-0 left-0 right-0 z-50 border-b border-border/50 ${disableHeavyEffects ? 'bg-background/95' : 'bg-background/80 backdrop-blur-xl'}`}>
       <div className="container flex h-16 items-center justify-between gap-4">
         {/* Logo */}
         <Link
           to="/"
           className="-ml-2 flex items-center gap-2 md:-ml-3"
         >
-          <img src="/logo.png" alt="Logo" className="h-12 w-auto object-contain" />
+                <img src="/logo.webp" alt="Logo" className="h-12 w-auto object-contain" decoding="async" />
         </Link>
 
         {/* Desktop Navigation */}

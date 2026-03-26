@@ -1,13 +1,13 @@
-import React, { useState, useMemo, useEffect } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Filter, X } from 'lucide-react';
 import Header from '@/components/layout/Header';
-import MangaGrid from '@/components/manga/MangaGrid';
+import VirtualMangaGrid from '@/components/manga/VirtualMangaGrid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { allGenres } from '@/lib/mockData';
-import { getAllMangas, getMangasByMultipleTags } from '@/lib/database';
+import { getMangaSummaries, getMangasByMultipleTags } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import {
   Select,
@@ -19,6 +19,7 @@ import {
 import TagFilterPanel from '@/components/tags/TagFilterPanel';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import DeferredMount from '@/components/performance/DeferredMount';
 
 let browsePageCache: Manga[] | null = null;
 
@@ -39,10 +40,7 @@ const Browse: React.FC = () => {
   const [mangas, setMangas] = useState<Manga[]>(() => browsePageCache ?? []);
   const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
   const [isLoading, setIsLoading] = useState(() => browsePageCache === null);
-  const [visibleCount, setVisibleCount] = useState(32);
-  const loaderRef = React.useRef<HTMLDivElement | null>(null);
-
-  const PAGE_SIZE = 32;
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   if (!isOnline) {
     return (
@@ -62,7 +60,7 @@ const Browse: React.FC = () => {
         if (browsePageCache === null) {
           setIsLoading(true);
         }
-        const data = await getAllMangas();
+        const data = await getMangaSummaries();
         if (!active) {
           return;
         }
@@ -110,8 +108,8 @@ const Browse: React.FC = () => {
     let result = [...mangas];
 
     // Search filter
-    if (searchQuery) {
-      const query = searchQuery.toLocaleLowerCase('tr-TR');
+    if (deferredSearchQuery) {
+      const query = deferredSearchQuery.toLocaleLowerCase('tr-TR');
       result = result.filter(
         manga =>
           manga.title.toLocaleLowerCase('tr-TR').includes(query) ||
@@ -144,12 +142,16 @@ const Browse: React.FC = () => {
     switch (sortBy) {
       case 'rating':
         result.sort((a, b) => {
-          const ratingA = a.ratings && a.ratings.length > 0
-            ? a.ratings.reduce((sum, r) => sum + r.rating, 0) / a.ratings.length
-            : 0;
-          const ratingB = b.ratings && b.ratings.length > 0
-            ? b.ratings.reduce((sum, r) => sum + r.rating, 0) / b.ratings.length
-            : 0;
+          const ratingA = typeof a.averageRating === 'number'
+            ? a.averageRating
+            : a.ratings && a.ratings.length > 0
+              ? a.ratings.reduce((sum, r) => sum + r.rating, 0) / a.ratings.length
+              : 0;
+          const ratingB = typeof b.averageRating === 'number'
+            ? b.averageRating
+            : b.ratings && b.ratings.length > 0
+              ? b.ratings.reduce((sum, r) => sum + r.rating, 0) / b.ratings.length
+              : 0;
           return ratingB - ratingA;
         });
         break;
@@ -163,39 +165,19 @@ const Browse: React.FC = () => {
         result.sort((a, b) => b.views - a.views);
         break;
       case 'chapters':
-        result.sort((a, b) => b.chapters.length - a.chapters.length);
+        result.sort(
+          (a, b) => (
+            (typeof b.chapterCount === 'number' ? b.chapterCount : b.chapters.length)
+            - (typeof a.chapterCount === 'number' ? a.chapterCount : a.chapters.length)
+          )
+        );
         break;
       default:
         result.sort((a, b) => b.views - a.views);
     }
 
     return result;
-  }, [searchQuery, typeFilter, statusFilter, selectedGenres, selectedTagSlugs, tagFilteredMangaIds, sortBy, mangas]);
-
-  useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
-  }, [filteredManga.length, PAGE_SIZE]);
-
-  useEffect(() => {
-    if (!loaderRef.current || visibleCount >= filteredManga.length) {
-      return;
-    }
-
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (entries[0]?.isIntersecting) {
-          setVisibleCount(prev => Math.min(prev + PAGE_SIZE, filteredManga.length));
-        }
-      },
-      { rootMargin: '320px 0px' }
-    );
-
-    observer.observe(loaderRef.current);
-
-    return () => observer.disconnect();
-  }, [filteredManga.length, visibleCount, PAGE_SIZE]);
-
-  const visibleManga = filteredManga.slice(0, visibleCount);
+  }, [deferredSearchQuery, typeFilter, statusFilter, selectedGenres, selectedTagSlugs, tagFilteredMangaIds, sortBy, mangas]);
 
   const toggleGenre = (genre: string) => {
     setSelectedGenres(prev =>
@@ -319,12 +301,14 @@ const Browse: React.FC = () => {
         )}
 
         {/* Tag Filters */}
-        <div className="mb-6 animate-fade-up opacity-0" style={{ animationDelay: '0.25s', animationFillMode: 'forwards' }}>
-          <TagFilterPanel
-            selectedTags={selectedTagSlugs}
-            onSelectedTagsChange={setSelectedTagSlugs}
-          />
-        </div>
+        <DeferredMount className="mb-6 animate-fade-up opacity-0" placeholderMinHeight={86} rootMargin="240px 0px">
+          <div style={{ animationDelay: '0.25s', animationFillMode: 'forwards' }}>
+            <TagFilterPanel
+              selectedTags={selectedTagSlugs}
+              onSelectedTagsChange={setSelectedTagSlugs}
+            />
+          </div>
+        </DeferredMount>
 
         <p className="mb-4 text-sm text-muted-foreground">
           {isInitialResultsPending ? 'Seriler hazırlanıyor...' : `${filteredManga.length} sonuç bulundu`}
@@ -335,16 +319,10 @@ const Browse: React.FC = () => {
           <div className="min-h-[220px]" />
         ) : (
           <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
-            <MangaGrid
-              manga={visibleManga}
+            <VirtualMangaGrid
+              manga={filteredManga}
               emptyMessage="Arama kriterlerinize uygun manga bulunamadı"
             />
-          </div>
-        )}
-
-        {filteredManga.length > visibleManga.length && (
-          <div ref={loaderRef} className="py-8 text-center text-sm text-muted-foreground">
-            Aşağı kaydırdıkça yeni seriler yüklenecek
           </div>
         )}
       </main>

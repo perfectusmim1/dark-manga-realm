@@ -21,6 +21,7 @@ import PageCommentRail from '@/components/reader/PageCommentRail';
 import PageCommentModal from '@/components/reader/PageCommentModal';
 import CommentSection from '@/components/comments/CommentSection';
 import OfflineNotice from '@/components/offline/OfflineNotice';
+import DeferredMount from '@/components/performance/DeferredMount';
 import { Chapter, ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import {
   buildOfflineReaderPages,
@@ -41,6 +42,9 @@ import { OPEN_PAGE_COMMENT_EVENT, OpenPageCommentDetail } from '@/lib/pageCommen
 let persistedAutoScrollIntent = false;
 const MIN_READING_SESSION_SECONDS = 1;
 const READING_SESSION_FLUSH_INTERVAL_MS = 30000;
+const NEXT_CHAPTER_CRITICAL_PAGES = 4;
+const NEXT_CHAPTER_PREFETCH_PAGES = 8;
+const NEXT_CHAPTER_PREFETCH_CONCURRENCY = 6;
 
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
@@ -85,7 +89,7 @@ const Reader: React.FC = () => {
       return;
     }
 
-    chapterToWarm.pages.slice(0, 10).forEach((page) => {
+    chapterToWarm.pages.slice(0, NEXT_CHAPTER_CRITICAL_PAGES).forEach((page) => {
       if (!page) {
         return;
       }
@@ -108,6 +112,14 @@ const Reader: React.FC = () => {
     const criticalSources = chapterToPrime.pages.slice(0, Math.min(3, chapterToPrime.pages.length));
     await Promise.allSettled(criticalSources.map((page) => prefetchImageAsset(page)));
   }, [isOfflineChapter, isOnlineNow]);
+
+  const getNextChapterPrefetchSources = useCallback((chapterToPrefetch?: Chapter) => {
+    if (!chapterToPrefetch || !Array.isArray(chapterToPrefetch.pages)) {
+      return [];
+    }
+
+    return chapterToPrefetch.pages.slice(0, Math.min(NEXT_CHAPTER_PREFETCH_PAGES, chapterToPrefetch.pages.length));
+  }, []);
 
   useEffect(() => {
     document.documentElement.classList.add('reader-active');
@@ -132,6 +144,8 @@ const Reader: React.FC = () => {
       && Array.isArray(targetChapter.pages)
       && targetChapter.pages.length > 0
     ) {
+      const nextChapterSources = getNextChapterPrefetchSources(targetChapter);
+
       preparedTransitionRef.current = {
         mangaId: mangaId || '',
         chapterId: targetChapter.id,
@@ -139,11 +153,13 @@ const Reader: React.FC = () => {
         resolvedPages: targetChapter.pages.map((page) => ({ src: page, source: 'remote' })),
       };
       warmCriticalChapterPages(targetChapter);
-      void prefetchChapterAssets(
-        targetChapter.id,
-        targetChapter.pages,
-        { concurrency: Math.min(targetChapter.pages.length, 24) }
-      );
+      if (nextChapterSources.length > 0) {
+        void prefetchChapterAssets(
+          targetChapter.id,
+          nextChapterSources,
+          { concurrency: Math.min(nextChapterSources.length, NEXT_CHAPTER_PREFETCH_CONCURRENCY) }
+        );
+      }
     } else {
       preparedTransitionRef.current = null;
     }
@@ -160,7 +176,7 @@ const Reader: React.FC = () => {
     }
 
     window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [isOfflineChapter, isOnlineNow, mangaId, settings.prefetchNextChapter, warmCriticalChapterPages]);
+  }, [getNextChapterPrefetchSources, isOfflineChapter, isOnlineNow, mangaId, settings.prefetchNextChapter, warmCriticalChapterPages]);
 
   const handleBeforeChapterChange = useCallback(async (targetChapter?: Chapter) => {
     if (targetChapter) {
@@ -722,13 +738,18 @@ const Reader: React.FC = () => {
       return;
     }
 
+    const nextChapterSources = getNextChapterPrefetchSources(nextChapter);
+
     warmCriticalChapterPages(nextChapter);
-    void prefetchChapterAssets(
-      nextChapter.id,
-      nextChapter.pages,
-      { concurrency: Math.min(nextChapter.pages.length, 24) }
-    );
+    if (nextChapterSources.length > 0) {
+      void prefetchChapterAssets(
+        nextChapter.id,
+        nextChapterSources,
+        { concurrency: Math.min(nextChapterSources.length, NEXT_CHAPTER_PREFETCH_CONCURRENCY) }
+      );
+    }
   }, [
+    getNextChapterPrefetchSources,
     isOfflineChapter,
     isOnlineNow,
     nextChapter,
@@ -747,6 +768,10 @@ const Reader: React.FC = () => {
 
       if (!pageElement || pageElement.offsetHeight < 32) {
         return false;
+      }
+
+      if (index !== targetIndex) {
+        continue;
       }
 
       const mediaElement = pageElement.querySelector('[data-media-ready="true"]') as HTMLElement | null;
@@ -1135,17 +1160,22 @@ const Reader: React.FC = () => {
       <div
         className="mx-auto mt-6 max-w-4xl border-t border-border px-3 pt-6 pb-28 sm:mt-8 sm:px-4 sm:pt-8 md:pb-32"
         onClick={(e) => e.stopPropagation()}
-        >
+      >
         {isOnlineNow ? (
+          <DeferredMount
+            rootMargin="320px 0px"
+            placeholderMinHeight={180}
+          >
             <div>
-            <CommentSection
-              mangaId={manga.id}
-              chapterId={chapterId}
-              totalReaderPages={totalPageCount}
-              enablePageComments
-              pagePreviewUrls={commentPagePreviewUrls}
-            />
-          </div>
+              <CommentSection
+                mangaId={manga.id}
+                chapterId={chapterId}
+                totalReaderPages={totalPageCount}
+                enablePageComments
+                pagePreviewUrls={commentPagePreviewUrls}
+              />
+            </div>
+          </DeferredMount>
         ) : (
           <div className="rounded-2xl border border-border bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
             Yorumlar için internet bağlantısı gerekiyor.

@@ -14,6 +14,8 @@ import EntitySeriesGrid from '@/components/entities/EntitySeriesGrid';
 import { supabase } from '@/lib/supabase';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import OptimizedImage from '@/components/media/OptimizedImage';
+import DeferredMount from '@/components/performance/DeferredMount';
 
 const AuthorDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -122,9 +124,12 @@ const AuthorDetail: React.FC = () => {
                             <div className="absolute -inset-1 bg-gradient-to-r from-primary/50 to-purple-600/50 rounded-2xl blur opacity-25 group-hover:opacity-100 transition duration-500" />
                             <div className="relative aspect-[3/4] rounded-xl overflow-hidden border border-border shadow-2xl bg-card flex flex-col items-center justify-center">
                                 {author.imageUrl ? (
-                                    <img
+                                    <OptimizedImage
                                         src={author.imageUrl}
                                         alt={author.name}
+                                        priority
+                                        containerClassName="h-full w-full"
+                                        placeholderClassName="rounded-none"
                                         className="w-full h-full object-cover"
                                     />
                                 ) : (
@@ -185,9 +190,11 @@ const AuthorDetail: React.FC = () => {
 
                         <Separator className="my-8" />
 
-                        <div className="space-y-6">
-                            <CommentSection entityId={id} entityType="author" />
-                        </div>
+                        <DeferredMount placeholderMinHeight={360} rootMargin="720px 0px">
+                            <div className="space-y-6">
+                                <CommentSection entityId={id} entityType="author" />
+                            </div>
+                        </DeferredMount>
                     </div>
                 </div>
             </main>

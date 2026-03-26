@@ -1,5 +1,7 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
+import { useNearViewport } from '@/hooks/use-near-viewport';
+import ProtectedImage from '@/components/security/ProtectedImage';
 
 interface VerticalReaderProps {
   pages: ResolvedReaderPage[];
@@ -9,7 +11,109 @@ interface VerticalReaderProps {
   trackingEnabled?: boolean;
 }
 
-import ProtectedImage from '@/components/security/ProtectedImage';
+interface ReaderPageProps {
+  index: number;
+  page: ResolvedReaderPage;
+  zoom: number;
+  fitWidth: boolean;
+  initialPage: number;
+  preloadWindow: number;
+  rootMargin: string;
+  estimatedHeight: number;
+  onHeightChange: (index: number, height: number) => void;
+}
+
+const ReaderPage: React.FC<ReaderPageProps> = ({
+  index,
+  page,
+  zoom,
+  fitWidth,
+  initialPage,
+  preloadWindow,
+  rootMargin,
+  estimatedHeight,
+  onHeightChange,
+}) => {
+  const pageRef = useRef<HTMLDivElement | null>(null);
+  const isPriorityPage = Math.abs(index - Math.max(0, initialPage - 1)) <= preloadWindow;
+  const { ref: viewportRef, isNearViewport } = useNearViewport<HTMLDivElement>({
+    rootMargin,
+    disabled: isPriorityPage,
+    initialVisible: isPriorityPage,
+  });
+  const shouldRenderMedia = isPriorityPage || isNearViewport;
+
+  const setRefs = useCallback((node: HTMLDivElement | null) => {
+    pageRef.current = node;
+    viewportRef(node);
+  }, [viewportRef]);
+
+  useEffect(() => {
+    if (!shouldRenderMedia || typeof ResizeObserver === 'undefined') {
+      return;
+    }
+
+    const node = pageRef.current;
+    if (!node) {
+      return;
+    }
+
+    const updateHeight = () => {
+      const nextHeight = node.getBoundingClientRect().height;
+      if (nextHeight >= 32) {
+        onHeightChange(index, nextHeight);
+      }
+    };
+
+    updateHeight();
+
+    const observer = new ResizeObserver(() => {
+      updateHeight();
+    });
+
+    observer.observe(node);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [index, onHeightChange, shouldRenderMedia]);
+
+  return (
+    <div
+      ref={setRefs}
+      data-page-index={index}
+      className="relative mx-auto flex w-full items-center justify-center"
+      style={{
+        maxWidth: fitWidth ? `${896 * (zoom / 100)}px` : 'none',
+        contentVisibility: 'auto',
+        containIntrinsicSize: `${Math.round(estimatedHeight)}px`,
+      }}
+    >
+      <div
+        data-reader-page-number={index + 1}
+        className="mx-auto flex w-full justify-center"
+        style={{ minHeight: Math.max(estimatedHeight, 320) }}
+      >
+        {shouldRenderMedia ? (
+          <ProtectedImage
+            src={page.src}
+            alt={`Sayfa ${index + 1}`}
+            zoom={zoom}
+          />
+        ) : (
+          <div
+            aria-hidden
+            className="w-full rounded-sm bg-muted/10"
+            style={{ minHeight: Math.max(estimatedHeight, 320) }}
+          />
+        )}
+      </div>
+      <div className="absolute top-2 right-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
+        P{index + 1}
+      </div>
+    </div>
+  );
+};
 
 const VerticalReader: React.FC<VerticalReaderProps> = ({
   pages,
@@ -20,15 +124,43 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
 }) => {
   const lastReportedPage = useRef<number>(initialPage);
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
+  const [pageHeights, setPageHeights] = useState<Record<number, number>>({});
   const effectiveZoom = isMobileViewport && settings.fitWidth
     ? Math.max(settings.zoom, 100)
     : settings.zoom;
+  const preloadWindow = Math.max(2, settings.preloadPages || 0);
+  const rootMargin = `${Math.max(720, preloadWindow * 320)}px 0px`;
+  const averagePageHeight = useMemo(() => {
+    const knownHeights = Object.values(pageHeights).filter((height) => height >= 32);
+    if (knownHeights.length === 0) {
+      return settings.mode === 'webtoon' ? 1400 : 1180;
+    }
+
+    return knownHeights.reduce((sum, height) => sum + height, 0) / knownHeights.length;
+  }, [pageHeights, settings.mode]);
+
+  const handlePageHeightChange = useCallback((index: number, height: number) => {
+    setPageHeights((current) => {
+      if (current[index] && Math.abs(current[index] - height) < 4) {
+        return current;
+      }
+
+      return {
+        ...current,
+        [index]: height,
+      };
+    });
+  }, []);
 
   useEffect(() => {
     const handleResize = () => setIsMobileViewport(window.innerWidth < 640);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
+
+  useEffect(() => {
+    setPageHeights({});
+  }, [pages]);
 
   // Intersection Observer for tracking current page
   useEffect(() => {
@@ -77,26 +209,18 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   return (
     <div className="flex flex-col items-center gap-0 pb-20 pt-20">
       {pages.map((page, index) => (
-        <div
+        <ReaderPage
           key={index}
-          data-page-index={index}
-          className="relative mx-auto flex w-full items-center justify-center"
-          style={{
-            maxWidth: settings.fitWidth ? `${896 * (effectiveZoom / 100)}px` : 'none'
-          }}
-        >
-          <div data-reader-page-number={index + 1} className="mx-auto flex w-full justify-center">
-            <ProtectedImage
-              src={page.src}
-              alt={`Sayfa ${index + 1}`}
-              zoom={effectiveZoom}
-            />
-          </div>
-          {/* Page number indicator for debugging/clarity if images fail */}
-          <div className="absolute top-2 right-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
-            P{index + 1}
-          </div>
-        </div>
+          index={index}
+          page={page}
+          zoom={effectiveZoom}
+          fitWidth={settings.fitWidth}
+          initialPage={initialPage}
+          preloadWindow={preloadWindow}
+          rootMargin={rootMargin}
+          estimatedHeight={pageHeights[index] ?? averagePageHeight}
+          onHeightChange={handlePageHeightChange}
+        />
       ))}
     </div>
   );

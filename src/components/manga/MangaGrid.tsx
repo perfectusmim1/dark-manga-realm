@@ -1,6 +1,6 @@
 import React from 'react';
 import { Manga } from '@/lib/types';
-import MangaCard from './MangaCard';
+import VirtualMangaGrid from './VirtualMangaGrid';
 
 interface MangaGridProps {
   manga: Manga[];
@@ -13,27 +13,12 @@ const MangaGrid: React.FC<MangaGridProps> = ({
   title,
   emptyMessage = 'Manga bulunamadı'
 }) => {
-  if (manga.length === 0) {
-    return (
-      <div className="flex min-h-[200px] items-center justify-center rounded-xl border border-dashed border-border bg-card/50 p-8">
-        <p className="text-center text-muted-foreground">{emptyMessage}</p>
-      </div>
-    );
-  }
-
   return (
-    <section>
-      {title && (
-        <h2 className="mb-6 text-xl font-bold tracking-tight text-foreground md:text-2xl">
-          {title}
-        </h2>
-      )}
-      <div className="grid grid-cols-2 gap-3 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
-        {manga.map((item, index) => (
-          <MangaCard key={item.id} manga={item} index={index} />
-        ))}
-      </div>
-    </section>
+    <VirtualMangaGrid
+      manga={manga}
+      title={title}
+      emptyMessage={emptyMessage}
+    />
   );
 };
 
