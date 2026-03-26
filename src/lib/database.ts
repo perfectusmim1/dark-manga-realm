@@ -979,25 +979,21 @@ export const saveUser = async (user: User): Promise<void> => {
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
-    const { error: rpcError } = await supabase.rpc('admin_delete_public_user', {
-        p_user_id: userId,
+    await ensureAuthenticatedAdminSession();
+
+    const { data, error } = await supabase.functions.invoke('admin-delete-user', {
+        body: {
+            targetUserId: userId,
+        },
     });
 
-    if (!rpcError) {
-        return;
+    if (error) {
+        throw error;
     }
 
-    const isMissingRpc = rpcError.code === 'PGRST202'
-        || rpcError.code === '42883'
-        || /admin_delete_public_user/i.test(rpcError.message || '');
-
-    if (!isMissingRpc) {
-        throw rpcError;
+    if (!data?.success) {
+        throw new Error(data?.message || 'DELETE_USER_FAILED');
     }
-
-    // Legacy fallback until the migration is applied on the connected database.
-    const { error } = await supabase.from('users').delete().eq('id', userId);
-    if (error) throw error;
 };
 
 // Admin Management
@@ -3213,10 +3209,10 @@ const isGloballyAvailableTag = (
     | null
 ) => Boolean(
     tag
-    && ('isOfficial' in tag ? tag.isOfficial : tag.is_official)
+    && ('isOfficial' in tag ? tag.isOfficial : (tag as any).is_official)
     || (
         tag
-        && ('communityApproved' in tag ? tag.communityApproved : tag.community_approved)
+        && ('communityApproved' in tag ? tag.communityApproved : (tag as any).community_approved)
     )
 );
 
@@ -3680,4 +3676,106 @@ export const getTopTenMangas = async (timeframe: 'today' | 'week' | 'all' = 'tod
         console.error('getTopTenMangas exception:', error);
         return [];
     }
+};
+
+export interface UserSession {
+    id: string;
+    browser: string;
+    os: string;
+    deviceType: string;
+    country: string | null;
+    city: string | null;
+    region: string | null;
+    lastActiveAt: string;
+    createdAt: string;
+    isCurrent: boolean;
+}
+
+const invokeAuthenticatedUserSessionsFunction = async (
+    body: Record<string, unknown>,
+    accessTokenOverride?: string | null,
+) => {
+    let accessToken = accessTokenOverride ?? null;
+
+    if (!accessToken) {
+        const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+
+        if (sessionError) {
+            throw sessionError;
+        }
+
+        accessToken = sessionData.session?.access_token ?? null;
+    }
+
+    if (!accessToken) {
+        throw new Error('SESSION_REQUIRED');
+    }
+
+    return supabase.functions.invoke('user-sessions', {
+        body,
+        headers: {
+            Authorization: `Bearer ${accessToken}`,
+        },
+    });
+};
+
+export const getUserSessions = async (): Promise<UserSession[]> => {
+    const { data, error } = await invokeAuthenticatedUserSessionsFunction({
+        action: 'list',
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!data?.success) {
+        throw new Error(data?.message || 'SESSIONS_FETCH_FAILED');
+    }
+
+    return (data.sessions || []) as UserSession[];
+};
+
+export const revokeUserSession = async (sessionId: string): Promise<void> => {
+    const { data, error } = await invokeAuthenticatedUserSessionsFunction({
+        action: 'revoke',
+        sessionId,
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!data?.success) {
+        throw new Error(data?.message || 'SESSION_REVOKE_FAILED');
+    }
+};
+
+export const revokeAllOtherSessions = async (): Promise<void> => {
+    const { data, error } = await invokeAuthenticatedUserSessionsFunction({
+        action: 'revoke-all-others',
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    if (!data?.success) {
+        throw new Error(data?.message || 'REVOKE_ALL_FAILED');
+    }
+};
+
+export const validateCurrentSession = async (accessTokenOverride?: string | null): Promise<boolean> => {
+    const { data, error } = await invokeAuthenticatedUserSessionsFunction({
+        action: 'validate-current',
+    }, accessTokenOverride);
+
+    if (error) {
+        throw error;
+    }
+
+    if (!data?.success) {
+        throw new Error(data?.message || 'SESSION_VALIDATE_FAILED');
+    }
+
+    return data.isActive === true;
 };

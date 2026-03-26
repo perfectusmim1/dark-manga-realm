@@ -25,6 +25,11 @@ import {
     ShieldOff,
     Copy,
     TriangleAlert,
+    Monitor,
+    Tablet,
+    Globe,
+    LogOut,
+    Clock,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -39,6 +44,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { getBlockedUsers, unblockUser } from '@/lib/profile';
+import { getUserSessions, revokeUserSession, revokeAllOtherSessions, type UserSession } from '@/lib/database';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { PASSWORD_MIN_LENGTH, getPasswordRequirementError, getPasswordRequirementStatus } from '@/lib/auth/passwordPolicy';
@@ -205,6 +211,10 @@ const Settings: React.FC = () => {
     const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
     const [isBlockedUsersLoading, setIsBlockedUsersLoading] = useState(true);
     const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
+    const [sessions, setSessions] = useState<UserSession[]>([]);
+    const [isSessionsLoading, setIsSessionsLoading] = useState(false);
+    const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
+    const [isRevokingAll, setIsRevokingAll] = useState(false);
     const onlineRequiredMessage = 'Bu işlem için internete bağlanın';
     const getPreferenceSuccessMessage = (message: string) =>
         isOnline ? message : `${message}, tekrar çevrimiçi olduğunda eşitlenecek`;
@@ -459,6 +469,84 @@ const Settings: React.FC = () => {
         }
     };
 
+    const loadSessions = async () => {
+        if (!isOnline) return;
+        try {
+            setIsSessionsLoading(true);
+            const data = await getUserSessions();
+            setSessions(data);
+        } catch (err) {
+            console.error('Session load error:', err);
+            toast.error('Oturumlar yüklenemedi');
+        } finally {
+            setIsSessionsLoading(false);
+        }
+    };
+
+    const handleRevokeSession = async (sessionId: string) => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
+        try {
+            setRevokingSessionId(sessionId);
+            await revokeUserSession(sessionId);
+            setSessions((prev) => prev.filter((s) => s.id !== sessionId));
+            toast.success('Oturum kapatıldı');
+        } catch (err) {
+            toast.error('Oturum kapatılamadı');
+        } finally {
+            setRevokingSessionId(null);
+        }
+    };
+
+    const handleRevokeAllOthers = async () => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
+        try {
+            setIsRevokingAll(true);
+            await revokeAllOtherSessions();
+            setSessions((prev) => prev.filter((s) => s.isCurrent));
+            toast.success('Diğer tüm oturumlar kapatıldı');
+        } catch (err) {
+            toast.error('Oturumlar kapatılamadı');
+        } finally {
+            setIsRevokingAll(false);
+        }
+    };
+
+    const getDeviceIcon = (deviceType: string) => {
+        if (deviceType === 'mobile') return <Smartphone className="h-5 w-5" />;
+        if (deviceType === 'tablet') return <Tablet className="h-5 w-5" />;
+        return <Monitor className="h-5 w-5" />;
+    };
+
+    const formatSessionLocation = (session: UserSession) => {
+        const parts = [session.city, session.region, session.country].filter(Boolean);
+        return parts.length > 0 ? parts.join(', ') : 'Konum bilinmiyor';
+    };
+
+    const formatSessionTime = (dateStr: string) => {
+        try {
+            const date = new Date(dateStr);
+            if (Number.isNaN(date.getTime())) return 'Bilinmiyor';
+            const now = Date.now();
+            const diffMs = now - date.getTime();
+            const diffMin = Math.floor(diffMs / 60000);
+            if (diffMin < 1) return 'Az önce';
+            if (diffMin < 60) return `${diffMin} dakika önce`;
+            const diffHours = Math.floor(diffMin / 60);
+            if (diffHours < 24) return `${diffHours} saat önce`;
+            const diffDays = Math.floor(diffHours / 24);
+            if (diffDays < 7) return `${diffDays} gün önce`;
+            return date.toLocaleDateString('tr-TR', { day: 'numeric', month: 'short', year: 'numeric' });
+        } catch {
+            return 'Bilinmiyor';
+        }
+    };
+
     const renderPrivacySelector = (
         key: keyof PreferenceState['privacy'],
         label: string,
@@ -580,6 +668,10 @@ const Settings: React.FC = () => {
                         <TabsTrigger value="privacy" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
                             <EyeOff className="h-4 w-4" />
                             Gizlilik
+                        </TabsTrigger>
+                        <TabsTrigger value="devices" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm" onClick={() => { if (!isSessionsLoading) void loadSessions(); }}>
+                            <Monitor className="h-4 w-4" />
+                            Cihazlar
                         </TabsTrigger>
                         <TabsTrigger value="preferences" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
                             <SlidersHorizontal className="h-4 w-4" />
@@ -1084,6 +1176,113 @@ const Settings: React.FC = () => {
                                     'followed_manga_visibility',
                                     'Takip / Favori İçerikler',
                                     'Takip ettiğiniz serileri kimler görebilir?'
+                                )}
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                    <TabsContent value="devices" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                        <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                            <CardHeader>
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                                    <div className="space-y-1">
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Monitor className="h-5 w-5" />
+                                            Aktif Oturumlar
+                                        </CardTitle>
+                                        <CardDescription>Hesabınıza giriş yapılmış tüm cihazları görün ve yönetin.</CardDescription>
+                                    </div>
+                                    {sessions.filter((s) => !s.isCurrent).length > 0 && (
+                                        <Button
+                                            variant="outline"
+                                            size="sm"
+                                            className="w-full border-red-500/40 text-red-400 hover:bg-red-500/10 hover:text-red-300 sm:w-auto"
+                                            onClick={handleRevokeAllOthers}
+                                            disabled={isRevokingAll}
+                                        >
+                                            {isRevokingAll ? (
+                                                <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Kapatılıyor...</>
+                                            ) : (
+                                                <><LogOut className="mr-2 h-4 w-4" />Diğer Tüm Oturumları Kapat</>
+                                            )}
+                                        </Button>
+                                    )}
+                                </div>
+                            </CardHeader>
+                            <CardContent className="space-y-3">
+                                {isSessionsLoading ? (
+                                    <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Oturumlar yükleniyor...
+                                    </div>
+                                ) : sessions.length > 0 ? (
+                                    sessions.map((session) => (
+                                        <div
+                                            key={session.id}
+                                            className={`rounded-xl border p-4 transition-colors ${
+                                                session.isCurrent
+                                                    ? 'border-emerald-500/30 bg-emerald-500/5'
+                                                    : 'border-border/60 bg-background/40 hover:bg-secondary/20'
+                                            }`}
+                                        >
+                                            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                                <div className="flex items-start gap-4">
+                                                    <div className={`mt-0.5 rounded-lg p-2.5 ${
+                                                        session.isCurrent
+                                                            ? 'bg-emerald-500/15 text-emerald-400'
+                                                            : 'bg-secondary/60 text-muted-foreground'
+                                                    }`}>
+                                                        {getDeviceIcon(session.deviceType)}
+                                                    </div>
+                                                    <div className="min-w-0 space-y-1.5">
+                                                        <div className="flex flex-wrap items-center gap-2">
+                                                            <p className="font-semibold">
+                                                                {session.browser}{session.os && session.os !== 'Unknown' ? ` · ${session.os}` : ''}
+                                                            </p>
+                                                            {session.isCurrent && (
+                                                                <Badge className="gap-1 border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/10">
+                                                                    Bu Cihaz
+                                                                </Badge>
+                                                            )}
+                                                        </div>
+                                                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm text-muted-foreground">
+                                                            <span className="flex items-center gap-1.5">
+                                                                <Globe className="h-3.5 w-3.5" />
+                                                                {formatSessionLocation(session)}
+                                                            </span>
+                                                            <span className="flex items-center gap-1.5">
+                                                                <Clock className="h-3.5 w-3.5" />
+                                                                {formatSessionTime(session.lastActiveAt)}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                                {!session.isCurrent && (
+                                                    <Button
+                                                        variant="outline"
+                                                        size="sm"
+                                                        className="w-full border-red-500/40 text-red-400 hover:bg-red-500/10 hover:text-red-300 sm:w-auto"
+                                                        disabled={revokingSessionId === session.id}
+                                                        onClick={() => handleRevokeSession(session.id)}
+                                                    >
+                                                        {revokingSessionId === session.id ? (
+                                                            <><Loader2 className="mr-2 h-4 w-4 animate-spin" />Kapatılıyor...</>
+                                                        ) : (
+                                                            <><LogOut className="mr-2 h-4 w-4" />Çıkış Yap</>
+                                                        )}
+                                                    </Button>
+                                                )}
+                                            </div>
+                                        </div>
+                                    ))
+                                ) : (
+                                    <div className="rounded-xl border border-dashed border-border/60 bg-background/20 py-12 text-center">
+                                        <Monitor className="mx-auto mb-4 h-10 w-10 text-muted-foreground/60" />
+                                        <p className="font-medium">Aktif oturum bulunamadı</p>
+                                        <p className="mt-1 text-sm text-muted-foreground">Oturum verileri bir sonraki girişte kaydedilecek.</p>
+                                        <Button variant="outline" size="sm" className="mt-4" onClick={() => void loadSessions()} disabled={isSessionsLoading}>
+                                            Yenile
+                                        </Button>
+                                    </div>
                                 )}
                             </CardContent>
                         </Card>

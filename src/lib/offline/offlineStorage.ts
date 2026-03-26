@@ -13,6 +13,7 @@ import {
 import {
   cachePersistentImageDataUrl,
   isPersistentImageDataUrl,
+  shouldAttemptPersistentImageCache,
 } from '@/lib/offline/persistentImageCache';
 import { warmPersistentImageUrls } from '@/lib/offline/persistentImageWarmup';
 
@@ -95,8 +96,12 @@ const mangaArtworkRepairQueue = new Map<string, Promise<void>>();
 const isNonEmptyString = (value?: string | null): value is string =>
   typeof value === 'string' && value.trim().length > 0;
 
-const resolveArtworkSourceUrl = (...values: Array<string | null | undefined>) =>
-  values.find((value) => isNonEmptyString(value) && !isPersistentImageDataUrl(value))?.trim();
+const resolveArtworkSourceUrl = (...values: Array<string | null | undefined>) => {
+  const found = values.find(
+    (value): value is string => isNonEmptyString(value) && !isPersistentImageDataUrl(value),
+  );
+  return typeof found === 'string' ? found.trim() : undefined;
+};
 
 const emitOfflineLibraryChange = () => {
   if (typeof window === 'undefined') {
@@ -200,10 +205,12 @@ const persistOfflineMangaArtwork = async (
 
     const shouldRefreshCover = Boolean(
       coverSourceUrl
+      && shouldAttemptPersistentImageCache(coverSourceUrl)
       && (!isPersistentImageDataUrl(current.cover) || current.coverSourceUrl !== coverSourceUrl),
     );
     const shouldRefreshBanner = Boolean(
       bannerSourceUrl
+      && shouldAttemptPersistentImageCache(bannerSourceUrl)
       && (!isPersistentImageDataUrl(current.banner) || current.bannerSourceUrl !== bannerSourceUrl),
     );
 
@@ -714,7 +721,15 @@ export const getOfflineLibrarySnapshot = async (): Promise<OfflineLibrarySnapsho
   }
 
   mangas.forEach((manga) => {
-    if (!isPersistentImageDataUrl(manga.cover) || (manga.banner && !isPersistentImageDataUrl(manga.banner))) {
+    const shouldRefreshCover = !isPersistentImageDataUrl(manga.cover)
+      && shouldAttemptPersistentImageCache(resolveArtworkSourceUrl(manga.coverSourceUrl, manga.cover));
+    const shouldRefreshBanner = Boolean(
+      manga.banner
+      && !isPersistentImageDataUrl(manga.banner)
+      && shouldAttemptPersistentImageCache(resolveArtworkSourceUrl(manga.bannerSourceUrl, manga.banner)),
+    );
+
+    if (shouldRefreshCover || shouldRefreshBanner) {
       queueOfflineMangaArtworkPersist(manga.mangaId, {
         coverSourceUrl: manga.coverSourceUrl,
         bannerSourceUrl: manga.bannerSourceUrl,
