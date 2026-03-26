@@ -86,6 +86,25 @@ export interface ProfileFollowedManga {
     href: string;
 }
 
+interface ProfileAccessContextRow {
+    id: string;
+    username: string;
+    avatar?: string | null;
+    role?: string | null;
+    created_at: string;
+    is_following: boolean;
+    is_followed_by: boolean;
+    is_mutual_follow: boolean;
+    is_blocked: boolean;
+    is_blocked_by_owner: boolean;
+    can_view_profile: boolean;
+    can_view_reading_history: boolean;
+    can_view_comments: boolean;
+    can_view_reading_lists: boolean;
+    can_view_tier_lists: boolean;
+    can_view_followed_manga: boolean;
+}
+
 export type ReadingTimeRange = 'today' | 'week' | 'month' | 'all';
 
 export interface ReadingTimeOverview {
@@ -286,58 +305,65 @@ export const getUserFollowedManga = async (userId: string, limit: number = 18): 
         .filter(Boolean) as ProfileFollowedManga[];
 };
 
+const getProfileAccessContext = async (userId: string): Promise<ProfileAccessContextRow | null> => {
+    const { data, error } = await supabase.rpc('get_profile_access_context', {
+        p_target_user_id: userId,
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    if (Array.isArray(data)) {
+        return (data[0] as ProfileAccessContextRow | undefined) || null;
+    }
+
+    return (data as ProfileAccessContextRow | null) || null;
+};
+
 // Fetch profile data including stats
 export const getUserProfile = async (userId: string, currentUserId?: string) => {
-    // Get user details
-    let { data: user, error: userError } = await supabase
-        .from('users')
-        .select('id, username, avatar, role, created_at, preferences')
-        .eq('id', userId)
-        .single();
+    let context: ProfileAccessContextRow | null = null;
 
-    if (userError && currentUserId && currentUserId === userId) {
+    try {
+        context = await getProfileAccessContext(userId);
+    } catch (contextError) {
+        if (!(currentUserId && currentUserId === userId)) {
+            throw contextError;
+        }
+
         const { error: syncError } = await supabase.rpc('sync_current_auth_profile', {
             p_avatar: null,
             p_base_username: null,
         });
 
-        if (!syncError) {
-            const retryResult = await supabase
-                .from('users')
-                .select('id, username, avatar, role, created_at, preferences')
-                .eq('id', userId)
-                .single();
-
-            user = retryResult.data;
-            userError = retryResult.error;
+        if (syncError) {
+            throw contextError;
         }
-    }
-        
-    if (userError) throw userError;
-    
-    // Check relationship with current user
-    let isFollowing = false;
-    let isFollowedBy = false;
-    let isBlocked = false;
-    let isBlockedByOwner = false;
 
-    if (currentUserId && currentUserId !== userId) {
-        const [followCheck, followedByCheck, blockCheck, blockByOwnerCheck] = await Promise.all([
-            supabase.from('user_follows').select('id').eq('follower_id', currentUserId).eq('followed_id', userId).maybeSingle(),
-            supabase.from('user_follows').select('id').eq('follower_id', userId).eq('followed_id', currentUserId).maybeSingle(),
-            supabase.from('user_blocks').select('id').eq('blocker_id', currentUserId).eq('blocked_id', userId).maybeSingle(),
-            supabase.from('user_blocks').select('id').eq('blocker_id', userId).eq('blocked_id', currentUserId).maybeSingle()
-        ]);
-        
-        isFollowing = !!followCheck.data;
-        isFollowedBy = !!followedByCheck.data;
-        isBlocked = !!blockCheck.data;
-        isBlockedByOwner = !!blockByOwnerCheck.data;
+        context = await getProfileAccessContext(userId);
     }
 
-    const isMutualFollow = isFollowing && isFollowedBy;
-    const privacy = user.preferences?.privacy;
-    const sectionAccess = buildProfileSectionAccess(privacy, userId, currentUserId, isMutualFollow);
+    if (!context) {
+        throw new Error('PROFILE_NOT_FOUND');
+    }
+
+    const user = {
+        id: context.id,
+        username: context.username,
+        avatar: context.avatar,
+        role: context.role,
+        created_at: context.created_at,
+    };
+
+    const sectionAccess = {
+        profile: context.can_view_profile,
+        readingHistory: context.can_view_reading_history,
+        comments: context.can_view_comments,
+        readingLists: context.can_view_reading_lists,
+        tierLists: context.can_view_tier_lists,
+        followedManga: context.can_view_followed_manga,
+    };
 
     if (!sectionAccess.profile) {
         return {
@@ -351,11 +377,11 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
                 followingCount: 0,
             },
             relationship: {
-                isFollowing,
-                isFollowedBy,
-                isMutualFollow,
-                isBlocked,
-                isBlockedByOwner,
+                isFollowing: context.is_following,
+                isFollowedBy: context.is_followed_by,
+                isMutualFollow: context.is_mutual_follow,
+                isBlocked: context.is_blocked,
+                isBlockedByOwner: context.is_blocked_by_owner,
             },
             sectionAccess,
             recentReads: [],
@@ -461,11 +487,11 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
             followingCount: followingCount || 0,
         },
         relationship: {
-            isFollowing,
-            isFollowedBy,
-            isMutualFollow,
-            isBlocked,
-            isBlockedByOwner
+            isFollowing: context.is_following,
+            isFollowedBy: context.is_followed_by,
+            isMutualFollow: context.is_mutual_follow,
+            isBlocked: context.is_blocked,
+            isBlockedByOwner: context.is_blocked_by_owner
         },
         sectionAccess,
         recentReads: recentReadsResult.data || [],

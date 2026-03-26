@@ -625,8 +625,6 @@ const mapAdminDirectoryUser = (user: any): User => ({
     lastSeenAt: user.last_seen_at || undefined,
 });
 
-const ADMIN_DIRECTORY_FALLBACK_COLUMNS = 'id, username, avatar, role, created_at, last_seen_at';
-
 const ensureAuthenticatedAdminSession = async () => {
     const { data, error } = await supabase.auth.getSession();
     if (error) {
@@ -672,18 +670,7 @@ export const getAllUsers = async (): Promise<User[]> => {
     }
 
     console.error('Admin directory RPC error:', error);
-
-    const { data: fallbackData, error: fallbackError } = await supabase
-        .from('users')
-        .select(ADMIN_DIRECTORY_FALLBACK_COLUMNS)
-        .order('created_at', { ascending: false });
-
-    if (fallbackError) {
-        console.error('Admin directory fallback error:', fallbackError);
-        return [];
-    }
-
-    return (fallbackData || []).map((user: any) => mapAdminDirectoryUser({ ...user, email: '' }));
+    return [];
 };
 
 export const saveUser = async (user: User): Promise<void> => {
@@ -723,19 +710,7 @@ export const getAdminUsers = async (): Promise<AdminUser[]> => {
     }
 
     console.error('Admin staff RPC error:', error);
-
-    const { data: fallbackData, error: fallbackError } = await supabase
-        .from('users')
-        .select(ADMIN_DIRECTORY_FALLBACK_COLUMNS)
-        .in('role', ['admin', 'moderator'])
-        .order('created_at', { ascending: false });
-
-    if (fallbackError) {
-        console.error('Admin staff fallback error:', fallbackError);
-        return [];
-    }
-
-    return (fallbackData || []).map((user: any) => mapAdminDirectoryUser({ ...user, email: '' })) as AdminUser[];
+    return [];
 };
 
 export const addAdminUser = async (admin: any): Promise<void> => {
