@@ -397,7 +397,12 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
     let bundle: ProfileRouteBundle = {};
 
     if (sectionAccess.profile) {
-        bundle = await getProfileRouteBundle(userId);
+        try {
+            bundle = await getProfileRouteBundle(userId);
+        } catch (bundleError) {
+            console.error('Profile route bundle error:', bundleError);
+            bundle = {};
+        }
     }
 
     if (!sectionAccess.profile) {
