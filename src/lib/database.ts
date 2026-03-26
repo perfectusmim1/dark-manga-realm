@@ -82,10 +82,90 @@ export interface CommentReport {
     updatedAt: string;
 }
 
+export interface ProfileReport {
+    id: string;
+    reporterId: string;
+    reporterUsername?: string;
+    reportedUserId: string;
+    reportedUsername?: string;
+    reportedUserAvatar?: string;
+    reason: string;
+    details?: string;
+    status: ReportStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface AdminCommentsPage {
     comments: Comment[];
     total: number;
 }
+
+export interface AdminAccessContext {
+    userId?: string;
+    role?: User['role'];
+    canAccessAdminPanel: boolean;
+    isPrimaryAdmin: boolean;
+}
+
+const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
+let adminAccessContextCache:
+    | { authUserId: string | null; value: AdminAccessContext }
+    | null = null;
+let adminAccessContextPromise: Promise<AdminAccessContext> | null = null;
+
+export const getCachedAdminAccessContext = (authUserId?: string | null): AdminAccessContext | null => {
+    if (!authUserId || adminAccessContextCache?.authUserId !== authUserId) {
+        return null;
+    }
+
+    return adminAccessContextCache.value;
+};
+
+const hasUserBlockRelationship = async (viewerId?: string, ownerId?: string): Promise<boolean> => {
+    if (!viewerId || !ownerId || viewerId === ownerId) {
+        return false;
+    }
+
+    const [
+        { count: viewerBlocksOwner, error: viewerBlocksOwnerError },
+        { count: ownerBlocksViewer, error: ownerBlocksViewerError },
+    ] = await Promise.all([
+        supabase
+            .from('user_blocks')
+            .select('*', { count: 'exact', head: true })
+            .eq('blocker_id', viewerId)
+            .eq('blocked_id', ownerId),
+        supabase
+            .from('user_blocks')
+            .select('*', { count: 'exact', head: true })
+            .eq('blocker_id', ownerId)
+            .eq('blocked_id', viewerId),
+    ]);
+
+    if (viewerBlocksOwnerError || ownerBlocksViewerError) {
+        console.error('User block relationship check error:', viewerBlocksOwnerError || ownerBlocksViewerError);
+        return false;
+    }
+
+    return (viewerBlocksOwner || 0) > 0 || (ownerBlocksViewer || 0) > 0;
+};
+
+export const canAccessOwnedContent = async (
+    ownerId: string,
+    isPublic: boolean,
+    viewerId?: string
+): Promise<boolean> => {
+    if (viewerId && viewerId === ownerId) {
+        return true;
+    }
+
+    if (!isPublic) {
+        return false;
+    }
+
+    return !(await hasUserBlockRelationship(viewerId, ownerId));
+};
 
 // ==================== MANGA OPERATIONS ====================
 
@@ -372,6 +452,22 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
         .filter(Boolean) as LatestChapterFeedItem[];
 };
 
+export const getLatestChaptersCountLast24Hours = async (): Promise<number> => {
+    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+
+    const { count, error } = await supabase
+        .from('chapters')
+        .select('id', { count: 'exact', head: true })
+        .gte('created_at', since);
+
+    if (error) {
+        console.error('Latest chapters 24h count error:', error);
+        return 0;
+    }
+
+    return count || 0;
+};
+
 // ==================== REVIEW & RATING OPERATIONS ====================
 
 export const rateManga = async (mangaId: string, userId: string, rating: number): Promise<boolean> => {
@@ -639,6 +735,19 @@ const ensureAuthenticatedAdminSession = async () => {
     return session;
 };
 
+const buildPrimaryAdminFallback = (
+    sessionEmail?: string | null,
+    role?: User['role']
+) => Boolean(
+    role === 'admin'
+    && sessionEmail
+    && sessionEmail.toLowerCase() === PRIMARY_ADMIN_EMAIL
+);
+
+const isMissingTableInSchemaCache = (error: any, tableName: string) =>
+    error?.code === 'PGRST205'
+    && String(error?.message || '').includes(`public.${tableName}`);
+
 const getAdminDirectoryViaEdgeFunction = async (): Promise<User[]> => {
     const session = await ensureAuthenticatedAdminSession();
 
@@ -655,6 +764,104 @@ const getAdminDirectoryViaEdgeFunction = async (): Promise<User[]> => {
     }
 
     return data.users.map(mapAdminDirectoryUser);
+};
+
+export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
+    if (adminAccessContextPromise) {
+        return adminAccessContextPromise;
+    }
+
+    adminAccessContextPromise = (async () => {
+        const { data: authData, error: authError } = await supabase.auth.getUser();
+
+        if (authError || !authData.user) {
+            return {
+                canAccessAdminPanel: false,
+                isPrimaryAdmin: false,
+            };
+        }
+
+        const authUserId = authData.user.id;
+
+        if (adminAccessContextCache?.authUserId === authUserId) {
+            return adminAccessContextCache.value;
+        }
+
+        const persist = (value: AdminAccessContext) => {
+            adminAccessContextCache = {
+                authUserId,
+                value,
+            };
+
+            return value;
+        };
+
+        const { data: ownProfile, error: ownProfileError } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', authUserId)
+            .maybeSingle();
+
+        if (ownProfileError) {
+            console.error('Admin access context profile error:', ownProfileError);
+            return persist({
+                canAccessAdminPanel: false,
+                isPrimaryAdmin: false,
+            });
+        }
+
+        const role = ownProfile?.role as User['role'] | undefined;
+
+        if (role !== 'admin' && role !== 'moderator') {
+            return persist({
+                userId: authUserId,
+                role,
+                canAccessAdminPanel: false,
+                isPrimaryAdmin: false,
+            });
+        }
+
+        try {
+            await getAdminDirectoryViaEdgeFunction();
+
+            return persist({
+                userId: authUserId,
+                role,
+                canAccessAdminPanel: true,
+                isPrimaryAdmin: buildPrimaryAdminFallback(authData.user.email, role),
+            });
+        } catch (edgeError) {
+            console.warn('Admin access context edge fallback error:', edgeError);
+        }
+
+        try {
+            const { error: rpcFallbackError } = await supabase.rpc('get_admin_user_directory');
+
+            if (!rpcFallbackError) {
+                return persist({
+                    userId: authUserId,
+                    role,
+                    canAccessAdminPanel: true,
+                    isPrimaryAdmin: buildPrimaryAdminFallback(authData.user.email, role),
+                });
+            }
+
+            console.error('Admin access context legacy RPC fallback error:', rpcFallbackError);
+        } catch (legacyError) {
+            console.error('Admin access context legacy RPC fallback exception:', legacyError);
+        }
+
+        return persist({
+            canAccessAdminPanel: false,
+            isPrimaryAdmin: false,
+        });
+    })();
+
+    try {
+        return await adminAccessContextPromise;
+    } finally {
+        adminAccessContextPromise = null;
+    }
 };
 
 export const getAllUsers = async (): Promise<User[]> => {
@@ -686,7 +893,23 @@ export const saveUser = async (user: User): Promise<void> => {
 };
 
 export const deleteUser = async (userId: string): Promise<void> => {
-    // Note: This only deletes from public.users. Deleting from auth.users requires service role key in Edge Functions
+    const { error: rpcError } = await supabase.rpc('admin_delete_public_user', {
+        p_user_id: userId,
+    });
+
+    if (!rpcError) {
+        return;
+    }
+
+    const isMissingRpc = rpcError.code === 'PGRST202'
+        || rpcError.code === '42883'
+        || /admin_delete_public_user/i.test(rpcError.message || '');
+
+    if (!isMissingRpc) {
+        throw rpcError;
+    }
+
+    // Legacy fallback until the migration is applied on the connected database.
     const { error } = await supabase.from('users').delete().eq('id', userId);
     if (error) throw error;
 };
@@ -1470,6 +1693,31 @@ export const createCommentReport = async (payload: {
     }
 };
 
+export const createProfileReport = async (payload: {
+    reporterId: string;
+    reportedUserId: string;
+    reason: string;
+    details?: string;
+}): Promise<void> => {
+    const { error } = await supabase
+        .from('profile_reports')
+        .upsert({
+            reporter_id: payload.reporterId,
+            reported_user_id: payload.reportedUserId,
+            reason: payload.reason.trim(),
+            details: payload.details?.trim() || null,
+            status: 'open',
+            updated_at: new Date().toISOString(),
+        }, {
+            onConflict: 'reporter_id,reported_user_id',
+        });
+
+    if (error) {
+        console.error('Profile report create error:', error);
+        throw error;
+    }
+};
+
 export const getMangaReports = async (): Promise<MangaReport[]> => {
     const { data, error } = await supabase
         .from('manga_reports')
@@ -1631,6 +1879,52 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
     });
 };
 
+export const getProfileReports = async (): Promise<ProfileReport[]> => {
+    const { data, error } = await supabase
+        .from('profile_reports')
+        .select('id, reporter_id, reported_user_id, reason, details, status, created_at, updated_at')
+        .order('created_at', { ascending: false });
+
+    if (error || !data) {
+        if (error) {
+            if (isMissingTableInSchemaCache(error, 'profile_reports')) {
+                return [];
+            }
+            console.error('Profile reports fetch error:', error);
+        }
+        return [];
+    }
+
+    const userIds = [...new Set(
+        data.flatMap((report: any) => [report.reporter_id, report.reported_user_id]).filter(Boolean)
+    )];
+
+    const { data: usersData } = userIds.length
+        ? await supabase.from('users').select('id, username, avatar').in('id', userIds)
+        : { data: [] as any[] };
+
+    const userMap = new Map((usersData || []).map((user: any) => [user.id, user]));
+
+    return data.map((report: any) => {
+        const reporter = userMap.get(report.reporter_id);
+        const reported = userMap.get(report.reported_user_id);
+
+        return {
+            id: report.id,
+            reporterId: report.reporter_id,
+            reporterUsername: reporter?.username,
+            reportedUserId: report.reported_user_id,
+            reportedUsername: reported?.username,
+            reportedUserAvatar: reported?.avatar,
+            reason: report.reason,
+            details: report.details || undefined,
+            status: report.status as ReportStatus,
+            createdAt: report.created_at,
+            updatedAt: report.updated_at,
+        };
+    });
+};
+
 export const updateMangaReportStatus = async (id: string, status: ReportStatus): Promise<void> => {
     const { error } = await supabase
         .from('manga_reports')
@@ -1651,6 +1945,18 @@ export const updateCommentReportStatus = async (id: string, status: ReportStatus
 
     if (error) {
         console.error('Comment report status update error:', error);
+        throw error;
+    }
+};
+
+export const updateProfileReportStatus = async (id: string, status: ReportStatus): Promise<void> => {
+    const { error } = await supabase
+        .from('profile_reports')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (error) {
+        console.error('Profile report status update error:', error);
         throw error;
     }
 };
@@ -1708,7 +2014,7 @@ export const getReadingLists = async (userId: string, onlyPublic: boolean = fals
     })) as ReadingList[];
 };
 
-export const getReadingListById = async (listId: string): Promise<ReadingList | undefined> => {
+export const getReadingListById = async (listId: string, viewerId?: string): Promise<ReadingList | undefined> => {
     const { data, error } = await supabase
         .from('reading_lists')
         .select(`
@@ -1721,6 +2027,11 @@ export const getReadingListById = async (listId: string): Promise<ReadingList | 
         .maybeSingle();
 
     if (error || !data) return undefined;
+
+    const canAccess = await canAccessOwnedContent(data.user_id, Boolean(data.is_public), viewerId);
+    if (!canAccess) {
+        return undefined;
+    }
 
     // Fetch manga details for items
     const mangaIds = data.items.map((item: any) => item.manga_id);
@@ -1905,6 +2216,25 @@ export const createReadingList = async (list: Omit<ReadingList, 'id' | 'createdA
         isPublic: data.is_public,
         createdAt: data.created_at
     } as ReadingList;
+};
+
+export const getTierListById = async (tierListId: string, viewerId?: string) => {
+    const { data, error } = await supabase
+        .from('tier_lists')
+        .select('*')
+        .eq('id', tierListId)
+        .maybeSingle();
+
+    if (error || !data) {
+        return undefined;
+    }
+
+    const canAccess = await canAccessOwnedContent(data.user_id, Boolean(data.is_public), viewerId);
+    if (!canAccess) {
+        return undefined;
+    }
+
+    return data;
 };
 
 export const updateReadingList = async (listId: string, updates: Partial<Pick<ReadingList, 'name' | 'description' | 'imageUrl' | 'isPublic'>>): Promise<void> => {

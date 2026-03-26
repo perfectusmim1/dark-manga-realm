@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 import {
     getSiteSecuritySettings,
     SiteSecuritySettings,
@@ -10,14 +11,16 @@ import CustomContextMenu from './CustomContextMenu';
 
 const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user } = useAuth();
+    const { access, isLoading: adminAccessLoading } = useAdminAccess();
     const [settings, setSettings] = useState<SiteSecuritySettings>({
         devtoolsProtectionEnabled: false,
         adblockWarningEnabled: false,
         updatedAt: null,
         updatedBy: null,
     });
-    const isAdmin = user?.role === 'admin';
-    const shouldEnforce = settings.devtoolsProtectionEnabled && !isAdmin;
+    const isAdmin = access.role === 'admin';
+    const shouldEnforce = settings.devtoolsProtectionEnabled
+        && (!user || (!adminAccessLoading && !isAdmin));
 
     useEffect(() => {
         let isActive = true;

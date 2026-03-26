@@ -28,6 +28,8 @@ import { toast } from 'sonner';
 import { getAllMangas, getMangaById, saveManga } from '@/lib/database';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { Manga, Chapter } from '@/lib/types';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ScrapedMangaCard {
     title: string;
@@ -44,6 +46,9 @@ interface ScrapedChapter {
 
 const AdminChapterScraper: React.FC = () => {
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const { access, isLoading: accessLoading } = useAdminAccess();
+    const canUseScraper = access.canAccessAdminPanel && access.role === 'admin';
 
     // Local State
     const [localMangas, setLocalMangas] = useState<Manga[]>([]);
@@ -65,8 +70,27 @@ const AdminChapterScraper: React.FC = () => {
     const [importing, setImporting] = useState(false);
 
     useEffect(() => {
+        if (accessLoading || !user) {
+            return;
+        }
+
+        if (!canUseScraper) {
+            toast.error('Bu sayfa yalnızca admin hesabına açıktır');
+            navigate('/admin', { replace: true });
+        }
+    }, [accessLoading, canUseScraper, navigate, user]);
+
+    useEffect(() => {
+        if (!canUseScraper) {
+            return;
+        }
+
         loadLocalMangas();
-    }, []);
+    }, [canUseScraper]);
+
+    if (accessLoading || !user || !canUseScraper) {
+        return null;
+    }
 
     const loadLocalMangas = async () => {
         setLoadingLocal(true);
@@ -354,12 +378,12 @@ const AdminChapterScraper: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-4">
+            <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
                 <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
                     <RefreshCw className="h-6 w-6" />
                 </div>
                 <div>
-                    <h1 className="text-3xl font-bold">Bölüm Çekme</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Bölüm Çekme</h1>
                     <p className="text-muted-foreground">Eski mangalarınız için yeni bölümleri otomatik bulun ve yükleyin.</p>
                 </div>
             </div>
@@ -408,7 +432,7 @@ const AdminChapterScraper: React.FC = () => {
                         <CardDescription>Manganın güncel halini seçtiğiniz sitede bulun.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <form onSubmit={handleSourceSearch} className="flex gap-2">
+                        <form onSubmit={handleSourceSearch} className="flex flex-col gap-2 sm:flex-row">
                             <Input
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
@@ -445,7 +469,7 @@ const AdminChapterScraper: React.FC = () => {
             {selectedSourceManga && (
                 <Card className="border-border bg-card/50 backdrop-blur-sm overflow-hidden">
                     <CardHeader className="bg-primary/5">
-                        <div className="flex items-center justify-between">
+                        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                             <div>
                                 <CardTitle>Durum Kontrolü</CardTitle>
                                 <CardDescription>Kaynak site ile bizim sitemiz arasındaki farklar.</CardDescription>
@@ -453,7 +477,7 @@ const AdminChapterScraper: React.FC = () => {
                             <Button
                                 disabled={newChapters.length === 0 || importing}
                                 onClick={handleImportNewChapters}
-                                className="gap-2"
+                                className="w-full gap-2 sm:w-auto"
                             >
                                 {importing ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
                                 {selectedChapterIndices.length > 0 ? `${selectedChapterIndices.length} Yeni Bölümü İçe Aktar` : 'Bölüm Seçilmedi'}
@@ -462,7 +486,7 @@ const AdminChapterScraper: React.FC = () => {
                     </CardHeader>
                     <CardContent className="p-0">
                         <div className="grid md:grid-cols-2">
-                            <div className="border-r border-border p-6">
+                            <div className="p-4 md:border-r md:border-border md:p-6">
                                 <div className="mb-4 flex items-center justify-between">
                                     <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Yeni Bölümler ({newChapters.length})</h3>
                                     {newChapters.length > 0 && (
@@ -510,7 +534,7 @@ const AdminChapterScraper: React.FC = () => {
                                     )}
                                 </div>
                             </div>
-                            <div className="p-6 bg-secondary/20">
+                            <div className="bg-secondary/20 p-4 md:p-6">
                                 <h3 className="mb-4 text-sm font-bold uppercase tracking-wider text-muted-foreground">Bilgi</h3>
                                 <div className="space-y-3">
                                     <div className="flex justify-between text-sm">

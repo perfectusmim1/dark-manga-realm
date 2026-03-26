@@ -467,12 +467,12 @@ const AdminMangaEditor: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-4">
-                <Button variant="ghost" size="icon" onClick={() => navigate('/admin/mangas')}>
+            <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
+                <Button variant="ghost" size="icon" onClick={() => navigate('/admin/mangas')} className="shrink-0">
                     <ArrowLeft className="h-5 w-5" />
                 </Button>
                 <div>
-                    <h1 className="text-3xl font-bold">
+                    <h1 className="text-2xl font-bold sm:text-3xl">
                         {isEditing ? 'Manga Düzenle' : 'Yeni Manga Ekle'}
                     </h1>
                     <p className="text-muted-foreground">
@@ -481,10 +481,10 @@ const AdminMangaEditor: React.FC = () => {
                 </div>
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-3">
+            <div className="grid gap-4 lg:grid-cols-3 lg:gap-6">
                 {/* Main Info */}
                 <div className="space-y-6 lg:col-span-2">
-                    <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+                    <div className="rounded-xl border border-border bg-card p-4 space-y-4 sm:p-6">
                         <h2 className="text-lg font-semibold">Temel Bilgiler</h2>
 
                         <div className="space-y-2">
@@ -498,16 +498,16 @@ const AdminMangaEditor: React.FC = () => {
 
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Alternatif Başlıklar</label>
-                            <div className="flex gap-2">
+                            <div className="flex flex-col gap-2 sm:flex-row">
                                 <Input
                                     value={altTitleInput}
                                     onChange={(e) => setAltTitleInput(e.target.value)}
                                     placeholder="Alternatif başlık ekle"
                                     onKeyDown={(e) => e.key === 'Enter' && (e.preventDefault(), addAlternativeTitle())}
                                 />
-                                <Button type="button" onClick={addAlternativeTitle}>
-                                    <Plus className="h-4 w-4" />
-                                </Button>
+                                    <Button type="button" onClick={addAlternativeTitle} className="sm:w-auto">
+                                        <Plus className="h-4 w-4" />
+                                    </Button>
                             </div>
                             {(manga.alternativeTitles?.length || 0) > 0 && (
                                 <div className="flex flex-wrap gap-2 mt-2">
@@ -527,7 +527,7 @@ const AdminMangaEditor: React.FC = () => {
                             <div className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Yazar *</label>
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-col gap-2 sm:flex-row">
                                         <Select
                                             value={selectedAuthor?.id}
                                             onValueChange={(val) => {
@@ -547,7 +547,7 @@ const AdminMangaEditor: React.FC = () => {
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                        <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'author' })}>
+                                        <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'author' })} className="sm:w-10">
                                             <Plus className="h-4 w-4" />
                                         </Button>
                                     </div>
@@ -562,7 +562,7 @@ const AdminMangaEditor: React.FC = () => {
                             <div className="space-y-4">
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Çizer</label>
-                                    <div className="flex gap-2">
+                                    <div className="flex flex-col gap-2 sm:flex-row">
                                         <Select
                                             value={selectedArtist?.id}
                                             onValueChange={(val) => {
@@ -582,7 +582,7 @@ const AdminMangaEditor: React.FC = () => {
                                                 ))}
                                             </SelectContent>
                                         </Select>
-                                        <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'artist' })}>
+                                        <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'artist' })} className="sm:w-10">
                                             <Plus className="h-4 w-4" />
                                         </Button>
                                     </div>
@@ -670,15 +670,15 @@ const AdminMangaEditor: React.FC = () => {
 
                         {/* Character Selection */}
                         <div className="space-y-4 pt-4 border-t border-border">
-                            <div className="flex items-center justify-between">
+                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <h2 className="text-lg font-semibold">Karakterler</h2>
-                                <Button size="sm" variant="outline" onClick={() => setShowEntityDialog({ type: 'character' })}>
+                                <Button size="sm" variant="outline" onClick={() => setShowEntityDialog({ type: 'character' })} className="w-full sm:w-auto">
                                     <Plus className="mr-2 h-4 w-4" />
                                     Yeni Karakter
                                 </Button>
                             </div>
                             <div className="grid gap-2">
-                                <div className="flex gap-2">
+                                <div className="flex flex-col gap-2 sm:flex-row">
                                     <Select onValueChange={(val) => {
                                         const char = allCharacters.find(c => c.id === val);
                                         if (char && !mangaCharacters.find(mc => mc.id === char.id)) {
@@ -732,10 +732,10 @@ const AdminMangaEditor: React.FC = () => {
                     </div>
 
                     {/* Chapters Section */}
-                    <div className="rounded-xl border border-border bg-card p-6 space-y-4">
-                        <div className="flex items-center justify-between">
+                    <div className="rounded-xl border border-border bg-card p-4 space-y-4 sm:p-6">
+                        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <h2 className="text-lg font-semibold">Bölümler ({manga.chapters?.length || 0})</h2>
-                            <Button onClick={() => {
+                            <Button className="w-full sm:w-auto" onClick={() => {
                                 setEditingChapterId(null);
                                 setNewChapter({
                                     number: (manga.chapters?.length || 0) + 1,
@@ -755,7 +755,7 @@ const AdminMangaEditor: React.FC = () => {
                                 {manga.chapters?.slice().reverse().map((chapter) => (
                                     <div
                                         key={chapter.id}
-                                        className="flex items-center justify-between rounded-lg border border-border p-3"
+                                        className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
                                     >
                                         <div>
                                             <p className="font-medium">{formatChapterDisplayTitle(chapter.number, chapter.title)}</p>
@@ -793,7 +793,7 @@ const AdminMangaEditor: React.FC = () => {
 
                 {/* Sidebar */}
                 <div className="space-y-6">
-                    <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+                    <div className="rounded-xl border border-border bg-card p-4 space-y-4 sm:p-6">
                         <h2 className="text-lg font-semibold">Görseller</h2>
 
                         <div className="space-y-2">
@@ -835,7 +835,7 @@ const AdminMangaEditor: React.FC = () => {
                         </div>
                     </div>
 
-                    <div className="rounded-xl border border-border bg-card p-6 space-y-4">
+                    <div className="rounded-xl border border-border bg-card p-4 space-y-4 sm:p-6">
                         <h2 className="text-lg font-semibold">İstatistikler</h2>
                         <p className="text-sm text-muted-foreground">
                             Görüntülenme ve puanlama otomatik olarak hesaplanır.
@@ -861,7 +861,7 @@ const AdminMangaEditor: React.FC = () => {
 
             {/* Add Chapter Dialog */}
             <Dialog open={showChapterDialog} onOpenChange={setShowChapterDialog}>
-                <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+                <DialogContent className="max-h-[90vh] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto sm:max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>{editingChapterId ? 'Bölüm Düzenle' : 'Yeni Bölüm Ekle'}</DialogTitle>
                         <DialogDescription>
@@ -892,7 +892,7 @@ const AdminMangaEditor: React.FC = () => {
 
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Sayfa URL'leri ({newChapter.pages.length})</label>
-                            <div className="flex gap-2">
+                            <div className="flex flex-col gap-2 sm:flex-row">
                                 <Input
                                     value={pageUrlInput}
                                     onChange={(e) => setPageUrlInput(e.target.value)}
@@ -925,7 +925,7 @@ const AdminMangaEditor: React.FC = () => {
                         </div>
                     </div>
 
-                    <DialogFooter>
+                    <DialogFooter className="flex-col gap-2 sm:flex-row">
                         <Button variant="outline" onClick={() => {
                             setShowChapterDialog(false);
                             setEditingChapterId(null);
@@ -947,7 +947,7 @@ const AdminMangaEditor: React.FC = () => {
 
             {/* Entity Add Dialog (Character/Author/Artist) */}
             <Dialog open={showEntityDialog.type !== null} onOpenChange={() => setShowEntityDialog({ type: null })}>
-                <DialogContent>
+                <DialogContent className="w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle>
                             Yeni {showEntityDialog.type === 'character' ? 'Karakter' : showEntityDialog.type === 'author' ? 'Yazar' : 'Çizer'} Ekle
@@ -979,7 +979,7 @@ const AdminMangaEditor: React.FC = () => {
                             />
                         </div>
                     </div>
-                    <DialogFooter>
+                    <DialogFooter className="flex-col gap-2 sm:flex-row">
                         <Button variant="outline" onClick={() => setShowEntityDialog({ type: null })}>İptal</Button>
                         <Button onClick={handleCreateEntity}>Oluştur</Button>
                     </DialogFooter>

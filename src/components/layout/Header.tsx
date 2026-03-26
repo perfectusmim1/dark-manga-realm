@@ -38,6 +38,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -88,10 +89,11 @@ const Header: React.FC = () => {
   const [allMangas, setAllMangas] = useState<Manga[]>([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const { user, logout, isLoading: authLoading } = useAuth();
+  const { access } = useAdminAccess();
   const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
   const navigate = useNavigate();
   const location = useLocation();
-  const isAdmin = user?.role === 'admin' || user?.role === 'moderator';
+  const isAdmin = access.canAccessAdminPanel;
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
   const [isRandomDialogOpen, setIsRandomDialogOpen] = useState(false);

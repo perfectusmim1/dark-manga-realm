@@ -199,7 +199,7 @@ const AdminComments: React.FC = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold">Yorumlar</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Yorumlar</h1>
                     <p className="text-muted-foreground">Yorumları daha hızlı inceleyip yönetin.</p>
                 </div>
 
@@ -211,7 +211,7 @@ const AdminComments: React.FC = () => {
                         {loadedCount} yüklü
                     </Badge>
                     {selectedComments.size > 0 && (
-                        <Button variant="destructive" onClick={() => setBulkDeleteConfirm(true)}>
+                        <Button variant="destructive" onClick={() => setBulkDeleteConfirm(true)} className="w-full sm:w-auto">
                             <Trash2 className="mr-2 h-4 w-4" />
                             {selectedComments.size} Yorum Sil
                         </Button>
@@ -231,7 +231,7 @@ const AdminComments: React.FC = () => {
                         />
                     </div>
 
-                    <div className="flex items-center gap-3">
+                    <div className="flex w-full flex-col gap-3 sm:w-auto sm:flex-row sm:items-center">
                         <div className="flex items-center gap-2 rounded-xl border border-border px-3 py-2">
                             <Checkbox
                                 checked={allLoadedSelected ? true : partiallySelected ? 'indeterminate' : false}
@@ -240,7 +240,7 @@ const AdminComments: React.FC = () => {
                             <span className="text-sm text-muted-foreground">Yüklüleri seç</span>
                         </div>
 
-                        <Button variant="outline" onClick={() => void refreshComments()} disabled={isRefreshing}>
+                        <Button variant="outline" onClick={() => void refreshComments()} disabled={isRefreshing} className="w-full sm:w-auto">
                             {isRefreshing ? 'Yenileniyor...' : 'Yenile'}
                         </Button>
                     </div>

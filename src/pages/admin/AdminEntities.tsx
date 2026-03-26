@@ -170,12 +170,12 @@ const AdminEntities: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold">Karakter & Sanatçı Yönetimi</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Karakter & Sanatçı Yönetimi</h1>
                     <p className="text-muted-foreground">Sitedeki tüm karakter, yazar ve çizerleri buradan yönetebilirsiniz.</p>
                 </div>
-                <Button onClick={() => handleOpenDialog()}>
+                <Button onClick={() => handleOpenDialog()} className="w-full sm:w-auto">
                     <Plus className="mr-2 h-4 w-4" />
                     Yeni {activeTab === 'character' ? 'Karakter' : activeTab === 'author' ? 'Yazar' : 'Çizer'}
                 </Button>
@@ -184,8 +184,8 @@ const AdminEntities: React.FC = () => {
             <Card className="border-border/40 bg-card/60 backdrop-blur-sm">
                 <CardHeader className="pb-3 text-white">
                     <Tabs value={activeTab} onValueChange={(val) => setActiveTab(val as EntityType)} className="w-full">
-                        <div className="flex items-center justify-between">
-                            <TabsList className="bg-background/50 border border-border">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                            <TabsList className="h-auto flex-wrap justify-start gap-2 bg-background/50 border border-border">
                                 <TabsTrigger value="character" className="gap-2">
                                     <Users className="h-4 w-4" /> Karakterler
                                 </TabsTrigger>
@@ -196,7 +196,7 @@ const AdminEntities: React.FC = () => {
                                     <UserPen className="h-4 w-4" /> Çizerler
                                 </TabsTrigger>
                             </TabsList>
-                            <div className="relative w-72">
+                            <div className="relative w-full lg:w-72">
                                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <Input
                                     placeholder="Ara..."
@@ -214,6 +214,61 @@ const AdminEntities: React.FC = () => {
                                 </div>
                             ) : (
                                 <div className="rounded-md border border-border">
+                                    <div className="divide-y divide-border md:hidden">
+                                        {filteredData().length > 0 ? (
+                                            filteredData().map((item) => (
+                                                <div key={item.id} className="space-y-4 p-4">
+                                                    <div className="flex items-start gap-3">
+                                                        <div className="h-12 w-12 overflow-hidden rounded-full border border-border bg-muted">
+                                                            {item.imageUrl ? (
+                                                                <img
+                                                                    src={item.imageUrl}
+                                                                    alt={item.name}
+                                                                    className="h-full w-full object-cover"
+                                                                    onError={(e) => (e.currentTarget.src = 'https://via.placeholder.com/40')}
+                                                                />
+                                                            ) : (
+                                                                <div className="flex h-full w-full items-center justify-center">
+                                                                    <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        <div className="min-w-0 flex-1 space-y-1">
+                                                            <p className="font-medium">{item.name}</p>
+                                                            <p className="text-sm text-muted-foreground">
+                                                                {item.description || 'Açıklama yok'}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex gap-2">
+                                                        <Button
+                                                            variant="outline"
+                                                            className="flex-1"
+                                                            onClick={() => handleOpenDialog(item)}
+                                                        >
+                                                            <UserPen className="mr-2 h-4 w-4" />
+                                                            Düzenle
+                                                        </Button>
+                                                        <Button
+                                                            variant="outline"
+                                                            className="flex-1 text-destructive hover:text-destructive"
+                                                            onClick={() => handleDelete(item.id)}
+                                                        >
+                                                            <Trash2 className="mr-2 h-4 w-4" />
+                                                            Sil
+                                                        </Button>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="p-6 text-center text-muted-foreground">
+                                                Sonuç bulunamadı
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="hidden md:block">
                                     <Table>
                                         <TableHeader>
                                             <TableRow className="hover:bg-transparent border-border">
@@ -279,6 +334,7 @@ const AdminEntities: React.FC = () => {
                                             )}
                                         </TableBody>
                                     </Table>
+                                    </div>
                                 </div>
                             )}
                         </CardContent>
@@ -288,7 +344,7 @@ const AdminEntities: React.FC = () => {
 
             {/* Edit Dialog */}
             <Dialog open={showDialog} onOpenChange={setShowDialog}>
-                <DialogContent className="sm:max-w-[525px]">
+                <DialogContent className="w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-[525px]">
                     <DialogHeader>
                         <DialogTitle>
                             {editingEntity ? 'Düzenle' : 'Yeni Oluştur'}: {activeTab === 'character' ? 'Karakter' : activeTab === 'author' ? 'Yazar' : 'Çizer'}

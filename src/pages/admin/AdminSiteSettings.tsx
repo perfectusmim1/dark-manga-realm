@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { Loader2, Settings, Shield, ShieldOff, TriangleAlert } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 import {
     getSiteSecuritySettings,
     setAdblockWarningEnabled,
@@ -19,10 +20,11 @@ const DEFAULT_SECURITY_SETTINGS: SiteSecuritySettings = {
 
 const AdminSiteSettings: React.FC = () => {
     const { user } = useAuth();
+    const { access, isLoading: accessLoading } = useAdminAccess();
     const [securitySettings, setSecuritySettings] = useState<SiteSecuritySettings>(DEFAULT_SECURITY_SETTINGS);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
-    const isPrimaryAdmin = user?.role === 'admin';
+    const isPrimaryAdmin = access.isPrimaryAdmin;
 
     useEffect(() => {
         if (!isPrimaryAdmin) {
@@ -90,7 +92,7 @@ const AdminSiteSettings: React.FC = () => {
         }
     };
 
-    if (isLoading) {
+    if (accessLoading || isLoading) {
         return (
             <div className="flex min-h-[400px] items-center justify-center">
                 <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent"></div>
@@ -110,14 +112,14 @@ const AdminSiteSettings: React.FC = () => {
     }
 
     return (
-        <div className="space-y-8">
+        <div className="space-y-6 lg:space-y-8">
             <div className="space-y-2">
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col items-start gap-3 sm:flex-row sm:items-center">
                     <div className="rounded-xl bg-primary/10 p-3 text-primary">
                         <Settings className="h-6 w-6" />
                     </div>
                     <div>
-                        <h1 className="text-3xl font-bold">Site Settings</h1>
+                        <h1 className="text-2xl font-bold sm:text-3xl">Site Settings</h1>
                         <p className="text-muted-foreground">
                             Site geneli güvenlik ve kullanıcı uyarı anahtarları.
                         </p>
@@ -130,9 +132,9 @@ const AdminSiteSettings: React.FC = () => {
                 </p>
             </div>
 
-            <div className="grid gap-5 xl:grid-cols-2">
-                <section className="rounded-2xl border border-border bg-card p-6">
-                    <div className="flex items-start justify-between gap-4">
+            <div className="grid gap-4 xl:grid-cols-2 xl:gap-5">
+                <section className="rounded-2xl border border-border bg-card p-4 sm:p-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="space-y-3">
                             <div className={`inline-flex rounded-xl p-3 ${securitySettings.devtoolsProtectionEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
                                 {securitySettings.devtoolsProtectionEnabled ? (
@@ -160,8 +162,8 @@ const AdminSiteSettings: React.FC = () => {
                     </p>
                 </section>
 
-                <section className="rounded-2xl border border-border bg-card p-6">
-                    <div className="flex items-start justify-between gap-4">
+                <section className="rounded-2xl border border-border bg-card p-4 sm:p-6">
+                    <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
                         <div className="space-y-3">
                             <div className={`inline-flex rounded-xl p-3 ${securitySettings.adblockWarningEnabled ? 'bg-amber-500/10 text-amber-500' : 'bg-emerald-500/10 text-emerald-500'}`}>
                                 <TriangleAlert className="h-6 w-6" />

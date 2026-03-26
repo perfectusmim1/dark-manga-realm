@@ -6,9 +6,11 @@ import { Input } from '@/components/ui/input';
 import { authenticateAdmin } from '@/lib/database';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 
 const AdminLogin: React.FC = () => {
     const { user, loginWithGoogle } = useAuth();
+    const { access, isLoading: accessLoading } = useAdminAccess();
     const navigate = useNavigate();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
@@ -16,10 +18,10 @@ const AdminLogin: React.FC = () => {
     const [loading, setLoading] = useState(false);
 
     React.useEffect(() => {
-        if (user && (user.role === 'admin' || user.role === 'moderator')) {
+        if (!accessLoading && user && access.canAccessAdminPanel) {
             navigate('/admin');
         }
-    }, [user, navigate, loginWithGoogle]);
+    }, [access.canAccessAdminPanel, accessLoading, user, navigate, loginWithGoogle]);
 
     const handleGoogleLogin = async () => {
         setLoading(true);

@@ -92,14 +92,14 @@ const AdminDashboard: React.FC = () => {
     ];
 
     return (
-        <div className="space-y-8">
-            <div className="flex items-center justify-between">
+        <div className="space-y-6 lg:space-y-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold">Dashboard</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Dashboard</h1>
                     <p className="text-muted-foreground">Site istatistiklerine genel bakış</p>
                 </div>
                 <div className="flex gap-2">
-                    <Button asChild>
+                    <Button asChild className="w-full sm:w-auto">
                         <Link to="/admin/mangas/new">
                             <Plus className="mr-2 h-4 w-4" />
                             Yeni Manga Ekle
@@ -108,11 +108,11 @@ const AdminDashboard: React.FC = () => {
                 </div>
             </div>
 
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
+            <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
                 {statCards.map((stat) => (
                     <div
                         key={stat.title}
-                        className="rounded-xl border border-border bg-card p-6 transition-shadow hover:shadow-lg"
+                        className="rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-lg sm:p-6"
                     >
                         <div className="flex items-center justify-between">
                             <div className={`rounded-lg p-2 ${stat.bgColor}`}>
@@ -128,8 +128,8 @@ const AdminDashboard: React.FC = () => {
                 ))}
             </div>
 
-            <div className="grid gap-6 lg:grid-cols-2">
-                <div className="rounded-xl border border-border bg-card p-6">
+            <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
+                <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
                     <h2 className="mb-4 text-lg font-semibold">Türe Göre Dağılım</h2>
                     <div className="space-y-4">
                         {(['manga', 'manhwa', 'manhua', 'webtoon'] as const).map((type) => {
@@ -159,7 +159,7 @@ const AdminDashboard: React.FC = () => {
                     </div>
                 </div>
 
-                <div className="rounded-xl border border-border bg-card p-6">
+                <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
                     <h2 className="mb-4 text-lg font-semibold">Duruma Göre Dağılım</h2>
                     <div className="space-y-4">
                         {[
@@ -191,10 +191,10 @@ const AdminDashboard: React.FC = () => {
                 </div>
             </div>
 
-            <div className="rounded-xl border border-border bg-card p-6">
-                <div className="mb-4 flex items-center justify-between">
+            <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
+                <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <h2 className="text-lg font-semibold">Son Güncellenenler</h2>
-                    <Button variant="ghost" size="sm" asChild>
+                    <Button variant="ghost" size="sm" asChild className="w-full sm:w-auto">
                         <Link to="/admin/mangas">Tümünü Gör</Link>
                     </Button>
                 </div>
@@ -203,20 +203,20 @@ const AdminDashboard: React.FC = () => {
                         <Link
                             key={manga.id}
                             to={`/admin/mangas/${manga.id}`}
-                            className="flex items-center gap-4 rounded-lg p-3 transition-colors hover:bg-secondary"
+                            className="flex flex-col gap-3 rounded-lg p-3 transition-colors hover:bg-secondary sm:flex-row sm:items-center"
                         >
                             <img
                                 src={manga.cover}
                                 alt={manga.title}
-                                className="h-12 w-9 rounded object-cover"
+                                className="h-16 w-12 rounded object-cover sm:h-12 sm:w-9"
                             />
-                            <div className="flex-1">
+                            <div className="w-full min-w-0 flex-1">
                                 <h3 className="font-medium">{manga.title}</h3>
                                 <p className="text-sm text-muted-foreground">
                                     {manga.chapters.length} bölüm • {manga.type}
                                 </p>
                             </div>
-                            <div className="flex items-center gap-1 text-sm text-muted-foreground">
+                            <div className="flex items-center gap-1 text-sm text-muted-foreground sm:ml-auto">
                                 <Clock className="h-4 w-4" />
                                 {new Date(manga.lastUpdated).toLocaleDateString('tr-TR')}
                             </div>

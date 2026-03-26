@@ -20,6 +20,8 @@ import { toast } from 'sonner';
 import { ensureArtistByName, ensureAuthorByName, linkMangaToArtist, linkMangaToAuthor, saveManga } from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
 import { normalizeGenres } from '@/lib/mockData';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
+import { useAuth } from '@/contexts/AuthContext';
 
 interface ScrapedMangaCard {
     title: string;
@@ -107,6 +109,9 @@ const sanitizeAlternativeTitles = (rawText: string, mainTitle?: string) => {
 
 const AdminScraper: React.FC = () => {
     const navigate = useNavigate();
+    const { user } = useAuth();
+    const { access, isLoading: accessLoading } = useAdminAccess();
+    const canUseScraper = access.canAccessAdminPanel && access.role === 'admin';
     const [sourceUrl, setSourceUrl] = useState('https://hayalistic.net/webtoonlar/');
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(false);
@@ -115,6 +120,21 @@ const AdminScraper: React.FC = () => {
     const [fetchedData, setFetchedData] = useState<Partial<Manga> | null>(null);
     const [fetchingDetails, setFetchingDetails] = useState(false);
     const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
+
+    useEffect(() => {
+        if (accessLoading || !user) {
+            return;
+        }
+
+        if (!canUseScraper) {
+            toast.error('Bu sayfa yalnızca admin hesabına açıktır');
+            navigate('/admin', { replace: true });
+        }
+    }, [accessLoading, canUseScraper, navigate, user]);
+
+    if (accessLoading || !user || !canUseScraper) {
+        return null;
+    }
 
     const fetchWithProxy = async (targetUrl: string) => {
         // 1. Priority: Supabase Edge Function
@@ -489,9 +509,9 @@ const AdminScraper: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold">İçerik Çekici (Scraper)</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">İçerik Çekici (Scraper)</h1>
                     <p className="text-muted-foreground">Dış sitelerden manga ve webtoon verilerini otomatik olarak çekin.</p>
                 </div>
                 <div className="flex gap-2">
@@ -510,7 +530,7 @@ const AdminScraper: React.FC = () => {
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
-                    <form onSubmit={handleSearch} className="flex gap-2">
+                    <form onSubmit={handleSearch} className="flex flex-col gap-2 sm:flex-row">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <Input
@@ -528,9 +548,9 @@ const AdminScraper: React.FC = () => {
                 </CardContent>
             </Card>
 
-            <div className="grid gap-6 lg:grid-cols-2">
+            <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
                 {/* Results List */}
-                <Card className="flex flex-col h-[600px]">
+                <Card className="flex h-[460px] flex-col lg:h-[600px]">
                     <CardHeader>
                         <CardTitle>Sonuçlar ({results.length})</CardTitle>
                     </CardHeader>
@@ -581,7 +601,7 @@ const AdminScraper: React.FC = () => {
                 </Card>
 
                 {/* Preview / Detailed Fetch */}
-                <Card className="flex flex-col h-[600px]">
+                <Card className="flex h-[460px] flex-col lg:h-[600px]">
                     <CardHeader>
                         <CardTitle>Önizleme ve Detaylar</CardTitle>
                         <CardDescription>
@@ -597,7 +617,7 @@ const AdminScraper: React.FC = () => {
                         ) : fetchedData ? (
                             <ScrollArea className="h-full">
                                 <div className="space-y-6 pb-4">
-                                    <div className="flex gap-4">
+                                    <div className="flex flex-col gap-4 sm:flex-row">
                                         <div className="w-32 shrink-0 overflow-hidden rounded-lg border border-border">
                                             <img src={fetchedData.cover} alt="Cover" className="w-full object-cover" />
                                         </div>

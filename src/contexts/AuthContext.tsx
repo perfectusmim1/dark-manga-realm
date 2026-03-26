@@ -24,7 +24,14 @@ interface AuthContextType {
   register: (username: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
   logout: () => Promise<void>;
   updateProfile: (updates: { username?: string, avatar?: string }) => Promise<{ success: boolean; error?: string }>;
-  updatePassword: (newPassword: string) => Promise<{ success: boolean; error?: string }>;
+  updatePassword: (
+    newPassword: string,
+    verification?: {
+      currentPassword?: string;
+      mfaCode?: string;
+      skipVerification?: boolean;
+    }
+  ) => Promise<{ success: boolean; error?: string }>;
   updateEmail: (newEmail: string) => Promise<{ success: boolean; error?: string }>;
   updatePreferences: (newPreferences: User['preferences']) => Promise<{ success: boolean; error?: string }>;
   resetPassword: (email: string) => Promise<{ success: boolean; error?: string }>;
@@ -602,8 +609,57 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const updatePassword = async (newPassword: string): Promise<{ success: boolean; error?: string }> => {
+  const updatePassword = async (
+    newPassword: string,
+    verification?: {
+      currentPassword?: string;
+      mfaCode?: string;
+      skipVerification?: boolean;
+    }
+  ): Promise<{ success: boolean; error?: string }> => {
     try {
+      const currentAuthUser = supabaseUser || (await supabase.auth.getUser()).data.user;
+      if (!currentAuthUser) {
+        return { success: false, error: 'Oturum bulunamadı' };
+      }
+
+      if (!verification?.skipVerification) {
+        if (user?.twoFactorEnabled || mfaState.verifiedFactorCount > 0) {
+          const result = await challengeTwoFactor(verification?.mfaCode || '');
+          if (!result.success) {
+            return result;
+          }
+        } else {
+          const currentPassword = verification?.currentPassword?.trim();
+          if (!currentPassword) {
+            return { success: false, error: 'Mevcut şifrenizi girin.' };
+          }
+
+          const identifier = currentAuthUser.email || user?.email;
+          if (!identifier) {
+            return { success: false, error: 'E-posta adresi bulunamadı.' };
+          }
+
+          const deviceIdentity = await getDeviceIdentity();
+          const { data, error: loginError } = await supabase.functions.invoke('password-login', {
+            body: {
+              identifier,
+              password: currentPassword,
+              ...deviceIdentity,
+            },
+          });
+
+          if (loginError) {
+            console.error('Current password verification error:', loginError);
+            return { success: false, error: 'Mevcut şifre doğrulanamadı.' };
+          }
+
+          if (!data?.success) {
+            return { success: false, error: data?.message || 'Mevcut şifre hatalı.' };
+          }
+        }
+      }
+
       const { error } = await supabase.auth.updateUser({
         password: newPassword
       });

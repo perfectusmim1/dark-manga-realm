@@ -225,7 +225,7 @@ const AdminUserManagement: React.FC = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold">Kullanıcı Yönetimi</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Kullanıcı Yönetimi</h1>
                     <p className="text-muted-foreground">Tüm kayıtlı kullanıcıları listeleyin ve yönetin</p>
                 </div>
                 <div className="relative w-full sm:w-72">
@@ -255,7 +255,93 @@ const AdminUserManagement: React.FC = () => {
             </div>
 
             <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-                <div className="overflow-x-auto">
+                <div className="divide-y divide-border md:hidden">
+                    {filteredUsers.map((user) => {
+                        const presence = getUserPresence(user);
+
+                        return (
+                            <div key={user.id} className={`space-y-4 p-4 ${user.isBanned ? 'bg-destructive/5' : ''}`}>
+                                <div className="flex items-start gap-3">
+                                    {user.avatar ? (
+                                        <img src={user.avatar} alt={user.username} className="h-12 w-12 rounded-full object-cover" />
+                                    ) : (
+                                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                            <UserCircle className="h-6 w-6" />
+                                        </div>
+                                    )}
+                                    <div className="min-w-0 flex-1 space-y-1">
+                                        <p className="font-semibold">{user.username}</p>
+                                        <p className="text-xs text-muted-foreground capitalize">{user.role || 'User'}</p>
+                                        <p className="break-words text-sm text-muted-foreground">{user.email || 'E-posta alınamadı'}</p>
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-3 text-sm text-muted-foreground">
+                                    <div className="flex items-start gap-2">
+                                        <Calendar className="mt-0.5 h-4 w-4 shrink-0" />
+                                        <span>{user.createdAt ? formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: tr }) : 'Bilinmiyor'}</span>
+                                    </div>
+                                    <div className="space-y-1">
+                                        {presence.tone === 'banned' ? (
+                                            <Badge variant="destructive" className="gap-1">
+                                                <ShieldBan className="h-3 w-3" />
+                                                {presence.label}
+                                            </Badge>
+                                        ) : presence.tone === 'active' ? (
+                                            <Badge className="gap-1 border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/10">
+                                                <ShieldCheck className="h-3 w-3" />
+                                                {presence.label}
+                                            </Badge>
+                                        ) : presence.tone === 'inactive' ? (
+                                            <Badge variant="secondary" className="gap-1">
+                                                <ShieldCheck className="h-3 w-3" />
+                                                {presence.label}
+                                            </Badge>
+                                        ) : (
+                                            <Badge variant="outline" className="gap-1">
+                                                <ShieldCheck className="h-3 w-3" />
+                                                {presence.label}
+                                            </Badge>
+                                        )}
+                                        {presence.detail && <p className="text-xs text-muted-foreground">{presence.detail}</p>}
+                                    </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 gap-2">
+                                    {user.role === 'user' && (
+                                        user.isBanned ? (
+                                            <Button
+                                                variant="outline"
+                                                className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
+                                                onClick={() => setUnbanTarget(user)}
+                                            >
+                                                Banı Kaldır
+                                            </Button>
+                                        ) : (
+                                            <Button
+                                                variant="outline"
+                                                className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                                                onClick={() => setBanTarget(user)}
+                                            >
+                                                Banla
+                                            </Button>
+                                        )
+                                    )}
+                                    <Button
+                                        variant="outline"
+                                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        onClick={() => setDeleteId(user.id)}
+                                    >
+                                        <Trash2 className="mr-2 h-4 w-4" />
+                                        Kullanıcıyı Sil
+                                    </Button>
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="hidden overflow-x-auto md:block">
                     <table className="w-full">
                         <thead>
                             <tr className="bg-muted/50 border-b border-border">
@@ -426,18 +512,14 @@ const AdminUserManagement: React.FC = () => {
                     }
                 }}
             >
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Kullanıcıyı Banla</AlertDialogTitle>
+                    <AlertDialogContent>
+                        <AlertDialogHeader>
+                            <AlertDialogTitle>Kullanıcıyı Banla</AlertDialogTitle>
                         <AlertDialogDescription>
-                            <div className="space-y-3">
-                                <p>
-                                    <span className="font-medium text-foreground">Sadece kullanıcı</span> seçeneği yalnızca hesabı banlar.
-                                </p>
-                                <p>
-                                    <span className="font-medium text-foreground">Hard ban</span> seçeneği ise hesapla birlikte kayıtlı IP ve cihaz parmak izlerini de engeller.
-                                </p>
-                            </div>
+                            <span className="font-medium text-foreground">Sadece kullanıcı</span> seçeneği yalnızca hesabı banlar.
+                            <br />
+                            <br />
+                            <span className="font-medium text-foreground">Hard ban</span> seçeneği ise hesapla birlikte kayıtlı IP ve cihaz parmak izlerini de engeller.
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter className="gap-2">

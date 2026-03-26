@@ -16,27 +16,27 @@ interface MangaCardProps {
   index?: number;
 }
 
-let topTenTodayIdsCache: Set<string> | null = null;
-let topTenTodayIdsPromise: Promise<Set<string>> | null = null;
+let topTenWeekIdsCache: Set<string> | null = null;
+let topTenWeekIdsPromise: Promise<Set<string>> | null = null;
 
-const getTopTenTodayIds = async () => {
-  if (topTenTodayIdsCache) return topTenTodayIdsCache;
+const getTopTenWeekIds = async () => {
+  if (topTenWeekIdsCache) return topTenWeekIdsCache;
 
-  if (!topTenTodayIdsPromise) {
-    topTenTodayIdsPromise = getTopTenMangas('today')
+  if (!topTenWeekIdsPromise) {
+    topTenWeekIdsPromise = getTopTenMangas('week')
       .then((mangas) => {
         const ids = new Set(mangas.map((item) => item.id));
-        topTenTodayIdsCache = ids;
+        topTenWeekIdsCache = ids;
         return ids;
       })
       .catch(() => new Set<string>());
   }
 
-  return topTenTodayIdsPromise;
+  return topTenWeekIdsPromise;
 };
 
 const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
-  const [isTopTenToday, setIsTopTenToday] = useState(false);
+  const [isTopTenWeek, setIsTopTenWeek] = useState(false);
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
   const chapters = manga.chapters || [];
@@ -67,9 +67,9 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
   useEffect(() => {
     let isActive = true;
 
-    getTopTenTodayIds().then((ids) => {
+    getTopTenWeekIds().then((ids) => {
       if (isActive) {
-        setIsTopTenToday(ids.has(manga.id));
+        setIsTopTenWeek(ids.has(manga.id));
       }
     });
 
@@ -115,7 +115,7 @@ const MangaCard: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
             </Badge>
 
             <div className="absolute right-2 top-2 z-10 flex flex-col items-end gap-1">
-              {isTopTenToday && (
+              {isTopTenWeek && (
                 <Badge className="border-none bg-red-500/90 text-white text-[10px] font-bold shadow-lg shadow-red-500/25 backdrop-blur-md">
                   Top 10
                 </Badge>

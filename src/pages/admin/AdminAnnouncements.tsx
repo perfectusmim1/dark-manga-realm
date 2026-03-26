@@ -19,12 +19,14 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { getAnnouncements, createAnnouncement, deleteAnnouncement, Announcement } from '@/lib/announcements';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
 
 const AdminAnnouncements: React.FC = () => {
     const { user } = useAuth();
+    const { access, isLoading: accessLoading } = useAdminAccess();
     const navigate = useNavigate();
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -50,22 +52,22 @@ const AdminAnnouncements: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (!user) {
+        if (accessLoading || !user) {
             return;
         }
 
-        if (user.role !== 'admin') {
+        if (!access.isPrimaryAdmin) {
             toast.error('Bu sayfa yalnızca admin hesabına açıktır');
             navigate('/admin', { replace: true });
             return;
         }
 
         void loadData();
-    }, [loadData, navigate, user]);
+    }, [access.isPrimaryAdmin, accessLoading, loadData, navigate, user]);
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!user || user.role !== 'admin') return;
+        if (!user || !access.isPrimaryAdmin) return;
         if (!title.trim() || !content.trim()) {
             toast.error('Lütfen tüm alanları doldurun');
             return;
@@ -89,7 +91,7 @@ const AdminAnnouncements: React.FC = () => {
     };
 
     const handleDelete = async (id: string) => {
-        if (!user || user.role !== 'admin') return;
+        if (!user || !access.isPrimaryAdmin) return;
         if (!confirm('Bu duyuruyu silmek istediğinize emin misiniz?')) return;
 
         try {
@@ -102,15 +104,19 @@ const AdminAnnouncements: React.FC = () => {
         }
     };
 
-    if (!user || user.role !== 'admin') {
+    if (accessLoading) {
+        return null;
+    }
+
+    if (!user || !access.isPrimaryAdmin) {
         return null;
     }
 
     return (
-        <div className="space-y-8">
-            <div className="flex items-center justify-between">
+        <div className="space-y-6 lg:space-y-8">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold flex items-center gap-3">
+                    <h1 className="text-2xl font-bold flex items-center gap-3 sm:text-3xl">
                         <Megaphone className="h-8 w-8 text-primary" />
                         Duyuru Yönetimi
                     </h1>
@@ -119,12 +125,12 @@ const AdminAnnouncements: React.FC = () => {
                 
                 <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
                     <DialogTrigger asChild>
-                        <Button className="gap-2">
+                        <Button className="w-full gap-2 sm:w-auto">
                             <Plus className="h-4 w-4" />
                             Yeni Duyuru
                         </Button>
                     </DialogTrigger>
-                    <DialogContent className="sm:max-w-[500px]">
+                    <DialogContent className="w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-[500px]">
                         <DialogHeader>
                             <DialogTitle>Yeni Duyuru Oluştur</DialogTitle>
                         </DialogHeader>
@@ -176,10 +182,10 @@ const AdminAnnouncements: React.FC = () => {
                     announcements.map((announcement) => (
                         <div 
                             key={announcement.id}
-                            className="group relative rounded-xl border border-border bg-card p-6 transition-all hover:border-primary/50 hover:shadow-md"
+                            className="group relative rounded-xl border border-border bg-card p-4 transition-all hover:border-primary/50 hover:shadow-md sm:p-6"
                         >
                             <div className="flex items-start justify-between gap-4">
-                                <div className="space-y-1 pr-12">
+                                <div className="space-y-1 pr-8 sm:pr-12">
                                     <h3 className="text-lg font-bold">{announcement.title}</h3>
                                     <div className="flex items-center gap-2 text-xs text-muted-foreground">
                                         <Calendar className="h-3 w-3" />
@@ -193,7 +199,7 @@ const AdminAnnouncements: React.FC = () => {
                                 <Button 
                                     variant="ghost" 
                                     size="icon" 
-                                    className="absolute top-4 right-4 text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
+                                    className="absolute top-3 right-3 text-destructive opacity-100 transition-opacity sm:top-4 sm:right-4 sm:opacity-0 sm:group-hover:opacity-100"
                                     onClick={() => handleDelete(announcement.id)}
                                 >
                                     <Trash2 className="h-4 w-4" />

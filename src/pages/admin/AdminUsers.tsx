@@ -37,6 +37,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getAdminUsers, addAdminUser, deleteAdminUser, getAllUsers, AdminUser } from '@/lib/database';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { User } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -45,6 +46,7 @@ const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
 
 const AdminUsers: React.FC = () => {
     const { user, isLoading: authLoading } = useAuth();
+    const { access, isLoading: accessLoading } = useAdminAccess();
     const [admins, setAdmins] = useState<AdminUser[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -165,7 +167,7 @@ const AdminUsers: React.FC = () => {
         }
     };
 
-    if (user?.role !== 'admin') {
+    if (!access.isPrimaryAdmin) {
         return (
             <div className="space-y-6">
                 <div>
@@ -184,10 +186,10 @@ const AdminUsers: React.FC = () => {
         );
     }
 
-    if (authLoading || isLoading) {
+    if (authLoading || accessLoading || isLoading) {
         return (
             <div className="space-y-6">
-                <div className="flex items-center justify-between gap-4">
+                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                     <div>
                         <Skeleton className="h-10 w-40" />
                         <Skeleton className="mt-2 h-5 w-[32rem]" />
@@ -214,14 +216,14 @@ const AdminUsers: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between gap-4">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold">Adminler</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Adminler</h1>
                     <p className="text-muted-foreground">
                         Tek admin hesabı kilitli. Buradan sadece mevcut kullanıcıları moderatör yapabilir veya moderatör yetkisini kaldırabilirsiniz.
                     </p>
                 </div>
-                <Button onClick={() => setShowAddDialog(true)}>
+                <Button onClick={() => setShowAddDialog(true)} className="w-full sm:w-auto">
                     <Plus className="mr-2 h-4 w-4" />
                     Yeni Moderatör
                 </Button>
@@ -235,7 +237,61 @@ const AdminUsers: React.FC = () => {
             </div>
 
             <div className="rounded-xl border border-border bg-card">
-                <div className="overflow-x-auto">
+                <div className="divide-y divide-border md:hidden">
+                    {admins.map((admin) => {
+                        const isPrimaryAdmin = admin.role === 'admin' || admin.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL;
+
+                        return (
+                            <div key={admin.id} className="space-y-4 p-4">
+                                <div className="flex items-start gap-3">
+                                    <div className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                                        {admin.username ? admin.username[0].toUpperCase() : 'A'}
+                                    </div>
+                                    <div className="min-w-0 flex-1 space-y-1">
+                                        <div className="flex flex-wrap items-center gap-2">
+                                            <p className="font-medium">{admin.username}</p>
+                                            {user?.id === admin.id && (
+                                                <Badge variant="secondary" className="text-xs">Siz</Badge>
+                                            )}
+                                        </div>
+                                        <p className="break-words text-sm text-muted-foreground">{admin.email || 'E-posta senkron bekliyor'}</p>
+                                        {isPrimaryAdmin ? (
+                                            <Badge variant="outline" className="w-fit border-purple-500/20 bg-purple-500/10 text-purple-500">
+                                                <ShieldCheck className="mr-1 h-3 w-3" />
+                                                Admin
+                                            </Badge>
+                                        ) : (
+                                            <Badge variant="secondary" className="w-fit">
+                                                <Shield className="mr-1 h-3 w-3" />
+                                                Moderatör
+                                            </Badge>
+                                        )}
+                                    </div>
+                                </div>
+
+                                <div className="space-y-1 text-sm text-muted-foreground">
+                                    <p>
+                                        Kayıt: {admin.createdAt
+                                            ? formatDistanceToNow(new Date(admin.createdAt), { addSuffix: true, locale: tr })
+                                            : 'Bilinmiyor'}
+                                    </p>
+                                </div>
+
+                                <Button
+                                    variant="outline"
+                                    className="w-full text-destructive hover:text-destructive"
+                                    onClick={() => setDeleteId(admin.id)}
+                                    disabled={isPrimaryAdmin}
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Moderatör Yetkisini Kaldır
+                                </Button>
+                            </div>
+                        );
+                    })}
+                </div>
+
+                <div className="hidden overflow-x-auto md:block">
                     <table className="w-full">
                         <thead>
                             <tr className="border-b border-border">
@@ -312,7 +368,7 @@ const AdminUsers: React.FC = () => {
             </div>
 
             <Dialog open={showAddDialog} onOpenChange={setShowAddDialog}>
-                <DialogContent>
+                <DialogContent className="w-[calc(100vw-2rem)] max-w-[calc(100vw-2rem)] sm:max-w-lg">
                     <DialogHeader>
                         <DialogTitle>Yeni Moderatör Ekle</DialogTitle>
                     </DialogHeader>

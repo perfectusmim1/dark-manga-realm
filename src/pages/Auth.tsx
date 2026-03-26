@@ -169,7 +169,7 @@ const Auth: React.FC = () => {
     }
 
     setIsLoading(true);
-    const result = await updatePassword(formData.newPassword);
+    const result = await updatePassword(formData.newPassword, { skipVerification: true });
     if (result.success) {
       toast.success('Şifreniz başarıyla güncellendi.');
       navigate('/');

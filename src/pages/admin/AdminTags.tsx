@@ -137,7 +137,7 @@ const AdminTags: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold flex items-center gap-2">
             <Hash className="h-6 w-6 text-primary" />
@@ -147,13 +147,13 @@ const AdminTags: React.FC = () => {
             Etiketleri, kategorileri ve resmi durumlarını yönetin
           </p>
         </div>
-        <Button onClick={() => setShowCreateForm(!showCreateForm)} className="gap-1.5">
+        <Button onClick={() => setShowCreateForm(!showCreateForm)} className="w-full gap-1.5 sm:w-auto">
           <Plus className="h-4 w-4" />
           Yeni Etiket
         </Button>
       </div>
 
-      <div className="grid grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
         <div className="rounded-xl border border-border bg-card/50 p-4 text-center">
           <p className="text-3xl font-bold text-primary">{tagStats.total}</p>
           <p className="text-xs text-muted-foreground mt-1">Toplam Etiket</p>
@@ -173,7 +173,7 @@ const AdminTags: React.FC = () => {
           <h3 className="font-semibold flex items-center gap-2">
             <Plus className="h-4 w-4" /> Yeni Etiket Oluştur
           </h3>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <Input
               placeholder="Etiket adı..."
               value={newTag.name}
@@ -200,8 +200,8 @@ const AdminTags: React.FC = () => {
               </button>
             ))}
           </div>
-          <div className="flex gap-2">
-            <Button onClick={handleCreate} disabled={!newTag.name.trim() || saving} className="gap-1.5">
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <Button onClick={handleCreate} disabled={!newTag.name.trim() || saving} className="gap-1.5 sm:w-auto">
               {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
               Oluştur
             </Button>
@@ -213,7 +213,7 @@ const AdminTags: React.FC = () => {
       )}
 
       <div className="space-y-3">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:gap-4">
           <div className="relative flex-1">
             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
@@ -223,7 +223,7 @@ const AdminTags: React.FC = () => {
               className="pl-9"
             />
           </div>
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             <button
               className={getFilterChipClassName(filterCategory === 'all')}
               onClick={() => setFilterCategory('all')}
@@ -301,7 +301,99 @@ const AdminTags: React.FC = () => {
         </div>
       ) : (
         <div className="rounded-xl border border-border overflow-hidden">
-          <div className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto_auto] gap-4 px-4 py-3 border-b border-border bg-secondary/20 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+          <div className="divide-y divide-border md:hidden">
+            {filteredTags.length === 0 ? (
+              <div className="p-8 text-center text-muted-foreground">Hiç etiket bulunamadı</div>
+            ) : (
+              filteredTags.map((tag) => (
+                <div key={tag.id} className="space-y-4 p-4">
+                  <div className="space-y-2">
+                    {editingTag?.id === tag.id ? (
+                      <Input
+                        value={editingTag.name}
+                        onChange={(e) => setEditingTag({ ...editingTag, name: e.target.value })}
+                        className="h-9 text-sm"
+                      />
+                    ) : (
+                      <div className="flex items-center gap-2">
+                        <TagBadge tag={tag} size="sm" />
+                      </div>
+                    )}
+                    {tag.description && editingTag?.id !== tag.id && (
+                      <p className="text-xs text-muted-foreground">{tag.description}</p>
+                    )}
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3 text-sm">
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Kategori</p>
+                      <Badge variant="outline" className="text-[10px]">
+                        {categoryLabels[tag.category]}
+                      </Badge>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Kullanım</p>
+                      <p className="font-mono">{tag.usageCount}</p>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Kaynak</p>
+                      <button onClick={() => toggleOfficial(tag)} className="text-left">
+                        {tag.isOfficial ? (
+                          <Badge className="bg-green-500/10 text-green-400 border-green-500/20 text-[10px] gap-1">
+                            <Shield className="h-3 w-3" /> Resmi
+                          </Badge>
+                        ) : (
+                          <Badge variant="outline" className="text-[10px] opacity-70">
+                            Topluluk
+                          </Badge>
+                        )}
+                      </button>
+                    </div>
+                    <div>
+                      <p className="mb-1 text-[11px] font-semibold uppercase tracking-wider text-muted-foreground">Onay</p>
+                      {isTagApproved(tag) ? (
+                        <Badge className="border-emerald-500/20 bg-emerald-500/10 text-[10px] text-emerald-400">
+                          Onaylı
+                        </Badge>
+                      ) : (
+                        <Badge className="border-amber-500/20 bg-amber-500/10 text-[10px] text-amber-300">
+                          Onaysız
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="flex gap-2">
+                    {editingTag?.id === tag.id ? (
+                      <>
+                        <Button size="sm" variant="outline" className="flex-1" onClick={handleUpdate} disabled={saving}>
+                          <CheckCircle className="mr-2 h-3.5 w-3.5 text-green-500" />
+                          Kaydet
+                        </Button>
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingTag(null)}>
+                          <X className="mr-2 h-3.5 w-3.5" />
+                          Vazgeç
+                        </Button>
+                      </>
+                    ) : (
+                      <>
+                        <Button size="sm" variant="outline" className="flex-1" onClick={() => setEditingTag({ ...tag })}>
+                          <Edit2 className="mr-2 h-3.5 w-3.5" />
+                          Düzenle
+                        </Button>
+                        <Button size="sm" variant="outline" className="flex-1 text-destructive" onClick={() => handleDelete(tag)}>
+                          <Trash2 className="mr-2 h-3.5 w-3.5" />
+                          Sil
+                        </Button>
+                      </>
+                    )}
+                  </div>
+                </div>
+              ))
+            )}
+          </div>
+
+          <div className="hidden grid-cols-[minmax(0,1fr)_auto_auto_auto_auto_auto] gap-4 border-b border-border bg-secondary/20 px-4 py-3 text-xs font-semibold uppercase tracking-wider text-muted-foreground md:grid">
             <span>Etiket</span>
             <span className="text-center w-20">Kategori</span>
             <span className="text-center w-16">Kullanım</span>
@@ -309,7 +401,7 @@ const AdminTags: React.FC = () => {
             <span className="text-center w-20">Onay</span>
             <span className="text-center w-24">İşlemler</span>
           </div>
-          <div className="divide-y divide-border">
+          <div className="hidden divide-y divide-border md:block">
             {filteredTags.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">Hiç etiket bulunamadı</div>
             ) : (

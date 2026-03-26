@@ -3,7 +3,7 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import { supabase } from '@/lib/supabase';
-import { getAllMangas, getCharacters } from '@/lib/database';
+import { getAllMangas, getCharacters, getTierListById } from '@/lib/database';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -38,8 +38,8 @@ export default function TierListView() {
       if (!id) return;
       setLoading(true);
 
-      const { data, error } = await supabase.from('tier_lists').select('*').eq('id', id).single();
-      if (error || !data) {
+      const data = await getTierListById(id, user?.id);
+      if (!data) {
         navigate('/tier-lists');
         return;
       }
@@ -65,7 +65,7 @@ export default function TierListView() {
     };
 
     load();
-  }, [id]);
+  }, [id, navigate, user?.id]);
 
   if (loading) {
     return (

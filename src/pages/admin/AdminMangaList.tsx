@@ -110,12 +110,12 @@ const AdminMangaList: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-3xl font-bold">Mangalar</h1>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Mangalar</h1>
                     <p className="text-muted-foreground">Tüm mangaları yönetin</p>
                 </div>
-                <Button asChild>
+                <Button asChild className="w-full sm:w-auto">
                     <Link to="/admin/mangas/new">
                         <Plus className="mr-2 h-4 w-4" />
                         Yeni Manga
@@ -124,8 +124,8 @@ const AdminMangaList: React.FC = () => {
             </div>
 
             {/* Filters */}
-            <div className="flex flex-wrap items-center gap-4">
-                <div className="relative flex-1 min-w-[200px]">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-4">
+                <div className="relative w-full flex-1 min-w-[200px]">
                     <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                     <Input
                         placeholder="Manga veya yazar ara..."
@@ -137,7 +137,7 @@ const AdminMangaList: React.FC = () => {
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="outline">
+                        <Button variant="outline" className="w-full justify-between sm:w-auto">
                             <Filter className="mr-2 h-4 w-4" />
                             Tür: {typeFilter === 'all' ? 'Tümü' : typeFilter}
                             <ChevronDown className="ml-2 h-4 w-4" />
@@ -154,7 +154,7 @@ const AdminMangaList: React.FC = () => {
 
                 <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                        <Button variant="outline">
+                        <Button variant="outline" className="w-full justify-between sm:w-auto">
                             <Filter className="mr-2 h-4 w-4" />
                             Durum: {statusFilter === 'all' ? 'Tümü' : statusFilter}
                             <ChevronDown className="ml-2 h-4 w-4" />
@@ -171,7 +171,58 @@ const AdminMangaList: React.FC = () => {
 
             {/* Manga List */}
             <div className="rounded-xl border border-border bg-card">
-                <div className="overflow-x-auto">
+                <div className="divide-y divide-border md:hidden">
+                    {filteredMangas.map((manga) => (
+                        <div key={manga.id} className="space-y-4 p-4">
+                            <div className="flex items-start gap-3">
+                                <img
+                                    src={manga.cover}
+                                    alt={manga.title}
+                                    className="h-20 w-14 shrink-0 rounded object-cover"
+                                />
+                                <div className="min-w-0 flex-1 space-y-2">
+                                    <div>
+                                        <p className="font-medium">{manga.title}</p>
+                                        <p className="text-sm text-muted-foreground">{manga.author}</p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2">
+                                        {getTypeBadge(manga.type)}
+                                        {getStatusBadge(manga.status)}
+                                    </div>
+                                    <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
+                                        <span>{manga.chapters.length} bölüm</span>
+                                        <span>{manga.views.toLocaleString('tr-TR')} görüntülenme</span>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-3 gap-2">
+                                <Button variant="outline" asChild>
+                                    <Link to={`/manga/${manga.id}`} target="_blank">
+                                        <Eye className="mr-2 h-4 w-4" />
+                                        Gör
+                                    </Link>
+                                </Button>
+                                <Button variant="outline" asChild>
+                                    <Link to={`/admin/mangas/${manga.id}`}>
+                                        <Edit2 className="mr-2 h-4 w-4" />
+                                        Düzenle
+                                    </Link>
+                                </Button>
+                                <Button
+                                    variant="outline"
+                                    className="text-destructive hover:text-destructive"
+                                    onClick={() => setDeleteId(manga.id)}
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Sil
+                                </Button>
+                            </div>
+                        </div>
+                    ))}
+                </div>
+
+                <div className="hidden overflow-x-auto md:block">
                     <table className="w-full">
                         <thead>
                             <tr className="border-b border-border">

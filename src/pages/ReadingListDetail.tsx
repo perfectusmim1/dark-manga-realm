@@ -51,7 +51,7 @@ const ReadingListDetail: React.FC = () => {
         const fetchList = async () => {
             try {
                 setIsLoading(true);
-                const data = await getReadingListById(listId);
+                const data = await getReadingListById(listId, user?.id);
                 if (isCancelled) return;
 
                 if (!data) {
@@ -85,7 +85,7 @@ const ReadingListDetail: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [listId, navigate]);
+    }, [listId, navigate, user?.id]);
 
     useEffect(() => {
         if (!listId || authLoading) {

@@ -141,9 +141,11 @@ const getTotpQrSvgMarkup = (qrCode: string | undefined) => {
 const Settings: React.FC = () => {
     const {
         user,
+        supabaseUser,
         mfaState,
         updateProfile,
         updatePassword,
+        resetPassword,
         updatePreferences,
         enrollTwoFactor,
         cancelTwoFactorEnrollment,
@@ -158,10 +160,13 @@ const Settings: React.FC = () => {
     const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
     // Password state
+    const [currentPassword, setCurrentPassword] = useState('');
+    const [passwordChangeMfaCode, setPasswordChangeMfaCode] = useState('');
     const [newPassword, setNewPassword] = useState('');
     const [confirmPassword, setConfirmPassword] = useState('');
     const [showPassword, setShowPassword] = useState(false);
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
+    const [isSendingRecoveryLink, setIsSendingRecoveryLink] = useState(false);
 
     // MFA state
     const [disableDialogOpen, setDisableDialogOpen] = useState(false);
@@ -236,12 +241,24 @@ const Settings: React.FC = () => {
             toast.error('Şifreler uyuşmuyor');
             return;
         }
+        if (user.twoFactorEnabled && passwordChangeMfaCode.length !== 6) {
+            toast.error('Authenticator kodunu girin');
+            return;
+        }
+        if (!user.twoFactorEnabled && !currentPassword.trim()) {
+            toast.error('Mevcut şifrenizi girin');
+            return;
+        }
 
         try {
             setIsUpdatingPassword(true);
-            const { success, error } = await updatePassword(newPassword);
+            const { success, error } = await updatePassword(newPassword, user.twoFactorEnabled
+                ? { mfaCode: passwordChangeMfaCode }
+                : { currentPassword });
             if (success) {
                 toast.success('Şifre başarıyla güncellendi');
+                setCurrentPassword('');
+                setPasswordChangeMfaCode('');
                 setNewPassword('');
                 setConfirmPassword('');
             } else {
@@ -251,6 +268,26 @@ const Settings: React.FC = () => {
             toast.error('İşlem başarısız oldu');
         } finally {
             setIsUpdatingPassword(false);
+        }
+    };
+
+    const handleSendPasswordRecoveryLink = async () => {
+        if (!user.email) {
+            toast.error('E-posta adresi bulunamadı');
+            return;
+        }
+
+        try {
+            setIsSendingRecoveryLink(true);
+            const { success, error } = await resetPassword(user.email);
+            if (!success) {
+                toast.error(error || 'Şifre sıfırlama bağlantısı gönderilemedi');
+                return;
+            }
+
+            toast.success('Şifre sıfırlama bağlantısı e-posta adresinize gönderildi');
+        } finally {
+            setIsSendingRecoveryLink(false);
         }
     };
 
@@ -413,6 +450,15 @@ const Settings: React.FC = () => {
     const qrCodeDataUrl = getTotpQrImageSrc(pendingEnrollment?.qrCodeSvg);
     const qrCodeSvgMarkup = getTotpQrSvgMarkup(pendingEnrollment?.qrCodeSvg);
     const activeTotpFactor = mfaState.factors.find((factor) => factor.status === 'verified') || null;
+    const authProviders = Array.isArray((supabaseUser?.app_metadata as any)?.providers)
+        ? ((supabaseUser?.app_metadata as any)?.providers as string[]).map((provider) => provider.toLowerCase())
+        : [];
+    const primaryAuthProvider = typeof (supabaseUser?.app_metadata as any)?.provider === 'string'
+        ? ((supabaseUser?.app_metadata as any)?.provider as string).toLowerCase()
+        : null;
+    const hasEmailAuth = primaryAuthProvider === 'email' || authProviders.includes('email');
+    const hasGoogleAuth = primaryAuthProvider === 'google' || authProviders.includes('google');
+    const shouldShowPasswordSettings = hasEmailAuth || !hasGoogleAuth;
 
     const openQrInNewTab = () => {
         if (!qrCodeDataUrl) {
@@ -566,49 +612,94 @@ const Settings: React.FC = () => {
                             </Card>
 
                             {/* Password Section */}
-                            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
-                                <CardHeader>
-                                    <CardTitle className="flex items-center gap-2">
-                                        <Lock className="h-5 w-5" />
-                                        Şifre Değiştir
-                                    </CardTitle>
-                                    <CardDescription>Hesabınızın şifresini güvenli bir şifreyle güncelleyin.</CardDescription>
-                                </CardHeader>
-                                <CardContent className="space-y-4">
-                                    <div className="space-y-2">
-                                        <Label htmlFor="new-password">Yeni Şifre</Label>
-                                        <div className="relative">
-                                            <Input
-                                                id="new-password"
-                                                type={showPassword ? 'text' : 'password'}
-                                                value={newPassword}
-                                                onChange={(e) => setNewPassword(e.target.value)}
-                                            />
-                                            <button
-                                                type="button"
-                                                onClick={() => setShowPassword(!showPassword)}
-                                                className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-                                            >
-                                                {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
-                                            </button>
+                            {shouldShowPasswordSettings && (
+                                <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                                    <CardHeader>
+                                        <CardTitle className="flex items-center gap-2">
+                                            <Lock className="h-5 w-5" />
+                                            Şifre Değiştir
+                                        </CardTitle>
+                                        <CardDescription>
+                                            {user.twoFactorEnabled
+                                                ? '2FA açık olduğu için şifre değiştirirken mevcut şifre yerine Authenticator kodu doğrulanır.'
+                                                : '2FA kapalıysa şifrenizi değiştirmek için mevcut şifrenizi doğrulamanız gerekir.'}
+                                        </CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-4">
+                                        {user.twoFactorEnabled ? (
+                                            <div className="space-y-2">
+                                                <Label htmlFor="password-change-mfa-code">Authenticator Kodu</Label>
+                                                <Input
+                                                    id="password-change-mfa-code"
+                                                    inputMode="numeric"
+                                                    placeholder="123456"
+                                                    value={passwordChangeMfaCode}
+                                                    onChange={(e) => setPasswordChangeMfaCode(sanitizeTotpCode(e.target.value))}
+                                                    className="text-center tracking-[0.35em]"
+                                                    maxLength={6}
+                                                />
+                                            </div>
+                                        ) : (
+                                            <div className="space-y-2">
+                                                <Label htmlFor="current-password">Mevcut Şifre</Label>
+                                                <Input
+                                                    id="current-password"
+                                                    type={showPassword ? 'text' : 'password'}
+                                                    value={currentPassword}
+                                                    onChange={(e) => setCurrentPassword(e.target.value)}
+                                                />
+                                            </div>
+                                        )}
+                                        <div className="space-y-2">
+                                            <Label htmlFor="new-password">Yeni Şifre</Label>
+                                            <div className="relative">
+                                                <Input
+                                                    id="new-password"
+                                                    type={showPassword ? 'text' : 'password'}
+                                                    value={newPassword}
+                                                    onChange={(e) => setNewPassword(e.target.value)}
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => setShowPassword(!showPassword)}
+                                                    className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
+                                                >
+                                                    {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                                                </button>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div className="space-y-2">
-                                        <Label htmlFor="confirm-password">Şifre Tekrar</Label>
-                                        <Input
-                                            id="confirm-password"
-                                            type={showPassword ? 'text' : 'password'}
-                                            value={confirmPassword}
-                                            onChange={(e) => setConfirmPassword(e.target.value)}
-                                        />
-                                    </div>
-                                </CardContent>
-                                <CardFooter className="flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row">
-                                    <Button onClick={handleUpdatePassword} disabled={isUpdatingPassword} className="w-full gap-2 sm:ml-auto sm:w-auto">
-                                        {isUpdatingPassword ? 'Güncelleniyor...' : 'Şifreyi Kaydet'}
-                                    </Button>
-                                </CardFooter>
-                            </Card>
+                                        <div className="space-y-2">
+                                            <Label htmlFor="confirm-password">Şifre Tekrar</Label>
+                                            <Input
+                                                id="confirm-password"
+                                                type={showPassword ? 'text' : 'password'}
+                                                value={confirmPassword}
+                                                onChange={(e) => setConfirmPassword(e.target.value)}
+                                            />
+                                        </div>
+                                        {!user.twoFactorEnabled && (
+                                            <div className="rounded-lg border border-dashed border-border/60 bg-background/30 p-4 text-sm text-muted-foreground">
+                                                Mevcut şifrenizi hatırlamıyorsanız e-posta adresinize şifre sıfırlama bağlantısı gönderebilirsiniz. O bağlantı açılınca yeni şifre ekranı gelir ve eski şifre istenmez.
+                                            </div>
+                                        )}
+                                    </CardContent>
+                                    <CardFooter className="flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row">
+                                        {!user.twoFactorEnabled && (
+                                            <Button
+                                                variant="outline"
+                                                onClick={handleSendPasswordRecoveryLink}
+                                                disabled={isSendingRecoveryLink || isUpdatingPassword}
+                                                className="w-full sm:w-auto"
+                                            >
+                                                {isSendingRecoveryLink ? 'Gönderiliyor...' : 'Şifremi Unuttum'}
+                                            </Button>
+                                        )}
+                                        <Button onClick={handleUpdatePassword} disabled={isUpdatingPassword} className="w-full gap-2 sm:ml-auto sm:w-auto">
+                                            {isUpdatingPassword ? 'Güncelleniyor...' : 'Şifreyi Kaydet'}
+                                        </Button>
+                                    </CardFooter>
+                                </Card>
+                            )}
                             {/* Two-Factor Authentication Section */}
                             <Card className="border-border/50 bg-card/50 backdrop-blur-sm border-primary/20">
                                 <CardHeader>

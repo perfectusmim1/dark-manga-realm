@@ -42,6 +42,7 @@ import {
     DialogTitle,
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
+import { useAdminAccess } from '@/hooks/useAdminAccess';
 import StaffBadge from '@/components/user/StaffBadge';
 import { Comment } from '@/lib/types';
 import {
@@ -353,6 +354,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     pagePreviewUrls = [],
 }) => {
     const { user } = useAuth();
+    const { access } = useAdminAccess();
+    const canModerateComments = access.canAccessAdminPanel;
     const location = useLocation();
     const entityId = propEntityId || propMangaId || '';
     const entityType = propEntityType;
@@ -394,10 +397,14 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const [pendingScrollCommentId, setPendingScrollCommentId] = useState<string | null>(null);
     const [reactions, setReactions] = useState<Record<string, number>>({});
     const [userReaction, setUserReaction] = useState<string | null>(null);
+    const [pendingReaction, setPendingReaction] = useState(false);
+    const [animatedReactionType, setAnimatedReactionType] = useState<string | null>(null);
     const [expandedReplies, setExpandedReplies] = useState<Record<string, boolean>>({});
     const [expandedMedia, setExpandedMedia] = useState<Record<string, boolean>>({});
     const [revealedSpoilers, setRevealedSpoilers] = useState<Record<string, boolean>>({});
     const [mediaLoadErrors, setMediaLoadErrors] = useState<Record<string, boolean>>({});
+    const [pendingCommentLikes, setPendingCommentLikes] = useState<Record<string, boolean>>({});
+    const [animatedCommentLikes, setAnimatedCommentLikes] = useState<Record<string, boolean>>({});
     const [reportingComment, setReportingComment] = useState<Comment | null>(null);
     const [reportReason, setReportReason] = useState('Spam veya alakasız');
     const [reportDetails, setReportDetails] = useState('');
@@ -409,6 +416,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const commentSectionHeaderRef = useRef<HTMLDivElement | null>(null);
     const paginationScrollFrameRef = useRef<number | null>(null);
     const detachPaginationInterruptsRef = useRef<(() => void) | null>(null);
+    const reactionAnimationTimeoutRef = useRef<number | null>(null);
+    const commentLikeAnimationTimeoutsRef = useRef<Record<string, number>>({});
     const commentPreferences = {
         autoShowMedia: user?.preferences?.comments?.auto_show_media ?? false,
         autoShowGifs: user?.preferences?.comments?.auto_show_gifs ?? false,
@@ -475,6 +484,14 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         if (detachPaginationInterruptsRef.current) {
             detachPaginationInterruptsRef.current();
         }
+
+        if (reactionAnimationTimeoutRef.current !== null) {
+            window.clearTimeout(reactionAnimationTimeoutRef.current);
+        }
+
+        Object.values(commentLikeAnimationTimeoutsRef.current).forEach((timeoutId) => {
+            window.clearTimeout(timeoutId);
+        });
     }, []);
 
     useEffect(() => {
@@ -506,6 +523,34 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
         const ur = await getUserEntityReaction(entityType, entityId, user.id, chapterId);
         setUserReaction(ur);
+    };
+
+    const triggerReactionAnimation = (type: string) => {
+        if (reactionAnimationTimeoutRef.current !== null) {
+            window.clearTimeout(reactionAnimationTimeoutRef.current);
+        }
+
+        setAnimatedReactionType(type);
+        reactionAnimationTimeoutRef.current = window.setTimeout(() => {
+            setAnimatedReactionType((current) => (current === type ? null : current));
+            reactionAnimationTimeoutRef.current = null;
+        }, 260);
+    };
+
+    const triggerCommentLikeAnimation = (commentId: string) => {
+        if (commentLikeAnimationTimeoutsRef.current[commentId] !== undefined) {
+            window.clearTimeout(commentLikeAnimationTimeoutsRef.current[commentId]);
+        }
+
+        setAnimatedCommentLikes((previous) => ({ ...previous, [commentId]: true }));
+        commentLikeAnimationTimeoutsRef.current[commentId] = window.setTimeout(() => {
+            setAnimatedCommentLikes((previous) => {
+                const next = { ...previous };
+                delete next[commentId];
+                return next;
+            });
+            delete commentLikeAnimationTimeoutsRef.current[commentId];
+        }, 260);
     };
 
     const getEntityTitle = async () => {
@@ -572,11 +617,39 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             toast.error('Tepki bırakmak için giriş yapmalısınız');
             return;
         }
+
+        if (pendingReaction) {
+            return;
+        }
+
+        const previousReaction = userReaction;
+        const previousCounts = reactions;
+        const nextCounts = { ...previousCounts };
+
+        if (previousReaction) {
+            nextCounts[previousReaction] = Math.max((nextCounts[previousReaction] || 0) - 1, 0);
+        }
+
+        let nextReaction: string | null = type;
+        if (previousReaction === type) {
+            nextReaction = null;
+        } else {
+            nextCounts[type] = (nextCounts[type] || 0) + 1;
+        }
+
+        setPendingReaction(true);
+        setUserReaction(nextReaction);
+        setReactions(nextCounts);
+        triggerReactionAnimation(type);
+
         try {
             await addEntityReactionV2(entityType, entityId, user.id, type, chapterId);
-            await loadReactions();
         } catch {
+            setUserReaction(previousReaction);
+            setReactions(previousCounts);
             toast.error('İşlem başarısız oldu');
+        } finally {
+            setPendingReaction(false);
         }
     };
 
@@ -728,7 +801,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     };
 
     const handleTogglePin = async (comment: Comment) => {
-        if (user?.role !== 'admin' && user?.role !== 'moderator') {
+        if (!canModerateComments) {
             toast.error('Bu işlem için yetkiniz yok');
             return;
         }
@@ -856,29 +929,65 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             return;
         }
 
-        const comment = comments.find(c => c.id === commentId);
-        const wasLiked = comment?.likedBy.includes(user.id);
-
-        await toggleCommentLike(commentId, user.id, entityType);
-
-        if (!wasLiked && comment && comment.userId !== user.id) {
-            const entityTitle = await getEntityTitle();
-
-            await createCommentNotification(
-                comment.userId,
-                'like',
-                user.id,
-                user.username,
-                entityId,
-                entityTitle,
-                comment.id,
-                chapterId,
-                entityType,
-                comment.pageNumber
-            );
+        if (pendingCommentLikes[commentId]) {
+            return;
         }
 
-        await loadComments();
+        const comment = comments.find(c => c.id === commentId);
+        const wasLiked = comment?.likedBy.includes(user.id);
+        const previousComments = comments;
+        const nextComments = sortCommentsForState(
+            comments.map((currentComment) => {
+                if (currentComment.id !== commentId) {
+                    return currentComment;
+                }
+
+                const likedBy = wasLiked
+                    ? currentComment.likedBy.filter((likedUserId) => likedUserId !== user.id)
+                    : [...currentComment.likedBy, user.id];
+
+                return {
+                    ...currentComment,
+                    likes: Math.max(currentComment.likes + (wasLiked ? -1 : 1), 0),
+                    likedBy,
+                };
+            })
+        );
+
+        setPendingCommentLikes((previous) => ({ ...previous, [commentId]: true }));
+        setComments(nextComments);
+        triggerCommentLikeAnimation(commentId);
+
+        try {
+            await toggleCommentLike(commentId, user.id, entityType);
+
+            if (!wasLiked && comment && comment.userId !== user.id) {
+                const entityTitle = await getEntityTitle();
+
+                await createCommentNotification(
+                    comment.userId,
+                    'like',
+                    user.id,
+                    user.username,
+                    entityId,
+                    entityTitle,
+                    comment.id,
+                    chapterId,
+                    entityType,
+                    comment.pageNumber
+                );
+            }
+        } catch (error) {
+            console.error('Comment like toggle error:', error);
+            setComments(previousComments);
+            toast.error('Beğeni işlemi başarısız oldu');
+        } finally {
+            setPendingCommentLikes((previous) => {
+                const next = { ...previous };
+                delete next[commentId];
+                return next;
+            });
+        }
     };
 
     const selectGif = (gifUrl: string) => {
@@ -1520,7 +1629,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                             </span>
                                         </div>
 
-                                        {(user?.id === reply.userId || user?.role === 'admin' || user?.role === 'moderator') && (
+                                        {(user?.id === reply.userId || canModerateComments) && (
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
                                                     <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
@@ -1528,7 +1637,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     </Button>
                                                 </DropdownMenuTrigger>
                                                 <DropdownMenuContent align="end">
-                                                    {(user?.role === 'admin' || user?.role === 'moderator') && (
+                                                    {canModerateComments && (
                                                         <DropdownMenuItem onClick={() => handleTogglePin(reply)}>
                                                             <Pin className="mr-2 h-4 w-4" />
                                                             {reply.isPinned ? 'Sabitlemeyi Kaldır' : 'Sabitle'}
@@ -1605,7 +1714,17 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     )}
 
                                     <div className="mt-2 flex flex-wrap items-center gap-2">
-                                        <Button variant="ghost" size="sm" onClick={() => handleLike(reply.id)} className={reply.likedBy.includes(user?.id || '') ? 'text-primary' : ''}>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleLike(reply.id)}
+                                            disabled={Boolean(pendingCommentLikes[reply.id])}
+                                            className={cn(
+                                                'transition-all duration-200 ease-out',
+                                                reply.likedBy.includes(user?.id || '') && 'text-primary',
+                                                animatedCommentLikes[reply.id] && 'scale-[1.06] -translate-y-0.5 text-primary'
+                                            )}
+                                        >
                                             <ThumbsUp className="mr-1 h-4 w-4" />
                                             {reply.likes}
                                         </Button>
@@ -1674,12 +1793,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                         <div key={r.type} className="flex flex-col items-center gap-2">
                             <button
                                 onClick={() => handleReaction(r.type)}
-                                className={`group flex items-center gap-2 rounded-full border-2 px-4 py-2 text-sm transition-all duration-300 sm:px-6 sm:py-2.5 ${userReaction === r.type
+                                disabled={pendingReaction}
+                                className={`group flex items-center gap-2 rounded-full border-2 px-4 py-2 text-sm transition-all duration-200 ease-out will-change-transform sm:px-6 sm:py-2.5 ${userReaction === r.type
                                     ? 'bg-primary/20 border-primary text-primary shadow-lg shadow-primary/10'
                                     : 'bg-card border-border hover:border-primary/50 hover:bg-secondary/50'
-                                    }`}
+                                    } ${animatedReactionType === r.type ? 'scale-[1.04] -translate-y-0.5 shadow-[0_10px_24px_rgba(59,130,246,0.16)]' : 'scale-100'} ${pendingReaction ? 'cursor-wait opacity-90' : ''}`}
                             >
-                                <span className="text-xl transition-transform group-hover:scale-125 duration-300">
+                                <span className={`text-xl transition-transform duration-200 ${animatedReactionType === r.type ? 'scale-110' : 'group-hover:scale-110'}`}>
                                     {r.emoji}
                                 </span>
                                 <span className="font-bold text-sm min-w-[2ch]">
@@ -1966,7 +2086,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         </span>
                                                     </div>
 
-                                                    {(user?.id === comment.userId || user?.role === 'admin' || user?.role === 'moderator') && (
+                                                    {(user?.id === comment.userId || canModerateComments) && (
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
                                                                 <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
@@ -1974,7 +2094,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                 </Button>
                                                             </DropdownMenuTrigger>
                                                             <DropdownMenuContent align="end">
-                                                                {(user?.role === 'admin' || user?.role === 'moderator') && (
+                                                                {canModerateComments && (
                                                                     <DropdownMenuItem onClick={() => handleTogglePin(comment)}>
                                                                         <Pin className="mr-2 h-4 w-4" />
                                                                         {comment.isPinned ? 'Sabitlemeyi Kaldır' : 'Sabitle'}
@@ -2107,7 +2227,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         size="sm"
                                                         onClick={() => handleLike(comment.id)}
                                                         data-liked={comment.likedBy.includes(user?.id || '')}
-                                                        className={cn('h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm', comment.likedBy.includes(user?.id || '') && 'text-primary')}
+                                                        disabled={Boolean(pendingCommentLikes[comment.id])}
+                                                        className={cn(
+                                                            'h-8 px-2.5 text-xs transition-all duration-200 ease-out sm:h-9 sm:px-3 sm:text-sm',
+                                                            comment.likedBy.includes(user?.id || '') && 'text-primary',
+                                                            animatedCommentLikes[comment.id] && 'scale-[1.06] -translate-y-0.5 text-primary'
+                                                        )}
                                                     >
                                                         <ThumbsUp className="mr-1 h-4 w-4" />
                                                         {comment.likes}

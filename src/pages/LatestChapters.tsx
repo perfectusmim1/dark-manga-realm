@@ -7,13 +7,14 @@ import Header from '@/components/layout/Header';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import { Badge } from '@/components/ui/badge';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
-import { getLatestChapters, LatestChapterFeedItem } from '@/lib/database';
+import { getLatestChapters, getLatestChaptersCountLast24Hours, LatestChapterFeedItem } from '@/lib/database';
 
 const LatestChapters: React.FC = () => {
     const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>([]);
     const [isLoading, setIsLoading] = React.useState(true);
     const [isLoadingMore, setIsLoadingMore] = React.useState(false);
     const [hasMore, setHasMore] = React.useState(true);
+    const [recentChapterCount, setRecentChapterCount] = React.useState(0);
     const loaderRef = React.useRef<HTMLDivElement | null>(null);
 
     const PAGE_SIZE = 30;
@@ -26,9 +27,20 @@ const LatestChapters: React.FC = () => {
                 setIsLoading(true);
             }
 
-            const data = await getLatestChapters(PAGE_SIZE, offset);
-            setChapters(prev => (append ? [...prev, ...data] : data));
-            setHasMore(data.length === PAGE_SIZE);
+            if (append) {
+                const data = await getLatestChapters(PAGE_SIZE, offset);
+                setChapters(prev => [...prev, ...data]);
+                setHasMore(data.length === PAGE_SIZE);
+            } else {
+                const [data, countLast24Hours] = await Promise.all([
+                    getLatestChapters(PAGE_SIZE, offset),
+                    getLatestChaptersCountLast24Hours(),
+                ]);
+
+                setChapters(data);
+                setRecentChapterCount(countLast24Hours);
+                setHasMore(data.length === PAGE_SIZE);
+            }
         } catch (error) {
             console.error('Latest chapters page error:', error);
         } finally {
@@ -88,7 +100,7 @@ const LatestChapters: React.FC = () => {
                     </div>
                     <div className="mt-4">
                         <Badge variant="secondary" className="px-3 py-1 text-xs">
-                            {chapters.length} bölüm yüklendi
+                            Son 24 saatte {recentChapterCount} bölüm eklendi
                         </Badge>
                     </div>
                 </div>

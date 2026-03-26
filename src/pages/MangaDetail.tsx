@@ -184,16 +184,16 @@ const PreviewChapter = ({
       <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 lg:grid-cols-5">
         {chapter.pages.map((page: string, pageIndex: number) => (
           <Link key={pageIndex} to={`/manga/${mangaId}/chapter/${chapter.id}?page=${pageIndex + 1}`}>
-            <div className="group relative aspect-[3/4] overflow-hidden rounded-lg border border-border bg-secondary shadow-sm transition-transform hover:-translate-y-0.5">
+            <div className="group relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-secondary shadow-sm transition-transform hover:-translate-y-0.5">
               {isImageMounted ? (
                 <img 
                   src={page} 
                   alt={`Bölüm ${chapter.number} Sayfa ${pageIndex + 1}`}
                   loading="lazy"
-                  className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                  className="h-full w-full rounded-[inherit] object-cover transition-transform duration-500 group-hover:scale-110"
                 />
               ) : (
-                <div className="w-full h-full flex items-center justify-center text-muted-foreground bg-secondary/30">
+                <div className="flex h-full w-full items-center justify-center rounded-[inherit] bg-secondary/30 text-muted-foreground">
                   <div className="animate-pulse w-8 h-8 rounded-full bg-border/50"></div>
                 </div>
               )}

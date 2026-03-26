@@ -5,13 +5,16 @@ import { tr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import HeatMap from '@/components/profile/HeatMap';
-import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3 } from 'lucide-react';
+import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3, Flag } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Textarea } from '@/components/ui/textarea';
 import { formatReadingDuration, getUserProfile, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
+import { createProfileReport } from '@/lib/database';
 import { ACHIEVEMENTS } from '@/lib/achievements';
 import { useToast } from "@/components/ui/use-toast";
 import UserListModal from '@/components/profile/UserListModal';
@@ -36,10 +39,22 @@ const Profile: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [isFollowLoading, setIsFollowLoading] = useState(false);
   const [isBlockLoading, setIsBlockLoading] = useState(false);
+  const [isProfileReportDialogOpen, setIsProfileReportDialogOpen] = useState(false);
+  const [profileReportReason, setProfileReportReason] = useState('Sahte veya yanıltıcı profil');
+  const [profileReportDetails, setProfileReportDetails] = useState('');
+  const [isSubmittingProfileReport, setIsSubmittingProfileReport] = useState(false);
   const [listModalType, setListModalType] = useState<'followers' | 'following' | null>(null);
   const { toast } = useToast();
   
   const isOwnProfile = currentUser?.id === userId;
+  const profileReportReasons = [
+    'Sahte veya yanıltıcı profil',
+    'Taciz veya tehdit',
+    'Spam / bot hesap',
+    'Uygunsuz profil içeriği',
+    'Taklit / impersonation',
+    'Diğer',
+  ];
 
   useEffect(() => {
     const fetchProfile = async () => {
@@ -52,7 +67,7 @@ const Profile: React.FC = () => {
         setLoading(true);
         const profile = await getUserProfile(userId, currentUser?.id);
         const profileVisible = profile.sectionAccess?.profile ?? true;
-        const canLoadAchievements = profileVisible && (profile.sectionAccess?.readingHistory ?? true) && (profile.sectionAccess?.comments ?? true);
+        const canLoadAchievements = profileVisible;
 
         if (!profileVisible) {
           setProfileData(profile);
@@ -123,7 +138,7 @@ const Profile: React.FC = () => {
   const canViewComments = profileData.sectionAccess?.comments ?? true;
   const canViewFollowedManga = profileData.sectionAccess?.followedManga ?? true;
   const canViewAnyLists = canViewReadingLists || canViewTierLists;
-  const canViewAchievements = canViewReadingHistory && canViewComments;
+  const canViewAchievements = canView;
   const visibleTabs = [
     'overview',
     ...(canViewAchievements ? ['achievements'] : []),
@@ -138,6 +153,52 @@ const Profile: React.FC = () => {
     month: 'long', 
     year: 'numeric'
   });
+
+  const openProfileReportDialog = () => {
+    if (!currentUser) {
+      toast({ title: 'Giriş gerekli', description: 'Profil bildirmek için giriş yapmalısınız.', variant: 'destructive' });
+      return;
+    }
+
+    if (isOwnProfile) {
+      toast({ title: 'Geçersiz işlem', description: 'Kendi profilinizi bildiremezsiniz.', variant: 'destructive' });
+      return;
+    }
+
+    setProfileReportReason('Sahte veya yanıltıcı profil');
+    setProfileReportDetails('');
+    setIsProfileReportDialogOpen(true);
+  };
+
+  const handleSubmitProfileReport = async () => {
+    if (!currentUser || !profileData?.id) {
+      toast({ title: 'Giriş gerekli', description: 'Profil bildirmek için giriş yapmalısınız.', variant: 'destructive' });
+      return;
+    }
+
+    if (!profileReportReason.trim()) {
+      toast({ title: 'Neden seçilmeli', description: 'Profil bildirimi için bir neden seçmelisiniz.', variant: 'destructive' });
+      return;
+    }
+
+    try {
+      setIsSubmittingProfileReport(true);
+      await createProfileReport({
+        reporterId: currentUser.id,
+        reportedUserId: profileData.id,
+        reason: profileReportReason,
+        details: profileReportDetails,
+      });
+      toast({ title: 'Profil bildirildi', description: 'Profil bildirimi admin ekibine iletildi.' });
+      setIsProfileReportDialogOpen(false);
+      setProfileReportDetails('');
+    } catch (error) {
+      console.error('Profile report submit error:', error);
+      toast({ title: 'Hata', description: 'Profil bildirimi gönderilemedi.', variant: 'destructive' });
+    } finally {
+      setIsSubmittingProfileReport(false);
+    }
+  };
 
   if (profileData.relationship.isBlockedByOwner) {
     return (
@@ -324,6 +385,15 @@ const Profile: React.FC = () => {
                         profileData.relationship.isBlocked ? <ShieldCheck className="w-4 h-4" /> : <ShieldAlert className="w-4 h-4" />
                       )}
                       {profileData.relationship.isBlocked ? 'Engeli Kaldır' : 'Engelle'}
+                    </Button>
+
+                    <Button
+                      variant="outline"
+                      onClick={openProfileReportDialog}
+                      className="gap-2 border-amber-500/40 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
+                    >
+                      <Flag className="w-4 h-4" />
+                      Bildir
                     </Button>
                   </>
                 )}
@@ -807,6 +877,65 @@ const Profile: React.FC = () => {
           userId={userId || ''} 
           type={listModalType || 'followers'} 
         />
+
+        <Dialog open={isProfileReportDialogOpen} onOpenChange={setIsProfileReportDialogOpen}>
+          <DialogContent className="max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 p-4 sm:max-w-[560px] sm:p-6">
+            <DialogHeader className="space-y-2 pr-6 text-left sm:pr-8">
+              <DialogTitle className="text-xl font-bold sm:text-2xl">Profili Bildir</DialogTitle>
+              <DialogDescription>
+                Problemli, sahte veya uygunsuz profilleri buradan admin ekibine iletebilirsiniz.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-1 sm:space-y-5 sm:py-2">
+              <div className="rounded-xl border border-border/60 bg-card/60 p-3 sm:p-4">
+                <p className="text-sm font-medium">{profileData.username}</p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Aynı profil için tekrar bildirim gönderirseniz son notunuzla güncellenir.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Neden</label>
+                <div className="grid grid-cols-2 gap-2">
+                  {profileReportReasons.map((reason) => (
+                    <Button
+                      key={reason}
+                      type="button"
+                      variant={profileReportReason === reason ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-auto min-h-10 justify-start whitespace-normal px-3 py-2 text-left leading-snug"
+                      onClick={() => setProfileReportReason(reason)}
+                    >
+                      {reason}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Detay</label>
+                <Textarea
+                  value={profileReportDetails}
+                  onChange={(event) => setProfileReportDetails(event.target.value)}
+                  placeholder="Sorunu biraz daha açıklayın. Örnek: başka bir kullanıcıyı taklit ediyor."
+                  className="min-h-[128px] sm:min-h-[140px]"
+                  maxLength={600}
+                />
+                <p className="text-xs text-muted-foreground">{profileReportDetails.length}/600</p>
+              </div>
+            </div>
+
+            <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+              <Button variant="ghost" className="w-full sm:w-auto" onClick={() => setIsProfileReportDialogOpen(false)}>
+                İptal
+              </Button>
+              <Button className="w-full sm:w-auto" onClick={handleSubmitProfileReport} disabled={isSubmittingProfileReport}>
+                {isSubmittingProfileReport ? 'Gönderiliyor...' : 'Bildirimi Gönder'}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </main>
     </div>
   );

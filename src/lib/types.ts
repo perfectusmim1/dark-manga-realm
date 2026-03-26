@@ -83,7 +83,6 @@ export interface User {
   id: string;
   username: string;
   email: string;
-  password?: string; // Stored for authentication
   avatar?: string;
   role?: 'user' | 'admin' | 'moderator';
   createdAt?: string;
