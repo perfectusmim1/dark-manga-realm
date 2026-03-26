@@ -41,7 +41,7 @@ const AuthorsBrowse: React.FC = () => {
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">
             <Header />
-            <main className="flex-1 container mx-auto px-4 py-8 max-w-7xl">
+            <main className="flex-1 container mx-auto px-4 py-8 max-w-7xl animate-in fade-in slide-in-from-bottom-4 duration-500">
                 <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12">
                     <div>
                         <h1 className="text-4xl font-black mb-2">Popüler Yazarlar</h1>
@@ -79,20 +79,21 @@ const AuthorsBrowse: React.FC = () => {
                                     to={`/author/${author.id}`}
                                     className="group relative flex flex-col items-center text-center"
                                 >
-                                    <div className="relative aspect-[3/4] w-full rounded-2xl overflow-hidden border border-border bg-card shadow-lg transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-2xl group-hover:border-primary/50">
+                                    <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-card shadow-lg [transform:translateZ(0)] transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-2xl group-hover:border-primary/50">
                                         {author.imageUrl ? (
                                              <img
                                                  src={author.imageUrl}
-                                                 className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                                                 className="h-full w-full rounded-[inherit] object-cover transform-gpu transition-transform duration-500 group-hover:scale-110"
                                                  alt={author.name}
                                              />
                                         ) : (
                                             <EntityPlaceholderArt
                                                 name={author.name}
+                                                className="rounded-[inherit]"
                                                 initialClassName="text-5xl sm:text-6xl"
                                             />
                                         )}
-                                        <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 group-hover:opacity-90 transition-opacity" />
+                                        <div className="absolute inset-0 rounded-[inherit] bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 transition-opacity group-hover:opacity-90" />
 
                                         {/* Rank Badge */}
                                         <div className="absolute top-3 left-3 flex items-center gap-1.5 px-3 py-1 bg-black/60 backdrop-blur-md rounded-lg text-xs font-bold border border-white/10">

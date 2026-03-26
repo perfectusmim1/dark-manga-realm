@@ -23,6 +23,8 @@ import {
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import { formatChapterDisplayTitle, sanitizeChapterTitle } from '@/lib/chapterTitle';
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
+import OfflineNotice from '@/components/offline/OfflineNotice';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const PAGE_SIZE = 20;
 
@@ -180,6 +182,7 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
 
 const History: React.FC = () => {
   const { user } = useAuth();
+  const { isOnline } = useEffectiveOnlineStatus();
   const [seriesHistory, setSeriesHistory] = React.useState<ReadingHistoryEntry[]>([]);
   const [chapterHistory, setChapterHistory] = React.useState<ChapterHistoryEntry[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -370,6 +373,14 @@ const History: React.FC = () => {
             </div>
           </div>
         </div>
+
+        {!isOnline && (
+          <OfflineNotice
+            compact
+            className="mb-6 text-left"
+            description="Okuma geçmişi çevrimdışında yerel ilerleme kayıtlarından yükleniyor. Kart görselleri daha önce indirilen veya önbelleğe alınan kapaklardan gösterilir."
+          />
+        )}
 
         <Tabs defaultValue="series" className="space-y-6">
           <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">

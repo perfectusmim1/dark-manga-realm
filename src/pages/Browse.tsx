@@ -17,9 +17,10 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import TagFilterPanel from '@/components/tags/TagFilterPanel';
-import BrowseSkeleton from '@/components/skeletons/BrowseSkeleton';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+
+let browsePageCache: Manga[] | null = null;
 
 const Browse: React.FC = () => {
   const { isOnline } = useEffectiveOnlineStatus();
@@ -35,9 +36,9 @@ const Browse: React.FC = () => {
   const [selectedTagSlugs, setSelectedTagSlugs] = useState<string[]>(
     searchParams.get('tags') ? searchParams.get('tags')!.split(',') : []
   );
-  const [mangas, setMangas] = useState<Manga[]>([]);
+  const [mangas, setMangas] = useState<Manga[]>(() => browsePageCache ?? []);
   const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => browsePageCache === null);
   const [visibleCount, setVisibleCount] = useState(32);
   const loaderRef = React.useRef<HTMLDivElement | null>(null);
 
@@ -54,16 +55,32 @@ const Browse: React.FC = () => {
   }
 
   useEffect(() => {
+    let active = true;
+
     const fetchMangas = async () => {
       try {
-        setIsLoading(true);
+        if (browsePageCache === null) {
+          setIsLoading(true);
+        }
         const data = await getAllMangas();
+        if (!active) {
+          return;
+        }
+
+        browsePageCache = data;
         setMangas(data);
       } finally {
-        setIsLoading(false);
+        if (active) {
+          setIsLoading(false);
+        }
       }
     };
+
     fetchMangas();
+
+    return () => {
+      active = false;
+    };
   }, []);
 
   useEffect(() => {
@@ -199,15 +216,7 @@ const Browse: React.FC = () => {
   };
 
   const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all';
-
-  if (isLoading) {
-    return (
-      <>
-        <Header />
-        <BrowseSkeleton />
-      </>
-    );
-  }
+  const isInitialResultsPending = isLoading && mangas.length === 0;
 
   return (
     <div className="min-h-screen bg-background">
@@ -318,14 +327,20 @@ const Browse: React.FC = () => {
         </div>
 
         <p className="mb-4 text-sm text-muted-foreground">
-          {filteredManga.length} sonuç bulundu
+          {isInitialResultsPending ? 'Seriler hazırlanıyor...' : `${filteredManga.length} sonuç bulundu`}
         </p>
 
         {/* Manga Grid */}
-        <MangaGrid
-          manga={visibleManga}
-          emptyMessage="Arama kriterlerinize uygun manga bulunamadı"
-        />
+        {isInitialResultsPending ? (
+          <div className="min-h-[220px]" />
+        ) : (
+          <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
+            <MangaGrid
+              manga={visibleManga}
+              emptyMessage="Arama kriterlerinize uygun manga bulunamadı"
+            />
+          </div>
+        )}
 
         {filteredManga.length > visibleManga.length && (
           <div ref={loaderRef} className="py-8 text-center text-sm text-muted-foreground">

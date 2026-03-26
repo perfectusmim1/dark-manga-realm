@@ -803,18 +803,53 @@ export const getChapterHistoryEntries = async (userId: string): Promise<ChapterH
             }));
         }
 
-        const mangaIds = [...new Set(localEntries.map((entry) => entry.mangaId))];
-        const chapterIds = [...new Set(localEntries.map((entry) => entry.chapterId))];
+        const offlineEntries = await Promise.all(
+            localEntries.map(async (entry) => {
+                const offlineManga = await getOfflineMangaDetail(entry.mangaId);
+                const offlineChapter = offlineManga?.chapters.find((chapter) => chapter.id === entry.chapterId);
+
+                return {
+                    ...entry,
+                    mangaTitle: offlineManga?.title,
+                    mangaCover: offlineManga?.cover,
+                    mangaAlternativeTitles: offlineManga?.alternativeTitles || [],
+                    chapterTitle: offlineChapter?.title,
+                } satisfies ChapterHistoryEntry;
+            }),
+        );
+
+        if (!isEffectivelyOnline()) {
+            return offlineEntries;
+        }
+
+        const missingMangaIds = [...new Set(
+            offlineEntries
+                .filter((entry) => !entry.mangaTitle || !entry.mangaCover)
+                .map((entry) => entry.mangaId),
+        )];
+        const missingChapterIds = [...new Set(
+            offlineEntries
+                .filter((entry) => !entry.chapterTitle)
+                .map((entry) => entry.chapterId),
+        )];
+
+        if (missingMangaIds.length === 0 && missingChapterIds.length === 0) {
+            return offlineEntries;
+        }
 
         const [{ data: mangas }, { data: chapters }] = await Promise.all([
-            supabase
-                .from('mangas')
-                .select('id, title, cover, alternative_titles')
-                .in('id', mangaIds),
-            supabase
-                .from('chapters')
-                .select('id, title')
-                .in('id', chapterIds),
+            missingMangaIds.length > 0
+                ? supabase
+                    .from('mangas')
+                    .select('id, title, cover, alternative_titles')
+                    .in('id', missingMangaIds)
+                : Promise.resolve({ data: [] as any[] }),
+            missingChapterIds.length > 0
+                ? supabase
+                    .from('chapters')
+                    .select('id, title')
+                    .in('id', missingChapterIds)
+                : Promise.resolve({ data: [] as any[] }),
         ]);
 
         const mangaMap = (mangas || []).reduce<Record<string, any>>((map, manga: any) => {
@@ -826,12 +861,14 @@ export const getChapterHistoryEntries = async (userId: string): Promise<ChapterH
             return map;
         }, {});
 
-        return localEntries.map((entry) => ({
+        return offlineEntries.map((entry) => ({
             ...entry,
-            mangaTitle: mangaMap[entry.mangaId]?.title,
-            mangaCover: mangaMap[entry.mangaId]?.cover,
-            mangaAlternativeTitles: mapAlternativeTitles(mangaMap[entry.mangaId]),
-            chapterTitle: chapterMap[entry.chapterId]?.title,
+            mangaTitle: entry.mangaTitle || mangaMap[entry.mangaId]?.title,
+            mangaCover: entry.mangaCover || mangaMap[entry.mangaId]?.cover,
+            mangaAlternativeTitles: entry.mangaAlternativeTitles?.length
+                ? entry.mangaAlternativeTitles
+                : mapAlternativeTitles(mangaMap[entry.mangaId]),
+            chapterTitle: entry.chapterTitle || chapterMap[entry.chapterId]?.title,
         }));
     };
 

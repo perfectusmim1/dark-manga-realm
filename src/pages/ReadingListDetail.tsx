@@ -28,6 +28,7 @@ import MangaCard from '@/components/manga/MangaCard';
 import { cn } from '@/lib/utils';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import OfflineNotice from '@/components/offline/OfflineNotice';
 
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
@@ -330,6 +331,14 @@ const ReadingListDetail: React.FC = () => {
                     <ChevronLeft className="h-4 w-4" />
                     Listelerime Dön
                 </Link>
+
+                {!isOnline && (
+                    <OfflineNotice
+                        compact
+                        className="mb-6 text-left"
+                        description="Bu liste çevrimdışında yerel önbellekten açıldı. Yaptığınız seri kaldırma veya liste düzenleme işlemleri bağlantı geri geldiğinde otomatik eşitlenir."
+                    />
+                )}
 
                 <div
                     className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 opacity-0 backdrop-blur-sm"

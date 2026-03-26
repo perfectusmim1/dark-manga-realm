@@ -296,6 +296,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
+    if (!isEffectivelyOnline()) {
+      setMfaState((prev) => ({
+        ...prev,
+        isLoading: false,
+      }));
+      return;
+    }
+
     setMfaState((prev) => ({ ...prev, isLoading: true }));
 
     try {
@@ -344,6 +352,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       try {
         if (currentSession?.user) {
+          if (!isEffectivelyOnline()) {
+            const fallbackUser = mapSupabaseUserToUser(currentSession.user, null);
+            setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
+            setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(currentSession.user) ? prev : currentSession.user);
+            setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
+            setMfaState((prev) => ({ ...prev, isLoading: false }));
+            return;
+          }
+
           const accessCheck = await checkCurrentAccess().catch(() => ({ allowed: true }));
           if (!mounted) return;
 
@@ -393,6 +410,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Presence heartbeat
     const presenceInterval = setInterval(async () => {
+      if (!isEffectivelyOnline()) {
+        return;
+      }
+
       const { data: { session: s } } = await supabase.auth.getSession();
       if (s?.user) await supabase.rpc('update_user_presence', { p_user_id: s.user.id });
     }, 30000);
@@ -400,7 +421,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // Initial check
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       syncAuthState(s);
-      if (s?.user) supabase.rpc('update_user_presence', { p_user_id: s.user.id });
+      if (s?.user && isEffectivelyOnline()) {
+        supabase.rpc('update_user_presence', { p_user_id: s.user.id });
+      }
     }).catch(err => {
       console.error('Initial session check failed:', err);
       if (mounted) setIsLoading(false);

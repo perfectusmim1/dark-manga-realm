@@ -1957,7 +1957,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                 className={`group flex items-center gap-2 rounded-full border-2 px-4 py-2 text-sm transition-all duration-200 ease-out will-change-transform sm:px-6 sm:py-2.5 ${userReaction === r.type
                                     ? 'bg-primary/20 border-primary text-primary shadow-lg shadow-primary/10'
                                     : 'bg-card border-border hover:border-primary/50 hover:bg-secondary/50'
-                                    } ${animatedReactionType === r.type ? 'scale-[1.04] -translate-y-0.5 shadow-[0_10px_24px_rgba(59,130,246,0.16)]' : 'scale-100'} ${pendingReaction ? 'cursor-wait opacity-90' : ''}`}
+                                    } ${animatedReactionType === r.type ? 'scale-[1.04] -translate-y-0.5 shadow-[0_10px_24px_rgba(59,130,246,0.16)]' : 'scale-100'} ${pendingReaction ? 'opacity-90' : ''} cursor-pointer disabled:cursor-pointer`}
                             >
                                 <span className={`text-xl transition-transform duration-200 ${animatedReactionType === r.type ? 'scale-110' : 'group-hover:scale-110'}`}>
                                     {r.emoji}

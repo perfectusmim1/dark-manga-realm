@@ -14,6 +14,7 @@ export interface Manga {
   views: number;
   engagementScore?: number;
   chapters: Chapter[];
+  chapterCount?: number;
   lastUpdated: string;
   createdAt: string;
   type: 'manga' | 'manhwa' | 'manhua' | 'webtoon';

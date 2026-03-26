@@ -27,6 +27,14 @@ interface HorizontalMangaSectionProps {
   delay: string;
 }
 
+const HOME_PAGE_CACHE: {
+  mangas: Manga[] | null;
+  trendingTags: Tag[] | null;
+} = {
+  mangas: null,
+  trendingTags: null,
+};
+
 const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   title,
   icon: Icon,
@@ -138,11 +146,11 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 const Index: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isLoading: offlineLibraryLoading, isOnline } = useOfflineLibrary();
-  const [mangas, setMangas] = useState<Manga[]>([]);
+  const [mangas, setMangas] = useState<Manga[]>(() => HOME_PAGE_CACHE.mangas ?? []);
   const [continueReading, setContinueReading] = useState<{ manga: Manga; chapterId: string; chapterNumber: number }[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
-  const [trendingTags, setTrendingTags] = useState<Tag[]>([]);
-  const [tagsLoading, setTagsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => HOME_PAGE_CACHE.mangas === null);
+  const [trendingTags, setTrendingTags] = useState<Tag[]>(() => HOME_PAGE_CACHE.trendingTags ?? []);
+  const [tagsLoading, setTagsLoading] = useState(() => HOME_PAGE_CACHE.trendingTags === null);
 
   const offlineManga = React.useMemo<Manga[]>(() => (
     offlineSnapshot.series.map((entry: OfflineMangaGroup) => ({
@@ -178,20 +186,25 @@ const Index: React.FC = () => {
   ), [offlineSnapshot.series]);
 
   useEffect(() => {
+    if (isOnline) {
+      return;
+    }
+
+    setMangas(offlineManga);
+    setIsLoading(false);
+  }, [isOnline, offlineManga]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      return;
+    }
+
     let active = true;
 
     const loadMainContent = async () => {
       try {
-        setIsLoading(true);
-
-        if (!isOnline) {
-          if (!active) {
-            return;
-          }
-
-          setMangas(offlineManga);
-          setIsLoading(false);
-          return;
+        if (HOME_PAGE_CACHE.mangas === null) {
+          setIsLoading(true);
         }
 
         const allMangas = await getAllMangas();
@@ -199,6 +212,7 @@ const Index: React.FC = () => {
           return;
         }
 
+        HOME_PAGE_CACHE.mangas = allMangas;
         setMangas(allMangas);
         setIsLoading(false);
       } catch (err) {
@@ -214,7 +228,7 @@ const Index: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [isOnline, offlineManga]);
+  }, [isOnline]);
 
   useEffect(() => {
     let active = true;
@@ -226,14 +240,23 @@ const Index: React.FC = () => {
         return;
       }
 
-      setTagsLoading(true);
-      const tags = await getTrendingTags(20);
-      if (!active) {
-        return;
+      if (HOME_PAGE_CACHE.trendingTags === null) {
+        setTagsLoading(true);
       }
 
-      setTrendingTags(tags);
-      setTagsLoading(false);
+      try {
+        const tags = await getTrendingTags(20);
+        if (!active) {
+          return;
+        }
+
+        HOME_PAGE_CACHE.trendingTags = tags;
+        setTrendingTags(tags);
+      } finally {
+        if (active) {
+          setTagsLoading(false);
+        }
+      }
     };
 
     loadTrendingTags();
@@ -309,7 +332,11 @@ const Index: React.FC = () => {
     popularWebtoon: mangas.filter(m => m.type === 'webtoon').slice(0, 8),
   }), [mangas]);
 
-  if ((isLoading && isOnline) || (!isOnline && offlineLibraryLoading)) {
+  const showHomeSkeleton =
+    (isOnline && isLoading && mangas.length === 0) ||
+    (!isOnline && offlineLibraryLoading && offlineManga.length === 0);
+
+  if (showHomeSkeleton) {
     return (
       <>
         <Header />

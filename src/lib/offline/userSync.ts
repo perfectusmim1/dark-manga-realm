@@ -1,12 +1,33 @@
-import { Bookmark, Favorite, ReadingList, User as AppUser } from '@/lib/types';
+import { Bookmark, Favorite, Manga, ReadingList, User as AppUser } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { getOfflinePreferences, subscribeOfflinePreferences } from '@/lib/offline/preferences';
 
 const OFFLINE_USER_SYNC_STORAGE_KEY = 'toonparrot_offline_user_sync_v1';
 const OFFLINE_USER_SYNC_EVENT = 'toonparrot:offline-user-sync-updated';
 
+export interface CachedReadingListItem {
+  id: string;
+  title: string;
+  alternativeTitles?: string[];
+  cover: string;
+  banner?: string;
+  author: string;
+  artist?: string;
+  status: Manga['status'];
+  genres: string[];
+  description: string;
+  type: Manga['type'];
+  chapterCount: number;
+  lastUpdated: string;
+  createdAt: string;
+  views: number;
+  averageRating: number;
+  reviewCount: number;
+}
+
 type CachedReadingList = Omit<ReadingList, 'items'> & {
   mangaIds: string[];
+  itemSummaries: CachedReadingListItem[];
 };
 
 type PendingUserSyncType =
@@ -140,9 +161,16 @@ const cloneBookmark = (bookmark: Bookmark): Bookmark => ({
   ...bookmark,
 });
 
+const cloneReadingListItem = (item: CachedReadingListItem): CachedReadingListItem => ({
+  ...item,
+  alternativeTitles: [...(item.alternativeTitles || [])],
+  genres: [...(item.genres || [])],
+});
+
 const cloneReadingList = (list: CachedReadingList): CachedReadingList => ({
   ...list,
   mangaIds: [...list.mangaIds],
+  itemSummaries: (list.itemSummaries || []).map(cloneReadingListItem),
 });
 
 const cloneUserCache = (cache: OfflineUserCache): OfflineUserCache => ({
@@ -520,6 +548,48 @@ export const mapCachedReadingListToReadingList = (list: CachedReadingList): Read
   imageUrl: list.imageUrl,
   isPublic: list.isPublic,
   createdAt: list.createdAt,
+});
+
+export const mapMangaToCachedReadingListItem = (manga: Manga): CachedReadingListItem => ({
+  id: manga.id,
+  title: manga.title,
+  alternativeTitles: [...(manga.alternativeTitles || [])],
+  cover: manga.cover,
+  banner: manga.banner,
+  author: manga.author,
+  artist: manga.artist,
+  status: manga.status,
+  genres: [...(manga.genres || [])],
+  description: manga.description,
+  type: manga.type,
+  chapterCount: typeof manga.chapterCount === 'number' ? manga.chapterCount : manga.chapters.length,
+  lastUpdated: manga.lastUpdated,
+  createdAt: manga.createdAt,
+  views: manga.views || 0,
+  averageRating: manga.averageRating || 0,
+  reviewCount: manga.reviewCount || 0,
+});
+
+export const mapCachedReadingListItemToManga = (item: CachedReadingListItem): Manga => ({
+  id: item.id,
+  title: item.title,
+  alternativeTitles: [...(item.alternativeTitles || [])],
+  cover: item.cover,
+  banner: item.banner,
+  author: item.author,
+  artist: item.artist,
+  status: item.status,
+  genres: [...(item.genres || [])],
+  description: item.description,
+  ratings: [],
+  views: item.views || 0,
+  chapters: [],
+  chapterCount: item.chapterCount,
+  lastUpdated: item.lastUpdated,
+  createdAt: item.createdAt,
+  type: item.type,
+  averageRating: item.averageRating || 0,
+  reviewCount: item.reviewCount || 0,
 });
 
 const syncFavoriteUpsert = async (operation: PendingUserSyncOperation) => {

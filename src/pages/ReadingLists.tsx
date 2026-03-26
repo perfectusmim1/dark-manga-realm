@@ -32,6 +32,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
 import ReadingListCover from '@/components/manga/ReadingListCover';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import OfflineNotice from '@/components/offline/OfflineNotice';
 
 const ReadingLists: React.FC = () => {
     const { user, isLoading: authLoading } = useAuth();
@@ -79,7 +80,7 @@ const ReadingLists: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [authLoading, user?.id]);
+    }, [authLoading, isOnline, user?.id]);
 
     if (authLoading) {
         return (
@@ -166,6 +167,14 @@ const ReadingLists: React.FC = () => {
                         Yeni Liste Oluştur
                     </Button>
                 </div>
+
+                {!isOnline && (
+                    <OfflineNotice
+                        compact
+                        className="mb-6 text-left"
+                        description="Listeler yerel önbellekten gösteriliyor. Çevrimdışıyken oluşturduğunuz, düzenlediğiniz veya sildiğiniz listeler bağlantı geri geldiğinde otomatik eşitlenir."
+                    />
+                )}
 
                 {isLoading ? (
                     <div className="grid gap-6 sm:grid-cols-2 lg:grid-cols-3">

@@ -72,6 +72,7 @@ const Reader: React.FC = () => {
   const revokeOfflineUrlsRef = useRef<(() => void) | null>(null);
   const resumeAutoScrollAfterNavigationRef = useRef(false);
   const pendingInitialRestorePageRef = useRef<number | null>(null);
+  const currentMangaRef = useRef<any>(null);
   const preparedTransitionRef = useRef<{
     mangaId: string;
     chapterId: string;
@@ -116,6 +117,10 @@ const Reader: React.FC = () => {
       document.body.classList.remove('reader-active');
     };
   }, []);
+
+  useEffect(() => {
+    currentMangaRef.current = manga;
+  }, [manga]);
 
   const prepareChapterTransition = useCallback((targetChapter?: Chapter) => {
     if (
@@ -316,7 +321,9 @@ const Reader: React.FC = () => {
           && preparedTransition.chapterId === chapterId
         );
         const offlineChapter = await getOfflineChapter(chapterId);
-        const existingManga = manga && manga.id === mangaId ? manga : null;
+        const existingManga = currentMangaRef.current && currentMangaRef.current.id === mangaId
+          ? currentMangaRef.current
+          : null;
         const mData = isOnlineNow ? (existingManga ?? await getMangaById(mangaId)) : undefined;
         const fallbackManga = mData || await getOfflineMangaDetail(mangaId);
 
@@ -343,12 +350,27 @@ const Reader: React.FC = () => {
 
         if (!isOnlineNow && offlineChapter?.downloadStatus === 'completed') {
           setChapter(resolvedChapter);
-          const offlinePages = await buildOfflineReaderPages(chapterId);
+          const offlinePages = await buildOfflineReaderPages(
+            chapterId,
+            Math.max(
+              resolvedChapter.pages?.length || 0,
+              offlineChapter.pageCount || 0,
+            ),
+          );
           revokeOfflineUrlsRef.current?.();
           revokeOfflineUrlsRef.current = offlinePages.revoke;
-          setResolvedPages(offlinePages.pages);
-          setIsOfflineChapter(true);
-          setOfflineUnavailable(false);
+
+          if (offlinePages.storedPageCount > 0) {
+            setResolvedPages(offlinePages.pages);
+            setIsOfflineChapter(true);
+            setOfflineUnavailable(false);
+          } else {
+            revokeOfflineUrlsRef.current?.();
+            revokeOfflineUrlsRef.current = null;
+            setResolvedPages([]);
+            setIsOfflineChapter(false);
+            setOfflineUnavailable(true);
+          }
         } else if (!isOnlineNow) {
           setChapter(resolvedChapter);
           setResolvedPages([]);
@@ -379,7 +401,7 @@ const Reader: React.FC = () => {
     };
 
     loadContent();
-  }, [chapterId, isOnlineNow, manga, mangaId, navigate]);
+  }, [chapterId, isOnlineNow, mangaId, navigate]);
 
   useEffect(() => {
     if (initialized || !isContentReady || !mangaId || !chapterId) {
@@ -911,7 +933,11 @@ const Reader: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [toggleControls]);
 
-  if (offlineUnavailable && manga && chapter) {
+  if (isLoading && (!manga || !chapter)) {
+    return <div className="min-h-screen bg-background" />;
+  }
+
+  if (!isLoading && offlineUnavailable && manga && chapter) {
     return (
       <div className="min-h-screen bg-background px-4 py-20">
         <div className="mx-auto max-w-2xl rounded-3xl border border-border bg-card/40 p-8 text-center backdrop-blur-sm">
@@ -940,7 +966,7 @@ const Reader: React.FC = () => {
     );
   }
 
-  if (!manga || !chapter) {
+  if (!isLoading && (!manga || !chapter)) {
     return (
       <div className="min-h-screen bg-background px-4 py-20">
         <div className="mx-auto max-w-2xl">

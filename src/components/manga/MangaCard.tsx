@@ -10,6 +10,7 @@ import {
   HoverCardTrigger,
 } from "@/components/ui/hover-card";
 import { cn } from '@/lib/utils';
+import { getOfflinePreferences } from '@/lib/offline/preferences';
 
 interface MangaCardProps {
   manga: Manga;
@@ -40,7 +41,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
   const chapters = manga.chapters || [];
-  const chapterCount = chapters.length;
+  const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : chapters.length;
 
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -50,7 +51,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
 
   const averageRating = ratings.length > 0
     ? (ratings.reduce((acc, curr) => acc + curr.rating, 0) / ratings.length).toFixed(1)
-    : '0.0';
+    : (typeof manga.averageRating === 'number' ? manga.averageRating.toFixed(1) : '0.0');
 
   const isNewRelease = useMemo(() => {
     if (!manga.createdAt) return false;
@@ -66,6 +67,15 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({ manga, index = 0 }) => {
 
   useEffect(() => {
     let isActive = true;
+    const isEffectivelyOnline = typeof navigator === 'undefined'
+      || (navigator.onLine && !getOfflinePreferences().forceOfflineMode);
+
+    if (!isEffectivelyOnline) {
+      setIsTopTenWeek(false);
+      return () => {
+        isActive = false;
+      };
+    }
 
     getTopTenWeekIds().then((ids) => {
       if (isActive) {

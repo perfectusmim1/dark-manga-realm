@@ -4,7 +4,7 @@ import { supabase } from './supabase';
 import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import { normalizeGenres } from './mockData';
-import { getOfflineLibrarySnapshot, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import {
     areReadingListsInitialized,
     createClientEntityId,
@@ -12,7 +12,9 @@ import {
     getCachedReadingListsState,
     findCachedReadingListRecord,
     isEffectivelyOnline,
+    mapCachedReadingListItemToManga,
     mapCachedReadingListToReadingList,
+    mapMangaToCachedReadingListItem,
     queueReadingListAddItem,
     queueReadingListCreate,
     queueReadingListDelete,
@@ -23,6 +25,7 @@ import {
     updateCachedReadingList,
     upsertCachedReadingList,
 } from '@/lib/offline/userSync';
+import { warmPersistentImageUrls } from '@/lib/offline/persistentImageWarmup';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
     value?.split(/[,，]/)[0]?.trim().replace(/\s+/g, ' ') || '';
@@ -2072,7 +2075,7 @@ export const toggleCommentLike = async (commentId: string, userId: string, entit
 
 // ==================== READING LIST OPERATIONS ====================
 
-const mapReadingListRow = (row: any, mangaIds: string[] = []) => ({
+const mapReadingListRow = (row: any, mangaIds: string[] = [], itemSummaries: ReturnType<typeof mapMangaToCachedReadingListItem>[] = []) => ({
     id: row.id,
     userId: row.user_id,
     name: row.name,
@@ -2081,7 +2084,67 @@ const mapReadingListRow = (row: any, mangaIds: string[] = []) => ({
     isPublic: row.is_public,
     createdAt: row.created_at,
     mangaIds,
+    itemSummaries,
 });
+
+const fetchReadingListItemSummaries = async (mangaIds: string[]) => {
+    const uniqueMangaIds = [...new Set(mangaIds.filter(Boolean))];
+    if (uniqueMangaIds.length === 0 || !isEffectivelyOnline()) {
+        return {} as Record<string, ReturnType<typeof mapMangaToCachedReadingListItem>>;
+    }
+
+    const [{ data: mangaRows, error: mangaError }, { data: chapterRows, error: chapterError }] = await Promise.all([
+        supabase
+            .from('mangas')
+            .select('id, title, alternative_titles, cover, banner, author, artist, status, genres, description, type, views, last_updated, created_at')
+            .in('id', uniqueMangaIds),
+        supabase
+            .from('chapters')
+            .select('manga_id')
+            .in('manga_id', uniqueMangaIds),
+    ]);
+
+    if (mangaError || !mangaRows) {
+        if (mangaError) {
+            console.error('Reading list manga summary fetch error:', mangaError);
+        }
+        return {} as Record<string, ReturnType<typeof mapMangaToCachedReadingListItem>>;
+    }
+
+    if (chapterError) {
+        console.error('Reading list chapter count fetch error:', chapterError);
+    }
+
+    const chapterCountMap = (chapterRows || []).reduce<Record<string, number>>((map, chapter: any) => {
+        map[chapter.manga_id] = (map[chapter.manga_id] || 0) + 1;
+        return map;
+    }, {});
+
+    return mangaRows.reduce<Record<string, ReturnType<typeof mapMangaToCachedReadingListItem>>>((map, manga: any) => {
+        map[manga.id] = mapMangaToCachedReadingListItem({
+            id: manga.id,
+            title: manga.title,
+            alternativeTitles: manga.alternative_titles || [],
+            cover: manga.cover,
+            banner: manga.banner,
+            author: manga.author,
+            artist: manga.artist,
+            status: manga.status,
+            genres: manga.genres || [],
+            description: manga.description || '',
+            ratings: [],
+            views: manga.views || 0,
+            chapters: [],
+            chapterCount: chapterCountMap[manga.id] || 0,
+            lastUpdated: manga.last_updated,
+            createdAt: manga.created_at,
+            type: manga.type,
+            averageRating: 0,
+            reviewCount: 0,
+        } satisfies Manga);
+        return map;
+    }, {});
+};
 
 const fetchRemoteReadingLists = async (userId: string): Promise<Array<ReturnType<typeof mapReadingListRow>>> => {
     const { data, error } = await supabase
@@ -2106,21 +2169,55 @@ const fetchRemoteReadingLists = async (userId: string): Promise<Array<ReturnType
         map[item.list_id].push(item.manga_id);
         return map;
     }, {});
+    const itemSummariesById = await fetchReadingListItemSummaries(
+        Object.values(itemMap).flat(),
+    );
 
-    return data.map((list: any) => mapReadingListRow(list, itemMap[list.id] || []));
+    const remoteLists = data.map((list: any) => {
+        const mangaIds = itemMap[list.id] || [];
+        return mapReadingListRow(
+            list,
+            mangaIds,
+            mangaIds
+                .map((mangaId) => itemSummariesById[mangaId])
+                .filter(Boolean),
+        );
+    });
+
+    warmPersistentImageUrls(
+        remoteLists.flatMap((list) => [
+            list.imageUrl,
+            ...list.itemSummaries.map((item) => item.cover),
+        ]),
+    );
+
+    return remoteLists;
 };
 
-const loadReadingListMangas = async (mangaIds: string[], offlineOnly: boolean): Promise<Manga[]> => {
+const loadReadingListMangas = async (
+    mangaIds: string[],
+    offlineOnly: boolean,
+    itemSummaries: ReturnType<typeof mapMangaToCachedReadingListItem>[] = [],
+): Promise<Manga[]> => {
     if (mangaIds.length === 0) {
         return [];
     }
 
+    const itemSummaryMap = new Map(itemSummaries.map((item) => [item.id, item]));
+
     if (offlineOnly) {
-        const offlineMangas = await Promise.all(mangaIds.map((mangaId) => getOfflineMangaDetail(mangaId)));
+        const offlineMangas = await Promise.all(mangaIds.map(async (mangaId) => (
+            (await getOfflineMangaDetail(mangaId))
+            || (itemSummaryMap.get(mangaId) ? mapCachedReadingListItemToManga(itemSummaryMap.get(mangaId)!) : undefined)
+        )));
         return offlineMangas.filter(Boolean) as Manga[];
     }
 
-    const mangas = await Promise.all(mangaIds.map((mangaId) => getMangaById(mangaId)));
+    const mangas = await Promise.all(mangaIds.map(async (mangaId) => (
+        (await getMangaById(mangaId))
+        || (await getOfflineMangaDetail(mangaId))
+        || (itemSummaryMap.get(mangaId) ? mapCachedReadingListItemToManga(itemSummaryMap.get(mangaId)!) : undefined)
+    )));
     return mangas.filter(Boolean) as Manga[];
 };
 
@@ -2143,13 +2240,11 @@ export const getReadingListById = async (listId: string, viewerId?: string): Pro
     const cachedList = viewerId ? getCachedReadingListRecord(viewerId, listId) : undefined;
 
     if (cachedList && viewerId === cachedList.userId) {
-        const downloadedMangaIds = offlineOnly
-            ? new Set((await getOfflineLibrarySnapshot()).series.map((entry) => entry.manga.mangaId))
-            : null;
-        const mangaIdsToLoad = downloadedMangaIds
-            ? cachedList.mangaIds.filter((mangaId) => downloadedMangaIds.has(mangaId))
-            : cachedList.mangaIds;
-        const mangas = await loadReadingListMangas(mangaIdsToLoad, offlineOnly);
+        const mangas = await loadReadingListMangas(
+            cachedList.mangaIds,
+            offlineOnly,
+            cachedList.itemSummaries,
+        );
 
         return {
             ...mapCachedReadingListToReadingList(cachedList),
@@ -2183,11 +2278,17 @@ export const getReadingListById = async (listId: string, viewerId?: string): Pro
     let mangas: Manga[] = [];
 
     if (mangaIds.length > 0) {
-        mangas = await loadReadingListMangas(mangaIds, false);
+        const itemSummaries = Object.values(await fetchReadingListItemSummaries(mangaIds));
+        mangas = await loadReadingListMangas(mangaIds, false, itemSummaries);
     }
 
     if (viewerId && data.user_id === viewerId) {
-        upsertCachedReadingList(viewerId, mapReadingListRow(data, mangaIds));
+        const itemSummariesById = await fetchReadingListItemSummaries(mangaIds);
+        upsertCachedReadingList(viewerId, mapReadingListRow(
+            data,
+            mangaIds,
+            mangaIds.map((mangaId) => itemSummariesById[mangaId]).filter(Boolean),
+        ));
     }
 
     return {
@@ -2303,9 +2404,11 @@ export const createReadingList = async (list: Omit<ReadingList, 'id' | 'createdA
         isPublic: list.isPublic,
         createdAt: new Date().toISOString(),
         mangaIds: [],
+        itemSummaries: [],
     };
 
     upsertCachedReadingList(list.userId, nextList);
+    warmPersistentImageUrls([list.imageUrl]);
 
     if (!isEffectivelyOnline()) {
         queueReadingListCreate(list.userId, nextList);
@@ -2368,6 +2471,7 @@ export const updateReadingList = async (listId: string, updates: Partial<Pick<Re
         imageUrl: updates.imageUrl ?? list.imageUrl,
         isPublic: updates.isPublic ?? list.isPublic,
     }));
+    warmPersistentImageUrls([updates.imageUrl]);
 
     if (!isEffectivelyOnline()) {
         queueReadingListUpdate(cachedEntry.userId, listId, updates);
@@ -2422,10 +2526,23 @@ export const addMangaToReadingList = async (listId: string, mangaId: string): Pr
         throw new Error('READING_LIST_NOT_FOUND');
     }
 
+    const summary = (
+        (await getOfflineMangaDetail(mangaId))
+        || (isEffectivelyOnline() ? await getMangaById(mangaId) : undefined)
+    );
+    const itemSummary = summary ? mapMangaToCachedReadingListItem(summary) : undefined;
+
     updateCachedReadingList(cachedEntry.userId, listId, (list) => ({
         ...list,
         mangaIds: list.mangaIds.includes(mangaId) ? list.mangaIds : [...list.mangaIds, mangaId],
+        itemSummaries: itemSummary
+            ? [
+                itemSummary,
+                ...list.itemSummaries.filter((item) => item.id !== mangaId),
+            ]
+            : list.itemSummaries,
     }));
+    warmPersistentImageUrls([itemSummary?.cover]);
 
     if (!isEffectivelyOnline()) {
         queueReadingListAddItem(cachedEntry.userId, listId, mangaId);
@@ -2454,6 +2571,7 @@ export const removeMangaFromReadingList = async (listId: string, mangaId: string
     updateCachedReadingList(cachedEntry.userId, listId, (list) => ({
         ...list,
         mangaIds: list.mangaIds.filter((entry) => entry !== mangaId),
+        itemSummaries: list.itemSummaries.filter((item) => item.id !== mangaId),
     }));
 
     if (!isEffectivelyOnline()) {

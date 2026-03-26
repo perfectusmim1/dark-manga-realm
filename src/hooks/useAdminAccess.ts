@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminAccessContext, getAdminAccessContext, getCachedAdminAccessContext } from '@/lib/database';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const DEFAULT_ACCESS: AdminAccessContext = {
     canAccessAdminPanel: false,
@@ -9,6 +10,7 @@ const DEFAULT_ACCESS: AdminAccessContext = {
 
 export const useAdminAccess = () => {
     const { user, isLoading: authLoading } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const [access, setAccess] = useState<AdminAccessContext>(
         () => getCachedAdminAccessContext(user?.id) || DEFAULT_ACCESS
     );
@@ -18,6 +20,12 @@ export const useAdminAccess = () => {
 
     useEffect(() => {
         if (authLoading) {
+            return;
+        }
+
+        if (!isOnline) {
+            setAccess(getCachedAdminAccessContext(user?.id) || DEFAULT_ACCESS);
+            setIsLoading(false);
             return;
         }
 
@@ -61,7 +69,7 @@ export const useAdminAccess = () => {
         return () => {
             isCancelled = true;
         };
-    }, [authLoading, user?.id]);
+    }, [authLoading, isOnline, user?.id]);
 
     return {
         access,

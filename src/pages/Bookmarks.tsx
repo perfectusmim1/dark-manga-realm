@@ -1,8 +1,9 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BookMarked, Trash2 } from 'lucide-react';
+import { BookMarked, Search, Trash2 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { getBookmarks, removeBookmark } from '../lib/storage';
 import { getMangaById } from '@/lib/database';
@@ -11,17 +12,23 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { toast } from 'sonner';
 import { Manga, Bookmark } from '@/lib/types';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
+import OfflineNotice from '@/components/offline/OfflineNotice';
 
 type EnrichedBookmark = Bookmark & {
   manga?: Manga;
   chapter?: Manga['chapters'][number];
 };
 
+const BOOKMARKS_PAGE_SIZE = 20;
+
 const Bookmarks: React.FC = () => {
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const [bookmarks, setBookmarks] = React.useState<EnrichedBookmark[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
+  const [searchQuery, setSearchQuery] = React.useState('');
+  const [visibleCount, setVisibleCount] = React.useState(BOOKMARKS_PAGE_SIZE);
+  const loadMoreRef = React.useRef<HTMLDivElement | null>(null);
 
   const loadBookmarks = React.useCallback(async () => {
     if (!user) {
@@ -43,7 +50,7 @@ const Bookmarks: React.FC = () => {
         return null;
       }));
 
-      setBookmarks(enrichedBookmarks.filter(Boolean));
+      setBookmarks(enrichedBookmarks.filter((bookmark): bookmark is EnrichedBookmark => Boolean(bookmark)));
     } catch (err) {
       console.error('Bookmarks load error:', err);
     } finally {
@@ -54,6 +61,56 @@ const Bookmarks: React.FC = () => {
   React.useEffect(() => {
     void loadBookmarks();
   }, [loadBookmarks]);
+
+  const filteredBookmarks = React.useMemo(() => {
+    const normalizedQuery = searchQuery.trim().toLocaleLowerCase('tr-TR');
+
+    if (!normalizedQuery) {
+      return bookmarks;
+    }
+
+    return bookmarks.filter((bookmark) => {
+      const mangaTitle = bookmark.manga?.title?.toLocaleLowerCase('tr-TR') || '';
+      const alternativeTitles = (bookmark.manga?.alternativeTitles || [])
+        .join(' ')
+        .toLocaleLowerCase('tr-TR');
+
+      return mangaTitle.includes(normalizedQuery) || alternativeTitles.includes(normalizedQuery);
+    });
+  }, [bookmarks, searchQuery]);
+
+  const visibleBookmarks = React.useMemo(
+    () => filteredBookmarks.slice(0, visibleCount),
+    [filteredBookmarks, visibleCount],
+  );
+
+  React.useEffect(() => {
+    setVisibleCount(BOOKMARKS_PAGE_SIZE);
+  }, [searchQuery, bookmarks.length]);
+
+  React.useEffect(() => {
+    const sentinel = loadMoreRef.current;
+
+    if (!sentinel || visibleCount >= filteredBookmarks.length) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) {
+          return;
+        }
+
+        setVisibleCount((current) => Math.min(current + BOOKMARKS_PAGE_SIZE, filteredBookmarks.length));
+      },
+      { rootMargin: '320px 0px', threshold: 0.01 },
+    );
+
+    observer.observe(sentinel);
+
+    return () => observer.disconnect();
+  }, [filteredBookmarks.length, visibleCount]);
 
   const handleRemoveBookmark = async (id: string) => {
     if (!user) return;
@@ -117,97 +174,151 @@ const Bookmarks: React.FC = () => {
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Yer İmleri</h1>
           <p className="mt-2 text-muted-foreground">
-            {bookmarks.length} yer imi kaydedildi
+            {searchQuery.trim()
+              ? `${filteredBookmarks.length} sonuç gösteriliyor`
+              : `${bookmarks.length} yer imi kaydedildi`}
           </p>
+          <div className="relative mt-4 max-w-xl">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchQuery}
+              onChange={(event) => setSearchQuery(event.target.value)}
+              placeholder="Seri adına göre ara..."
+              className="h-11 rounded-xl pl-10"
+            />
+          </div>
         </div>
 
-        {bookmarks.length > 0 ? (
-          <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-            {bookmarks.map((item, index) => {
+        {!isOnline && (
+          <OfflineNotice
+            compact
+            className="mb-6 text-left"
+            description="Çevrimdışıyken yer imleri yerel önbellekten gösterilir. Bu sırada yaptığınız silme işlemleri bağlantı geri geldiğinde otomatik eşitlenir."
+          />
+        )}
+
+        {filteredBookmarks.length > 0 ? (
+          <>
+            <div className="mb-4 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+              <span>{visibleBookmarks.length} / {filteredBookmarks.length} yer imi gösteriliyor</span>
+              {searchQuery.trim() && (
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="font-medium text-primary transition-colors hover:text-primary/80"
+                >
+                  Aramayı temizle
+                </button>
+              )}
+            </div>
+
+            <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+              {visibleBookmarks.map((item, index) => {
               const { manga, chapter } = item;
 
               if (!manga || !chapter) return null;
               
-              const previewImage = (chapter.pages && chapter.pages.length >= item.page) 
-                ? chapter.pages[item.page - 1] 
-                : manga.cover;
+              const previewImage = !isOnline
+                ? manga.cover
+                : (chapter.pages && chapter.pages.length >= item.page)
+                  ? chapter.pages[item.page - 1]
+                  : manga.cover;
 
-              return (
-                <div
-                  key={item.id}
-                  className="group relative flex flex-col rounded-xl border border-border bg-card/50 overflow-hidden transition-all hover:shadow-xl animate-fade-up opacity-0"
-                  style={{ animationDelay: `${0.1 + index * 0.05}s`, animationFillMode: 'forwards' }}
-                >
-                  <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`} className="relative aspect-[4/3] w-full overflow-hidden block sm:aspect-square">
-                    <img
-                      src={previewImage}
-                      alt={manga.title}
-                      className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
-                    />
-                    <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
-                    
-                    <div className="absolute left-2 top-2 flex rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-white shadow-md backdrop-blur-md sm:left-3 sm:top-3 sm:text-xs">
-                        Sayfa {item.page}
-                    </div>
-                    
-                    <div className="absolute bottom-2 right-2 rounded-md bg-black/60 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur-md sm:bottom-3 sm:right-3 sm:text-xs">
-                        {formatDate(item.createdAt)}
-                    </div>
-                  </Link>
+                return (
+                  <div
+                    key={item.id}
+                    className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-all hover:shadow-xl animate-fade-up opacity-0"
+                    style={{ animationDelay: `${0.08 + (index % BOOKMARKS_PAGE_SIZE) * 0.03}s`, animationFillMode: 'forwards' }}
+                  >
+                    <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`} className="relative block aspect-[4/3] w-full overflow-hidden sm:aspect-square">
+                      <img
+                        src={previewImage}
+                        alt={manga.title}
+                        loading="lazy"
+                        decoding="async"
+                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                      />
+                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
-                  <div className="flex flex-1 flex-col p-3 sm:p-4">
-                    <Link to={`/manga/${manga.id}`} className="hover:text-primary transition-colors">
-                        <h3 className="line-clamp-2 text-sm font-bold leading-5 sm:line-clamp-1 sm:text-base">{manga.title}</h3>
+                      <div className="absolute left-2 top-2 flex rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-white shadow-md backdrop-blur-md sm:left-3 sm:top-3 sm:text-xs">
+                          Sayfa {item.page}
+                      </div>
+
+                      <div className="absolute bottom-2 right-2 rounded-md bg-black/60 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur-md sm:bottom-3 sm:right-3 sm:text-xs">
+                          {formatDate(item.createdAt)}
+                      </div>
                     </Link>
-                    
-                    <div className="mt-1 flex items-center justify-between">
-                        <p className="text-xs font-medium text-primary sm:text-sm">
-                            Bölüm {chapter.number}
-                        </p>
-                    </div>
-                    
-                    {item.note && (
-                        <div className="mt-2 line-clamp-2 rounded-lg border border-border/50 bg-secondary/50 p-2 text-center text-xs italic text-muted-foreground sm:mt-3 sm:text-sm">
-                          "{item.note}"
-                        </div>
-                    )}
 
-                    <div className="mt-auto flex w-full gap-2 pt-3 sm:pt-4">
-                        <Button 
-                            variant="default" 
-                            size="sm" 
-                            className="h-9 flex-1 text-xs sm:text-sm"
-                            asChild
-                        >
-                            <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
-                                Oku
-                            </Link>
-                        </Button>
-                        <Button
-                            variant="destructive"
-                            size="icon"
-                            onClick={() => handleRemoveBookmark(item.id)}
-                            className="h-9 w-9 shrink-0"
-                        >
-                            <Trash2 className="h-4 w-4" />
-                        </Button>
+                    <div className="flex flex-1 flex-col p-3 sm:p-4">
+                      <Link to={`/manga/${manga.id}`} className="transition-colors hover:text-primary">
+                          <h3 className="line-clamp-2 text-sm font-bold leading-5 sm:line-clamp-1 sm:text-base">{manga.title}</h3>
+                      </Link>
+
+                      <div className="mt-1 flex items-center justify-between">
+                          <p className="text-xs font-medium text-primary sm:text-sm">
+                              Bölüm {chapter.number}
+                          </p>
+                      </div>
+
+                      {item.note && (
+                          <div className="mt-2 line-clamp-2 rounded-lg border border-border/50 bg-secondary/50 p-2 text-center text-xs italic text-muted-foreground sm:mt-3 sm:text-sm">
+                            "{item.note}"
+                          </div>
+                      )}
+
+                      <div className="mt-auto flex w-full gap-2 pt-3 sm:pt-4">
+                          <Button
+                              variant="default"
+                              size="sm"
+                              className="h-9 flex-1 text-xs sm:text-sm"
+                              asChild
+                          >
+                              <Link to={`/manga/${manga.id}/chapter/${chapter.id}?page=${item.page}`}>
+                                  Oku
+                              </Link>
+                          </Button>
+                          <Button
+                              variant="destructive"
+                              size="icon"
+                              onClick={() => handleRemoveBookmark(item.id)}
+                              className="h-9 w-9 shrink-0"
+                          >
+                              <Trash2 className="h-4 w-4" />
+                          </Button>
+                      </div>
                     </div>
                   </div>
-                </div>
-              );
-            })}
-          </div>
+                );
+              })}
+            </div>
+
+            {visibleCount < filteredBookmarks.length && (
+              <div ref={loadMoreRef} className="flex justify-center py-6 text-sm text-muted-foreground">
+                Daha fazla yer imi yükleniyor...
+              </div>
+            )}
+          </>
         ) : (
           <div className="flex min-h-[40vh] items-center justify-center">
             <div className="text-center">
               <BookMarked className="mx-auto h-16 w-16 text-muted-foreground" />
-              <h2 className="mt-4 text-xl font-semibold">Henüz yer iminiz yok</h2>
+              <h2 className="mt-4 text-xl font-semibold">
+                {searchQuery.trim() ? 'Aramaya uygun yer imi bulunamadı' : 'Henüz yer iminiz yok'}
+              </h2>
               <p className="mt-2 text-muted-foreground">
-                Okurken önemli sayfaları işaretleyin
+                {searchQuery.trim()
+                  ? 'Başka bir seri adı deneyin veya aramayı temizleyin.'
+                  : 'Okurken önemli sayfaları işaretleyin'}
               </p>
-              <Button asChild className="mt-4">
-                <Link to="/browse">Keşfet</Link>
-              </Button>
+              {searchQuery.trim() ? (
+                <Button className="mt-4" onClick={() => setSearchQuery('')}>
+                  Tüm Yer İmlerine Dön
+                </Button>
+              ) : (
+                <Button asChild className="mt-4">
+                  <Link to="/browse">Keşfet</Link>
+                </Button>
+              )}
             </div>
           </div>
         )}

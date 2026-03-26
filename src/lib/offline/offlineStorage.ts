@@ -10,6 +10,7 @@ import {
   OfflinePage,
   PendingReaderSync,
 } from '@/lib/offline/types';
+import { warmPersistentImageUrls } from '@/lib/offline/persistentImageWarmup';
 
 const OFFLINE_DB_NAME = 'toonparrot-offline';
 const OFFLINE_DB_VERSION = 1;
@@ -167,6 +168,7 @@ export const subscribeOfflineLibrary = (listener: () => void) => {
 export const cacheOfflineManga = async (manga: Manga) => {
   const db = await getDb();
   await db.put('mangas', mapMangaToOffline(manga));
+  warmPersistentImageUrls([manga.cover, manga.banner]);
   emitOfflineLibraryChange();
 };
 
@@ -200,6 +202,18 @@ export const cacheOfflineChapterMetadata = async (
 ) => {
   const db = await getDb();
   const existing = await db.get('chapters', chapter.id);
+  const sourcePageUrlsChanged = existing
+    ? existing.pageCount !== chapter.pages.length
+      || existing.sourcePageUrls.length !== chapter.pages.length
+      || existing.sourcePageUrls.some((url, index) => url !== chapter.pages[index])
+    : false;
+  const nextDownloadStatus: OfflineDownloadStatus = existing
+    ? existing.downloadStatus === 'completed' && !sourcePageUrlsChanged
+      ? existing.downloadStatus
+      : existing.downloadStatus === 'completed' && sourcePageUrlsChanged
+        ? (existing.downloadedPages > 0 ? 'partial' : downloadStatus)
+        : downloadStatus
+    : downloadStatus;
   const nextValue: OfflineChapter = existing
     ? {
         ...existing,
@@ -208,7 +222,10 @@ export const cacheOfflineChapterMetadata = async (
         releaseDate: chapter.releaseDate,
         pageCount: chapter.pages.length,
         sourcePageUrls: chapter.pages,
-        downloadStatus: existing.downloadStatus === 'completed' ? existing.downloadStatus : downloadStatus,
+        downloadStatus: nextDownloadStatus,
+        error: sourcePageUrlsChanged && existing.downloadStatus === 'completed'
+          ? 'Bolum icerigi guncellendi. Yeniden indirme onerilir.'
+          : existing.error,
       }
     : mapChapterToOffline(mangaId, chapter, downloadStatus);
 
@@ -445,8 +462,37 @@ export const deleteReadOfflineChaptersForManga = async (mangaId: string) => {
   return readChapterIds.length;
 };
 
-export const buildOfflineReaderPages = async (chapterId: string) => {
-  const pages = await getOfflinePagesForChapter(chapterId);
+export const buildOfflineReaderPages = async (chapterId: string, expectedPageCount?: number) => {
+  const [chapter, pages] = await Promise.all([
+    getOfflineChapter(chapterId),
+    getOfflinePagesForChapter(chapterId),
+  ]);
+  const storedPageCount = pages.length;
+  const storedByteCount = pages.reduce((sum, page) => sum + page.byteSize, 0);
+  const resolvedExpectedPageCount = Math.max(
+    expectedPageCount || 0,
+    chapter?.pageCount || 0,
+    chapter?.sourcePageUrls?.length || 0,
+    storedPageCount,
+  );
+
+  if (
+    chapter
+    && chapter.downloadStatus === 'completed'
+    && storedPageCount < resolvedExpectedPageCount
+  ) {
+    await updateOfflineChapter(chapterId, (current) => ({
+      ...current,
+      downloadStatus: storedPageCount > 0 ? 'partial' : 'failed',
+      downloadedPages: storedPageCount,
+      downloadedBytes: storedByteCount,
+      error: storedPageCount > 0
+        ? `${resolvedExpectedPageCount - storedPageCount} sayfa eksik. Yeniden indirme onerilir.`
+        : 'Cevrimdisi sayfalar bulunamadi. Yeniden indirme gerekiyor.',
+      lastAttemptAt: new Date().toISOString(),
+    }));
+  }
+
   const objectUrls = pages.map((page) => URL.createObjectURL(page.blob));
 
   const resolvedPages: ResolvedReaderPage[] = objectUrls.map((url) => ({
@@ -456,6 +502,9 @@ export const buildOfflineReaderPages = async (chapterId: string) => {
 
   return {
     pages: resolvedPages,
+    storedPageCount,
+    expectedPageCount: resolvedExpectedPageCount,
+    isComplete: storedPageCount > 0 && storedPageCount >= resolvedExpectedPageCount,
     revoke: () => {
       objectUrls.forEach((url) => URL.revokeObjectURL(url));
     },

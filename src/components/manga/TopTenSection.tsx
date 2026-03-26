@@ -6,25 +6,20 @@ import { getTopTenMangas } from '@/lib/database';
 import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 
+const TOP_TEN_CACHE: Record<'today' | 'week' | 'all', Manga[] | null> = {
+  today: null,
+  week: null,
+  all: null,
+};
+
 const TopTenSection: React.FC = () => {
   const cardWidthClass = "w-[calc((100%-16px)/2.3)] sm:w-[calc((100%-120px)/5)]";
   const [timeFilter, setTimeFilter] = useState<'today' | 'week' | 'all'>('today');
-  const [mangas, setMangas] = useState<Manga[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
+  const [mangas, setMangas] = useState<Manga[]>(() => TOP_TEN_CACHE.today ?? []);
+  const [isLoading, setIsLoading] = useState(() => TOP_TEN_CACHE.today === null);
   const scrollRef = useRef<HTMLDivElement>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
-
-  useEffect(() => {
-    const fetchTopTen = async () => {
-      setIsLoading(true);
-      const data = await getTopTenMangas(timeFilter);
-      setMangas(data);
-      setIsLoading(false);
-      setTimeout(updateArrows, 200);
-    };
-    fetchTopTen();
-  }, [timeFilter]);
 
   const updateArrows = () => {
     if (scrollRef.current) {
@@ -55,6 +50,42 @@ const TopTenSection: React.FC = () => {
     window.addEventListener('resize', updateArrows);
     return () => window.removeEventListener('resize', updateArrows);
   }, []);
+
+  useEffect(() => {
+    let active = true;
+    const cachedMangas = TOP_TEN_CACHE[timeFilter];
+
+    if (cachedMangas) {
+      setMangas(cachedMangas);
+      setIsLoading(false);
+      window.setTimeout(updateArrows, 50);
+    } else {
+      setIsLoading(true);
+    }
+
+    const fetchTopTen = async () => {
+      try {
+        const data = await getTopTenMangas(timeFilter);
+        if (!active) {
+          return;
+        }
+
+        TOP_TEN_CACHE[timeFilter] = data;
+        setMangas(data);
+      } finally {
+        if (active) {
+          setIsLoading(false);
+          window.setTimeout(updateArrows, 200);
+        }
+      }
+    };
+
+    fetchTopTen();
+
+    return () => {
+      active = false;
+    };
+  }, [timeFilter]);
 
   return (
     <section className="py-12 relative group/section overflow-visible">

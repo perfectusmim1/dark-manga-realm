@@ -1,4 +1,5 @@
 import { supabase } from '@/lib/supabase';
+import { getOfflinePreferences } from '@/lib/offline/preferences';
 
 export interface SiteSecuritySettings {
   devtoolsProtectionEnabled: boolean;
@@ -8,6 +9,7 @@ export interface SiteSecuritySettings {
 }
 
 const SITE_SECURITY_EVENT = 'site-security-settings-updated';
+const SITE_SECURITY_CACHE_KEY = 'toonparrot:site-security-settings-cache';
 
 const normalizeSiteSecuritySettings = (payload: any): SiteSecuritySettings => ({
   devtoolsProtectionEnabled: Boolean(payload?.devtools_protection_enabled),
@@ -16,7 +18,51 @@ const normalizeSiteSecuritySettings = (payload: any): SiteSecuritySettings => ({
   updatedBy: payload?.updated_by ?? null,
 });
 
+const isEffectivelyOnline = () => (
+  typeof navigator === 'undefined'
+  || (navigator.onLine && !getOfflinePreferences().forceOfflineMode)
+);
+
+const getDefaultSiteSecuritySettings = (): SiteSecuritySettings => ({
+  devtoolsProtectionEnabled: false,
+  adblockWarningEnabled: false,
+  updatedAt: null,
+  updatedBy: null,
+});
+
+const readCachedSiteSecuritySettings = (): SiteSecuritySettings => {
+  if (typeof window === 'undefined') {
+    return getDefaultSiteSecuritySettings();
+  }
+
+  const raw = window.localStorage.getItem(SITE_SECURITY_CACHE_KEY);
+  if (!raw) {
+    return getDefaultSiteSecuritySettings();
+  }
+
+  try {
+    return {
+      ...getDefaultSiteSecuritySettings(),
+      ...JSON.parse(raw),
+    };
+  } catch {
+    return getDefaultSiteSecuritySettings();
+  }
+};
+
+const writeCachedSiteSecuritySettings = (settings: SiteSecuritySettings) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.localStorage.setItem(SITE_SECURITY_CACHE_KEY, JSON.stringify(settings));
+};
+
 export const getSiteSecuritySettings = async (): Promise<SiteSecuritySettings> => {
+  if (!isEffectivelyOnline()) {
+    return readCachedSiteSecuritySettings();
+  }
+
   const { data, error } = await supabase.rpc('get_site_security_settings');
 
   if (error) {
@@ -24,7 +70,9 @@ export const getSiteSecuritySettings = async (): Promise<SiteSecuritySettings> =
   }
 
   const row = Array.isArray(data) ? data[0] : data;
-  return normalizeSiteSecuritySettings(row);
+  const normalized = normalizeSiteSecuritySettings(row);
+  writeCachedSiteSecuritySettings(normalized);
+  return normalized;
 };
 
 export const setDevtoolsProtectionEnabled = async (
@@ -64,6 +112,8 @@ export const setAdblockWarningEnabled = async (
 export const notifySiteSecuritySettingsUpdated = (
   settings: SiteSecuritySettings
 ): void => {
+  writeCachedSiteSecuritySettings(settings);
+
   if (typeof window === 'undefined') {
     return;
   }
