@@ -15,6 +15,8 @@ import {
     getReadingTimeOverview,
     getReadingTimeTimeline,
 } from '@/lib/profile';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const RANGE_LABELS: Record<ReadingTimeRange, string> = {
     today: 'Bugün',
@@ -47,6 +49,7 @@ const OverviewCard = ({
 
 const ReadingTime: React.FC = () => {
     const { user } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const [range, setRange] = React.useState<ReadingTimeRange>('week');
     const [expandedDays, setExpandedDays] = React.useState<Record<string, boolean>>({});
     const [overview, setOverview] = React.useState<ReadingTimeOverview>({
@@ -58,6 +61,16 @@ const ReadingTime: React.FC = () => {
     const [timeline, setTimeline] = React.useState<ReadingTimeDayBucket[]>([]);
     const [isOverviewLoading, setIsOverviewLoading] = React.useState(true);
     const [isTimelineLoading, setIsTimelineLoading] = React.useState(true);
+
+    if (user && !isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Okuma süresi istatistikleri güvenlik nedeniyle sadece internet bağlantısıyla görüntülenebilir."
+                actionHref="/history"
+                actionLabel="Okuma Geçmişine Git"
+            />
+        );
+    }
 
     React.useEffect(() => {
         if (!user) {

@@ -1,6 +1,33 @@
 import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow } from './types';
 import { supabase } from './supabase';
 import { normalizeCommentNavigationLink } from './commentNavigation';
+import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import {
+    addCachedBookmark,
+    addCachedFollowedManga,
+    areBookmarksInitialized,
+    areFavoritesInitialized,
+    areFollowsInitialized,
+    createClientEntityId,
+    getCachedBookmarksState,
+    getCachedFavoritesState,
+    getCachedFollowedMangaIds,
+    isEffectivelyOnline,
+    queueBookmarkAdd,
+    queueBookmarkRemove,
+    queueFavoriteRemove,
+    queueFavoriteUpsert,
+    queueFollowRemove,
+    queueFollowUpsert,
+    removeCachedBookmark,
+    removeCachedFavorite,
+    removeCachedFollowedManga,
+    setCachedBookmarks,
+    setCachedFavorites,
+    setCachedFollowedMangaIds,
+    upsertCachedFavorite,
+    findCachedBookmark,
+} from '@/lib/offline/userSync';
 
 const STORAGE_KEYS = {
     READER_SETTINGS: 'manga_reader_settings',
@@ -405,35 +432,89 @@ export const syncLocalChapterReadFallbackToRemote = async (userId: string): Prom
 // ==================== FAVORITES (USER-SPECIFIC) ====================
 
 export const getFavorites = async (userId: string): Promise<Favorite[]> => {
-    const { data, error } = await supabase
-        .from('favorites')
-        .select(`
-            *,
-            manga:mangas (*)
-        `)
-        .eq('user_id', userId);
+    if (!userId) {
+        return [];
+    }
 
-    if (error) return [];
-    return data.map(f => ({
-        userId: f.user_id,
-        mangaId: f.manga_id,
-        category: f.category as LibraryCategory,
-        addedAt: f.added_at,
-        mangaTitle: f.manga?.title,
-        mangaCover: f.manga?.cover
-    }));
+    if (!areFavoritesInitialized(userId) && isEffectivelyOnline()) {
+        const { data, error } = await supabase
+            .from('favorites')
+            .select(`
+                *,
+                manga:mangas (*)
+            `)
+            .eq('user_id', userId);
+
+        if (!error) {
+            const favorites = (data || []).map(f => ({
+                userId: f.user_id,
+                mangaId: f.manga_id,
+                category: f.category as LibraryCategory,
+                addedAt: f.added_at,
+                mangaTitle: f.manga?.title,
+                mangaCover: f.manga?.cover
+            }));
+            setCachedFavorites(userId, favorites);
+            return favorites;
+        }
+    }
+
+    return getCachedFavoritesState(userId);
 };
 
-export const addFavorite = async (userId: string, mangaId: string, category: LibraryCategory = 'reading'): Promise<void> => {
-    await supabase.from('favorites').upsert({
+export const addFavorite = async (
+    userId: string,
+    mangaId: string,
+    category: LibraryCategory = 'reading',
+    metadata?: { mangaTitle?: string; mangaCover?: string },
+): Promise<void> => {
+    const favorite: Favorite = {
+        userId,
+        mangaId,
+        category,
+        addedAt: new Date().toISOString(),
+        mangaTitle: metadata?.mangaTitle,
+        mangaCover: metadata?.mangaCover,
+    };
+
+    upsertCachedFavorite(userId, favorite);
+
+    if (!isEffectivelyOnline()) {
+        queueFavoriteUpsert(userId, favorite);
+        return;
+    }
+
+    const { error } = await supabase.from('favorites').upsert({
         user_id: userId,
         manga_id: mangaId,
         category,
-        added_at: new Date().toISOString()
+        added_at: favorite.addedAt,
     });
+
+    if (error) {
+        queueFavoriteUpsert(userId, favorite);
+        throw error;
+    }
 };
 
 export const updateFavoriteCategory = async (userId: string, mangaId: string, category: LibraryCategory): Promise<void> => {
+    const existing = getCachedFavoritesState(userId).find((favorite) => favorite.mangaId === mangaId);
+    const nextFavorite: Favorite = {
+        userId,
+        mangaId,
+        category,
+        addedAt: existing?.addedAt || new Date().toISOString(),
+        mangaTitle: existing?.mangaTitle,
+        mangaCover: existing?.mangaCover,
+    };
+
+    upsertCachedFavorite(userId, nextFavorite);
+
+    if (!isEffectivelyOnline()) {
+        queueFavoriteUpsert(userId, nextFavorite);
+        return;
+    }
+
     const { error } = await supabase
         .from('favorites')
         .update({ category })
@@ -442,25 +523,34 @@ export const updateFavoriteCategory = async (userId: string, mangaId: string, ca
 
     if (error) {
         console.error('Failed to update favorite category:', error);
+        queueFavoriteUpsert(userId, nextFavorite);
         throw error;
     }
 };
 
 export const removeFavorite = async (userId: string, mangaId: string): Promise<void> => {
-    await supabase
+    removeCachedFavorite(userId, mangaId);
+
+    if (!isEffectivelyOnline()) {
+        queueFavoriteRemove(userId, mangaId);
+        return;
+    }
+
+    const { error } = await supabase
         .from('favorites')
         .delete()
         .eq('user_id', userId)
         .eq('manga_id', mangaId);
+
+    if (error) {
+        queueFavoriteRemove(userId, mangaId);
+        throw error;
+    }
 };
 
 export const isFavorite = async (userId: string, mangaId: string): Promise<boolean> => {
-    const { count } = await supabase
-        .from('favorites')
-        .select('*', { count: 'exact', head: true })
-        .eq('user_id', userId)
-        .eq('manga_id', mangaId);
-    return !!count;
+    const favorites = await getFavorites(userId);
+    return favorites.some((favorite) => favorite.mangaId === mangaId);
 };
 
 // ==================== READING PROGRESS (USER-SPECIFIC) ====================
@@ -489,6 +579,39 @@ export const getReadingHistory = async (userId: string): Promise<ReadingProgress
 };
 
 export const getReadingHistoryEntries = async (userId: string): Promise<ReadingHistoryEntry[]> => {
+    const buildLocalReadingHistoryEntries = async (): Promise<ReadingHistoryEntry[]> => {
+        const latestEntriesByManga = getLocalChapterReadEntries(userId)
+            .reduce<Record<string, ChapterReadProgressEntry>>((map, entry) => {
+                const current = map[entry.mangaId];
+                if (!current || compareLastReadDesc(entry.lastRead, current.lastRead) < 0) {
+                    map[entry.mangaId] = entry;
+                }
+                return map;
+            }, {});
+
+        const localEntries = await Promise.all(
+            Object.values(latestEntriesByManga).map(async (entry) => {
+                const offlineManga = await getOfflineMangaDetail(entry.mangaId);
+                const offlineChapter = offlineManga?.chapters.find((chapter) => chapter.id === entry.chapterId);
+
+                return {
+                    userId: entry.userId,
+                    mangaId: entry.mangaId,
+                    chapterId: entry.chapterId,
+                    chapterNumber: entry.chapterNumber,
+                    page: entry.page,
+                    lastRead: entry.lastRead,
+                    mangaTitle: offlineManga?.title,
+                    mangaCover: offlineManga?.cover,
+                    mangaAlternativeTitles: offlineManga?.alternativeTitles || [],
+                    chapterTitle: offlineChapter?.title,
+                } satisfies ReadingHistoryEntry;
+            }),
+        );
+
+        return sortByLastReadDesc(localEntries);
+    };
+
     const { data, error } = await supabase
         .from('reading_progress')
         .select(`
@@ -505,6 +628,11 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
 
     if (error) {
         console.error('Reading history entries fetch error:', error);
+        const localEntries = await buildLocalReadingHistoryEntries();
+        if (localEntries.length > 0) {
+            return localEntries;
+        }
+
         const fallbackHistory = await getReadingHistory(userId);
         return sortByLastReadDesc(fallbackHistory.map((entry) => ({
             ...entry,
@@ -846,6 +974,24 @@ export const updateReadingProgress = async (userId: string, progress: Omit<Readi
 };
 
 export const getLatestProgress = async (userId: string, mangaId: string): Promise<ReadingProgress | undefined> => {
+    const buildFallbackProgress = async () => {
+        const chapterProgressMap = await getChapterReadProgressMap(userId, mangaId);
+        const latestChapterProgress = sortByLastReadDesc(Object.values(chapterProgressMap))[0];
+
+        if (!latestChapterProgress) {
+            return undefined;
+        }
+
+        return {
+            userId,
+            mangaId,
+            chapterId: latestChapterProgress.chapterId,
+            chapterNumber: latestChapterProgress.chapterNumber,
+            page: latestChapterProgress.page,
+            lastRead: latestChapterProgress.lastRead,
+        } satisfies ReadingProgress;
+    };
+
     const { data, error } = await supabase
         .from('reading_progress')
         .select('*')
@@ -853,7 +999,10 @@ export const getLatestProgress = async (userId: string, mangaId: string): Promis
         .eq('manga_id', mangaId)
         .maybeSingle();
 
-    if (error || !data) return undefined;
+    if (error || !data) {
+        return buildFallbackProgress();
+    }
+
     return {
         ...data,
         userId: data.user_id,
@@ -871,20 +1020,64 @@ export const removeFromHistory = async (userId: string, mangaId: string): Promis
 // ==================== BOOKMARKS (USER-SPECIFIC) ====================
 
 export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
-    const { data } = await supabase.from('bookmarks').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    return (data || []).map(b => ({
-        ...b,
-        userId: b.user_id,
-        mangaId: b.manga_id,
-        chapterId: b.chapter_id,
-        chapterNumber: Number(b.chapter_number),
-        createdAt: b.created_at
-    }));
+    if (!userId) {
+        return [];
+    }
+
+    if (!areBookmarksInitialized(userId) && isEffectivelyOnline()) {
+        const { data, error } = await supabase
+            .from('bookmarks')
+            .select('*')
+            .eq('user_id', userId)
+            .order('created_at', { ascending: false });
+
+        if (!error) {
+            const bookmarks = (data || []).map(b => ({
+                ...b,
+                userId: b.user_id,
+                mangaId: b.manga_id,
+                chapterId: b.chapter_id,
+                chapterNumber: Number(b.chapter_number),
+                createdAt: b.created_at
+            }));
+            setCachedBookmarks(userId, bookmarks);
+            return bookmarks;
+        }
+    }
+
+    return getCachedBookmarksState(userId);
 };
 
 export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'userId'>): Promise<void> => {
-    // Check existing bookmark
-    const { data: existing } = await supabase.from('bookmarks')
+    const existingBookmark = getCachedBookmarksState(userId).find((entry) => (
+        entry.mangaId === bookmark.mangaId
+        && entry.chapterId === bookmark.chapterId
+        && entry.page === bookmark.page
+    ));
+
+    if (existingBookmark) {
+        throw new Error('ALREADY_EXISTS');
+    }
+
+    const nextBookmark: Bookmark = {
+        id: createClientEntityId(),
+        userId,
+        mangaId: bookmark.mangaId,
+        chapterId: bookmark.chapterId,
+        chapterNumber: bookmark.chapterNumber,
+        page: bookmark.page,
+        note: bookmark.note,
+        createdAt: new Date().toISOString(),
+    };
+
+    addCachedBookmark(userId, nextBookmark);
+
+    if (!isEffectivelyOnline()) {
+        queueBookmarkAdd(userId, nextBookmark);
+        return;
+    }
+
+    const { data: existing, error: existingError } = await supabase.from('bookmarks')
         .select('id')
         .eq('user_id', userId)
         .eq('manga_id', bookmark.mangaId)
@@ -892,27 +1085,51 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         .eq('page', bookmark.page)
         .maybeSingle();
 
+    if (existingError) {
+        queueBookmarkAdd(userId, nextBookmark);
+        throw existingError;
+    }
+
     if (existing) {
+        removeCachedBookmark(userId, nextBookmark.id || '');
         throw new Error('ALREADY_EXISTS');
     }
 
     const { error } = await supabase.from('bookmarks').insert({
+        id: nextBookmark.id,
         user_id: userId,
         manga_id: bookmark.mangaId,
         chapter_id: bookmark.chapterId,
         chapter_number: bookmark.chapterNumber,
         page: bookmark.page,
         note: bookmark.note,
-        created_at: new Date().toISOString()
+        created_at: nextBookmark.createdAt,
     });
 
     if (error) {
+        queueBookmarkAdd(userId, nextBookmark);
         throw error;
     }
 };
 
 export const removeBookmark = async (userId: string, id: string): Promise<void> => {
-    await supabase.from('bookmarks').delete().eq('id', id).eq('user_id', userId);
+    const bookmark = findCachedBookmark(userId, id);
+    removeCachedBookmark(userId, id);
+
+    if (!isEffectivelyOnline()) {
+        if (bookmark) {
+            queueBookmarkRemove(userId, bookmark);
+        }
+        return;
+    }
+
+    const { error } = await supabase.from('bookmarks').delete().eq('id', id).eq('user_id', userId);
+    if (error) {
+        if (bookmark) {
+            queueBookmarkRemove(userId, bookmark);
+        }
+        throw error;
+    }
 };
 
 // ==================== READER SETTINGS (KEEP LOCAL) ====================
@@ -992,16 +1209,52 @@ export const clearNotifications = async (userId: string): Promise<void> => {
 // ==================== FOLLOWS ====================
 
 export const followManga = async (userId: string, mangaId: string): Promise<void> => {
-    await supabase.from('follows').upsert({ user_id: userId, manga_id: mangaId });
+    addCachedFollowedManga(userId, mangaId);
+
+    if (!isEffectivelyOnline()) {
+        queueFollowUpsert(userId, mangaId);
+        return;
+    }
+
+    const { error } = await supabase.from('follows').upsert({ user_id: userId, manga_id: mangaId });
+    if (error) {
+        queueFollowUpsert(userId, mangaId);
+        throw error;
+    }
 };
 
 export const unfollowManga = async (userId: string, mangaId: string): Promise<void> => {
-    await supabase.from('follows').delete().eq('user_id', userId).eq('manga_id', mangaId);
+    removeCachedFollowedManga(userId, mangaId);
+
+    if (!isEffectivelyOnline()) {
+        queueFollowRemove(userId, mangaId);
+        return;
+    }
+
+    const { error } = await supabase.from('follows').delete().eq('user_id', userId).eq('manga_id', mangaId);
+    if (error) {
+        queueFollowRemove(userId, mangaId);
+        throw error;
+    }
 };
 
 export const isFollowingManga = async (userId: string, mangaId: string): Promise<boolean> => {
-    const { count } = await supabase.from('follows').select('*', { count: 'exact', head: true }).eq('user_id', userId).eq('manga_id', mangaId);
-    return !!count;
+    if (!userId) {
+        return false;
+    }
+
+    if (!areFollowsInitialized(userId) && isEffectivelyOnline()) {
+        const { data, error } = await supabase
+            .from('follows')
+            .select('manga_id')
+            .eq('user_id', userId);
+
+        if (!error) {
+            setCachedFollowedMangaIds(userId, (data || []).map((entry: any) => entry.manga_id));
+        }
+    }
+
+    return getCachedFollowedMangaIds(userId).includes(mangaId);
 };
 
 // Legacy auth functions - these are now in AuthContext but some components might still call them

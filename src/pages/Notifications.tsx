@@ -27,11 +27,14 @@ import {
 import { Notification } from '@/lib/types';
 import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import { toast } from 'sonner';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 type FilterType = 'all' | 'comments' | 'chapters' | 'follows';
 
 const Notifications: React.FC = () => {
     const { user } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const navigate = useNavigate();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [filter, setFilter] = useState<FilterType>('all');
@@ -140,6 +143,16 @@ const Notifications: React.FC = () => {
                     </div>
                 </main>
             </div>
+        );
+    }
+
+    if (!isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Bildirimler için internete bağlanın."
+                actionHref="/downloads"
+                actionLabel="İndirilenlere Git"
+            />
         );
     }
 

@@ -15,13 +15,26 @@ import CommentSection from '@/components/comments/CommentSection';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import EntitySeriesGrid from '@/components/entities/EntitySeriesGrid';
 import { supabase } from '@/lib/supabase'; // Added for like check
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const CharacterDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const [character, setCharacter] = useState<Character | null>(null);
     const [loading, setLoading] = useState(true);
     const [isLiked, setIsLiked] = useState(false);
+
+    if (!isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Karakter sayfaları internet bağlantısı gerektirir."
+                actionHref="/downloads"
+                actionLabel="İndirilenlere Git"
+            />
+        );
+    }
 
     useEffect(() => {
         const fetchCharacter = async () => {

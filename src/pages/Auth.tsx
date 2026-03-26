@@ -5,12 +5,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAuth } from '@/contexts/AuthContext';
+import { PASSWORD_MIN_LENGTH, getPasswordRequirementError, getPasswordRequirementStatus } from '@/lib/auth/passwordPolicy';
 import { toast } from 'sonner';
 
 type AuthView = 'login' | 'register' | 'forgot-password' | 'email-check' | 'reset-password' | 'verify-mfa';
 type EmailNoticeMode = 'signup' | 'recovery';
-
-const MIN_PASSWORD_LENGTH = 8;
 
 const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
   error instanceof Error ? error.message : fallback
@@ -45,6 +44,8 @@ const Auth: React.FC = () => {
     resendEmail,
   } = useAuth();
   const navigate = useNavigate();
+  const registerPasswordStatus = getPasswordRequirementStatus(formData.password, PASSWORD_MIN_LENGTH);
+  const resetPasswordStatus = getPasswordRequirementStatus(formData.newPassword, PASSWORD_MIN_LENGTH);
 
   useEffect(() => {
     const type = searchParams.get('type');
@@ -96,8 +97,9 @@ const Auth: React.FC = () => {
   const handleRegister = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (formData.password.length < MIN_PASSWORD_LENGTH) {
-      toast.error(`Şifre en az ${MIN_PASSWORD_LENGTH} karakter olmalıdır`);
+    const passwordError = getPasswordRequirementError(formData.password, PASSWORD_MIN_LENGTH);
+    if (passwordError) {
+      toast.error(passwordError);
       return;
     }
 
@@ -163,8 +165,9 @@ const Auth: React.FC = () => {
   const handleResetPassword = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (formData.newPassword.length < MIN_PASSWORD_LENGTH) {
-      toast.error(`Şifre en az ${MIN_PASSWORD_LENGTH} karakter olmalıdır`);
+    const passwordError = getPasswordRequirementError(formData.newPassword, PASSWORD_MIN_LENGTH);
+    if (passwordError) {
+      toast.error(passwordError);
       return;
     }
 
@@ -336,8 +339,16 @@ const Auth: React.FC = () => {
                   </button>
                 </div>
                 {view === 'register' && (
-                  <p className="text-xs text-muted-foreground">
-                    En az {MIN_PASSWORD_LENGTH} karakter kullanın. Tahmin edilmesi kolay şifrelerden kaçının.
+                  <p
+                    className={`text-xs ${
+                      registerPasswordStatus.tone === 'error'
+                        ? 'text-amber-400'
+                        : registerPasswordStatus.tone === 'success'
+                          ? 'text-emerald-400'
+                          : 'text-muted-foreground'
+                    }`}
+                  >
+                    {registerPasswordStatus.message}
                   </p>
                 )}
               </div>
@@ -442,8 +453,16 @@ const Auth: React.FC = () => {
                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                   </button>
                 </div>
-                <p className="text-xs text-muted-foreground">
-                  En az {MIN_PASSWORD_LENGTH} karakter kullanın. Şifre sıfırlama MFA doğrulamasını kapatmaz.
+                <p
+                  className={`text-xs ${
+                    resetPasswordStatus.tone === 'error'
+                      ? 'text-amber-400'
+                      : resetPasswordStatus.tone === 'success'
+                        ? 'text-emerald-400'
+                        : 'text-muted-foreground'
+                  }`}
+                >
+                  {resetPasswordStatus.message} Şifre sıfırlama MFA doğrulamasını kapatmaz.
                 </p>
               </div>
             )}

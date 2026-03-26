@@ -10,12 +10,41 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFavorites } from '@/lib/storage';
 import { getLikedReadingLists, getMangaById, LikedReadingListPreview } from '@/lib/database';
-import { Manga } from '@/lib/types';
+import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import OfflineNotice from '@/components/offline/OfflineNotice';
+import { Manga, Favorite } from '@/lib/types';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { toast } from 'sonner';
 import GridSkeleton from '@/components/skeletons/GridSkeleton';
 
+const FAVORITES_FALLBACK_COVER = `data:image/svg+xml;charset=utf-8,${encodeURIComponent(
+  '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600"><rect width="400" height="600" fill="#111827"/><rect x="32" y="32" width="336" height="536" rx="28" fill="#1f2937"/><text x="200" y="286" fill="#93c5fd" font-size="34" font-family="Arial, sans-serif" text-anchor="middle">Toonparrot</text><text x="200" y="332" fill="#e5e7eb" font-size="22" font-family="Arial, sans-serif" text-anchor="middle">Çevrimdışı</text></svg>'
+)}`;
+
+const buildFavoriteFallbackManga = (favorite: Favorite): Manga => ({
+  id: favorite.mangaId,
+  title: favorite.mangaTitle || 'Favori seri',
+  alternativeTitles: [],
+  cover: favorite.mangaCover || FAVORITES_FALLBACK_COVER,
+  banner: favorite.mangaCover || FAVORITES_FALLBACK_COVER,
+  author: 'Çevrimdışı önbellek',
+  artist: '',
+  status: 'ongoing',
+  genres: [],
+  description: 'Bu seri çevrimdışı modda önbelleğe alınmış temel bilgilerle gösteriliyor.',
+  ratings: [],
+  views: 0,
+  chapters: [],
+  lastUpdated: favorite.addedAt,
+  createdAt: favorite.addedAt,
+  type: 'manga',
+  averageRating: 0,
+  reviewCount: 0,
+});
+
 const Favorites: React.FC = () => {
   const { user } = useAuth();
+  const { isOnline } = useEffectiveOnlineStatus();
   const [favoriteManga, setFavoriteManga] = React.useState<Manga[]>([]);
   const [favoriteLists, setFavoriteLists] = React.useState<LikedReadingListPreview[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
@@ -29,13 +58,17 @@ const Favorites: React.FC = () => {
 
       try {
         setIsLoading(true);
-        const [favorites, likedLists] = await Promise.all([
-          getFavorites(user.id),
-          getLikedReadingLists(user.id),
-        ]);
-        const mangaPromises = favorites.map(f => getMangaById(f.mangaId));
-        const mangas = await Promise.all(mangaPromises);
-        setFavoriteManga(mangas.filter(Boolean) as Manga[]);
+        const favorites = await getFavorites(user.id);
+        const likedLists = isOnline ? await getLikedReadingLists(user.id) : [];
+        const mangas = await Promise.all(
+          favorites.map(async (favorite) => (
+            (isOnline ? await getMangaById(favorite.mangaId) : undefined)
+            || await getOfflineMangaDetail(favorite.mangaId)
+            || buildFavoriteFallbackManga(favorite)
+          )),
+        );
+
+        setFavoriteManga(mangas);
         setFavoriteLists(likedLists);
       } catch (err) {
         console.error('Favorites load error:', err);
@@ -45,8 +78,8 @@ const Favorites: React.FC = () => {
       }
     };
 
-    loadFavorites();
-  }, [user]);
+    void loadFavorites();
+  }, [isOnline, user]);
 
   if (isLoading && user) {
     return (
@@ -123,7 +156,12 @@ const Favorites: React.FC = () => {
           </TabsContent>
 
           <TabsContent value="lists" className="mt-0">
-            {favoriteLists.length > 0 ? (
+            {!isOnline ? (
+              <OfflineNotice
+                compact
+                description="Beğendiğiniz okuma listelerini görmek için internete bağlanın."
+              />
+            ) : favoriteLists.length > 0 ? (
               <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
                 {favoriteLists.map((list, index) => (
                   <Link

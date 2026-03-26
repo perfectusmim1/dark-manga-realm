@@ -27,10 +27,10 @@ import {
     removeFavorite,
     getLatestProgress
 } from '../lib/storage';
-import { getMangaById } from '@/lib/database';
 import { Manga, LibraryCategory, Favorite, ReadingProgress } from '@/lib/types';
 import { toast } from 'sonner';
 import LibrarySkeleton from '@/components/skeletons/LibrarySkeleton';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 interface LibraryItem {
     favorite: Favorite;
@@ -48,6 +48,7 @@ const categoryConfig: { key: LibraryCategory; label: string; icon: React.Element
 
 const Library: React.FC = () => {
     const { user } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const [activeTab, setActiveTab] = useState<LibraryCategory | 'all'>('all');
     const [libraryItems, setLibraryItems] = useState<any[]>([]);
     const [isInitialLoading, setIsInitialLoading] = useState(true);
@@ -104,7 +105,11 @@ const Library: React.FC = () => {
         if (!user) return;
         try {
             await updateFavoriteCategory(user.id, mangaId, category);
-            toast.success('Kategori güncellendi');
+            toast.success(
+                isOnline
+                    ? 'Kategori güncellendi'
+                    : 'Kategori güncellendi, tekrar çevrimiçi olduğunda eşitlenecek'
+            );
             await fetchLibrary();
         } catch (err) {
             console.error('Category update failed:', err);
@@ -114,9 +119,18 @@ const Library: React.FC = () => {
 
     const handleRemove = async (mangaId: string) => {
         if (!user) return;
-        await removeFavorite(user.id, mangaId);
-        fetchLibrary();
-        toast.success('Kütüphaneden kaldırıldı');
+        try {
+            await removeFavorite(user.id, mangaId);
+            await fetchLibrary();
+            toast.success(
+                isOnline
+                    ? 'Kütüphaneden kaldırıldı'
+                    : 'Kütüphaneden kaldırıldı, tekrar çevrimiçi olduğunda eşitlenecek'
+            );
+        } catch (err) {
+            console.error('Favorite removal failed:', err);
+            toast.error('Seri kütüphaneden kaldırılamadı');
+        }
     };
 
     const getCategoryBadge = (category: LibraryCategory | undefined) => {

@@ -8,6 +8,8 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { ArrowLeft, Edit, Globe, Lock, ImageIcon, Trophy, User } from 'lucide-react';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const defaultTiers = [
   { id: 'S', color: 'bg-red-500' },
@@ -21,6 +23,7 @@ const defaultTiers = [
 export default function TierListView() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
+  const { isOnline } = useEffectiveOnlineStatus();
   const navigate = useNavigate();
 
   const [tierList, setTierList] = useState<any>(null);
@@ -30,6 +33,16 @@ export default function TierListView() {
   });
   const [loading, setLoading] = useState(true);
   const [ownerName, setOwnerName] = useState('');
+
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        description="Tier listesi görüntülemek için internete bağlanın."
+        actionHref="/downloads"
+        actionLabel="İndirilenlere Git"
+      />
+    );
+  }
 
   const isOwner = user?.id === tierList?.user_id;
 

@@ -82,6 +82,7 @@ export interface Chapter {
 export interface User {
   id: string;
   username: string;
+  usernameChangedAt?: string;
   email: string;
   avatar?: string;
   role?: 'user' | 'admin' | 'moderator';
@@ -210,6 +211,7 @@ export interface Comment {
   pageNumber?: number;
   userId: string;
   username: string;
+  usernameChangedAt?: string;
   userAvatar?: string;
   userRole?: User['role'];
   content: string;

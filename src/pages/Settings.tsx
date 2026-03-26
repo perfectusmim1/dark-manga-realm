@@ -40,6 +40,8 @@ import {
 } from '@/components/ui/dialog';
 import { getBlockedUsers, unblockUser } from '@/lib/profile';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import { PASSWORD_MIN_LENGTH, getPasswordRequirementError, getPasswordRequirementStatus } from '@/lib/auth/passwordPolicy';
 import type { User as AppUser } from '@/lib/types';
 
 type PreferenceState = {
@@ -138,6 +140,20 @@ const getTotpQrSvgMarkup = (qrCode: string | undefined) => {
     return normalized.slice(svgIndex);
 };
 
+const getNextUsernameChangeDate = (usernameChangedAt?: string) => {
+    if (!usernameChangedAt) {
+        return null;
+    }
+
+    const nextDate = new Date(usernameChangedAt);
+    if (Number.isNaN(nextDate.getTime())) {
+        return null;
+    }
+
+    nextDate.setDate(nextDate.getDate() + 7);
+    return nextDate;
+};
+
 const Settings: React.FC = () => {
     const {
         user,
@@ -153,6 +169,7 @@ const Settings: React.FC = () => {
         disableTwoFactor,
     } = useAuth();
     const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
+    const { isOnline } = useEffectiveOnlineStatus();
 
     // Profile state
     const [username, setUsername] = useState(user?.username || '');
@@ -167,6 +184,7 @@ const Settings: React.FC = () => {
     const [showPassword, setShowPassword] = useState(false);
     const [isUpdatingPassword, setIsUpdatingPassword] = useState(false);
     const [isSendingRecoveryLink, setIsSendingRecoveryLink] = useState(false);
+    const newPasswordStatus = getPasswordRequirementStatus(newPassword, PASSWORD_MIN_LENGTH);
 
     // MFA state
     const [disableDialogOpen, setDisableDialogOpen] = useState(false);
@@ -187,9 +205,16 @@ const Settings: React.FC = () => {
     const [blockedUsers, setBlockedUsers] = useState<BlockedUser[]>([]);
     const [isBlockedUsersLoading, setIsBlockedUsersLoading] = useState(true);
     const [unblockingUserId, setUnblockingUserId] = useState<string | null>(null);
+    const onlineRequiredMessage = 'Bu işlem için internete bağlanın';
+    const getPreferenceSuccessMessage = (message: string) =>
+        isOnline ? message : `${message}, tekrar çevrimiçi olduğunda eşitlenecek`;
+    const nextUsernameChangeAt = getNextUsernameChangeDate(user?.usernameChangedAt);
+    const isUsernameCooldownActive = Boolean(
+        nextUsernameChangeAt && nextUsernameChangeAt.getTime() > Date.now()
+    );
 
     useEffect(() => {
-        if (!user?.id) {
+        if (!user?.id || !isOnline) {
             setBlockedUsers([]);
             setIsBlockedUsersLoading(false);
             return;
@@ -200,7 +225,7 @@ const Settings: React.FC = () => {
             setBlockedUsers((users || []) as BlockedUser[]);
             setIsBlockedUsersLoading(false);
         });
-    }, [user?.id]);
+    }, [isOnline, user?.id]);
 
     useEffect(() => {
         setUsername(user?.username || '');
@@ -214,6 +239,10 @@ const Settings: React.FC = () => {
     const handleUpdateProfile = async () => {
         if (!username.trim()) {
             toast.error('Kullanıcı adı boş olamaz');
+            return;
+        }
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
             return;
         }
 
@@ -233,8 +262,13 @@ const Settings: React.FC = () => {
     };
 
     const handleUpdatePassword = async () => {
-        if (newPassword.length < 8) {
-            toast.error('Şifre en az 8 karakter olmalıdır');
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
+        const passwordError = getPasswordRequirementError(newPassword, PASSWORD_MIN_LENGTH);
+        if (passwordError) {
+            toast.error(passwordError);
             return;
         }
         if (newPassword !== confirmPassword) {
@@ -272,6 +306,10 @@ const Settings: React.FC = () => {
     };
 
     const handleSendPasswordRecoveryLink = async () => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
         if (!user.email) {
             toast.error('E-posta adresi bulunamadı');
             return;
@@ -301,6 +339,10 @@ const Settings: React.FC = () => {
     };
 
     const handleStartTwoFactorSetup = async () => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
         try {
             setIsTwoFactorBusy(true);
             const { success, error, enrollment } = await enrollTwoFactor();
@@ -318,6 +360,10 @@ const Settings: React.FC = () => {
     };
 
     const handleVerifyTwoFactorSetup = async () => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
         if (!pendingEnrollment) {
             toast.error('Aktif bir kurulum bulunamadı');
             return;
@@ -341,6 +387,10 @@ const Settings: React.FC = () => {
     };
 
     const handleDisableTwoFactor = async () => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
         try {
             setIsTwoFactorBusy(true);
             const { success, error } = await disableTwoFactor(disableCode);
@@ -369,7 +419,7 @@ const Settings: React.FC = () => {
             setIsUpdatingPrefs(true);
             const { success, error } = await updatePreferences(newPrefs);
             if (success) {
-                toast.success(successMessage);
+                toast.success(getPreferenceSuccessMessage(successMessage));
             } else {
                 setPrefs(previousPrefs);
                 toast.error(error || 'Güncellenemedi');
@@ -384,6 +434,10 @@ const Settings: React.FC = () => {
 
     const handleUnblockUser = async (blockedId: string) => {
         if (!user?.id) {
+            return;
+        }
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
             return;
         }
 
@@ -572,10 +626,15 @@ const Settings: React.FC = () => {
                                         <Input
                                             id="username"
                                             value={username}
-                                            disabled
-                                            className="bg-secondary/30"
+                                            onChange={(e) => setUsername(e.target.value)}
+                                            disabled={isUpdatingProfile || isUsernameCooldownActive}
+                                            className={isUsernameCooldownActive ? 'bg-secondary/30' : undefined}
                                         />
-                                        <p className="text-xs text-muted-foreground">Kullanıcı adı kayıt sırasında belirlenir ve sonradan değiştirilemez.</p>
+                                        <p className="text-xs text-muted-foreground">
+                                            {isUsernameCooldownActive && nextUsernameChangeAt
+                                                ? `Kullanıcı adınızı haftada bir değiştirebilirsiniz. Sonraki değişiklik: ${nextUsernameChangeAt.toLocaleString('tr-TR')}`
+                                                : 'Kullanıcı adınızı 7 günde bir değiştirebilirsiniz.'}
+                                        </p>
                                     </div>
                             </CardContent>
                             <CardFooter className="flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row">
@@ -667,6 +726,17 @@ const Settings: React.FC = () => {
                                                     {showPassword ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
                                                 </button>
                                             </div>
+                                            <p
+                                                className={`text-xs ${
+                                                    newPasswordStatus.tone === 'error'
+                                                        ? 'text-amber-400'
+                                                        : newPasswordStatus.tone === 'success'
+                                                            ? 'text-emerald-400'
+                                                            : 'text-muted-foreground'
+                                                }`}
+                                            >
+                                                {newPasswordStatus.message}
+                                            </p>
                                         </div>
                                         <div className="space-y-2">
                                             <Label htmlFor="confirm-password">Şifre Tekrar</Label>

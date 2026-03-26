@@ -125,6 +125,7 @@ export type Database = {
                 Row: {
                     id: string;
                     username: string;
+                    username_last_changed_at: string | null;
                     email: string;
                     password_hash: string;
                     avatar: string | null;

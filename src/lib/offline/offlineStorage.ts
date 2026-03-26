@@ -1,8 +1,9 @@
 import { DBSchema, openDB } from 'idb';
-import { Chapter, Manga, ResolvedReaderPage } from '@/lib/types';
+import { Chapter, Character, Manga, ResolvedReaderPage } from '@/lib/types';
 import {
   DownloadJob,
   OfflineChapter,
+  OfflineCharacterCard,
   OfflineDownloadStatus,
   OfflineLibrarySnapshot,
   OfflineManga,
@@ -129,7 +130,17 @@ const mapMangaToOffline = (manga: Manga): OfflineManga => ({
   lastUpdated: manga.lastUpdated,
   createdAt: manga.createdAt,
   downloadedAt: new Date().toISOString(),
+  characters: [],
 });
+
+const mapCharactersToOffline = (characters: Character[]): OfflineCharacterCard[] => (
+  characters.map((character) => ({
+    id: character.id,
+    name: character.name,
+    imageUrl: character.imageUrl,
+    likesCount: character.likesCount || 0,
+  }))
+);
 
 const sortChapters = (chapters: OfflineChapter[]) =>
   [...chapters].sort((a, b) => b.chapterNumber - a.chapterNumber);
@@ -157,6 +168,29 @@ export const cacheOfflineManga = async (manga: Manga) => {
   const db = await getDb();
   await db.put('mangas', mapMangaToOffline(manga));
   emitOfflineLibraryChange();
+};
+
+export const cacheOfflineMangaCharacters = async (mangaId: string, characters: Character[]) => {
+  const db = await getDb();
+  const current = await db.get('mangas', mangaId);
+
+  if (!current) {
+    return undefined;
+  }
+
+  const nextValue: OfflineManga = {
+    ...current,
+    characters: mapCharactersToOffline(characters),
+  };
+
+  await db.put('mangas', nextValue);
+  emitOfflineLibraryChange();
+  return nextValue;
+};
+
+export const getOfflineMangaCharacters = async (mangaId: string) => {
+  const manga = await getOfflineManga(mangaId);
+  return manga?.characters || [];
 };
 
 export const cacheOfflineChapterMetadata = async (

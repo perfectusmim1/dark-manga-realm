@@ -18,13 +18,26 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const TierLists: React.FC = () => {
     const { user } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const navigate = useNavigate();
     const [lists, setLists] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+
+    if (user && !isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Tier listelerine erişmek için internete bağlanın."
+                actionHref="/downloads"
+                actionLabel="İndirilenlere Git"
+            />
+        );
+    }
 
     useEffect(() => {
         if (user) {

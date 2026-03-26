@@ -23,11 +23,14 @@ import StaffBadge from '@/components/user/StaffBadge';
 import { getStaffTextClassName } from '@/lib/staffRoles';
 import { cn } from '@/lib/utils';
 import { UserPlus, UserMinus, ShieldAlert, ShieldCheck, Loader2 } from 'lucide-react';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const Profile: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
   const { user: currentUser } = useAuth();
+  const { isOnline } = useEffectiveOnlineStatus();
   const navigate = useNavigate();
   
   const [profileData, setProfileData] = useState<any>(null);
@@ -55,6 +58,16 @@ const Profile: React.FC = () => {
     'Taklit / impersonation',
     'Diğer',
   ];
+
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        description="Profil sayfasını görüntülemek için internete bağlanın."
+        actionHref="/library"
+        actionLabel="Kütüphaneye Git"
+      />
+    );
+  }
 
   useEffect(() => {
     const fetchProfile = async () => {

@@ -17,6 +17,7 @@ import { toast } from 'sonner';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import ReadingListCover from './ReadingListCover';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 interface CreateReadingListModalProps {
     isOpen: boolean;
@@ -42,6 +43,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
     onSuccess,
     editList = null
 }) => {
+    const { isOnline } = useEffectiveOnlineStatus();
     const [name, setName] = useState('');
     const [description, setDescription] = useState('');
     const [imageUrl, setImageUrl] = useState('');
@@ -90,7 +92,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                     imageUrl: normalizedImageUrl || undefined,
                     isPublic
                 });
-                toast.success('Liste güncellendi');
+                toast.success(isOnline ? 'Liste güncellendi' : 'Liste güncellendi, tekrar çevrimiçi olduğunda eşitlenecek');
             } else {
                 const newList = await createReadingList({
                     userId,
@@ -100,7 +102,11 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                     isPublic
                 });
                 onSuccess(newList);
-                toast.success(`"${name}" listesi oluşturuldu`);
+                toast.success(
+                    isOnline
+                        ? `"${name}" listesi oluşturuldu`
+                        : `"${name}" listesi oluşturuldu, tekrar çevrimiçi olduğunda eşitlenecek`
+                );
             }
             onClose();
         } catch (err) {

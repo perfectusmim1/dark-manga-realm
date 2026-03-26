@@ -3,27 +3,39 @@ import { Link } from 'react-router-dom';
 import { BookMarked, Trash2 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
-import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getBookmarks, removeBookmark } from '../lib/storage';
 import { getMangaById } from '@/lib/database';
+import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { toast } from 'sonner';
 import { Manga, Bookmark } from '@/lib/types';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
 
+type EnrichedBookmark = Bookmark & {
+  manga?: Manga;
+  chapter?: Manga['chapters'][number];
+};
+
 const Bookmarks: React.FC = () => {
   const { user } = useAuth();
-  const [bookmarks, setBookmarks] = React.useState<any[]>([]);
+  const { isOnline } = useEffectiveOnlineStatus();
+  const [bookmarks, setBookmarks] = React.useState<EnrichedBookmark[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
 
   const loadBookmarks = React.useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      setBookmarks([]);
+      setIsLoading(false);
+      return;
+    }
+
     try {
       setIsLoading(true);
       const bks = await getBookmarks(user.id);
 
       const enrichedBookmarks = await Promise.all(bks.map(async (b) => {
-        const manga = await getMangaById(b.mangaId);
+        const manga = (isOnline ? await getMangaById(b.mangaId) : undefined) || await getOfflineMangaDetail(b.mangaId);
         if (manga) {
           const chapter = manga.chapters.find(c => c.id === b.chapterId);
           return { ...b, manga, chapter };
@@ -37,18 +49,22 @@ const Bookmarks: React.FC = () => {
     } finally {
       setIsLoading(false);
     }
-  }, [user]);
+  }, [isOnline, user]);
 
   React.useEffect(() => {
-    loadBookmarks();
+    void loadBookmarks();
   }, [loadBookmarks]);
 
   const handleRemoveBookmark = async (id: string) => {
     if (!user) return;
     try {
       await removeBookmark(user.id, id);
-      toast.success('Yer imi silindi');
-      loadBookmarks();
+      toast.success(
+        isOnline
+          ? 'Yer imi silindi'
+          : 'Yer imi silindi, tekrar çevrimiçi olduğunda eşitlenecek',
+      );
+      await loadBookmarks();
     } catch (err) {
       toast.error('Yer imi silinemedi');
     }

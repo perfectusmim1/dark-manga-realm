@@ -21,6 +21,7 @@ import {
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import {
     getNotifications,
     getUnreadNotificationCount,
@@ -28,16 +29,18 @@ import {
 } from '@/lib/storage';
 import { Notification } from '@/lib/types';
 import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
+import OfflineNotice from '@/components/offline/OfflineNotice';
 
 const NotificationDropdown: React.FC = () => {
     const { user } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const navigate = useNavigate();
     const [notifications, setNotifications] = useState<Notification[]>([]);
     const [unreadCount, setUnreadCount] = useState(0);
     const [isOpen, setIsOpen] = useState(false);
 
     const loadNotifications = async () => {
-        if (!user) return;
+        if (!user || !isOnline) return;
         try {
             const allNotifications = await getNotifications(user.id);
             setNotifications(allNotifications.slice(0, 8)); // Show max 8 in dropdown
@@ -49,17 +52,23 @@ const NotificationDropdown: React.FC = () => {
     };
 
     useEffect(() => {
+        if (!isOnline) {
+            setNotifications([]);
+            setUnreadCount(0);
+            return;
+        }
+
         loadNotifications();
         // Poll for new notifications every 30 seconds
         const interval = setInterval(loadNotifications, 30000);
         return () => clearInterval(interval);
-    }, [user?.id]);
+    }, [isOnline, user?.id]);
 
     useEffect(() => {
-        if (isOpen) {
+        if (isOpen && isOnline) {
             loadNotifications();
         }
-    }, [isOpen]);
+    }, [isOnline, isOpen]);
 
     const handleNotificationClick = async (notification: Notification) => {
         if (!notification.read && user) {
@@ -130,7 +139,15 @@ const NotificationDropdown: React.FC = () => {
 
                 {/* Notifications List */}
                 <ScrollArea className="h-[min(60vh,20rem)] sm:h-[400px]">
-                    {notifications.length === 0 ? (
+                    {!isOnline ? (
+                        <div className="p-3 sm:p-4">
+                            <OfflineNotice
+                                compact
+                                title="Çevrimdışısınız"
+                                description="Bildirimleri görmek için internete bağlanın."
+                            />
+                        </div>
+                    ) : notifications.length === 0 ? (
                         <div className="flex flex-col items-center justify-center px-4 py-10 sm:py-12">
                             <Bell className="h-12 w-12 text-muted-foreground/30 mb-3" />
                             <p className="text-sm text-muted-foreground text-center">
@@ -200,19 +217,21 @@ const NotificationDropdown: React.FC = () => {
 
                 {/* Footer */}
                 <div className="border-t border-border/50 p-2">
-                    <Button
-                        variant="ghost"
-                        className="w-full justify-between text-sm"
-                        asChild
-                    >
-                        <Link to="/notifications" onClick={() => setIsOpen(false)}>
-                            <span className="flex items-center gap-2">
-                                <Check className="h-4 w-4" />
-                                Tümünü Gör
-                            </span>
-                            <ChevronRight className="h-4 w-4" />
-                        </Link>
-                    </Button>
+                    {isOnline ? (
+                        <Button
+                            variant="ghost"
+                            className="w-full justify-between text-sm"
+                            asChild
+                        >
+                            <Link to="/notifications" onClick={() => setIsOpen(false)}>
+                                <span className="flex items-center gap-2">
+                                    <Check className="h-4 w-4" />
+                                    Tümünü Gör
+                                </span>
+                                <ChevronRight className="h-4 w-4" />
+                            </Link>
+                        </Button>
+                    ) : null}
                 </div>
             </PopoverContent>
         </Popover>

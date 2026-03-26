@@ -6,6 +6,13 @@ import { User } from '@/lib/types';
 import { checkCurrentAccess } from '@/lib/security/deviceIdentity';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 import { syncLocalChapterReadFallbackToRemote } from '@/lib/storage';
+import {
+  getCachedPreferencesForUser,
+  isEffectivelyOnline,
+  queuePreferencesUpdate,
+  setCachedPreferencesForUser,
+} from '@/lib/offline/userSync';
+import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
 import { toast } from 'sonner';
 
 interface AuthContextType {
@@ -89,6 +96,7 @@ const AuthContext = createContext<AuthContextType | undefined>(undefined);
 interface UserProfileRow {
   id: string;
   username: string;
+  username_last_changed_at?: string | null;
   avatar: string | null;
   role: User['role'];
   is_banned?: boolean;
@@ -101,7 +109,7 @@ interface UserProfileRow {
 
 type TotpFactorRecord = Factor<'totp', 'verified' | 'unverified'>;
 
-const PROFILE_SELECT_COLUMNS = 'id, username, avatar, role, created_at, preferences, two_factor_enabled';
+const PROFILE_SELECT_COLUMNS = 'id, username, username_last_changed_at, avatar, role, created_at, preferences, two_factor_enabled';
 const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
   notifications: {
     new_chapter: true,
@@ -146,10 +154,13 @@ const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
 
 // Convert Supabase user + Profile data to our User type
 const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileRow | null): User => {
+  const cachedPreferences = getCachedPreferencesForUser(supabaseUser.id);
+
   return {
     id: supabaseUser.id,
     email: supabaseUser.email || '',
     username: profile?.username || supabaseUser.user_metadata?.username || supabaseUser.email?.split('@')[0] || 'user',
+    usernameChangedAt: profile?.username_last_changed_at || undefined,
     avatar: profile?.avatar || supabaseUser.user_metadata?.avatar_url,
     role: profile?.role || 'user',
     createdAt: supabaseUser.created_at,
@@ -157,7 +168,7 @@ const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileR
     banReason: profile?.ban_reason || undefined,
     bannedAt: profile?.banned_at || undefined,
     twoFactorEnabled: profile?.two_factor_enabled || false,
-    preferences: normalizeUserPreferences(profile?.preferences),
+    preferences: normalizeUserPreferences(cachedPreferences || profile?.preferences),
   };
 };
 
@@ -523,7 +534,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (error.message.includes('already registered')) {
           return { success: false, error: 'Bu e-posta adresi zaten kayıtlı' };
         }
-        return { success: false, error: error.message };
+        return { success: false, error: translatePasswordPolicyError(error.message, PASSWORD_MIN_LENGTH) };
       }
 
       if (data.user) {
@@ -563,8 +574,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return { success: false, error: 'Oturum açılmamış' };
 
     try {
-      if (updates.username && updates.username.trim() !== user.username) {
-        return { success: false, error: 'Kullanıcı adı değiştirilemez' };
+      const nextUsername = updates.username?.trim();
+      const usernameChanged = Boolean(nextUsername) && nextUsername !== user.username;
+      const avatarChanged = updates.avatar !== undefined && updates.avatar !== user.avatar;
+
+      if (!usernameChanged && !avatarChanged) {
+        return { success: true };
+      }
+
+      if (usernameChanged && user.usernameChangedAt) {
+        const nextAllowedAt = new Date(user.usernameChangedAt);
+        nextAllowedAt.setDate(nextAllowedAt.getDate() + 7);
+
+        if (nextAllowedAt.getTime() > Date.now()) {
+          return {
+            success: false,
+            error: `Kullanıcı adını tekrar ${nextAllowedAt.toLocaleString('tr-TR')} tarihinde değiştirebilirsiniz`,
+          };
+        }
       }
 
       const currentAuthUser = supabaseUser || (await supabase.auth.getUser()).data.user;
@@ -574,31 +601,56 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       await ensureProfile(currentAuthUser, user.username);
 
-      // Update our users table
-      const { error: dbError } = await supabase
-        .from('users')
-        .update({ avatar: updates.avatar })
-        .select(PROFILE_SELECT_COLUMNS)
-        .eq('id', user.id);
+      let updatedUsername = user.username;
 
-      if (dbError) throw dbError;
-
-      // Update Auth metadata if username changed
-      if (updates.avatar !== undefined) {
-        const { data: authUpdateData, error: authError } = await supabase.auth.updateUser({
-          data: {
-            ...(updates.avatar !== undefined ? { avatar_url: updates.avatar } : {}),
-          }
+      if (usernameChanged && nextUsername) {
+        const { data, error } = await supabase.rpc('update_current_user_username', {
+          p_username: nextUsername,
         });
-        if (authError) console.warn('Auth metadata update failed:', authError);
-        if (authUpdateData?.user) {
-          setSupabaseUser(authUpdateData.user);
+
+        if (error) throw error;
+
+        const profile = Array.isArray(data) ? data[0] : data;
+        if (profile?.username) {
+          updatedUsername = profile.username;
+        }
+      }
+
+      if (avatarChanged) {
+        const { error: dbError } = await supabase
+          .from('users')
+          .update({ avatar: updates.avatar })
+          .select(PROFILE_SELECT_COLUMNS)
+          .eq('id', user.id);
+
+        if (dbError) throw dbError;
+      }
+
+      if (usernameChanged || avatarChanged) {
+        const authMetadata: Record<string, string | null> = {};
+
+        if (usernameChanged) {
+          authMetadata.username = updatedUsername;
+        }
+
+        if (avatarChanged) {
+          authMetadata.avatar_url = updates.avatar || null;
+        }
+
+        if (Object.keys(authMetadata).length > 0) {
+          const { data: authUpdateData, error: authError } = await supabase.auth.updateUser({
+            data: authMetadata,
+          });
+          if (authError) console.warn('Auth metadata update failed:', authError);
+          if (authUpdateData?.user) {
+            setSupabaseUser(authUpdateData.user);
+          }
         }
       }
 
       // Refresh local state
       const refreshedAuthUser = (await supabase.auth.getUser()).data.user || currentAuthUser;
-      const profile = await ensureProfile(refreshedAuthUser, user.username);
+      const profile = await fetchProfile(user.id) || await ensureProfile(refreshedAuthUser, updatedUsername);
       setSupabaseUser(refreshedAuthUser);
       setUser(mapSupabaseUserToUser(refreshedAuthUser, profile));
 
@@ -667,7 +719,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: true };
     } catch (error: unknown) {
       console.error('Update password error:', error);
-      return { success: false, error: getErrorMessage(error) };
+      return {
+        success: false,
+        error: translatePasswordPolicyError(getErrorMessage(error), PASSWORD_MIN_LENGTH),
+      };
     }
   };
 
@@ -687,6 +742,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const updatePreferences = async (newPreferences: User['preferences']): Promise<{ success: boolean; error?: string }> => {
     if (!user) return { success: false, error: 'Oturum açılmamış' };
 
+    const normalizedPreferences = normalizeUserPreferences(newPreferences);
+    setCachedPreferencesForUser(user.id, normalizedPreferences);
+    setUser((prev) => (prev ? { ...prev, preferences: normalizedPreferences } : prev));
+
+    if (!isEffectivelyOnline()) {
+      queuePreferencesUpdate(user.id, normalizedPreferences);
+      return { success: true };
+    }
+
     try {
       const currentAuthUser = supabaseUser || (await supabase.auth.getUser()).data.user;
       if (!currentAuthUser) {
@@ -695,7 +759,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const { data, error } = await supabase
         .from('users')
-        .update({ preferences: newPreferences })
+        .update({ preferences: normalizedPreferences })
         .select(PROFILE_SELECT_COLUMNS)
         .eq('id', user.id);
 
@@ -712,7 +776,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return { success: true };
     } catch (error: unknown) {
       console.error('Update preferences error:', error);
-      return { success: false, error: getErrorMessage(error) };
+      queuePreferencesUpdate(user.id, normalizedPreferences);
+      return { success: true };
     }
   };
 

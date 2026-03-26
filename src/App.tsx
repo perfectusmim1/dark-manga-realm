@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { BrowserRouter, Routes, Route, matchPath, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { useEffect, useRef, useState } from "react";
 import { initializeMockData } from "@/lib/mockData";
@@ -59,6 +59,7 @@ import AdminReports from "./pages/admin/AdminReports";
 import AdminSiteSettings from "./pages/admin/AdminSiteSettings";
 import { offlineDownloadManager } from "@/lib/offline/downloadManager";
 import { initializeOfflineReaderSync } from "@/lib/offline/offlineReaderSync";
+import { initializeOfflineUserSync } from "@/lib/offline/userSync";
 import DownloadDock from "@/components/offline/DownloadDock";
 import AdBlockWarning from "@/components/security/AdBlockWarning";
 
@@ -76,6 +77,7 @@ const AppInitializer = ({ children }: { children: React.ReactNode }) => {
     initializeMockData();
     void offlineDownloadManager.initialize();
     initializeOfflineReaderSync();
+    initializeOfflineUserSync();
   }, []);
 
   return <>{children}</>;
@@ -101,13 +103,9 @@ const OfflineStartupRedirect = () => {
     }
 
     const path = location.pathname;
-    const isOfflineReadyRoute =
-      path === '/'
-      || path === '/downloads'
-      || Boolean(matchPath('/manga/:mangaId', path))
-      || Boolean(matchPath('/manga/:mangaId/chapter/:chapterId', path));
+    const isRestrictedRoute = path.startsWith('/admin');
 
-    if (!isOfflineReadyRoute) {
+    if (isRestrictedRoute) {
       navigate('/downloads', { replace: true });
     }
   }, [isOnline, location.pathname, navigate]);

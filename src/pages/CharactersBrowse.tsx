@@ -8,8 +8,11 @@ import { getCharacters } from '@/lib/database';
 import { Character } from '@/lib/types';
 import Header from '@/components/layout/Header';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const CharactersBrowse: React.FC = () => {
+    const { isOnline } = useEffectiveOnlineStatus();
     const [characters, setCharacters] = useState<Character[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
@@ -26,6 +29,16 @@ const CharactersBrowse: React.FC = () => {
     const filteredCharacters = characters.filter(c =>
         c.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    if (!isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Karakter arşivi için internete bağlanın."
+                actionHref="/downloads"
+                actionLabel="İndirilenlere Git"
+            />
+        );
+    }
 
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">

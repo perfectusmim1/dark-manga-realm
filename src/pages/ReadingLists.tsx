@@ -31,9 +31,11 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
 import ReadingListCover from '@/components/manga/ReadingListCover';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const ReadingLists: React.FC = () => {
     const { user, isLoading: authLoading } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const [lists, setLists] = useState<ReadingList[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -103,7 +105,7 @@ const ReadingLists: React.FC = () => {
         try {
             await deleteReadingList(deleteConfirmId);
             setLists(prev => prev.filter(l => l.id !== deleteConfirmId));
-            toast.success('Liste silindi');
+            toast.success(isOnline ? 'Liste silindi' : 'Liste silindi, tekrar çevrimiçi olduğunda eşitlenecek');
         } catch (err) {
             toast.error('Liste silinemedi');
         } finally {

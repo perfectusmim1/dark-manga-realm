@@ -26,10 +26,13 @@ import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
 import ReadingListCover from '@/components/manga/ReadingListCover';
 import MangaCard from '@/components/manga/MangaCard';
 import { cn } from '@/lib/utils';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
     const { user, isLoading: authLoading } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const navigate = useNavigate();
     const [list, setList] = useState<ReadingList | undefined>();
     const [isLoading, setIsLoading] = useState(true);
@@ -55,19 +58,27 @@ const ReadingListDetail: React.FC = () => {
                 if (isCancelled) return;
 
                 if (!data) {
-                    toast.error('Liste bulunamadı');
-                    navigate('/reading-lists');
+                    if (isOnline) {
+                        toast.error('Liste bulunamadı');
+                        navigate('/reading-lists');
+                    } else {
+                        setList(undefined);
+                    }
                     return;
                 }
                 setList(data);
 
-                const { count: totalLikes } = await supabase
-                    .from('reading_list_likes')
-                    .select('*', { count: 'exact', head: true })
-                    .eq('list_id', listId);
+                if (isOnline) {
+                    const { count: totalLikes } = await supabase
+                        .from('reading_list_likes')
+                        .select('*', { count: 'exact', head: true })
+                        .eq('list_id', listId);
 
-                if (isCancelled) return;
-                setLikesCount(totalLikes || 0);
+                    if (isCancelled) return;
+                    setLikesCount(totalLikes || 0);
+                } else {
+                    setLikesCount(0);
+                }
             } catch (err) {
                 if (isCancelled) return;
 
@@ -85,7 +96,7 @@ const ReadingListDetail: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [listId, navigate, user?.id]);
+    }, [isOnline, listId, navigate, user?.id]);
 
     useEffect(() => {
         if (!listId || authLoading) {
@@ -96,6 +107,11 @@ const ReadingListDetail: React.FC = () => {
 
         const fetchLikeState = async () => {
             if (!user?.id) {
+                setIsLiked(false);
+                return;
+            }
+
+            if (!isOnline) {
                 setIsLiked(false);
                 return;
             }
@@ -130,7 +146,7 @@ const ReadingListDetail: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [authLoading, listId, user?.id]);
+    }, [authLoading, isOnline, listId, user?.id]);
 
     const handleToggleLike = async () => {
         if (!user) {
@@ -139,6 +155,10 @@ const ReadingListDetail: React.FC = () => {
             return;
         }
         if (!listId || isLiking) return;
+        if (!isOnline) {
+            toast.error('Liste beğenileri için internete bağlanın');
+            return;
+        }
 
         setIsLiking(true);
         try {
@@ -245,7 +265,11 @@ const ReadingListDetail: React.FC = () => {
 
             setSelectedMangaIds([]);
             setIsSelectionMode(false);
-            toast.success(`${idsToRemove.length} seri listeden kaldırıldı`);
+            toast.success(
+                isOnline
+                    ? `${idsToRemove.length} seri listeden kaldırıldı`
+                    : `${idsToRemove.length} seri kaldırıldı, tekrar çevrimiçi olduğunda eşitlenecek`
+            );
         } catch (err) {
             console.error(err);
             toast.error('Seçilen seriler kaldırılamadı');
@@ -279,7 +303,15 @@ const ReadingListDetail: React.FC = () => {
         );
     }
 
-    if (!list) return null;
+    if (!list) {
+        return isOnline ? null : (
+            <OfflineRequiredScreen
+                description="Bu okuma listesi çevrimdışı önbellekte bulunamadı veya sadece internetle açılabilir."
+                actionHref="/reading-lists"
+                actionLabel="Okuma Listelerine Dön"
+            />
+        );
+    }
 
     const isOwner = user?.id === list.userId;
     const listItems = list.items || [];

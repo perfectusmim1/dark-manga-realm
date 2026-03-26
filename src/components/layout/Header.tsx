@@ -39,6 +39,8 @@ import { useAuth } from '@/contexts/AuthContext';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { toast } from 'sonner';
 import {
   Dialog,
@@ -91,6 +93,8 @@ const Header: React.FC = () => {
   const { user, logout, isLoading: authLoading } = useAuth();
   const { access } = useAdminAccess();
   const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
+  const { isOnline } = useEffectiveOnlineStatus();
+  const { snapshot } = useOfflineLibrary();
   const navigate = useNavigate();
   const location = useLocation();
   const isAdmin = access.canAccessAdminPanel;
@@ -383,7 +387,26 @@ const Header: React.FC = () => {
         return;
       }
 
-      const mangas = allMangas.length > 0 ? allMangas : await getAllMangas();
+      const mangas = isOnline
+        ? (allMangas.length > 0 ? allMangas : await getAllMangas())
+        : snapshot.series.map(({ manga }) => ({
+          id: manga.mangaId,
+          title: manga.title,
+          cover: manga.cover,
+          banner: manga.banner,
+          author: manga.author,
+          artist: manga.artist,
+          type: manga.type,
+          status: manga.status,
+          description: manga.description,
+          genres: manga.genres,
+          views: 0,
+          chapters: [],
+          ratings: [],
+          lastUpdated: manga.lastUpdated,
+          createdAt: manga.createdAt,
+        } as Manga));
+
       if (mangas && mangas.length > 0) {
         const queue = buildRandomQueue(mangas);
         setRandomQueue(queue);
@@ -391,8 +414,12 @@ const Header: React.FC = () => {
         setRandomTransitionMs(90);
         setIsRandomDialogOpen(true);
         setIsRandomRolling(true);
+      } else if (!isOnline) {
+        toast.error('Çevrimdışıyken zar at sadece indirilen seriler arasında çalışır');
       }
-    } catch(err) {}
+    } catch (err) {
+      console.error('Random manga selection error:', err);
+    }
   };
 
   const handleToggleOfflineMode = () => {

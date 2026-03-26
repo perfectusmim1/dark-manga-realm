@@ -43,6 +43,7 @@ import {
 } from '@/components/ui/dialog';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import StaffBadge from '@/components/user/StaffBadge';
 import { Comment } from '@/lib/types';
 import {
@@ -96,6 +97,8 @@ const COMMENT_EDIT_WINDOW_MS = 24 * 60 * 60 * 1000;
 const MAX_REPLY_INDENT_LEVEL = 3;
 const COMMENT_HIGHLIGHT_DURATION_MS = 3000;
 const MIN_COMMENT_PAGE_NUMBER = 1;
+const COMMENT_EDIT_INDICATOR_THRESHOLD_MS = 2000;
+const USERNAME_SYNC_EDIT_TOLERANCE_MS = 15000;
 
 type CommentFeedScope = 'chapter' | 'page';
 
@@ -170,6 +173,37 @@ const renderFormattedText = (content: string) => {
             {highlightMentions(line)}
         </React.Fragment>
     ));
+};
+
+const shouldShowEditedLabel = (comment: Comment) => {
+    if (!comment.updatedAt) {
+        return false;
+    }
+
+    const createdAt = new Date(comment.createdAt).getTime();
+    const updatedAt = new Date(comment.updatedAt).getTime();
+
+    if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) {
+        return false;
+    }
+
+    if (updatedAt - createdAt <= COMMENT_EDIT_INDICATOR_THRESHOLD_MS) {
+        return false;
+    }
+
+    if (comment.usernameChangedAt) {
+        const usernameChangedAt = new Date(comment.usernameChangedAt).getTime();
+
+        if (
+            Number.isFinite(usernameChangedAt)
+            && createdAt < usernameChangedAt
+            && Math.abs(updatedAt - usernameChangedAt) <= USERNAME_SYNC_EDIT_TOLERANCE_MS
+        ) {
+            return false;
+        }
+    }
+
+    return true;
 };
 
 interface CommentComposerProps {
@@ -355,6 +389,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 }) => {
     const { user } = useAuth();
     const { access } = useAdminAccess();
+    const { isOnline } = useEffectiveOnlineStatus();
     const canModerateComments = access.canAccessAdminPanel;
     const location = useLocation();
     const entityId = propEntityId || propMangaId || '';
@@ -428,6 +463,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const activePagePreviewUrl = hasReaderPageContext && feedScope === 'page'
         ? pagePreviewUrls[activePageNumber - 1]
         : undefined;
+    const showInternetRequiredToast = (message: string) => {
+        toast.error(message);
+    };
 
     useEffect(() => {
         if (!hasReaderPageContext) {
@@ -446,7 +484,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     useEffect(() => {
         loadComments();
         loadReactions();
-    }, [activeFilterPageNumber, commentsRefreshTick, entityId, entityType, chapterId, sortBy, user?.id]);
+    }, [activeFilterPageNumber, commentsRefreshTick, entityId, entityType, chapterId, isOnline, sortBy, user?.id]);
 
     useEffect(() => {
         setCurrentPage(1);
@@ -506,6 +544,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     }, [user?.id]);
 
     const loadComments = async () => {
+        if (!isOnline) {
+            setComments([]);
+            return;
+        }
+
         const loadedComments = await getEntityCommentsV2(entityType, entityId, chapterId, sortBy, {
             pageNumber: activeFilterPageNumber,
         });
@@ -513,6 +556,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     };
 
     const loadReactions = async () => {
+        if (!isOnline) {
+            setReactions({});
+            setUserReaction(null);
+            return;
+        }
+
         const counts = await getEntityReactions(entityType, entityId, chapterId);
         setReactions(counts);
 
@@ -618,6 +667,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             return;
         }
 
+        if (!isOnline) {
+            showInternetRequiredToast('Tepki bırakmak için internete bağlanın');
+            return;
+        }
+
         if (pendingReaction) {
             return;
         }
@@ -647,7 +701,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         } catch {
             setUserReaction(previousReaction);
             setReactions(previousCounts);
-            toast.error('İşlem başarısız oldu');
+            showInternetRequiredToast('Tepki gönderilemedi, internete bağlanın');
         } finally {
             setPendingReaction(false);
         }
@@ -738,6 +792,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             return;
         }
 
+        if (!isOnline) {
+            showInternetRequiredToast('Yorum yazmak için internete bağlanın');
+            return;
+        }
+
         const normalizedDraft = validateDraft(newDraft);
         if (!normalizedDraft) {
             return;
@@ -770,6 +829,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     };
 
     const handleEditComment = async (commentId: string) => {
+        if (!isOnline) {
+            showInternetRequiredToast('Yorum düzenlemek için internete bağlanın');
+            return;
+        }
+
         const normalizedDraft = validateDraft(editDraft);
         if (!normalizedDraft) {
             return;
@@ -793,6 +857,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     };
 
     const handleDeleteComment = async (commentId: string) => {
+        if (!isOnline) {
+            showInternetRequiredToast('Yorum silmek için internete bağlanın');
+            return;
+        }
+
         const deletedCommentPageNumber = comments.find((comment) => comment.id === commentId)?.pageNumber;
         await deleteComment(commentId, entityType);
         await loadComments();
@@ -806,6 +875,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             return;
         }
 
+        if (!isOnline) {
+            showInternetRequiredToast('Bu işlem için internete bağlanın');
+            return;
+        }
+
         await setCommentPinned(comment.id, !comment.isPinned, entityType);
         await loadComments();
             toast.success(comment.isPinned ? 'Yorum sabitlemesi kaldırıldı' : 'Yorum sabitlendi');
@@ -814,6 +888,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const openCommentReport = (comment: Comment) => {
         if (!user) {
             toast.error('Yorum bildirmek için giriş yapmalısınız');
+            return;
+        }
+
+        if (!isOnline) {
+            showInternetRequiredToast('Yorum bildirmek için internete bağlanın');
             return;
         }
 
@@ -830,6 +909,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const handleSubmitCommentReport = async () => {
         if (!user || !reportingComment) {
             toast.error('Bildirim için önce giriş yapmalısınız');
+            return;
+        }
+
+        if (!isOnline) {
+            showInternetRequiredToast('Yorum bildirmek için internete bağlanın');
             return;
         }
 
@@ -858,6 +942,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const handleReply = async (parentId: string) => {
         if (!user) {
             toast.error('Yanıt vermek için giriş yapmalısınız');
+            return;
+        }
+
+        if (!isOnline) {
+            showInternetRequiredToast('Yanıt vermek için internete bağlanın');
             return;
         }
 
@@ -929,6 +1018,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             return;
         }
 
+        if (!isOnline) {
+            showInternetRequiredToast('Beğeni bırakmak için internete bağlanın');
+            return;
+        }
+
         if (pendingCommentLikes[commentId]) {
             return;
         }
@@ -980,7 +1074,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         } catch (error) {
             console.error('Comment like toggle error:', error);
             setComments(previousComments);
-            toast.error('Beğeni işlemi başarısız oldu');
+            showInternetRequiredToast('Beğeni işlemi başarısız oldu, internete bağlanın');
         } finally {
             setPendingCommentLikes((previous) => {
                 const next = { ...previous };
@@ -1625,7 +1719,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                             </div>
                                             <span className="mt-1 block text-xs text-muted-foreground">
                                                 {formatDistanceToNow(new Date(reply.createdAt), { addSuffix: true, locale: tr })}
-                                                {reply.updatedAt && new Date(reply.updatedAt).getTime() - new Date(reply.createdAt).getTime() > 2000 && ' (düzenlendi)'}
+                                                {shouldShowEditedLabel(reply) && ' (düzenlendi)'}
                                             </span>
                                         </div>
 
@@ -2082,7 +2176,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         </div>
                                                         <span className="mt-1 block text-xs text-muted-foreground">
                                                             {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
-                                                            {comment.updatedAt && new Date(comment.updatedAt).getTime() - new Date(comment.createdAt).getTime() > 2000 && ' (düzenlendi)'}
+                                                            {shouldShowEditedLabel(comment) && ' (düzenlendi)'}
                                                         </span>
                                                     </div>
 

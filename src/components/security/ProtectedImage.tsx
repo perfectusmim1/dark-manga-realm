@@ -12,15 +12,16 @@ interface ProtectedImageProps {
 const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, style, zoom = 100 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
-    const [useFallback, setUseFallback] = useState(false);
+    const shouldBypassCanvas = src.startsWith('blob:') || src.startsWith('data:');
+    const [useFallback, setUseFallback] = useState(shouldBypassCanvas);
     const [isBroken, setIsBroken] = useState(false);
     const [isMediaReady, setIsMediaReady] = useState(false);
 
     useEffect(() => {
-        setUseFallback(false);
+        setUseFallback(shouldBypassCanvas);
         setIsBroken(false);
         setIsMediaReady(false);
-    }, [src]);
+    }, [shouldBypassCanvas, src]);
 
     useEffect(() => {
         if (useFallback) return;

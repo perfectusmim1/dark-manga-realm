@@ -90,10 +90,11 @@ import { getStaffTextClassName } from '@/lib/staffRoles';
 import { toast } from 'sonner';
 import MangaDetailSkeleton from '@/components/skeletons/MangaDetailSkeleton';
 import TagSection from '@/components/tags/TagSection';
+import OfflineNotice from '@/components/offline/OfflineNotice';
 import { formatReadingDuration, getBlockedUserIds, getMangaReadingTimeTotal } from '@/lib/profile';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { offlineDownloadManager } from '@/lib/offline/downloadManager';
-import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { cacheOfflineMangaCharacters, getOfflineMangaCharacters, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
@@ -431,6 +432,7 @@ const MangaDetail: React.FC = () => {
             setReviews(mReviews);
             setIsCharsLoading(false);
             setIsReviewsLoading(false);
+            void cacheOfflineMangaCharacters(mangaId, mChars);
           }).catch((error) => {
             if (isCancelled) return;
 
@@ -464,10 +466,11 @@ const MangaDetail: React.FC = () => {
           if (isCancelled) return;
 
           if (offlineManga) {
+            const offlineCharacters = await getOfflineMangaCharacters(mangaId);
             setManga(offlineManga);
             setAverageRating({ average: 0, count: 0 });
             setReviews([]);
-            setMangaCharacters([]);
+            setMangaCharacters(offlineCharacters);
             setSimilarMangas([]);
             setBlockedUserIds([]);
             setChapterReadMap({});
@@ -492,10 +495,11 @@ const MangaDetail: React.FC = () => {
         if (isCancelled) return;
 
         if (offlineManga) {
+          const offlineCharacters = await getOfflineMangaCharacters(mangaId);
           setManga(offlineManga);
           setAverageRating({ average: 0, count: 0 });
           setReviews([]);
-          setMangaCharacters([]);
+          setMangaCharacters(offlineCharacters);
           setSimilarMangas([]);
           setBlockedUserIds([]);
           setChapterReadMap({});
@@ -649,11 +653,6 @@ const MangaDetail: React.FC = () => {
   }
 
   const toggleFavorite = async () => {
-    if (!isOnline) {
-      toast.error('Favori islemi icin internet baglantisi gerekli');
-      return;
-    }
-
     if (!user) {
       toast.error('Favorilere eklemek için giriş yapmalısınız');
       return;
@@ -664,12 +663,15 @@ const MangaDetail: React.FC = () => {
         await removeFavorite(user.id, manga.id);
         setFavorite(false);
         setCategory(undefined);
-        toast.success('Favorilerden kaldırıldı');
+        toast.success(isOnline ? 'Favorilerden kaldırıldı' : 'Tekrar çevrimiçi olduğunda favoriler eşitlenecek');
       } else {
-        await addFavorite(user.id, manga.id, 'reading');
+        await addFavorite(user.id, manga.id, 'reading', {
+          mangaTitle: manga.title,
+          mangaCover: manga.cover,
+        });
         setFavorite(true);
         setCategory('reading');
-        toast.success('Favorilere eklendi');
+        toast.success(isOnline ? 'Favorilere eklendi' : 'Tekrar çevrimiçi olduğunda favoriler eşitlenecek');
       }
     } catch (err) {
       toast.error('İşlem başarısız oldu');
@@ -677,11 +679,6 @@ const MangaDetail: React.FC = () => {
   };
 
   const handleCategoryChange = async (newCategory: LibraryCategory) => {
-    if (!isOnline) {
-      toast.error('Kategori guncellemek icin internet baglantisi gerekli');
-      return;
-    }
-
     if (!user) {
       toast.error('Giriş yapmalısınız');
       return;
@@ -691,7 +688,10 @@ const MangaDetail: React.FC = () => {
       if (favorite) {
         await updateFavoriteCategory(user.id, manga.id, newCategory);
       } else {
-        await addFavorite(user.id, manga.id, newCategory);
+        await addFavorite(user.id, manga.id, newCategory, {
+          mangaTitle: manga.title,
+          mangaCover: manga.cover,
+        });
       }
 
       const refreshedFavorites = await getFavorites(user.id);
@@ -699,7 +699,11 @@ const MangaDetail: React.FC = () => {
 
       setFavorite(true);
       setCategory((refreshedEntry?.category as LibraryCategory | undefined) || newCategory);
-      toast.success(`Kategori: ${categoryLabels[(refreshedEntry?.category as LibraryCategory | undefined) || newCategory]}`);
+      toast.success(
+        isOnline
+          ? `Kategori: ${categoryLabels[(refreshedEntry?.category as LibraryCategory | undefined) || newCategory]}`
+          : 'Kütüphane değişikliği tekrar çevrimiçi olduğunda eşitlenecek'
+      );
     } catch (err) {
       console.error('Category update failed on manga detail:', err);
       toast.error('Kategori güncellenemedi');
@@ -707,11 +711,6 @@ const MangaDetail: React.FC = () => {
   };
 
   const toggleFollow = async () => {
-    if (!isOnline) {
-      toast.error('Takip islemi icin internet baglantisi gerekli');
-      return;
-    }
-
     if (!user) {
       toast.error('Takip etmek için giriş yapmalısınız');
       return;
@@ -721,11 +720,15 @@ const MangaDetail: React.FC = () => {
       if (isFollowing) {
         await unfollowManga(user.id, manga!.id);
         setIsFollowing(false);
-        toast.success('Takibi bıraktınız');
+        toast.success(isOnline ? 'Takibi bıraktınız' : 'Tekrar çevrimiçi olduğunda takip durumu eşitlenecek');
       } else {
         await followManga(user.id, manga!.id);
         setIsFollowing(true);
-        toast.success('Manga takip ediliyor! Yeni bölümlerden haberdar olacaksınız.');
+        toast.success(
+          isOnline
+            ? 'Manga takip ediliyor! Yeni bölümlerden haberdar olacaksınız.'
+            : 'Tekrar çevrimiçi olduğunda takip durumu eşitlenecek'
+        );
       }
     } catch (err) {
       toast.error('İşlem başarısız oldu');
@@ -733,15 +736,16 @@ const MangaDetail: React.FC = () => {
   };
 
   const handleAddToList = () => {
-    if (!isOnline) {
-      toast.error('Liste islemleri icin internet baglantisi gerekli');
-      return;
-    }
-
     if (!user) {
       toast.error('Listeye eklemek için giriş yapmalısınız');
       return;
     }
+
+    if (!isOnline && !offlineSeriesEntry) {
+      toast.error('Çevrimdışıyken sadece indirilen seriler okuma listelerine eklenebilir');
+      return;
+    }
+
     setIsListModalOpen(true);
   };
 
@@ -1531,20 +1535,43 @@ const MangaDetail: React.FC = () => {
                   </div>
 
                   <div className="rounded-xl border border-border bg-card/50 p-3 sm:p-6">
-                    <TagSection
-                      entityType="manga"
-                      entityId={manga.id}
-                    />
+                    {isOnline ? (
+                      <TagSection
+                        entityType="manga"
+                        entityId={manga.id}
+                      />
+                    ) : (
+                      <OfflineNotice
+                        compact
+                        title="Çevrimdışısınız"
+                        description="Akıllı etiketler için internete bağlanmanız gerekiyor."
+                      />
+                    )}
                   </div>
                 </div>
               </div>
 
               <div className="mt-4 rounded-xl border border-border bg-card/50 p-3 shadow-sm sm:mt-8 sm:p-6 lg:p-10">
-                <CommentSection mangaId={manga.id} />
+                {isOnline ? (
+                  <CommentSection mangaId={manga.id} />
+                ) : (
+                  <OfflineNotice
+                    compact
+                    title="Çevrimdışısınız"
+                    description="Yorumlar ve inceleme yorumları için internete bağlanın."
+                  />
+                )}
               </div>
             </TabsContent>
 
             <TabsContent value="preview" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {!isOnline ? (
+                <OfflineNotice
+                  description="Seri önizlemesi internet bağlantısı gerektirir."
+                  actionHref={`/manga/${manga.id}`}
+                  actionLabel="Genel Bakışa Dön"
+                />
+              ) : (
               <div className="mx-auto max-w-4xl space-y-6 sm:space-y-8">
                 {(() => {
                   const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
@@ -1602,6 +1629,7 @@ const MangaDetail: React.FC = () => {
                   );
                 })()}
               </div>
+              )}
             </TabsContent>
 
             <TabsContent value="characters" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -1642,14 +1670,22 @@ const MangaDetail: React.FC = () => {
                   ))
                 ) : (
                   <div className="col-span-full py-20 text-center text-muted-foreground italic bg-secondary/10 rounded-2xl border border-dashed border-border">
-                    Bu seri için henüz karakter eklenmemiş.
+                    {isOnline
+                      ? 'Bu seri için henüz karakter eklenmemiş.'
+                      : 'Çevrimdışıyken sadece daha önce önbelleğe alınan karakter kartları gösterilebilir.'}
                   </div>
                 )}
               </div>
             </TabsContent>
 
             <TabsContent value="reviews" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
-              {isReviewsLoading ? (
+              {!isOnline ? (
+                <OfflineNotice
+                  description="İncelemeler için internete bağlanmanız gerekiyor."
+                  actionHref={`/manga/${manga.id}`}
+                  actionLabel="Genel Bakışa Dön"
+                />
+              ) : isReviewsLoading ? (
                 <div className="rounded-xl border border-border bg-card/50 p-4 shadow-xl sm:p-8">
                    <div className="flex flex-col items-center justify-center py-20 gap-4">
                       <div className="animate-spin h-8 w-8 border-4 border-primary border-t-transparent rounded-full" />
@@ -1874,6 +1910,13 @@ const MangaDetail: React.FC = () => {
             </TabsContent>
 
             <TabsContent value="discover" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {!isOnline ? (
+                <OfflineNotice
+                  description="Keşfet ve benzer seri önerileri internet bağlantısı gerektirir."
+                  actionHref="/downloads"
+                  actionLabel="İndirilenlere Git"
+                />
+              ) : (
               <div className="rounded-xl border border-border bg-card/50 p-4 sm:p-8">
                 <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                   <div>
@@ -1943,6 +1986,7 @@ const MangaDetail: React.FC = () => {
                   </div>
                 )}
               </div>
+              )}
             </TabsContent>
           </Tabs>
         </div>

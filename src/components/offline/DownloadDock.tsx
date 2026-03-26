@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
 import {
   ChevronDown,
@@ -85,8 +85,9 @@ const DownloadDock: React.FC = () => {
   const { snapshot, isOnline } = useOfflineLibrary();
   const { pathname } = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
-  const [isMinimized, setIsMinimized] = useState(() => getStoredBoolean(STORAGE_KEYS.minimized, false));
+  const [isMinimized, setIsMinimized] = useState(() => getStoredBoolean(STORAGE_KEYS.minimized, true));
   const [hiddenWhenIdle, setHiddenWhenIdle] = useState(() => getStoredBoolean(STORAGE_KEYS.hiddenWhenIdle, false));
+  const previousActiveJobsCountRef = useRef(0);
 
   const relevantJobs = useMemo(
     () => sortJobs(snapshot.jobs.filter((job) => RELEVANT_STATUSES.includes(job.status))),
@@ -111,6 +112,18 @@ const DownloadDock: React.FC = () => {
     }
   }, [hasActiveJobs, hiddenWhenIdle]);
 
+  useEffect(() => {
+    const activeJobsCount = relevantJobs.filter((job) => ACTIVE_STATUSES.includes(job.status)).length;
+    const previousActiveJobsCount = previousActiveJobsCountRef.current;
+
+    if (activeJobsCount > 0 && previousActiveJobsCount === 0) {
+      setIsExpanded(false);
+      setIsMinimized(true);
+    }
+
+    previousActiveJobsCountRef.current = activeJobsCount;
+  }, [relevantJobs]);
+
   if (!primaryJob || ((!hasActiveJobs && hiddenWhenIdle)) || pathname.startsWith('/downloads') || isReaderRoute(pathname)) {
     return null;
   }
@@ -126,7 +139,7 @@ const DownloadDock: React.FC = () => {
   const handleDismiss = () => {
     setHiddenWhenIdle(true);
     setIsExpanded(false);
-    setIsMinimized(false);
+    setIsMinimized(true);
   };
 
   const handleClearCompleted = async () => {
@@ -145,7 +158,7 @@ const DownloadDock: React.FC = () => {
         <button
           type="button"
           onClick={() => setIsMinimized(false)}
-          className="pointer-events-auto flex h-[74px] w-[74px] flex-col items-center justify-between rounded-2xl border border-primary/30 bg-card/95 px-3 py-3 shadow-2xl shadow-primary/10 backdrop-blur-xl transition-all hover:border-primary/50"
+          className="pointer-events-auto flex h-[68px] w-[68px] flex-col items-center justify-between rounded-[20px] border border-primary/30 bg-card/95 px-3 py-3 shadow-2xl shadow-primary/10 backdrop-blur-xl transition-all hover:border-primary/50 sm:h-[74px] sm:w-[74px] sm:rounded-2xl"
           aria-label="İndirme panelini büyüt"
           title="İndirme panelini büyüt"
         >
@@ -161,16 +174,16 @@ const DownloadDock: React.FC = () => {
   }
 
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[90] flex max-h-[calc(100vh-6rem)] w-[min(94vw,460px)] max-w-[calc(100vw-1rem)] flex-col items-end gap-3 md:bottom-5">
+    <div className="pointer-events-none fixed bottom-5 right-5 z-[90] flex max-h-[calc(100vh-6rem)] w-[min(92vw,420px)] max-w-[calc(100vw-1rem)] flex-col items-end gap-3 md:bottom-5 md:w-[min(94vw,460px)]">
       <div
         className={cn(
           'pointer-events-none w-full overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-2xl shadow-black/35 backdrop-blur-xl transition-all duration-200 ease-out',
           isExpanded
-            ? 'pointer-events-auto max-h-[min(46vh,420px)] translate-y-0 opacity-100 md:max-h-[min(52vh,480px)]'
+            ? 'pointer-events-auto max-h-[min(40vh,360px)] translate-y-0 opacity-100 md:max-h-[min(52vh,480px)]'
             : 'max-h-0 translate-y-2 opacity-0',
         )}
       >
-        <div className="max-h-[min(46vh,420px)] overflow-y-auto p-4 md:max-h-[min(52vh,480px)]">
+        <div className="max-h-[min(40vh,360px)] overflow-y-auto p-4 md:max-h-[min(52vh,480px)]">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <div>
               <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">
@@ -305,7 +318,7 @@ const DownloadDock: React.FC = () => {
         </div>
 
         <div className="flex items-start gap-3">
-          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-2xl bg-primary/12 text-primary">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] bg-primary/12 text-primary">
             <Download className="h-4 w-4" />
           </div>
 

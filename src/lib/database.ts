@@ -4,6 +4,25 @@ import { supabase } from './supabase';
 import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import { normalizeGenres } from './mockData';
+import { getOfflineLibrarySnapshot, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import {
+    areReadingListsInitialized,
+    createClientEntityId,
+    getCachedReadingListRecord,
+    getCachedReadingListsState,
+    findCachedReadingListRecord,
+    isEffectivelyOnline,
+    mapCachedReadingListToReadingList,
+    queueReadingListAddItem,
+    queueReadingListCreate,
+    queueReadingListDelete,
+    queueReadingListRemoveItem,
+    queueReadingListUpdate,
+    removeCachedReadingList,
+    setCachedReadingLists,
+    updateCachedReadingList,
+    upsertCachedReadingList,
+} from '@/lib/offline/userSync';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
     value?.split(/[,，]/)[0]?.trim().replace(/\s+/g, ' ') || '';
@@ -1246,7 +1265,7 @@ export const getEntityCommentsV2 = async (
             .from(tableName as any)
             .select(`
                 *,
-                author:users!user_id(username, avatar, role),
+                author:users!user_id(username, username_last_changed_at, avatar, role),
                 likes_count:${likesTableName}(count)
             ` as any)
             .eq(colName, entityId);
@@ -1315,6 +1334,7 @@ export const getEntityCommentsV2 = async (
             pageNumber: c.page_number ?? undefined,
             userId: c.user_id,
             username: c.author?.username || c.username || 'Anonim',
+            usernameChangedAt: c.author?.username_last_changed_at || undefined,
             userAvatar: c.author?.avatar || c.user_avatar,
             userRole: c.author?.role,
             content: parsedContent.body,
@@ -1988,33 +2008,95 @@ export const toggleCommentLike = async (commentId: string, userId: string, entit
 
 // ==================== READING LIST OPERATIONS ====================
 
-export const getReadingLists = async (userId: string, onlyPublic: boolean = false): Promise<ReadingList[]> => {
-    let query = supabase
-        .from('reading_lists')
-        .select('*');
+const mapReadingListRow = (row: any, mangaIds: string[] = []) => ({
+    id: row.id,
+    userId: row.user_id,
+    name: row.name,
+    description: row.description,
+    imageUrl: row.image_url,
+    isPublic: row.is_public,
+    createdAt: row.created_at,
+    mangaIds,
+});
 
-    if (onlyPublic) {
-        query = query.eq('is_public', true);
-    } else {
-        query = query.eq('user_id', userId);
+const fetchRemoteReadingLists = async (userId: string): Promise<Array<ReturnType<typeof mapReadingListRow>>> => {
+    const { data, error } = await supabase
+        .from('reading_lists')
+        .select('id, user_id, name, description, image_url, is_public, created_at')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false });
+
+    if (error || !data) {
+        return [];
     }
 
-    const { data, error } = await query.order('created_at', { ascending: false });
+    const listIds = data.map((list: any) => list.id);
+    const { data: itemsData } = listIds.length > 0
+        ? await supabase.from('reading_list_items').select('list_id, manga_id').in('list_id', listIds)
+        : { data: [] };
 
-    if (error) return [];
+    const itemMap = (itemsData || []).reduce<Record<string, string[]>>((map, item: any) => {
+        if (!map[item.list_id]) {
+            map[item.list_id] = [];
+        }
+        map[item.list_id].push(item.manga_id);
+        return map;
+    }, {});
 
-    return data.map(list => ({
-        id: list.id,
-        userId: list.user_id,
-        name: list.name,
-        description: list.description,
-        imageUrl: list.image_url,
-        isPublic: list.is_public,
-        createdAt: list.created_at
-    })) as ReadingList[];
+    return data.map((list: any) => mapReadingListRow(list, itemMap[list.id] || []));
+};
+
+const loadReadingListMangas = async (mangaIds: string[], offlineOnly: boolean): Promise<Manga[]> => {
+    if (mangaIds.length === 0) {
+        return [];
+    }
+
+    if (offlineOnly) {
+        const offlineMangas = await Promise.all(mangaIds.map((mangaId) => getOfflineMangaDetail(mangaId)));
+        return offlineMangas.filter(Boolean) as Manga[];
+    }
+
+    const mangas = await Promise.all(mangaIds.map((mangaId) => getMangaById(mangaId)));
+    return mangas.filter(Boolean) as Manga[];
+};
+
+export const getReadingLists = async (userId: string, onlyPublic: boolean = false): Promise<ReadingList[]> => {
+    if (!userId || onlyPublic) {
+        return [];
+    }
+
+    if (!areReadingListsInitialized(userId) && isEffectivelyOnline()) {
+        const remoteLists = await fetchRemoteReadingLists(userId);
+        setCachedReadingLists(userId, remoteLists);
+        return remoteLists.map(mapCachedReadingListToReadingList);
+    }
+
+    return getCachedReadingListsState(userId).map(mapCachedReadingListToReadingList);
 };
 
 export const getReadingListById = async (listId: string, viewerId?: string): Promise<ReadingList | undefined> => {
+    const offlineOnly = !isEffectivelyOnline();
+    const cachedList = viewerId ? getCachedReadingListRecord(viewerId, listId) : undefined;
+
+    if (cachedList && viewerId === cachedList.userId) {
+        const downloadedMangaIds = offlineOnly
+            ? new Set((await getOfflineLibrarySnapshot()).series.map((entry) => entry.manga.mangaId))
+            : null;
+        const mangaIdsToLoad = downloadedMangaIds
+            ? cachedList.mangaIds.filter((mangaId) => downloadedMangaIds.has(mangaId))
+            : cachedList.mangaIds;
+        const mangas = await loadReadingListMangas(mangaIdsToLoad, offlineOnly);
+
+        return {
+            ...mapCachedReadingListToReadingList(cachedList),
+            items: mangas,
+        };
+    }
+
+    if (offlineOnly) {
+        return undefined;
+    }
+
     const { data, error } = await supabase
         .from('reading_lists')
         .select(`
@@ -2033,64 +2115,15 @@ export const getReadingListById = async (listId: string, viewerId?: string): Pro
         return undefined;
     }
 
-    // Fetch manga details for items
-    const mangaIds = data.items.map((item: any) => item.manga_id);
+    const mangaIds = (data.items || []).map((item: any) => item.manga_id);
     let mangas: Manga[] = [];
 
     if (mangaIds.length > 0) {
-        const [
-            { data: mangaData },
-            { data: chapterData },
-            { data: reviewData },
-        ] = await Promise.all([
-            supabase
-                .from('mangas')
-                .select('*')
-                .in('id', mangaIds),
-            supabase
-                .from('chapters')
-                .select('id, manga_id, number, title, pages, release_date, views')
-                .in('manga_id', mangaIds),
-            supabase
-                .from('reviews')
-                .select('manga_id, user_id, created_at, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
-                .in('manga_id', mangaIds),
-        ]);
+        mangas = await loadReadingListMangas(mangaIds, false);
+    }
 
-        const allChapters = chapterData || [];
-        const allReviews = reviewData || [];
-
-        mangas = (mangaData || []).map(m => {
-            const mangaChapters = allChapters.filter((chapter: any) => chapter.manga_id === m.id);
-            const mangaReviews = allReviews.filter((review: any) => review.manga_id === m.id);
-            const normalizedRatings = mangaReviews.map((review: any) => ({
-                userId: review.user_id,
-                rating: Math.round((((review.rating_story + review.rating_characters + review.rating_art + review.rating_progression + review.rating_engagement) / 5) * 10)) / 10,
-                createdAt: review.created_at,
-            }));
-            const averageRating = normalizedRatings.length > 0
-                ? Math.round(((normalizedRatings.reduce((sum, rating) => sum + rating.rating, 0) / normalizedRatings.length) * 10)) / 10
-                : 0;
-
-            return {
-                ...m,
-                alternativeTitles: m.alternative_titles || [],
-                releaseYear: m.release_year,
-                lastUpdated: m.last_updated,
-                createdAt: m.created_at,
-                chapters: mangaChapters.map((chapter: any) => ({
-                    id: chapter.id,
-                    number: chapter.number,
-                    title: chapter.title || '',
-                    pages: chapter.pages || [],
-                    releaseDate: chapter.release_date || '',
-                    views: chapter.views || 0,
-                })),
-                ratings: normalizedRatings,
-                averageRating,
-                reviewCount: normalizedRatings.length,
-            };
-        }) as Manga[];
+    if (viewerId && data.user_id === viewerId) {
+        upsertCachedReadingList(viewerId, mapReadingListRow(data, mangaIds));
     }
 
     return {
@@ -2106,6 +2139,10 @@ export const getReadingListById = async (listId: string, viewerId?: string): Pro
 };
 
 export const getLikedReadingLists = async (userId: string): Promise<LikedReadingListPreview[]> => {
+    if (!userId || !isEffectivelyOnline()) {
+        return [];
+    }
+
     const { data: likesData, error: likesError } = await supabase
         .from('reading_list_likes')
         .select('list_id, created_at')
@@ -2193,9 +2230,28 @@ export const getLikedReadingLists = async (userId: string): Promise<LikedReading
 };
 
 export const createReadingList = async (list: Omit<ReadingList, 'id' | 'createdAt'>): Promise<ReadingList> => {
+    const nextList = {
+        id: createClientEntityId(),
+        userId: list.userId,
+        name: list.name,
+        description: list.description,
+        imageUrl: list.imageUrl,
+        isPublic: list.isPublic,
+        createdAt: new Date().toISOString(),
+        mangaIds: [],
+    };
+
+    upsertCachedReadingList(list.userId, nextList);
+
+    if (!isEffectivelyOnline()) {
+        queueReadingListCreate(list.userId, nextList);
+        return mapCachedReadingListToReadingList(nextList);
+    }
+
     const { data, error } = await supabase
         .from('reading_lists')
         .insert({
+            id: nextList.id,
             user_id: list.userId,
             name: list.name,
             description: list.description,
@@ -2205,17 +2261,14 @@ export const createReadingList = async (list: Omit<ReadingList, 'id' | 'createdA
         .select()
         .single();
 
-    if (error) throw error;
+    if (error) {
+        queueReadingListCreate(list.userId, nextList);
+        return mapCachedReadingListToReadingList(nextList);
+    }
 
-    return {
-        id: data.id,
-        userId: data.user_id,
-        name: data.name,
-        description: data.description,
-        imageUrl: data.image_url,
-        isPublic: data.is_public,
-        createdAt: data.created_at
-    } as ReadingList;
+    const persistedList = mapReadingListRow(data, []);
+    upsertCachedReadingList(list.userId, persistedList);
+    return mapCachedReadingListToReadingList(persistedList);
 };
 
 export const getTierListById = async (tierListId: string, viewerId?: string) => {
@@ -2238,6 +2291,25 @@ export const getTierListById = async (tierListId: string, viewerId?: string) => 
 };
 
 export const updateReadingList = async (listId: string, updates: Partial<Pick<ReadingList, 'name' | 'description' | 'imageUrl' | 'isPublic'>>): Promise<void> => {
+    const cachedEntry = findCachedReadingListRecord(listId);
+
+    if (!cachedEntry) {
+        throw new Error('READING_LIST_NOT_FOUND');
+    }
+
+    updateCachedReadingList(cachedEntry.userId, listId, (list) => ({
+        ...list,
+        name: updates.name ?? list.name,
+        description: updates.description ?? list.description,
+        imageUrl: updates.imageUrl ?? list.imageUrl,
+        isPublic: updates.isPublic ?? list.isPublic,
+    }));
+
+    if (!isEffectivelyOnline()) {
+        queueReadingListUpdate(cachedEntry.userId, listId, updates);
+        return;
+    }
+
     const { error } = await supabase
         .from('reading_lists')
         .update({
@@ -2246,21 +2318,56 @@ export const updateReadingList = async (listId: string, updates: Partial<Pick<Re
             image_url: updates.imageUrl,
             is_public: updates.isPublic
         })
-        .eq('id', listId);
+        .eq('id', listId)
+        .eq('user_id', cachedEntry.userId);
 
-    if (error) throw error;
+    if (error) {
+        queueReadingListUpdate(cachedEntry.userId, listId, updates);
+    }
 };
 
 export const deleteReadingList = async (listId: string): Promise<void> => {
+    const cachedEntry = findCachedReadingListRecord(listId);
+
+    if (!cachedEntry) {
+        return;
+    }
+
+    removeCachedReadingList(cachedEntry.userId, listId);
+
+    if (!isEffectivelyOnline()) {
+        queueReadingListDelete(cachedEntry.userId, listId);
+        return;
+    }
+
     const { error } = await supabase
         .from('reading_lists')
         .delete()
-        .eq('id', listId);
+        .eq('id', listId)
+        .eq('user_id', cachedEntry.userId);
 
-    if (error) throw error;
+    if (error) {
+        queueReadingListDelete(cachedEntry.userId, listId);
+    }
 };
 
 export const addMangaToReadingList = async (listId: string, mangaId: string): Promise<void> => {
+    const cachedEntry = findCachedReadingListRecord(listId);
+
+    if (!cachedEntry) {
+        throw new Error('READING_LIST_NOT_FOUND');
+    }
+
+    updateCachedReadingList(cachedEntry.userId, listId, (list) => ({
+        ...list,
+        mangaIds: list.mangaIds.includes(mangaId) ? list.mangaIds : [...list.mangaIds, mangaId],
+    }));
+
+    if (!isEffectivelyOnline()) {
+        queueReadingListAddItem(cachedEntry.userId, listId, mangaId);
+        return;
+    }
+
     const { error } = await supabase
         .from('reading_list_items')
         .upsert({
@@ -2268,17 +2375,37 @@ export const addMangaToReadingList = async (listId: string, mangaId: string): Pr
             manga_id: mangaId
         }, { onConflict: 'list_id,manga_id' });
 
-    if (error) throw error;
+    if (error) {
+        queueReadingListAddItem(cachedEntry.userId, listId, mangaId);
+    }
 };
 
 export const removeMangaFromReadingList = async (listId: string, mangaId: string): Promise<void> => {
+    const cachedEntry = findCachedReadingListRecord(listId);
+
+    if (!cachedEntry) {
+        return;
+    }
+
+    updateCachedReadingList(cachedEntry.userId, listId, (list) => ({
+        ...list,
+        mangaIds: list.mangaIds.filter((entry) => entry !== mangaId),
+    }));
+
+    if (!isEffectivelyOnline()) {
+        queueReadingListRemoveItem(cachedEntry.userId, listId, mangaId);
+        return;
+    }
+
     const { error } = await supabase
         .from('reading_list_items')
         .delete()
         .eq('list_id', listId)
         .eq('manga_id', mangaId);
 
-    if (error) throw error;
+    if (error) {
+        queueReadingListRemoveItem(cachedEntry.userId, listId, mangaId);
+    }
 };
 
 export const getMangasInReadingList = async (listId: string): Promise<Manga[]> => {
@@ -2309,6 +2436,16 @@ export const getMangasInReadingList = async (listId: string): Promise<Manga[]> =
 };
 
 export const checkIfMangaInList = async (listId: string, mangaId: string): Promise<boolean> => {
+    const cachedEntry = findCachedReadingListRecord(listId);
+
+    if (cachedEntry) {
+        return cachedEntry.list.mangaIds.includes(mangaId);
+    }
+
+    if (!isEffectivelyOnline()) {
+        return false;
+    }
+
     const { data, error } = await supabase
         .from('reading_list_items')
         .select('id')

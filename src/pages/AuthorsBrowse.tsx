@@ -6,8 +6,11 @@ import { getAuthors } from '@/lib/database';
 import { Author } from '@/lib/types';
 import Header from '@/components/layout/Header';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const AuthorsBrowse: React.FC = () => {
+    const { isOnline } = useEffectiveOnlineStatus();
     const [authors, setAuthors] = useState<Author[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
@@ -24,6 +27,16 @@ const AuthorsBrowse: React.FC = () => {
     const filteredAuthors = authors.filter(a =>
         a.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    if (!isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Yazar arşivi için internete bağlanın."
+                actionHref="/downloads"
+                actionLabel="İndirilenlere Git"
+            />
+        );
+    }
 
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">

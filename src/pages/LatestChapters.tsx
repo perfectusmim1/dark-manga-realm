@@ -8,8 +8,11 @@ import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import { Badge } from '@/components/ui/badge';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
 import { getLatestChapters, getLatestChaptersCountLast24Hours, LatestChapterFeedItem } from '@/lib/database';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const LatestChapters: React.FC = () => {
+    const { isOnline } = useEffectiveOnlineStatus();
     const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>([]);
     const [isLoading, setIsLoading] = React.useState(true);
     const [isLoadingMore, setIsLoadingMore] = React.useState(false);
@@ -18,6 +21,16 @@ const LatestChapters: React.FC = () => {
     const loaderRef = React.useRef<HTMLDivElement | null>(null);
 
     const PAGE_SIZE = 30;
+
+    if (!isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Son bölümler akışı için internete bağlanın."
+                actionHref="/downloads"
+                actionLabel="İndirilenlere Git"
+            />
+        );
+    }
 
     const loadChapters = React.useCallback(async (offset: number, append: boolean) => {
         try {

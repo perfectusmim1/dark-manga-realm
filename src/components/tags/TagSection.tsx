@@ -17,6 +17,8 @@ import {
   voteOnTag,
 } from '@/lib/database';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import OfflineNotice from '@/components/offline/OfflineNotice';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
 
@@ -61,6 +63,7 @@ interface TagSectionProps {
 
 const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable = true }) => {
   const { user } = useAuth();
+  const { isOnline } = useEffectiveOnlineStatus();
   const [tags, setTags] = useState<Tag[]>([]);
   const [allTags, setAllTags] = useState<Tag[]>([]);
   const [votes, setVotes] = useState<Record<string, { up: number; down: number }>>({});
@@ -76,8 +79,16 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
   const searchRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    if (!isOnline) {
+      setIsLoading(false);
+      setTags([]);
+      setVotes({});
+      setUserVotes({});
+      return;
+    }
+
     loadData();
-  }, [entityId, entityType]);
+  }, [entityId, entityType, isOnline]);
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
@@ -129,6 +140,11 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
       return;
     }
 
+    if (!isOnline) {
+      toast.error('Etiket işlemleri için internete bağlanın');
+      return;
+    }
+
     setIsAdding(true);
     try {
       const success = await addTagToEntity(entityType, entityId, tag.id, user.id, options);
@@ -152,6 +168,10 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
   const handleRemoveTag = async (tagId: string) => {
     if (!user) return;
+    if (!isOnline) {
+      toast.error('Etiket işlemleri için internete bağlanın');
+      return;
+    }
 
     const tagName = tags.find(t => t.id === tagId)?.name;
     const success = await removeTagFromEntity(entityType, entityId, tagId);
@@ -164,6 +184,11 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
   const handleVote = async (tagId: string, voteType: 'up' | 'down') => {
     if (!user) {
       toast.error('Oy vermek için giriş yapmalısınız');
+      return;
+    }
+
+    if (!isOnline) {
+      toast.error('Etiket oylamak için internete bağlanın');
       return;
     }
 
@@ -209,6 +234,10 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
   const handleCreateTag = async () => {
     if (!user || !newTagName.trim()) return;
+    if (!isOnline) {
+      toast.error('Etiket oluşturmak için internete bağlanın');
+      return;
+    }
 
     setIsAdding(true);
     try {
@@ -268,6 +297,16 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
           ))}
         </div>
       </div>
+    );
+  }
+
+  if (!isOnline) {
+    return (
+      <OfflineNotice
+        compact
+        title="Çevrimdışısınız"
+        description="Akıllı etiketler internet bağlantısı gerektirir."
+      />
     );
   }
 

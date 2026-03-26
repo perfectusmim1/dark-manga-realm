@@ -20,6 +20,7 @@ import HorizontalReader from '@/components/reader/HorizontalReader';
 import PageCommentRail from '@/components/reader/PageCommentRail';
 import PageCommentModal from '@/components/reader/PageCommentModal';
 import CommentSection from '@/components/comments/CommentSection';
+import OfflineNotice from '@/components/offline/OfflineNotice';
 import { Chapter, ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import {
   buildOfflineReaderPages,
@@ -369,6 +370,11 @@ const Reader: React.FC = () => {
         setIsContentReady(true);
       } catch (err) {
         console.error('Reader load error:', err);
+        setResolvedPages([]);
+        setIsOfflineChapter(false);
+        setOfflineUnavailable(!isOnlineNow);
+        setIsContentReady(false);
+        setIsLoading(false);
       }
     };
 
@@ -846,11 +852,6 @@ const Reader: React.FC = () => {
   }, [chapterId, initialized, isLoading, isRestoreLayoutReady, resolvedPages.length, scrollToPage, settings.mode]);
 
   const handleAddBookmark = useCallback(() => {
-    if (!isOnlineNow) {
-      toast.error('Yer imi eklemek için internet bağlantısı gerekli');
-      return;
-    }
-
     if (!user) {
       toast.error('Yer imi eklemek için giriş yapmalısınız');
       return;
@@ -863,7 +864,11 @@ const Reader: React.FC = () => {
         chapterNumber: chapter.number,
         page: currentPage,
       }).then(() => {
-        toast.success(`Yer imi eklendi: Sayfa ${currentPage}`);
+        toast.success(
+          isOnlineNow
+            ? `Yer imi eklendi: Sayfa ${currentPage}`
+            : 'Yer imi kaydedildi, tekrar çevrimiçi olduğunda eşitlenecek'
+        );
       }).catch((error) => {
         if (error.message === 'ALREADY_EXISTS') {
           toast.warning(`Bu sayfa (Sayfa ${currentPage}) zaten yer imlerine eklenmiş!`);
@@ -936,7 +941,20 @@ const Reader: React.FC = () => {
   }
 
   if (!manga || !chapter) {
-    return <div className="min-h-screen bg-background" />;
+    return (
+      <div className="min-h-screen bg-background px-4 py-20">
+        <div className="mx-auto max-w-2xl">
+          <OfflineNotice
+            title={isOnlineNow ? 'Bölüm açılamadı' : 'Çevrimdışısınız'}
+            description={isOnlineNow
+              ? 'Bölüm verisi yüklenemedi. Tekrar deneyin.'
+              : 'Bu bölüm bu cihazda çevrimdışı hazır değil veya okunacak içerik bulunamadı.'}
+            actionHref="/downloads"
+            actionLabel="İndirilenlere Git"
+          />
+        </div>
+      </div>
+    );
   }
 
   const scrollToTop = () => {

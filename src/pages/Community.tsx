@@ -7,6 +7,8 @@ import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/badge';
 import ReadingListCover from '@/components/manga/ReadingListCover';
 import { getCompletedChapterCountsByUser } from '@/lib/storage';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 interface LeaderboardUser {
   id: string;
@@ -26,12 +28,23 @@ interface UserStats {
 }
 
 const Community: React.FC = () => {
+  const { isOnline } = useEffectiveOnlineStatus();
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(true);
   const [category, setCategory] = useState<'chapters' | 'comments' | 'reading_lists'>('chapters');
   const [visibleCount, setVisibleCount] = useState(20);
   const [userStats, setUserStats] = useState<UserStats>({ online: 0, offline: 0 });
   const PAGE_SIZE = 20;
+
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        description="Topluluk sıralamaları için internet bağlantısı gerekiyor."
+        actionHref="/downloads"
+        actionLabel="İndirilenlere Git"
+      />
+    );
+  }
 
   useEffect(() => {
     setVisibleCount(PAGE_SIZE);

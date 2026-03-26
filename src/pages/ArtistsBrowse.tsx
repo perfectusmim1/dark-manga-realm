@@ -6,8 +6,11 @@ import { getArtists } from '@/lib/database';
 import { Artist } from '@/lib/types';
 import Header from '@/components/layout/Header';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const ArtistsBrowse: React.FC = () => {
+    const { isOnline } = useEffectiveOnlineStatus();
     const [artists, setArtists] = useState<Artist[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(true);
@@ -24,6 +27,16 @@ const ArtistsBrowse: React.FC = () => {
     const filteredArtists = artists.filter(a =>
         a.name.toLowerCase().includes(searchQuery.toLowerCase())
     );
+
+    if (!isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Çizer arşivi için internete bağlanın."
+                actionHref="/downloads"
+                actionLabel="İndirilenlere Git"
+            />
+        );
+    }
 
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">

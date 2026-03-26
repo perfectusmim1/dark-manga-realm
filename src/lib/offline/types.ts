@@ -9,6 +9,13 @@ export type OfflineDownloadStatus =
   | 'partial'
   | 'cancelled';
 
+export interface OfflineCharacterCard {
+  id: string;
+  name: string;
+  imageUrl?: string;
+  likesCount: number;
+}
+
 export interface OfflineManga {
   mangaId: string;
   title: string;
@@ -25,6 +32,7 @@ export interface OfflineManga {
   lastUpdated: string;
   createdAt: string;
   downloadedAt: string;
+  characters?: OfflineCharacterCard[];
 }
 
 export interface OfflineChapter {

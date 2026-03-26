@@ -18,8 +18,11 @@ import {
 } from '@/components/ui/select';
 import TagFilterPanel from '@/components/tags/TagFilterPanel';
 import BrowseSkeleton from '@/components/skeletons/BrowseSkeleton';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const Browse: React.FC = () => {
+  const { isOnline } = useEffectiveOnlineStatus();
   const [searchParams, setSearchParams] = useSearchParams();
   const [showFilters, setShowFilters] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(
@@ -39,6 +42,16 @@ const Browse: React.FC = () => {
   const loaderRef = React.useRef<HTMLDivElement | null>(null);
 
   const PAGE_SIZE = 32;
+
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        description="Keşfet sayfası internet bağlantısı gerektirir."
+        actionHref="/downloads"
+        actionLabel="İndirilenlere Git"
+      />
+    );
+  }
 
   useEffect(() => {
     const fetchMangas = async () => {

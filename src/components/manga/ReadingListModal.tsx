@@ -24,6 +24,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import ReadingListCover from './ReadingListCover';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 interface ReadingListModalProps {
     isOpen: boolean;
@@ -42,6 +43,7 @@ const isValidImageUrl = (value: string) => {
 };
 
 const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, mangaId, userId }) => {
+    const { isOnline } = useEffectiveOnlineStatus();
     const [lists, setLists] = useState<ReadingList[]>([]);
     const [inLists, setInLists] = useState<Record<string, boolean>>({});
     const [isCreating, setIsCreating] = useState(false);
@@ -86,11 +88,11 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
             if (isInList) {
                 await removeMangaFromReadingList(listId, mangaId);
                 setInLists(prev => ({ ...prev, [listId]: false }));
-                toast.success('Listeden kaldırıldı');
+                toast.success(isOnline ? 'Listeden kaldırıldı' : 'Listeden kaldırıldı, tekrar çevrimiçi olduğunda eşitlenecek');
             } else {
                 await addMangaToReadingList(listId, mangaId);
                 setInLists(prev => ({ ...prev, [listId]: true }));
-                toast.success('Listeye eklendi');
+                toast.success(isOnline ? 'Listeye eklendi' : 'Listeye eklendi, tekrar çevrimiçi olduğunda eşitlenecek');
             }
         } catch (err) {
             toast.error('İşlem başarısız oldu');
@@ -128,7 +130,11 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
             // Automatically add manga to the new list
             await addMangaToReadingList(newList.id, mangaId);
             setInLists(prev => ({ ...prev, [newList.id]: true }));
-            toast.success(`"${newList.name}" listesi oluşturuldu ve manga eklendi`);
+            toast.success(
+                isOnline
+                    ? `"${newList.name}" listesi oluşturuldu ve manga eklendi`
+                    : `"${newList.name}" listesi oluşturuldu, tekrar çevrimiçi olduğunda eşitlenecek`
+            );
         } catch (err) {
             toast.error('Liste oluşturulamadı');
         }

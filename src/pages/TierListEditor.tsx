@@ -9,6 +9,8 @@ import { toast } from 'sonner';
 import { getAllMangas, getCharacters } from '@/lib/database';
 import { Save, Search, ArrowLeft, Image as ImageIcon } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const defaultTiers = [
   { id: 'S', color: 'bg-red-500' },
@@ -73,9 +75,20 @@ type TouchDragState = {
 };
 
 export default function TierListEditor() {
+  const { isOnline } = useEffectiveOnlineStatus();
   const { id } = useParams<{ id: string }>(); // 'create' or uuid
   const { user } = useAuth();
   const navigate = useNavigate();
+
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        description="Tier listesi oluşturmak veya düzenlemek için internete bağlanın."
+        actionHref="/downloads"
+        actionLabel="İndirilenlere Git"
+      />
+    );
+  }
 
   const [title, setTitle] = useState('Benim Sıralamam');
   const [type, setType] = useState<'manga' | 'character'>('manga');

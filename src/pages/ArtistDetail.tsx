@@ -12,13 +12,26 @@ import CommentSection from '@/components/comments/CommentSection';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import EntitySeriesGrid from '@/components/entities/EntitySeriesGrid';
 import { supabase } from '@/lib/supabase';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
 const ArtistDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
+    const { isOnline } = useEffectiveOnlineStatus();
     const [artist, setArtist] = useState<Artist | null>(null);
     const [loading, setLoading] = useState(true);
     const [isLiked, setIsLiked] = useState(false);
+
+    if (!isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Çizer sayfaları internet bağlantısı gerektirir."
+                actionHref="/downloads"
+                actionLabel="İndirilenlere Git"
+            />
+        );
+    }
 
     useEffect(() => {
         const fetchArtist = async () => {
