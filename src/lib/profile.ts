@@ -406,6 +406,17 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
     }
 
     if (!sectionAccess.profile) {
+        const [followersResult, followingResult] = await Promise.all([
+            supabase
+                .from('user_follows')
+                .select('*', { count: 'exact', head: true })
+                .eq('followed_id', userId),
+            supabase
+                .from('user_follows')
+                .select('*', { count: 'exact', head: true })
+                .eq('follower_id', userId),
+        ]);
+
         return {
             ...user,
             stats: {
@@ -413,8 +424,8 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
                 totalChapters: 0,
                 totalReadingSeconds: 0,
                 totalComments: 0,
-                followersCount: 0,
-                followingCount: 0,
+                followersCount: followersResult.count || 0,
+                followingCount: followingResult.count || 0,
             },
             relationship: {
                 isFollowing: context.is_following,
