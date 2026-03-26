@@ -10,6 +10,10 @@ import {
   OfflinePage,
   PendingReaderSync,
 } from '@/lib/offline/types';
+import {
+  cachePersistentImageDataUrl,
+  isPersistentImageDataUrl,
+} from '@/lib/offline/persistentImageCache';
 import { warmPersistentImageUrls } from '@/lib/offline/persistentImageWarmup';
 
 const OFFLINE_DB_NAME = 'toonparrot-offline';
@@ -86,6 +90,13 @@ const dbPromise = openDB<OfflineDbSchema>(OFFLINE_DB_NAME, OFFLINE_DB_VERSION, {
 });
 
 const getDb = () => dbPromise;
+const mangaArtworkRepairQueue = new Map<string, Promise<void>>();
+
+const isNonEmptyString = (value?: string | null): value is string =>
+  typeof value === 'string' && value.trim().length > 0;
+
+const resolveArtworkSourceUrl = (...values: Array<string | null | undefined>) =>
+  values.find((value) => isNonEmptyString(value) && !isPersistentImageDataUrl(value))?.trim();
 
 const emitOfflineLibraryChange = () => {
   if (typeof window === 'undefined') {
@@ -119,7 +130,9 @@ const mapMangaToOffline = (manga: Manga): OfflineManga => ({
   mangaId: manga.id,
   title: manga.title,
   cover: manga.cover,
+  coverSourceUrl: manga.cover,
   banner: manga.banner,
+  bannerSourceUrl: manga.banner,
   author: manga.author,
   artist: manga.artist,
   type: manga.type,
@@ -149,6 +162,89 @@ const sortChapters = (chapters: OfflineChapter[]) =>
 const sumDownloadedBytes = (chapters: OfflineChapter[]) =>
   chapters.reduce((sum, chapter) => sum + (chapter.downloadedBytes || 0), 0);
 
+const persistOfflineMangaArtwork = async (
+  mangaId: string,
+  artwork?: { coverSourceUrl?: string | null; bannerSourceUrl?: string | null },
+) => {
+  if (
+    typeof window === 'undefined'
+    || (typeof navigator !== 'undefined' && !navigator.onLine)
+  ) {
+    return;
+  }
+
+  const existingTask = mangaArtworkRepairQueue.get(mangaId);
+  if (existingTask) {
+    return existingTask;
+  }
+
+  const task = (async () => {
+    const db = await getDb();
+    const current = await db.get('mangas', mangaId);
+
+    if (!current) {
+      return;
+    }
+
+    const coverSourceUrl = resolveArtworkSourceUrl(
+      artwork?.coverSourceUrl,
+      current.coverSourceUrl,
+      current.cover,
+    );
+    const bannerSourceUrl = resolveArtworkSourceUrl(
+      artwork?.bannerSourceUrl,
+      current.bannerSourceUrl,
+      current.banner,
+    );
+
+    const shouldRefreshCover = Boolean(
+      coverSourceUrl
+      && (!isPersistentImageDataUrl(current.cover) || current.coverSourceUrl !== coverSourceUrl),
+    );
+    const shouldRefreshBanner = Boolean(
+      bannerSourceUrl
+      && (!isPersistentImageDataUrl(current.banner) || current.bannerSourceUrl !== bannerSourceUrl),
+    );
+
+    const [nextCover, nextBanner] = await Promise.all([
+      shouldRefreshCover ? cachePersistentImageDataUrl(coverSourceUrl) : Promise.resolve(undefined),
+      shouldRefreshBanner ? cachePersistentImageDataUrl(bannerSourceUrl) : Promise.resolve(undefined),
+    ]);
+
+    const nextValue: OfflineManga = {
+      ...current,
+      cover: nextCover || current.cover,
+      banner: nextBanner || current.banner,
+      coverSourceUrl: coverSourceUrl || current.coverSourceUrl,
+      bannerSourceUrl: bannerSourceUrl || current.bannerSourceUrl,
+    };
+
+    if (
+      nextValue.cover === current.cover
+      && nextValue.banner === current.banner
+      && nextValue.coverSourceUrl === current.coverSourceUrl
+      && nextValue.bannerSourceUrl === current.bannerSourceUrl
+    ) {
+      return;
+    }
+
+    await db.put('mangas', nextValue);
+    emitOfflineLibraryChange();
+  })().finally(() => {
+    mangaArtworkRepairQueue.delete(mangaId);
+  });
+
+  mangaArtworkRepairQueue.set(mangaId, task);
+  return task;
+};
+
+const queueOfflineMangaArtworkPersist = (
+  mangaId: string,
+  artwork?: { coverSourceUrl?: string | null; bannerSourceUrl?: string | null },
+) => {
+  void persistOfflineMangaArtwork(mangaId, artwork).catch(() => undefined);
+};
+
 export const subscribeOfflineLibrary = (listener: () => void) => {
   if (typeof window === 'undefined') {
     return () => undefined;
@@ -167,7 +263,20 @@ export const subscribeOfflineLibrary = (listener: () => void) => {
 
 export const cacheOfflineManga = async (manga: Manga) => {
   const db = await getDb();
-  await db.put('mangas', mapMangaToOffline(manga));
+  const current = await db.get('mangas', manga.id);
+  const nextValue: OfflineManga = {
+    ...mapMangaToOffline(manga),
+    downloadedAt: current?.downloadedAt || new Date().toISOString(),
+    characters: current?.characters || [],
+    cover: isPersistentImageDataUrl(current?.cover) ? current.cover : manga.cover,
+    banner: isPersistentImageDataUrl(current?.banner) ? current.banner : manga.banner,
+  };
+
+  await db.put('mangas', nextValue);
+  queueOfflineMangaArtworkPersist(manga.id, {
+    coverSourceUrl: manga.cover,
+    bannerSourceUrl: manga.banner,
+  });
   warmPersistentImageUrls([manga.cover, manga.banner]);
   emitOfflineLibraryChange();
 };
@@ -521,6 +630,13 @@ export const getOfflineMangaDetail = async (mangaId: string): Promise<Manga | un
     return undefined;
   }
 
+  if (!isPersistentImageDataUrl(manga.cover) || (manga.banner && !isPersistentImageDataUrl(manga.banner))) {
+    queueOfflineMangaArtworkPersist(manga.mangaId, {
+      coverSourceUrl: manga.coverSourceUrl,
+      bannerSourceUrl: manga.bannerSourceUrl,
+    });
+  }
+
   return {
     id: manga.mangaId,
     title: manga.title,
@@ -578,6 +694,15 @@ export const getOfflineLibrarySnapshot = async (): Promise<OfflineLibrarySnapsho
     existing.push(job);
     jobsByManga.set(job.mangaId, existing);
   }
+
+  mangas.forEach((manga) => {
+    if (!isPersistentImageDataUrl(manga.cover) || (manga.banner && !isPersistentImageDataUrl(manga.banner))) {
+      queueOfflineMangaArtworkPersist(manga.mangaId, {
+        coverSourceUrl: manga.coverSourceUrl,
+        bannerSourceUrl: manga.bannerSourceUrl,
+      });
+    }
+  });
 
   const series = mangas
     .map((manga) => {

@@ -156,24 +156,22 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
           <div className="flex items-center gap-2">
             {isOnline && (
-              <>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  title={isIncognito ? "Gizli Mod Açık (Geçmişe Kaydedilmiyor)" : "Gizli Modu Aç"}
-                  onClick={() => {
-                    onIncognitoToggle(!isIncognito);
-                  }}
-                  className={isIncognito ? "text-purple-500 bg-purple-500/10 hover:text-purple-400 hover:bg-purple-500/20" : ""}
-                >
-                  {isIncognito ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5 opacity-50" />}
-                </Button>
-
-                <Button variant="ghost" size="icon" onClick={onAddBookmark} title="Yer İmlerime Ekle">
-                  <BookmarkPlus className="h-5 w-5" />
-                </Button>
-              </>
+              <Button
+                variant="ghost"
+                size="icon"
+                title={isIncognito ? "Gizli Mod Açık (Geçmişe Kaydedilmiyor)" : "Gizli Modu Aç"}
+                onClick={() => {
+                  onIncognitoToggle(!isIncognito);
+                }}
+                className={isIncognito ? "text-purple-500 bg-purple-500/10 hover:text-purple-400 hover:bg-purple-500/20" : ""}
+              >
+                {isIncognito ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5 opacity-50" />}
+              </Button>
             )}
+
+            <Button variant="ghost" size="icon" onClick={onAddBookmark} title="Yer İmlerime Ekle">
+              <BookmarkPlus className="h-5 w-5" />
+            </Button>
 
             <Popover>
               <PopoverTrigger asChild>

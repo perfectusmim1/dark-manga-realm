@@ -20,7 +20,9 @@ export interface OfflineManga {
   mangaId: string;
   title: string;
   cover: string;
+  coverSourceUrl?: string;
   banner?: string;
+  bannerSourceUrl?: string;
   author: string;
   artist?: string;
   type: Manga['type'];
