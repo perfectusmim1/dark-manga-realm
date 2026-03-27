@@ -131,7 +131,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
     void (async () => {
       const access = await checkCurrentAccess().catch((error) => {
         console.error('Access gate check failed:', error);
-        return { allowed: true } as const;
+        return { allowed: true, message: undefined };
       });
 
       if (!active) {

@@ -5,12 +5,7 @@ import {
     Download,
     RefreshCw,
     Loader2,
-    CheckCircle2,
-    AlertCircle,
     Globe,
-    ExternalLink,
-    ChevronDown,
-    Plus,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -28,6 +23,14 @@ import { toast } from 'sonner';
 import { getAllMangas, getMangaById, saveManga } from '@/lib/database';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { Manga, Chapter } from '@/lib/types';
+import {
+    fetchScraperContent,
+    getAvailableScraperProviders,
+    getScraperProviderLabel,
+    readPreferredScraperProvider,
+    type ScraperProvider,
+    writePreferredScraperProvider,
+} from '@/lib/scraperProxy';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -44,11 +47,28 @@ interface ScrapedChapter {
     number: number;
 }
 
+interface ParsedChapterImage {
+    src?: string | null;
+}
+
+interface ParsedChapterDataPayload {
+    images?: ParsedChapterImage[];
+}
+
+const isParsedChapterDataPayload = (value: unknown): value is ParsedChapterDataPayload => {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+
+    return Array.isArray((value as ParsedChapterDataPayload).images);
+};
+
 const AdminChapterScraper: React.FC = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
     const { access, isLoading: accessLoading } = useAdminAccess();
     const canUseScraper = access.canAccessAdminPanel && access.role === 'admin';
+    const availableScraperProviders = getAvailableScraperProviders();
 
     // Local State
     const [localMangas, setLocalMangas] = useState<Manga[]>([]);
@@ -68,6 +88,7 @@ const AdminChapterScraper: React.FC = () => {
 
     // Import State
     const [importing, setImporting] = useState(false);
+    const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
 
     useEffect(() => {
         if (accessLoading || !user) {
@@ -88,9 +109,24 @@ const AdminChapterScraper: React.FC = () => {
         loadLocalMangas();
     }, [canUseScraper]);
 
+    useEffect(() => {
+        if (availableScraperProviders.includes(scraperProvider)) {
+            return;
+        }
+
+        const nextProvider = readPreferredScraperProvider();
+        setScraperProvider(nextProvider);
+    }, [availableScraperProviders, scraperProvider]);
+
     if (accessLoading || !user || !canUseScraper) {
         return null;
     }
+
+    const handleScraperProviderChange = (nextProvider: ScraperProvider) => {
+        writePreferredScraperProvider(nextProvider);
+        setScraperProvider(nextProvider);
+        toast.success(`Scraper sağlayıcısı: ${getScraperProviderLabel(nextProvider)}`);
+    };
 
     const loadLocalMangas = async () => {
         setLoadingLocal(true);
@@ -119,56 +155,6 @@ const AdminChapterScraper: React.FC = () => {
         }
     };
 
-    const fetchWithProxy = async (targetUrl: string) => {
-        // 1. Priority: Supabase Edge Function
-        try {
-            const response = await fetch('https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/proxy-scraper', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: targetUrl })
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                if (data.content) return data.content;
-            }
-        } catch (e) {
-            console.warn('Edge Function failed, switching to backup proxies...', e);
-        }
-
-        // 2. Backup: Public Proxies
-        const backups = [
-            (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-            (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-            (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}`
-        ];
-
-        let lastError = null;
-        for (const proxy of backups) {
-            try {
-                const response = await fetch(proxy(targetUrl));
-                if (response.ok) {
-                    const data = await response.json().catch(() => null);
-                    if (data && data.contents) return data.contents;
-                    if (!data) {
-                        return await response.text();
-                    }
-                    return typeof data === 'string' ? data : JSON.stringify(data);
-                }
-            } catch (err) {
-                lastError = err;
-            }
-        }
-
-        // Final attempt: direct fetch
-        try {
-            const response = await fetch(targetUrl);
-            if (response.ok) return await response.text();
-        } catch (e) { }
-
-        throw lastError || new Error('All proxies failed');
-    };
-
     const handleSourceSearch = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
 
@@ -191,7 +177,7 @@ const AdminChapterScraper: React.FC = () => {
 
         try {
             const url = `https://hayalistic.net/?s=${encodeURIComponent(searchQuery)}&post_type=wp-manga`;
-            const html = await fetchWithProxy(url);
+            const html = await fetchScraperContent(url, { provider: scraperProvider });
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const items = doc.querySelectorAll('.c-tabs-item__content');
@@ -225,7 +211,7 @@ const AdminChapterScraper: React.FC = () => {
         setNewChapters([]);
 
         try {
-            const html = await fetchWithProxy(card.link);
+            const html = await fetchScraperContent(card.link, { provider: scraperProvider });
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
 
@@ -288,7 +274,7 @@ const AdminChapterScraper: React.FC = () => {
                     // Small delay to prevent proxy ban
                     if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
 
-                    const chHtml = await fetchWithProxy(sc.link);
+                    const chHtml = await fetchScraperContent(sc.link, { provider: scraperProvider });
                     const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
 
                     // Same image extraction logic as Scraper
@@ -316,12 +302,16 @@ const AdminChapterScraper: React.FC = () => {
                                 try {
                                     const match = content.match(/chapter_data\s*=\s*({.*?});/s);
                                     if (match) {
-                                        const jsonData = JSON.parse(match[1]);
-                                        if (jsonData.images && Array.isArray(jsonData.images)) {
-                                            images = jsonData.images.map((img: any) => img.src).filter((src: string) => src && src.startsWith('http'));
+                                        const jsonData: unknown = JSON.parse(match[1]);
+                                        if (isParsedChapterDataPayload(jsonData) && jsonData.images) {
+                                            images = jsonData.images
+                                                .map((img) => (typeof img.src === 'string' ? img.src.trim() : ''))
+                                                .filter((src) => src.startsWith('http'));
                                         }
                                     }
-                                } catch (e) { }
+                                } catch (error) {
+                                    console.warn('Script parsing failed', error);
+                                }
                             }
                         }
                     }
@@ -379,14 +369,32 @@ const AdminChapterScraper: React.FC = () => {
     return (
         <div className="space-y-6">
             <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                    <RefreshCw className="h-6 w-6" />
-                </div>
-                <div>
-                    <h1 className="text-2xl font-bold sm:text-3xl">Bölüm Çekme</h1>
-                    <p className="text-muted-foreground">Eski mangalarınız için yeni bölümleri otomatik bulun ve yükleyin.</p>
-                </div>
+            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                <RefreshCw className="h-6 w-6" />
             </div>
+            <div>
+                <h1 className="text-2xl font-bold sm:text-3xl">Bölüm Çekme</h1>
+                <p className="text-muted-foreground">Eski mangalarınız için yeni bölümleri otomatik bulun ve yükleyin.</p>
+            </div>
+            <div className="flex flex-wrap gap-2 sm:ml-auto">
+                <Badge variant="outline" className="h-8 gap-1 bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 transition-colors">
+                    <Globe className="h-4 w-4" />
+                    Hayalistic.net
+                </Badge>
+                <Select value={scraperProvider} onValueChange={(value) => handleScraperProviderChange(value as ScraperProvider)}>
+                    <SelectTrigger className="h-8 w-[170px] border-primary/20 bg-primary/5 text-xs text-primary">
+                        <SelectValue placeholder="Scraper seç" />
+                    </SelectTrigger>
+                    <SelectContent>
+                        {availableScraperProviders.map((provider) => (
+                            <SelectItem key={provider} value={provider}>
+                                {getScraperProviderLabel(provider)}
+                            </SelectItem>
+                        ))}
+                    </SelectContent>
+                </Select>
+            </div>
+        </div>
 
             <div className="grid gap-6 md:grid-cols-2">
                 {/* Step 1: Select Local Manga */}

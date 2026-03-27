@@ -18,7 +18,7 @@ import ProxyImage from '@/components/media/ProxyImage';
 interface MangaCardProps {
   manga: Manga;
   index?: number;
-  topTenWeekIds?: ReadonlySet<string>;
+  topTenWeekIds?: ReadonlySet<string> | null;
   disableHeavyEffects?: boolean;
   coverPriority?: boolean;
 }
@@ -82,6 +82,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   coverPriority,
 }) => {
   const [isTopTenWeek, setIsTopTenWeek] = useState(false);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
   const chapters = manga.chapters || [];
@@ -122,6 +123,13 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
   useEffect(() => {
     let isActive = true;
+
+    if (topTenWeekIds === null) {
+      setIsTopTenWeek(false);
+      return () => {
+        isActive = false;
+      };
+    }
 
     if (topTenWeekIds) {
       setIsTopTenWeek(topTenWeekIds.has(manga.id));
@@ -282,7 +290,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   }
 
   return (
-    <HoverCard openDelay={200} closeDelay={100}>
+    <HoverCard open={isPreviewOpen} onOpenChange={setIsPreviewOpen} openDelay={200} closeDelay={100}>
       <HoverCardTrigger asChild>
         {cardContent}
       </HoverCardTrigger>
@@ -294,32 +302,40 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
       >
         <div className="relative">
           <div className="absolute inset-0 -z-10 h-32 w-full overflow-hidden opacity-20">
-            <ProxyImage
-              src={manga.cover}
-              alt=""
-              width={MANGA_CARD_HOVER_BG_INTRINSIC_WIDTH}
-              height={MANGA_CARD_HOVER_BG_INTRINSIC_HEIGHT}
-              transform={MANGA_CARD_HOVER_BG_TRANSFORM}
-              className="h-full w-full scale-150 object-cover blur-2xl"
-              decoding="async"
-              loading="lazy"
-            />
+            {isPreviewOpen ? (
+              <ProxyImage
+                src={manga.cover}
+                alt=""
+                width={MANGA_CARD_HOVER_BG_INTRINSIC_WIDTH}
+                height={MANGA_CARD_HOVER_BG_INTRINSIC_HEIGHT}
+                transform={MANGA_CARD_HOVER_BG_TRANSFORM}
+                className="h-full w-full scale-150 object-cover blur-2xl"
+                decoding="async"
+                loading="lazy"
+              />
+            ) : (
+              <div aria-hidden className="h-full w-full bg-muted/30" />
+            )}
             <div className="absolute inset-0 bg-gradient-to-b from-transparent to-background" />
           </div>
 
           <div className="p-5">
             <div className="flex items-start gap-4">
               <div className="h-24 w-16 flex-shrink-0 overflow-hidden rounded-md shadow-lg ring-1 ring-white/10">
-                <ProxyImage
-                  src={manga.cover}
-                  alt=""
-                  width={MANGA_CARD_HOVER_INTRINSIC_WIDTH}
-                  height={MANGA_CARD_HOVER_INTRINSIC_HEIGHT}
-                  transform={MANGA_CARD_HOVER_COVER_TRANSFORM}
-                  className="h-full w-full object-cover"
-                  decoding="async"
-                  loading="lazy"
-                />
+                {isPreviewOpen ? (
+                  <ProxyImage
+                    src={manga.cover}
+                    alt=""
+                    width={MANGA_CARD_HOVER_INTRINSIC_WIDTH}
+                    height={MANGA_CARD_HOVER_INTRINSIC_HEIGHT}
+                    transform={MANGA_CARD_HOVER_COVER_TRANSFORM}
+                    className="h-full w-full object-cover"
+                    decoding="async"
+                    loading="lazy"
+                  />
+                ) : (
+                  <div aria-hidden className="h-full w-full bg-muted/30" />
+                )}
               </div>
 
               <div className="min-w-0 flex-1">

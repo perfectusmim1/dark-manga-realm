@@ -5,8 +5,6 @@ import {
     Download,
     ArrowRight,
     Loader2,
-    CheckCircle2,
-    AlertCircle,
     Globe,
     ExternalLink,
     Plus,
@@ -16,11 +14,19 @@ import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { toast } from 'sonner';
 import { ensureArtistByName, ensureAuthorByName, linkMangaToArtist, linkMangaToAuthor, saveManga } from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
 import { normalizeGenres } from '@/lib/mockData';
-import { prepareManagedArtworkForSave } from '@/lib/managedArtwork';
+import {
+    fetchScraperContent,
+    getAvailableScraperProviders,
+    getScraperProviderLabel,
+    readPreferredScraperProvider,
+    type ScraperProvider,
+    writePreferredScraperProvider,
+} from '@/lib/scraperProxy';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -37,6 +43,18 @@ interface ScrapedChapter {
     number: number;
 }
 
+interface ScrapedMangaDraft extends Partial<Manga> {
+    _rawChapters: ScrapedChapter[];
+}
+
+interface ParsedChapterImage {
+    src?: string | null;
+}
+
+interface ParsedChapterDataPayload {
+    images?: ParsedChapterImage[];
+}
+
 const normalizeScrapedText = (value?: string | null) =>
     value?.replace(/\s+/g, ' ').trim() || '';
 
@@ -45,6 +63,14 @@ const toScrapedKey = (value?: string | null) =>
 
 const extractPrimaryScrapedPersonName = (value?: string | null) =>
     normalizeScrapedText(value).split(/[,，]/)[0]?.trim() || '';
+
+const isParsedChapterDataPayload = (value: unknown): value is ParsedChapterDataPayload => {
+    if (!value || typeof value !== 'object') {
+        return false;
+    }
+
+    return Array.isArray((value as ParsedChapterDataPayload).images);
+};
 
 const getScrapedSummaryField = (doc: Document, labels: string[]) => {
     const normalizedLabels = labels.map((label) => label.toLocaleLowerCase('tr-TR'));
@@ -113,14 +139,15 @@ const AdminScraper: React.FC = () => {
     const { user } = useAuth();
     const { access, isLoading: accessLoading } = useAdminAccess();
     const canUseScraper = access.canAccessAdminPanel && access.role === 'admin';
-    const [sourceUrl, setSourceUrl] = useState('https://hayalistic.net/webtoonlar/');
+    const availableScraperProviders = getAvailableScraperProviders();
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<ScrapedMangaCard[]>([]);
     const [selectedManga, setSelectedManga] = useState<ScrapedMangaCard | null>(null);
-    const [fetchedData, setFetchedData] = useState<Partial<Manga> | null>(null);
+    const [fetchedData, setFetchedData] = useState<ScrapedMangaDraft | null>(null);
     const [fetchingDetails, setFetchingDetails] = useState(false);
     const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
+    const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
 
     useEffect(() => {
         if (accessLoading || !user) {
@@ -133,60 +160,23 @@ const AdminScraper: React.FC = () => {
         }
     }, [accessLoading, canUseScraper, navigate, user]);
 
+    useEffect(() => {
+        if (availableScraperProviders.includes(scraperProvider)) {
+            return;
+        }
+
+        const nextProvider = readPreferredScraperProvider();
+        setScraperProvider(nextProvider);
+    }, [availableScraperProviders, scraperProvider]);
+
     if (accessLoading || !user || !canUseScraper) {
         return null;
     }
 
-    const fetchWithProxy = async (targetUrl: string) => {
-        // 1. Priority: Supabase Edge Function
-        try {
-            const response = await fetch('https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/proxy-scraper', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ url: targetUrl })
-            });
-
-            if (response.ok) {
-                const data = await response.json();
-                if (data.content) return data.content;
-            }
-        } catch (e) {
-            console.warn('Edge Function failed, switching to backup proxies...', e);
-        }
-
-        // 2. Backup: Public Proxies
-        const backups = [
-            (url: string) => `https://api.allorigins.win/get?url=${encodeURIComponent(url)}`,
-            (url: string) => `https://corsproxy.io/?${encodeURIComponent(url)}`,
-            (url: string) => `https://api.codetabs.com/v1/proxy?quest=${encodeURIComponent(url)}` // Additional backup
-        ];
-
-        let lastError = null;
-        for (const proxy of backups) {
-            try {
-                const response = await fetch(proxy(targetUrl));
-                if (response.ok) {
-                    const data = await response.json().catch(() => null);
-                    // allorigins returns {contents: "..."}
-                    if (data && data.contents) return data.contents;
-                    // codetabs returns text directly usually, but let's check text first if json fails
-                    if (!data) {
-                        return await response.text();
-                    }
-                    return data;
-                }
-            } catch (err) {
-                lastError = err;
-            }
-        }
-
-        // Final attempt: direct fetch (works if user has a CORS plugin or browser allows)
-        try {
-            const response = await fetch(targetUrl);
-            if (response.ok) return await response.text();
-        } catch (e) { }
-
-        throw lastError || new Error('All proxies failed');
+    const handleScraperProviderChange = (nextProvider: ScraperProvider) => {
+        writePreferredScraperProvider(nextProvider);
+        setScraperProvider(nextProvider);
+        toast.success(`Scraper sağlayıcısı: ${getScraperProviderLabel(nextProvider)}`);
     };
 
     const handleSearch = async (e?: React.FormEvent) => {
@@ -214,7 +204,7 @@ const AdminScraper: React.FC = () => {
                 ? `https://hayalistic.net/?s=${encodeURIComponent(searchQuery)}&post_type=wp-manga`
                 : 'https://hayalistic.net/webtoonlar/';
 
-            const html = await fetchWithProxy(url);
+            const html = await fetchScraperContent(url, { provider: scraperProvider });
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
@@ -255,7 +245,7 @@ const AdminScraper: React.FC = () => {
         setFetchedData(null);
 
         try {
-            const html = await fetchWithProxy(card.link);
+            const html = await fetchScraperContent(card.link, { provider: scraperProvider });
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
@@ -268,7 +258,7 @@ const AdminScraper: React.FC = () => {
                 detailCoverImg?.getAttribute('src');
 
             // Description - Target .summary__content as suggested by subagent
-            let description = doc.querySelector('.description-summary .summary__content')?.textContent?.trim() ||
+            const description = doc.querySelector('.description-summary .summary__content')?.textContent?.trim() ||
                 doc.querySelector('.manga-excerpt')?.textContent?.trim() ||
                 doc.querySelector('.post-content_item p')?.textContent?.trim() || '';
 
@@ -332,7 +322,7 @@ const AdminScraper: React.FC = () => {
             const finalTitle = normalizeScrapedText(detailTitle || card.title);
             const finalCover = detailCover || card.cover || '';
 
-            const scrapedManga: Partial<Manga> = {
+            const scrapedManga: ScrapedMangaDraft = {
                 title: finalTitle,
                 alternativeTitles,
                 description,
@@ -347,10 +337,8 @@ const AdminScraper: React.FC = () => {
                 chapters: [], // We'll fetch pages for each chapter if needed, but for now just meta
                 views: 0,
                 ratings: [],
+                _rawChapters: chapters,
             };
-
-            // Store temporary chapters for the preview/import flow
-            (scrapedManga as any)._rawChapters = chapters;
 
             setSelectedChapterIndices(chapters.map((_, i) => i));
             setFetchedData(scrapedManga);
@@ -368,7 +356,7 @@ const AdminScraper: React.FC = () => {
         setLoading(true);
 
         try {
-            const rawChapters = (fetchedData as any)._rawChapters as ScrapedChapter[];
+            const rawChapters = fetchedData._rawChapters;
             const selectedChaptersToImport = rawChapters.filter((_, i) => selectedChapterIndices.includes(i));
 
             if (selectedChaptersToImport.length === 0) {
@@ -378,11 +366,6 @@ const AdminScraper: React.FC = () => {
             }
 
             const mangaId = `manga-${Date.now()}`;
-            const preparedArtwork = await prepareManagedArtworkForSave({
-                mangaId,
-                coverUrl: fetchedData.cover || '',
-                bannerUrl: fetchedData.banner || fetchedData.cover || '',
-            });
 
             // For chapters, we need to visit EACH chapter link to get image URLs.
             // This can be heavy, so we'll do it sequentially or in chunks.
@@ -398,7 +381,7 @@ const AdminScraper: React.FC = () => {
                     // Increased delay to be safer
                     if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
 
-                    const chHtml = await fetchWithProxy(rc.link);
+                    const chHtml = await fetchScraperContent(rc.link, { provider: scraperProvider });
                     const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
 
                     // 1. Method: Try standard selectors
@@ -428,9 +411,11 @@ const AdminScraper: React.FC = () => {
                                     // Try to extract JSON from var chapter_data = {...};
                                     const match = content.match(/chapter_data\s*=\s*({.*?});/s);
                                     if (match) {
-                                        const jsonData = JSON.parse(match[1]);
-                                        if (jsonData.images && Array.isArray(jsonData.images)) {
-                                            images = jsonData.images.map((img: any) => img.src).filter((src: string) => src && src.startsWith('http'));
+                                        const jsonData: unknown = JSON.parse(match[1]);
+                                        if (isParsedChapterDataPayload(jsonData) && jsonData.images) {
+                                            images = jsonData.images
+                                                .map((img) => (typeof img.src === 'string' ? img.src.trim() : ''))
+                                                .filter((src) => src.startsWith('http'));
                                         }
                                     }
                                 } catch (e) {
@@ -476,8 +461,8 @@ const AdminScraper: React.FC = () => {
                 title: fetchedData.title!,
                 alternativeTitles: fetchedData.alternativeTitles || [],
                 description: fetchedData.description!,
-                cover: preparedArtwork.coverUrl,
-                banner: preparedArtwork.bannerUrl,
+                cover: fetchedData.cover!,
+                banner: fetchedData.banner || fetchedData.cover!,
                 author: authorEntity?.name || normalizedAuthorName,
                 artist: artistEntity?.name || normalizedArtistName,
                 status: fetchedData.status!,
@@ -503,9 +488,6 @@ const AdminScraper: React.FC = () => {
                 await linkMangaToArtist(mangaId, artistEntity.id);
             }
 
-            if (preparedArtwork.warnings.length > 0) {
-                toast.warning(preparedArtwork.warnings[0]);
-            }
             toast.success('Manga başarıyla eklendi');
             navigate('/admin/mangas');
         } catch (err) {
@@ -523,11 +505,23 @@ const AdminScraper: React.FC = () => {
                     <h1 className="text-2xl font-bold sm:text-3xl">İçerik Çekici (Scraper)</h1>
                     <p className="text-muted-foreground">Dış sitelerden manga ve webtoon verilerini otomatik olarak çekin.</p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                     <Badge variant="outline" className="h-8 gap-1 bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 transition-colors">
                         <Globe className="h-4 w-4" />
                         Hayalistic.net
                     </Badge>
+                    <Select value={scraperProvider} onValueChange={(value) => handleScraperProviderChange(value as ScraperProvider)}>
+                        <SelectTrigger className="h-8 w-[170px] border-primary/20 bg-primary/5 text-xs text-primary">
+                            <SelectValue placeholder="Scraper seç" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {availableScraperProviders.map((provider) => (
+                                <SelectItem key={provider} value={provider}>
+                                    {getScraperProviderLabel(provider)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                 </div>
             </div>
 
@@ -657,13 +651,13 @@ const AdminScraper: React.FC = () => {
                                     <div className="space-y-2 text-sm">
                                         <div className="flex items-center justify-between border-b pb-1">
                                             <div className="flex items-center gap-4">
-                                                <span className="font-semibold text-muted-foreground">Bölüm Sayısı: <span className="text-foreground">{(fetchedData as any)._rawChapters?.length || 0}</span></span>
+                                                <span className="font-semibold text-muted-foreground">Bölüm Sayısı: <span className="text-foreground">{fetchedData._rawChapters.length}</span></span>
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
                                                     className="h-7 px-3 text-[10px] uppercase font-black tracking-wider transition-all"
                                                     onClick={() => {
-                                                        const allChapters = (fetchedData as any)._rawChapters || [];
+                                                        const allChapters = fetchedData._rawChapters;
                                                         if (selectedChapterIndices.length === allChapters.length) {
                                                             setSelectedChapterIndices([]);
                                                         } else {
@@ -671,12 +665,12 @@ const AdminScraper: React.FC = () => {
                                                         }
                                                     }}
                                                 >
-                                                    {selectedChapterIndices.length === ((fetchedData as any)._rawChapters?.length || 0) ? 'Hiçbirini Seçme' : 'Tümünü Seç'}
+                                                    {selectedChapterIndices.length === fetchedData._rawChapters.length ? 'Hiçbirini Seçme' : 'Tümünü Seç'}
                                                 </Button>
                                             </div>
                                         </div>
                                         <div className="max-h-32 overflow-y-auto space-y-1 mt-2 pr-2">
-                                            {((fetchedData as any)._rawChapters as ScrapedChapter[])?.slice().reverse().map((ch, revIdx, arr) => {
+                                            {fetchedData._rawChapters.slice().reverse().map((ch, revIdx, arr) => {
                                                 const originalIdx = arr.length - 1 - revIdx;
                                                 const isSelected = selectedChapterIndices.includes(originalIdx);
                                                 return (

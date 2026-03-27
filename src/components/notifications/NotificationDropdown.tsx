@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -30,6 +30,7 @@ import {
 import { Notification } from '@/lib/types';
 import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import OfflineNotice from '@/components/offline/OfflineNotice';
+import { isDocumentVisible } from '@/lib/documentVisibility';
 
 const NotificationDropdown: React.FC = () => {
     const { user } = useAuth();
@@ -39,8 +40,8 @@ const NotificationDropdown: React.FC = () => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [isOpen, setIsOpen] = useState(false);
 
-    const loadNotifications = async () => {
-        if (!user || !isOnline) return;
+    const loadNotifications = useCallback(async () => {
+        if (!user || !isOnline || !isDocumentVisible()) return;
         try {
             const allNotifications = await getNotifications(user.id);
             setNotifications(allNotifications.slice(0, 8)); // Show max 8 in dropdown
@@ -49,31 +50,45 @@ const NotificationDropdown: React.FC = () => {
         } catch (error) {
             console.error('Error loading notifications:', error);
         }
-    };
+    }, [isOnline, user]);
 
     useEffect(() => {
-        if (!isOnline) {
+        if (!user || !isOnline) {
             setNotifications([]);
             setUnreadCount(0);
             return;
         }
 
-        loadNotifications();
-        // Poll for new notifications every 30 seconds
-        const interval = setInterval(loadNotifications, 30000);
-        return () => clearInterval(interval);
-    }, [isOnline, user?.id]);
+        const handleVisibilityChange = () => {
+            if (isDocumentVisible()) {
+                void loadNotifications();
+            }
+        };
+
+        void loadNotifications();
+        const interval = window.setInterval(() => {
+            if (isDocumentVisible()) {
+                void loadNotifications();
+            }
+        }, 30000);
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            window.clearInterval(interval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [isOnline, loadNotifications, user]);
 
     useEffect(() => {
         if (isOpen && isOnline) {
-            loadNotifications();
+            void loadNotifications();
         }
-    }, [isOnline, isOpen]);
+    }, [isOnline, isOpen, loadNotifications]);
 
     const handleNotificationClick = async (notification: Notification) => {
         if (!notification.read && user) {
             await markNotificationAsRead(user.id, notification.id);
-            loadNotifications();
+            void loadNotifications();
         }
         setIsOpen(false);
         if (notification.link) {

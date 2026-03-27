@@ -7,9 +7,14 @@ const isEffectivelyOnline = () => (
     || (navigator.onLine && !getOfflinePreferences().forceOfflineMode)
 );
 
-export const checkCurrentAccess = async () => {
+export interface AccessCheckResult {
+    allowed: boolean;
+    message?: string;
+}
+
+export const checkCurrentAccess = async (): Promise<AccessCheckResult> => {
     if (!isEffectivelyOnline()) {
-        return { allowed: true };
+        return { allowed: true, message: undefined };
     }
 
     const identity = await getDeviceIdentity();
@@ -21,5 +26,5 @@ export const checkCurrentAccess = async () => {
         throw error;
     }
 
-    return data as { allowed: boolean; message?: string };
+    return data as AccessCheckResult;
 };

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -17,12 +17,12 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import {
     getAnnouncements,
-    getUnreadAnnouncementCount,
     markAsRead,
     getReadList,
     markAllAnnouncementsAsRead,
     Announcement
 } from '@/lib/announcements';
+import { isDocumentVisible } from '@/lib/documentVisibility';
 
 const AnnouncementDropdown: React.FC = () => {
     const { user } = useAuth();
@@ -30,11 +30,9 @@ const AnnouncementDropdown: React.FC = () => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [readIds, setReadIds] = useState<string[]>([]);
     const [isOpen, setIsOpen] = useState(false);
-    const [loading, setLoading] = useState(false);
 
-    const loadAnnouncements = async (markViewed = false) => {
-        if (!user) return;
-        setLoading(true);
+    const loadAnnouncements = useCallback(async (markViewed = false) => {
+        if (!user || !isDocumentVisible()) return;
         try {
             const { announcements: allAnnouncements } = await getAnnouncements();
             const { reads } = await getReadList(user.id);
@@ -60,24 +58,42 @@ const AnnouncementDropdown: React.FC = () => {
             setReadIds(nextReadIds);
         } catch (error) {
             console.error('Error loading announcements:', error);
-        } finally {
-            setLoading(false);
         }
-    };
+    }, [user]);
 
     useEffect(() => {
-        if (user) {
-            loadAnnouncements();
-            const interval = setInterval(loadAnnouncements, 60000); // Check every minute
-            return () => clearInterval(interval);
+        if (!user) {
+            setAnnouncements([]);
+            setUnreadCount(0);
+            setReadIds([]);
+            return;
         }
-    }, [user?.id]);
+
+        const handleVisibilityChange = () => {
+            if (isDocumentVisible()) {
+                void loadAnnouncements();
+            }
+        };
+
+        void loadAnnouncements();
+        const interval = window.setInterval(() => {
+            if (isDocumentVisible()) {
+                void loadAnnouncements();
+            }
+        }, 60000);
+
+        document.addEventListener('visibilitychange', handleVisibilityChange);
+        return () => {
+            window.clearInterval(interval);
+            document.removeEventListener('visibilitychange', handleVisibilityChange);
+        };
+    }, [loadAnnouncements, user]);
 
     useEffect(() => {
         if (isOpen) {
-            loadAnnouncements(true);
+            void loadAnnouncements(true);
         }
-    }, [isOpen]);
+    }, [isOpen, loadAnnouncements]);
 
     const handleMarkAsRead = async (announcementId: string) => {
         if (!user || readIds.includes(announcementId)) return;

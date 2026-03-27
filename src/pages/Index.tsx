@@ -6,7 +6,7 @@ import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import MangaCard from '@/components/manga/MangaCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getMangaSummaries, getTopTenMangas, getTrendingTags } from '@/lib/database';
+import { getMangaSummaries, getTrendingTags } from '@/lib/database';
 import TagBadge from '@/components/tags/TagBadge';
 import { getReadingHistoryEntries, type ReadingHistoryEntry } from '@/lib/storage';
 import { supabaseUrl } from '@/lib/supabase';
@@ -29,7 +29,6 @@ interface HorizontalMangaSectionProps {
   linkTo: string;
   manga: Manga[];
   delay: string;
-  topTenWeekIds: ReadonlySet<string>;
   disableHeavyEffects: boolean;
   isCoarsePointer: boolean;
   withTopSpacing?: boolean;
@@ -73,12 +72,10 @@ const getEstimatedHomeCarouselItemWidth = (viewportWidth: number, clientWidth: n
 const HOME_PAGE_CACHE: {
   mangas: Manga[] | null;
   trendingTags: Tag[] | null;
-  topTenWeekIds: string[] | null;
   continueReadingByUser: Record<string, ReadingHistoryEntry[] | undefined>;
 } = {
   mangas: null,
   trendingTags: null,
-  topTenWeekIds: null,
   continueReadingByUser: {},
 };
 
@@ -441,7 +438,6 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   linkTo,
   manga,
   delay,
-  topTenWeekIds,
   disableHeavyEffects,
   isCoarsePointer,
   withTopSpacing = true,
@@ -677,7 +673,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               <MangaCard
                 manga={item}
                 index={visibleRange.startIndex + index}
-                topTenWeekIds={topTenWeekIds}
+                topTenWeekIds={null}
                 disableHeavyEffects={disableHeavyEffects}
                 coverPriority={visibleRange.startIndex + index < priorityCount}
               />
@@ -704,7 +700,6 @@ const Index: React.FC = () => {
   const [isLoading, setIsLoading] = useState(() => HOME_PAGE_CACHE.mangas === null);
   const [trendingTags, setTrendingTags] = useState<Tag[]>(() => HOME_PAGE_CACHE.trendingTags ?? []);
   const [tagsLoading, setTagsLoading] = useState(() => HOME_PAGE_CACHE.trendingTags === null);
-  const [topTenWeekIds, setTopTenWeekIds] = useState<Set<string>>(() => new Set(HOME_PAGE_CACHE.topTenWeekIds ?? []));
   const mangaById = useMemo(() => new Map(mangas.map((item) => [item.id, item])), [mangas]);
   const sectionDeferredRootMargin = isCoarsePointer ? '260px 0px' : '180px 0px';
   const blockDeferredRootMargin = isCoarsePointer ? '320px 0px' : '220px 0px';
@@ -781,36 +776,6 @@ const Index: React.FC = () => {
     };
 
     loadMainContent();
-
-    return () => {
-      active = false;
-    };
-  }, [isOnline]);
-
-  useEffect(() => {
-    if (!isOnline) {
-      setTopTenWeekIds(new Set());
-      return;
-    }
-
-    let active = true;
-
-    const loadTopTenWeekIds = async () => {
-      try {
-        const weeklyTopTen = await getTopTenMangas('week');
-        if (!active) {
-          return;
-        }
-
-        const nextIds = weeklyTopTen.map((item) => item.id);
-        HOME_PAGE_CACHE.topTenWeekIds = nextIds;
-        setTopTenWeekIds(new Set(nextIds));
-      } catch (error) {
-        console.error('Weekly top ten id load error:', error);
-      }
-    };
-
-    void loadTopTenWeekIds();
 
     return () => {
       active = false;
@@ -1048,7 +1013,6 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=created"
                 manga={newlyAddedSeries}
                 delay="0.18s"
-                topTenWeekIds={topTenWeekIds}
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
@@ -1064,7 +1028,6 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=updated"
                 manga={recentlyUpdated}
                 delay="0.2s"
-                topTenWeekIds={topTenWeekIds}
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
@@ -1080,7 +1043,6 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=trending"
                 manga={trendingManga}
                 delay="0.25s"
-                topTenWeekIds={topTenWeekIds}
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
@@ -1139,7 +1101,7 @@ const Index: React.FC = () => {
                       key={manga.id}
                       manga={manga}
                       index={index}
-                      topTenWeekIds={topTenWeekIds}
+                      topTenWeekIds={null}
                       disableHeavyEffects={disableHeavyEffects}
                       coverPriority={index < 4}
                     />

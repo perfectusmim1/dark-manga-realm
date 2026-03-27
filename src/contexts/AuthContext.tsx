@@ -1,9 +1,9 @@
-import React, { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/supabase-js';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { User } from '@/lib/types';
-import { checkCurrentAccess } from '@/lib/security/deviceIdentity';
+import { checkCurrentAccess, type AccessCheckResult } from '@/lib/security/deviceIdentity';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 import { syncLocalChapterReadFallbackToRemote } from '@/lib/storage';
 import {
@@ -13,6 +13,7 @@ import {
   setCachedPreferencesForUser,
 } from '@/lib/offline/userSync';
 import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
+import { isDocumentVisible } from '@/lib/documentVisibility';
 import { toast } from 'sonner';
 
 interface AuthContextType {
@@ -152,6 +153,23 @@ const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
   error instanceof Error ? error.message : fallback
 );
 
+const allowAccessOnFailure = (error: unknown, context: string): AccessCheckResult => {
+  console.error(context, error);
+  return { allowed: true, message: undefined };
+};
+
+const extractTotpFactors = (factors: TotpFactorRecord[] | undefined): TotpFactor[] => (
+  (factors || [])
+    .filter((factor) => factor.factor_type === 'totp')
+    .map((factor) => ({
+      id: factor.id,
+      friendlyName: factor.friendly_name || undefined,
+      status: factor.status,
+      createdAt: factor.created_at,
+      updatedAt: factor.updated_at,
+    }))
+);
+
 // Convert Supabase user + Profile data to our User type
 const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileRow | null): User => {
   const cachedPreferences = getCachedPreferencesForUser(supabaseUser.id);
@@ -180,7 +198,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true);
   const [mfaState, setMfaState] = useState<MfaState>(DEFAULT_MFA_STATE);
 
-  const fetchProfile = async (id: string): Promise<UserProfileRow | null> => {
+  const fetchProfile = useCallback(async (id: string): Promise<UserProfileRow | null> => {
     // Add a 5s timeout to prevent infinite hangs on DB calls during initialization
     const timeout = new Promise<never>((_, reject) =>
       setTimeout(() => reject(new Error('Profile fetch timeout')), 5000)
@@ -207,9 +225,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error('Profile fetch failed:', err);
       return null;
     }
-  };
+  }, []);
 
-  const syncCurrentAuthProfile = async (
+  const syncCurrentAuthProfile = useCallback(async (
     currentUser: SupabaseUser,
     preferredUsername?: string
   ): Promise<UserProfileRow | null> => {
@@ -241,9 +259,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       console.error('Profile sync exception:', error);
       return null;
     }
-  };
+  }, [fetchProfile]);
 
-  const ensureProfile = async (
+  const ensureProfile = useCallback(async (
     currentUser: SupabaseUser,
     preferredUsername?: string
   ): Promise<UserProfileRow | null> => {
@@ -253,23 +271,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
 
     return await fetchProfile(currentUser.id);
-  };
+  }, [fetchProfile, syncCurrentAuthProfile]);
 
-  const updateLocalTwoFactorState = (enabled: boolean) => {
+  const updateLocalTwoFactorState = useCallback((enabled: boolean) => {
     setUser((prev) => (prev ? { ...prev, twoFactorEnabled: enabled } : prev));
-  };
-
-  const extractTotpFactors = (factors: TotpFactorRecord[] | undefined): TotpFactor[] => (
-    (factors || [])
-      .filter((factor) => factor.factor_type === 'totp')
-      .map((factor) => ({
-        id: factor.id,
-        friendlyName: factor.friendly_name || undefined,
-        status: factor.status,
-        createdAt: factor.created_at,
-        updatedAt: factor.updated_at,
-      }))
-  );
+  }, []);
 
   const getPrimaryVerifiedTotpFactor = async (preferredFactorId?: string): Promise<TotpFactor | null> => {
     const { data, error } = await supabase.auth.mfa.listFactors();
@@ -277,7 +283,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       throw error;
     }
 
-    const factors = extractTotpFactors(data.all as any);
+    const factors = extractTotpFactors(data.all as TotpFactorRecord[] | undefined);
     const verifiedFactors = factors.filter((factor) => factor.status === 'verified');
 
     if (preferredFactorId) {
@@ -287,7 +293,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return verifiedFactors[0] || null;
   };
 
-  const refreshMfaState = async (): Promise<void> => {
+  const refreshMfaState = useCallback(async (): Promise<void> => {
     const activeSession = (await supabase.auth.getSession()).data.session;
 
     if (!activeSession?.user) {
@@ -320,7 +326,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw factorError;
       }
 
-      const factors = extractTotpFactors(factorData.all as any);
+      const factors = extractTotpFactors(factorData.all as TotpFactorRecord[] | undefined);
       const verifiedFactorCount = factors.filter((factor) => factor.status === 'verified').length;
       const nextState: MfaState = {
         isLoading: false,
@@ -342,7 +348,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         isLoading: false,
       });
     }
-  };
+  }, [updateLocalTwoFactorState]);
 
   useEffect(() => {
     let mounted = true;
@@ -361,16 +367,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             return;
           }
 
-          const accessCheck = await checkCurrentAccess().catch(() => ({ allowed: true }));
+          const accessCheck = await checkCurrentAccess().catch((error) =>
+            allowAccessOnFailure(error, 'Access gate check failed during auth sync:')
+          );
           if (!mounted) return;
 
-          if (!(accessCheck as any).allowed) {
+          if (!accessCheck.allowed) {
             await supabase.auth.signOut();
             setSession(null);
             setSupabaseUser(null);
             setUser(null);
             setMfaState(DEFAULT_MFA_STATE);
-            toast.error((accessCheck as any).message || 'Bu cihaz veya bağlantı için erişim engellendi');
+            toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için erişim engellendi');
             return;
           }
 
@@ -408,21 +416,34 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
 
-    // Presence heartbeat
-    const presenceInterval = setInterval(async () => {
-      if (!isEffectivelyOnline()) {
+    const pushPresenceHeartbeat = async () => {
+      if (!isEffectivelyOnline() || !isDocumentVisible()) {
         return;
       }
 
       const { data: { session: s } } = await supabase.auth.getSession();
-      if (s?.user) await supabase.rpc('update_user_presence', { p_user_id: s.user.id });
+      if (s?.user) {
+        await supabase.rpc('update_user_presence', { p_user_id: s.user.id });
+      }
+    };
+
+    const presenceInterval = window.setInterval(() => {
+      void pushPresenceHeartbeat();
     }, 30000);
+
+    const handleVisibilityChange = () => {
+      if (isDocumentVisible()) {
+        void pushPresenceHeartbeat();
+      }
+    };
+
+    document.addEventListener('visibilitychange', handleVisibilityChange);
 
     // Initial check
     supabase.auth.getSession().then(({ data: { session: s } }) => {
       syncAuthState(s);
-      if (s?.user && isEffectivelyOnline()) {
-        supabase.rpc('update_user_presence', { p_user_id: s.user.id });
+      if (s?.user && isEffectivelyOnline() && isDocumentVisible()) {
+        void supabase.rpc('update_user_presence', { p_user_id: s.user.id });
       }
     }).catch(err => {
       console.error('Initial session check failed:', err);
@@ -443,9 +464,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     return () => {
       mounted = false;
       subscription.unsubscribe();
-      clearInterval(presenceInterval);
+      window.clearInterval(presenceInterval);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, []);
+  }, [ensureProfile, refreshMfaState]);
 
   const login = async (email: string, password: string): Promise<{
     success: boolean;
@@ -520,10 +542,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     try {
       setIsLoading(true);
 
-      const accessCheck = await checkCurrentAccess().catch((error) => {
-        console.error('Access check error during register:', error);
-        return { allowed: true };
-      }) as any;
+      const accessCheck = await checkCurrentAccess().catch((error) =>
+        allowAccessOnFailure(error, 'Access check error during register:')
+      );
 
       if (!accessCheck.allowed) {
         return { success: false, error: accessCheck.message || 'Bu cihaz veya bağlantı için kayıt engellendi' };
@@ -852,7 +873,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw factorError;
       }
 
-      const existingFactors = extractTotpFactors(factorData.all as any);
+      const existingFactors = extractTotpFactors(factorData.all as TotpFactorRecord[] | undefined);
       const verifiedFactor = existingFactors.find((factor) => factor.status === 'verified');
       if (verifiedFactor) {
         return { success: false, error: 'Google Authenticator zaten etkin.' };
@@ -1016,15 +1037,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const loginWithGoogle = async (redirectTo?: string) => {
     try {
-      const accessCheck = await checkCurrentAccess().catch((error) => {
-        console.error('Access check error during Google login:', error);
-        return { allowed: true };
-      });
+      const accessCheck = await checkCurrentAccess().catch((error) =>
+        allowAccessOnFailure(error, 'Access check error during Google login:')
+      );
 
-          if (!(accessCheck as any).allowed) {
-            toast.error((accessCheck as any).message || 'Bu cihaz veya bağlantı için bu işleme izin verilmiyor');
-            return;
-          }
+      if (!accessCheck.allowed) {
+        toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için bu işleme izin verilmiyor');
+        return;
+      }
 
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
@@ -1087,6 +1107,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   );
 };
 
+// This hook intentionally lives next to the provider for a single auth public API.
+// eslint-disable-next-line react-refresh/only-export-components
 export const useAuth = () => {
   const context = useContext(AuthContext);
   if (context === undefined) {

@@ -51,9 +51,7 @@ import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { Manga, Chapter, Character, Author, Artist } from '@/lib/types';
 import { allGenres, normalizeGenres } from '@/lib/mockData';
 import { createNotificationForFollowers } from '@/lib/storage';
-import { prepareManagedArtworkForSave } from '@/lib/managedArtwork';
 import { toast } from 'sonner';
-import { Search } from 'lucide-react';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
     value?.split(/[,，]/)[0]?.trim().replace(/\s+/g, ' ') || '';
@@ -190,7 +188,7 @@ const AdminMangaEditor: React.FC = () => {
         }
     }, [allArtists, manga.artist, selectedArtist?.id]);
 
-    const handleChange = (field: keyof Manga, value: any) => {
+    const handleChange = <K extends keyof Manga>(field: K, value: Partial<Manga>[K]) => {
         setManga(prev => ({ ...prev, [field]: value }));
     };
 
@@ -356,13 +354,6 @@ const AdminMangaEditor: React.FC = () => {
         setLoading(true);
 
         try {
-            const mangaIdToSave = manga.id || `manga-${Date.now()}-${Math.random().toString(36).substring(7)}`;
-            const preparedArtwork = await prepareManagedArtworkForSave({
-                mangaId: mangaIdToSave,
-                coverUrl: normalizedCover,
-                bannerUrl: manga.banner?.trim() || normalizedCover,
-            });
-
             let resolvedAuthor = selectedAuthor;
             if (!resolvedAuthor || normalizeNamedEntityKey(resolvedAuthor.name) !== normalizeNamedEntityKey(normalizedAuthorName)) {
                 resolvedAuthor = await ensureAuthorByName(normalizedAuthorName);
@@ -382,11 +373,11 @@ const AdminMangaEditor: React.FC = () => {
             }
 
             const mangaToSave: Manga = {
-                id: mangaIdToSave,
+                id: manga.id || `manga-${Date.now()}-${Math.random().toString(36).substring(7)}`,
                 title: normalizedTitle,
                 alternativeTitles: manga.alternativeTitles || [],
-                cover: preparedArtwork.coverUrl,
-                banner: preparedArtwork.bannerUrl,
+                cover: normalizedCover,
+                banner: manga.banner?.trim() || normalizedCover,
                 author: resolvedAuthor?.name || normalizedAuthorName,
                 artist: resolvedArtist?.name || normalizedArtistName,
                 status: manga.status as 'ongoing' | 'completed' | 'hiatus',
@@ -424,9 +415,6 @@ const AdminMangaEditor: React.FC = () => {
             }
 
             setDeletedCharacterIds([]);
-            if (preparedArtwork.warnings.length > 0) {
-                toast.warning(preparedArtwork.warnings[0]);
-            }
             toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
             navigate('/admin/mangas');
         } catch (err) {
@@ -442,29 +430,33 @@ const AdminMangaEditor: React.FC = () => {
         if (!newEntity.name.trim()) return;
         try {
             let id = '';
-            const entity = { name: newEntity.name, imageUrl: newEntity.imageUrl, description: newEntity.description };
+            const entity = {
+                name: newEntity.name.trim(),
+                imageUrl: newEntity.imageUrl.trim() || undefined,
+                description: newEntity.description.trim() || undefined,
+            };
             if (showEntityDialog.type === 'character') {
-                id = await saveCharacter(entity as any);
+                id = await saveCharacter(entity);
                 const chars = await getCharacters();
                 setAllCharacters(chars);
                 const created = chars.find(c => c.id === id);
                 if (created) setMangaCharacters(prev => [...prev, created]);
             } else if (showEntityDialog.type === 'author') {
-                id = await saveAuthor(entity as any);
+                id = await saveAuthor(entity);
                 const auths = await getAuthors();
-                setAllAuthors(auths as any);
+                setAllAuthors(auths);
                 const created = auths.find(a => a.id === id);
                 if (created) {
-                    setSelectedAuthor(created as any);
+                    setSelectedAuthor(created);
                     handleChange('author', created.name);
                 }
             } else if (showEntityDialog.type === 'artist') {
-                id = await saveArtist(entity as any);
+                id = await saveArtist(entity);
                 const arts = await getArtists();
-                setAllArtists(arts as any);
+                setAllArtists(arts);
                 const created = arts.find(a => a.id === id);
                 if (created) {
-                    setSelectedArtist(created as any);
+                    setSelectedArtist(created);
                     handleChange('artist', created.name);
                 }
             }

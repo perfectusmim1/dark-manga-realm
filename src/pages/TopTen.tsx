@@ -1,10 +1,10 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, ChevronLeft, ChevronRight, Clock3, Crown, Flame, WifiOff } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Clock3, Crown, Flame } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { getTopTenMangas } from '@/lib/database';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { Manga } from '@/lib/types';
@@ -438,7 +438,16 @@ const TopTen: React.FC = () => {
     };
   }, [isOnline]);
 
-  const hasAnyContent = TOP_TEN_TIMEFRAMES.some((timeframe) => sections[timeframe].length > 0);
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        title="Top 10 çevrimdışında açılamaz"
+        description="Top 10 sayfası canlı etkileşim verisiyle hazırlanır. Bağlantı tekrar geldiğinde günün, haftanın ve tüm zamanların sıralaması yeniden yüklenir."
+        actionHref="/downloads"
+        actionLabel="İndirilenlere Git"
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">
@@ -480,40 +489,18 @@ const TopTen: React.FC = () => {
           </div>
         </section>
 
-        {!isOnline && !hasAnyContent ? (
-          <section className="mt-8 rounded-[28px] border border-blue-500/20 bg-blue-500/10 p-6 shadow-[0_20px_50px_rgba(14,165,233,0.08)]">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/15 text-blue-300">
-                  <WifiOff className="h-5 w-5" />
-                </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">Bağlantı Gerekiyor</p>
-                  <h2 className="mt-1 text-2xl font-black tracking-tight">Top 10 sıralaması şu anda çevrimdışında açılmıyor</h2>
-                  <p className="mt-2 max-w-2xl text-sm text-blue-100/75">
-                    Bu sayfa canlı etkileşim verisiyle hazırlanır. Bağlantı tekrar geldiğinde üç liste otomatik güncellenecek.
-                  </p>
-                </div>
-              </div>
-              <Button asChild variant="outline" className="rounded-full border-blue-300/20 bg-blue-500/10 text-blue-50 hover:bg-blue-500/15">
-                <Link to="/downloads">İndirilenlere Git</Link>
-              </Button>
-            </div>
-          </section>
-        ) : (
-          <div className="mt-10 space-y-14">
-            {TOP_TEN_TIMEFRAMES.map((timeframe) => (
-              <TopTenSectionBlock
-                key={timeframe}
-                timeframe={timeframe}
-                manga={sections[timeframe]}
-                isLoading={isLoading && sections[timeframe].length === 0}
-                disableHeavyEffects={disableHeavyEffects}
-                isCoarsePointer={isCoarsePointer}
-              />
-            ))}
-          </div>
-        )}
+        <div className="mt-10 space-y-14">
+          {TOP_TEN_TIMEFRAMES.map((timeframe) => (
+            <TopTenSectionBlock
+              key={timeframe}
+              timeframe={timeframe}
+              manga={sections[timeframe]}
+              isLoading={isLoading && sections[timeframe].length === 0}
+              disableHeavyEffects={disableHeavyEffects}
+              isCoarsePointer={isCoarsePointer}
+            />
+          ))}
+        </div>
       </main>
     </div>
   );
