@@ -1,0 +1,11 @@
+name = "toonparrot-scraper-proxy"
+main = "worker.js"
+compatibility_date = "2026-03-27"
+workers_dev = true
+
+[vars]
+ALLOWED_HOSTS = "hayalistic.net,hayalistic.com,webtoonhatti.club,yedek.mangawow.com,kirmizikafa.monster"
+ALLOWED_ORIGINS = "https://toonparrot.vercel.app,https://*.vercel.app,http://localhost:*,http://127.0.0.1:*"
+
+# Optional:
+# wrangler secret put PROXY_TOKEN
