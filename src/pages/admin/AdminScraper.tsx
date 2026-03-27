@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { ensureArtistByName, ensureAuthorByName, linkMangaToArtist, linkMangaToAuthor, saveManga } from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
 import { normalizeGenres } from '@/lib/mockData';
+import { prepareManagedArtworkForSave } from '@/lib/managedArtwork';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -377,6 +378,11 @@ const AdminScraper: React.FC = () => {
             }
 
             const mangaId = `manga-${Date.now()}`;
+            const preparedArtwork = await prepareManagedArtworkForSave({
+                mangaId,
+                coverUrl: fetchedData.cover || '',
+                bannerUrl: fetchedData.banner || fetchedData.cover || '',
+            });
 
             // For chapters, we need to visit EACH chapter link to get image URLs.
             // This can be heavy, so we'll do it sequentially or in chunks.
@@ -470,8 +476,8 @@ const AdminScraper: React.FC = () => {
                 title: fetchedData.title!,
                 alternativeTitles: fetchedData.alternativeTitles || [],
                 description: fetchedData.description!,
-                cover: fetchedData.cover!,
-                banner: fetchedData.banner!,
+                cover: preparedArtwork.coverUrl,
+                banner: preparedArtwork.bannerUrl,
                 author: authorEntity?.name || normalizedAuthorName,
                 artist: artistEntity?.name || normalizedArtistName,
                 status: fetchedData.status!,
@@ -497,6 +503,9 @@ const AdminScraper: React.FC = () => {
                 await linkMangaToArtist(mangaId, artistEntity.id);
             }
 
+            if (preparedArtwork.warnings.length > 0) {
+                toast.warning(preparedArtwork.warnings[0]);
+            }
             toast.success('Manga başarıyla eklendi');
             navigate('/admin/mangas');
         } catch (err) {

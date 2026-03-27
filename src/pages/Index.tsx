@@ -1,15 +1,15 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, TrendingUp, Clock, Sparkles, Play, BookOpen, ChevronLeft, ChevronRight, Download, WifiOff } from 'lucide-react';
+import { ArrowRight, TrendingUp, Clock, Sparkles, Play, ChevronLeft, ChevronRight, Download, WifiOff } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import InstallAppBanner from '@/components/pwa/InstallAppBanner';
-import TopTenSection from '@/components/manga/TopTenSection';
 import MangaCard from '@/components/manga/MangaCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { getMangaSummaries, getTopTenMangas, getTrendingTags } from '@/lib/database';
 import TagBadge from '@/components/tags/TagBadge';
-import { getReadingHistory, getLatestProgress } from '@/lib/storage';
+import { getReadingHistoryEntries, type ReadingHistoryEntry } from '@/lib/storage';
+import { supabaseUrl } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import HomeSkeleton from '@/components/skeletons/HomeSkeleton';
 import { Manga, Tag } from '@/lib/types';
@@ -19,6 +19,8 @@ import { OfflineMangaGroup } from '@/lib/offline/types';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import DeferredMount from '@/components/performance/DeferredMount';
 import OptimizedImage from '@/components/media/OptimizedImage';
+import { Skeleton } from '@/components/ui/skeleton';
+import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 
 interface HorizontalMangaSectionProps {
   title: string;
@@ -31,14 +33,405 @@ interface HorizontalMangaSectionProps {
   disableHeavyEffects: boolean;
   isCoarsePointer: boolean;
   withTopSpacing?: boolean;
+  priorityCount?: number;
 }
+
+interface ContinueReadingEntry {
+  manga: Manga;
+  chapterId: string;
+  chapterNumber: number;
+  page: number;
+  lastRead: string;
+}
+
+const getEstimatedHomeCarouselItemWidth = (viewportWidth: number, clientWidth: number) => {
+  const fallbackWidth = Math.max(clientWidth, viewportWidth);
+
+  if (viewportWidth >= 1280) {
+    return Math.max(140, (fallbackWidth - 96) / 7);
+  }
+
+  if (viewportWidth >= 1024) {
+    return Math.max(148, (fallbackWidth - 80) / 6);
+  }
+
+  if (viewportWidth >= 768) {
+    return Math.max(156, (fallbackWidth - 64) / 5);
+  }
+
+  if (viewportWidth >= 640) {
+    return Math.max(164, (fallbackWidth - 48) / 4);
+  }
+
+  if (viewportWidth >= 430) {
+    return 168;
+  }
+
+  return 156;
+};
 
 const HOME_PAGE_CACHE: {
   mangas: Manga[] | null;
   trendingTags: Tag[] | null;
+  topTenWeekIds: string[] | null;
+  continueReadingByUser: Record<string, ReadingHistoryEntry[] | undefined>;
 } = {
   mangas: null,
   trendingTags: null,
+  topTenWeekIds: null,
+  continueReadingByUser: {},
+};
+
+const CONTINUE_READING_BANNER_TRANSFORM = Object.freeze({
+  width: 1200,
+  quality: 64,
+  format: 'webp' as const,
+  fit: 'cover' as const,
+});
+
+const CONTINUE_READING_COVER_TRANSFORM = Object.freeze({
+  width: 520,
+  quality: 70,
+  format: 'webp' as const,
+  fit: 'cover' as const,
+});
+
+const CONTINUE_READING_COVER_INTRINSIC_WIDTH = 480;
+const CONTINUE_READING_COVER_INTRINSIC_HEIGHT = 640;
+const CONTINUE_READING_COVER_SIZES = '(min-width: 1024px) 16rem, (min-width: 640px) 14rem, 9.75rem';
+const CONTINUE_READING_BANNER_SIZES = '100vw';
+
+const CONTINUE_READING_SESSION_CACHE_KEY = 'toonparrot-home-continue-reading-v1';
+
+interface PersistedContinueReadingCache {
+  userId: string;
+  entries: ReadingHistoryEntry[];
+  updatedAt: string;
+}
+
+const getSupabaseAuthStorageKey = () => {
+  try {
+    const projectRef = new URL(supabaseUrl).hostname.split('.')[0];
+    return projectRef ? `sb-${projectRef}-auth-token` : null;
+  } catch {
+    return null;
+  }
+};
+
+const hasPersistedSupabaseSession = () => {
+  if (typeof window === 'undefined') {
+    return false;
+  }
+
+  const authStorageKey = getSupabaseAuthStorageKey();
+  if (!authStorageKey) {
+    return false;
+  }
+
+  return Boolean(window.localStorage.getItem(authStorageKey));
+};
+
+const readPersistedContinueReadingCache = (): PersistedContinueReadingCache | null => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  try {
+    const raw = window.sessionStorage.getItem(CONTINUE_READING_SESSION_CACHE_KEY);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as PersistedContinueReadingCache;
+    if (!parsed || typeof parsed.userId !== 'string' || !Array.isArray(parsed.entries)) {
+      return null;
+    }
+
+    return parsed;
+  } catch {
+    return null;
+  }
+};
+
+const writePersistedContinueReadingCache = (userId: string, entries: ReadingHistoryEntry[]) => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  const payload: PersistedContinueReadingCache = {
+    userId,
+    entries: entries.slice(0, 6),
+    updatedAt: new Date().toISOString(),
+  };
+
+  window.sessionStorage.setItem(CONTINUE_READING_SESSION_CACHE_KEY, JSON.stringify(payload));
+};
+
+const clearPersistedContinueReadingCache = () => {
+  if (typeof window === 'undefined') {
+    return;
+  }
+
+  window.sessionStorage.removeItem(CONTINUE_READING_SESSION_CACHE_KEY);
+};
+
+const formatContinueReadingLastRead = (lastRead: string) => {
+  const timestamp = new Date(lastRead).getTime();
+  if (Number.isNaN(timestamp)) {
+    return 'Son okuma kaydı hazır';
+  }
+
+  const diffMs = Date.now() - timestamp;
+  const oneDayMs = 24 * 60 * 60 * 1000;
+
+  if (diffMs < oneDayMs) {
+    return 'Bugün okudun';
+  }
+
+  if (diffMs < oneDayMs * 2) {
+    return 'Dün okudun';
+  }
+
+  return `Son okuma ${new Date(timestamp).toLocaleDateString('tr-TR')}`;
+};
+
+interface ContinueReadingSpotlightProps {
+  entries: ContinueReadingEntry[];
+  disableHeavyEffects: boolean;
+}
+
+const ContinueReadingSpotlightSkeleton: React.FC = () => (
+  <section aria-hidden>
+    <div className="mb-4 flex items-center justify-between gap-3">
+      <div className="min-w-0 flex items-center gap-2">
+        <Skeleton className="h-5 w-5 rounded-full" />
+        <Skeleton className="h-7 w-56 max-w-[52vw] sm:h-9 sm:w-72 sm:max-w-[70vw]" />
+      </div>
+      <Skeleton className="h-8 w-20 shrink-0 rounded-full sm:h-9 sm:w-24" />
+    </div>
+
+    <div className="overflow-hidden rounded-[30px] border border-primary/10 bg-card/70 p-4 shadow-[0_24px_70px_rgba(15,23,42,0.14)] sm:p-8 lg:p-10">
+      <div className="grid gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1.15fr)_240px] lg:items-end lg:gap-10">
+        <div className="order-2 lg:order-1">
+          <Skeleton className="h-7 w-32 rounded-full sm:h-8 sm:w-36" />
+          <Skeleton className="mt-3 h-10 w-full max-w-xl sm:mt-4 sm:h-14 sm:max-w-2xl" />
+          <Skeleton className="mt-4 hidden h-24 w-full max-w-3xl sm:block" />
+
+          <div className="mt-5 flex flex-wrap gap-2">
+            <Skeleton className="h-8 w-24 rounded-full" />
+            <Skeleton className="h-8 w-24 rounded-full" />
+            <Skeleton className="h-8 w-20 rounded-full" />
+            <Skeleton className="h-8 w-24 rounded-full" />
+          </div>
+
+          <div className="mt-5 flex flex-wrap items-center gap-3 sm:mt-6">
+            <Skeleton className="h-12 w-40 rounded-full" />
+            <Skeleton className="h-12 w-36 rounded-full" />
+            <Skeleton className="h-4 w-32" />
+          </div>
+        </div>
+
+        <div className="order-1 flex justify-center lg:order-2 lg:justify-end">
+          <Skeleton className="aspect-[3/4] w-[9.75rem] rounded-[26px] sm:w-[14rem] sm:rounded-[28px] lg:w-full lg:max-w-[16rem]" />
+        </div>
+      </div>
+    </div>
+
+    <div className="mt-4 grid gap-3 md:grid-cols-3">
+      {Array.from({ length: 3 }).map((_, index) => (
+        <div
+          key={`continue-reading-skeleton-${index}`}
+          className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/70 p-3"
+        >
+          <Skeleton className="h-20 w-14 shrink-0 rounded-xl" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <Skeleton className="h-5 w-4/5" />
+            <Skeleton className="h-4 w-3/5" />
+            <Skeleton className="h-3 w-2/5" />
+          </div>
+        </div>
+      ))}
+    </div>
+  </section>
+);
+
+const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
+  entries,
+  disableHeavyEffects,
+}) => {
+  const [featured, ...secondaryEntries] = entries;
+
+  if (!featured) {
+    return null;
+  }
+
+  const featuredBannerSrcSet = getManagedArtworkSrcSet(featured.manga.banner);
+  const featuredCoverSrcSet = getManagedArtworkSrcSet(featured.manga.cover);
+
+  const secondary = secondaryEntries.slice(0, 3);
+  const continueHref = `/manga/${featured.manga.id}/chapter/${featured.chapterId}`;
+  const detailsHref = `/manga/${featured.manga.id}`;
+
+  return (
+    <section
+      className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
+      style={
+        disableHeavyEffects
+          ? { contentVisibility: 'auto', containIntrinsicSize: '760px 1120px' }
+          : {
+              animationDelay: '0.12s',
+              animationFillMode: 'forwards',
+              contentVisibility: 'auto',
+              containIntrinsicSize: '760px 1120px',
+            }
+      }
+    >
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <div className="min-w-0 flex items-center gap-2">
+          <Play className="h-5 w-5 text-primary" />
+          <h2 className="line-clamp-1 text-lg font-bold tracking-tight sm:text-xl md:text-2xl">Kaldığın Yerden Devam Et</h2>
+        </div>
+        <Button asChild variant="ghost" size="sm" className="shrink-0 px-2 sm:px-3">
+          <Link to="/history">
+            Geçmiş
+            <ArrowRight className="ml-1 h-4 w-4" />
+          </Link>
+        </Button>
+      </div>
+
+      <div className="relative overflow-hidden rounded-[30px] border border-primary/15 bg-card shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+        {featured.manga.banner && (
+          <div className="absolute inset-0">
+            <OptimizedImage
+              src={featured.manga.banner}
+              alt=""
+              priority
+              srcSet={featuredBannerSrcSet}
+              sizes={CONTINUE_READING_BANNER_SIZES}
+              transform={CONTINUE_READING_BANNER_TRANSFORM}
+              containerClassName="h-full w-full"
+              placeholderClassName="rounded-none"
+              className="h-full w-full object-cover object-top opacity-30"
+            />
+          </div>
+        )}
+
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(244,114,182,0.12),transparent_34%)]" />
+        <div className="absolute inset-0 bg-gradient-to-br from-background via-background/92 to-background/78" />
+
+        <div className="relative z-10 grid gap-4 px-4 py-4 sm:gap-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1.15fr)_240px] lg:items-end lg:gap-10 lg:px-10 lg:py-10">
+          <div className="order-2 lg:order-1">
+            <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
+              Son kaldığın seri
+            </div>
+
+            <h3 className="mt-3 max-w-3xl line-clamp-1 text-[2rem] font-black leading-[1.02] tracking-tight sm:mt-4 sm:text-4xl lg:text-[2.75rem] lg:leading-none">
+              {featured.manga.title}
+            </h3>
+
+            <p className="mt-4 hidden max-w-2xl text-sm leading-6 text-muted-foreground sm:block sm:text-[15px]">
+              {featured.manga.description || 'Kaldığın bölüme tek dokunuşla geri dön ve okumayı bıraktığın yerden devam et.'}
+            </p>
+
+            <div className="mt-5 flex flex-wrap gap-2">
+              <Badge variant="secondary" className="h-8 rounded-full px-3 text-xs">
+                Bölüm {featured.chapterNumber}
+              </Badge>
+              <Badge variant="outline" className="h-8 rounded-full px-3 text-xs">
+                Sayfa {Math.max(1, featured.page)}
+              </Badge>
+              <Badge variant="outline" className="h-8 rounded-full px-3 text-xs">
+                {featured.manga.type.toUpperCase()}
+              </Badge>
+              {featured.manga.genres[0] && (
+                <Badge variant="outline" className="h-8 rounded-full px-3 text-xs">
+                  {featured.manga.genres[0]}
+                </Badge>
+              )}
+            </div>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3">
+              <Button asChild variant="glow" className="rounded-full px-5">
+                <Link to={continueHref}>
+                  <Play className="mr-2 h-4 w-4" />
+                  Devam Et
+                </Link>
+              </Button>
+              <Button asChild variant="outline" className="rounded-full px-5">
+                <Link to={detailsHref}>Seri Sayfası</Link>
+              </Button>
+              <p className="text-xs text-muted-foreground">{formatContinueReadingLastRead(featured.lastRead)}</p>
+            </div>
+          </div>
+
+          <div className="order-1 flex justify-center lg:order-2 lg:justify-end">
+            <Link
+              to={continueHref}
+              className="group block w-[9.75rem] sm:w-[14rem] lg:w-full lg:max-w-[16rem]"
+            >
+              <div className="relative aspect-[3/4] overflow-hidden rounded-[28px] border border-white/10 bg-black/20 shadow-[0_20px_40px_rgba(0,0,0,0.28)]">
+                <OptimizedImage
+                  src={featured.manga.cover}
+                  alt={featured.manga.title}
+                  width={CONTINUE_READING_COVER_INTRINSIC_WIDTH}
+                  height={CONTINUE_READING_COVER_INTRINSIC_HEIGHT}
+                  srcSet={featuredCoverSrcSet}
+                  sizes={CONTINUE_READING_COVER_SIZES}
+                  priority
+                  rootMargin="640px 0px"
+                  transform={CONTINUE_READING_COVER_TRANSFORM}
+                  containerClassName="h-full w-full"
+                  placeholderClassName="rounded-[28px]"
+                  className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105'}`}
+                />
+                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 p-4">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Devam Noktan</p>
+                  <p className="mt-1 text-lg font-black text-white">Bölüm {featured.chapterNumber}</p>
+                </div>
+              </div>
+            </Link>
+          </div>
+        </div>
+      </div>
+
+      {secondary.length > 0 && (
+        <div className="mt-4 grid gap-3 md:grid-cols-3">
+          {secondary.map((entry, index) => (
+            <Link
+              key={entry.manga.id}
+              to={`/manga/${entry.manga.id}/chapter/${entry.chapterId}`}
+              className="group flex items-center gap-3 rounded-2xl border border-border/70 bg-card/70 p-3 transition-colors hover:border-primary/20 hover:bg-card"
+            >
+              <OptimizedImage
+                src={entry.manga.cover}
+                alt={entry.manga.title}
+                width={CONTINUE_READING_COVER_INTRINSIC_WIDTH}
+                height={CONTINUE_READING_COVER_INTRINSIC_HEIGHT}
+                srcSet={getManagedArtworkSrcSet(entry.manga.cover)}
+                sizes="56px"
+                priority={index === 0}
+                rootMargin="540px 0px"
+                transform={CONTINUE_READING_COVER_TRANSFORM}
+                containerClassName="h-20 w-14 shrink-0 overflow-hidden rounded-xl"
+                placeholderClassName="rounded-xl"
+                className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-300 group-hover:scale-105'}`}
+              />
+              <div className="min-w-0 flex-1">
+                <p className="line-clamp-1 text-sm font-semibold">{entry.manga.title}</p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                  <span>Bölüm {entry.chapterNumber}</span>
+                  <span className="h-1 w-1 rounded-full bg-border" />
+                  <span>Sayfa {Math.max(1, entry.page)}</span>
+                </div>
+                <p className="mt-2 text-[11px] text-muted-foreground">{formatContinueReadingLastRead(entry.lastRead)}</p>
+              </div>
+            </Link>
+          ))}
+        </div>
+      )}
+    </section>
+  );
 };
 
 const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
@@ -52,6 +445,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   disableHeavyEffects,
   isCoarsePointer,
   withTopSpacing = true,
+  priorityCount = 0,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
@@ -60,12 +454,12 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   const [itemWidth, setItemWidth] = useState(0);
   const [scrollMetrics, setScrollMetrics] = useState(() => ({
     scrollLeft: 0,
-    clientWidth: 0,
+    clientWidth: typeof window === 'undefined' ? 0 : window.innerWidth,
     viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth,
   }));
   const showArrowControls = !isCoarsePointer && !disableHeavyEffects;
 
-  const updateLayoutMetrics = () => {
+  const updateLayoutMetrics = useCallback(() => {
     if (!scrollRef.current) {
       setScrollMetrics((current) => ({
         ...current,
@@ -93,7 +487,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
     setShowLeftArrow(scrollLeft > 20);
     setShowRightArrow(scrollWidth > clientWidth + 20 && scrollLeft < scrollWidth - clientWidth - 20);
-  };
+  }, [showArrowControls]);
 
   const scroll = (direction: 'left' | 'right') => {
     if (!scrollRef.current) {
@@ -132,7 +526,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     window.addEventListener('resize', requestLayoutUpdate);
 
     return () => window.removeEventListener('resize', requestLayoutUpdate);
-  }, [manga.length, showArrowControls]);
+  }, [manga.length, showArrowControls, updateLayoutMetrics]);
 
   useEffect(() => {
     const probe = probeRef.current;
@@ -163,7 +557,10 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   }, [manga.length]);
 
   const gapPx = scrollMetrics.viewportWidth >= 640 ? 16 : 12;
-  const itemStride = itemWidth > 0 ? itemWidth + gapPx : 0;
+  const effectiveItemWidth = itemWidth > 0
+    ? itemWidth
+    : getEstimatedHomeCarouselItemWidth(scrollMetrics.viewportWidth, scrollMetrics.clientWidth);
+  const itemStride = effectiveItemWidth > 0 ? effectiveItemWidth + gapPx : 0;
   const shouldVirtualize = manga.length > 6 && itemStride > 0 && scrollMetrics.clientWidth > 0;
 
   const visibleRange = useMemo(() => {
@@ -174,7 +571,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
       };
     }
 
-    const overscanItems = 2;
+    const overscanItems = 1;
     const startIndex = Math.max(0, Math.floor(scrollMetrics.scrollLeft / itemStride) - overscanItems);
     const endIndex = Math.min(
       manga.length,
@@ -282,6 +679,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
                 index={visibleRange.startIndex + index}
                 topTenWeekIds={topTenWeekIds}
                 disableHeavyEffects={disableHeavyEffects}
+                coverPriority={visibleRange.startIndex + index < priorityCount}
               />
             </div>
           ))}
@@ -298,11 +696,18 @@ const Index: React.FC = () => {
   const { snapshot: offlineSnapshot, isLoading: offlineLibraryLoading, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
   const [mangas, setMangas] = useState<Manga[]>(() => HOME_PAGE_CACHE.mangas ?? []);
-  const [continueReading, setContinueReading] = useState<{ manga: Manga; chapterId: string; chapterNumber: number }[]>([]);
+  const [hasPersistedAuthSession, setHasPersistedAuthSession] = useState(() => hasPersistedSupabaseSession());
+  const [continueReadingSeed, setContinueReadingSeed] = useState<ReadingHistoryEntry[]>(() => (
+    readPersistedContinueReadingCache()?.entries ?? []
+  ));
+  const [continueReadingLoading, setContinueReadingLoading] = useState(false);
   const [isLoading, setIsLoading] = useState(() => HOME_PAGE_CACHE.mangas === null);
   const [trendingTags, setTrendingTags] = useState<Tag[]>(() => HOME_PAGE_CACHE.trendingTags ?? []);
   const [tagsLoading, setTagsLoading] = useState(() => HOME_PAGE_CACHE.trendingTags === null);
-  const [topTenWeekIds, setTopTenWeekIds] = useState<Set<string>>(() => new Set());
+  const [topTenWeekIds, setTopTenWeekIds] = useState<Set<string>>(() => new Set(HOME_PAGE_CACHE.topTenWeekIds ?? []));
+  const mangaById = useMemo(() => new Map(mangas.map((item) => [item.id, item])), [mangas]);
+  const sectionDeferredRootMargin = isCoarsePointer ? '260px 0px' : '180px 0px';
+  const blockDeferredRootMargin = isCoarsePointer ? '320px 0px' : '220px 0px';
 
   const offlineManga = React.useMemo<Manga[]>(() => (
     offlineSnapshot.series.map((entry: OfflineMangaGroup) => ({
@@ -397,7 +802,9 @@ const Index: React.FC = () => {
           return;
         }
 
-        setTopTenWeekIds(new Set(weeklyTopTen.map((item) => item.id)));
+        const nextIds = weeklyTopTen.map((item) => item.id);
+        HOME_PAGE_CACHE.topTenWeekIds = nextIds;
+        setTopTenWeekIds(new Set(nextIds));
       } catch (error) {
         console.error('Weekly top ten id load error:', error);
       }
@@ -447,58 +854,114 @@ const Index: React.FC = () => {
   }, [isOnline]);
 
   useEffect(() => {
+    if (authLoading) {
+      setHasPersistedAuthSession(hasPersistedSupabaseSession());
+      return;
+    }
+
+    setHasPersistedAuthSession(Boolean(user));
+
+    if (!user) {
+      clearPersistedContinueReadingCache();
+    }
+  }, [authLoading, user]);
+
+  useEffect(() => {
     let active = true;
 
     const loadContinueReading = async () => {
       if (authLoading) {
+        if (hasPersistedAuthSession && continueReadingSeed.length === 0) {
+          setContinueReadingLoading(true);
+        }
         return;
       }
 
-      if (!isOnline || !user || mangas.length === 0) {
-        setContinueReading([]);
+      if (!isOnline || !user) {
+        setContinueReadingSeed([]);
+        setContinueReadingLoading(false);
+        clearPersistedContinueReadingCache();
         return;
+      }
+
+      const persistedCache = readPersistedContinueReadingCache();
+      const cachedEntries = HOME_PAGE_CACHE.continueReadingByUser[user.id]
+        ?? (persistedCache?.userId === user.id ? persistedCache.entries : undefined);
+
+      if (cachedEntries) {
+        setContinueReadingSeed(cachedEntries);
+        setContinueReadingLoading(false);
+      } else {
+        setContinueReadingLoading(true);
       }
 
       try {
-        const history = await getReadingHistory(user.id);
-        const uniqueMangaIds = [...new Set(history.map((item) => item.mangaId))].slice(0, 6);
+        const historyEntries = await getReadingHistoryEntries(user.id);
+        const uniqueEntries: ReadingHistoryEntry[] = [];
+        const seenMangaIds = new Set<string>();
 
-        const continueList = await Promise.all(uniqueMangaIds.map(async (mangaId) => {
-          const manga = mangas.find((item) => item.id === mangaId);
-          const progress = await getLatestProgress(user.id, mangaId);
-          if (manga && progress) {
-            return { manga, chapterId: progress.chapterId, chapterNumber: progress.chapterNumber };
+        for (const entry of historyEntries) {
+          if (seenMangaIds.has(entry.mangaId)) {
+            continue;
           }
-          return null;
-        }));
+
+          seenMangaIds.add(entry.mangaId);
+          uniqueEntries.push(entry);
+
+          if (uniqueEntries.length === 6) {
+            break;
+          }
+        }
 
         if (!active) {
           return;
         }
 
-        setContinueReading(continueList.filter(Boolean) as { manga: Manga; chapterId: string; chapterNumber: number }[]);
+        HOME_PAGE_CACHE.continueReadingByUser[user.id] = uniqueEntries;
+        setContinueReadingSeed(uniqueEntries);
+        writePersistedContinueReadingCache(user.id, uniqueEntries);
       } catch (err) {
         console.error('Continue reading loading error:', err);
         if (active) {
-          setContinueReading([]);
+          setContinueReadingSeed([]);
+        }
+      } finally {
+        if (active) {
+          setContinueReadingLoading(false);
         }
       }
     };
 
-    loadContinueReading();
+    void loadContinueReading();
 
     return () => {
       active = false;
     };
-  }, [authLoading, isOnline, mangas, user]);
+  }, [authLoading, continueReadingSeed.length, hasPersistedAuthSession, isOnline, user]);
+
+  const continueReading = useMemo<ContinueReadingEntry[]>(() => (
+    continueReadingSeed
+      .map((entry) => {
+        const manga = mangaById.get(entry.mangaId);
+        if (!manga) {
+          return null;
+        }
+
+        return {
+          manga,
+          chapterId: entry.chapterId,
+          chapterNumber: entry.chapterNumber,
+          page: entry.page,
+          lastRead: entry.lastRead,
+        } satisfies ContinueReadingEntry;
+      })
+      .filter(Boolean) as ContinueReadingEntry[]
+  ), [continueReadingSeed, mangaById]);
 
   const {
     trendingManga,
     newlyAddedSeries,
     recentlyUpdated,
-    popularManhwa,
-    popularManhua,
-    popularWebtoon,
   } = useMemo(() => ({
     trendingManga: [...mangas].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8),
     newlyAddedSeries: [...mangas]
@@ -507,14 +970,17 @@ const Index: React.FC = () => {
     recentlyUpdated: [...mangas]
       .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
       .slice(0, 12),
-    popularManhwa: mangas.filter(m => m.type === 'manhwa').slice(0, 8),
-    popularManhua: mangas.filter(m => m.type === 'manhua').slice(0, 8),
-    popularWebtoon: mangas.filter(m => m.type === 'webtoon').slice(0, 8),
   }), [mangas]);
 
   const showHomeSkeleton =
     (isOnline && isLoading && mangas.length === 0) ||
     (!isOnline && offlineLibraryLoading && offlineManga.length === 0);
+  const canRenderContinueReadingSlot = isOnline && (Boolean(user) || (authLoading && hasPersistedAuthSession));
+  const shouldShowContinueReading = canRenderContinueReadingSlot && continueReading.length > 0;
+  const showContinueReadingSkeleton = canRenderContinueReadingSlot
+    && !shouldShowContinueReading
+    && (authLoading || continueReadingLoading || continueReadingSeed.length > 0);
+  const shouldRenderContinueReadingSlot = shouldShowContinueReading || showContinueReadingSkeleton;
 
   if (showHomeSkeleton) {
     return (
@@ -559,69 +1025,22 @@ const Index: React.FC = () => {
           </section>
         )}
 
-        {isOnline && (
-          <div className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'} style={disableHeavyEffects ? undefined : { animationDelay: '0.1s', animationFillMode: 'forwards' }}>
-            <TopTenSection />
+        {shouldRenderContinueReadingSlot && (
+          <div className="mt-10">
+            {showContinueReadingSkeleton ? (
+              <ContinueReadingSpotlightSkeleton />
+            ) : (
+            <ContinueReadingSpotlight
+              entries={continueReading}
+              disableHeavyEffects={disableHeavyEffects}
+            />
+            )}
           </div>
-        )}
-
-        {/* Continue Reading Section */}
-        {user && continueReading.length > 0 && (
-          <DeferredMount className="mt-10" placeholderMinHeight={420} rootMargin="600px 0px">
-            <section
-              className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
-              style={disableHeavyEffects ? { contentVisibility: 'auto', containIntrinsicSize: '420px 1120px' } : { animationDelay: '0.15s', animationFillMode: 'forwards', contentVisibility: 'auto', containIntrinsicSize: '420px 1120px' }}
-            >
-              <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Play className="h-5 w-5 text-primary" />
-                  <h2 className="text-xl font-bold tracking-tight md:text-2xl">Kaldığın Yerden Devam Et</h2>
-                </div>
-                <Button asChild variant="ghost" size="sm">
-                  <Link to="/history">
-                    Tümünü Gör
-                    <ArrowRight className="ml-1 h-4 w-4" />
-                  </Link>
-                </Button>
-              </div>
-              <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
-                {continueReading.map(({ manga, chapterId, chapterNumber }, index) => (
-                  <Link
-                    key={manga.id}
-                    to={`/manga/${manga.id}/chapter/${chapterId}`}
-                    className="group relative"
-                  >
-                    <div className="relative aspect-[3/4] overflow-hidden rounded-xl">
-                      <OptimizedImage
-                        src={manga.cover}
-                        alt={manga.title}
-                        priority={index < 4}
-                        rootMargin="520px 0px"
-                        containerClassName="h-full w-full"
-                        placeholderClassName="rounded-xl"
-                        className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-300 group-hover:scale-110'}`}
-                      />
-                      <div className={`absolute inset-0 bg-black/8 ${disableHeavyEffects ? '' : 'transition-colors duration-300 group-hover:bg-black/18'}`} />
-                      <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/85 via-black/35 to-transparent" />
-                      <div className="absolute bottom-0 left-0 right-0 z-20 p-3">
-                        <h3 className="line-clamp-1 text-sm font-semibold text-white">{manga.title}</h3>
-                        <div className="mt-1 flex items-center gap-2">
-                          <Badge variant="secondary" className="text-xs">
-                            Bölüm {chapterNumber}
-                          </Badge>
-                        </div>
-                      </div>
-                    </div>
-                  </Link>
-                ))}
-              </div>
-            </section>
-          </DeferredMount>
         )}
 
         {isOnline ? (
           <>
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin="680px 0px">
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Yeni Çıkan Seriler"
                 icon={Sparkles}
@@ -633,10 +1052,11 @@ const Index: React.FC = () => {
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
+                priorityCount={2}
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin="680px 0px">
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Son Güncellenenler"
                 icon={Clock}
@@ -648,10 +1068,11 @@ const Index: React.FC = () => {
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
+                priorityCount={0}
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin="680px 0px">
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Trend Olanlar"
                 icon={TrendingUp}
@@ -663,61 +1084,11 @@ const Index: React.FC = () => {
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
+                priorityCount={0}
               />
             </DeferredMount>
 
-            {popularManhwa.length > 0 && (
-              <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin="680px 0px">
-                <HorizontalMangaSection
-                  title="Popüler Manhwa"
-                  icon={Sparkles}
-                  iconClassName="h-5 w-5 text-purple-500"
-                  linkTo="/browse?type=manhwa"
-                  manga={popularManhwa}
-                  delay="0.3s"
-                  topTenWeekIds={topTenWeekIds}
-                  disableHeavyEffects={disableHeavyEffects}
-                  isCoarsePointer={isCoarsePointer}
-                  withTopSpacing={false}
-                />
-              </DeferredMount>
-            )}
-
-            {popularManhua.length > 0 && (
-              <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin="680px 0px">
-                <HorizontalMangaSection
-                  title="Popüler Manhua"
-                  icon={BookOpen}
-                  iconClassName="h-5 w-5 text-green-500"
-                  linkTo="/browse?type=manhua"
-                  manga={popularManhua}
-                  delay="0.35s"
-                  topTenWeekIds={topTenWeekIds}
-                  disableHeavyEffects={disableHeavyEffects}
-                  isCoarsePointer={isCoarsePointer}
-                  withTopSpacing={false}
-                />
-              </DeferredMount>
-            )}
-
-            {popularWebtoon.length > 0 && (
-              <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin="680px 0px">
-                <HorizontalMangaSection
-                  title="Popüler Webtoon"
-                  icon={BookOpen}
-                  iconClassName="h-5 w-5 text-sky-400"
-                  linkTo="/browse?type=webtoon"
-                  manga={popularWebtoon}
-                  delay="0.4s"
-                  topTenWeekIds={topTenWeekIds}
-                  disableHeavyEffects={disableHeavyEffects}
-                  isCoarsePointer={isCoarsePointer}
-                  withTopSpacing={false}
-                />
-              </DeferredMount>
-            )}
-
-            <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin="720px 0px">
+            <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin={blockDeferredRootMargin}>
               <section
                 className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
                 style={disableHeavyEffects ? { contentVisibility: 'auto', containIntrinsicSize: '260px 1120px' } : { animationDelay: '0.45s', animationFillMode: 'forwards', contentVisibility: 'auto', containIntrinsicSize: '260px 1120px' }}
@@ -746,7 +1117,7 @@ const Index: React.FC = () => {
             </DeferredMount>
           </>
         ) : (
-          <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin="720px 0px">
+          <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin}>
             <section
               className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
               style={disableHeavyEffects ? { contentVisibility: 'auto', containIntrinsicSize: '720px 1120px' } : { animationDelay: '0.16s', animationFillMode: 'forwards', contentVisibility: 'auto', containIntrinsicSize: '720px 1120px' }}
@@ -770,6 +1141,7 @@ const Index: React.FC = () => {
                       index={index}
                       topTenWeekIds={topTenWeekIds}
                       disableHeavyEffects={disableHeavyEffects}
+                      coverPriority={index < 4}
                     />
                   ))}
                 </div>

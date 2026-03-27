@@ -51,6 +51,7 @@ import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { Manga, Chapter, Character, Author, Artist } from '@/lib/types';
 import { allGenres, normalizeGenres } from '@/lib/mockData';
 import { createNotificationForFollowers } from '@/lib/storage';
+import { prepareManagedArtworkForSave } from '@/lib/managedArtwork';
 import { toast } from 'sonner';
 import { Search } from 'lucide-react';
 
@@ -355,6 +356,13 @@ const AdminMangaEditor: React.FC = () => {
         setLoading(true);
 
         try {
+            const mangaIdToSave = manga.id || `manga-${Date.now()}-${Math.random().toString(36).substring(7)}`;
+            const preparedArtwork = await prepareManagedArtworkForSave({
+                mangaId: mangaIdToSave,
+                coverUrl: normalizedCover,
+                bannerUrl: manga.banner?.trim() || normalizedCover,
+            });
+
             let resolvedAuthor = selectedAuthor;
             if (!resolvedAuthor || normalizeNamedEntityKey(resolvedAuthor.name) !== normalizeNamedEntityKey(normalizedAuthorName)) {
                 resolvedAuthor = await ensureAuthorByName(normalizedAuthorName);
@@ -374,11 +382,11 @@ const AdminMangaEditor: React.FC = () => {
             }
 
             const mangaToSave: Manga = {
-                id: manga.id || `manga-${Date.now()}-${Math.random().toString(36).substring(7)}`,
+                id: mangaIdToSave,
                 title: normalizedTitle,
                 alternativeTitles: manga.alternativeTitles || [],
-                cover: normalizedCover,
-                banner: manga.banner?.trim() || normalizedCover,
+                cover: preparedArtwork.coverUrl,
+                banner: preparedArtwork.bannerUrl,
                 author: resolvedAuthor?.name || normalizedAuthorName,
                 artist: resolvedArtist?.name || normalizedArtistName,
                 status: manga.status as 'ongoing' | 'completed' | 'hiatus',
@@ -416,6 +424,9 @@ const AdminMangaEditor: React.FC = () => {
             }
 
             setDeletedCharacterIds([]);
+            if (preparedArtwork.warnings.length > 0) {
+                toast.warning(preparedArtwork.warnings[0]);
+            }
             toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
             navigate('/admin/mangas');
         } catch (err) {

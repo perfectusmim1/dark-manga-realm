@@ -97,6 +97,7 @@ import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { isDownloadAuthRequiredError, offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { cacheOfflineManga, cacheOfflineMangaCharacters, getOfflineMangaCharacters, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { OfflineMangaGroup } from '@/lib/offline/types';
+import { areBookmarksInitialized, getCachedBookmarksState } from '@/lib/offline/userSync';
 import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
 import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
@@ -590,6 +591,15 @@ const MangaDetail: React.FC = () => {
 
   useEffect(() => {
     let isCancelled = false;
+    let bookmarkTimeoutId: ReturnType<typeof window.setTimeout> | null = null;
+
+    const getCurrentSeriesBookmarks = (bookmarks: Bookmark[]) => bookmarks
+      .filter((bookmark) => bookmark.mangaId === activeMangaId)
+      .sort((left, right) => {
+        const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
+        const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
+        return rightTime - leftTime;
+      });
 
     if (!user?.id || !activeMangaId) {
       setSeriesBookmarks([]);
@@ -602,23 +612,31 @@ const MangaDetail: React.FC = () => {
       return;
     }
 
+    const cachedBookmarks = getCurrentSeriesBookmarks(getCachedBookmarksState(user.id));
+
+    if (areBookmarksInitialized(user.id)) {
+      setSeriesBookmarks(cachedBookmarks);
+      setHasLoadedBookmarks(true);
+      setIsSeriesBookmarksLoading(false);
+      return;
+    }
+
     setIsSeriesBookmarksLoading(true);
 
-    void getBookmarks(user.id)
+    const fallbackBookmarks = new Promise<Bookmark[]>((resolve) => {
+      bookmarkTimeoutId = window.setTimeout(() => {
+        console.warn('Series bookmarks load timed out; using local cache fallback.');
+        resolve(getCachedBookmarksState(user.id));
+      }, 4500);
+    });
+
+    void Promise.race([getBookmarks(user.id), fallbackBookmarks])
       .then((bookmarks) => {
         if (isCancelled) {
           return;
         }
 
-        const currentSeriesBookmarks = bookmarks
-          .filter((bookmark) => bookmark.mangaId === activeMangaId)
-          .sort((left, right) => {
-            const leftTime = left.createdAt ? new Date(left.createdAt).getTime() : 0;
-            const rightTime = right.createdAt ? new Date(right.createdAt).getTime() : 0;
-            return rightTime - leftTime;
-          });
-
-        setSeriesBookmarks(currentSeriesBookmarks);
+        setSeriesBookmarks(getCurrentSeriesBookmarks(bookmarks));
         setHasLoadedBookmarks(true);
       })
       .catch((error) => {
@@ -627,10 +645,14 @@ const MangaDetail: React.FC = () => {
         }
 
         console.error('Series bookmarks load error:', error);
-        setSeriesBookmarks([]);
+        setSeriesBookmarks(cachedBookmarks);
         setHasLoadedBookmarks(true);
       })
       .finally(() => {
+        if (bookmarkTimeoutId !== null) {
+          window.clearTimeout(bookmarkTimeoutId);
+        }
+
         if (!isCancelled) {
           setIsSeriesBookmarksLoading(false);
         }
@@ -638,6 +660,10 @@ const MangaDetail: React.FC = () => {
 
     return () => {
       isCancelled = true;
+
+      if (bookmarkTimeoutId !== null) {
+        window.clearTimeout(bookmarkTimeoutId);
+      }
     };
   }, [activeMangaId, hasLoadedBookmarks, isBookmarksTabActive, user?.id]);
 
@@ -1433,13 +1459,13 @@ const MangaDetail: React.FC = () => {
 
   const renderChapterRow = (chapter: Chapter) => (
     <div
-      className="flex items-start justify-between gap-3 p-3 transition-colors hover:bg-secondary/50 sm:p-4 md:items-center"
+      className="flex flex-col gap-3 p-3 transition-colors hover:bg-secondary/50 sm:p-4 md:flex-row md:items-center md:justify-between"
     >
       <div className="min-w-0 flex-1">
         <Link
           to={`/manga/${manga.id}/chapter/${chapter.id}`}
           className={cn(
-            "line-clamp-2 text-sm font-medium leading-snug transition-colors sm:text-base",
+            "line-clamp-1 text-base font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-base",
             mergedChapterReadMap[chapter.id]?.isRead
               ? "text-emerald-400 hover:text-emerald-300"
               : "hover:text-primary",
@@ -1447,7 +1473,7 @@ const MangaDetail: React.FC = () => {
         >
           {formatChapterDisplayTitle(chapter.number, chapter.title)}
         </Link>
-        <div className="mt-1 flex flex-wrap items-center gap-3 text-xs text-muted-foreground">
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground sm:text-xs">
           <span className="flex items-center gap-1">
             <Calendar className="h-3 w-3" />
             {formatDate(chapter.releaseDate)}
@@ -1469,13 +1495,13 @@ const MangaDetail: React.FC = () => {
         </div>
       </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-2 self-start md:self-center">
+      <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0 md:justify-end">
         {offlineChapterMap[chapter.id]?.downloadStatus === 'completed' ? (
-          <div className="flex items-center justify-end gap-2">
-            <Badge variant="outline" className="h-7 text-[11px]">
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
               {chapter.pages.length} sayfa
             </Badge>
-            <Button asChild size="sm" className="h-8 px-3 text-xs sm:h-9 sm:text-sm">
+            <Button asChild size="sm" className="h-9 px-3 text-xs sm:text-sm">
               <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
                 Çevrimdışı Oku
               </Link>
@@ -1483,32 +1509,32 @@ const MangaDetail: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
+              className="h-9 w-9 px-0 text-xs sm:w-auto sm:px-3 sm:text-sm"
               onClick={() => void handleDeleteOfflineChapter(chapter.id)}
             >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Sil
+              <Trash2 className="h-4 w-4 sm:mr-2" />
+              <span className="sr-only sm:not-sr-only">Sil</span>
             </Button>
           </div>
         ) : offlineChapterMap[chapter.id] && ['running', 'queued'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
-          <div className="flex items-center justify-end gap-2">
-            <Badge variant="outline" className="h-7 text-[11px]">
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
               {chapter.pages.length} sayfa
             </Badge>
-            <Button variant="outline" size="sm" className="h-8 px-3 text-xs sm:h-9 sm:text-sm" disabled>
+            <Button variant="outline" size="sm" className="h-9 px-3 text-xs sm:text-sm" disabled>
               <Download className="mr-2 h-4 w-4" />
               İndiriliyor
             </Button>
           </div>
         ) : offlineChapterMap[chapter.id]?.downloadStatus === 'paused' ? (
-          <div className="flex items-center justify-end gap-2">
-            <Badge variant="outline" className="h-7 text-[11px]">
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
               {chapter.pages.length} sayfa
             </Badge>
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
+              className="h-9 px-3 text-xs sm:text-sm"
               onClick={() => void handleQueueChapterDownload(chapter)}
             >
               <Download className="mr-2 h-4 w-4" />
@@ -1516,14 +1542,14 @@ const MangaDetail: React.FC = () => {
             </Button>
           </div>
         ) : offlineChapterMap[chapter.id] && ['failed', 'partial'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
-          <div className="flex items-center justify-end gap-2">
-            <Badge variant="outline" className="h-7 text-[11px]">
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
               {chapter.pages.length} sayfa
             </Badge>
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
+              className="h-9 px-3 text-xs sm:text-sm"
               onClick={() => void handleQueueChapterDownload(chapter)}
             >
               <Download className="mr-2 h-4 w-4" />
@@ -1532,22 +1558,22 @@ const MangaDetail: React.FC = () => {
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
+              className="h-9 w-9 px-0 text-xs sm:w-auto sm:px-3 sm:text-sm"
               onClick={() => void handleDeleteOfflineChapter(chapter.id)}
             >
-              <Trash2 className="mr-2 h-4 w-4" />
-              Sil
+              <Trash2 className="h-4 w-4 sm:mr-2" />
+              <span className="sr-only sm:not-sr-only">Sil</span>
             </Button>
           </div>
         ) : (
-          <div className="flex items-center justify-end gap-2">
-            <Badge variant="outline" className="h-7 text-[11px]">
+          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
               {chapter.pages.length} sayfa
             </Badge>
             <Button
               variant="outline"
               size="sm"
-              className="h-8 px-3 text-xs sm:h-9 sm:text-sm"
+              className="h-9 px-3 text-xs sm:text-sm"
               onClick={() => void handleQueueChapterDownload(chapter)}
             >
               <Download className="mr-2 h-4 w-4" />

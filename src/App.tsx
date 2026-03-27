@@ -15,9 +15,6 @@ import ScrollToTop from "./components/layout/ScrollToTop";
 import { offlineDownloadManager } from "@/lib/offline/downloadManager";
 import { initializeOfflineReaderSync } from "@/lib/offline/offlineReaderSync";
 import { initializeOfflineUserSync } from "@/lib/offline/userSync";
-import DownloadDock from "@/components/offline/DownloadDock";
-import AdBlockWarning from "@/components/security/AdBlockWarning";
-
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -41,6 +38,7 @@ const AppInitializer = ({ children }: { children: React.ReactNode }) => {
 import SecurityWrapper from "@/components/security/SecurityWrapper";
 
 const Index = lazy(() => import("./pages/Index"));
+const TopTen = lazy(() => import("./pages/TopTen"));
 const Browse = lazy(() => import("./pages/Browse"));
 const MangaDetail = lazy(() => import("./pages/MangaDetail"));
 const Reader = lazy(() => import("./pages/Reader"));
@@ -84,6 +82,8 @@ const AdminTags = lazy(() => import("./pages/admin/AdminTags"));
 const AdminAnnouncements = lazy(() => import("./pages/admin/AdminAnnouncements"));
 const AdminReports = lazy(() => import("./pages/admin/AdminReports"));
 const AdminSiteSettings = lazy(() => import("./pages/admin/AdminSiteSettings"));
+const LazyDownloadDock = lazy(() => import("@/components/offline/DownloadDock"));
+const LazyAdBlockWarning = lazy(() => import("@/components/security/AdBlockWarning"));
 
 const OfflineStartupRedirect = () => {
   const navigate = useNavigate();
@@ -143,7 +143,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
           await logout();
         }
 
-        setBlockedMessage((access as any).message || 'Bu cihaz veya bağlantı için site erişimi engellendi.');
+        setBlockedMessage(access.message || 'Bu cihaz veya bağlantı için site erişimi engellendi.');
         return;
       }
 
@@ -262,11 +262,14 @@ const App = () => (
                 <MfaGate>
                   <OfflineStartupRedirect />
                   <ScrollToTop />
-                  <AdBlockWarning />
+                  <Suspense fallback={null}>
+                    <LazyAdBlockWarning />
+                  </Suspense>
                   <Suspense fallback={<RouteFallback />}>
                     <Routes>
                     {/* Public Routes */}
                     <Route path="/" element={<Index />} />
+                    <Route path="/top-ten" element={<TopTen />} />
                     <Route path="/community" element={<Community />} />
                     <Route path="/browse" element={<Browse />} />
                     <Route path="/manga/:mangaId" element={<MangaDetail />} />
@@ -318,7 +321,9 @@ const App = () => (
                     <Route path="*" element={<NotFound />} />
                     </Routes>
                   </Suspense>
-                  <DownloadDock />
+                  <Suspense fallback={null}>
+                    <LazyDownloadDock />
+                  </Suspense>
                 </MfaGate>
               </AccessGate>
             </BrowserRouter>

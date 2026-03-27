@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useRef } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ChevronLeft, ChevronRight, Star } from 'lucide-react';
 import { Manga } from '@/lib/types';
@@ -35,23 +35,46 @@ const TopTenSection: React.FC = () => {
   const [mangas, setMangas] = useState<Manga[]>(() => TOP_TEN_CACHE.today ?? []);
   const [isLoading, setIsLoading] = useState(() => TOP_TEN_CACHE.today === null);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const [scrollNode, setScrollNode] = useState<HTMLDivElement | null>(null);
+  const rafRef = useRef<number | null>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
+  const [hasMeasuredArrows, setHasMeasuredArrows] = useState(false);
   const showArrowControls = !isCoarsePointer && !disableHeavyEffects;
   const isFilterSwitching = isLoading && displayedFilter !== timeFilter;
   const showLoadingSkeletons = isLoading && mangas.length === 0;
+  const estimatedHasOverflow = mangas.length > 5;
 
-  const updateArrows = () => {
-    if (!scrollRef.current || !showArrowControls) {
+  const updateArrows = useCallback(() => {
+    const scroller = scrollNode;
+
+    if (!scroller || !showArrowControls) {
+      setHasMeasuredArrows(false);
       setShowLeftArrow(false);
       setShowRightArrow(false);
       return;
     }
 
-    const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
+    const { scrollLeft, scrollWidth, clientWidth } = scroller;
+    setHasMeasuredArrows(true);
     setShowLeftArrow(scrollLeft > 20);
     setShowRightArrow(scrollWidth > clientWidth + 20 && scrollLeft < scrollWidth - clientWidth - 20);
-  };
+  }, [scrollNode, showArrowControls]);
+
+  const requestArrowUpdate = useCallback(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
+    }
+
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      updateArrows();
+    });
+  }, [updateArrows]);
 
   const scroll = (direction: 'left' | 'right') => {
     if (scrollRef.current) {
@@ -66,34 +89,60 @@ const TopTenSection: React.FC = () => {
         left: nextScrollLeft,
         behavior: 'smooth',
       });
-      setTimeout(updateArrows, 500);
+      window.setTimeout(requestArrowUpdate, 450);
     }
   };
 
   useEffect(() => {
-    window.addEventListener('resize', updateArrows);
-    return () => window.removeEventListener('resize', updateArrows);
-  }, [showArrowControls]);
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (!showArrowControls) {
+      setHasMeasuredArrows(false);
+      setShowLeftArrow(false);
+      setShowRightArrow(false);
+      return;
+    }
+
+    const handleResize = () => requestArrowUpdate();
+    window.addEventListener('resize', handleResize, { passive: true });
+
+    let observer: ResizeObserver | null = null;
+
+    if (scrollNode && typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        requestArrowUpdate();
+      });
+
+      observer.observe(scrollNode);
+    }
+
+    requestArrowUpdate();
+    const delayedChecks = [120, 320, 640].map((delay) => window.setTimeout(requestArrowUpdate, delay));
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      observer?.disconnect();
+      delayedChecks.forEach((timeoutId) => window.clearTimeout(timeoutId));
+    };
+  }, [displayedFilter, requestArrowUpdate, scrollNode, showArrowControls, showLoadingSkeletons]);
+
+  useEffect(() => () => {
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
+    setHasMeasuredArrows(false);
     const cachedMangas = TOP_TEN_CACHE[timeFilter];
-    const syncCarouselPosition = (delay: number) => {
-      window.setTimeout(() => {
-        if (!active) {
-          return;
-        }
-
-        scrollRef.current?.scrollTo({ left: 0, behavior: 'auto' });
-        updateArrows();
-      }, delay);
-    };
 
     if (cachedMangas) {
       setDisplayedFilter(timeFilter);
       setMangas(cachedMangas);
       setIsLoading(false);
-      syncCarouselPosition(50);
     } else {
       setIsLoading(true);
     }
@@ -111,7 +160,6 @@ const TopTenSection: React.FC = () => {
       } finally {
         if (active) {
           setIsLoading(false);
-          syncCarouselPosition(200);
         }
       }
     };
@@ -122,6 +170,15 @@ const TopTenSection: React.FC = () => {
       active = false;
     };
   }, [timeFilter]);
+
+  useEffect(() => {
+    if (!scrollNode) {
+      return;
+    }
+
+    scrollNode.scrollTo({ left: 0, behavior: 'auto' });
+    requestArrowUpdate();
+  }, [displayedFilter, requestArrowUpdate, scrollNode, showLoadingSkeletons]);
 
   return (
     <section className="py-12 relative group/section overflow-visible">
@@ -197,21 +254,21 @@ const TopTenSection: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => scroll('left')}
-              className="absolute left-0 top-0 bottom-[80px] z-50 w-12 sm:w-16 bg-black/20 hover:bg-black/60 text-white transition-all duration-300 flex items-center justify-center group/arrow opacity-0 group-hover/carousel:opacity-100"
+              className="absolute left-0 top-0 bottom-[80px] z-50 flex w-12 items-center justify-center bg-black/30 text-white opacity-70 transition-all duration-300 hover:bg-black/60 hover:opacity-100 focus-visible:opacity-100 sm:w-16"
               aria-label="Scroll left"
             >
               <ChevronLeft className="h-10 w-10 transition-transform duration-300 group-hover/arrow:scale-125 group-active/arrow:scale-90" />
             </motion.button>
           )}
 
-          {showRightArrow && (
+          {(showRightArrow || (!hasMeasuredArrows && estimatedHasOverflow && !showLoadingSkeletons)) && (
             <motion.button
               key="top-ten-arrow-right"
               initial={{ opacity: 0 }}
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => scroll('right')}
-              className="absolute right-0 top-0 bottom-[80px] z-50 w-12 sm:w-16 bg-black/20 hover:bg-black/60 text-white transition-all duration-300 flex items-center justify-center group/arrow opacity-0 group-hover/carousel:opacity-100"
+              className="absolute right-0 top-0 bottom-[80px] z-50 flex w-12 items-center justify-center bg-black/30 text-white opacity-70 transition-all duration-300 hover:bg-black/60 hover:opacity-100 focus-visible:opacity-100 sm:w-16"
               aria-label="Scroll right"
             >
               <ChevronRight className="h-10 w-10 transition-transform duration-300 group-hover/arrow:scale-125 group-active/arrow:scale-90" />
@@ -233,7 +290,10 @@ const TopTenSection: React.FC = () => {
               }}
             >
               <div 
-                ref={scrollRef}
+                ref={(node) => {
+                  scrollRef.current = node;
+                  setScrollNode(node);
+                }}
                 onScroll={updateArrows}
                 className="flex gap-4 sm:gap-6 overflow-x-auto overflow-y-visible scrollbar-hide pt-16 pb-20 px-4 sm:px-10 lg:px-16 scroll-smooth"
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
@@ -264,9 +324,9 @@ const TopTenSection: React.FC = () => {
                             alt={manga.title}
                             transform={TOP_TEN_COVER_TRANSFORM}
                             className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-700'}`}
-                            loading="lazy"
+                            loading={index < 3 ? 'eager' : 'lazy'}
                             decoding="async"
-                            fetchPriority="low"
+                            fetchPriority={index < 2 ? 'high' : 'low'}
                           />
 
                           <div className={`absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent ${disableHeavyEffects ? 'opacity-100' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100'}`} />

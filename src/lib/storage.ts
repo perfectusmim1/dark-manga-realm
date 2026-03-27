@@ -86,6 +86,22 @@ const compareLastReadDesc = (a?: string | null, b?: string | null) => {
 const sortByLastReadDesc = <T extends { lastRead?: string | null }>(entries: T[]) =>
     [...entries].sort((a, b) => compareLastReadDesc(a.lastRead, b.lastRead));
 
+const withTimeout = async <T>(operation: Promise<T>, ms: number, errorMessage: string): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(errorMessage)), ms);
+    });
+
+    try {
+        return await Promise.race([operation, timeoutPromise]);
+    } finally {
+        if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+        }
+    }
+};
+
 const chunkArray = <T>(items: T[], size: number): T[][] => {
     if (items.length === 0) {
         return [];
@@ -1216,80 +1232,95 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
         return [];
     }
 
+    const cachedBookmarks = getCachedBookmarksState(userId);
+
     if (!areBookmarksInitialized(userId) && isEffectivelyOnline()) {
-        const { data, error } = await supabase
-            .from('bookmarks')
-            .select('*')
-            .eq('user_id', userId)
-            .order('created_at', { ascending: false });
+        try {
+            const bookmarks = await withTimeout((async () => {
+                const { data, error } = await supabase
+                    .from('bookmarks')
+                    .select('*')
+                    .eq('user_id', userId)
+                    .order('created_at', { ascending: false });
 
-        if (!error) {
-            const rawBookmarks = (data || []).map((bookmark: any) => ({
-                ...bookmark,
-                userId: bookmark.user_id,
-                mangaId: bookmark.manga_id,
-                chapterId: bookmark.chapter_id,
-                chapterNumber: Number(bookmark.chapter_number),
-                createdAt: bookmark.created_at,
-            })) as Bookmark[];
-            const existingBookmarks = getCachedBookmarksState(userId);
-            const mangaIds = [...new Set(rawBookmarks.map((bookmark) => bookmark.mangaId).filter(Boolean))];
-            const chapterIds = [...new Set(rawBookmarks.map((bookmark) => bookmark.chapterId).filter(Boolean))];
-
-            const [{ data: mangaRows }, { data: chapterRows }] = await Promise.all([
-                mangaIds.length > 0
-                    ? supabase
-                        .from('mangas')
-                        .select('id, title, cover, alternative_titles')
-                        .in('id', mangaIds)
-                    : Promise.resolve({ data: [] as any[] }),
-                chapterIds.length > 0
-                    ? supabase
-                        .from('chapters')
-                        .select('id, title')
-                        .in('id', chapterIds)
-                    : Promise.resolve({ data: [] as any[] }),
-            ]);
-
-            const mangaMap = (mangaRows || []).reduce<Record<string, any>>((map, manga: any) => {
-                map[manga.id] = manga;
-                return map;
-            }, {});
-            const chapterMap = (chapterRows || []).reduce<Record<string, any>>((map, chapter: any) => {
-                map[chapter.id] = chapter;
-                return map;
-            }, {});
-            const existingBookmarkMap = existingBookmarks.reduce<Record<string, Bookmark>>((map, bookmark) => {
-                if (bookmark.id) {
-                    map[bookmark.id] = bookmark;
+                if (error) {
+                    throw error;
                 }
 
-                map[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}`] = bookmark;
-                return map;
-            }, {});
-
-            const bookmarks = rawBookmarks.map((bookmark) => {
-                const existingBookmark = (bookmark.id && existingBookmarkMap[bookmark.id])
-                    || existingBookmarkMap[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}`];
-                const manga = mangaMap[bookmark.mangaId];
-                const chapter = chapterMap[bookmark.chapterId];
-
-                return {
+                const rawBookmarks = (data || []).map((bookmark: any) => ({
                     ...bookmark,
-                    mangaTitle: manga?.title || existingBookmark?.mangaTitle,
-                    mangaCover: manga?.cover || existingBookmark?.mangaCover,
-                    mangaAlternativeTitles: manga?.alternative_titles || existingBookmark?.mangaAlternativeTitles || [],
-                    chapterTitle: chapter?.title || existingBookmark?.chapterTitle,
-                } satisfies Bookmark;
-            });
+                    userId: bookmark.user_id,
+                    mangaId: bookmark.manga_id,
+                    chapterId: bookmark.chapter_id,
+                    chapterNumber: Number(bookmark.chapter_number),
+                    createdAt: bookmark.created_at,
+                })) as Bookmark[];
+                const mangaIds = [...new Set(rawBookmarks.map((bookmark) => bookmark.mangaId).filter(Boolean))];
+                const chapterIds = [...new Set(rawBookmarks.map((bookmark) => bookmark.chapterId).filter(Boolean))];
+
+                const [{ data: mangaRows }, { data: chapterRows }] = await withTimeout(
+                    Promise.all([
+                        mangaIds.length > 0
+                            ? supabase
+                                .from('mangas')
+                                .select('id, title, cover, alternative_titles')
+                                .in('id', mangaIds)
+                            : Promise.resolve({ data: [] as any[] }),
+                        chapterIds.length > 0
+                            ? supabase
+                                .from('chapters')
+                                .select('id, title')
+                                .in('id', chapterIds)
+                            : Promise.resolve({ data: [] as any[] }),
+                    ]),
+                    4000,
+                    'Bookmark enrichment timeout',
+                );
+
+                const mangaMap = (mangaRows || []).reduce<Record<string, any>>((map, manga: any) => {
+                    map[manga.id] = manga;
+                    return map;
+                }, {});
+                const chapterMap = (chapterRows || []).reduce<Record<string, any>>((map, chapter: any) => {
+                    map[chapter.id] = chapter;
+                    return map;
+                }, {});
+                const existingBookmarkMap = cachedBookmarks.reduce<Record<string, Bookmark>>((map, bookmark) => {
+                    if (bookmark.id) {
+                        map[bookmark.id] = bookmark;
+                    }
+
+                    map[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}`] = bookmark;
+                    return map;
+                }, {});
+
+                const mergedBookmarks = rawBookmarks.map((bookmark) => {
+                    const existingBookmark = (bookmark.id && existingBookmarkMap[bookmark.id])
+                        || existingBookmarkMap[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}`];
+                    const manga = mangaMap[bookmark.mangaId];
+                    const chapter = chapterMap[bookmark.chapterId];
+
+                    return {
+                        ...bookmark,
+                        mangaTitle: manga?.title || existingBookmark?.mangaTitle,
+                        mangaCover: manga?.cover || existingBookmark?.mangaCover,
+                        mangaAlternativeTitles: manga?.alternative_titles || existingBookmark?.mangaAlternativeTitles || [],
+                        chapterTitle: chapter?.title || existingBookmark?.chapterTitle,
+                    } satisfies Bookmark;
+                });
+
+                void cacheOfflineMangaMetadata(mangaIds);
+                return mergedBookmarks;
+            })(), 6000, 'Bookmark fetch timeout');
 
             setCachedBookmarks(userId, bookmarks);
-            void cacheOfflineMangaMetadata(mangaIds);
             return bookmarks;
+        } catch (error) {
+            console.error('Bookmark fetch fallback triggered:', error);
         }
     }
 
-    return getCachedBookmarksState(userId);
+    return cachedBookmarks;
 };
 
 export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'userId'>): Promise<void> => {
@@ -1684,4 +1715,3 @@ export const setAdminSession = (session: any) => {
 export const removeAdminSession = () => {
     localStorage.removeItem('manga_admin_session');
 };
-

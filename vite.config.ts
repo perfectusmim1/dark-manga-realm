@@ -68,4 +68,39 @@ export default defineConfig(({ mode }) => ({
       "@": path.resolve(__dirname, "./src"),
     },
   },
+  build: {
+    rollupOptions: {
+      output: {
+        manualChunks(id) {
+          const normalizedId = id.replace(/\\/g, "/");
+
+          if (!normalizedId.includes("node_modules")) {
+            return;
+          }
+
+          if (normalizedId.includes("@supabase")) {
+            return "supabase";
+          }
+
+          if (normalizedId.includes("framer-motion")) {
+            return "motion";
+          }
+
+          if (normalizedId.includes("recharts")) {
+            return "charts";
+          }
+
+          if (normalizedId.includes("react-day-picker") || normalizedId.includes("date-fns")) {
+            return "calendar";
+          }
+
+          if (normalizedId.includes("idb")) {
+            return "offline-storage";
+          }
+
+          return "vendor";
+        },
+      },
+    },
+  },
 }));

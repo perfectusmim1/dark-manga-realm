@@ -1,6 +1,6 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Star, Eye, BookOpen, Clock, User } from 'lucide-react';
+import { Star, Eye, BookOpen, Clock, User, Sparkles } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { getTopTenMangas } from '@/lib/database';
@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/hover-card";
 import { cn } from '@/lib/utils';
 import { getOfflinePreferences } from '@/lib/offline/preferences';
+import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
 
@@ -19,6 +20,7 @@ interface MangaCardProps {
   index?: number;
   topTenWeekIds?: ReadonlySet<string>;
   disableHeavyEffects?: boolean;
+  coverPriority?: boolean;
 }
 
 let topTenWeekIdsCache: Set<string> | null = null;
@@ -45,6 +47,17 @@ const MANGA_CARD_HOVER_BG_TRANSFORM = Object.freeze({
   fit: 'cover' as const,
 });
 
+const MANGA_CARD_INTRINSIC_WIDTH = 420;
+const MANGA_CARD_INTRINSIC_HEIGHT = 630;
+const MANGA_CARD_HOVER_INTRINSIC_WIDTH = 192;
+const MANGA_CARD_HOVER_INTRINSIC_HEIGHT = 288;
+const MANGA_CARD_HOVER_BG_INTRINSIC_WIDTH = 320;
+const MANGA_CARD_HOVER_BG_INTRINSIC_HEIGHT = 480;
+const MANGA_CARD_SIZES = '(min-width: 1536px) 14vw, (min-width: 1280px) 15vw, (min-width: 1024px) 17vw, (min-width: 768px) 20vw, (min-width: 640px) 25vw, 42vw';
+
+const HIGHLIGHT_BADGE_BASE =
+  'relative h-auto overflow-hidden border px-2.5 pb-[0.28rem] pt-[0.34rem] text-[8px] font-black uppercase leading-none tracking-[0.18em] shadow-[0_10px_26px_rgba(0,0,0,0.22)]';
+
 const getTopTenWeekIds = async () => {
   if (topTenWeekIdsCache) return topTenWeekIdsCache;
 
@@ -66,12 +79,14 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   index = 0,
   topTenWeekIds,
   disableHeavyEffects = false,
+  coverPriority,
 }) => {
   const [isTopTenWeek, setIsTopTenWeek] = useState(false);
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
   const chapters = manga.chapters || [];
   const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : chapters.length;
+  const coverSrcSet = useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
 
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -96,6 +111,14 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
     return ageMs >= 0 && ageMs < oneWeekMs;
   }, [manga.createdAt]);
+
+  const typeBadgeClassName = cn(
+    `absolute left-2 top-2 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
+    manga.type === 'manhwa' ? 'bg-purple-600/90 text-white shadow-lg shadow-purple-500/20' :
+      manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
+        manga.type === 'webtoon' ? 'bg-sky-600/90 text-white shadow-lg shadow-sky-500/20' :
+          'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+  );
 
   useEffect(() => {
     let isActive = true;
@@ -138,7 +161,11 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         <OptimizedImage
           src={manga.cover}
           alt={manga.title}
-          priority={index < 6}
+          width={MANGA_CARD_INTRINSIC_WIDTH}
+          height={MANGA_CARD_INTRINSIC_HEIGHT}
+          srcSet={coverSrcSet}
+          sizes={MANGA_CARD_SIZES}
+          priority={coverPriority ?? index < 6}
           rootMargin="520px 0px"
           transform={MANGA_CARD_COVER_TRANSFORM}
           containerClassName="h-full w-full"
@@ -152,26 +179,44 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
         <Badge
           variant="secondary"
-          className={cn(
-            `absolute left-2 top-2 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
-            manga.type === 'manhwa' ? 'bg-purple-600/90 text-white shadow-lg shadow-purple-500/20' :
-              manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
-                manga.type === 'webtoon' ? 'bg-sky-600/90 text-white shadow-lg shadow-sky-500/20' :
-                  'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
-          )}
+          className={typeBadgeClassName}
         >
           {manga.type.toUpperCase()}
         </Badge>
 
         <div className="absolute right-2 top-2 z-10 flex flex-col items-end gap-1">
           {isTopTenWeek && (
-            <Badge className={`border-none bg-red-500/90 text-white text-[10px] font-bold shadow-lg shadow-red-500/25 ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`}>
-              Top 10
+            <Badge
+              className={cn(
+                HIGHLIGHT_BADGE_BASE,
+                'border-amber-200/55 bg-[linear-gradient(135deg,rgba(252,211,77,0.96),rgba(251,191,36,0.96),rgba(249,115,22,0.92))] text-slate-950',
+                disableHeavyEffects
+                  ? 'shadow-[0_10px_24px_rgba(251,191,36,0.26)]'
+                  : 'shadow-[0_10px_28px_rgba(251,191,36,0.3)] backdrop-blur-md before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.46),transparent_52%)] before:opacity-90',
+              )}
+            >
+              <span className="relative z-10 block">
+                Top 10
+              </span>
             </Badge>
           )}
           {isNewRelease && (
-            <Badge className={`border-none bg-emerald-500/90 text-white text-[10px] font-bold shadow-lg shadow-emerald-500/25 ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`}>
-              Yeni
+            <Badge
+              className={cn(
+                HIGHLIGHT_BADGE_BASE,
+                'pr-[1.15rem]',
+                'border-cyan-200/45 bg-[linear-gradient(135deg,rgba(103,232,249,0.94),rgba(34,211,238,0.94),rgba(52,211,153,0.9))] text-slate-950',
+                disableHeavyEffects
+                  ? 'shadow-[0_10px_24px_rgba(34,211,238,0.22)]'
+                  : 'shadow-[0_10px_28px_rgba(34,211,238,0.26)] backdrop-blur-md before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.42),transparent_54%)] before:opacity-90',
+              )}
+            >
+              <span className="pointer-events-none absolute right-[0.22rem] top-[0.16rem] z-10">
+                <Sparkles className="h-[0.55rem] w-[0.55rem]" />
+              </span>
+              <span className="relative z-10 block">
+                Yeni
+              </span>
             </Badge>
           )}
         </div>
@@ -252,6 +297,8 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
             <ProxyImage
               src={manga.cover}
               alt=""
+              width={MANGA_CARD_HOVER_BG_INTRINSIC_WIDTH}
+              height={MANGA_CARD_HOVER_BG_INTRINSIC_HEIGHT}
               transform={MANGA_CARD_HOVER_BG_TRANSFORM}
               className="h-full w-full scale-150 object-cover blur-2xl"
               decoding="async"
@@ -266,6 +313,8 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
                 <ProxyImage
                   src={manga.cover}
                   alt=""
+                  width={MANGA_CARD_HOVER_INTRINSIC_WIDTH}
+                  height={MANGA_CARD_HOVER_INTRINSIC_HEIGHT}
                   transform={MANGA_CARD_HOVER_COVER_TRANSFORM}
                   className="h-full w-full object-cover"
                   decoding="async"

@@ -3793,27 +3793,34 @@ export const getMangasByMultipleTags = async (tagSlugs: string[]): Promise<Manga
  */
 export const getTopTenMangas = async (timeframe: 'today' | 'week' | 'all' = 'today'): Promise<Manga[]> => {
     try {
+        const summaries = await getMangaSummaries();
+        const summaryMap = new Map(summaries.map((manga) => [manga.id, manga]));
         const { data: rawData, error } = await supabase.rpc('get_top_engaged_mangas', { time_filter: timeframe });
 
         if (error || !rawData || rawData.length === 0) {
             if (error) console.error('getTopTenMangas error:', error);
             // Return top 10 by views if engagement logic fails
-            const all = await getMangaSummaries();
-            return all.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 10);
+            return summaries.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 10);
         }
 
         // Map results to Manga interface
-        return rawData.map((m: any) => ({
-            ...m,
-            alternativeTitles: m.alternative_titles || [],
-            lastUpdated: m.last_updated,
-            createdAt: m.created_at,
-            releaseYear: m.release_year,
-            chapters: [],
-            ratings: [],
-            engagementScore: m.engagement_score,
-            averageRating: m.average_rating || 0
-        })) as Manga[];
+        return rawData.map((m: any) => {
+            const summary = summaryMap.get(m.id);
+
+            return {
+                ...m,
+                alternativeTitles: m.alternative_titles || [],
+                lastUpdated: m.last_updated,
+                createdAt: m.created_at,
+                releaseYear: m.release_year,
+                chapters: [],
+                ratings: [],
+                chapterCount: summary?.chapterCount ?? 0,
+                engagementScore: m.engagement_score,
+                averageRating: m.average_rating || summary?.averageRating || 0,
+                reviewCount: summary?.reviewCount || 0,
+            };
+        }) as Manga[];
     } catch (error) {
         console.error('getTopTenMangas exception:', error);
         return [];

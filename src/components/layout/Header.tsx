@@ -29,6 +29,7 @@ import {
   Sparkles,
   Download,
   ChevronDown,
+  type LucideIcon,
 } from 'lucide-react';
 import { getCharacters, getMangaSummaries } from '@/lib/database';
 import { Manga, Character } from '@/lib/types';
@@ -229,7 +230,8 @@ const Header: React.FC = () => {
     || location.pathname.startsWith('/artist/')
   );
 
-  const navLinks: { path: string; label: string; icon?: any }[] = [
+  const navLinks: { path: string; label: string; icon?: LucideIcon; featured?: boolean }[] = [
+    { path: '/top-ten', label: 'Top 10', icon: Star, featured: true },
     { path: '/browse', label: 'Keşfet' },
     { path: '/latest-chapters', label: 'Son Bölümler' },
     { path: '/characters', label: 'Karakterler' },
@@ -525,6 +527,9 @@ const Header: React.FC = () => {
         <nav className="hidden items-center gap-6 lg:flex">
           {navLinks.map((link) => {
             const Icon = link.icon;
+            const isActiveLink = link.path === '/characters'
+              ? isCharactersSectionActive
+              : isActive(link.path);
 
             if (link.path === '/characters') {
               return (
@@ -576,10 +581,19 @@ const Header: React.FC = () => {
               <Link
                 key={link.path}
                 to={link.path}
-                className={`text-sm font-medium transition-colors flex items-center gap-1.5 ${location.pathname + location.search === link.path
-                  ? 'text-primary'
-                  : 'text-muted-foreground hover:text-foreground'
-                  }`}
+                className={
+                  link.featured
+                    ? `inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors ${
+                        isActiveLink
+                          ? 'border-primary/40 bg-primary text-primary-foreground shadow-lg shadow-primary/20'
+                          : 'border-primary/20 bg-primary/10 text-primary hover:border-primary/40 hover:bg-primary/15'
+                      }`
+                    : `flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                        isActiveLink
+                          ? 'text-primary'
+                          : 'text-muted-foreground hover:text-foreground'
+                      }`
+                }
               >
                 {Icon && <Icon className="w-4 h-4" />}
                 {link.label}
@@ -642,7 +656,7 @@ const Header: React.FC = () => {
                                 <span className="h-1 w-1 rounded-full bg-border" />
                                 <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
                                   <Star className="h-2.5 w-2.5 fill-current" />
-                                  {(manga as any).averageRating || '0.0'}
+                                  {typeof manga.averageRating === 'number' ? manga.averageRating.toFixed(1) : '0.0'}
                                 </div>
                               </div>
                             </div>
@@ -864,6 +878,8 @@ const Header: React.FC = () => {
         <div className="animate-fade-in border-t border-border bg-background p-4 lg:hidden">
           <nav className="flex flex-col gap-2">
             {navLinks.map((link) => {
+              const Icon = link.icon;
+
               if (link.path === '/characters') {
                 return (
                   <div
@@ -929,8 +945,15 @@ const Header: React.FC = () => {
                   key={link.path}
                   to={link.path}
                   onClick={() => setIsMenuOpen(false)}
-                  className="rounded-lg px-4 py-2 text-sm font-medium transition-colors hover:bg-secondary"
+                  className={`flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
+                    link.featured
+                      ? 'border border-primary/20 bg-primary/10 text-primary hover:bg-primary/15'
+                      : isActive(link.path)
+                        ? 'bg-secondary text-foreground'
+                        : 'hover:bg-secondary'
+                  }`}
                 >
+                  {Icon && <Icon className="h-4 w-4" />}
                   {link.label}
                 </Link>
               );
