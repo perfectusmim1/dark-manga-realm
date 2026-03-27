@@ -160,6 +160,21 @@ export default {
       return jsonResponse({ error: 'Method not allowed' }, 405, corsHeaders);
     }
 
+    const { sourceUrl } = await readRequestPayload(request);
+
+    if (!sourceUrl) {
+      return jsonResponse(
+        {
+          ok: true,
+          service: 'toonparrot-scraper-proxy',
+          methods: ['GET ?url=', 'POST text/plain', 'POST application/json'],
+          allowedHosts,
+        },
+        200,
+        corsHeaders,
+      );
+    }
+
     const expectedToken = env.PROXY_TOKEN?.trim();
     const isTrustedBrowserRequest = !!allowedOrigin || !!isAllowedReferer;
 
@@ -178,21 +193,6 @@ export default {
       if (!expectedToken || bearerToken !== expectedToken) {
         return jsonResponse({ error: 'Unauthorized' }, 401, corsHeaders);
       }
-    }
-
-    const { sourceUrl } = await readRequestPayload(request);
-
-    if (!sourceUrl) {
-      return jsonResponse(
-        {
-          ok: true,
-          service: 'toonparrot-scraper-proxy',
-          methods: ['GET ?url=', 'POST text/plain', 'POST application/json'],
-          allowedHosts,
-        },
-        200,
-        corsHeaders,
-      );
     }
 
     let parsedUrl;
