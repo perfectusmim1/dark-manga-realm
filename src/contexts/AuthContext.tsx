@@ -3,7 +3,7 @@ import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/su
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
 import { User, UserAccessState } from '@/lib/types';
-import { checkCurrentAccess, type AccessCheckResult } from '@/lib/security/deviceIdentity';
+import { checkCurrentAccess, recoverAccessCheckFailure, type AccessCheckResult } from '@/lib/security/deviceIdentity';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 import { syncLocalChapterReadFallbackToRemote } from '@/lib/storage';
 import {
@@ -162,16 +162,7 @@ const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
 );
 
 const allowAccessOnFailure = (error: unknown, context: string): AccessCheckResult => {
-  console.error(context, error);
-  return {
-    allowed: false,
-    message: 'Erişim doğrulanamadı. Lütfen kısa süre sonra tekrar deneyin.',
-    reason: 'access_check_failed',
-    supportOnly: false,
-    warning: null,
-    ban: { active: false },
-    user: null,
-  };
+  return recoverAccessCheckFailure(error, context);
 };
 
 const DEFAULT_ACCESS_STATE: UserAccessState = {
@@ -976,11 +967,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: false, error: 'Oturum bulunamadı' };
       }
 
-      const { data, error } = await supabase
-        .from('users')
-        .update({ preferences: normalizedPreferences })
-        .select(PROFILE_SELECT_COLUMNS)
-        .eq('id', user.id);
+      await ensureProfile(currentAuthUser, user.username);
+
+      const { data, error } = await supabase.rpc('update_current_user_preferences', {
+        p_preferences: normalizedPreferences,
+      });
 
       if (error) throw error;
       const profile = Array.isArray(data) ? data[0] : data;

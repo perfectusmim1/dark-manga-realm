@@ -22,7 +22,6 @@ import { normalizeGenres } from '@/lib/mockData';
 import {
     fetchScraperContent,
     getAvailableScraperProviders,
-    getDefaultScraperProviderForSource,
     getScraperProviderLabel,
     readPreferredScraperProvider,
     type ScraperProvider,
@@ -34,6 +33,7 @@ import {
     extractChapterImageUrls,
     extractScrapedMangaCards,
     extractScrapedMangaDetail,
+    getScrapedStatusLabel,
     getAvailableScrapeSources,
     getScrapeSourceLabel,
     isDirectScrapeLink,
@@ -177,15 +177,6 @@ const AdminScraper: React.FC = () => {
         if (!availableScrapeSources.includes(scrapeSource)) {
             const nextSource = readPreferredScrapeSource();
             setScrapeSource(nextSource);
-            return;
-        }
-
-        if (scrapeSource === 'webtoonhatti' && scraperProvider !== 'cloudflare' && availableScraperProviders.includes('cloudflare')) {
-            const nextProvider = getDefaultScraperProviderForSource(scrapeSource);
-            if (nextProvider !== scraperProvider) {
-                writePreferredScraperProvider(nextProvider);
-                setScraperProvider(nextProvider);
-            }
         }
     }, [availableScrapeSources, availableScraperProviders, scrapeSource, scraperProvider]);
 
@@ -244,7 +235,7 @@ const AdminScraper: React.FC = () => {
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            const cards = extractScrapedMangaCards(doc, sourceToUse).map((card) => ({
+            const cards = extractScrapedMangaCards(doc, sourceToUse, html).map((card) => ({
                 ...card,
                 genres: normalizeGenres(card.genres),
                 source: sourceToUse,
@@ -541,7 +532,7 @@ const AdminScraper: React.FC = () => {
                                             <p className="text-sm text-muted-foreground">Yazar: {fetchedData.author}</p>
                                             <div className="flex flex-wrap gap-2">
                                                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 transition-colors uppercase">{fetchedData.type}</Badge>
-                                                <Badge variant="outline" className="bg-secondary text-muted-foreground border-border hover:bg-secondary/80 transition-colors">{fetchedData.status}</Badge>
+                                                <Badge variant="outline" className="bg-secondary text-muted-foreground border-border hover:bg-secondary/80 transition-colors">{getScrapedStatusLabel(fetchedData.status)}</Badge>
                                             </div>
                                         </div>
                                     </div>

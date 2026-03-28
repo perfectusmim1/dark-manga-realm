@@ -49,6 +49,65 @@ export const getAccessToken = (req: Request) => {
   return authHeader?.replace(/^Bearer\s+/i, "") || null;
 };
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetryAuthResolution = (message?: string | null) => {
+  const normalizedMessage = message?.toLowerCase() || "";
+  return normalizedMessage.includes("future")
+    || normalizedMessage.includes("not yet valid")
+    || normalizedMessage.includes("jwt")
+    || normalizedMessage.includes("token")
+    || normalizedMessage.includes("iat");
+};
+
+const resolveRequesterUser = async (
+  serviceClient: ReturnType<typeof createServiceClient>,
+  accessToken: string,
+) => {
+  for (const retryDelay of [0, 1200]) {
+    if (retryDelay > 0) {
+      await sleep(retryDelay);
+    }
+
+    try {
+      const {
+        data: { user },
+        error: authError,
+      } = await serviceClient.auth.getUser(accessToken);
+
+      if (!authError && user) {
+        return {
+          user,
+          error: null,
+        };
+      }
+
+      if (retryDelay === 0 && shouldRetryAuthResolution(authError?.message)) {
+        continue;
+      }
+
+      return {
+        user: null,
+        error: authError,
+      };
+    } catch (error) {
+      if (retryDelay === 0) {
+        continue;
+      }
+
+      return {
+        user: null,
+        error,
+      };
+    }
+  }
+
+  return {
+    user: null,
+    error: null,
+  };
+};
+
 export const getRequesterProfile = async (
   serviceClient: ReturnType<typeof createServiceClient>,
   userId: string,
@@ -99,10 +158,7 @@ export const requireRequester = async (
     };
   }
 
-  const {
-    data: { user },
-    error: authError,
-  } = await serviceClient.auth.getUser(accessToken);
+  const { user, error: authError } = await resolveRequesterUser(serviceClient, accessToken);
 
   if (authError || !user) {
     return {

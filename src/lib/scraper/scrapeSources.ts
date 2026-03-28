@@ -148,6 +148,37 @@ const normalizeUrl = (baseUrl: string, value?: string | null) => {
   }
 };
 
+const DETAIL_TITLE_PREFIX_PATTERNS = [
+  /^g[üu]ncel\s+/i,
+  /^tamamland[ıi]\s+/i,
+  /^completed\s+/i,
+  /^ongoing\s+/i,
+  /^devam ediyor\s+/i,
+  /^yapay zeka [çc]eviri\s+/i,
+  /^ai translation\s+/i,
+  /^new\s+/i,
+  /^hot\s+/i,
+];
+
+const sanitizeDetailTitleText = (value?: string | null) => {
+  let nextValue = normalizeScrapedText(value);
+
+  if (!nextValue) {
+    return '';
+  }
+
+  let previousValue = '';
+  while (nextValue && nextValue !== previousValue) {
+    previousValue = nextValue;
+
+    for (const pattern of DETAIL_TITLE_PREFIX_PATTERNS) {
+      nextValue = nextValue.replace(pattern, '').trim();
+    }
+  }
+
+  return nextValue;
+};
+
 const extractCardLink = (element: Element, baseUrl: string) => {
   const titleLink = element.querySelector('.post-title a, .post-title h3 a, h3 a, a[href*="/webtoon/"], a[href*="/manga/"]') as HTMLAnchorElement | null;
 
@@ -166,7 +197,7 @@ const extractCardCover = (element: Element, baseUrl: string) => {
 
 const extractCardGenres = (element: Element) => {
   const genreLinks = Array.from(
-    element.querySelectorAll('a[href*="/webtoon-tur/"], .list-genre a, .genres-item a, .genres-content a'),
+    element.querySelectorAll('a[href*="/webtoon-tur/"], .list-genre a, .genres-item a, .genres-content a, .post-content_item.mg_genres a, .post-content_item.mg_genres .summary-content'),
   );
 
   return genreLinks
@@ -174,12 +205,108 @@ const extractCardGenres = (element: Element) => {
     .filter(Boolean);
 };
 
+const decodeHtmlValue = (value: string) => {
+  if (typeof document === 'undefined') {
+    return value;
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.innerHTML = value;
+  return textarea.value;
+};
+
+const stripHtmlTags = (value: string) => value.replace(/<[^>]+>/g, ' ');
+
 const getSearchCardElements = (doc: Document, source: ScrapeSource) => {
   if (source === 'webtoonhatti') {
-    return Array.from(doc.querySelectorAll('.c-tabs-item__content, .page-item-detail.manga'));
+    return Array.from(doc.querySelectorAll(
+      '.row.c-tabs-item__content, #loop-content > .row, .page-content-listing .row.c-tabs-item__content, .c-tabs-item__content, .page-item-detail.manga',
+    ));
   }
 
   return Array.from(doc.querySelectorAll('.page-item-detail.manga, .c-tabs-item__content, .manga-item'));
+};
+
+const extractWebtoonHattiCardsFromHtml = (html: string): ScrapedMangaCard[] => {
+  const cards: ScrapedMangaCard[] = [];
+  const seenKeys = new Set<string>();
+  const titlePattern = /<h3 class="h4">\s*<a href="([^"]+)">([\s\S]*?)<\/a>\s*<\/h3>/gi;
+
+  for (const match of html.matchAll(titlePattern)) {
+    const link = normalizeUrl(SOURCE_CONFIG.webtoonhatti.baseUrl, decodeHtmlValue(match[1] || ''));
+    const title = normalizeScrapedText(stripHtmlTags(decodeHtmlValue(match[2] || '')));
+
+    if (!link || !title) {
+      continue;
+    }
+
+    const key = `${title.toLocaleLowerCase('tr-TR')}|${link}`;
+    if (seenKeys.has(key)) {
+      continue;
+    }
+
+    seenKeys.add(key);
+
+    const snippetStart = Math.max(0, (match.index || 0) - 1800);
+    const snippetEnd = Math.min(html.length, (match.index || 0) + 1800);
+    const snippet = html.slice(snippetStart, snippetEnd);
+    const imageMatches = Array.from(
+      snippet.matchAll(/<img[^>]+(?:data-src|data-lazy-src|src)="([^"]+)"/gi),
+    );
+    const cover = normalizeUrl(
+      SOURCE_CONFIG.webtoonhatti.baseUrl,
+      decodeHtmlValue(imageMatches.at(-1)?.[1] || ''),
+    );
+    const genres = Array.from(
+      snippet.matchAll(/<a[^>]+href="[^"]*\/webtoon-tur\/[^"]*"[^>]*>([\s\S]*?)<\/a>/gi),
+    )
+      .map((genreMatch) => normalizeScrapedText(stripHtmlTags(decodeHtmlValue(genreMatch[1] || ''))))
+      .filter(Boolean);
+
+    cards.push({
+      title,
+      link,
+      cover,
+      genres,
+    });
+  }
+
+  return cards;
+};
+
+const parseWebtoonHattiSearchFallbackCard = (doc: Document): ScrapedMangaCard[] => {
+  const detailUrl = normalizeUrl(
+    SOURCE_CONFIG.webtoonhatti.baseUrl,
+    doc.querySelector('meta[property="og:url"]')?.getAttribute('content'),
+  );
+  const cover = normalizeUrl(
+    SOURCE_CONFIG.webtoonhatti.baseUrl,
+    doc.querySelector('meta[property="og:image"]')?.getAttribute('content'),
+  );
+  const rawTitle = normalizeScrapedText(
+    doc.querySelector('meta[property="og:title"]')?.getAttribute('content')
+    || doc.querySelector('title')?.textContent,
+  );
+  const title = rawTitle
+    .replace(/\s+için arama yaptınız.*$/i, '')
+    .replace(/\s*[-|].*$/, '')
+    .trim();
+  const pageText = normalizeScrapedText(doc.body?.textContent || '');
+  const isSearchResultPage = /için arama yapt/i.test(rawTitle) || /sonuç bulundu/i.test(pageText);
+  const hasDetailMarkers = Boolean(
+    doc.querySelector('.summary_image, .summary_image img, .profile-manga, .tab-summary, .post-status'),
+  );
+
+  if (!detailUrl || !title || isSearchResultPage || !hasDetailMarkers) {
+    return [];
+  }
+
+  return [{
+    title,
+    link: detailUrl,
+    cover,
+    genres: [],
+  }];
 };
 
 export const getAvailableScrapeSources = (): ScrapeSource[] => Object.keys(SOURCE_CONFIG) as ScrapeSource[];
@@ -242,7 +369,7 @@ export const normalizeScrapeUrl = (source: ScrapeSource, value?: string | null) 
   normalizeUrl(SOURCE_CONFIG[source].baseUrl, value)
 );
 
-export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource): ScrapedMangaCard[] => {
+export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, rawHtml?: string): ScrapedMangaCard[] => {
   const cards: ScrapedMangaCard[] = [];
   const seenKeys = new Set<string>();
 
@@ -269,14 +396,41 @@ export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource): S
     });
   }
 
+  if (cards.length === 0 && source === 'webtoonhatti' && rawHtml) {
+    const htmlCards = extractWebtoonHattiCardsFromHtml(rawHtml);
+    if (htmlCards.length > 0) {
+      return htmlCards;
+    }
+  }
+
+  if (cards.length === 0 && source === 'webtoonhatti') {
+    return parseWebtoonHattiSearchFallbackCard(doc);
+  }
+
   return cards;
 };
 
-const extractDetailTitle = (doc: Document) => (
-  normalizeScrapedText(
-    doc.querySelector('.post-title h1, .post-title .entry-title, .post-title')?.textContent,
-  )
-);
+const extractDetailTitle = (doc: Document) => {
+  const titleElement = doc.querySelector('.post-title h1, .post-title .entry-title, .post-title');
+
+  if (!titleElement) {
+    return '';
+  }
+
+  const clonedTitleElement = titleElement.cloneNode(true) as Element;
+  clonedTitleElement
+    .querySelectorAll(
+      '.manga-title-badges, .post-title-badges, .hot, .new, .status, .badge, .label, [class*="badge"], [class*="status"]',
+    )
+    .forEach((badgeNode) => badgeNode.remove());
+
+  const cleanedTitle = sanitizeDetailTitleText(clonedTitleElement.textContent);
+  if (cleanedTitle) {
+    return cleanedTitle;
+  }
+
+  return sanitizeDetailTitleText(titleElement.textContent);
+};
 
 const extractDetailCover = (doc: Document, source: ScrapeSource) => {
   const image = doc.querySelector('.summary_image img, .summary-image img, .post-thumbnail img');
@@ -329,6 +483,19 @@ const extractDetailStatus = (doc: Document) => {
   return statusText.toLocaleLowerCase('tr-TR').includes('tamam') || statusText.toLocaleLowerCase('tr-TR').includes('fin')
     ? 'completed'
     : 'ongoing';
+};
+
+export const getScrapedStatusLabel = (status?: string | null) => {
+  switch ((status || '').toLocaleLowerCase('tr-TR')) {
+    case 'completed':
+      return 'Bitti';
+    case 'ongoing':
+      return 'Devam Ediyor';
+    case 'hiatus':
+      return 'Ara Verildi';
+    default:
+      return normalizeScrapedText(status);
+  }
 };
 
 const extractDetailAuthors = (doc: Document, labels: string[], fallback: string) => {
@@ -411,7 +578,7 @@ export const extractScrapedMangaDetail = (
   const detailTitle = extractDetailTitle(doc);
   const detailCover = extractDetailCover(doc, source);
   const genres = extractGenres(doc, fallbackCard.genres);
-  const title = normalizeScrapedText(detailTitle || fallbackCard.title);
+  const title = sanitizeDetailTitleText(detailTitle || fallbackCard.title);
   const chapters = extractScrapedChapterLinks(doc, source);
 
   return {
@@ -446,6 +613,10 @@ const extractImageSource = (img: Element) => {
     return '';
   }
 
+  if (src.startsWith('//')) {
+    return `https:${src}`;
+  }
+
   return src.startsWith('http') ? src : '';
 };
 
@@ -457,15 +628,86 @@ const getChapterImageElements = (doc: Document, source: ScrapeSource) => {
   return Array.from(doc.querySelectorAll('.reading-content img, .wp-manga-chapter-img, .page-break img, .entry-content img'));
 };
 
-const extractTrailingPageNumber = (value: string) => {
-  const match = value.match(/(?:^|[/_-])(0*\d+)\.(?:avif|gif|jpe?g|png|webp)(?:$|[?#])/i);
-  return match ? parseInt(match[1], 10) : null;
+const WEBTOONHATTI_HIDDEN_STYLE_PATTERN = /(display\s*:\s*none|visibility\s*:\s*hidden)/i;
+const WEBTOONHATTI_JUNK_URL_FRAGMENTS = [
+  'whatthe',
+  'plase',
+  'yaaxa',
+  '/wp-content/uploads/2024/02/tr2.png',
+  '/wp-content/uploads/2025/08/z9.jpg',
+];
+
+const isElementVisuallyHidden = (element: Element | null) => {
+  let current = element;
+
+  while (current) {
+    if (current.hasAttribute('hidden') || current.getAttribute('aria-hidden') === 'true') {
+      return true;
+    }
+
+    const inlineStyle = normalizeScrapedText(current.getAttribute('style'));
+    if (WEBTOONHATTI_HIDDEN_STYLE_PATTERN.test(inlineStyle)) {
+      return true;
+    }
+
+    if (current.classList.contains('reading-content')) {
+      break;
+    }
+
+    current = current.parentElement;
+  }
+
+  return false;
+};
+
+const isWebtoonHattiJunkImageUrl = (value: string) => {
+  const normalized = value.toLocaleLowerCase('tr-TR');
+  return WEBTOONHATTI_JUNK_URL_FRAGMENTS.some((fragment) => normalized.includes(fragment));
+};
+
+export const sanitizeChapterPageUrls = (images: string[]) => (
+  Array.from(
+    new Set(
+      images
+        .map((image) => normalizeScrapedText(image))
+        .map((image) => (image.startsWith('//') ? `https:${image}` : image))
+        .filter((image) => image.startsWith('http') && !image.includes('base64'))
+        .filter((image) => !isWebtoonHattiJunkImageUrl(image)),
+    ),
+  )
+);
+
+const extractWebtoonHattiImageUrls = (doc: Document) => {
+  const pageBreaks = Array.from(doc.querySelectorAll('.reading-content .page-break'));
+  const orderedImages = pageBreaks.flatMap((pageBreak) => {
+    if (isElementVisuallyHidden(pageBreak)) {
+      return [];
+    }
+
+    return Array.from(pageBreak.querySelectorAll('img'))
+      .filter((img) => !isElementVisuallyHidden(img))
+      .map((img) => extractImageSource(img))
+      .filter((src) => src && !isWebtoonHattiJunkImageUrl(src));
+  });
+
+  if (orderedImages.length > 0) {
+    return sanitizeChapterPageUrls(orderedImages);
+  }
+
+  return sanitizeChapterPageUrls(
+    Array.from(doc.querySelectorAll('.reading-content img'))
+      .filter((img) => !isElementVisuallyHidden(img))
+      .map((img) => extractImageSource(img))
+      .filter((src) => src && !isWebtoonHattiJunkImageUrl(src)),
+  );
 };
 
 export const extractChapterImageUrls = (doc: Document, source: ScrapeSource): string[] => {
-  let images = getChapterImageElements(doc, source)
-    .map((img) => extractImageSource(img))
-    .filter(Boolean);
+  let images = source === 'webtoonhatti'
+    ? extractWebtoonHattiImageUrls(doc)
+    : getChapterImageElements(doc, source)
+      .map((img) => extractImageSource(img))
+      .filter(Boolean);
 
   if (images.length === 0) {
     for (const script of Array.from(doc.querySelectorAll('script'))) {
@@ -492,17 +734,5 @@ export const extractChapterImageUrls = (doc: Document, source: ScrapeSource): st
     }
   }
 
-  const dedupedImages = Array.from(new Set(images.map((image) => image.trim()).filter(Boolean)));
-  if (source !== 'webtoonhatti' || dedupedImages.length < 2) {
-    return dedupedImages;
-  }
-
-  const firstPageNumber = extractTrailingPageNumber(dedupedImages[0]);
-  const secondPageNumber = extractTrailingPageNumber(dedupedImages[1]);
-
-  if (firstPageNumber === 1 && secondPageNumber === 2) {
-    return dedupedImages.slice(1);
-  }
-
-  return dedupedImages;
+  return sanitizeChapterPageUrls(images);
 };

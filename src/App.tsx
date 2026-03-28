@@ -7,7 +7,7 @@ import { AuthProvider } from "@/contexts/AuthContext";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { initializeMockData } from "@/lib/mockData";
 import { useEffectiveOnlineStatus } from "@/hooks/useEffectiveOnlineStatus";
-import { checkCurrentAccess } from "@/lib/security/deviceIdentity";
+import { checkCurrentAccess, recoverAccessCheckFailure } from "@/lib/security/deviceIdentity";
 import { useAuth } from "@/contexts/AuthContext";
 
 // Pages
@@ -134,16 +134,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
 
     void (async () => {
       const access = await checkCurrentAccess(`${location.pathname}${location.search}`).catch((error) => {
-        console.error('Access gate check failed:', error);
-        return {
-          allowed: false,
-          message: 'Erişim doğrulanamadı. Lütfen kısa süre sonra tekrar deneyin.',
-          reason: 'access_check_failed' as const,
-          supportOnly: false,
-          warning: null,
-          ban: { active: false },
-          user: null,
-        };
+        return recoverAccessCheckFailure(error, 'Access gate check failed:');
       });
 
       if (!active) {

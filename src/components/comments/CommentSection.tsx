@@ -2586,6 +2586,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 <DialogContent className="w-[calc(100%-1.5rem)] max-w-2xl">
                     <DialogHeader>
                         <DialogTitle>GIF Seç</DialogTitle>
+                        <DialogDescription>
+                            Yorumunuza eklemek istediğiniz GIF'i arayıp seçebilirsiniz.
+                        </DialogDescription>
                     </DialogHeader>
                     <div className="space-y-4">
                         <input

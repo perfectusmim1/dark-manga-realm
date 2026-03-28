@@ -115,6 +115,113 @@ const chunkArray = <T>(items: T[], size: number): T[][] => {
     return chunks;
 };
 
+const existingChapterIdCache = new Set<string>();
+const missingChapterIdCache = new Set<string>();
+const pendingChapterExistenceChecks = new Map<string, Promise<boolean>>();
+
+const cacheChapterExistence = (chapterId: string, exists: boolean) => {
+    if (!chapterId) {
+        return;
+    }
+
+    if (exists) {
+        existingChapterIdCache.add(chapterId);
+        missingChapterIdCache.delete(chapterId);
+        return;
+    }
+
+    missingChapterIdCache.add(chapterId);
+    existingChapterIdCache.delete(chapterId);
+};
+
+export const hasPersistedChapterRecord = async (chapterId?: string | null): Promise<boolean> => {
+    if (!chapterId) {
+        return false;
+    }
+
+    if (!isEffectivelyOnline()) {
+        return true;
+    }
+
+    if (existingChapterIdCache.has(chapterId)) {
+        return true;
+    }
+
+    if (missingChapterIdCache.has(chapterId)) {
+        return false;
+    }
+
+    const pendingCheck = pendingChapterExistenceChecks.get(chapterId);
+    if (pendingCheck) {
+        return pendingCheck;
+    }
+
+    const checkPromise = (async () => {
+        const { data, error } = await supabase
+            .from('chapters')
+            .select('id')
+            .eq('id', chapterId)
+            .maybeSingle();
+
+        if (error) {
+            console.error('Chapter existence check error:', error);
+            return true;
+        }
+
+        const exists = Boolean(data?.id);
+        cacheChapterExistence(chapterId, exists);
+        return exists;
+    })().finally(() => {
+        pendingChapterExistenceChecks.delete(chapterId);
+    });
+
+    pendingChapterExistenceChecks.set(chapterId, checkPromise);
+    return checkPromise;
+};
+
+const getExistingChapterIds = async (chapterIds: string[]): Promise<Set<string>> => {
+    const existingIds = new Set<string>();
+    const unresolvedIds = [...new Set(chapterIds.filter(Boolean))]
+        .filter((chapterId) => !missingChapterIdCache.has(chapterId));
+
+    unresolvedIds.forEach((chapterId) => {
+        if (existingChapterIdCache.has(chapterId)) {
+            existingIds.add(chapterId);
+        }
+    });
+
+    const idsToQuery = unresolvedIds.filter((chapterId) => !existingChapterIdCache.has(chapterId));
+    if (idsToQuery.length === 0) {
+        return existingIds;
+    }
+
+    for (const chunk of chunkArray(idsToQuery, 100)) {
+        const { data, error } = await supabase
+            .from('chapters')
+            .select('id')
+            .in('id', chunk);
+
+        if (error) {
+            console.error('Chapter batch existence check error:', error);
+            chunk.forEach((chapterId) => existingIds.add(chapterId));
+            continue;
+        }
+
+        const foundIds = new Set((data || []).map((row: any) => row.id).filter(Boolean));
+
+        chunk.forEach((chapterId) => {
+            const exists = foundIds.has(chapterId);
+            cacheChapterExistence(chapterId, exists);
+
+            if (exists) {
+                existingIds.add(chapterId);
+            }
+        });
+    }
+
+    return existingIds;
+};
+
 const getSafeChapterPageCount = (pageCount: number) =>
     Math.max(1, Number.isFinite(pageCount) ? Math.round(pageCount) : 1);
 
@@ -500,6 +607,13 @@ export const syncLocalChapterReadFallbackToRemote = async (userId: string): Prom
     }
 
     const syncPromise = (async () => {
+        const existingChapterIds = await getExistingChapterIds(localEntries.map((entry) => entry.chapterId));
+        const syncableLocalEntries = localEntries.filter((entry) => existingChapterIds.has(entry.chapterId));
+
+        if (syncableLocalEntries.length === 0) {
+            return;
+        }
+
         const remoteProgressMap = new Map<string, {
             chapter_id: string;
             last_read: string | null;
@@ -507,7 +621,7 @@ export const syncLocalChapterReadFallbackToRemote = async (userId: string): Prom
             read_progress_percent: number | null;
         }>();
         const chapterIdChunks = chunkArray(
-            [...new Set(localEntries.map((entry) => entry.chapterId))],
+            [...new Set(syncableLocalEntries.map((entry) => entry.chapterId))],
             100,
         );
 
@@ -532,7 +646,7 @@ export const syncLocalChapterReadFallbackToRemote = async (userId: string): Prom
             });
         }
 
-        const entriesToSync = localEntries.filter((entry) => {
+        const entriesToSync = syncableLocalEntries.filter((entry) => {
             const remoteEntry = remoteProgressMap.get(entry.chapterId);
             if (!remoteEntry) {
                 return true;
@@ -847,6 +961,9 @@ export const syncChapterReadProgress = async (
     }
 
     const localEntry = upsertLocalChapterReadProgress(userId, progress);
+    if (!(await hasPersistedChapterRecord(progress.chapterId))) {
+        return localEntry;
+    }
 
     if (chapterReadTableFeatureState === 'unavailable') {
         return localEntry;
@@ -1166,6 +1283,10 @@ export const getCompletedChapterCountsByUser = async (): Promise<Record<string, 
 };
 
 export const updateReadingProgress = async (userId: string, progress: Omit<ReadingProgress, 'lastRead' | 'userId'>): Promise<void> => {
+    if (!(await hasPersistedChapterRecord(progress.chapterId))) {
+        return;
+    }
+
     await supabase.from('reading_progress').upsert({
         user_id: userId,
         manga_id: progress.mangaId,

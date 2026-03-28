@@ -692,10 +692,9 @@ const syncBookmarkRemove = async (operation: PendingUserSyncOperation) => {
 
 const syncPreferencesUpdate = async (operation: PendingUserSyncOperation) => {
   const { preferences } = operation.payload as PendingPreferencesSyncPayload;
-  const { error } = await supabase
-    .from('users')
-    .update({ preferences })
-    .eq('id', operation.userId);
+  const { error } = await supabase.rpc('update_current_user_preferences', {
+    p_preferences: preferences,
+  });
 
   if (error) {
     throw error;

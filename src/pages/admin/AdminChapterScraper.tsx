@@ -26,7 +26,6 @@ import { Manga, Chapter } from '@/lib/types';
 import {
     fetchScraperContent,
     getAvailableScraperProviders,
-    getDefaultScraperProviderForSource,
     getScraperProviderLabel,
     readPreferredScraperProvider,
     type ScraperProvider,
@@ -136,15 +135,6 @@ const AdminChapterScraper: React.FC = () => {
         if (!availableScrapeSources.includes(scrapeSource)) {
             const nextSource = readPreferredScrapeSource();
             setScrapeSource(nextSource);
-            return;
-        }
-
-        if (scrapeSource === 'webtoonhatti' && scraperProvider !== 'cloudflare' && availableScraperProviders.includes('cloudflare')) {
-            const nextProvider = getDefaultScraperProviderForSource(scrapeSource);
-            if (nextProvider !== scraperProvider) {
-                writePreferredScraperProvider(nextProvider);
-                setScraperProvider(nextProvider);
-            }
         }
     }, [availableScrapeSources, availableScraperProviders, scrapeSource, scraperProvider]);
 
@@ -229,7 +219,7 @@ const AdminChapterScraper: React.FC = () => {
             const html = await fetchScraperContent(url, { provider: scraperProvider, source: sourceToUse });
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            const results = extractScrapedMangaCards(doc, sourceToUse).map((result) => ({
+            const results = extractScrapedMangaCards(doc, sourceToUse, html).map((result) => ({
                 ...result,
                 source: sourceToUse,
             }));
@@ -264,7 +254,7 @@ const AdminChapterScraper: React.FC = () => {
                 const localChapterByNumber = new Map(
                     localMangaDetails.chapters.map((chapter) => [Number(chapter.number), chapter]),
                 );
-                const diff = parsedChapters.flatMap((scrapedChapter) => {
+                const diff = parsedChapters.flatMap<ChapterImportCandidate>((scrapedChapter) => {
                     const existingChapter = localChapterByNumber.get(Number(scrapedChapter.number));
                     if (!existingChapter) {
                         return [{ ...scrapedChapter, changeType: 'new' as const }];

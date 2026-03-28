@@ -98,7 +98,7 @@ const AdminMangaList: React.FC = () => {
             case 'manga':
                 return <Badge variant="outline" className="hover:bg-secondary/50">Manga</Badge>;
             case 'manhwa':
-                return <Badge variant="outline" className="border-purple-500 text-purple-500 hover:bg-purple-500/10">Manhwa</Badge>;
+                return <Badge variant="outline" className="border-orange-500 text-orange-500 hover:bg-orange-500/10">Manhwa</Badge>;
             case 'manhua':
                 return <Badge variant="outline" className="border-green-500 text-green-500 hover:bg-green-500/10">Manhua</Badge>;
             case 'webtoon':

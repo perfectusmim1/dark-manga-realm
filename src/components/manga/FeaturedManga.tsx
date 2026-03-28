@@ -84,7 +84,7 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
           <div className="flex flex-wrap items-center gap-2">
             <Badge
               variant="default"
-              className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' :
+              className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' :
                 manga.type === 'manhua' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' :
                   manga.type === 'webtoon' ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/20' :
                     'bg-primary text-primary-foreground shadow-lg shadow-primary/20'

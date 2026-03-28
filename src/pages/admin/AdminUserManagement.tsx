@@ -90,12 +90,20 @@ const AdminUserManagement: React.FC = () => {
     }
   }, [authLoading, loadUsers, user]);
 
+  const manageableUsers = useMemo(
+    () => users.filter((account) => (account.role || 'user') === 'user'),
+    [users],
+  );
+
   const filteredUsers = useMemo(() => {
     const query = searchQuery.trim().toLocaleLowerCase('tr-TR');
-    return users.filter((account) => !query || account.username.toLocaleLowerCase('tr-TR').includes(query) || account.email.toLocaleLowerCase('tr-TR').includes(query));
-  }, [searchQuery, users]);
+    return manageableUsers.filter((account) => !query || account.username.toLocaleLowerCase('tr-TR').includes(query) || account.email.toLocaleLowerCase('tr-TR').includes(query));
+  }, [manageableUsers, searchQuery]);
 
-  const selectedUser = useMemo(() => users.find((account) => account.id === selectedUserId) || filteredUsers[0] || null, [filteredUsers, selectedUserId, users]);
+  const selectedUser = useMemo(
+    () => filteredUsers.find((account) => account.id === selectedUserId) || filteredUsers[0] || null,
+    [filteredUsers, selectedUserId],
+  );
 
   useEffect(() => {
     if (!filteredUsers.length) {
@@ -103,21 +111,25 @@ const AdminUserManagement: React.FC = () => {
       setHistory(null);
       return;
     }
-    if (!selectedUserId || !users.some((account) => account.id === selectedUserId)) {
+    if (!selectedUserId || !filteredUsers.some((account) => account.id === selectedUserId)) {
       setSelectedUserId(filteredUsers[0].id);
     }
-  }, [filteredUsers, selectedUserId, users]);
+  }, [filteredUsers, selectedUserId]);
 
   useEffect(() => {
-    if (selectedUser?.id) void loadHistory(selectedUser.id);
-  }, [loadHistory, selectedUser?.id]);
+    if (authLoading || !user || !selectedUser?.id) {
+      return;
+    }
+
+    void loadHistory(selectedUser.id);
+  }, [authLoading, loadHistory, selectedUser?.id, user]);
 
   const stats = useMemo(() => ({
-    total: users.length,
-    banned: users.filter((account) => account.isBanned).length,
-    warned: users.filter((account) => (account.warningCount || 0) > 0).length,
-    unread: users.reduce((sum, account) => sum + (account.unreadWarningCount || 0), 0),
-  }), [users]);
+    total: manageableUsers.length,
+    banned: manageableUsers.filter((account) => account.isBanned).length,
+    warned: manageableUsers.filter((account) => (account.warningCount || 0) > 0).length,
+    unread: manageableUsers.reduce((sum, account) => sum + (account.unreadWarningCount || 0), 0),
+  }), [manageableUsers]);
 
   const refreshAfterAction = async (targetUserId: string) => {
     await loadUsers();

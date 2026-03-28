@@ -300,7 +300,7 @@ const SuperSearch: React.FC = () => {
                                                         variant="secondary"
                                                         className={`absolute left-2 top-2 border-none text-[9px] font-bold shadow-lg ${
                                                             manga.type === 'manhwa'
-                                                                ? 'bg-purple-600/90 text-white shadow-purple-500/20'
+                                                                ? 'bg-orange-600/90 text-white shadow-orange-500/20'
                                                                 : manga.type === 'manhua'
                                                                     ? 'bg-emerald-600/90 text-white shadow-emerald-500/20'
                                                                     : manga.type === 'webtoon'

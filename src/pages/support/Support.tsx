@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
@@ -39,7 +39,7 @@ const categoryLabels: Record<SupportTicketCategory, string> = {
   account: 'Hesap',
   content_issue: 'İçerik Sorunu',
   ban_appeal: 'Ban İtirazı',
-  other: 'Other',
+  other: 'Diğer',
 };
 
 const categoryDescriptions: Record<SupportTicketCategory, string> = {
@@ -78,7 +78,7 @@ const SupportTicketBadge = ({ status }: { status: SupportTicketStatus }) => {
 };
 
 const Support: React.FC = () => {
-  const { user } = useAuth();
+  const { user, isLoading: authLoading } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [selectedTicketId, setSelectedTicketId] = useState<string>('');
   const [category, setCategory] = useState<SupportTicketCategory>('bug_report');
@@ -102,45 +102,77 @@ const Support: React.FC = () => {
     [selectedTicketId, visibleTickets],
   );
 
+  const loadTickets = useCallback(async (silent = false) => {
+    if (!user) {
+      setTickets([]);
+      setSelectedTicketId('');
+      return [];
+    }
+
+    try {
+      if (!silent) {
+        setIsLoadingTickets(true);
+      }
+
+      const nextTickets = await listSupportTickets();
+      setTickets(nextTickets);
+      setSelectedTicketId((current) => {
+        if (!nextTickets.length) {
+          return '';
+        }
+
+        if (current && nextTickets.some((ticket) => ticket.id === current)) {
+          return current;
+        }
+
+        return nextTickets[0].id;
+      });
+
+      return nextTickets;
+    } catch (error) {
+      if (!silent) {
+        console.error('Support tickets load failed:', error);
+        toast.error('Destek kayıtları yüklenemedi');
+      }
+      throw error;
+    } finally {
+      if (!silent) {
+        setIsLoadingTickets(false);
+      }
+    }
+  }, [user]);
+
   useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
     if (!user) {
       setTickets([]);
       setSelectedTicketId('');
       return;
     }
 
-    let isCancelled = false;
+    void loadTickets().catch(() => {});
 
-    const loadTickets = async () => {
-      try {
-        setIsLoadingTickets(true);
-        const nextTickets = await listSupportTickets();
-        if (isCancelled) {
-          return;
-        }
-
-        setTickets(nextTickets);
-        setSelectedTicketId((current) => current || nextTickets[0]?.id || '');
-      } catch (error) {
-        if (isCancelled) {
-          return;
-        }
-
-        console.error('Support tickets load failed:', error);
-        toast.error('Destek kayıtları yüklenemedi');
-      } finally {
-        if (!isCancelled) {
-          setIsLoadingTickets(false);
-        }
+    const syncIfVisible = () => {
+      if (document.visibilityState !== 'visible') {
+        return;
       }
+
+      void loadTickets(true).catch(() => {});
     };
 
-    void loadTickets();
+    const intervalId = window.setInterval(syncIfVisible, 8000);
+    window.addEventListener('focus', syncIfVisible);
+    document.addEventListener('visibilitychange', syncIfVisible);
 
     return () => {
-      isCancelled = true;
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', syncIfVisible);
+      document.removeEventListener('visibilitychange', syncIfVisible);
     };
-  }, [user]);
+  }, [authLoading, loadTickets, user]);
 
   useEffect(() => {
     if (!visibleTickets.length) {
@@ -230,6 +262,7 @@ const Support: React.FC = () => {
       toast.success('Yanıt gönderildi');
     } catch (error) {
       console.error('Support ticket reply failed:', error);
+      void loadTickets(true).catch(() => {});
       toast.error(error instanceof Error ? error.message : 'Yanıt gönderilemedi');
     } finally {
       setIsSubmitting(false);
@@ -517,30 +550,61 @@ const Support: React.FC = () => {
               <ScrollArea className="h-[480px] pr-3">
                 <div className="space-y-4">
                   {selectedTicket.messages.map((item) => {
-                    const isUserMessage = item.authorRole === 'user';
+                    const isOwnMessage = item.authorId ? item.authorId === user?.id : item.authorRole === 'user';
+                    const bubbleTone = isOwnMessage
+                      ? 'border-sky-400/30 bg-sky-500/15 shadow-[0_14px_34px_rgba(14,165,233,0.12)]'
+                      : item.authorRole === 'admin'
+                        ? 'border-violet-500/25 bg-violet-500/10 shadow-[0_14px_34px_rgba(139,92,246,0.10)]'
+                        : item.authorRole === 'moderator'
+                          ? 'border-emerald-500/25 bg-emerald-500/10 shadow-[0_14px_34px_rgba(16,185,129,0.10)]'
+                          : item.authorRole === 'system'
+                            ? 'border-amber-500/25 bg-amber-500/10 shadow-[0_14px_34px_rgba(245,158,11,0.10)]'
+                            : 'border-border bg-background/70';
+                    const roleTone = isOwnMessage
+                      ? 'border-sky-400/25 bg-sky-500/12 text-sky-100'
+                      : item.authorRole === 'admin'
+                        ? 'border-violet-500/25 bg-violet-500/12 text-violet-100'
+                        : item.authorRole === 'moderator'
+                          ? 'border-emerald-500/25 bg-emerald-500/12 text-emerald-100'
+                          : item.authorRole === 'system'
+                            ? 'border-amber-500/25 bg-amber-500/12 text-amber-100'
+                            : 'border-border bg-background/60 text-muted-foreground';
+
                     return (
                       <article
                         key={item.id}
-                        className={`flex ${isUserMessage ? 'justify-end' : 'justify-start'}`}
+                        className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
                       >
-                        <div className={`max-w-[92%] rounded-[1.5rem] border px-4 py-3 sm:max-w-[80%] ${
-                          isUserMessage
-                            ? 'border-primary/20 bg-primary/10'
-                            : 'border-border bg-background/70'
-                        }`}>
-                          <div className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
-                            <span className="font-medium text-foreground">{item.authorName}</span>
-                            <span>{messageRoleLabels[item.authorRole]}</span>
+                        <div className={`flex max-w-[90%] flex-col gap-2 rounded-[1.5rem] border px-4 py-3 sm:max-w-[78%] ${
+                          isOwnMessage
+                            ? 'ml-8 items-end rounded-br-md text-right sm:ml-14'
+                            : 'mr-8 items-start rounded-bl-md text-left sm:mr-14'
+                        } ${bubbleTone}`}>
+                          <div className={`flex flex-wrap items-center gap-2 ${
+                            isOwnMessage ? 'justify-end' : 'justify-start'
+                          }`}>
+                            <span className="text-sm font-semibold text-foreground">{item.authorName}</span>
+                            <span className={`rounded-full border px-2 py-0.5 text-[11px] font-medium uppercase tracking-[0.16em] ${roleTone}`}>
+                              {messageRoleLabels[item.authorRole]}
+                            </span>
                           </div>
-                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-foreground/90">{item.content}</p>
+                          <p className={`w-full whitespace-pre-wrap text-sm leading-6 ${
+                            isOwnMessage ? 'text-right text-foreground' : 'text-left text-foreground/90'
+                          }`}>
+                            {item.content}
+                          </p>
                           {item.imageUrl && (
-                            <SupportImageAttachment
-                              url={item.imageUrl}
-                              alt="Bilet görseli"
-                              className="mt-3"
-                            />
+                            <div className="w-full">
+                              <SupportImageAttachment
+                                url={item.imageUrl}
+                                alt="Bilet görseli"
+                                className="mt-1"
+                              />
+                            </div>
                           )}
-                          <p className="mt-3 text-[11px] uppercase tracking-[0.2em] text-muted-foreground">
+                          <p className={`w-full text-[11px] uppercase tracking-[0.2em] text-muted-foreground ${
+                            isOwnMessage ? 'text-right' : 'text-left'
+                          }`}>
                             {formatTicketTime(item.createdAt)}
                           </p>
                         </div>

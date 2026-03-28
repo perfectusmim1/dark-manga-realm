@@ -1,7 +1,7 @@
 import { supabase } from './supabase';
 import { User } from './types';
 import { parseCommentContent, stripCommentFormatting } from './commentContent';
-import { createFollowNotification } from './storage';
+import { createFollowNotification, hasPersistedChapterRecord } from './storage';
 
 export type PrivacyVisibility = NonNullable<NonNullable<User['preferences']>['privacy']>['visibility'];
 
@@ -516,6 +516,10 @@ export const getReadingActivity = async (userId: string, days: number = 365) => 
 };
 
 export const logChapterRead = async (userId: string, mangaId: string, chapterId: string, chapterNumber: number, secondsSpent: number = 0) => {
+    if (!(await hasPersistedChapterRecord(chapterId))) {
+        return;
+    }
+
     const startOfToday = new Date();
     startOfToday.setHours(0, 0, 0, 0);
 
@@ -729,10 +733,9 @@ export const updatePrivacySettings = async (userId: string, visibility: 'public'
         }
     };
     
-    const { error } = await supabase
-        .from('users')
-        .update({ preferences: updatedPreferences })
-        .eq('id', userId);
+    const { error } = await supabase.rpc('update_current_user_preferences', {
+        p_preferences: updatedPreferences,
+    });
         
     if (error) throw error;
 };

@@ -147,7 +147,7 @@ const AdminDashboard: React.FC = () => {
                                     <div className="h-2 overflow-hidden rounded-full bg-secondary">
                                         <div
                                             className={`h-full rounded-full transition-all ${type === 'manga' ? 'bg-primary' :
-                                                type === 'manhwa' ? 'bg-purple-500' :
+                                                type === 'manhwa' ? 'bg-orange-500' :
                                                     type === 'manhua' ? 'bg-green-500' : 'bg-sky-500'
                                                 }`}
                                             style={{ width: `${percentage}%` }}

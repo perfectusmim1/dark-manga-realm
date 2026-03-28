@@ -148,26 +148,45 @@ const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
   };
 };
 
+const getProviderAttemptOrder = (preferredProvider: ScraperProvider) => {
+  const availableProviders = getAvailableScraperProviders();
+  const orderedProviders: ScraperProvider[] = [];
+
+  if (availableProviders.includes(preferredProvider)) {
+    orderedProviders.push(preferredProvider);
+  }
+
+  for (const provider of availableProviders) {
+    if (!orderedProviders.includes(provider)) {
+      orderedProviders.push(provider);
+    }
+  }
+
+  return orderedProviders;
+};
+
 export const fetchScraperContent = async (
   targetUrl: string,
   options?: { provider?: ScraperProvider; source?: ScrapeSource }
 ) => {
   const provider = options?.provider ?? getDefaultScraperProviderForSource(options?.source ?? getDefaultScrapeSource());
-  const attempt = createProxyAttempt(provider);
+  const errors: string[] = [];
 
-  try {
-    const response = await attempt.request(targetUrl);
+  for (const providerToTry of getProviderAttemptOrder(provider)) {
+    const attempt = createProxyAttempt(providerToTry);
 
-    if (!response.ok) {
-      throw new Error(`${attempt.label} failed (${response.status})`);
+    try {
+      const response = await attempt.request(targetUrl);
+
+      if (!response.ok) {
+        throw new Error(`${attempt.label} failed (${response.status})`);
+      }
+
+      return await readProxyResponse(response);
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : `${attempt.label} request failed`);
     }
-
-    return await readProxyResponse(response);
-  } catch (error) {
-    if (error instanceof Error) {
-      throw error;
-    }
-
-    throw new Error(`${attempt.label} request failed`);
   }
+
+  throw new Error(errors.join(' | ') || 'Scraper proxy request failed');
 };

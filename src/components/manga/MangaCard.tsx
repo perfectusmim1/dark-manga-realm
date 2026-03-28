@@ -115,7 +115,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
   const typeBadgeClassName = cn(
     `absolute left-2 top-2 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
-    manga.type === 'manhwa' ? 'bg-purple-600/90 text-white shadow-lg shadow-purple-500/20' :
+    manga.type === 'manhwa' ? 'bg-orange-600/90 text-white shadow-lg shadow-orange-500/20' :
       manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
         manga.type === 'webtoon' ? 'bg-sky-600/90 text-white shadow-lg shadow-sky-500/20' :
           'bg-primary text-primary-foreground shadow-lg shadow-primary/20'

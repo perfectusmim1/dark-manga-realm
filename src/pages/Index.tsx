@@ -672,7 +672,6 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               <MangaCard
                 manga={item}
                 index={visibleRange.startIndex + index}
-                topTenWeekIds={null}
                 disableHeavyEffects={disableHeavyEffects}
                 coverPriority={visibleRange.startIndex + index < priorityCount}
               />
@@ -1078,7 +1077,6 @@ const Index: React.FC = () => {
                       key={manga.id}
                       manga={manga}
                       index={index}
-                      topTenWeekIds={null}
                       disableHeavyEffects={disableHeavyEffects}
                       coverPriority={index < 4}
                     />

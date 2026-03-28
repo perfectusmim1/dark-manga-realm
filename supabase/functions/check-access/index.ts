@@ -26,6 +26,51 @@ const isSupportAllowedPath = (path: string) =>
   || path === "/support"
   || path.startsWith("/support/");
 
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetryAuthResolution = (message?: string | null) => {
+  const normalizedMessage = message?.toLowerCase() || "";
+  return normalizedMessage.includes("future")
+    || normalizedMessage.includes("not yet valid")
+    || normalizedMessage.includes("jwt")
+    || normalizedMessage.includes("token")
+    || normalizedMessage.includes("iat");
+};
+
+const resolveAuthUserId = async (
+  serviceClient: ReturnType<typeof createServiceClient>,
+  accessToken: string,
+) => {
+  for (const retryDelay of [0, 1200]) {
+    if (retryDelay > 0) {
+      await sleep(retryDelay);
+    }
+
+    try {
+      const { data: authData, error: authError } = await serviceClient.auth.getUser(accessToken);
+      if (!authError) {
+        return authData.user?.id || null;
+      }
+
+      if (retryDelay === 0 && shouldRetryAuthResolution(authError.message)) {
+        continue;
+      }
+
+      console.warn("check-access token resolution failed:", authError.message);
+      return null;
+    } catch (error) {
+      if (retryDelay === 0) {
+        continue;
+      }
+
+      console.warn("check-access token resolution threw unexpectedly:", error);
+      return null;
+    }
+  }
+
+  return null;
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -61,44 +106,16 @@ Deno.serve(async (req: Request) => {
     let authUserId: string | null = null;
 
     if (accessToken) {
-      const { data: authData } = await serviceClient.auth.getUser(accessToken);
-      authUserId = authData.user?.id || null;
-    }
-
-    if (authUserId) {
-      await serviceClient.rpc("refresh_user_ban_state", {
-        p_user_id: authUserId,
-      }).catch((error) => {
-        console.error("Failed to refresh user ban state:", error);
-      });
+      authUserId = await resolveAuthUserId(serviceClient, accessToken);
     }
 
     const [
       { data: ipBan },
       { data: deviceBan },
-      { data: userRecord },
-      { data: latestWarning },
     ] = await Promise.all([
       serviceClient.from("banned_ip_hashes").select("ip_hash").eq("ip_hash", ipHash).maybeSingle(),
       deviceHash
         ? serviceClient.from("banned_device_hashes").select("device_hash").eq("device_hash", deviceHash).maybeSingle()
-        : Promise.resolve({ data: null } as const),
-      authUserId
-        ? serviceClient
-          .from("users")
-          .select("id, username, email, role, is_banned, ban_reason, banned_at, active_ban_type, ban_expires_at, warning_count, unread_warning_count")
-          .eq("id", authUserId)
-          .maybeSingle()
-        : Promise.resolve({ data: null } as const),
-      authUserId
-        ? serviceClient
-          .from("user_warnings")
-          .select("id, title, message, created_at")
-          .eq("user_id", authUserId)
-          .is("acknowledged_at", null)
-          .order("created_at", { ascending: false })
-          .limit(1)
-          .maybeSingle()
         : Promise.resolve({ data: null } as const),
     ]);
 
@@ -118,18 +135,93 @@ Deno.serve(async (req: Request) => {
       }, 403);
     }
 
-    if (authUserId && deviceHash) {
-      await serviceClient.from("user_access_fingerprints").upsert({
-        user_id: authUserId,
-        ip_hash: ipHash,
-        device_hash: deviceHash,
-        installation_id_hash: installationIdHash,
-        user_agent: req.headers.get("user-agent"),
-        last_seen_at: new Date().toISOString(),
-      }, {
-        onConflict: "user_id,ip_hash,device_hash",
-        ignoreDuplicates: false,
-      });
+    let userRecord: {
+      id: string;
+      username: string;
+      email: string;
+      role: string;
+      is_banned: boolean;
+      ban_reason: string | null;
+      banned_at: string | null;
+      active_ban_type: string | null;
+      ban_expires_at: string | null;
+      warning_count: number;
+      unread_warning_count: number;
+    } | null = null;
+    let latestWarning: {
+      id: string;
+      title: string;
+      message: string;
+      created_at: string;
+    } | null = null;
+
+    if (authUserId) {
+      try {
+        await serviceClient.rpc("refresh_user_ban_state", {
+          p_user_id: authUserId,
+        }).catch((error) => {
+          console.error("Failed to refresh user ban state:", error);
+        });
+
+        const [
+          userRecordResult,
+          latestWarningResult,
+          fingerprintResult,
+        ] = await Promise.all([
+          serviceClient
+            .from("users")
+            .select("id, username, email, role, is_banned, ban_reason, banned_at, active_ban_type, ban_expires_at, warning_count, unread_warning_count")
+            .eq("id", authUserId)
+            .maybeSingle(),
+          serviceClient
+            .from("user_warnings")
+            .select("id, title, message, created_at")
+            .eq("user_id", authUserId)
+            .is("acknowledged_at", null)
+            .order("created_at", { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          deviceHash
+            ? serviceClient.from("user_access_fingerprints").upsert({
+              user_id: authUserId,
+              ip_hash: ipHash,
+              device_hash: deviceHash,
+              installation_id_hash: installationIdHash,
+              user_agent: req.headers.get("user-agent"),
+              last_seen_at: new Date().toISOString(),
+            }, {
+              onConflict: "user_id,ip_hash,device_hash",
+              ignoreDuplicates: false,
+            })
+            : Promise.resolve({ error: null } as const),
+        ]);
+
+        if (userRecordResult.error) {
+          console.error("check-access user profile lookup failed:", userRecordResult.error);
+        } else {
+          userRecord = userRecordResult.data;
+        }
+
+        if (latestWarningResult.error) {
+          console.error("check-access warning lookup failed:", latestWarningResult.error);
+        } else {
+          latestWarning = latestWarningResult.data;
+        }
+
+        if (fingerprintResult.error) {
+          console.error("check-access fingerprint upsert failed:", fingerprintResult.error);
+        }
+      } catch (error) {
+        console.error("Authenticated access evaluation failed:", error);
+        return json({
+          allowed: true,
+          reason: "access_check_failed",
+          supportOnly: false,
+          warning: null,
+          ban: { active: false },
+          user: null,
+        });
+      }
     }
 
     const warning = latestWarning

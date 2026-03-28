@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { invokeAuthenticatedFunction } from '@/lib/supabase';
 import { SiteBackupManifest } from '@/lib/types';
 
 interface SiteBackupResponse {
@@ -16,13 +16,7 @@ const ensureSuccess = (data: SiteBackupResponse | null | undefined, fallback: st
 };
 
 export const exportSiteBackup = async (): Promise<SiteBackupManifest> => {
-  const { data, error } = await supabase.functions.invoke('admin-export-backup', {
-    body: {},
-  });
-
-  if (error) {
-    throw error;
-  }
+  const data = await invokeAuthenticatedFunction<SiteBackupResponse>('admin-export-backup', {});
 
   ensureSuccess(data, 'SITE_BACKUP_EXPORT_FAILED');
   return data.manifest as SiteBackupManifest;
@@ -31,15 +25,9 @@ export const exportSiteBackup = async (): Promise<SiteBackupManifest> => {
 export const importSiteBackup = async (
   manifest: SiteBackupManifest,
 ): Promise<{ restoredAt: string; restoredTables: string[] }> => {
-  const { data, error } = await supabase.functions.invoke('admin-import-backup', {
-    body: {
-      manifest,
-    },
+  const data = await invokeAuthenticatedFunction<SiteBackupResponse>('admin-import-backup', {
+    manifest,
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'SITE_BACKUP_IMPORT_FAILED');
   return {

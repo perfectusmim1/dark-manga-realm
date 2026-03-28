@@ -122,6 +122,19 @@ const DEFAULT_USER_REVIEW: Partial<Review> = {
   rating_engagement: 10,
 };
 
+const REVIEW_EDIT_INDICATOR_THRESHOLD_MS = 1000;
+
+const shouldShowEditedReviewLabel = (review: Review) => {
+  const createdAt = new Date(review.createdAt).getTime();
+  const updatedAt = new Date(review.updatedAt).getTime();
+
+  if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) {
+    return false;
+  }
+
+  return updatedAt - createdAt > REVIEW_EDIT_INDICATOR_THRESHOLD_MS;
+};
+
 const PREVIEW_CHAPTER_BATCH_SIZE = 3;
 const OVERVIEW_CHAPTER_BATCH_SIZE = 28;
 
@@ -274,7 +287,7 @@ const PreviewChapter = React.memo(({
         </Button>
       </div>
       
-      <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-3 lg:grid-cols-5">
+      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         {chapter.pages.map((page: string, pageIndex: number) => (
           <PreviewPageThumbnail
             key={pageIndex}
@@ -1638,7 +1651,7 @@ const MangaDetail: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant="default"
-                    className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-purple-600 text-white shadow-lg shadow-purple-500/20' :
+                    className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' :
                       manga.type === 'manhua' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' :
                         manga.type === 'webtoon' ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/20' :
                           'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
@@ -2457,7 +2470,14 @@ const MangaDetail: React.FC = () => {
                                         </Link>
                                         <StaffBadge role={review.userRole} compact />
                                       </div>
-                                      <p className="text-xs text-muted-foreground">{formatDate(review.createdAt)}</p>
+                                      <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                        <span>{formatDate(review.createdAt)}</span>
+                                        {shouldShowEditedReviewLabel(review) && (
+                                          <Badge variant="outline" className="h-5 border-primary/30 bg-primary/10 px-2 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                            Düzenlendi
+                                          </Badge>
+                                        )}
+                                      </div>
                                     </div>
                                   </div>
                                   <div className="grid grid-cols-10 gap-0.5 self-start text-yellow-400 sm:flex">

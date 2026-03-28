@@ -9,6 +9,7 @@ type AuthorRole = "user" | "moderator" | "admin" | "system";
 const STAFF_ROLES = new Set(["admin", "moderator"]);
 const TICKET_STATUSES = new Set<TicketStatus>(["open", "waiting_staff", "waiting_user", "closed"]);
 const TICKET_CATEGORIES = new Set<TicketCategory>(["bug_report", "account", "content_issue", "ban_appeal", "other"]);
+const TICKET_CREATION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 type TicketRow = {
   id: string;
@@ -232,6 +233,30 @@ Deno.serve(async (req: Request) => {
         return json({ success: false, message: "Geçerli bir http/https görsel linki girin" }, 400);
       }
 
+      if (!requesterIsStaff) {
+        const recentTicketWindowStart = new Date(Date.now() - TICKET_CREATION_COOLDOWN_MS).toISOString();
+        const { data: recentTicket, error: recentTicketError } = await auth.serviceClient
+          .from("support_tickets")
+          .select("id, created_at")
+          .eq("user_id", requesterId)
+          .gte("created_at", recentTicketWindowStart)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (recentTicketError) {
+          console.error("Recent ticket lookup failed:", recentTicketError);
+          return json({ success: false, message: "Bilet limiti kontrol edilemedi" }, 500);
+        }
+
+        if (recentTicket) {
+          return json({
+            success: false,
+            message: "24 saat içinde yalnızca 1 destek bileti oluşturabilirsin.",
+          }, 429);
+        }
+      }
+
       const now = new Date().toISOString();
       const { data: createdTicket, error: ticketError } = await auth.serviceClient
         .from("support_tickets")
@@ -326,8 +351,13 @@ Deno.serve(async (req: Request) => {
         return json({ success: false, message: "Geçerli bir http/https görsel linki girin" }, 400);
       }
 
-      if (!requesterIsStaff && targetTicket.status === "closed") {
-        return json({ success: false, message: "Kapalı bilette kullanıcı yanıtı kapalı" }, 400);
+      if (targetTicket.status === "closed") {
+        return json({
+          success: false,
+          message: requesterIsStaff
+            ? "Kapalı bilete yanıt göndermek için önce bileti yeniden aç"
+            : "Kapalı bilette kullanıcı yanıtı kapalı",
+        }, 409);
       }
 
       const now = new Date().toISOString();

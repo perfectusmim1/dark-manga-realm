@@ -125,7 +125,7 @@ const TopTenCard: React.FC<{
               variant="secondary"
               className={`border-none text-[10px] font-bold ${
                 manga.type === 'manhwa'
-                  ? 'bg-purple-600/90 text-white'
+                  ? 'bg-orange-600/90 text-white'
                   : manga.type === 'manhua'
                     ? 'bg-emerald-600/90 text-white'
                     : manga.type === 'webtoon'
@@ -361,7 +361,7 @@ const TopTenSectionBlock: React.FC<{
             }}
             onScroll={updateArrows}
             className="flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain pb-2 scroll-smooth scrollbar-hide"
-            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', touchAction: 'pan-x' }}
+            style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
             {manga.map((item, index) => (
               <div key={`${timeframe}-${item.id}`} className={`shrink-0 snap-start ${TOP_TEN_CARD_WIDTH_CLASS}`}>

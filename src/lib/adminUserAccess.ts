@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { invokeAuthenticatedFunction } from '@/lib/supabase';
 import { User, UserBanKind, UserBanRecord, UserWarning } from '@/lib/types';
 
 export interface UserAccessHistory {
@@ -30,16 +30,10 @@ const normalizeHistory = (data: UserAccessHistoryResponse | null | undefined): U
 });
 
 export const getUserAccessHistory = async (targetUserId: string): Promise<UserAccessHistory> => {
-  const { data, error } = await supabase.functions.invoke('admin-user-access', {
-    body: {
-      action: 'history',
-      targetUserId,
-    },
+  const data = await invokeAuthenticatedFunction<UserAccessHistoryResponse>('admin-user-access', {
+    action: 'history',
+    targetUserId,
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'USER_ACCESS_HISTORY_FAILED');
   return normalizeHistory(data);
@@ -51,16 +45,10 @@ export const issueUserWarning = async (payload: {
   message: string;
   durationHours?: number;
 }): Promise<UserAccessHistory & { autoBan?: { kind: UserBanKind; expiresAt?: string | null } | null }> => {
-  const { data, error } = await supabase.functions.invoke('admin-user-access', {
-    body: {
-      action: 'warn',
-      ...payload,
-    },
+  const data = await invokeAuthenticatedFunction<UserAccessHistoryResponse>('admin-user-access', {
+    action: 'warn',
+    ...payload,
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'USER_WARNING_FAILED');
   return {
@@ -75,16 +63,10 @@ export const banUserAccount = async (payload: {
   reason: string;
   durationHours?: number;
 }): Promise<UserAccessHistory & { ban?: { kind: UserBanKind; expiresAt?: string | null } | null }> => {
-  const { data, error } = await supabase.functions.invoke('admin-user-access', {
-    body: {
-      action: 'ban',
-      ...payload,
-    },
+  const data = await invokeAuthenticatedFunction<UserAccessHistoryResponse>('admin-user-access', {
+    action: 'ban',
+    ...payload,
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'USER_BAN_FAILED');
   return {
@@ -94,16 +76,10 @@ export const banUserAccount = async (payload: {
 };
 
 export const unbanUserAccount = async (targetUserId: string): Promise<UserAccessHistory> => {
-  const { data, error } = await supabase.functions.invoke('admin-user-access', {
-    body: {
-      action: 'unban',
-      targetUserId,
-    },
+  const data = await invokeAuthenticatedFunction<UserAccessHistoryResponse>('admin-user-access', {
+    action: 'unban',
+    targetUserId,
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'USER_UNBAN_FAILED');
   return normalizeHistory(data);

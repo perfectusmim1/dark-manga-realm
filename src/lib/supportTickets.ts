@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { invokeAuthenticatedFunction } from '@/lib/supabase';
 import { SupportTicket, SupportTicketCategory, SupportTicketStatus } from '@/lib/types';
 
 interface SupportTicketsResponse {
@@ -15,15 +15,9 @@ const ensureSuccess = (data: SupportTicketsResponse | null | undefined, fallback
 };
 
 export const listSupportTickets = async (): Promise<SupportTicket[]> => {
-  const { data, error } = await supabase.functions.invoke('support-tickets', {
-    body: {
-      action: 'list',
-    },
+  const data = await invokeAuthenticatedFunction<SupportTicketsResponse>('support-tickets', {
+    action: 'list',
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'SUPPORT_TICKETS_LIST_FAILED');
   return Array.isArray(data?.tickets) ? data.tickets : [];
@@ -35,16 +29,10 @@ export const createSupportTicket = async (payload: {
   message: string;
   imageUrl?: string | null;
 }): Promise<SupportTicket> => {
-  const { data, error } = await supabase.functions.invoke('support-tickets', {
-    body: {
-      action: 'create',
-      ...payload,
-    },
+  const data = await invokeAuthenticatedFunction<SupportTicketsResponse>('support-tickets', {
+    action: 'create',
+    ...payload,
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'SUPPORT_TICKET_CREATE_FAILED');
   return data.ticket as SupportTicket;
@@ -55,16 +43,10 @@ export const replyToSupportTicket = async (payload: {
   message: string;
   imageUrl?: string | null;
 }): Promise<SupportTicket> => {
-  const { data, error } = await supabase.functions.invoke('support-tickets', {
-    body: {
-      action: 'reply',
-      ...payload,
-    },
+  const data = await invokeAuthenticatedFunction<SupportTicketsResponse>('support-tickets', {
+    action: 'reply',
+    ...payload,
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'SUPPORT_TICKET_REPLY_FAILED');
   return data.ticket as SupportTicket;
@@ -74,16 +56,10 @@ export const updateSupportTicketStatus = async (payload: {
   ticketId: string;
   status: SupportTicketStatus;
 }): Promise<SupportTicket> => {
-  const { data, error } = await supabase.functions.invoke('support-tickets', {
-    body: {
-      action: 'update-status',
-      ...payload,
-    },
+  const data = await invokeAuthenticatedFunction<SupportTicketsResponse>('support-tickets', {
+    action: 'update-status',
+    ...payload,
   });
-
-  if (error) {
-    throw error;
-  }
 
   ensureSuccess(data, 'SUPPORT_TICKET_STATUS_FAILED');
   return data.ticket as SupportTicket;

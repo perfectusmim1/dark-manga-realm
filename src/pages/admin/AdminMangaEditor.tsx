@@ -614,7 +614,7 @@ const AdminMangaEditor: React.FC = () => {
                                 <label className="text-sm font-medium">Tür</label>
                                 <Select
                                     value={manga.type}
-                                    onValueChange={(value) => handleChange('type', value)}
+                                    onValueChange={(value: Manga['type']) => handleChange('type', value)}
                                 >
                                     <SelectTrigger>
                                         <SelectValue />
@@ -631,7 +631,7 @@ const AdminMangaEditor: React.FC = () => {
                                 <label className="text-sm font-medium">Durum</label>
                                 <Select
                                     value={manga.status}
-                                    onValueChange={(value) => handleChange('status', value)}
+                                    onValueChange={(value: Manga['status']) => handleChange('status', value)}
                                 >
                                     <SelectTrigger>
                                         <SelectValue />

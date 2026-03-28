@@ -5,6 +5,7 @@ import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListIte
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import { normalizeGenres } from './mockData';
 import { cacheOfflineManga, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
 import {
     areReadingListsInitialized,
     createClientEntityId,
@@ -562,7 +563,7 @@ export const saveManga = async (manga: Manga): Promise<void> => {
             manga_id: manga.id,
             number: c.number,
             title: c.title,
-            pages: c.pages,
+            pages: sanitizeChapterPageUrls(c.pages || []),
             views: c.views || 0,
             release_date: c.releaseDate,
         }));
@@ -596,7 +597,7 @@ export const addChapterToManga = async (mangaId: string, chapter: Chapter): Prom
         manga_id: mangaId,
         number: chapter.number,
         title: chapter.title,
-        pages: chapter.pages,
+        pages: sanitizeChapterPageUrls(chapter.pages || []),
         views: chapter.views || 0,
         release_date: chapter.releaseDate,
     };

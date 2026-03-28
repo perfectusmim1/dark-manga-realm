@@ -76,6 +76,114 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
     },
 });
 
+const waitFor = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const shouldRetryFunctionAuth = (status: number, message: string | null) => {
+    if (status !== 401) {
+        return false;
+    }
+
+    const normalizedMessage = message?.toLowerCase() || '';
+    return normalizedMessage.includes('invalid jwt')
+        || normalizedMessage.includes('jwt')
+        || normalizedMessage.includes('token')
+        || normalizedMessage.includes('unauthorized')
+        || normalizedMessage.includes('not yet valid')
+        || normalizedMessage.includes('future');
+};
+
+const refreshSupabaseSession = async () => {
+    try {
+        const { data } = await supabase.auth.refreshSession();
+        return data.session?.access_token || null;
+    } catch (error) {
+        console.error('Supabase session refresh failed:', error);
+        return null;
+    }
+};
+
+export const getAuthenticatedFunctionHeaders = async (options?: { forceRefresh?: boolean }) => {
+    if (options?.forceRefresh) {
+        const refreshedAccessToken = await refreshSupabaseSession();
+        if (refreshedAccessToken) {
+            return {
+                Authorization: `Bearer ${refreshedAccessToken}`,
+            };
+        }
+    }
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+        const { data } = await supabase.auth.getSession();
+        const accessToken = data.session?.access_token;
+
+        if (accessToken) {
+            return {
+                Authorization: `Bearer ${accessToken}`,
+            };
+        }
+
+        if (attempt < 5) {
+            await waitFor(attempt < 2 ? 150 : 300);
+        }
+    }
+
+    return {};
+};
+
+const parseFunctionResponse = async (response: Response) => {
+    const raw = await response.text();
+
+    if (!raw) {
+        return null;
+    }
+
+    try {
+        return JSON.parse(raw) as unknown;
+    } catch {
+        return raw;
+    }
+};
+
+export const invokeAuthenticatedFunction = async <TResponse>(
+    functionName: string,
+    body: unknown,
+) => {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+        const authHeaders = await getAuthenticatedFunctionHeaders({
+            forceRefresh: attempt > 0,
+        });
+        const response = await globalThis.fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                apikey: supabaseAnonKey,
+                ...authHeaders,
+            },
+            body: JSON.stringify(body),
+        });
+
+        const data = await parseFunctionResponse(response);
+        const message = typeof data === 'object' && data && 'message' in data && typeof data.message === 'string'
+            ? data.message
+            : typeof data === 'string' && data
+                ? data
+                : `Edge Function returned ${response.status}`;
+
+        if (response.ok) {
+            return data as TResponse;
+        }
+
+        if (attempt === 0 && shouldRetryFunctionAuth(response.status, message)) {
+            await waitFor(200);
+            continue;
+        }
+
+        throw new Error(message);
+    }
+
+    throw new Error('Authenticated function call failed');
+};
+
 // Database types (will be expanded as we create tables)
 export type Database = {
     public: {

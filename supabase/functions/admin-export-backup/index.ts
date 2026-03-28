@@ -57,6 +57,23 @@ const loadAllRows = async (
   return rows;
 };
 
+const loadBackupTables = async (
+  serviceClient: ReturnType<typeof createServiceClient>,
+) => {
+  const tables: Partial<Record<BackupTableName, unknown[]>> = {};
+
+  for (const tableName of BACKUP_TABLES) {
+    try {
+      tables[tableName] = await loadAllRows(serviceClient, tableName);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Backup export failed for table "${tableName}": ${message}`);
+    }
+  }
+
+  return tables;
+};
+
 const loadAllAuthUsers = async (
   serviceClient: ReturnType<typeof createServiceClient>,
 ) => {
@@ -112,12 +129,7 @@ Deno.serve(async (req: Request) => {
       return json({ success: false, message: "Only the primary admin can export backups" }, 403);
     }
 
-    const tables = Object.fromEntries(
-      await Promise.all(BACKUP_TABLES.map(async (tableName) => [
-        tableName,
-        await loadAllRows(auth.serviceClient, tableName),
-      ])),
-    );
+    const tables = await loadBackupTables(auth.serviceClient);
 
     const authUsers = await loadAllAuthUsers(auth.serviceClient);
 
@@ -139,6 +151,9 @@ Deno.serve(async (req: Request) => {
     });
   } catch (error) {
     console.error("Unexpected error in admin-export-backup:", error);
-    return json({ success: false, message: "An unexpected error occurred" }, 500);
+    return json({
+      success: false,
+      message: error instanceof Error ? error.message : "An unexpected error occurred",
+    }, 500);
   }
 });
