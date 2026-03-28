@@ -36,6 +36,7 @@ const AppInitializer = ({ children }: { children: React.ReactNode }) => {
 };
 
 import SecurityWrapper from "@/components/security/SecurityWrapper";
+import UserWarningGate from "@/components/security/UserWarningGate";
 
 const Index = lazy(() => import("./pages/Index"));
 const TopTen = lazy(() => import("./pages/TopTen"));
@@ -55,6 +56,7 @@ const ReadingLists = lazy(() => import("./pages/ReadingLists"));
 const ReadingTime = lazy(() => import("./pages/ReadingTime"));
 const ReadingListDetail = lazy(() => import("./pages/ReadingListDetail"));
 const Settings = lazy(() => import("./pages/Settings"));
+const Support = lazy(() => import("./pages/support/Support"));
 const NotFound = lazy(() => import("./pages/NotFound"));
 const Profile = lazy(() => import("./pages/Profile"));
 const Community = lazy(() => import("./pages/Community"));
@@ -82,6 +84,7 @@ const AdminTags = lazy(() => import("./pages/admin/AdminTags"));
 const AdminAnnouncements = lazy(() => import("./pages/admin/AdminAnnouncements"));
 const AdminReports = lazy(() => import("./pages/admin/AdminReports"));
 const AdminSiteSettings = lazy(() => import("./pages/admin/AdminSiteSettings"));
+const AdminTickets = lazy(() => import("./pages/admin/AdminTickets"));
 const LazyDownloadDock = lazy(() => import("@/components/offline/DownloadDock"));
 const LazyAdBlockWarning = lazy(() => import("@/components/security/AdBlockWarning"));
 
@@ -115,7 +118,8 @@ const OfflineStartupRedirect = () => {
 
 const AccessGate = ({ children }: { children: React.ReactNode }) => {
   const { isOnline } = useEffectiveOnlineStatus();
-  const { user, logout } = useAuth();
+  const location = useLocation();
+  const { user, logout, accessState } = useAuth();
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -129,9 +133,17 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
     }
 
     void (async () => {
-      const access = await checkCurrentAccess().catch((error) => {
+      const access = await checkCurrentAccess(`${location.pathname}${location.search}`).catch((error) => {
         console.error('Access gate check failed:', error);
-        return { allowed: true, message: undefined };
+        return {
+          allowed: false,
+          message: 'Erişim doğrulanamadı. Lütfen kısa süre sonra tekrar deneyin.',
+          reason: 'access_check_failed' as const,
+          supportOnly: false,
+          warning: null,
+          ban: { active: false },
+          user: null,
+        };
       });
 
       if (!active) {
@@ -139,7 +151,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (!access.allowed) {
-        if (user?.id) {
+        if (user?.id && access.reason !== 'user_banned') {
           await logout();
         }
 
@@ -153,10 +165,15 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
     return () => {
       active = false;
     };
-  }, [isOnline, user?.id, logout]);
+  }, [isOnline, location.pathname, location.search, user?.id, logout]);
 
-  if (blockedMessage || user?.isBanned) {
-    const finalMessage = blockedMessage || user?.banReason || 'Hesabınız süresiz olarak dondurulmuştur.';
+  const isSupportPath = location.pathname === '/support' || location.pathname.startsWith('/support/');
+  const isAuthPath = location.pathname === '/auth';
+  const hasUserBan = Boolean(user?.isBanned || accessState.ban.active);
+
+  if (blockedMessage || (hasUserBan && !isSupportPath && !isAuthPath)) {
+    const finalMessage = blockedMessage || user?.banReason || accessState.ban.reason || 'Hesabınız süresiz olarak dondurulmuştur.';
+    const timedBanUntil = user?.banExpiresAt || accessState.ban.expiresAt;
     
     return (
       <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center p-4">
@@ -182,6 +199,12 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
               <p className="text-zinc-400 text-lg leading-relaxed">
                 {finalMessage}
               </p>
+
+              {timedBanUntil && (
+                <p className="text-sm text-amber-300">
+                  Geçici ban bitişi: {new Date(timedBanUntil).toLocaleString('tr-TR')}
+                </p>
+              )}
               
               <div className="pt-8 border-t border-white/5">
                 <p className="text-zinc-500 text-sm">
@@ -193,14 +216,24 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
               </div>
             </div>
             
-            {user?.id && (
-              <button 
-                onClick={() => logout()}
-                className="mt-8 px-6 py-2 rounded-full bg-white/5 border border-white/10 text-white/60 text-sm hover:bg-white/10 hover:text-white transition-all"
-              >
-                Oturumu Kapat
-              </button>
-            )}
+            <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
+              {user?.id && (
+                <a
+                  href="/support"
+                  className="px-6 py-2 rounded-full bg-primary/20 border border-primary/30 text-primary text-sm hover:bg-primary/25 transition-all"
+                >
+                  Desteğe Git
+                </a>
+              )}
+              {user?.id && (
+                <button 
+                  onClick={() => logout()}
+                  className="px-6 py-2 rounded-full bg-white/5 border border-white/10 text-white/60 text-sm hover:bg-white/10 hover:text-white transition-all"
+                >
+                  Oturumu Kapat
+                </button>
+              )}
+            </div>
           </div>
         </div>
       </div>
@@ -260,6 +293,7 @@ const App = () => (
             <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <AccessGate>
                 <MfaGate>
+                  <UserWarningGate />
                   <OfflineStartupRedirect />
                   <ScrollToTop />
                   <Suspense fallback={null}>
@@ -291,6 +325,7 @@ const App = () => (
                     <Route path="/tier-lists/:id/edit" element={<TierListEditor />} />
                     <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
                     <Route path="/settings" element={<Settings />} />
+                    <Route path="/support" element={<Support />} />
                     <Route path="/profile/:userId" element={<Profile />} />
                     <Route path="/character/:id" element={<CharacterDetail />} />
                     <Route path="/author/:id" element={<AuthorDetail />} />
@@ -315,6 +350,7 @@ const App = () => (
                       <Route path="tags" element={<AdminTags />} />
                       <Route path="announcements" element={<AdminAnnouncements />} />
                       <Route path="reports" element={<AdminReports />} />
+                      <Route path="tickets" element={<AdminTickets />} />
                       <Route path="site-settings" element={<AdminSiteSettings />} />
                     </Route>
 

@@ -1,6 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { Loader2, Settings, Shield, ShieldOff, TriangleAlert } from 'lucide-react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Download, FileJson, Loader2, Settings, Shield, ShieldOff, TriangleAlert, Upload } from 'lucide-react';
 import { Switch } from '@/components/ui/switch';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
 import {
@@ -9,6 +11,8 @@ import {
     setDevtoolsProtectionEnabled,
     SiteSecuritySettings,
 } from '@/lib/siteSecurity';
+import { exportSiteBackup, importSiteBackup } from '@/lib/siteBackup';
+import { SiteBackupManifest } from '@/lib/types';
 import { toast } from 'sonner';
 
 const DEFAULT_SECURITY_SETTINGS: SiteSecuritySettings = {
@@ -24,6 +28,11 @@ const AdminSiteSettings: React.FC = () => {
     const [securitySettings, setSecuritySettings] = useState<SiteSecuritySettings>(DEFAULT_SECURITY_SETTINGS);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
+    const [isExportingBackup, setIsExportingBackup] = useState(false);
+    const [isImportingBackup, setIsImportingBackup] = useState(false);
+    const [pendingBackupFileName, setPendingBackupFileName] = useState('');
+    const [pendingManifest, setPendingManifest] = useState<SiteBackupManifest | null>(null);
+    const fileInputRef = useRef<HTMLInputElement | null>(null);
     const isPrimaryAdmin = access.isPrimaryAdmin;
 
     useEffect(() => {
@@ -89,6 +98,81 @@ const AdminSiteSettings: React.FC = () => {
             toast.error('Adblock uyarı ayarı güncellenemedi');
         } finally {
             setIsSaving(false);
+        }
+    };
+
+    const handleExportBackup = async () => {
+        if (!isPrimaryAdmin) {
+            return;
+        }
+
+        try {
+            setIsExportingBackup(true);
+            const manifest = await exportSiteBackup();
+            const fileName = `toonparrot-backup-${manifest.exportedAt.replace(/[:.]/g, '-')}.json`;
+            const blob = new Blob([JSON.stringify(manifest, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = fileName;
+            link.click();
+            URL.revokeObjectURL(url);
+            toast.success('Yedek dosyası indirildi');
+        } catch (error) {
+            console.error('Backup export failed:', error);
+            toast.error(error instanceof Error ? error.message : 'Yedek dışa aktarılamadı');
+        } finally {
+            setIsExportingBackup(false);
+        }
+    };
+
+    const handleBackupFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
+        const file = event.target.files?.[0];
+        if (!file) {
+            setPendingBackupFileName('');
+            setPendingManifest(null);
+            return;
+        }
+
+        try {
+            const text = await file.text();
+            const parsed = JSON.parse(text) as SiteBackupManifest;
+
+            if (!parsed || typeof parsed !== 'object' || typeof parsed.version !== 'number' || !parsed.tables) {
+                throw new Error('Geçersiz yedek dosyası');
+            }
+
+            setPendingManifest(parsed);
+            setPendingBackupFileName(file.name);
+            toast.success('Yedek dosyası yüklendi, şimdi içe aktarabilirsin');
+        } catch (error) {
+            console.error('Backup file parse failed:', error);
+            setPendingManifest(null);
+            setPendingBackupFileName('');
+            toast.error(error instanceof Error ? error.message : 'Yedek dosyası okunamadı');
+        } finally {
+            if (event.target) {
+                event.target.value = '';
+            }
+        }
+    };
+
+    const handleImportBackup = async () => {
+        if (!isPrimaryAdmin || !pendingManifest) {
+            return;
+        }
+
+        try {
+            setIsImportingBackup(true);
+            const result = await importSiteBackup(pendingManifest);
+            toast.success(`Yedek içe aktarıldı (${result.restoredTables.length} tablo)`);
+            setPendingManifest(null);
+            setPendingBackupFileName('');
+        } catch (error) {
+            console.error('Backup import failed:', error);
+            toast.error(error instanceof Error ? error.message : 'Yedek içe aktarılamadı');
+        } finally {
+            setIsImportingBackup(false);
         }
     };
 
@@ -187,6 +271,78 @@ const AdminSiteSettings: React.FC = () => {
                     </p>
                 </section>
             </div>
+
+            <section className="rounded-2xl border border-border bg-card p-4 sm:p-6">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="space-y-3">
+                        <div className="inline-flex rounded-xl bg-primary/10 p-3 text-primary">
+                            <FileJson className="h-6 w-6" />
+                        </div>
+                        <div>
+                            <h2 className="text-xl font-semibold">Site verisi yedekleme</h2>
+                            <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                                Bu bölüm public uygulama verilerini JSON manifest olarak dışa aktarır ve transaction-safe şekilde geri yükler.
+                                Auth kullanıcıları doğrulanır; `password_hash`, oturumlar, login denemeleri ve cihaz/IP ban kayıtları bu panele dahil edilmez.
+                            </p>
+                        </div>
+                    </div>
+
+                    <div className="flex w-full flex-col gap-3 lg:w-auto lg:min-w-[280px]">
+                        <Button onClick={() => void handleExportBackup()} disabled={isExportingBackup || isImportingBackup}>
+                            {isExportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
+                            Export Backup
+                        </Button>
+
+                        <Button
+                            variant="outline"
+                            onClick={() => fileInputRef.current?.click()}
+                            disabled={isExportingBackup || isImportingBackup}
+                        >
+                            <Upload className="mr-2 h-4 w-4" />
+                            Backup Dosyası Seç
+                        </Button>
+                        <Input
+                            ref={fileInputRef}
+                            type="file"
+                            accept="application/json,.json"
+                            className="hidden"
+                            onChange={(event) => void handleBackupFileChange(event)}
+                        />
+
+                        <Button
+                            variant="outline"
+                            onClick={() => void handleImportBackup()}
+                            disabled={!pendingManifest || isImportingBackup || isExportingBackup}
+                        >
+                            {isImportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                            Import Backup
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                    <div className="rounded-2xl border border-border bg-background/60 p-4">
+                        <h3 className="text-sm font-semibold">İçe aktarma durumu</h3>
+                        <p className="mt-2 text-sm text-muted-foreground">
+                            {pendingBackupFileName ? `${pendingBackupFileName} hazır` : 'Henüz dosya seçilmedi'}
+                        </p>
+                        {pendingManifest ? (
+                            <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                                <p>Versiyon: {pendingManifest.version}</p>
+                                <p>Dışa aktarım: {new Date(pendingManifest.exportedAt).toLocaleString('tr-TR')}</p>
+                                <p>Auth manifest kullanıcı sayısı: {pendingManifest.authManifest.totalUsers}</p>
+                            </div>
+                        ) : null}
+                    </div>
+
+                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+                        <p className="font-semibold">Sınır</p>
+                        <p className="mt-2 leading-6">
+                            Bu panel tam auth/password felaket kurtarması yapmaz. Şifre korumalı Supabase auth geri yükleme için resmi backup/restore akışı kullanılmalıdır.
+                        </p>
+                    </div>
+                </div>
+            </section>
 
             {isSaving ? (
                 <div className="flex items-center gap-2 text-sm text-muted-foreground">

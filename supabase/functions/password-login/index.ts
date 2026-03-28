@@ -26,6 +26,27 @@ const sha256 = async (value: string) => {
     .join("");
 };
 
+const hasActiveUserBan = (user?: {
+  is_banned?: boolean | null;
+  active_ban_type?: string | null;
+  ban_expires_at?: string | null;
+}) => {
+  if (!user?.is_banned && !user?.active_ban_type) {
+    return false;
+  }
+
+  if (!user?.ban_expires_at) {
+    return true;
+  }
+
+  const expiresAt = Date.parse(user.ban_expires_at);
+  if (!Number.isFinite(expiresAt)) {
+    return true;
+  }
+
+  return expiresAt > Date.now();
+};
+
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -112,13 +133,20 @@ Deno.serve(async (req: Request) => {
   }
 
   let loginEmail = identifier;
-  let targetUserId: string | null = null;
+  let matchedUserRecord: {
+    id: string;
+    email: string | null;
+    is_banned?: boolean | null;
+    ban_reason?: string | null;
+    active_ban_type?: string | null;
+    ban_expires_at?: string | null;
+  } | null = null;
 
   const [{ data: ipBan }, { data: deviceBan }] = await Promise.all([
     serviceClient.from("banned_ip_hashes").select("ip_hash").eq("ip_hash", ipHash).maybeSingle(),
     deviceHash
       ? serviceClient.from("banned_device_hashes").select("device_hash").eq("device_hash", deviceHash).maybeSingle()
-      : Promise.resolve({ data: null } as any),
+      : Promise.resolve({ data: null, error: null } as const),
   ]);
 
   if (ipBan) {
@@ -140,36 +168,26 @@ Deno.serve(async (req: Request) => {
   if (!identifier.includes("@")) {
     const { data: matchedUser } = await serviceClient
       .from("users")
-      .select("id, email, is_banned, ban_reason")
+      .select("id, email, is_banned, ban_reason, active_ban_type, ban_expires_at")
       .eq("username", identifier)
       .maybeSingle();
-
-    if (matchedUser?.is_banned) {
-      return json({
-        success: false,
-        code: "USER_BANNED",
-        message: matchedUser.ban_reason || "Hesabınız banlandı.",
-      });
-    }
-
-    targetUserId = matchedUser?.id || null;
+    matchedUserRecord = matchedUser;
     loginEmail = matchedUser?.email?.trim().toLowerCase() || `${identifier}@invalid.toonparrot.local`;
   } else {
     const { data: matchedUser } = await serviceClient
       .from("users")
-      .select("id, is_banned, ban_reason")
+      .select("id, email, is_banned, ban_reason, active_ban_type, ban_expires_at")
       .eq("email", identifier)
       .maybeSingle();
+    matchedUserRecord = matchedUser;
+  }
 
-    if (matchedUser?.is_banned) {
-      return json({
-        success: false,
-        code: "USER_BANNED",
-        message: matchedUser.ban_reason || "Hesabınız banlandı.",
-      });
-    }
-
-    targetUserId = matchedUser?.id || null;
+  if (matchedUserRecord && hasActiveUserBan(matchedUserRecord)) {
+    return json({
+      success: false,
+      code: "USER_BANNED",
+      message: matchedUserRecord.ban_reason || "Bu hesap için erişim geçici veya kalıcı olarak engellendi.",
+    });
   }
 
   const authResponse = await fetch(`${supabaseUrl}/auth/v1/token?grant_type=password`, {

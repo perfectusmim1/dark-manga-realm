@@ -92,6 +92,10 @@ export interface User {
   isBanned?: boolean;
   banReason?: string;
   bannedAt?: string;
+  activeBanType?: UserBanKind | null;
+  banExpiresAt?: string | null;
+  warningCount?: number;
+  unreadWarningCount?: number;
   preferences?: {
     notifications: {
       new_chapter: boolean;
@@ -311,4 +315,115 @@ export interface TagVote {
   userId: string;
   voteType: 'up' | 'down';
   createdAt: string;
+}
+
+export type SupportTicketCategory = 'bug_report' | 'account' | 'content_issue' | 'ban_appeal' | 'other';
+
+export type SupportTicketStatus = 'open' | 'waiting_staff' | 'waiting_user' | 'closed';
+
+export type UserBanKind = 'timed' | 'permanent' | 'hard';
+
+export type ScrapeSource = 'hayalistic' | 'webtoonhatti';
+
+export interface SupportTicketMessage {
+  id: string;
+  ticketId: string;
+  authorId: string | null;
+  authorName: string;
+  authorRole: 'user' | 'moderator' | 'admin' | 'system';
+  content: string;
+  imageUrl?: string | null;
+  createdAt: string;
+}
+
+export interface SupportTicket {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  subject: string;
+  category: SupportTicketCategory;
+  status: SupportTicketStatus;
+  imageUrl?: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastMessageAt: string;
+  messages: SupportTicketMessage[];
+}
+
+export interface UserWarning {
+  id: string;
+  title: string;
+  message: string;
+  createdAt: string;
+  acknowledgedAt?: string | null;
+  issuedBy?: string | null;
+  issuedByName?: string | null;
+}
+
+export interface UserBanRecord {
+  id: string;
+  kind: UserBanKind;
+  reason: string;
+  createdAt: string;
+  expiresAt?: string | null;
+  revokedAt?: string | null;
+  issuedBy?: string | null;
+  issuedByName?: string | null;
+  revokedBy?: string | null;
+  revokedByName?: string | null;
+  warningId?: string | null;
+  metadata?: Record<string, unknown>;
+}
+
+export interface CurrentUserWarning {
+  id: string;
+  title: string;
+  message: string;
+  createdAt: string;
+}
+
+export interface CurrentUserBanState {
+  active: boolean;
+  type?: UserBanKind | null;
+  reason?: string | null;
+  expiresAt?: string | null;
+  bannedAt?: string | null;
+}
+
+export type AccessDecisionReason =
+  | 'ok'
+  | 'ip_banned'
+  | 'device_banned'
+  | 'user_banned'
+  | 'support_only'
+  | 'access_check_failed';
+
+export interface UserAccessState {
+  reason?: AccessDecisionReason;
+  blockedMessage?: string | null;
+  supportOnly: boolean;
+  warning: CurrentUserWarning | null;
+  ban: CurrentUserBanState;
+}
+
+export interface SiteBackupManifest {
+  version: number;
+  exportedAt: string;
+  exportedBy: {
+    id: string;
+    email: string;
+  };
+  authManifest: {
+    totalUsers: number;
+    users: Array<{
+      id: string;
+      email?: string | null;
+      role?: string | null;
+      createdAt?: string | null;
+      lastSignInAt?: string | null;
+      emailConfirmedAt?: string | null;
+    }>;
+  };
+  tables: Record<string, unknown[]>;
 }

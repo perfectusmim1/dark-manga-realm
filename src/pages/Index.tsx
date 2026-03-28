@@ -11,7 +11,6 @@ import TagBadge from '@/components/tags/TagBadge';
 import { getReadingHistoryEntries, type ReadingHistoryEntry } from '@/lib/storage';
 import { supabaseUrl } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
-import HomeSkeleton from '@/components/skeletons/HomeSkeleton';
 import { Manga, Tag } from '@/lib/types';
 import { AnimatePresence, motion } from 'framer-motion';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
@@ -689,7 +688,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
 const Index: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
-  const { snapshot: offlineSnapshot, isLoading: offlineLibraryLoading, isOnline } = useOfflineLibrary();
+  const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
   const [mangas, setMangas] = useState<Manga[]>(() => HOME_PAGE_CACHE.mangas ?? []);
   const [hasPersistedAuthSession, setHasPersistedAuthSession] = useState(() => hasPersistedSupabaseSession());
@@ -697,7 +696,6 @@ const Index: React.FC = () => {
     readPersistedContinueReadingCache()?.entries ?? []
   ));
   const [continueReadingLoading, setContinueReadingLoading] = useState(false);
-  const [isLoading, setIsLoading] = useState(() => HOME_PAGE_CACHE.mangas === null);
   const [trendingTags, setTrendingTags] = useState<Tag[]>(() => HOME_PAGE_CACHE.trendingTags ?? []);
   const [tagsLoading, setTagsLoading] = useState(() => HOME_PAGE_CACHE.trendingTags === null);
   const mangaById = useMemo(() => new Map(mangas.map((item) => [item.id, item])), [mangas]);
@@ -743,7 +741,6 @@ const Index: React.FC = () => {
     }
 
     setMangas(offlineManga);
-    setIsLoading(false);
   }, [isOnline, offlineManga]);
 
   useEffect(() => {
@@ -755,10 +752,6 @@ const Index: React.FC = () => {
 
     const loadMainContent = async () => {
       try {
-        if (HOME_PAGE_CACHE.mangas === null) {
-          setIsLoading(true);
-        }
-
         const allMangas = await getMangaSummaries();
         if (!active) {
           return;
@@ -766,12 +759,8 @@ const Index: React.FC = () => {
 
         HOME_PAGE_CACHE.mangas = allMangas;
         setMangas(allMangas);
-        setIsLoading(false);
       } catch (err) {
         console.error('Data loading error:', err);
-        if (active) {
-          setIsLoading(false);
-        }
       }
     };
 
@@ -937,24 +926,12 @@ const Index: React.FC = () => {
       .slice(0, 12),
   }), [mangas]);
 
-  const showHomeSkeleton =
-    (isOnline && isLoading && mangas.length === 0) ||
-    (!isOnline && offlineLibraryLoading && offlineManga.length === 0);
   const canRenderContinueReadingSlot = isOnline && (Boolean(user) || (authLoading && hasPersistedAuthSession));
   const shouldShowContinueReading = canRenderContinueReadingSlot && continueReading.length > 0;
   const showContinueReadingSkeleton = canRenderContinueReadingSlot
     && !shouldShowContinueReading
     && (authLoading || continueReadingLoading || continueReadingSeed.length > 0);
   const shouldRenderContinueReadingSlot = shouldShowContinueReading || showContinueReadingSkeleton;
-
-  if (showHomeSkeleton) {
-    return (
-      <>
-        <Header />
-        <HomeSkeleton />
-      </>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background">

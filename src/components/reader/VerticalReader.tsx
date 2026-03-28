@@ -35,6 +35,7 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
   onHeightChange,
 }) => {
   const pageRef = useRef<HTMLDivElement | null>(null);
+  const [isMediaReady, setIsMediaReady] = useState(false);
   const isPriorityPage = Math.abs(index - Math.max(0, initialPage - 1)) <= preloadWindow;
   const { ref: viewportRef, isNearViewport } = useNearViewport<HTMLDivElement>({
     rootMargin,
@@ -42,6 +43,7 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
     initialVisible: isPriorityPage,
   });
   const shouldRenderMedia = isPriorityPage || isNearViewport;
+  const placeholderHeight = Math.max(estimatedHeight, 320);
 
   const setRefs = useCallback((node: HTMLDivElement | null) => {
     pageRef.current = node;
@@ -49,7 +51,7 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
   }, [viewportRef]);
 
   useEffect(() => {
-    if (!shouldRenderMedia || typeof ResizeObserver === 'undefined') {
+    if (!shouldRenderMedia || !isMediaReady || typeof ResizeObserver === 'undefined') {
       return;
     }
 
@@ -76,35 +78,44 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
     return () => {
       observer.disconnect();
     };
-  }, [index, onHeightChange, shouldRenderMedia]);
+  }, [index, isMediaReady, onHeightChange, shouldRenderMedia]);
+
+  useEffect(() => {
+    setIsMediaReady(false);
+  }, [page.src, shouldRenderMedia]);
 
   return (
     <div
       ref={setRefs}
       data-page-index={index}
-      className="relative mx-auto flex w-full items-center justify-center"
+      className="group relative mx-auto flex w-full justify-center"
       style={{
         maxWidth: fitWidth ? `${896 * (zoom / 100)}px` : 'none',
-        contentVisibility: 'auto',
-        containIntrinsicSize: `${Math.round(estimatedHeight)}px`,
+        ...(shouldRenderMedia && isMediaReady
+          ? {}
+          : {
+              contentVisibility: 'auto' as const,
+              containIntrinsicSize: `${Math.round(placeholderHeight)}px`,
+            }),
       }}
     >
       <div
         data-reader-page-number={index + 1}
         className="mx-auto flex w-full justify-center"
-        style={{ minHeight: Math.max(estimatedHeight, 320) }}
+        style={shouldRenderMedia && isMediaReady ? undefined : { minHeight: placeholderHeight }}
       >
         {shouldRenderMedia ? (
           <ProtectedImage
             src={page.src}
             alt={`Sayfa ${index + 1}`}
             zoom={zoom}
+            onMediaReadyChange={setIsMediaReady}
           />
         ) : (
           <div
             aria-hidden
             className="w-full rounded-sm bg-muted/10"
-            style={{ minHeight: Math.max(estimatedHeight, 320) }}
+            style={{ minHeight: placeholderHeight }}
           />
         )}
       </div>
@@ -207,7 +218,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   }, [initialPage]);
 
   return (
-    <div className="flex flex-col items-center gap-0 pb-20 pt-20">
+    <div className="flex flex-col items-center gap-0 pb-10 pt-14 sm:pb-14 sm:pt-20">
       {pages.map((page, index) => (
         <ReaderPage
           key={index}

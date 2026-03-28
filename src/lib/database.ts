@@ -945,6 +945,10 @@ const mapAdminDirectoryUser = (user: any): User => ({
     isBanned: user.is_banned || false,
     banReason: user.ban_reason || undefined,
     bannedAt: user.banned_at || undefined,
+    activeBanType: user.active_ban_type || null,
+    banExpiresAt: user.ban_expires_at || null,
+    warningCount: Number(user.warning_count) || 0,
+    unreadWarningCount: Number(user.unread_warning_count) || 0,
     createdAt: user.created_at,
     lastSeenAt: user.last_seen_at || undefined,
 });

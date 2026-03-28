@@ -22,11 +22,26 @@ import { normalizeGenres } from '@/lib/mockData';
 import {
     fetchScraperContent,
     getAvailableScraperProviders,
+    getDefaultScraperProviderForSource,
     getScraperProviderLabel,
     readPreferredScraperProvider,
     type ScraperProvider,
     writePreferredScraperProvider,
 } from '@/lib/scraperProxy';
+import {
+    buildScrapeSearchUrl,
+    detectScrapeSourceFromUrl,
+    extractChapterImageUrls,
+    extractScrapedMangaCards,
+    extractScrapedMangaDetail,
+    getAvailableScrapeSources,
+    getScrapeSourceLabel,
+    isDirectScrapeLink,
+    normalizeScrapeUrl,
+    readPreferredScrapeSource,
+    type ScrapeSource,
+    writePreferredScrapeSource,
+} from '@/lib/scraper/scrapeSources';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -35,24 +50,19 @@ interface ScrapedMangaCard {
     link: string;
     cover: string;
     genres: string[];
+    source: ScrapeSource;
 }
 
 interface ScrapedChapter {
     name: string;
     link: string;
     number: number;
+    source: ScrapeSource;
 }
 
 interface ScrapedMangaDraft extends Partial<Manga> {
     _rawChapters: ScrapedChapter[];
-}
-
-interface ParsedChapterImage {
-    src?: string | null;
-}
-
-interface ParsedChapterDataPayload {
-    images?: ParsedChapterImage[];
+    source: ScrapeSource;
 }
 
 const normalizeScrapedText = (value?: string | null) =>
@@ -63,14 +73,6 @@ const toScrapedKey = (value?: string | null) =>
 
 const extractPrimaryScrapedPersonName = (value?: string | null) =>
     normalizeScrapedText(value).split(/[,，]/)[0]?.trim() || '';
-
-const isParsedChapterDataPayload = (value: unknown): value is ParsedChapterDataPayload => {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-
-    return Array.isArray((value as ParsedChapterDataPayload).images);
-};
 
 const getScrapedSummaryField = (doc: Document, labels: string[]) => {
     const normalizedLabels = labels.map((label) => label.toLocaleLowerCase('tr-TR'));
@@ -140,6 +142,7 @@ const AdminScraper: React.FC = () => {
     const { access, isLoading: accessLoading } = useAdminAccess();
     const canUseScraper = access.canAccessAdminPanel && access.role === 'admin';
     const availableScraperProviders = getAvailableScraperProviders();
+    const availableScrapeSources = getAvailableScrapeSources();
     const [searchQuery, setSearchQuery] = useState('');
     const [loading, setLoading] = useState(false);
     const [results, setResults] = useState<ScrapedMangaCard[]>([]);
@@ -147,6 +150,7 @@ const AdminScraper: React.FC = () => {
     const [fetchedData, setFetchedData] = useState<ScrapedMangaDraft | null>(null);
     const [fetchingDetails, setFetchingDetails] = useState(false);
     const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
+    const [scrapeSource, setScrapeSource] = useState<ScrapeSource>(() => readPreferredScrapeSource());
     const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
 
     useEffect(() => {
@@ -169,6 +173,22 @@ const AdminScraper: React.FC = () => {
         setScraperProvider(nextProvider);
     }, [availableScraperProviders, scraperProvider]);
 
+    useEffect(() => {
+        if (!availableScrapeSources.includes(scrapeSource)) {
+            const nextSource = readPreferredScrapeSource();
+            setScrapeSource(nextSource);
+            return;
+        }
+
+        if (scrapeSource === 'webtoonhatti' && scraperProvider !== 'cloudflare' && availableScraperProviders.includes('cloudflare')) {
+            const nextProvider = getDefaultScraperProviderForSource(scrapeSource);
+            if (nextProvider !== scraperProvider) {
+                writePreferredScraperProvider(nextProvider);
+                setScraperProvider(nextProvider);
+            }
+        }
+    }, [availableScrapeSources, availableScraperProviders, scrapeSource, scraperProvider]);
+
     if (accessLoading || !user || !canUseScraper) {
         return null;
     }
@@ -179,18 +199,36 @@ const AdminScraper: React.FC = () => {
         toast.success(`Scraper sağlayıcısı: ${getScraperProviderLabel(nextProvider)}`);
     };
 
+    const handleScrapeSourceChange = (nextSource: ScrapeSource) => {
+        writePreferredScrapeSource(nextSource);
+        setScrapeSource(nextSource);
+        setResults([]);
+        setSelectedManga(null);
+        setFetchedData(null);
+        setSelectedChapterIndices([]);
+        toast.success(`Kaynak site: ${getScrapeSourceLabel(nextSource)}`);
+    };
+
     const handleSearch = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
 
-        // Check if searchQuery is a direct link
-        if (searchQuery.trim().startsWith('http') && searchQuery.includes('hayalistic.net/manga/')) {
+        const rawQuery = searchQuery.trim();
+        const detectedSource = rawQuery.startsWith('http') ? detectScrapeSourceFromUrl(rawQuery) : null;
+        const sourceToUse = detectedSource || scrapeSource;
+
+        if (rawQuery.startsWith('http') && isDirectScrapeLink(sourceToUse, rawQuery)) {
+            if (detectedSource && detectedSource !== scrapeSource) {
+                handleScrapeSourceChange(detectedSource);
+            }
+
             toast.info('Direkt link algılandı, detaylar getiriliyor...');
             fetchMangaDetails({
                 title: 'Linkten Çekilen Manga',
-                link: searchQuery.trim(),
+                link: normalizeScrapeUrl(sourceToUse, rawQuery),
                 cover: '',
-                genres: []
-            });
+                genres: [],
+                source: sourceToUse,
+            }, sourceToUse);
             return;
         }
 
@@ -200,35 +238,17 @@ const AdminScraper: React.FC = () => {
         setFetchedData(null);
 
         try {
-            const url = searchQuery
-                ? `https://hayalistic.net/?s=${encodeURIComponent(searchQuery)}&post_type=wp-manga`
-                : 'https://hayalistic.net/webtoonlar/';
+            const url = buildScrapeSearchUrl(sourceToUse, rawQuery);
 
-            const html = await fetchScraperContent(url, { provider: scraperProvider });
+            const html = await fetchScraperContent(url, { provider: scraperProvider, source: sourceToUse });
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-
-            const cards: ScrapedMangaCard[] = [];
-
-            // Hayalistic uses .page-item-detail.manga for list and .c-tabs-item__content for search
-            const cardElements = doc.querySelectorAll('.page-item-detail.manga, .c-tabs-item__content, .manga-item');
-
-            cardElements.forEach((el) => {
-                const titleEl = el.querySelector('.post-title a, h3 a');
-                const imgEl = el.querySelector('img');
-                const genresEl = el.querySelectorAll('.list-genre a, .genres-item a');
-
-                if (titleEl) {
-                    cards.push({
-                        title: titleEl.textContent?.trim() || '',
-                        link: (titleEl as HTMLAnchorElement).href.replace(window.location.origin, 'https://hayalistic.net'),
-                        cover: imgEl?.getAttribute('data-src') || imgEl?.src?.replace(window.location.origin, 'https://hayalistic.net') || '',
-                        genres: normalizeGenres(Array.from(genresEl).map(g => g.textContent?.trim() || '')),
-                    });
-                }
-            });
-
+            const cards = extractScrapedMangaCards(doc, sourceToUse).map((card) => ({
+                ...card,
+                genres: normalizeGenres(card.genres),
+                source: sourceToUse,
+            }));
             setResults(cards);
             if (cards.length === 0) toast.error('Sonuç bulunamadı');
         } catch (err) {
@@ -239,108 +259,27 @@ const AdminScraper: React.FC = () => {
         }
     };
 
-    const fetchMangaDetails = async (card: ScrapedMangaCard) => {
+    const fetchMangaDetails = async (card: ScrapedMangaCard, source: ScrapeSource = card.source) => {
         setFetchingDetails(true);
-        setSelectedManga(card);
+        setSelectedManga({ ...card, source });
         setFetchedData(null);
 
         try {
-            const html = await fetchScraperContent(card.link, { provider: scraperProvider });
+            const html = await fetchScraperContent(card.link, { provider: scraperProvider, source });
 
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-
-            // Scrape Title and Cover from Detail Page (important for direct link feature)
-            const detailTitle = doc.querySelector('.post-title h1')?.textContent?.trim();
-            const detailCoverImg = doc.querySelector('.summary_image img');
-            const detailCover = detailCoverImg?.getAttribute('data-src') ||
-                detailCoverImg?.getAttribute('data-lazy-src') ||
-                detailCoverImg?.getAttribute('src');
-
-            // Description - Target .summary__content as suggested by subagent
-            const description = doc.querySelector('.description-summary .summary__content')?.textContent?.trim() ||
-                doc.querySelector('.manga-excerpt')?.textContent?.trim() ||
-                doc.querySelector('.post-content_item p')?.textContent?.trim() || '';
-
-            // Status
-            const statusText = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.includes('Durumu'))
-                ?.querySelector('.summary-content')?.textContent?.trim() || 'ongoing';
-
-            const status: Manga['status'] = statusText.toLocaleLowerCase('tr-TR').includes('tamam') || statusText.toLocaleLowerCase('tr-TR').includes('fin') ? 'completed' : 'ongoing';
-
-            // Author
-            const author = extractPrimaryScrapedPersonName(Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('yazar'))
-                ?.querySelector('.author-content a, .summary-content')?.textContent) || 'Bilinmiyor';
-
-            // Artist
-            const artist = extractPrimaryScrapedPersonName(Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('çizer'))
-                ?.querySelector('.artist-content a, .summary-content')?.textContent) || author;
-
-            // Alternative Titles
-            const altTitlesText = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('diğer adları') || el.textContent?.toLocaleLowerCase('tr-TR').includes('alt isimler'))
-                ?.querySelector('.summary-content')?.textContent?.trim() || '';
-            const alternativeTitles = sanitizeAlternativeTitles(altTitlesText, detailTitle || card.title);
-
-            // Release Year
-            const yearText = Array.from(doc.querySelectorAll('.post-content_item'))
-                .find(el => el.textContent?.toLocaleLowerCase('tr-TR').includes('yıl') || el.textContent?.toLocaleLowerCase('tr-TR').includes('salınış'))
-                ?.querySelector('.summary-content')?.textContent?.trim() || '';
-            const releaseYear = yearText ? parseInt(yearText.match(/\d{4}/)?.[0] || '') : new Date().getFullYear();
-
-            // Genres
-            const genreElements = doc.querySelectorAll('.genres-content a');
-            const genres = genreElements.length > 0
-                ? normalizeGenres(Array.from(genreElements).map(g => g.textContent?.trim() || ''))
-                : normalizeGenres(card.genres);
-
-            const type = inferScrapedMangaType(doc, genres, card.genres);
-
-            // Chapters
-            const chapterElements = doc.querySelectorAll('.wp-manga-chapter');
-            const chapters: ScrapedChapter[] = [];
-
-            chapterElements.forEach((el) => {
-                const linkEl = el.querySelector('a');
-                if (linkEl) {
-                    const name = linkEl.textContent?.trim() || '';
-                    const link = linkEl.href.replace(window.location.origin, 'https://hayalistic.net');
-                    // Extract number more robustly
-                    const numMatch = name.match(/(\d+(\.\d+)?)/);
-                    const number = numMatch ? parseFloat(numMatch[1]) : 0;
-
-                    chapters.push({ name, link, number });
-                }
-            });
-
-            // Sort chapters by number ascending
-            chapters.sort((a, b) => a.number - b.number);
-
-            const finalTitle = normalizeScrapedText(detailTitle || card.title);
-            const finalCover = detailCover || card.cover || '';
-
+            const extractedManga = extractScrapedMangaDetail(doc, source, card);
             const scrapedManga: ScrapedMangaDraft = {
-                title: finalTitle,
-                alternativeTitles,
-                description,
-                cover: finalCover,
-                banner: finalCover,
-                author,
-                artist,
-                status,
-                type,
-                genres: normalizeGenres(genres.filter(g => g && g !== '')),
-                releaseYear,
-                chapters: [], // We'll fetch pages for each chapter if needed, but for now just meta
-                views: 0,
-                ratings: [],
-                _rawChapters: chapters,
+                ...extractedManga,
+                source,
+                _rawChapters: extractedManga._rawChapters.map((chapter) => ({
+                    ...chapter,
+                    source,
+                })),
             };
 
-            setSelectedChapterIndices(chapters.map((_, i) => i));
+            setSelectedChapterIndices(scrapedManga._rawChapters.map((_, i) => i));
             setFetchedData(scrapedManga);
             toast.success('Manga detayları çekildi');
         } catch (err) {
@@ -358,6 +297,7 @@ const AdminScraper: React.FC = () => {
         try {
             const rawChapters = fetchedData._rawChapters;
             const selectedChaptersToImport = rawChapters.filter((_, i) => selectedChapterIndices.includes(i));
+            const activeScrapeSource = fetchedData.source;
 
             if (selectedChaptersToImport.length === 0) {
                 toast.error('Lütfen en az bir bölüm seçin');
@@ -381,49 +321,9 @@ const AdminScraper: React.FC = () => {
                     // Increased delay to be safer
                     if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
 
-                    const chHtml = await fetchScraperContent(rc.link, { provider: scraperProvider });
+                    const chHtml = await fetchScraperContent(rc.link, { provider: scraperProvider, source: rc.source || activeScrapeSource });
                     const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
-
-                    // 1. Method: Try standard selectors
-                    let images = Array.from(chDoc.querySelectorAll('.reading-content img, .wp-manga-chapter-img, .page-break img, .entry-content img'))
-                        .map(img => {
-                            const src = (img.getAttribute('src') || '').trim();
-                            const dataSrc = (img.getAttribute('data-src') || '').trim();
-                            const dataLazySrc = (img.getAttribute('data-lazy-src') || '').trim();
-                            const dataCdn = (img.getAttribute('data-cdn') || '').trim();
-
-                            const finalSrc = (dataSrc.startsWith('http') ? dataSrc :
-                                dataLazySrc.startsWith('http') ? dataLazySrc :
-                                    dataCdn.startsWith('http') ? dataCdn :
-                                        src.startsWith('http') && !src.includes('base64') ? src : '').trim();
-
-                            return finalSrc;
-                        })
-                        .filter(src => src !== '');
-
-                    // 2. Method: If no images found, try to find chapter_data in scripts (Common in Madara)
-                    if (images.length === 0) {
-                        const scripts = chDoc.querySelectorAll('script');
-                        for (const script of Array.from(scripts)) {
-                            const content = script.textContent || '';
-                            if (content.includes('chapter_data')) {
-                                try {
-                                    // Try to extract JSON from var chapter_data = {...};
-                                    const match = content.match(/chapter_data\s*=\s*({.*?});/s);
-                                    if (match) {
-                                        const jsonData: unknown = JSON.parse(match[1]);
-                                        if (isParsedChapterDataPayload(jsonData) && jsonData.images) {
-                                            images = jsonData.images
-                                                .map((img) => (typeof img.src === 'string' ? img.src.trim() : ''))
-                                                .filter((src) => src.startsWith('http'));
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.warn('Script parsing failed', e);
-                                }
-                            }
-                        }
-                    }
+                    const images = extractChapterImageUrls(chDoc, rc.source || activeScrapeSource);
 
                     if (images.length === 0) {
                         console.warn(`Bölüm ${rc.number} için görsel bulunamadı.`);
@@ -505,14 +405,22 @@ const AdminScraper: React.FC = () => {
                     <h1 className="text-2xl font-bold sm:text-3xl">İçerik Çekici (Scraper)</h1>
                     <p className="text-muted-foreground">Dış sitelerden manga ve webtoon verilerini otomatik olarak çekin.</p>
                 </div>
-                <div className="flex flex-wrap gap-2">
-                    <Badge variant="outline" className="h-8 gap-1 bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 transition-colors">
-                        <Globe className="h-4 w-4" />
-                        Hayalistic.net
-                    </Badge>
+                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                    <Select value={scrapeSource} onValueChange={(value) => handleScrapeSourceChange(value as ScrapeSource)}>
+                        <SelectTrigger className="h-8 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:w-[190px]">
+                            <SelectValue placeholder="Kaynak site seç" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {availableScrapeSources.map((source) => (
+                                <SelectItem key={source} value={source}>
+                                    {getScrapeSourceLabel(source)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
                     <Select value={scraperProvider} onValueChange={(value) => handleScraperProviderChange(value as ScraperProvider)}>
-                        <SelectTrigger className="h-8 w-[170px] border-primary/20 bg-primary/5 text-xs text-primary">
-                            <SelectValue placeholder="Scraper seç" />
+                        <SelectTrigger className="h-8 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:w-[170px]">
+                            <SelectValue placeholder="Proxy seç" />
                         </SelectTrigger>
                         <SelectContent>
                             {availableScraperProviders.map((provider) => (
@@ -522,6 +430,10 @@ const AdminScraper: React.FC = () => {
                             ))}
                         </SelectContent>
                     </Select>
+                    <Badge variant="outline" className="h-8 gap-1 border-primary/20 bg-primary/5 text-primary transition-colors hover:bg-primary/10">
+                        <Globe className="h-4 w-4" />
+                        {getScrapeSourceLabel(scrapeSource)}
+                    </Badge>
                 </div>
             </div>
 
@@ -529,7 +441,7 @@ const AdminScraper: React.FC = () => {
                 <CardHeader>
                     <CardTitle>Manga Ara veya Link Yapıştır</CardTitle>
                     <CardDescription>
-                        Hayalistic üzerinden manga araması yapın veya direkt seri sayfasının linkini yapıştırın.
+                        {getScrapeSourceLabel(scrapeSource)} üzerinden manga araması yapın veya direkt seri sayfasının linkini yapıştırın.
                     </CardDescription>
                 </CardHeader>
                 <CardContent>
@@ -537,7 +449,7 @@ const AdminScraper: React.FC = () => {
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                             <Input
-                                placeholder="Manga adı yazın veya https://hayalistic.net/manga/... linkini yapıştırın"
+                                placeholder={`Manga adı yazın veya ${getScrapeSourceLabel(scrapeSource)} seri linkini yapıştırın`}
                                 className="pl-10"
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}

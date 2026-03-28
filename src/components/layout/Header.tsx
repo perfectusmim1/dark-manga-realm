@@ -29,6 +29,7 @@ import {
   Sparkles,
   Download,
   ChevronDown,
+  LifeBuoy,
   type LucideIcon,
 } from 'lucide-react';
 import { getCharacters, getMangaSummaries } from '@/lib/database';
@@ -842,6 +843,12 @@ const Header: React.FC = () => {
                   <Link to="/settings" className="flex items-center gap-2">
                     <Settings className="h-4 w-4" />
                     Ayarlar
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/support" className="flex items-center gap-2">
+                    <LifeBuoy className="h-4 w-4" />
+                    Destek
                   </Link>
                 </DropdownMenuItem>
 

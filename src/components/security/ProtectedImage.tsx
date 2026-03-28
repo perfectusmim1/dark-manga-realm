@@ -7,9 +7,17 @@ interface ProtectedImageProps {
     className?: string;
     style?: React.CSSProperties;
     zoom?: number;
+    onMediaReadyChange?: (ready: boolean) => void;
 }
 
-const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, style, zoom = 100 }) => {
+const ProtectedImage: React.FC<ProtectedImageProps> = ({
+    src,
+    alt,
+    className,
+    style,
+    zoom = 100,
+    onMediaReadyChange,
+}) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const shouldBypassCanvas = src.startsWith('blob:') || src.startsWith('data:');
@@ -22,6 +30,10 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({ src, alt, className, st
         setIsBroken(false);
         setIsMediaReady(false);
     }, [shouldBypassCanvas, src]);
+
+    useEffect(() => {
+        onMediaReadyChange?.(isMediaReady);
+    }, [isMediaReady, onMediaReadyChange]);
 
     useEffect(() => {
         if (useFallback) return;

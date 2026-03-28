@@ -1,565 +1,393 @@
-import React, { useState, useEffect } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import {
-    Trash2,
-    Users,
-    UserCircle,
-    Mail,
-    Calendar,
-    Search,
-    ShieldBan,
-    ShieldCheck
-} from 'lucide-react';
+import { AlertTriangle, Calendar, Gavel, Loader2, Mail, MessageSquareWarning, Search, ShieldAlert, ShieldBan, ShieldCheck, Trash2, UserCircle, Users } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import {
-    AlertDialog,
-    AlertDialogAction,
-    AlertDialogCancel,
-    AlertDialogContent,
-    AlertDialogDescription,
-    AlertDialogFooter,
-    AlertDialogHeader,
-    AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
+import { Label } from '@/components/ui/label';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
-import { getAllUsers, deleteUser, banUserAccess, unbanUserAccess } from '@/lib/database';
-import { User } from '@/lib/types';
+import { Textarea } from '@/components/ui/textarea';
+import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
+import { getAllUsers, deleteUser } from '@/lib/database';
+import { banUserAccount, getUserAccessHistory, issueUserWarning, type UserAccessHistory, unbanUserAccount } from '@/lib/adminUserAccess';
+import { User, UserBanKind } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 
-const ACTIVE_USER_WINDOW_MS = 15 * 60 * 1000;
-type BanMode = 'user' | 'hard';
+const ACTIVE_WINDOW_MS = 15 * 60 * 1000;
+const banKindLabels: Record<UserBanKind, string> = { timed: 'Süreli Ban', permanent: 'Kalıcı Ban', hard: 'Hard Ban' };
+const formatRelative = (value?: string | null) => value ? formatDistanceToNow(new Date(value), { addSuffix: true, locale: tr }) : 'Bilinmiyor';
+const formatTimestamp = (value?: string | null) => value ? new Date(value).toLocaleString('tr-TR') : 'Bilinmiyor';
+const getErrorMessage = (error: unknown, fallback: string) => error instanceof Error ? error.message : fallback;
 
-const getErrorMessage = (error: unknown, fallback: string) =>
-    error instanceof Error ? error.message : fallback;
-
-const getUserPresence = (user: User) => {
-    if (user.isBanned) {
-        return {
-            tone: 'banned' as const,
-            label: 'Banlı',
-            detail: user.banReason || undefined,
-        };
-    }
-
-    if (!user.lastSeenAt) {
-        return {
-            tone: 'unknown' as const,
-            label: 'Bilinmiyor',
-            detail: undefined,
-        };
-    }
-
-    const lastSeenAt = new Date(user.lastSeenAt).getTime();
-    if (!Number.isFinite(lastSeenAt)) {
-        return {
-            tone: 'unknown' as const,
-            label: 'Bilinmiyor',
-            detail: undefined,
-        };
-    }
-
-    const isActive = Date.now() - lastSeenAt <= ACTIVE_USER_WINDOW_MS;
-
-    return {
-        tone: isActive ? 'active' as const : 'inactive' as const,
-        label: isActive ? 'Aktif' : 'Pasif',
-        detail: formatDistanceToNow(new Date(user.lastSeenAt), { addSuffix: true, locale: tr }),
-    };
+const getPresence = (account: User) => {
+  if (account.isBanned) return { label: banKindLabels[account.activeBanType || 'permanent'], detail: account.banExpiresAt ? `Bitiş ${formatTimestamp(account.banExpiresAt)}` : account.banReason || 'Kısıtlı', banned: true };
+  if (!account.lastSeenAt) return { label: 'Bilinmiyor', detail: undefined, banned: false };
+  return Date.now() - new Date(account.lastSeenAt).getTime() <= ACTIVE_WINDOW_MS
+    ? { label: 'Aktif', detail: `Son görülme ${formatRelative(account.lastSeenAt)}`, banned: false }
+    : { label: 'Pasif', detail: `Son görülme ${formatRelative(account.lastSeenAt)}`, banned: false };
 };
 
+type ActionState = 'warning' | 'ban' | 'unban' | 'delete' | null;
+
 const AdminUserManagement: React.FC = () => {
-    const { user, isLoading: authLoading } = useAuth();
-    const [users, setUsers] = useState<User[]>([]);
-    const [isLoading, setIsLoading] = useState(true);
-    const [searchQuery, setSearchQuery] = useState('');
-    const [deleteId, setDeleteId] = useState<string | null>(null);
-    const [banTarget, setBanTarget] = useState<User | null>(null);
-    const [unbanTarget, setUnbanTarget] = useState<User | null>(null);
-    const [banSubmittingMode, setBanSubmittingMode] = useState<BanMode | null>(null);
+  const { user, isLoading: authLoading } = useAuth();
+  const [users, setUsers] = useState<User[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [historyLoading, setHistoryLoading] = useState(false);
+  const [history, setHistory] = useState<UserAccessHistory | null>(null);
+  const [searchQuery, setSearchQuery] = useState('');
+  const [selectedUserId, setSelectedUserId] = useState('');
+  const [warningTarget, setWarningTarget] = useState<User | null>(null);
+  const [banTarget, setBanTarget] = useState<User | null>(null);
+  const [unbanTarget, setUnbanTarget] = useState<User | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<User | null>(null);
+  const [activeAction, setActiveAction] = useState<ActionState>(null);
+  const [warningTitle, setWarningTitle] = useState('Yönetici uyarısı');
+  const [warningMessage, setWarningMessage] = useState('');
+  const [warningDurationHours, setWarningDurationHours] = useState('');
+  const [banKind, setBanKind] = useState<UserBanKind>('timed');
+  const [banReason, setBanReason] = useState('');
+  const [banDurationHours, setBanDurationHours] = useState('12');
 
-    useEffect(() => {
-        if (authLoading) {
-            return;
-        }
-
-        let isCancelled = false;
-
-        const loadUsers = async () => {
-            if (!user) {
-                setUsers([]);
-                setIsLoading(false);
-                return;
-            }
-
-            try {
-                setIsLoading(true);
-                const data = await getAllUsers();
-                if (isCancelled) return;
-
-                setUsers(data);
-            } catch (error) {
-                if (isCancelled) return;
-
-                console.error('Admin user management load error:', error);
-                toast.error('Kullanıcılar yüklenemedi');
-                setUsers([]);
-            } finally {
-                if (!isCancelled) {
-                    setIsLoading(false);
-                }
-            }
-        };
-
-        void loadUsers();
-
-        return () => {
-            isCancelled = true;
-        };
-    }, [authLoading, user]);
-
-    const loadUsers = async () => {
-        try {
-            setIsLoading(true);
-            const data = await getAllUsers();
-            setUsers(data);
-        } catch (error) {
-            console.error('Admin user management refresh error:', error);
-            toast.error('Kullanıcılar yenilenemedi');
-        } finally {
-            setIsLoading(false);
-        }
-    };
-
-    const handleDeleteUser = async () => {
-        if (deleteId) {
-            try {
-                await deleteUser(deleteId);
-                await loadUsers();
-                toast.success('Kullanıcı başarıyla silindi');
-            } catch (error) {
-                toast.error('Kullanıcı silinemedi');
-            }
-            setDeleteId(null);
-        }
-    };
-
-    const handleBanUser = async (mode: BanMode) => {
-        if (!banTarget) {
-            return;
-        }
-
-        try {
-            setBanSubmittingMode(mode);
-            const result = await banUserAccess(banTarget.id, { mode });
-            await loadUsers();
-            setBanTarget(null);
-            toast.success(
-                mode === 'hard'
-                    ? `Hard ban uygulandı${result.deviceBanCount || result.ipBanCount ? ` (${result.deviceBanCount} cihaz, ${result.ipBanCount} IP)` : ''}`
-                    : 'Kullanıcı hesabı banlandı'
-            );
-        } catch (error: unknown) {
-            toast.error(getErrorMessage(error, 'Kullanıcı banlanamadı'));
-        } finally {
-            setBanSubmittingMode(null);
-        }
-    };
-
-    const handleUnbanUser = async () => {
-        if (!unbanTarget) {
-            return;
-        }
-
-        try {
-            await unbanUserAccess(unbanTarget.id);
-            await loadUsers();
-            toast.success('Ban kaldırıldı');
-        } catch (error: unknown) {
-            toast.error(getErrorMessage(error, 'Ban kaldırılamadı'));
-        } finally {
-            setUnbanTarget(null);
-        }
-    };
-
-    const filteredUsers = users.filter(user => {
-        const query = searchQuery.toLocaleLowerCase('tr-TR');
-        return user.username.toLocaleLowerCase('tr-TR').includes(query) ||
-            user.email.toLocaleLowerCase('tr-TR').includes(query);
-    });
-
-    if (authLoading || isLoading) {
-        return (
-            <div className="space-y-6">
-                <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                    <div>
-                        <Skeleton className="h-10 w-64" />
-                        <Skeleton className="mt-2 h-5 w-96" />
-                    </div>
-                    <Skeleton className="h-11 w-full sm:w-72" />
-                </div>
-
-                <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                    <Skeleton className="h-28 rounded-xl" />
-                </div>
-
-                <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-                    <div className="space-y-4 p-6">
-                        {[1, 2, 3, 4].map((row) => (
-                            <div key={row} className="grid grid-cols-[2fr_2fr_1fr_1fr_1fr] gap-4">
-                                {Array.from({ length: 5 }).map((_, index) => (
-                                    <Skeleton key={index} className="h-10 w-full" />
-                                ))}
-                            </div>
-                        ))}
-                    </div>
-                </div>
-            </div>
-        );
+  const loadUsers = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const nextUsers = await getAllUsers();
+      setUsers(nextUsers);
+      setSelectedUserId((current) => current || nextUsers[0]?.id || '');
+    } catch (error) {
+      console.error('User load failed:', error);
+      toast.error('Kullanıcılar yüklenemedi');
+      setUsers([]);
+    } finally {
+      setIsLoading(false);
     }
+  }, []);
 
+  const loadHistory = useCallback(async (targetUserId: string) => {
+    try {
+      setHistoryLoading(true);
+      setHistory(await getUserAccessHistory(targetUserId));
+    } catch (error) {
+      console.error('History load failed:', error);
+      toast.error('Kullanıcı geçmişi yüklenemedi');
+      setHistory(null);
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    if (!authLoading && user) void loadUsers();
+    if (!authLoading && !user) {
+      setUsers([]);
+      setIsLoading(false);
+    }
+  }, [authLoading, loadUsers, user]);
+
+  const filteredUsers = useMemo(() => {
+    const query = searchQuery.trim().toLocaleLowerCase('tr-TR');
+    return users.filter((account) => !query || account.username.toLocaleLowerCase('tr-TR').includes(query) || account.email.toLocaleLowerCase('tr-TR').includes(query));
+  }, [searchQuery, users]);
+
+  const selectedUser = useMemo(() => users.find((account) => account.id === selectedUserId) || filteredUsers[0] || null, [filteredUsers, selectedUserId, users]);
+
+  useEffect(() => {
+    if (!filteredUsers.length) {
+      setSelectedUserId('');
+      setHistory(null);
+      return;
+    }
+    if (!selectedUserId || !users.some((account) => account.id === selectedUserId)) {
+      setSelectedUserId(filteredUsers[0].id);
+    }
+  }, [filteredUsers, selectedUserId, users]);
+
+  useEffect(() => {
+    if (selectedUser?.id) void loadHistory(selectedUser.id);
+  }, [loadHistory, selectedUser?.id]);
+
+  const stats = useMemo(() => ({
+    total: users.length,
+    banned: users.filter((account) => account.isBanned).length,
+    warned: users.filter((account) => (account.warningCount || 0) > 0).length,
+    unread: users.reduce((sum, account) => sum + (account.unreadWarningCount || 0), 0),
+  }), [users]);
+
+  const refreshAfterAction = async (targetUserId: string) => {
+    await loadUsers();
+    await loadHistory(targetUserId);
+  };
+
+  const handleWarning = async () => {
+    if (!warningTarget || !warningMessage.trim()) {
+      toast.error('Uyarı mesajı zorunlu');
+      return;
+    }
+    const durationHours = warningDurationHours.trim() ? Number(warningDurationHours) : undefined;
+    if (warningDurationHours.trim() && (!Number.isFinite(durationHours) || (durationHours || 0) <= 0)) {
+      toast.error('Geçerli bir süre gir');
+      return;
+    }
+    try {
+      setActiveAction('warning');
+      const result = await issueUserWarning({ targetUserId: warningTarget.id, title: warningTitle.trim() || 'Yönetici uyarısı', message: warningMessage.trim(), durationHours });
+      await refreshAfterAction(warningTarget.id);
+      setWarningTarget(null);
+      setWarningTitle('Yönetici uyarısı');
+      setWarningMessage('');
+      setWarningDurationHours('');
+      toast.success(result.autoBan ? (result.autoBan.kind === 'timed' ? 'Uyarı ve süreli ban uygulandı' : '3. uyarı sonrası kalıcı ban otomatik uygulandı') : 'Uyarı gönderildi');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Uyarı gönderilemedi'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handleBan = async () => {
+    if (!banTarget || !banReason.trim()) {
+      toast.error('Ban nedeni zorunlu');
+      return;
+    }
+    const durationHours = banDurationHours.trim() ? Number(banDurationHours) : undefined;
+    if (banKind === 'timed' && (!Number.isFinite(durationHours) || (durationHours || 0) <= 0)) {
+      toast.error('Süreli ban için saat değeri gir');
+      return;
+    }
+    try {
+      setActiveAction('ban');
+      await banUserAccount({ targetUserId: banTarget.id, kind: banKind, reason: banReason.trim(), durationHours: banKind === 'timed' ? durationHours : undefined });
+      await refreshAfterAction(banTarget.id);
+      setBanTarget(null);
+      setBanKind('timed');
+      setBanReason('');
+      setBanDurationHours('12');
+      toast.success(`${banKindLabels[banKind]} uygulandı`);
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Ban uygulanamadı'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handleUnban = async () => {
+    if (!unbanTarget) return;
+    try {
+      setActiveAction('unban');
+      await unbanUserAccount(unbanTarget.id);
+      await refreshAfterAction(unbanTarget.id);
+      setUnbanTarget(null);
+      toast.success('Ban kaldırıldı');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Ban kaldırılamadı'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return;
+    try {
+      setActiveAction('delete');
+      await deleteUser(deleteTarget.id);
+      await loadUsers();
+      setHistory(null);
+      setDeleteTarget(null);
+      toast.success('Kullanıcı silindi');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Kullanıcı silinemedi'));
+    } finally {
+      setActiveAction(null);
+    }
+  };
+
+  if (authLoading || isLoading) {
     return (
-        <div className="space-y-6">
-            <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-                <div>
-                    <h1 className="text-2xl font-bold sm:text-3xl">Kullanıcı Yönetimi</h1>
-                    <p className="text-muted-foreground">Tüm kayıtlı kullanıcıları listeleyin ve yönetin</p>
-                </div>
-                <div className="relative w-full sm:w-72">
-                    <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                        placeholder="Kullanıcı adı veya e-posta..."
-                        value={searchQuery}
-                        onChange={(e) => setSearchQuery(e.target.value)}
-                        className="pl-9"
-                    />
-                </div>
-            </div>
-
-            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
-                <div className="rounded-xl border border-border bg-card p-6 shadow-sm">
-                    <div className="flex items-center gap-4">
-                        <div className="rounded-full bg-primary/10 p-3 text-primary">
-                            <Users className="h-6 w-6" />
-                        </div>
-                        <div>
-                            <p className="text-sm font-medium text-muted-foreground">Toplam Kullanıcı</p>
-                            <p className="text-2xl font-bold">{users.length}</p>
-                        </div>
-                    </div>
-                </div>
-                {/* Diğer istatistikler buraya eklenebilir */}
-            </div>
-
-            <div className="rounded-xl border border-border bg-card shadow-sm overflow-hidden">
-                <div className="divide-y divide-border md:hidden">
-                    {filteredUsers.map((user) => {
-                        const presence = getUserPresence(user);
-
-                        return (
-                            <div key={user.id} className={`space-y-4 p-4 ${user.isBanned ? 'bg-destructive/5' : ''}`}>
-                                <div className="flex items-start gap-3">
-                                    {user.avatar ? (
-                                        <img src={user.avatar} alt={user.username} className="h-12 w-12 rounded-full object-cover" />
-                                    ) : (
-                                        <div className="flex h-12 w-12 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                            <UserCircle className="h-6 w-6" />
-                                        </div>
-                                    )}
-                                    <div className="min-w-0 flex-1 space-y-1">
-                                        <p className="font-semibold">{user.username}</p>
-                                        <p className="text-xs text-muted-foreground capitalize">{user.role || 'User'}</p>
-                                        <p className="break-words text-sm text-muted-foreground">{user.email || 'E-posta alınamadı'}</p>
-                                    </div>
-                                </div>
-
-                                <div className="grid gap-3 text-sm text-muted-foreground">
-                                    <div className="flex items-start gap-2">
-                                        <Calendar className="mt-0.5 h-4 w-4 shrink-0" />
-                                        <span>{user.createdAt ? formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: tr }) : 'Bilinmiyor'}</span>
-                                    </div>
-                                    <div className="space-y-1">
-                                        {presence.tone === 'banned' ? (
-                                            <Badge variant="destructive" className="gap-1">
-                                                <ShieldBan className="h-3 w-3" />
-                                                {presence.label}
-                                            </Badge>
-                                        ) : presence.tone === 'active' ? (
-                                            <Badge className="gap-1 border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/10">
-                                                <ShieldCheck className="h-3 w-3" />
-                                                {presence.label}
-                                            </Badge>
-                                        ) : presence.tone === 'inactive' ? (
-                                            <Badge variant="secondary" className="gap-1">
-                                                <ShieldCheck className="h-3 w-3" />
-                                                {presence.label}
-                                            </Badge>
-                                        ) : (
-                                            <Badge variant="outline" className="gap-1">
-                                                <ShieldCheck className="h-3 w-3" />
-                                                {presence.label}
-                                            </Badge>
-                                        )}
-                                        {presence.detail && <p className="text-xs text-muted-foreground">{presence.detail}</p>}
-                                    </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 gap-2">
-                                    {user.role === 'user' && (
-                                        user.isBanned ? (
-                                            <Button
-                                                variant="outline"
-                                                className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-                                                onClick={() => setUnbanTarget(user)}
-                                            >
-                                                Banı Kaldır
-                                            </Button>
-                                        ) : (
-                                            <Button
-                                                variant="outline"
-                                                className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
-                                                onClick={() => setBanTarget(user)}
-                                            >
-                                                Banla
-                                            </Button>
-                                        )
-                                    )}
-                                    <Button
-                                        variant="outline"
-                                        className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                        onClick={() => setDeleteId(user.id)}
-                                    >
-                                        <Trash2 className="mr-2 h-4 w-4" />
-                                        Kullanıcıyı Sil
-                                    </Button>
-                                </div>
-                            </div>
-                        );
-                    })}
-                </div>
-
-                <div className="hidden overflow-x-auto md:block">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="bg-muted/50 border-b border-border">
-                                <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Kullanıcı</th>
-                                <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">E-posta</th>
-                                <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Durum</th>
-                                <th className="px-6 py-4 text-left text-sm font-semibold text-foreground">Kayıt Tarihi</th>
-                                <th className="px-6 py-4 text-right text-sm font-semibold text-foreground">İşlemler</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-border">
-                            {filteredUsers.map((user) => (
-                                <tr key={user.id} className={`transition-colors ${user.isBanned ? 'bg-destructive/5 hover:bg-destructive/10' : 'hover:bg-secondary/30'}`}>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-3">
-                                            {user.avatar ? (
-                                                <img src={user.avatar} alt={user.username} className="h-10 w-10 rounded-full object-cover" />
-                                            ) : (
-                                                <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10 text-primary">
-                                                    <UserCircle className="h-6 w-6" />
-                                                </div>
-                                            )}
-                                            <div>
-                                                <p className="font-semibold">{user.username}</p>
-                                                <p className="text-xs text-muted-foreground capitalize">{user.role || 'User'}</p>
-                                            </div>
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <Mail className="h-4 w-4" />
-                                            {user.email || 'E-posta alınamadı'}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        {(() => {
-                                            const presence = getUserPresence(user);
-
-                                            if (presence.tone === 'banned') {
-                                                return (
-                                                    <div className="space-y-1">
-                                                        <Badge variant="destructive" className="gap-1">
-                                                            <ShieldBan className="h-3 w-3" />
-                                                            {presence.label}
-                                                        </Badge>
-                                                        {presence.detail && (
-                                                            <p className="max-w-48 truncate text-xs text-muted-foreground">{presence.detail}</p>
-                                                        )}
-                                                    </div>
-                                                );
-                                            }
-
-                                            if (presence.tone === 'active') {
-                                                return (
-                                                    <div className="space-y-1">
-                                                        <Badge className="gap-1 border border-emerald-500/30 bg-emerald-500/10 text-emerald-300 hover:bg-emerald-500/10">
-                                                            <ShieldCheck className="h-3 w-3" />
-                                                            {presence.label}
-                                                        </Badge>
-                                                        {presence.detail && (
-                                                            <p className="text-xs text-muted-foreground">Son görülme {presence.detail}</p>
-                                                        )}
-                                                    </div>
-                                                );
-                                            }
-
-                                            if (presence.tone === 'inactive') {
-                                                return (
-                                                    <div className="space-y-1">
-                                                        <Badge variant="secondary" className="gap-1">
-                                                            <ShieldCheck className="h-3 w-3" />
-                                                            {presence.label}
-                                                        </Badge>
-                                                        {presence.detail && (
-                                                            <p className="text-xs text-muted-foreground">Son görülme {presence.detail}</p>
-                                                        )}
-                                                    </div>
-                                                );
-                                            }
-
-                                            return (
-                                                <Badge variant="outline" className="gap-1">
-                                                    <ShieldCheck className="h-3 w-3" />
-                                                    {presence.label}
-                                                </Badge>
-                                            );
-                                        })()}
-                                    </td>
-                                    <td className="px-6 py-4">
-                                        <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                                            <Calendar className="h-4 w-4" />
-                                            {user.createdAt ? formatDistanceToNow(new Date(user.createdAt), { addSuffix: true, locale: tr }) : 'Bilinmiyor'}
-                                        </div>
-                                    </td>
-                                    <td className="px-6 py-4 text-right">
-                                        <div className="flex items-center justify-end gap-2">
-                                            {user.role === 'user' && (
-                                                user.isBanned ? (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300"
-                                                        onClick={() => setUnbanTarget(user)}
-                                                    >
-                                                        Banı Kaldır
-                                                    </Button>
-                                                ) : (
-                                                    <Button
-                                                        variant="outline"
-                                                        size="sm"
-                                                        className="border-amber-500/40 text-amber-300 hover:bg-amber-500/10 hover:text-amber-200"
-                                                        onClick={() => setBanTarget(user)}
-                                                    >
-                                                        Banla
-                                                    </Button>
-                                                )
-                                            )}
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                                onClick={() => setDeleteId(user.id)}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
-                </div>
-                {filteredUsers.length === 0 && (
-                    <div className="flex flex-col items-center justify-center py-16">
-                        <Users className="h-16 w-16 text-muted-foreground/20" />
-                        <p className="mt-4 text-lg font-medium text-muted-foreground">
-                            {searchQuery ? 'Aramanızla eşleşen kullanıcı bulunamadı' : 'Henüz hiç kullanıcı yok'}
-                        </p>
-                    </div>
-                )}
-            </div>
-
-            <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Kullanıcıyı Sil</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Bu kullanıcıyı silmek istediğinizden emin misiniz? Bu işlem geri alınamaz ve kullanıcının tüm verileri silinecektir.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>İptal</AlertDialogCancel>
-                        <AlertDialogAction
-                            onClick={handleDeleteUser}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
-                            Sil
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-
-            <AlertDialog
-                open={!!banTarget}
-                onOpenChange={(open) => {
-                    if (!open && banSubmittingMode === null) {
-                        setBanTarget(null);
-                    }
-                }}
-            >
-                    <AlertDialogContent>
-                        <AlertDialogHeader>
-                            <AlertDialogTitle>Kullanıcıyı Banla</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            <span className="font-medium text-foreground">Sadece kullanıcı</span> seçeneği yalnızca hesabı banlar.
-                            <br />
-                            <br />
-                            <span className="font-medium text-foreground">Hard ban</span> seçeneği ise hesapla birlikte kayıtlı IP ve cihaz parmak izlerini de engeller.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter className="gap-2">
-                        <AlertDialogCancel disabled={banSubmittingMode !== null}>İptal</AlertDialogCancel>
-                        <Button
-                            variant="outline"
-                            disabled={banSubmittingMode !== null}
-                            onClick={() => void handleBanUser('user')}
-                        >
-                            {banSubmittingMode === 'user' ? 'Uygulanıyor...' : 'Sadece Kullanıcı'}
-                        </Button>
-                        <Button
-                            disabled={banSubmittingMode !== null}
-                            onClick={() => void handleBanUser('hard')}
-                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
-                        >
-                            {banSubmittingMode === 'hard' ? 'Uygulanıyor...' : 'Hard Ban'}
-                        </Button>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
-
-            <AlertDialog open={!!unbanTarget} onOpenChange={() => setUnbanTarget(null)}>
-                <AlertDialogContent>
-                    <AlertDialogHeader>
-                        <AlertDialogTitle>Banı Kaldır</AlertDialogTitle>
-                        <AlertDialogDescription>
-                            Bu kullanıcının hesap, IP ve cihaz ban kayıtları kaldırılacak.
-                        </AlertDialogDescription>
-                    </AlertDialogHeader>
-                    <AlertDialogFooter>
-                        <AlertDialogCancel>İptal</AlertDialogCancel>
-                        <AlertDialogAction onClick={handleUnbanUser}>
-                            Banı Kaldır
-                        </AlertDialogAction>
-                    </AlertDialogFooter>
-                </AlertDialogContent>
-            </AlertDialog>
+      <div className="space-y-6">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+          <div><Skeleton className="h-10 w-64" /><Skeleton className="mt-2 h-5 w-96" /></div>
+          <Skeleton className="h-11 w-full sm:w-72" />
         </div>
+        <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">{Array.from({ length: 4 }).map((_, index) => <Skeleton key={index} className="h-28 rounded-3xl" />)}</div>
+        <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]"><Skeleton className="h-[520px] rounded-3xl" /><Skeleton className="h-[520px] rounded-3xl" /></div>
+      </div>
     );
+  }
+
+  return (
+    <div className="space-y-6 lg:space-y-8">
+      <div className="overflow-hidden rounded-[2rem] border border-border bg-card/80 p-5 shadow-xl sm:p-6">
+        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
+          <div className="space-y-2">
+            <Badge variant="outline" className="w-fit gap-1.5 border-primary/20 bg-primary/10 text-primary"><Users className="h-3.5 w-3.5" /> Moderation Desk</Badge>
+            <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Kullanıcı yönetimi</h1>
+            <p className="max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">Uyarı, süreli ban, kalıcı ban, hard ban ve unban akışları burada. Sağ panel warning ve ban geçmişini gösterir.</p>
+          </div>
+          <div className="relative w-full xl:w-80">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="Kullanıcı adı veya e-posta..." className="pl-9" />
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Toplam</p><p className="mt-2 text-3xl font-black">{stats.total}</p></div>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Aktif Ban</p><p className="mt-2 text-3xl font-black text-destructive">{stats.banned}</p></div>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Uyarı Alan</p><p className="mt-2 text-3xl font-black text-amber-300">{stats.warned}</p></div>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Okunmamış</p><p className="mt-2 text-3xl font-black text-sky-300">{stats.unread}</p></div>
+      </div>
+
+      <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
+        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div><h2 className="text-lg font-semibold">Kullanıcı listesi</h2><p className="text-sm text-muted-foreground">{filteredUsers.length} kayıt</p></div>
+            <Badge variant="outline">Rolü `user` olan hesaplar cezalandırılabilir</Badge>
+          </div>
+          <div className="space-y-3">
+            {filteredUsers.map((account) => {
+              const selected = selectedUser?.id === account.id;
+              const presence = getPresence(account);
+              return (
+                <button key={account.id} type="button" onClick={() => setSelectedUserId(account.id)} className={`w-full rounded-3xl border p-4 text-left transition-colors ${selected ? 'border-primary/30 bg-primary/10' : 'border-border bg-background/60 hover:bg-secondary/60'}`}>
+                  <div className="flex items-start gap-3">
+                    {account.avatar ? <img src={account.avatar} alt={account.username} className="h-12 w-12 rounded-2xl object-cover" /> : <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary"><UserCircle className="h-6 w-6" /></div>}
+                    <div className="min-w-0 flex-1 space-y-2">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="truncate font-semibold">{account.username}</p>
+                        <Badge variant="outline" className="capitalize">{account.role || 'user'}</Badge>
+                        {(account.warningCount || 0) > 0 ? <Badge className="border-amber-500/20 bg-amber-500/10 text-amber-200">{account.warningCount} uyarı</Badge> : null}
+                      </div>
+                      <p className="truncate text-sm text-muted-foreground">{account.email || 'E-posta alınamadı'}</p>
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                        {presence.banned ? <Badge variant="destructive" className="gap-1"><ShieldBan className="h-3 w-3" />{presence.label}</Badge> : <Badge variant="outline">{presence.label}</Badge>}
+                        {presence.detail ? <span>{presence.detail}</span> : null}
+                      </div>
+                    </div>
+                  </div>
+                </button>
+              );
+            })}
+            {!filteredUsers.length ? <div className="rounded-2xl border border-dashed border-border p-8 text-center text-sm text-muted-foreground">Kullanıcı bulunamadı.</div> : null}
+          </div>
+        </section>
+
+        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6">
+          {selectedUser ? (
+            <div className="space-y-5">
+              <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
+                <div className="space-y-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <h2 className="text-2xl font-bold">{selectedUser.username}</h2>
+                    <Badge variant="outline" className="capitalize">{selectedUser.role || 'user'}</Badge>
+                    {selectedUser.activeBanType ? <Badge variant="destructive">{banKindLabels[selectedUser.activeBanType]}</Badge> : null}
+                  </div>
+                  <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
+                    <p className="inline-flex items-center gap-2"><Mail className="h-4 w-4" /> {selectedUser.email || 'E-posta alınamadı'}</p>
+                    <p className="inline-flex items-center gap-2"><Calendar className="h-4 w-4" /> Kayıt: {formatRelative(selectedUser.createdAt)}</p>
+                    <p className="inline-flex items-center gap-2"><AlertTriangle className="h-4 w-4" /> Uyarı: {selectedUser.warningCount || 0}</p>
+                    <p className="inline-flex items-center gap-2"><ShieldAlert className="h-4 w-4" /> Ban bitişi: {selectedUser.banExpiresAt ? formatTimestamp(selectedUser.banExpiresAt) : 'Yok'}</p>
+                  </div>
+                </div>
+                {selectedUser.avatar ? <img src={selectedUser.avatar} alt={selectedUser.username} className="h-20 w-20 rounded-3xl object-cover" /> : <div className="flex h-20 w-20 items-center justify-center rounded-3xl bg-primary/10 text-primary"><UserCircle className="h-10 w-10" /></div>}
+              </div>
+
+              <div className="flex flex-col gap-3 rounded-3xl border border-border bg-background/60 p-4 sm:flex-row sm:flex-wrap">
+                {selectedUser.role === 'user' ? (
+                  <>
+                    <Button variant="outline" onClick={() => setWarningTarget(selectedUser)}><MessageSquareWarning className="mr-2 h-4 w-4" /> Uyarı Ver</Button>
+                    {!selectedUser.isBanned ? <Button variant="outline" onClick={() => setBanTarget(selectedUser)}><Gavel className="mr-2 h-4 w-4" /> Ban Uygula</Button> : <Button variant="outline" className="border-emerald-500/40 text-emerald-400 hover:bg-emerald-500/10 hover:text-emerald-300" onClick={() => setUnbanTarget(selectedUser)}><ShieldCheck className="mr-2 h-4 w-4" /> Banı Kaldır</Button>}
+                    <Button variant="outline" className="border-destructive/40 text-destructive hover:bg-destructive/10 hover:text-destructive" onClick={() => setDeleteTarget(selectedUser)}><Trash2 className="mr-2 h-4 w-4" /> Sil</Button>
+                  </>
+                ) : <p className="text-sm text-muted-foreground">Yetkili hesaplara bu ekrandan moderation işlemi uygulanmaz.</p>}
+              </div>
+
+              <div className="grid gap-5 lg:grid-cols-2">
+                <div className="rounded-3xl border border-border bg-background/60 p-4">
+                  <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-semibold">Uyarı geçmişi</h3><p className="text-sm text-muted-foreground">{history?.warnings.length || 0} kayıt</p></div>{historyLoading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}</div>
+                  <ScrollArea className="mt-4 h-[300px] pr-3">
+                    <div className="space-y-3">
+                      {history?.warnings.map((warning) => (
+                        <article key={warning.id} className="rounded-2xl border border-border bg-card/70 p-4">
+                          <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{warning.title}</p><Badge className="border-amber-500/20 bg-amber-500/10 text-amber-200">{warning.acknowledgedAt ? 'Okundu' : 'Bekliyor'}</Badge></div>
+                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{warning.message}</p>
+                          <div className="mt-3 space-y-1 text-xs text-muted-foreground"><p>Gönderen: {warning.issuedByName || 'Yönetim'}</p><p>Gönderim: {formatTimestamp(warning.createdAt)}</p><p>Onay: {formatTimestamp(warning.acknowledgedAt)}</p></div>
+                        </article>
+                      ))}
+                      {!historyLoading && !history?.warnings.length ? <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Kayıtlı uyarı yok.</div> : null}
+                    </div>
+                  </ScrollArea>
+                </div>
+
+                <div className="rounded-3xl border border-border bg-background/60 p-4">
+                  <div className="flex items-center justify-between gap-3"><div><h3 className="text-lg font-semibold">Ban geçmişi</h3><p className="text-sm text-muted-foreground">{history?.bans.length || 0} kayıt</p></div>{historyLoading ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}</div>
+                  <ScrollArea className="mt-4 h-[300px] pr-3">
+                    <div className="space-y-3">
+                      {history?.bans.map((ban) => (
+                        <article key={ban.id} className="rounded-2xl border border-border bg-card/70 p-4">
+                          <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{banKindLabels[ban.kind]}</p><Badge variant={ban.revokedAt ? 'outline' : 'destructive'}>{ban.revokedAt ? 'Kaldırıldı' : 'Kayıtlı'}</Badge></div>
+                          <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{ban.reason}</p>
+                          <div className="mt-3 space-y-1 text-xs text-muted-foreground"><p>Başlangıç: {formatTimestamp(ban.createdAt)}</p><p>Bitiş: {formatTimestamp(ban.expiresAt)}</p><p>Veren: {ban.issuedByName || 'Yönetim'}</p><p>Kaldıran: {ban.revokedByName || 'Yok'}</p></div>
+                        </article>
+                      ))}
+                      {!historyLoading && !history?.bans.length ? <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Kayıtlı ban yok.</div> : null}
+                    </div>
+                  </ScrollArea>
+                </div>
+              </div>
+            </div>
+          ) : <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center"><Users className="h-12 w-12 text-muted-foreground/40" /><h3 className="mt-4 text-xl font-semibold">Kullanıcı seçilmedi</h3><p className="mt-2 max-w-md text-sm text-muted-foreground">Soldan bir kullanıcı seç. Warning ve ban geçmişi burada açılır.</p></div>}
+        </section>
+      </div>
+
+      <Dialog open={!!warningTarget} onOpenChange={(open) => !open && activeAction !== 'warning' && setWarningTarget(null)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader><DialogTitle>Uyarı Gönder</DialogTitle><DialogDescription>3. uyarı otomatik kalıcı ban anlamına gelir. İstersen aynı anda süreli ban ekleyebilirsin.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>Başlık</Label><Input value={warningTitle} onChange={(event) => setWarningTitle(event.target.value)} /></div>
+            <div className="space-y-2"><Label>Uyarı Mesajı</Label><Textarea value={warningMessage} onChange={(event) => setWarningMessage(event.target.value)} className="min-h-32 resize-none" /></div>
+            <div className="space-y-2"><Label>İsteğe bağlı süreli ban (saat)</Label><Input value={warningDurationHours} onChange={(event) => setWarningDurationHours(event.target.value)} inputMode="numeric" placeholder="Örn: 12" /></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setWarningTarget(null)} disabled={activeAction === 'warning'}>İptal</Button><Button onClick={() => void handleWarning()} disabled={activeAction === 'warning'}>{activeAction === 'warning' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <MessageSquareWarning className="mr-2 h-4 w-4" />}Uyarıyı Gönder</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={!!banTarget} onOpenChange={(open) => !open && activeAction !== 'ban' && setBanTarget(null)}>
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader><DialogTitle>Ban Uygula</DialogTitle><DialogDescription>Süreli, kalıcı veya hard ban seçebilirsin. Hard ban cihaz ve IP eşleşmelerini de bloklar.</DialogDescription></DialogHeader>
+          <div className="space-y-4">
+            <div className="space-y-2"><Label>Ban Türü</Label><Select value={banKind} onValueChange={(value) => setBanKind(value as UserBanKind)}><SelectTrigger><SelectValue placeholder="Ban türü seç" /></SelectTrigger><SelectContent><SelectItem value="timed">Süreli Ban</SelectItem><SelectItem value="permanent">Kalıcı Ban</SelectItem><SelectItem value="hard">Hard Ban</SelectItem></SelectContent></Select></div>
+            {banKind === 'timed' ? <div className="space-y-2"><Label>Süre (saat)</Label><Input value={banDurationHours} onChange={(event) => setBanDurationHours(event.target.value)} inputMode="numeric" placeholder="Örn: 12" /></div> : null}
+            <div className="space-y-2"><Label>Gerekçe</Label><Textarea value={banReason} onChange={(event) => setBanReason(event.target.value)} className="min-h-28 resize-none" /></div>
+          </div>
+          <DialogFooter><Button variant="outline" onClick={() => setBanTarget(null)} disabled={activeAction === 'ban'}>İptal</Button><Button onClick={() => void handleBan()} disabled={activeAction === 'ban'}>{activeAction === 'ban' ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Gavel className="mr-2 h-4 w-4" />}Banı Uygula</Button></DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={!!unbanTarget} onOpenChange={() => setUnbanTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Banı Kaldır</AlertDialogTitle><AlertDialogDescription>Tüm aktif kullanıcı banları ve varsa hard banın eklediği IP/cihaz blokları kaldırılır.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel disabled={activeAction === 'unban'}>İptal</AlertDialogCancel><AlertDialogAction onClick={() => void handleUnban()}>{activeAction === 'unban' ? 'İşleniyor...' : 'Banı Kaldır'}</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={!!deleteTarget} onOpenChange={() => setDeleteTarget(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader><AlertDialogTitle>Kullanıcıyı Sil</AlertDialogTitle><AlertDialogDescription>Bu işlem geri alınamaz. Kullanıcının hesabı ve ilişkili verileri silinir.</AlertDialogDescription></AlertDialogHeader>
+          <AlertDialogFooter><AlertDialogCancel disabled={activeAction === 'delete'}>İptal</AlertDialogCancel><AlertDialogAction onClick={() => void handleDelete()} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">{activeAction === 'delete' ? 'Siliniyor...' : 'Sil'}</AlertDialogAction></AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
+        <div className="flex items-start gap-3"><ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" /><div className="space-y-1"><p>Uyarı alan kullanıcı 5 saniye bekleyip “Okudum, Anlıyorum” demeden siteyi kullanamaz.</p><p>3. warning otomatik kalıcı ban üretir. Hard ban cihaz ve IP eşleşmelerini de bloklar.</p></div></div>
+      </div>
+    </div>
+  );
 };
 
 export default AdminUserManagement;

@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useState, Rea
 import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/supabase-js';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase } from '@/lib/supabase';
-import { User } from '@/lib/types';
+import { User, UserAccessState } from '@/lib/types';
 import { checkCurrentAccess, type AccessCheckResult } from '@/lib/security/deviceIdentity';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 import { syncLocalChapterReadFallbackToRemote } from '@/lib/storage';
@@ -14,6 +14,7 @@ import {
 } from '@/lib/offline/userSync';
 import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
 import { isDocumentVisible } from '@/lib/documentVisibility';
+import { acknowledgeCurrentUserWarning, getCurrentUserAccessSnapshot } from '@/lib/userAccess';
 import { toast } from 'sonner';
 
 interface AuthContextType {
@@ -22,6 +23,7 @@ interface AuthContextType {
   session: Session | null;
   isLoading: boolean;
   mfaState: MfaState;
+  accessState: UserAccessState;
   login: (email: string, password: string) => Promise<{
     success: boolean;
     error?: string;
@@ -52,6 +54,8 @@ interface AuthContextType {
   disableTwoFactor: (code: string, factorId?: string) => Promise<{ success: boolean; error?: string }>;
   loginWithGoogle: (redirectTo?: string) => Promise<void>;
   resendEmail: (email: string, type: 'signup' | 'recovery') => Promise<{ success: boolean; error?: string }>;
+  refreshAccessState: () => Promise<void>;
+  acknowledgeWarning: (warningId: string) => Promise<{ success: boolean; error?: string }>;
 }
 
 type AuthenticatorLevel = 'aal1' | 'aal2' | null;
@@ -103,6 +107,10 @@ interface UserProfileRow {
   is_banned?: boolean;
   ban_reason?: string | null;
   banned_at?: string | null;
+  active_ban_type?: User['activeBanType'];
+  ban_expires_at?: string | null;
+  warning_count?: number;
+  unread_warning_count?: number;
   created_at: string;
   preferences?: User['preferences'];
   two_factor_enabled?: boolean;
@@ -110,7 +118,7 @@ interface UserProfileRow {
 
 type TotpFactorRecord = Factor<'totp', 'verified' | 'unverified'>;
 
-const PROFILE_SELECT_COLUMNS = 'id, username, username_last_changed_at, avatar, role, created_at, preferences, two_factor_enabled';
+const PROFILE_SELECT_COLUMNS = 'id, username, username_last_changed_at, avatar, role, is_banned, ban_reason, banned_at, active_ban_type, ban_expires_at, warning_count, unread_warning_count, created_at, preferences, two_factor_enabled';
 const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
   notifications: {
     new_chapter: true,
@@ -155,7 +163,73 @@ const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
 
 const allowAccessOnFailure = (error: unknown, context: string): AccessCheckResult => {
   console.error(context, error);
-  return { allowed: true, message: undefined };
+  return {
+    allowed: false,
+    message: 'Erişim doğrulanamadı. Lütfen kısa süre sonra tekrar deneyin.',
+    reason: 'access_check_failed',
+    supportOnly: false,
+    warning: null,
+    ban: { active: false },
+    user: null,
+  };
+};
+
+const DEFAULT_ACCESS_STATE: UserAccessState = {
+  reason: 'ok',
+  blockedMessage: null,
+  supportOnly: false,
+  warning: null,
+  ban: {
+    active: false,
+    type: null,
+    reason: null,
+    expiresAt: null,
+    bannedAt: null,
+  },
+};
+
+const mapAccessCheckToAccessState = (accessCheck: AccessCheckResult): UserAccessState => ({
+  reason: accessCheck.reason || 'ok',
+  blockedMessage: accessCheck.allowed ? null : accessCheck.message || null,
+  supportOnly: Boolean(accessCheck.supportOnly),
+  warning: accessCheck.warning || null,
+  ban: accessCheck.ban || {
+    active: false,
+    type: null,
+    reason: null,
+    expiresAt: null,
+    bannedAt: null,
+  },
+});
+
+const buildProfileFromAccessCheck = (
+  supabaseUser: SupabaseUser,
+  accessCheck: AccessCheckResult,
+): UserProfileRow | null => {
+  if (!accessCheck.user && !accessCheck.ban?.active) {
+    return null;
+  }
+
+  return {
+    id: supabaseUser.id,
+    username: accessCheck.user?.username
+      || supabaseUser.user_metadata?.username
+      || supabaseUser.email?.split('@')[0]
+      || 'user',
+    username_last_changed_at: null,
+    avatar: supabaseUser.user_metadata?.avatar_url || null,
+    role: accessCheck.user?.role || 'user',
+    is_banned: Boolean(accessCheck.ban?.active),
+    ban_reason: accessCheck.ban?.reason || null,
+    banned_at: accessCheck.ban?.bannedAt || null,
+    active_ban_type: accessCheck.ban?.type || null,
+    ban_expires_at: accessCheck.ban?.expiresAt || null,
+    warning_count: accessCheck.user?.warningCount || 0,
+    unread_warning_count: accessCheck.user?.unreadWarningCount || 0,
+    created_at: supabaseUser.created_at,
+    preferences: undefined,
+    two_factor_enabled: false,
+  };
 };
 
 const extractTotpFactors = (factors: TotpFactorRecord[] | undefined): TotpFactor[] => (
@@ -185,6 +259,10 @@ const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileR
     isBanned: profile?.is_banned || false,
     banReason: profile?.ban_reason || undefined,
     bannedAt: profile?.banned_at || undefined,
+    activeBanType: profile?.active_ban_type || null,
+    banExpiresAt: profile?.ban_expires_at || null,
+    warningCount: profile?.warning_count || 0,
+    unreadWarningCount: profile?.unread_warning_count || 0,
     twoFactorEnabled: profile?.two_factor_enabled || false,
     preferences: normalizeUserPreferences(cachedPreferences || profile?.preferences),
   };
@@ -197,6 +275,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [mfaState, setMfaState] = useState<MfaState>(DEFAULT_MFA_STATE);
+  const [accessState, setAccessState] = useState<UserAccessState>(DEFAULT_ACCESS_STATE);
 
   const fetchProfile = useCallback(async (id: string): Promise<UserProfileRow | null> => {
     // Add a 5s timeout to prevent infinite hangs on DB calls during initialization
@@ -275,6 +354,67 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const updateLocalTwoFactorState = useCallback((enabled: boolean) => {
     setUser((prev) => (prev ? { ...prev, twoFactorEnabled: enabled } : prev));
+  }, []);
+
+  const refreshAccessState = useCallback(async (): Promise<void> => {
+    const activeUser = supabaseUser || (await supabase.auth.getUser()).data.user;
+    if (!activeUser) {
+      setAccessState(DEFAULT_ACCESS_STATE);
+      return;
+    }
+
+    try {
+      const snapshot = await getCurrentUserAccessSnapshot();
+      setAccessState({
+        reason: snapshot.ban.active ? 'user_banned' : 'ok',
+        blockedMessage: snapshot.ban.active ? snapshot.ban.reason || null : null,
+        supportOnly: false,
+        warning: snapshot.warning,
+        ban: snapshot.ban,
+      });
+
+      setUser((prev) => prev ? {
+        ...prev,
+        isBanned: snapshot.ban.active,
+        banReason: snapshot.ban.reason || undefined,
+        bannedAt: snapshot.ban.bannedAt || undefined,
+        activeBanType: snapshot.ban.type || null,
+        banExpiresAt: snapshot.ban.expiresAt || null,
+        warningCount: snapshot.warningCount,
+        unreadWarningCount: snapshot.unreadWarningCount,
+      } : prev);
+    } catch (error) {
+      console.error('Refresh access state failed:', error);
+    }
+  }, [supabaseUser]);
+
+  const acknowledgeWarning = useCallback(async (warningId: string) => {
+    try {
+      const snapshot = await acknowledgeCurrentUserWarning(warningId);
+      setAccessState({
+        reason: snapshot.ban.active ? 'user_banned' : 'ok',
+        blockedMessage: snapshot.ban.active ? snapshot.ban.reason || null : null,
+        supportOnly: false,
+        warning: snapshot.warning,
+        ban: snapshot.ban,
+      });
+
+      setUser((prev) => prev ? {
+        ...prev,
+        isBanned: snapshot.ban.active,
+        banReason: snapshot.ban.reason || undefined,
+        bannedAt: snapshot.ban.bannedAt || undefined,
+        activeBanType: snapshot.ban.type || null,
+        banExpiresAt: snapshot.ban.expiresAt || null,
+        warningCount: snapshot.warningCount,
+        unreadWarningCount: snapshot.unreadWarningCount,
+      } : prev);
+
+      return { success: true };
+    } catch (error: unknown) {
+      console.error('Acknowledge warning error:', error);
+      return { success: false, error: getErrorMessage(error) };
+    }
   }, []);
 
   const getPrimaryVerifiedTotpFactor = async (preferredFactorId?: string): Promise<TotpFactor | null> => {
@@ -367,12 +507,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             return;
           }
 
-          const accessCheck = await checkCurrentAccess().catch((error) =>
+          const currentPath = typeof window !== 'undefined'
+            ? `${window.location.pathname}${window.location.search}`
+            : '/';
+          const accessCheck = await checkCurrentAccess(currentPath).catch((error) =>
             allowAccessOnFailure(error, 'Access gate check failed during auth sync:')
           );
           if (!mounted) return;
 
-          if (!accessCheck.allowed) {
+          setAccessState(mapAccessCheckToAccessState(accessCheck));
+
+          const shouldForceSignOut = !accessCheck.allowed && accessCheck.reason !== 'user_banned';
+          if (shouldForceSignOut) {
             await supabase.auth.signOut();
             setSession(null);
             setSupabaseUser(null);
@@ -382,21 +528,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             return;
           }
 
-          const profile = await ensureProfile(currentSession.user);
+          const shouldBypassProfileFetch = Boolean(
+            accessCheck.supportOnly
+            || accessCheck.ban?.active
+            || accessCheck.reason === 'user_banned'
+          );
+          const profile = shouldBypassProfileFetch
+            ? buildProfileFromAccessCheck(currentSession.user, accessCheck)
+            : await ensureProfile(currentSession.user);
 
           if (!mounted) return;
 
           setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
           setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(currentSession.user) ? prev : currentSession.user);
 
-          // 3. Final safety check: set state
           if (profile) {
             const newUser = mapSupabaseUserToUser(currentSession.user, profile);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(newUser) ? prev : newUser);
             void syncLocalChapterReadFallbackToRemote(currentSession.user.id);
           } else {
             console.error('Critical: Could not establish a user profile.');
-            // Even if DB profile fails, let's at least let them see they are logged in via Auth
             const fallbackUser = mapSupabaseUserToUser(currentSession.user, null);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
             void syncLocalChapterReadFallbackToRemote(currentSession.user.id);
@@ -408,6 +559,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setSupabaseUser(null);
           setUser(null);
           setMfaState(DEFAULT_MFA_STATE);
+          setAccessState(DEFAULT_ACCESS_STATE);
         }
       } catch (err) {
         console.error('Failed to sync auth state:', err);
@@ -512,7 +664,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: false, error: 'Oturum oluşturulamadı' };
       }
 
-      const profile = await ensureProfile(sessionData.user);
+      const currentPath = typeof window !== 'undefined'
+        ? `${window.location.pathname}${window.location.search}`
+        : '/';
+      const accessCheck = await checkCurrentAccess(currentPath).catch((error) =>
+        allowAccessOnFailure(error, 'Access check error during login:')
+      );
+      setAccessState(mapAccessCheckToAccessState(accessCheck));
+
+      if (!accessCheck.allowed) {
+        await supabase.auth.signOut();
+        return {
+          success: false,
+          error: accessCheck.message || 'Bu cihaz veya bağlantı için giriş engellendi',
+        };
+      }
+
+      const profile = (
+        accessCheck.supportOnly
+        || accessCheck.ban?.active
+        || accessCheck.reason === 'user_banned'
+      )
+        ? buildProfileFromAccessCheck(sessionData.user, accessCheck)
+        : await ensureProfile(sessionData.user);
 
       setSession(sessionData.session);
       setSupabaseUser(sessionData.user);
@@ -609,6 +783,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setSupabaseUser(null);
       setSession(null);
       setMfaState(DEFAULT_MFA_STATE);
+      setAccessState(DEFAULT_ACCESS_STATE);
     } catch (error) {
       console.error('Logout error:', error);
     }
@@ -1084,6 +1259,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       session,
       isLoading,
       mfaState,
+      accessState,
       login,
       register,
       logout,
@@ -1101,6 +1277,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       disableTwoFactor,
       loginWithGoogle,
       resendEmail,
+      refreshAccessState,
+      acknowledgeWarning,
     }}>
       {children}
     </AuthContext.Provider>

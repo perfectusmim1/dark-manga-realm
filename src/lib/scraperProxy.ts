@@ -1,4 +1,5 @@
 import { supabaseUrl } from '@/lib/supabase';
+import { type ScrapeSource, getDefaultScrapeSource } from '@/lib/scraper/scrapeSources';
 
 const configuredCloudflareScraperUrl = import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '';
 const configuredSupabaseScraperUrl = supabaseUrl
@@ -53,6 +54,16 @@ export const getDefaultScraperProvider = (): ScraperProvider => {
   }
 
   throw new Error('No scraper provider configured');
+};
+
+export const getDefaultScraperProviderForSource = (source: ScrapeSource): ScraperProvider => {
+  const availableProviders = getAvailableScraperProviders();
+
+  if (source === 'webtoonhatti' && availableProviders.includes('cloudflare')) {
+    return 'cloudflare';
+  }
+
+  return getDefaultScraperProvider();
 };
 
 export const readPreferredScraperProvider = (): ScraperProvider => {
@@ -139,9 +150,9 @@ const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
 
 export const fetchScraperContent = async (
   targetUrl: string,
-  options?: { provider?: ScraperProvider }
+  options?: { provider?: ScraperProvider; source?: ScrapeSource }
 ) => {
-  const provider = options?.provider ?? readPreferredScraperProvider();
+  const provider = options?.provider ?? getDefaultScraperProviderForSource(options?.source ?? getDefaultScrapeSource());
   const attempt = createProxyAttempt(provider);
 
   try {

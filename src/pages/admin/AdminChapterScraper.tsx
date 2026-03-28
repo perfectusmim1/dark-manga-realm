@@ -26,11 +26,26 @@ import { Manga, Chapter } from '@/lib/types';
 import {
     fetchScraperContent,
     getAvailableScraperProviders,
+    getDefaultScraperProviderForSource,
     getScraperProviderLabel,
     readPreferredScraperProvider,
     type ScraperProvider,
     writePreferredScraperProvider,
 } from '@/lib/scraperProxy';
+import {
+    buildScrapeSearchUrl,
+    detectScrapeSourceFromUrl,
+    extractChapterImageUrls,
+    extractScrapedMangaCards,
+    extractScrapedChapterLinks,
+    getAvailableScrapeSources,
+    getScrapeSourceLabel,
+    isDirectScrapeLink,
+    normalizeScrapeUrl,
+    readPreferredScrapeSource,
+    type ScrapeSource,
+    writePreferredScrapeSource,
+} from '@/lib/scraper/scrapeSources';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { useAuth } from '@/contexts/AuthContext';
 
@@ -39,29 +54,26 @@ interface ScrapedMangaCard {
     link: string;
     cover: string;
     genres: string[];
+    source: ScrapeSource;
 }
 
 interface ScrapedChapter {
     name: string;
     link: string;
     number: number;
+    source: ScrapeSource;
 }
 
-interface ParsedChapterImage {
-    src?: string | null;
+interface ChapterImportCandidate extends ScrapedChapter {
+    changeType: 'new' | 'updated';
+    existingChapterId?: string;
+    existingChapterTitle?: string;
 }
 
-interface ParsedChapterDataPayload {
-    images?: ParsedChapterImage[];
-}
-
-const isParsedChapterDataPayload = (value: unknown): value is ParsedChapterDataPayload => {
-    if (!value || typeof value !== 'object') {
-        return false;
-    }
-
-    return Array.isArray((value as ParsedChapterDataPayload).images);
-};
+const normalizeChapterTitle = (value?: string | null, number?: number) => (
+    (value?.replace(/\s+/g, ' ').trim() || `bolum ${number ?? ''}`)
+        .toLocaleLowerCase('tr-TR')
+);
 
 const AdminChapterScraper: React.FC = () => {
     const navigate = useNavigate();
@@ -69,6 +81,7 @@ const AdminChapterScraper: React.FC = () => {
     const { access, isLoading: accessLoading } = useAdminAccess();
     const canUseScraper = access.canAccessAdminPanel && access.role === 'admin';
     const availableScraperProviders = getAvailableScraperProviders();
+    const availableScrapeSources = getAvailableScrapeSources();
 
     // Local State
     const [localMangas, setLocalMangas] = useState<Manga[]>([]);
@@ -83,11 +96,12 @@ const AdminChapterScraper: React.FC = () => {
     const [selectedSourceManga, setSelectedSourceManga] = useState<ScrapedMangaCard | null>(null);
     const [fetchingDetails, setFetchingDetails] = useState(false);
     const [sourceChapters, setSourceChapters] = useState<ScrapedChapter[]>([]);
-    const [newChapters, setNewChapters] = useState<ScrapedChapter[]>([]);
+    const [newChapters, setNewChapters] = useState<ChapterImportCandidate[]>([]);
     const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
 
     // Import State
     const [importing, setImporting] = useState(false);
+    const [scrapeSource, setScrapeSource] = useState<ScrapeSource>(() => readPreferredScrapeSource());
     const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
 
     useEffect(() => {
@@ -118,6 +132,22 @@ const AdminChapterScraper: React.FC = () => {
         setScraperProvider(nextProvider);
     }, [availableScraperProviders, scraperProvider]);
 
+    useEffect(() => {
+        if (!availableScrapeSources.includes(scrapeSource)) {
+            const nextSource = readPreferredScrapeSource();
+            setScrapeSource(nextSource);
+            return;
+        }
+
+        if (scrapeSource === 'webtoonhatti' && scraperProvider !== 'cloudflare' && availableScraperProviders.includes('cloudflare')) {
+            const nextProvider = getDefaultScraperProviderForSource(scrapeSource);
+            if (nextProvider !== scraperProvider) {
+                writePreferredScraperProvider(nextProvider);
+                setScraperProvider(nextProvider);
+            }
+        }
+    }, [availableScrapeSources, availableScraperProviders, scrapeSource, scraperProvider]);
+
     if (accessLoading || !user || !canUseScraper) {
         return null;
     }
@@ -126,6 +156,16 @@ const AdminChapterScraper: React.FC = () => {
         writePreferredScraperProvider(nextProvider);
         setScraperProvider(nextProvider);
         toast.success(`Scraper sağlayıcısı: ${getScraperProviderLabel(nextProvider)}`);
+    };
+
+    const handleScrapeSourceChange = (nextSource: ScrapeSource) => {
+        writePreferredScrapeSource(nextSource);
+        setScrapeSource(nextSource);
+        setSourceResults([]);
+        setSelectedSourceManga(null);
+        setSourceChapters([]);
+        setNewChapters([]);
+        toast.success(`Kaynak site: ${getScrapeSourceLabel(nextSource)}`);
     };
 
     const loadLocalMangas = async () => {
@@ -158,14 +198,23 @@ const AdminChapterScraper: React.FC = () => {
     const handleSourceSearch = async (e?: React.FormEvent) => {
         if (e) e.preventDefault();
 
-        if (searchQuery.trim().startsWith('http') && searchQuery.includes('hayalistic.net/manga/')) {
+        const rawQuery = searchQuery.trim();
+        const detectedSource = rawQuery.startsWith('http') ? detectScrapeSourceFromUrl(rawQuery) : null;
+        const sourceToUse = detectedSource || scrapeSource;
+
+        if (rawQuery.startsWith('http') && isDirectScrapeLink(sourceToUse, rawQuery)) {
+            if (detectedSource && detectedSource !== scrapeSource) {
+                handleScrapeSourceChange(detectedSource);
+            }
+
             toast.info('Direkt link algılandı, bölümler kontrol ediliyor...');
             fetchSourceChapters({
                 title: 'Linkten Çekilen Manga',
-                link: searchQuery.trim(),
+                link: normalizeScrapeUrl(sourceToUse, rawQuery),
                 cover: '',
-                genres: []
-            });
+                genres: [],
+                source: sourceToUse,
+            }, sourceToUse);
             return;
         }
 
@@ -176,24 +225,14 @@ const AdminChapterScraper: React.FC = () => {
         setNewChapters([]);
 
         try {
-            const url = `https://hayalistic.net/?s=${encodeURIComponent(searchQuery)}&post_type=wp-manga`;
-            const html = await fetchScraperContent(url, { provider: scraperProvider });
+            const url = buildScrapeSearchUrl(sourceToUse, rawQuery);
+            const html = await fetchScraperContent(url, { provider: scraperProvider, source: sourceToUse });
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            const items = doc.querySelectorAll('.c-tabs-item__content');
-
-            const results: ScrapedMangaCard[] = [];
-            items.forEach(item => {
-                const titleEl = item.querySelector('.post-title h3 a');
-                const link = titleEl?.getAttribute('href') || '';
-                const title = titleEl?.textContent?.trim() || '';
-                const imgEl = item.querySelector('img');
-                const cover = imgEl?.getAttribute('data-src') || imgEl?.getAttribute('src') || '';
-
-                if (title && link) {
-                    results.push({ title, link, cover, genres: [] });
-                }
-            });
+            const results = extractScrapedMangaCards(doc, sourceToUse).map((result) => ({
+                ...result,
+                source: sourceToUse,
+            }));
 
             setSourceResults(results);
             if (results.length === 0) toast.error('Sonuç bulunamadı');
@@ -204,46 +243,54 @@ const AdminChapterScraper: React.FC = () => {
         }
     };
 
-    const fetchSourceChapters = async (card: ScrapedMangaCard) => {
-        setSelectedSourceManga(card);
+    const fetchSourceChapters = async (card: ScrapedMangaCard, source: ScrapeSource = card.source) => {
+        setSelectedSourceManga({ ...card, source });
         setFetchingDetails(true);
         setSourceChapters([]);
         setNewChapters([]);
 
         try {
-            const html = await fetchScraperContent(card.link, { provider: scraperProvider });
+            const html = await fetchScraperContent(card.link, { provider: scraperProvider, source });
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-
-            const chapterElements = doc.querySelectorAll('.wp-manga-chapter');
-            const chapters: ScrapedChapter[] = [];
-
-            chapterElements.forEach((el) => {
-                const linkEl = el.querySelector('a');
-                if (linkEl) {
-                    const name = linkEl.textContent?.trim() || '';
-                    const link = linkEl.href.replace(window.location.origin, 'https://hayalistic.net');
-                    const numMatch = name.match(/(\d+(\.\d+)?)/);
-                    const number = numMatch ? parseFloat(numMatch[1]) : 0;
-                    chapters.push({ name, link, number });
-                }
-            });
-
-            // Sort by number asc
-            chapters.sort((a, b) => a.number - b.number);
-            setSourceChapters(chapters);
+            const parsedChapters = extractScrapedChapterLinks(doc, source).map((chapter) => ({
+                ...chapter,
+                source,
+            }));
+            setSourceChapters(parsedChapters);
 
             // Compare with local chapters
             if (localMangaDetails) {
-                const localChapterNumbers = localMangaDetails.chapters.map(c => c.number);
-                const diff = chapters.filter(sc => !localChapterNumbers.includes(sc.number));
+                const localChapterByNumber = new Map(
+                    localMangaDetails.chapters.map((chapter) => [Number(chapter.number), chapter]),
+                );
+                const diff = parsedChapters.flatMap((scrapedChapter) => {
+                    const existingChapter = localChapterByNumber.get(Number(scrapedChapter.number));
+                    if (!existingChapter) {
+                        return [{ ...scrapedChapter, changeType: 'new' as const }];
+                    }
+
+                    const titleChanged = normalizeChapterTitle(existingChapter.title, Number(existingChapter.number))
+                        !== normalizeChapterTitle(scrapedChapter.name, Number(scrapedChapter.number));
+
+                    if (!titleChanged) {
+                        return [];
+                    }
+
+                    return [{
+                        ...scrapedChapter,
+                        changeType: 'updated' as const,
+                        existingChapterId: existingChapter.id,
+                        existingChapterTitle: existingChapter.title,
+                    }];
+                });
                 setNewChapters(diff);
                 setSelectedChapterIndices(diff.map((_, i) => i));
 
                 if (diff.length === 0) {
                     toast.info('Bu manga zaten güncel.');
                 } else {
-                    toast.success(`${diff.length} yeni bölüm bulundu!`);
+                    toast.success(`${diff.length} yeni veya güncellenecek bölüm bulundu!`);
                 }
             }
         } catch (err) {
@@ -274,61 +321,32 @@ const AdminChapterScraper: React.FC = () => {
                     // Small delay to prevent proxy ban
                     if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
 
-                    const chHtml = await fetchScraperContent(sc.link, { provider: scraperProvider });
+                    const chHtml = await fetchScraperContent(sc.link, { provider: scraperProvider, source: sc.source });
                     const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
-
-                    // Same image extraction logic as Scraper
-                    let images = Array.from(chDoc.querySelectorAll('.reading-content img, .wp-manga-chapter-img, .page-break img, .entry-content img'))
-                        .map(img => {
-                            const src = (img.getAttribute('src') || '').trim();
-                            const dataSrc = (img.getAttribute('data-src') || '').trim();
-                            const dataLazySrc = (img.getAttribute('data-lazy-src') || '').trim();
-                            const dataCdn = (img.getAttribute('data-cdn') || '').trim();
-
-                            const finalSrc = (dataSrc.startsWith('http') ? dataSrc :
-                                dataLazySrc.startsWith('http') ? dataLazySrc :
-                                    dataCdn.startsWith('http') ? dataCdn :
-                                        src.startsWith('http') && !src.includes('base64') ? src : '').trim();
-                            return finalSrc;
-                        })
-                        .filter(src => src !== '');
-
-                    // Method 2: Script data extraction
-                    if (images.length === 0) {
-                        const scripts = chDoc.querySelectorAll('script');
-                        for (const script of Array.from(scripts)) {
-                            const content = script.textContent || '';
-                            if (content.includes('chapter_data')) {
-                                try {
-                                    const match = content.match(/chapter_data\s*=\s*({.*?});/s);
-                                    if (match) {
-                                        const jsonData: unknown = JSON.parse(match[1]);
-                                        if (isParsedChapterDataPayload(jsonData) && jsonData.images) {
-                                            images = jsonData.images
-                                                .map((img) => (typeof img.src === 'string' ? img.src.trim() : ''))
-                                                .filter((src) => src.startsWith('http'));
-                                        }
-                                    }
-                                } catch (error) {
-                                    console.warn('Script parsing failed', error);
-                                }
-                            }
-                        }
-                    }
+                    const images = extractChapterImageUrls(chDoc, sc.source);
+                    const existingChapterIndex = importedChapters.findIndex((chapter) => (
+                        chapter.id === sc.existingChapterId
+                        || Number(chapter.number) === Number(sc.number)
+                    ));
+                    const existingChapter = existingChapterIndex >= 0 ? importedChapters[existingChapterIndex] : null;
 
                     const importedChapter: Chapter = {
-                        id: `chapter-${Date.now()}-${sc.number}`,
+                        id: existingChapter?.id || `chapter-${Date.now()}-${sc.number}`,
                         number: sc.number,
                         title: sc.name,
                         pages: images,
-                        releaseDate: new Date().toISOString(),
-                        views: 0,
+                        releaseDate: existingChapter?.releaseDate || new Date().toISOString(),
+                        views: existingChapter?.views || 0,
                     };
 
-                    importedChapters.push(importedChapter);
-                    importedThisRun.push(importedChapter);
+                    if (existingChapterIndex >= 0) {
+                        importedChapters[existingChapterIndex] = importedChapter;
+                    } else {
+                        importedChapters.push(importedChapter);
+                        importedThisRun.push(importedChapter);
+                    }
 
-                    toast.info(`Bölüm ${sc.number} yüklendi... (${i + 1}/${chaptersToImport.length})`);
+                    toast.info(`Bölüm ${sc.number} ${sc.changeType === 'updated' ? 'güncellendi' : 'yüklendi'}... (${i + 1}/${chaptersToImport.length})`);
                 } catch (e) {
                     toast.error(`Bölüm ${sc.number} hata verdi, atlanıyor.`);
                 }
@@ -357,7 +375,8 @@ const AdminChapterScraper: React.FC = () => {
                 );
             }
 
-            toast.success(`${importedThisRun.length} yeni bölüm başarıyla eklendi!`);
+            const updatedCount = chaptersToImport.filter((chapter) => chapter.changeType === 'updated').length;
+            toast.success(`${importedThisRun.length} yeni bölüm eklendi, ${updatedCount} bölüm güncellendi!`);
             navigate(`/admin/mangas/${localMangaDetails.id}`);
         } catch (err) {
             toast.error('Güncelleme sırasında bir hata oluştu');
@@ -368,33 +387,45 @@ const AdminChapterScraper: React.FC = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col items-start gap-4 sm:flex-row sm:items-center">
-            <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <RefreshCw className="h-6 w-6" />
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-center">
+                <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                    <RefreshCw className="h-6 w-6" />
+                </div>
+                <div>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Bölüm Çekme</h1>
+                    <p className="text-muted-foreground">Eski mangalarınız için yeni bölümleri otomatik bulun ve yükleyin.</p>
+                </div>
+                <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center">
+                    <Select value={scrapeSource} onValueChange={(value) => handleScrapeSourceChange(value as ScrapeSource)}>
+                        <SelectTrigger className="h-8 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:w-[190px]">
+                            <SelectValue placeholder="Kaynak site seç" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {availableScrapeSources.map((source) => (
+                                <SelectItem key={source} value={source}>
+                                    {getScrapeSourceLabel(source)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Select value={scraperProvider} onValueChange={(value) => handleScraperProviderChange(value as ScraperProvider)}>
+                        <SelectTrigger className="h-8 w-full border-primary/20 bg-primary/5 text-xs text-primary sm:w-[170px]">
+                            <SelectValue placeholder="Proxy seç" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {availableScraperProviders.map((provider) => (
+                                <SelectItem key={provider} value={provider}>
+                                    {getScraperProviderLabel(provider)}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                    <Badge variant="outline" className="h-8 gap-1 border-primary/20 bg-primary/5 text-primary hover:bg-primary/10 transition-colors">
+                        <Globe className="h-4 w-4" />
+                        {getScrapeSourceLabel(scrapeSource)}
+                    </Badge>
+                </div>
             </div>
-            <div>
-                <h1 className="text-2xl font-bold sm:text-3xl">Bölüm Çekme</h1>
-                <p className="text-muted-foreground">Eski mangalarınız için yeni bölümleri otomatik bulun ve yükleyin.</p>
-            </div>
-            <div className="flex flex-wrap gap-2 sm:ml-auto">
-                <Badge variant="outline" className="h-8 gap-1 bg-primary/5 border-primary/20 text-primary hover:bg-primary/10 transition-colors">
-                    <Globe className="h-4 w-4" />
-                    Hayalistic.net
-                </Badge>
-                <Select value={scraperProvider} onValueChange={(value) => handleScraperProviderChange(value as ScraperProvider)}>
-                    <SelectTrigger className="h-8 w-[170px] border-primary/20 bg-primary/5 text-xs text-primary">
-                        <SelectValue placeholder="Scraper seç" />
-                    </SelectTrigger>
-                    <SelectContent>
-                        {availableScraperProviders.map((provider) => (
-                            <SelectItem key={provider} value={provider}>
-                                {getScraperProviderLabel(provider)}
-                            </SelectItem>
-                        ))}
-                    </SelectContent>
-                </Select>
-            </div>
-        </div>
 
             <div className="grid gap-6 md:grid-cols-2">
                 {/* Step 1: Select Local Manga */}
@@ -435,7 +466,7 @@ const AdminChapterScraper: React.FC = () => {
                     <CardHeader>
                         <CardTitle className="flex items-center gap-2">
                             <span className="flex h-6 w-6 items-center justify-center rounded-full bg-primary text-xs text-primary-foreground">2</span>
-                            Hayalistic Üzerinde Bulun
+                            {getScrapeSourceLabel(scrapeSource)} Üzerinde Bulun
                         </CardTitle>
                         <CardDescription>Manganın güncel halini seçtiğiniz sitede bulun.</CardDescription>
                     </CardHeader>
@@ -444,7 +475,7 @@ const AdminChapterScraper: React.FC = () => {
                             <Input
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
-                                placeholder="Manga adı veya URL..."
+                                placeholder={`Manga adı veya ${getScrapeSourceLabel(scrapeSource)} URL...`}
                             />
                             <Button type="submit" disabled={loadingSource}>
                                 {loadingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
@@ -457,7 +488,7 @@ const AdminChapterScraper: React.FC = () => {
                                     {sourceResults.map((m, i) => (
                                         <div
                                             key={i}
-                                            onClick={() => fetchSourceChapters(m)}
+                                            onClick={() => fetchSourceChapters(m, m.source)}
                                             className={`flex cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary ${selectedSourceManga?.link === m.link ? 'bg-primary/20 border-primary' : ''}`}
                                         >
                                             <img src={m.cover} className="h-10 w-8 rounded object-cover" />
@@ -496,7 +527,7 @@ const AdminChapterScraper: React.FC = () => {
                         <div className="grid md:grid-cols-2">
                             <div className="p-4 md:border-r md:border-border md:p-6">
                                 <div className="mb-4 flex items-center justify-between">
-                                    <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Yeni Bölümler ({newChapters.length})</h3>
+                                    <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Yeni / Güncellenecek Bölümler ({newChapters.length})</h3>
                                     {newChapters.length > 0 && (
                                         <Button
                                             variant="outline"
@@ -517,6 +548,7 @@ const AdminChapterScraper: React.FC = () => {
                                 <div className="grid grid-cols-3 gap-3 sm:grid-cols-4 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
                                     {newChapters.map((ch, i) => {
                                         const isSelected = selectedChapterIndices.includes(i);
+                                        const isUpdate = ch.changeType === 'updated';
                                         return (
                                             <button
                                                 key={i}
@@ -528,11 +560,15 @@ const AdminChapterScraper: React.FC = () => {
                                                     );
                                                 }}
                                                 className={`flex flex-col items-center justify-center rounded-full w-16 h-16 transition-all duration-200 border-2 select-none ${isSelected
-                                                    ? 'bg-green-500/20 border-green-500 text-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]'
-                                                    : 'bg-red-500/10 border-red-500/50 text-red-400 opacity-60'
+                                                    ? isUpdate
+                                                        ? 'border-amber-500 bg-amber-500/20 text-amber-300 shadow-[0_0_15px_rgba(245,158,11,0.25)]'
+                                                        : 'border-green-500 bg-green-500/20 text-green-500 shadow-[0_0_15px_rgba(34,197,94,0.3)]'
+                                                    : isUpdate
+                                                        ? 'border-amber-500/50 bg-amber-500/10 text-amber-300/70 opacity-70'
+                                                        : 'bg-red-500/10 border-red-500/50 text-red-400 opacity-60'
                                                     }`}
                                             >
-                                                <span className="text-[10px] font-bold uppercase">Bölüm</span>
+                                                <span className="text-[10px] font-bold uppercase">{isUpdate ? 'Güncel' : 'Bölüm'}</span>
                                                 <span className="text-sm font-black">{ch.number}</span>
                                             </button>
                                         );
@@ -555,7 +591,7 @@ const AdminChapterScraper: React.FC = () => {
                                     </div>
                                     <div className="pt-3 border-t border-border">
                                         <p className="text-xs text-muted-foreground italic">
-                                            * Bölüm numaraları karşılaştırılarak bizde eksik olanlar otomatik olarak belirlenir.
+                                            * Eksik bölümler ve aynı numarada başlığı değişen kayıtlar otomatik olarak işaretlenir.
                                         </p>
                                     </div>
                                 </div>

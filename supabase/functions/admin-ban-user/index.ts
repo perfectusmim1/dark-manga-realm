@@ -58,7 +58,7 @@ Deno.serve(async (req: Request) => {
 
     const { data: requesterProfile, error: profileError } = await serviceClient
       .from("users")
-      .select("id, role")
+      .select("id, role, is_banned, active_ban_type, ban_expires_at")
       .eq("id", requesterId)
       .maybeSingle();
 
@@ -70,6 +70,20 @@ Deno.serve(async (req: Request) => {
     if (!requesterProfile || !["admin", "moderator"].includes(requesterProfile.role)) {
       console.warn(`User ${requesterId} (${requesterProfile?.role}) tried to ban a user`);
       return json({ success: false, message: "Not authorized" }, 403);
+    }
+
+    const requesterBanExpiresAt = requesterProfile.ban_expires_at ? Date.parse(requesterProfile.ban_expires_at) : null;
+    const requesterHasActiveBan = Boolean(
+      requesterProfile.is_banned
+      || requesterProfile.active_ban_type
+    ) && (
+      requesterBanExpiresAt === null
+      || !Number.isFinite(requesterBanExpiresAt)
+      || requesterBanExpiresAt > Date.now()
+    );
+
+    if (requesterHasActiveBan) {
+      return json({ success: false, message: "Banned staff cannot access admin actions" }, 403);
     }
 
     const payload = await req.json().catch(() => null) as {
@@ -136,8 +150,16 @@ Deno.serve(async (req: Request) => {
         console.error("Fingerprint fetch error:", fError.message);
       }
 
-      uniqueIpHashes = [...new Set((fingerprints || []).map((item: any) => item.ip_hash).filter(Boolean))];
-      uniqueDeviceHashes = [...new Set((fingerprints || []).map((item: any) => item.device_hash).filter(Boolean))];
+      uniqueIpHashes = [...new Set(
+        (fingerprints || [])
+          .map((item: { ip_hash?: string | null }) => item.ip_hash)
+          .filter((value): value is string => typeof value === "string" && value.length > 0),
+      )];
+      uniqueDeviceHashes = [...new Set(
+        (fingerprints || [])
+          .map((item: { device_hash?: string | null }) => item.device_hash)
+          .filter((value): value is string => typeof value === "string" && value.length > 0),
+      )];
 
       if (uniqueIpHashes.length > 0) {
         const { error: ipError } = await serviceClient.from("banned_ip_hashes").upsert(
