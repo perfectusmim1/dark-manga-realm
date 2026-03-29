@@ -119,7 +119,7 @@ const OfflineStartupRedirect = () => {
 const AccessGate = ({ children }: { children: React.ReactNode }) => {
   const { isOnline } = useEffectiveOnlineStatus();
   const location = useLocation();
-  const { user, accessState } = useAuth();
+  const { user, accessState, logout } = useAuth();
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -214,7 +214,9 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
               )}
               {user?.id && (
                 <button 
-                  onClick={() => logout()}
+                  onClick={() => {
+                    void logout();
+                  }}
                   className="px-6 py-2 rounded-full bg-white/5 border border-white/10 text-white/60 text-sm hover:bg-white/10 hover:text-white transition-all"
                 >
                   Oturumu Kapat

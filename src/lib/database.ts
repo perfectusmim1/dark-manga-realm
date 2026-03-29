@@ -249,6 +249,22 @@ const buildChapterCountByMangaId = (chapters: any[] = []) => {
     return chapterCountByMangaId;
 };
 
+const buildLatestChapterPreviewsByMangaId = (chapters: any[] = []) => {
+    const latestChapterPreviewsByMangaId = new Map<string, { id: string; number: number }[]>();
+
+    for (const chapter of chapters) {
+        const mangaId = chapter.manga_id;
+        const existing = latestChapterPreviewsByMangaId.get(mangaId) || [];
+
+        if (existing.length < 2) {
+            existing.push({ id: chapter.id, number: chapter.number });
+            latestChapterPreviewsByMangaId.set(mangaId, existing);
+        }
+    }
+
+    return latestChapterPreviewsByMangaId;
+};
+
 // ==================== MANGA OPERATIONS ====================
 
 /**
@@ -367,7 +383,9 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
     if (allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const summarized = allMangasCache.value.map((manga) => ({
             ...manga,
-            chapters: [],
+            chapters: manga.chapters.length > 1
+                ? [manga.chapters[manga.chapters.length - 1], manga.chapters[manga.chapters.length - 2]]
+                : manga.chapters.slice(),
             ratings: [],
             chapterCount: typeof manga.chapterCount === 'number' ? manga.chapterCount : manga.chapters.length,
         }));
@@ -402,7 +420,8 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
                     .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
                 supabase
                     .from('chapters')
-                    .select('manga_id'),
+                    .select('id, manga_id, number')
+                    .order('number', { ascending: false }),
             ]);
 
             if (mangaError) {
@@ -419,6 +438,7 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
 
             const reviewStatsByMangaId = buildReviewStatsByMangaId(reviewRows || []);
             const chapterCountByMangaId = buildChapterCountByMangaId(chapterRows || []);
+            const latestChapterPreviewsByMangaId = buildLatestChapterPreviewsByMangaId(chapterRows || []);
 
             return (mangaRows || []).map((manga: any) => {
                 const reviewStats = reviewStatsByMangaId.get(manga.id);
@@ -429,7 +449,7 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
                     lastUpdated: manga.last_updated,
                     createdAt: manga.created_at,
                     releaseYear: manga.release_year,
-                    chapters: [],
+                    chapters: latestChapterPreviewsByMangaId.get(manga.id) || [],
                     ratings: [],
                     chapterCount: chapterCountByMangaId.get(manga.id) || 0,
                     averageRating: reviewStats?.average || 0,

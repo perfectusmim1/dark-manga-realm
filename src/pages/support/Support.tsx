@@ -62,10 +62,10 @@ const categoryDescriptions: Record<SupportTicketCategory, string> = {
 const supportCategories = Object.keys(categoryLabels) as SupportTicketCategory[];
 
 const statusMeta: Record<SupportTicketStatus, { label: string; tone: string; icon: React.ComponentType<{ className?: string }> }> = {
-  open: { label: 'Açık', tone: 'border-emerald-500/20 bg-emerald-500/10 text-emerald-300', icon: Sparkles },
+  open: { label: 'Açık', tone: 'border-green-500/20 bg-green-500/10 text-green-300', icon: Sparkles },
   waiting_staff: { label: 'Staff Bekliyor', tone: 'border-sky-500/20 bg-sky-500/10 text-sky-300', icon: Clock3 },
   waiting_user: { label: 'Sıra Sizde', tone: 'border-amber-500/20 bg-amber-500/10 text-amber-200', icon: MessageSquareReply },
-  closed: { label: 'Kapalı', tone: 'border-zinc-500/20 bg-zinc-500/10 text-zinc-300', icon: CheckCircle2 },
+  closed: { label: 'Kapalı', tone: 'border-red-500/20 bg-red-500/10 text-red-300', icon: CheckCircle2 },
 };
 
 const messageRoleLabels: Record<SupportTicketMessage['authorRole'], string> = {
@@ -80,7 +80,7 @@ const formatTicketTime = (value: string) => formatDistanceToNow(new Date(value),
 const SupportTicketBadge = ({ status }: { status: SupportTicketStatus }) => {
   const StatusIcon = statusMeta[status].icon;
   return (
-    <Badge className={`gap-1.5 border ${statusMeta[status].tone}`}>
+    <Badge variant="outline" className={`gap-1.5 border ${statusMeta[status].tone}`}>
       <StatusIcon className="h-3.5 w-3.5" />
       {statusMeta[status].label}
     </Badge>

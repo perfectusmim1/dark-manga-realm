@@ -109,6 +109,9 @@ export interface User {
       auto_show_replies: boolean;
       show_page_comments: boolean;
     };
+    appearance?: {
+      manga_hover_preview?: boolean;
+    };
     privacy?: {
       visibility: 'public' | 'members' | 'mutuals' | 'private';
       reading_history_visibility?: 'public' | 'members' | 'mutuals' | 'private';

@@ -126,19 +126,23 @@ const LatestChapters: React.FC = () => {
                 </div>
 
                 {chapters.length > 0 ? (
-                    <div className="grid gap-3 xl:grid-cols-2">
+                    <div className="grid gap-4 xl:grid-cols-3">
                         {chapters.map((chapter, index) => (
                             <Link
                                 key={chapter.chapterId}
                                 to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
-                                className="group animate-fade-up opacity-0 flex items-center gap-3 rounded-2xl border border-border bg-card/40 p-3 transition-all duration-200 hover:border-primary/40 hover:bg-card"
+                                className="group animate-fade-up opacity-0 flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 transition-all duration-200 hover:border-primary/40 hover:bg-card sm:gap-5"
                                 style={{ animationDelay: `${0.08 + index * 0.015}s`, animationFillMode: 'forwards' }}
                             >
-                                <img
-                                    src={chapter.mangaCover}
-                                    alt={chapter.mangaTitle}
-                                    className="h-20 w-14 shrink-0 rounded-xl object-cover shadow-sm transition-transform duration-300 group-hover:scale-[1.03]"
-                                />
+                                <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-secondary/40 shadow-sm sm:h-28 sm:w-28 lg:h-32 lg:w-32">
+                                    <img
+                                        src={chapter.mangaCover}
+                                        alt={chapter.mangaTitle}
+                                        loading="lazy"
+                                        decoding="async"
+                                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                                    />
+                                </div>
 
                                 <div className="min-w-0 flex-1">
                                     <div className="flex items-start justify-between gap-3">
@@ -199,11 +203,11 @@ const LatestChapters: React.FC = () => {
                 {chapters.length > 0 && (
                     <div ref={loaderRef} className="py-6">
                         {isLoadingMore ? (
-                            <div className="grid gap-3 xl:grid-cols-2">
+                            <div className="grid gap-4 xl:grid-cols-3">
                                 {Array.from({ length: 6 }).map((_, index) => (
                                     <div
                                         key={`latest-chapter-loader-${index}`}
-                                        className="h-[110px] animate-pulse rounded-2xl border border-border bg-card/40"
+                                        className="h-[128px] animate-pulse rounded-[24px] border border-border bg-card/40 sm:h-[152px] lg:h-[176px]"
                                     />
                                 ))}
                             </div>

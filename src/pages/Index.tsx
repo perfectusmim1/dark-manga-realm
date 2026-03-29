@@ -20,6 +20,7 @@ import DeferredMount from '@/components/performance/DeferredMount';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
+import { getAlignedCarouselTarget } from '@/lib/carousel';
 
 interface HorizontalMangaSectionProps {
   title: string;
@@ -32,6 +33,9 @@ interface HorizontalMangaSectionProps {
   isCoarsePointer: boolean;
   withTopSpacing?: boolean;
   priorityCount?: number;
+  sectionAnimationDurationMs?: number;
+  cardAnimationDelayStepMs?: number;
+  cardAnimationDurationMs?: number;
 }
 
 interface ContinueReadingEntry {
@@ -125,6 +129,20 @@ const CONTINUE_READING_COVER_INTRINSIC_WIDTH = 480;
 const CONTINUE_READING_COVER_INTRINSIC_HEIGHT = 640;
 const CONTINUE_READING_COVER_SIZES = '(min-width: 1024px) 16rem, (min-width: 640px) 14rem, 9.75rem';
 const CONTINUE_READING_BANNER_SIZES = '100vw';
+const HOME_SECTION_DEFERRED_ROOT_MARGIN = {
+  coarse: '420px 0px',
+  fine: '320px 0px',
+} as const;
+const HOME_BLOCK_DEFERRED_ROOT_MARGIN = {
+  coarse: '520px 0px',
+  fine: '380px 0px',
+} as const;
+const HOME_SECTION_ANIMATION_DURATION_MS = 220;
+const HOME_CARD_ANIMATION_DELAY_STEP_MS = 16;
+const HOME_CARD_ANIMATION_DURATION_MS = 220;
+const HOME_CAROUSEL_ARROW_STEP_ITEMS = 5;
+const HOME_CAROUSEL_SCROLL_SETTLE_DELAY_MS = 280;
+const HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX = 12;
 
 const CONTINUE_READING_SESSION_CACHE_KEY = 'toonparrot-home-continue-reading-v1';
 
@@ -470,14 +488,17 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   isCoarsePointer,
   withTopSpacing = true,
   priorityCount = 0,
+  sectionAnimationDurationMs = HOME_SECTION_ANIMATION_DURATION_MS,
+  cardAnimationDelayStepMs = HOME_CARD_ANIMATION_DELAY_STEP_MS,
+  cardAnimationDurationMs = HOME_CARD_ANIMATION_DURATION_MS,
 }) => {
   const scrollRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
+  const layoutRafRef = useRef<number | null>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
   const [itemWidth, setItemWidth] = useState(0);
   const [scrollMetrics, setScrollMetrics] = useState(() => ({
-    scrollLeft: 0,
     clientWidth: typeof window === 'undefined' ? 0 : window.innerWidth,
     viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth,
   }));
@@ -497,11 +518,14 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     const { scrollLeft, scrollWidth, clientWidth } = scrollRef.current;
     const viewportWidth = typeof window === 'undefined' ? 1024 : window.innerWidth;
 
-    setScrollMetrics({
-      scrollLeft,
-      clientWidth,
-      viewportWidth,
-    });
+    setScrollMetrics((current) => (
+      current.clientWidth === clientWidth && current.viewportWidth === viewportWidth
+        ? current
+        : {
+            clientWidth,
+            viewportWidth,
+          }
+    ));
 
     if (!showArrowControls) {
       setShowLeftArrow(false);
@@ -509,48 +533,48 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
       return;
     }
 
-    setShowLeftArrow(scrollLeft > 20);
-    setShowRightArrow(scrollWidth > clientWidth + 20 && scrollLeft < scrollWidth - clientWidth - 20);
+    setShowLeftArrow(scrollLeft > HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX);
+    setShowRightArrow(
+      scrollWidth > clientWidth + HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX
+        && scrollLeft < scrollWidth - clientWidth - HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX,
+    );
   }, [showArrowControls]);
 
-  const scroll = (direction: 'left' | 'right') => {
-    if (!scrollRef.current) {
+  const requestLayoutMetricsUpdate = useCallback(() => {
+    if (typeof window === 'undefined') {
       return;
     }
 
-    const scrollAmount = scrollRef.current.clientWidth * 0.82;
-    scrollRef.current.scrollBy({
-      left: direction === 'left' ? -scrollAmount : scrollAmount,
-      behavior: 'smooth',
-    });
+    if (layoutRafRef.current !== null) {
+      return;
+    }
 
-    window.setTimeout(updateLayoutMetrics, 450);
-  };
+    layoutRafRef.current = window.requestAnimationFrame(() => {
+      layoutRafRef.current = null;
+      updateLayoutMetrics();
+    });
+  }, [updateLayoutMetrics]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
     }
 
-    let ticking = false;
+    requestLayoutMetricsUpdate();
+    window.addEventListener('resize', requestLayoutMetricsUpdate, { passive: true });
 
-    const requestLayoutUpdate = () => {
-      if (ticking) {
-        return;
-      }
+    return () => window.removeEventListener('resize', requestLayoutMetricsUpdate);
+  }, [manga.length, requestLayoutMetricsUpdate, showArrowControls]);
 
-      ticking = true;
-      window.requestAnimationFrame(() => {
-        ticking = false;
-        updateLayoutMetrics();
-      });
-    };
+  useEffect(() => () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
 
-    requestLayoutUpdate();
-    window.addEventListener('resize', requestLayoutUpdate);
-
-    return () => window.removeEventListener('resize', requestLayoutUpdate);
-  }, [manga.length, showArrowControls, updateLayoutMetrics]);
+    if (layoutRafRef.current !== null) {
+      window.cancelAnimationFrame(layoutRafRef.current);
+    }
+  }, []);
 
   useEffect(() => {
     const probe = probeRef.current;
@@ -562,6 +586,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
       const nextWidth = probe.getBoundingClientRect().width;
       if (nextWidth > 0) {
         setItemWidth(nextWidth);
+        requestLayoutMetricsUpdate();
       }
     };
 
@@ -578,47 +603,38 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
     observer.observe(probe);
     return () => observer.disconnect();
-  }, [manga.length]);
+  }, [manga.length, requestLayoutMetricsUpdate]);
 
   const gapPx = scrollMetrics.viewportWidth >= 640 ? 16 : 12;
   const effectiveItemWidth = itemWidth > 0
     ? itemWidth
     : getEstimatedHomeCarouselItemWidth(scrollMetrics.viewportWidth, scrollMetrics.clientWidth);
   const itemStride = effectiveItemWidth > 0 ? effectiveItemWidth + gapPx : 0;
-  const shouldVirtualize = manga.length > 6 && itemStride > 0 && scrollMetrics.clientWidth > 0;
 
-  const visibleRange = useMemo(() => {
-    if (!shouldVirtualize) {
-      return {
-        startIndex: 0,
-        endIndex: manga.length,
-      };
+  const scroll = useCallback((direction: 'left' | 'right') => {
+    const scroller = scrollRef.current;
+
+    if (!scroller || itemStride <= 0) {
+      return;
     }
 
-    const overscanItems = 1;
-    const startIndex = Math.max(0, Math.floor(scrollMetrics.scrollLeft / itemStride) - overscanItems);
-    const endIndex = Math.min(
-      manga.length,
-      Math.ceil((scrollMetrics.scrollLeft + scrollMetrics.clientWidth) / itemStride) + overscanItems,
-    );
+    const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    const targetLeft = getAlignedCarouselTarget({
+      currentScrollLeft: scroller.scrollLeft,
+      itemStride,
+      direction,
+      stepItems: HOME_CAROUSEL_ARROW_STEP_ITEMS,
+      maxScrollLeft,
+    });
 
-    return {
-      startIndex,
-      endIndex: Math.max(startIndex + 1, endIndex),
-    };
-  }, [itemStride, manga.length, scrollMetrics.clientWidth, scrollMetrics.scrollLeft, shouldVirtualize]);
+    scroller.scrollTo({
+      left: targetLeft,
+      behavior: 'smooth',
+    });
 
-  const visibleManga = shouldVirtualize
-    ? manga.slice(visibleRange.startIndex, visibleRange.endIndex)
-    : manga;
-  const hiddenBeforeCount = shouldVirtualize ? visibleRange.startIndex : 0;
-  const hiddenAfterCount = shouldVirtualize ? Math.max(0, manga.length - visibleRange.endIndex) : 0;
-  const leftSpacerWidth = shouldVirtualize
-    ? Math.max(0, hiddenBeforeCount * itemStride - gapPx)
-    : 0;
-  const rightSpacerWidth = shouldVirtualize
-    ? Math.max(0, hiddenAfterCount * itemStride - gapPx)
-    : 0;
+    requestLayoutMetricsUpdate();
+    window.setTimeout(requestLayoutMetricsUpdate, HOME_CAROUSEL_SCROLL_SETTLE_DELAY_MS);
+  }, [itemStride, requestLayoutMetricsUpdate]);
 
   const sectionStyle: React.CSSProperties = {
     contentVisibility: 'auto',
@@ -627,6 +643,8 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
   if (!disableHeavyEffects) {
     sectionStyle.animationDelay = delay;
+    sectionStyle.animationDuration = `${sectionAnimationDurationMs}ms`;
+    sectionStyle.animationTimingFunction = 'cubic-bezier(0.22, 1, 0.36, 1)';
     sectionStyle.animationFillMode = 'forwards';
   }
 
@@ -654,10 +672,10 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => scroll('left')}
-              className="absolute left-0 top-0 bottom-0 z-40 w-12 sm:w-16 bg-black/20 hover:bg-black/60 text-white transition-all duration-300 flex items-center justify-center group/arrow opacity-0 group-hover/carousel:opacity-100"
+              className="group/arrow absolute left-4 top-1/2 z-40 flex h-[3.25rem] w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-full bg-[linear-gradient(180deg,rgba(59,130,246,0.96),rgba(37,99,235,0.92))] text-white shadow-[0_16px_34px_rgba(37,99,235,0.34)] ring-1 ring-white/12 backdrop-blur-md transition-all duration-200 hover:scale-[1.04] hover:shadow-[0_18px_38px_rgba(37,99,235,0.42)] active:scale-[0.9] active:shadow-[0_10px_20px_rgba(37,99,235,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:left-5 sm:h-[3.6rem] sm:w-[3.6rem]"
               aria-label={`${title} sola kaydır`}
             >
-              <ChevronLeft className="h-10 w-10 transition-transform duration-300 group-hover/arrow:scale-125 group-active/arrow:scale-90" />
+              <ChevronLeft className="h-7 w-7 -translate-x-[1px] transition-transform duration-200 group-active/arrow:-translate-x-[3px] sm:h-8 sm:w-8" />
             </motion.button>
           )}
 
@@ -668,10 +686,10 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => scroll('right')}
-              className="absolute right-0 top-0 bottom-0 z-40 w-12 sm:w-16 bg-black/20 hover:bg-black/60 text-white transition-all duration-300 flex items-center justify-center group/arrow opacity-0 group-hover/carousel:opacity-100"
+              className="group/arrow absolute right-4 top-1/2 z-40 flex h-[3.25rem] w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-full bg-[linear-gradient(180deg,rgba(59,130,246,0.96),rgba(37,99,235,0.92))] text-white shadow-[0_16px_34px_rgba(37,99,235,0.34)] ring-1 ring-white/12 backdrop-blur-md transition-all duration-200 hover:scale-[1.04] hover:shadow-[0_18px_38px_rgba(37,99,235,0.42)] active:scale-[0.9] active:shadow-[0_10px_20px_rgba(37,99,235,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:right-5 sm:h-[3.6rem] sm:w-[3.6rem]"
               aria-label={`${title} sağa kaydır`}
             >
-              <ChevronRight className="h-10 w-10 transition-transform duration-300 group-hover/arrow:scale-125 group-active/arrow:scale-90" />
+              <ChevronRight className="h-7 w-7 translate-x-[1px] transition-transform duration-200 group-active/arrow:translate-x-[3px] sm:h-8 sm:w-8" />
             </motion.button>
           )}
         </AnimatePresence>}
@@ -687,27 +705,25 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
         <div
           ref={scrollRef}
-          onScroll={updateLayoutMetrics}
-          className="flex gap-3 overflow-x-auto px-0 scroll-smooth scrollbar-hide sm:gap-4"
+          onScroll={requestLayoutMetricsUpdate}
+          className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-0 scrollbar-hide sm:gap-4"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {leftSpacerWidth > 0 && <div aria-hidden style={{ width: leftSpacerWidth, flex: '0 0 auto' }} />}
-
-          {visibleManga.map((item, index) => (
+          {manga.map((item, index) => (
             <div
               key={item.id}
-              className="w-[9.75rem] shrink-0 min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/6)] 2xl:w-[calc((100%-96px)/6)]"
+              className="w-[9.75rem] shrink-0 snap-start min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/6)] 2xl:w-[calc((100%-96px)/6)]"
             >
               <MangaCard
                 manga={item}
-                index={visibleRange.startIndex + index}
+                index={index}
                 disableHeavyEffects={disableHeavyEffects}
-                coverPriority={visibleRange.startIndex + index < priorityCount}
+                coverPriority={index < priorityCount}
+                entryAnimationDelayStepMs={cardAnimationDelayStepMs}
+                entryAnimationDurationMs={cardAnimationDurationMs}
               />
             </div>
           ))}
-
-          {rightSpacerWidth > 0 && <div aria-hidden style={{ width: rightSpacerWidth, flex: '0 0 auto' }} />}
         </div>
       </div>
     </section>
@@ -727,8 +743,12 @@ const Index: React.FC = () => {
   const [trendingTags, setTrendingTags] = useState<Tag[]>(() => HOME_PAGE_CACHE.trendingTags ?? []);
   const [tagsLoading, setTagsLoading] = useState(() => HOME_PAGE_CACHE.trendingTags === null);
   const mangaById = useMemo(() => new Map(mangas.map((item) => [item.id, item])), [mangas]);
-  const sectionDeferredRootMargin = isCoarsePointer ? '260px 0px' : '180px 0px';
-  const blockDeferredRootMargin = isCoarsePointer ? '320px 0px' : '220px 0px';
+  const sectionDeferredRootMargin = isCoarsePointer
+    ? HOME_SECTION_DEFERRED_ROOT_MARGIN.coarse
+    : HOME_SECTION_DEFERRED_ROOT_MARGIN.fine;
+  const blockDeferredRootMargin = isCoarsePointer
+    ? HOME_BLOCK_DEFERRED_ROOT_MARGIN.coarse
+    : HOME_BLOCK_DEFERRED_ROOT_MARGIN.fine;
 
   const offlineManga = React.useMemo<Manga[]>(() => (
     offlineSnapshot.series.map((entry: OfflineMangaGroup) => ({
@@ -1017,7 +1037,7 @@ const Index: React.FC = () => {
                 iconClassName="h-5 w-5 text-amber-400"
                 linkTo="/browse?sort=created"
                 manga={newlyAddedSeries}
-                delay="0.18s"
+                delay="0s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
@@ -1032,7 +1052,7 @@ const Index: React.FC = () => {
                 iconClassName="h-5 w-5 text-primary"
                 linkTo="/browse?sort=updated"
                 manga={recentlyUpdated}
-                delay="0.2s"
+                delay="0.02s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
@@ -1047,7 +1067,7 @@ const Index: React.FC = () => {
                 iconClassName="h-5 w-5 text-primary"
                 linkTo="/browse?sort=trending"
                 manga={trendingManga}
-                delay="0.25s"
+                delay="0.04s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}

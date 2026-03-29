@@ -63,6 +63,9 @@ type PreferenceState = {
         auto_show_replies: boolean;
         show_page_comments: boolean;
     };
+    appearance: {
+        manga_hover_preview: boolean;
+    };
     privacy: {
         visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['visibility'];
         reading_history_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['reading_history_visibility'];
@@ -100,6 +103,9 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
         auto_show_gifs: preferences?.comments?.auto_show_gifs ?? false,
         auto_show_replies: preferences?.comments?.auto_show_replies ?? false,
         show_page_comments: preferences?.comments?.show_page_comments ?? false,
+    },
+    appearance: {
+        manga_hover_preview: preferences?.appearance?.manga_hover_preview ?? true,
     },
     privacy: {
         visibility: preferences?.privacy?.visibility ?? 'public',
@@ -1297,6 +1303,21 @@ const Settings: React.FC = () => {
                                 <CardDescription>Yorum görünümü ve genel kullanım davranışlarını buradan belirleyebilirsiniz.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
+                                        <Label htmlFor="manga-hover-preview">Manga Önizleme Kartını Göster</Label>
+                                        <p className="text-sm text-muted-foreground">Manga kartına hover yapınca veya odaklanınca çıkan detay preview kartını göster.</p>
+                                    </div>
+                                    <Switch
+                                        id="manga-hover-preview"
+                                        checked={prefs.appearance?.manga_hover_preview ?? true}
+                                        onCheckedChange={(checked) => handleUpdatePreferences({
+                                            ...prefs,
+                                            appearance: { ...prefs.appearance, manga_hover_preview: checked }
+                                        }, 'Tercihler güncellendi')}
+                                        disabled={isUpdatingPrefs}
+                                    />
+                                </div>
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                                     <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="auto-show-replies">Yanıtları Otomatik Aç</Label>

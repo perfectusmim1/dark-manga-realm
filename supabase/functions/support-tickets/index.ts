@@ -372,8 +372,8 @@ Deno.serve(async (req: Request) => {
     }
 
     if (action === "delete") {
-      if (requesterIsStaff) {
-        return json({ success: false, message: "Staff ticket silemez" }, 403);
+      if (targetTicket.user_id !== requesterId) {
+        return json({ success: false, message: "Sadece kendi ticketını silebilirsin" }, 403);
       }
 
       const { error: deleteMessagesError } = await auth.serviceClient

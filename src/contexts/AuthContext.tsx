@@ -132,6 +132,9 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
     auto_show_replies: false,
     show_page_comments: false,
   },
+  appearance: {
+    manga_hover_preview: true,
+  },
   privacy: {
     visibility: 'public',
     reading_history_visibility: 'public',
@@ -150,6 +153,10 @@ const normalizeUserPreferences = (preferences?: User['preferences']): NonNullabl
   comments: {
     ...DEFAULT_USER_PREFERENCES.comments,
     ...preferences?.comments,
+  },
+  appearance: {
+    ...DEFAULT_USER_PREFERENCES.appearance,
+    ...preferences?.appearance,
   },
   privacy: {
     ...DEFAULT_USER_PREFERENCES.privacy,

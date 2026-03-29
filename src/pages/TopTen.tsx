@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, ChevronLeft, ChevronRight, Clock3, Crown, Flame } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Clock3, Crown, Flame, Star } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { Badge } from '@/components/ui/badge';
@@ -10,6 +10,7 @@ import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { Manga } from '@/lib/types';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import { getAlignedCarouselTarget } from '@/lib/carousel';
 
 type TopTenTimeframe = 'today' | 'week' | 'all';
 
@@ -64,6 +65,8 @@ const TOP_TEN_CARD_TRANSFORM = Object.freeze({
 const TOP_TEN_CARD_INTRINSIC_WIDTH = 480;
 const TOP_TEN_CARD_INTRINSIC_HEIGHT = 640;
 const TOP_TEN_CARD_SIZES = '(min-width: 1280px) 19vw, (min-width: 1024px) 20vw, (min-width: 640px) 24vw, 44vw';
+const TOP_TEN_CAROUSEL_SCROLL_SETTLE_DELAY_MS = 300;
+const TOP_TEN_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX = 12;
 
 const readCachedTopTenSections = (): Record<TopTenTimeframe, Manga[]> => ({
   today: TOP_TEN_PAGE_CACHE.today ?? [],
@@ -143,7 +146,8 @@ const TopTenCard: React.FC<{
             </h3>
             <div className="mt-2 flex items-center justify-between gap-3 text-xs text-white/84">
               <span className="truncate drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)]">{manga.author}</span>
-              <span className="shrink-0 font-semibold text-white">
+              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/35 px-2 py-1 font-semibold text-amber-300 shadow-[0_6px_18px_rgba(0,0,0,0.28)] ring-1 ring-white/10">
+                <Star className="h-3.5 w-3.5 fill-current text-amber-400" />
                 {Number(manga.averageRating || 0).toFixed(1)}
               </span>
             </div>
@@ -199,8 +203,11 @@ const TopTenSectionBlock: React.FC<{
 
     const { scrollLeft, scrollWidth, clientWidth } = scroller;
     setHasMeasuredArrows(true);
-    setShowLeftArrow(scrollLeft > 20);
-    setShowRightArrow(scrollWidth > clientWidth + 20 && scrollLeft < scrollWidth - clientWidth - 20);
+    setShowLeftArrow(scrollLeft > TOP_TEN_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX);
+    setShowRightArrow(
+      scrollWidth > clientWidth + TOP_TEN_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX
+        && scrollLeft < scrollWidth - clientWidth - TOP_TEN_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX,
+    );
   }, [scrollNode, showArrowControls]);
 
   const requestArrowUpdate = useCallback(() => {
@@ -218,19 +225,41 @@ const TopTenSectionBlock: React.FC<{
     });
   }, [updateArrows]);
 
-  const scroll = (direction: 'left' | 'right') => {
-    if (!scrollRef.current) {
+  const scroll = useCallback((direction: 'left' | 'right') => {
+    const scroller = scrollRef.current;
+
+    if (!scroller) {
       return;
     }
 
-    const scrollAmount = scrollRef.current.clientWidth * 0.92;
-    scrollRef.current.scrollBy({
-      left: direction === 'left' ? -scrollAmount : scrollAmount,
+    const firstCard = scroller.querySelector<HTMLElement>('[data-top-ten-card]');
+    const cardWidth = firstCard?.getBoundingClientRect().width ?? 0;
+    const computedStyle = window.getComputedStyle(scroller);
+    const gapPx = Number.parseFloat(computedStyle.columnGap || computedStyle.gap || '0') || 0;
+    const itemStride = cardWidth + gapPx;
+
+    if (itemStride <= 0) {
+      return;
+    }
+
+    const cardsPerStep = Math.max(1, Math.round((scroller.clientWidth + gapPx) / itemStride));
+    const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+    const targetLeft = getAlignedCarouselTarget({
+      currentScrollLeft: scroller.scrollLeft,
+      itemStride,
+      direction,
+      stepItems: cardsPerStep,
+      maxScrollLeft,
+    });
+
+    scroller.scrollTo({
+      left: targetLeft,
       behavior: 'smooth',
     });
 
-    window.setTimeout(requestArrowUpdate, 450);
-  };
+    requestArrowUpdate();
+    window.setTimeout(requestArrowUpdate, TOP_TEN_CAROUSEL_SCROLL_SETTLE_DELAY_MS);
+  }, [requestArrowUpdate]);
 
   useEffect(() => {
     if (typeof window === 'undefined') {
@@ -319,20 +348,20 @@ const TopTenSectionBlock: React.FC<{
               <button
                 type="button"
                 onClick={() => scroll('left')}
-                className="absolute bottom-[4px] left-0 top-[3.42rem] z-30 flex w-[4.5rem] items-center justify-center overflow-hidden rounded-l-[24px] rounded-r-none border border-r-0 border-white/10 bg-black/70 text-white opacity-0 shadow-[0_18px_34px_rgba(0,0,0,0.28)] transition-all duration-300 group/arrow hover:bg-black/80 group-hover/carousel:opacity-100 focus-visible:opacity-100 sm:top-[4.06rem] sm:bottom-[4px] sm:w-[4.9rem]"
+                className="group/arrow absolute left-4 top-1/2 z-30 flex h-[3.25rem] w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-full bg-[linear-gradient(180deg,rgba(59,130,246,0.96),rgba(37,99,235,0.92))] text-white shadow-[0_16px_34px_rgba(37,99,235,0.34)] ring-1 ring-white/12 backdrop-blur-md transition-all duration-200 hover:scale-[1.04] hover:shadow-[0_18px_38px_rgba(37,99,235,0.42)] active:scale-[0.9] active:shadow-[0_10px_20px_rgba(37,99,235,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:left-5 sm:h-[3.6rem] sm:w-[3.6rem]"
                 aria-label={`${meta.title} sola kaydır`}
               >
-                <ChevronLeft className="h-9 w-9 -translate-x-[1px] transition-transform duration-300 drop-shadow-[0_4px_14px_rgba(0,0,0,0.28)] group-hover/arrow:scale-125 group-active/arrow:scale-90 sm:h-10 sm:w-10" />
+                <ChevronLeft className="h-7 w-7 -translate-x-[1px] transition-transform duration-200 group-active/arrow:-translate-x-[3px] sm:h-8 sm:w-8" />
               </button>
             )}
             {(showRightArrow || (!hasMeasuredArrows && estimatedHasOverflow && !isLoading)) && (
               <button
                 type="button"
                 onClick={() => scroll('right')}
-                className="absolute bottom-[4px] right-0 top-[3.42rem] z-30 flex w-[4.5rem] items-center justify-center overflow-hidden rounded-r-[24px] rounded-l-none border border-l-0 border-white/10 bg-black/70 text-white opacity-0 shadow-[0_18px_34px_rgba(0,0,0,0.28)] transition-all duration-300 group/arrow hover:bg-black/80 group-hover/carousel:opacity-100 focus-visible:opacity-100 sm:top-[4.06rem] sm:bottom-[4px] sm:w-[4.9rem]"
+                className="group/arrow absolute right-4 top-1/2 z-30 flex h-[3.25rem] w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-full bg-[linear-gradient(180deg,rgba(59,130,246,0.96),rgba(37,99,235,0.92))] text-white shadow-[0_16px_34px_rgba(37,99,235,0.34)] ring-1 ring-white/12 backdrop-blur-md transition-all duration-200 hover:scale-[1.04] hover:shadow-[0_18px_38px_rgba(37,99,235,0.42)] active:scale-[0.9] active:shadow-[0_10px_20px_rgba(37,99,235,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:right-5 sm:h-[3.6rem] sm:w-[3.6rem]"
                 aria-label={`${meta.title} sağa kaydır`}
               >
-                <ChevronRight className="h-9 w-9 translate-x-[1px] transition-transform duration-300 drop-shadow-[0_4px_14px_rgba(0,0,0,0.28)] group-hover/arrow:scale-125 group-active/arrow:scale-90 sm:h-10 sm:w-10" />
+                <ChevronRight className="h-7 w-7 translate-x-[1px] transition-transform duration-200 group-active/arrow:translate-x-[3px] sm:h-8 sm:w-8" />
               </button>
             )}
           </>
@@ -359,12 +388,16 @@ const TopTenSectionBlock: React.FC<{
               scrollRef.current = node;
               setScrollNode(node);
             }}
-            onScroll={updateArrows}
+            onScroll={requestArrowUpdate}
             className="flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain pb-2 scroll-smooth scrollbar-hide"
             style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
           >
             {manga.map((item, index) => (
-              <div key={`${timeframe}-${item.id}`} className={`shrink-0 snap-start ${TOP_TEN_CARD_WIDTH_CLASS}`}>
+              <div
+                key={`${timeframe}-${item.id}`}
+                data-top-ten-card
+                className={`shrink-0 snap-start ${TOP_TEN_CARD_WIDTH_CLASS}`}
+              >
                 <TopTenCard
                   manga={item}
                   index={index}

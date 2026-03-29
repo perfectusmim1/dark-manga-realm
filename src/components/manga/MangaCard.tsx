@@ -1,5 +1,5 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Star, Eye, BookOpen, Clock, User, Sparkles } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
@@ -12,6 +12,8 @@ import {
 import { cn } from '@/lib/utils';
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
+import { formatChapterNumberLabel } from '@/lib/chapterTitle';
+import { useAuth } from '@/contexts/AuthContext';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
 
@@ -21,6 +23,8 @@ interface MangaCardProps {
   topTenWeekIds?: ReadonlySet<string> | null;
   disableHeavyEffects?: boolean;
   coverPriority?: boolean;
+  entryAnimationDelayStepMs?: number;
+  entryAnimationDurationMs?: number;
 }
 
 let topTenWeekIdsCache: Set<string> | null = null;
@@ -58,6 +62,29 @@ const MANGA_CARD_SIZES = '(min-width: 1536px) 14vw, (min-width: 1280px) 15vw, (m
 const HIGHLIGHT_BADGE_BASE =
   'relative h-auto overflow-hidden border px-2.5 pb-[0.28rem] pt-[0.34rem] text-[8px] font-black uppercase leading-none tracking-[0.18em] shadow-[0_10px_26px_rgba(0,0,0,0.22)]';
 
+const getLatestChapterLinks = (chapters: Manga['chapters']) => {
+  const latest: Manga['chapters'] = [];
+
+  for (const chapter of chapters) {
+    if (latest.length === 0 || chapter.number >= latest[0].number) {
+      latest.unshift(chapter);
+      if (latest.length > 2) {
+        latest.length = 2;
+      }
+      continue;
+    }
+
+    if (latest.length === 1 || chapter.number > latest[1].number) {
+      latest.splice(1, 0, chapter);
+      if (latest.length > 2) {
+        latest.length = 2;
+      }
+    }
+  }
+
+  return latest;
+};
+
 const getTopTenWeekIds = async () => {
   if (topTenWeekIdsCache) return topTenWeekIdsCache;
 
@@ -80,14 +107,20 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   topTenWeekIds,
   disableHeavyEffects = false,
   coverPriority,
+  entryAnimationDelayStepMs = 50,
+  entryAnimationDurationMs = 500,
 }) => {
+  const navigate = useNavigate();
+  const { user } = useAuth();
   const [isTopTenWeek, setIsTopTenWeek] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
   const chapters = manga.chapters || [];
   const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : chapters.length;
+  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? true;
   const coverSrcSet = useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
+  const latestChapterLinks = useMemo(() => getLatestChapterLinks(chapters), [chapters]);
 
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -159,11 +192,30 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
     };
   }, [manga.id, topTenWeekIds]);
 
+  useEffect(() => {
+    if ((!hoverPreviewEnabled || disableHeavyEffects) && isPreviewOpen) {
+      setIsPreviewOpen(false);
+    }
+  }, [disableHeavyEffects, hoverPreviewEnabled, isPreviewOpen]);
+
   const cardContent = (
-    <Link
-      to={`/manga/${manga.id}`}
-      className={`group relative block overflow-hidden rounded-xl bg-card ${disableHeavyEffects ? '' : 'transition-all duration-300 hover-lift animate-fade-up opacity-0'}`}
-      style={disableHeavyEffects ? undefined : { animationDelay: `${index * 0.05}s`, animationFillMode: 'forwards' }}
+    <div
+      role="link"
+      tabIndex={0}
+      aria-label={`${manga.title} detay sayfasını aç`}
+      onClick={() => navigate(`/manga/${manga.id}`)}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          navigate(`/manga/${manga.id}`);
+        }
+      }}
+      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${disableHeavyEffects ? '' : 'transition-all duration-300 hover-lift animate-fade-up opacity-0'}`}
+      style={disableHeavyEffects ? undefined : {
+        animationDelay: `${index * entryAnimationDelayStepMs}ms`,
+        animationDuration: `${entryAnimationDurationMs}ms`,
+        animationFillMode: 'forwards',
+      }}
     >
       <div className="relative aspect-[2/3] overflow-hidden">
         <OptimizedImage
@@ -268,24 +320,44 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         <p className="mt-1 line-clamp-1 text-[11px] text-muted-foreground">
           {manga.author}
         </p>
-        <div className="mt-1.5 flex flex-wrap gap-1">
-          {genres.slice(0, 1).map((genre) => (
-            <span
-              key={genre}
-              className="rounded-md bg-secondary/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
-            >
-              {genre}
-            </span>
-          ))}
-          <Badge variant="outline" className="h-4 border-primary/20 bg-primary/5 px-1 text-[9px] text-primary">
-            {chapterCount} Bölüm
-          </Badge>
+        <div className="mt-1.5 space-y-1.5">
+          <div className="flex flex-wrap gap-1">
+            {genres.slice(0, 1).map((genre) => (
+              <span
+                key={genre}
+                className="rounded-md bg-secondary/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
+              >
+                {genre}
+              </span>
+            ))}
+          </div>
+
+          {latestChapterLinks.length > 0 ? (
+            <div className="grid grid-cols-2 gap-1.5">
+              {latestChapterLinks.map((chapter) => (
+                <Link
+                  key={chapter.id}
+                  to={`/manga/${manga.id}/chapter/${chapter.id}`}
+                  onClick={(event) => {
+                    event.stopPropagation();
+                  }}
+                  className="relative z-10 inline-flex min-h-7 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 px-2 py-1.5 text-[10px] font-bold text-primary shadow-[0_8px_18px_rgba(37,99,235,0.12)] transition-all duration-200 hover:-translate-y-px hover:border-primary/45 hover:bg-primary/18 hover:shadow-[0_12px_24px_rgba(37,99,235,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:translate-y-0 active:scale-[0.98]"
+                >
+                  <span className="truncate">Bölüm {formatChapterNumberLabel(chapter.number)}</span>
+                </Link>
+              ))}
+            </div>
+          ) : (
+            <Badge variant="outline" className="min-h-7 w-full justify-center rounded-lg border-primary/20 bg-primary/5 px-2 py-1.5 text-[10px] font-semibold text-primary">
+              {chapterCount} Bölüm
+            </Badge>
+          )}
         </div>
       </div>
-    </Link>
+    </div>
   );
 
-  if (disableHeavyEffects) {
+  if (disableHeavyEffects || !hoverPreviewEnabled) {
     return cardContent;
   }
 
