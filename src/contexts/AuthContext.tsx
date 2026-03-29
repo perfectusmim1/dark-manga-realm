@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
 import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/supabase-js';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
-import { supabase } from '@/lib/supabase';
+import { supabase, waitForUsableSupabaseSession } from '@/lib/supabase';
 import { User, UserAccessState } from '@/lib/types';
 import { checkCurrentAccess, recoverAccessCheckFailure, type AccessCheckResult } from '@/lib/security/deviceIdentity';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
@@ -55,7 +55,7 @@ interface AuthContextType {
   loginWithGoogle: (redirectTo?: string) => Promise<void>;
   resendEmail: (email: string, type: 'signup' | 'recovery') => Promise<{ success: boolean; error?: string }>;
   refreshAccessState: () => Promise<void>;
-  acknowledgeWarning: (warningId: string) => Promise<{ success: boolean; error?: string }>;
+  acknowledgeWarning: (warningId: string) => Promise<{ success: boolean; error?: string; banActive?: boolean }>;
 }
 
 type AuthenticatorLevel = 'aal1' | 'aal2' | null;
@@ -401,10 +401,28 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         unreadWarningCount: snapshot.unreadWarningCount,
       } : prev);
 
-      return { success: true };
+      return { success: true, banActive: snapshot.ban.active };
     } catch (error: unknown) {
       console.error('Acknowledge warning error:', error);
-      return { success: false, error: getErrorMessage(error) };
+      return { success: false, error: getErrorMessage(error), banActive: false };
+    }
+  }, []);
+
+  const forceBanLogoutToSupport = useCallback(async () => {
+    try {
+      await supabase.auth.signOut();
+    } catch (error) {
+      console.error('Forced ban logout error:', error);
+    } finally {
+      setSession(null);
+      setSupabaseUser(null);
+      setUser(null);
+      setMfaState(DEFAULT_MFA_STATE);
+      setAccessState(DEFAULT_ACCESS_STATE);
+
+      if (typeof window !== 'undefined' && window.location.pathname !== '/support') {
+        window.location.replace('/support');
+      }
     }
   }, []);
 
@@ -483,16 +501,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   useEffect(() => {
     let mounted = true;
+    let authSyncQueue = Promise.resolve();
 
     const syncAuthState = async (currentSession: Session | null) => {
       if (!mounted) return;
 
       try {
         if (currentSession?.user) {
+          const stabilizedSession = await waitForUsableSupabaseSession({
+            preferredSession: currentSession,
+            required: false,
+          }).catch(() => currentSession);
+          const activeSession = stabilizedSession?.user ? stabilizedSession : currentSession;
+
           if (!isEffectivelyOnline()) {
-            const fallbackUser = mapSupabaseUserToUser(currentSession.user, null);
-            setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
-            setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(currentSession.user) ? prev : currentSession.user);
+            const fallbackUser = mapSupabaseUserToUser(activeSession.user, null);
+            setSession(prev => JSON.stringify(prev) === JSON.stringify(activeSession) ? prev : activeSession);
+            setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(activeSession.user) ? prev : activeSession.user);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
             setMfaState((prev) => ({ ...prev, isLoading: false }));
             return;
@@ -508,14 +533,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           setAccessState(mapAccessCheckToAccessState(accessCheck));
 
-          const shouldForceSignOut = !accessCheck.allowed && accessCheck.reason !== 'user_banned';
-          if (shouldForceSignOut) {
-            await supabase.auth.signOut();
-            setSession(null);
-            setSupabaseUser(null);
-            setUser(null);
-            setMfaState(DEFAULT_MFA_STATE);
-            toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için erişim engellendi');
+          const shouldForceBanLogout = accessCheck.reason === 'user_banned' && !accessCheck.warning;
+          if (shouldForceBanLogout) {
+            await forceBanLogoutToSupport();
+            return;
+          }
+
+          const shouldBlockCurrentSession = !accessCheck.allowed && accessCheck.reason !== 'user_banned';
+          if (shouldBlockCurrentSession) {
+            const blockedUser = mapSupabaseUserToUser(activeSession.user, null);
+            setSession(prev => JSON.stringify(prev) === JSON.stringify(activeSession) ? prev : activeSession);
+            setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(activeSession.user) ? prev : activeSession.user);
+            setUser(prev => JSON.stringify(prev) === JSON.stringify(blockedUser) ? prev : blockedUser);
+            setMfaState((prev) => ({ ...prev, isLoading: false }));
             return;
           }
 
@@ -525,23 +555,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             || accessCheck.reason === 'user_banned'
           );
           const profile = shouldBypassProfileFetch
-            ? buildProfileFromAccessCheck(currentSession.user, accessCheck)
-            : await ensureProfile(currentSession.user);
+            ? buildProfileFromAccessCheck(activeSession.user, accessCheck)
+            : await ensureProfile(activeSession.user);
 
           if (!mounted) return;
 
-          setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
-          setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(currentSession.user) ? prev : currentSession.user);
+          setSession(prev => JSON.stringify(prev) === JSON.stringify(activeSession) ? prev : activeSession);
+          setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(activeSession.user) ? prev : activeSession.user);
 
           if (profile) {
-            const newUser = mapSupabaseUserToUser(currentSession.user, profile);
+            const newUser = mapSupabaseUserToUser(activeSession.user, profile);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(newUser) ? prev : newUser);
-            void syncLocalChapterReadFallbackToRemote(currentSession.user.id);
+            void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
           } else {
             console.error('Critical: Could not establish a user profile.');
-            const fallbackUser = mapSupabaseUserToUser(currentSession.user, null);
+            const fallbackUser = mapSupabaseUserToUser(activeSession.user, null);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
-            void syncLocalChapterReadFallbackToRemote(currentSession.user.id);
+            void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
           }
 
           await refreshMfaState();
@@ -570,6 +600,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
 
+    const enqueueAuthStateSync = (currentSession: Session | null) => {
+      authSyncQueue = authSyncQueue
+        .catch(() => undefined)
+        .then(() => syncAuthState(currentSession));
+
+      return authSyncQueue;
+    };
+
     const presenceInterval = window.setInterval(() => {
       void pushPresenceHeartbeat();
     }, 30000);
@@ -584,7 +622,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     // Initial check
     supabase.auth.getSession().then(({ data: { session: s } }) => {
-      syncAuthState(s);
+      void enqueueAuthStateSync(s);
       if (s?.user && isEffectivelyOnline() && isDocumentVisible()) {
         void supabase.rpc('update_user_presence', { p_user_id: s.user.id });
       }
@@ -598,8 +636,15 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       async (event, currentSession) => {
         console.log('Auth event change detected:', event);
         // We only trigger re-sync for significant events to avoid loops
-        if (event === 'SIGNED_IN' || event === 'SIGNED_OUT' || event === 'USER_UPDATED' || event === 'TOKEN_REFRESHED') {
-          syncAuthState(currentSession);
+        if (
+          event === 'SIGNED_IN'
+          || event === 'SIGNED_OUT'
+          || event === 'USER_UPDATED'
+          || event === 'TOKEN_REFRESHED'
+          || event === 'INITIAL_SESSION'
+          || event === 'MFA_CHALLENGE_VERIFIED'
+        ) {
+          void enqueueAuthStateSync(currentSession);
         }
       }
     );
@@ -610,7 +655,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       window.clearInterval(presenceInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [ensureProfile, refreshMfaState]);
+  }, [ensureProfile, forceBanLogoutToSupport, refreshMfaState]);
 
   const login = async (email: string, password: string): Promise<{
     success: boolean;
@@ -624,7 +669,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       const identifier = email.trim();
       const deviceIdentity = await getDeviceIdentity();
-      const { data, error } = await supabase.functions.invoke('password-login', {
+      const { data, error } = await supabase.functions.invoke<{
+        success?: boolean;
+        message?: string;
+        retryAfterSeconds?: number;
+        resolvedEmail?: string;
+        session?: {
+          access_token?: string;
+          refresh_token?: string;
+        };
+      }>('password-login', {
         body: {
           identifier,
           password,
@@ -637,7 +691,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: false, error: 'Giriş sırasında bir hata oluştu' };
       }
 
-      if (!data?.success || !data?.session?.access_token || !data?.session?.refresh_token) {
+      if (!data?.success) {
         return {
           success: false,
           error: data?.message || 'E-posta/kullanıcı adı veya şifre hatalı',
@@ -645,15 +699,54 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         };
       }
 
-      const { data: sessionData, error: setSessionError } = await supabase.auth.setSession({
-        access_token: data.session.access_token,
-        refresh_token: data.session.refresh_token,
+      const resolvedEmailFromToken = (() => {
+        const accessToken = data.session?.access_token;
+        if (!accessToken) {
+          return '';
+        }
+
+        try {
+          const [, payload] = accessToken.split('.');
+          if (!payload) {
+            return '';
+          }
+
+          const normalizedPayload = payload
+            .replace(/-/g, '+')
+            .replace(/_/g, '/')
+            .padEnd(Math.ceil(payload.length / 4) * 4, '=');
+          const parsed = JSON.parse(atob(normalizedPayload)) as { email?: string };
+          return parsed.email?.trim().toLowerCase() || '';
+        } catch {
+          return '';
+        }
+      })();
+
+      const resolvedEmail = (
+        data.resolvedEmail
+        || resolvedEmailFromToken
+        || (identifier.includes('@') ? identifier : '')
+      ).trim().toLowerCase();
+
+      if (!resolvedEmail) {
+        return { success: false, error: 'Kullanıcı adı ile girişte hesap e-postası çözümlenemedi' };
+      }
+
+      const { data: sessionData, error: signInError } = await supabase.auth.signInWithPassword({
+        email: resolvedEmail,
+        password,
       });
 
-      if (setSessionError || !sessionData.user || !sessionData.session) {
-        console.error('Session set error:', setSessionError);
+      if (signInError || !sessionData.user || !sessionData.session) {
+        console.error('Client sign-in error after password-login check:', signInError);
         return { success: false, error: 'Oturum oluşturulamadı' };
       }
+
+      const stabilizedSession = await waitForUsableSupabaseSession({
+        preferredSession: sessionData.session,
+        required: false,
+      }).catch(() => sessionData.session);
+      const activeSession = stabilizedSession?.user ? stabilizedSession : sessionData.session;
 
       const currentPath = typeof window !== 'undefined'
         ? `${window.location.pathname}${window.location.search}`
@@ -662,6 +755,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         allowAccessOnFailure(error, 'Access check error during login:')
       );
       setAccessState(mapAccessCheckToAccessState(accessCheck));
+
+      if (accessCheck.reason === 'user_banned' && !accessCheck.warning) {
+        await forceBanLogoutToSupport();
+        return {
+          success: false,
+          error: 'Hesap banlı olduğu için giriş kapatıldı',
+        };
+      }
 
       if (!accessCheck.allowed) {
         await supabase.auth.signOut();
@@ -676,12 +777,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         || accessCheck.ban?.active
         || accessCheck.reason === 'user_banned'
       )
-        ? buildProfileFromAccessCheck(sessionData.user, accessCheck)
-        : await ensureProfile(sessionData.user);
+        ? buildProfileFromAccessCheck(activeSession.user, accessCheck)
+        : await ensureProfile(activeSession.user);
 
-      setSession(sessionData.session);
-      setSupabaseUser(sessionData.user);
-      setUser(mapSupabaseUserToUser(sessionData.user, profile));
+      setSession(activeSession);
+      setSupabaseUser(activeSession.user);
+      setUser(mapSupabaseUserToUser(activeSession.user, profile));
 
       const { data: assuranceData, error: assuranceError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (assuranceError) {
@@ -1119,7 +1220,13 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         throw verify.error;
       }
 
-      const activeSession = (await supabase.auth.getSession()).data.session;
+      const currentSession = (await supabase.auth.getSession()).data.session;
+      const stabilizedSession = await waitForUsableSupabaseSession({
+        preferredSession: currentSession,
+        required: false,
+      }).catch(() => currentSession);
+      const activeSession = stabilizedSession?.user ? stabilizedSession : currentSession;
+
       if (activeSession?.user) {
         const profile = await ensureProfile(activeSession.user);
         setSession(activeSession);

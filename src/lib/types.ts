@@ -338,9 +338,13 @@ export interface SupportTicketMessage {
 
 export interface SupportTicket {
   id: string;
-  userId: string;
+  userId: string | null;
   userName: string;
   userEmail: string;
+  contactName?: string | null;
+  contactEmail?: string | null;
+  appealAccountEmail?: string | null;
+  isGuestTicket?: boolean;
   subject: string;
   category: SupportTicketCategory;
   status: SupportTicketStatus;

@@ -240,6 +240,7 @@ Deno.serve(async (req: Request) => {
 
   return json({
     success: true,
+    resolvedEmail: authResult.user?.email || loginEmail,
     session: {
       access_token: authResult.access_token,
       refresh_token: authResult.refresh_token,

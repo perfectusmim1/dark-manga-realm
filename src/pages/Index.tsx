@@ -42,11 +42,40 @@ interface ContinueReadingEntry {
   lastRead: string;
 }
 
+const buildContinueReadingFallbackManga = (entry: ReadingHistoryEntry): Manga | null => {
+  if (!entry.mangaId || !entry.mangaTitle || !entry.mangaCover) {
+    return null;
+  }
+
+  const anchorDate = entry.lastRead || new Date().toISOString();
+
+  return {
+    id: entry.mangaId,
+    title: entry.mangaTitle,
+    alternativeTitles: entry.mangaAlternativeTitles || [],
+    cover: entry.mangaCover,
+    banner: entry.mangaCover,
+    author: 'Bilinmiyor',
+    artist: '',
+    status: 'ongoing',
+    genres: [],
+    description: 'Kaldığın yerden okumaya devam et.',
+    ratings: [],
+    views: 0,
+    chapters: [],
+    lastUpdated: anchorDate,
+    createdAt: anchorDate,
+    type: 'manga',
+    averageRating: 0,
+    reviewCount: 0,
+  };
+};
+
 const getEstimatedHomeCarouselItemWidth = (viewportWidth: number, clientWidth: number) => {
   const fallbackWidth = Math.max(clientWidth, viewportWidth);
 
   if (viewportWidth >= 1280) {
-    return Math.max(140, (fallbackWidth - 96) / 7);
+    return Math.max(148, (fallbackWidth - 96) / 6);
   }
 
   if (viewportWidth >= 1024) {
@@ -651,7 +680,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
           <div aria-hidden className="pointer-events-none absolute left-0 top-0 -z-10 opacity-0">
             <div
               ref={probeRef}
-              className="w-[9.75rem] shrink-0 min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/7)] 2xl:w-[calc((100%-96px)/7)]"
+              className="w-[9.75rem] shrink-0 min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/6)] 2xl:w-[calc((100%-96px)/6)]"
             />
           </div>
         )}
@@ -667,7 +696,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
           {visibleManga.map((item, index) => (
             <div
               key={item.id}
-              className="w-[9.75rem] shrink-0 min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/7)] 2xl:w-[calc((100%-96px)/7)]"
+              className="w-[9.75rem] shrink-0 min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/6)] 2xl:w-[calc((100%-96px)/6)]"
             >
               <MangaCard
                 manga={item}
@@ -895,7 +924,7 @@ const Index: React.FC = () => {
   const continueReading = useMemo<ContinueReadingEntry[]>(() => (
     continueReadingSeed
       .map((entry) => {
-        const manga = mangaById.get(entry.mangaId);
+        const manga = mangaById.get(entry.mangaId) || buildContinueReadingFallbackManga(entry);
         if (!manga) {
           return null;
         }
@@ -926,10 +955,10 @@ const Index: React.FC = () => {
   }), [mangas]);
 
   const canRenderContinueReadingSlot = isOnline && (Boolean(user) || (authLoading && hasPersistedAuthSession));
-  const shouldShowContinueReading = canRenderContinueReadingSlot && continueReading.length > 0;
+  const shouldShowContinueReading = isOnline && Boolean(user) && continueReading.length > 0;
   const showContinueReadingSkeleton = canRenderContinueReadingSlot
     && !shouldShowContinueReading
-    && (authLoading || continueReadingLoading || continueReadingSeed.length > 0);
+    && (authLoading || continueReadingLoading);
   const shouldRenderContinueReadingSlot = shouldShowContinueReading || showContinueReadingSkeleton;
 
   return (

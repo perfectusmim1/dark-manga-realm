@@ -33,6 +33,7 @@ const Auth: React.FC = () => {
 
   const {
     user,
+    isLoading: authLoading,
     mfaState,
     login,
     register,
@@ -61,10 +62,10 @@ const Auth: React.FC = () => {
       return;
     }
 
-    if (user) {
+    if (!authLoading && user) {
       navigate('/');
     }
-  }, [mfaState.needsVerification, navigate, searchParams, user]);
+  }, [authLoading, mfaState.needsVerification, navigate, searchParams, user]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();

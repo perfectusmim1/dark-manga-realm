@@ -6,6 +6,7 @@ import { BookOpen, Clock } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import { Badge } from '@/components/ui/badge';
+import { sortChapterBatchItems } from '@/lib/chapterBatchOrdering';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
 import { getLatestChapters, getLatestChaptersCountLast24Hours, LatestChapterFeedItem } from '@/lib/database';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
@@ -42,7 +43,13 @@ const LatestChapters: React.FC = () => {
 
             if (append) {
                 const data = await getLatestChapters(PAGE_SIZE, offset);
-                setChapters(prev => [...prev, ...data]);
+                setChapters(prev =>
+                    sortChapterBatchItems(
+                        [...prev, ...data],
+                        (chapter) => chapter.addedAt,
+                        (chapter) => chapter.chapterId
+                    )
+                );
                 setHasMore(data.length === PAGE_SIZE);
             } else {
                 const [data, countLast24Hours] = await Promise.all([

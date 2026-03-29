@@ -13,7 +13,10 @@ const TICKET_CREATION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
 
 type TicketRow = {
   id: string;
-  user_id: string;
+  user_id: string | null;
+  contact_name: string | null;
+  contact_email: string | null;
+  appeal_account_email: string | null;
   subject: string;
   category: TicketCategory;
   status: TicketStatus;
@@ -56,6 +59,16 @@ const normalizeImageUrl = (value?: string | null) => {
   }
 };
 
+const normalizeEmail = (value?: string | null) => {
+  const trimmed = value?.trim().toLowerCase();
+  if (!trimmed) {
+    return null;
+  }
+
+  const isValidEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed);
+  return isValidEmail ? trimmed : null;
+};
+
 const loadUserMap = async (
   serviceClient: ReturnType<typeof createServiceClient>,
   userIds: string[],
@@ -89,12 +102,18 @@ const serializeTicket = (
   messages: TicketMessageRow[],
 ) => {
   const owner = userMap.get(ticket.user_id);
+  const userName = owner?.username || ticket.contact_name?.trim() || "Misafir";
+  const userEmail = owner?.email || ticket.contact_email?.trim() || "";
 
   return {
     id: ticket.id,
     userId: ticket.user_id,
-    userName: owner?.username || "Silinmiş Kullanıcı",
-    userEmail: owner?.email || "",
+    userName,
+    userEmail,
+    contactName: ticket.contact_name,
+    contactEmail: ticket.contact_email,
+    appealAccountEmail: ticket.appeal_account_email,
+    isGuestTicket: !ticket.user_id,
     subject: ticket.subject,
     category: ticket.category,
     status: ticket.status,
@@ -121,7 +140,7 @@ const loadTickets = async (
 ) => {
   let query = serviceClient
     .from("support_tickets")
-    .select("id, user_id, subject, category, status, image_url, created_at, updated_at, last_message_at")
+    .select("id, user_id, contact_name, contact_email, appeal_account_email, subject, category, status, image_url, created_at, updated_at, last_message_at")
     .order("last_message_at", { ascending: false });
 
   if (options.ticketId) {
@@ -189,6 +208,7 @@ Deno.serve(async (req: Request) => {
       category?: TicketCategory;
       message?: string;
       imageUrl?: string | null;
+      appealAccountEmail?: string | null;
       status?: TicketStatus;
     } = {};
 
@@ -220,6 +240,7 @@ Deno.serve(async (req: Request) => {
       const category = payload.category;
       const message = payload.message?.trim() || "";
       const imageUrl = normalizeImageUrl(payload.imageUrl);
+      const appealAccountEmail = normalizeEmail(payload.appealAccountEmail);
 
       if (subject.length < 3 || message.length < 1) {
         return json({ success: false, message: "Başlık ve açıklama zorunlu" }, 400);
@@ -231,6 +252,14 @@ Deno.serve(async (req: Request) => {
 
       if (payload.imageUrl?.trim() && !imageUrl) {
         return json({ success: false, message: "Geçerli bir http/https görsel linki girin" }, 400);
+      }
+
+      if (category === "ban_appeal" && !appealAccountEmail) {
+        return json({ success: false, message: "Ban itirazı için banlanan hesabın e-postası zorunlu" }, 400);
+      }
+
+      if (payload.appealAccountEmail?.trim() && !appealAccountEmail) {
+        return json({ success: false, message: "Geçerli bir hesap e-postası girin" }, 400);
       }
 
       if (!requesterIsStaff) {
@@ -262,6 +291,9 @@ Deno.serve(async (req: Request) => {
         .from("support_tickets")
         .insert({
           user_id: requesterId,
+          contact_name: auth.requesterProfile.username,
+          contact_email: auth.requesterProfile.email,
+          appeal_account_email: appealAccountEmail,
           subject,
           category,
           status: "open",
@@ -337,6 +369,38 @@ Deno.serve(async (req: Request) => {
 
     if (!requesterIsStaff && targetTicket.user_id !== requesterId) {
       return json({ success: false, message: "Bu bilete erişim yok" }, 403);
+    }
+
+    if (action === "delete") {
+      if (requesterIsStaff) {
+        return json({ success: false, message: "Staff ticket silemez" }, 403);
+      }
+
+      const { error: deleteMessagesError } = await auth.serviceClient
+        .from("support_ticket_messages")
+        .delete()
+        .eq("ticket_id", ticketId);
+
+      if (deleteMessagesError) {
+        console.error("Ticket messages delete failed:", deleteMessagesError);
+        return json({ success: false, message: "Bilet mesajları silinemedi" }, 500);
+      }
+
+      const { error: deleteTicketError } = await auth.serviceClient
+        .from("support_tickets")
+        .delete()
+        .eq("id", ticketId)
+        .eq("user_id", requesterId);
+
+      if (deleteTicketError) {
+        console.error("Ticket delete failed:", deleteTicketError);
+        return json({ success: false, message: "Bilet silinemedi" }, 500);
+      }
+
+      return json({
+        success: true,
+        ticketId,
+      });
     }
 
     if (action === "reply") {

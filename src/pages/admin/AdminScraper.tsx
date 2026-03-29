@@ -339,12 +339,12 @@ const AdminScraper: React.FC = () => {
                 }
             }
 
-            const normalizedAuthorName = normalizeScrapedText(fetchedData.author) || 'Bilinmiyor';
-            const normalizedArtistName = normalizeScrapedText(fetchedData.artist) || normalizedAuthorName;
+            const normalizedAuthorName = normalizeScrapedText(fetchedData.author);
+            const normalizedArtistName = normalizeScrapedText(fetchedData.artist);
 
             const [authorEntity, artistEntity] = await Promise.all([
-                ensureAuthorByName(normalizedAuthorName),
-                ensureArtistByName(normalizedArtistName),
+                normalizedAuthorName ? ensureAuthorByName(normalizedAuthorName) : Promise.resolve(null),
+                normalizedArtistName ? ensureArtistByName(normalizedArtistName) : Promise.resolve(null),
             ]);
 
             const finalManga: Manga = {
@@ -354,12 +354,12 @@ const AdminScraper: React.FC = () => {
                 description: fetchedData.description!,
                 cover: fetchedData.cover!,
                 banner: fetchedData.banner || fetchedData.cover!,
-                author: authorEntity?.name || normalizedAuthorName,
-                artist: artistEntity?.name || normalizedArtistName,
+                author: authorEntity?.name || normalizedAuthorName || '',
+                artist: artistEntity?.name || normalizedArtistName || undefined,
                 status: fetchedData.status!,
                 type: fetchedData.type!,
                 genres: fetchedData.genres!,
-                releaseYear: fetchedData.releaseYear!,
+                releaseYear: fetchedData.releaseYear,
                 chapters: chapters,
                 views: 0,
                 ratings: [],

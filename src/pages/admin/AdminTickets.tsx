@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
@@ -56,7 +56,7 @@ const messageRoleLabels: Record<SupportTicketMessage['authorRole'], string> = {
 const formatTicketTime = (value: string) => formatDistanceToNow(new Date(value), { addSuffix: true, locale: tr });
 
 const AdminTickets: React.FC = () => {
-  const { user, isLoading: authLoading } = useAuth();
+  const { user, session, mfaState, isLoading: authLoading } = useAuth();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [selectedTicketId, setSelectedTicketId] = useState<string>('');
   const [statusFilter, setStatusFilter] = useState<SupportTicketStatus | 'all'>('all');
@@ -66,41 +66,62 @@ const AdminTickets: React.FC = () => {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [isLoadingTickets, setIsLoadingTickets] = useState(false);
   const [isUpdatingStatus, setIsUpdatingStatus] = useState(false);
+  const loadTicketsPromiseRef = useRef<Promise<void> | null>(null);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const loadTickets = useCallback(async (silent = false) => {
-    try {
-      if (!silent) {
-        setIsLoadingTickets(true);
-      }
-
-      const nextTickets = await listSupportTickets();
-      setTickets(nextTickets);
-      setSelectedTicketId((current) => {
-        if (!nextTickets.length) {
-          return '';
-        }
-
-        if (current && nextTickets.some((ticket) => ticket.id === current)) {
-          return current;
-        }
-
-        return nextTickets[0].id;
-      });
-    } catch (error) {
-      if (!silent) {
-        console.error('Admin tickets load failed:', error);
-        toast.error(error instanceof Error ? error.message : 'Ticket kayıtları yüklenemedi');
-      }
-      throw error;
-    } finally {
-      if (!silent) {
-        setIsLoadingTickets(false);
-      }
+    if (!user || !session?.access_token || mfaState.needsVerification) {
+      setTickets([]);
+      setSelectedTicketId('');
+      return;
     }
-  }, []);
+
+    if (loadTicketsPromiseRef.current) {
+      return loadTicketsPromiseRef.current;
+    }
+
+    const request = (async () => {
+      try {
+        if (!silent) {
+          setIsLoadingTickets(true);
+        }
+
+        const nextTickets = await listSupportTickets();
+        setTickets(nextTickets);
+        setSelectedTicketId((current) => {
+          if (!nextTickets.length) {
+            return '';
+          }
+
+          if (current && nextTickets.some((ticket) => ticket.id === current)) {
+            return current;
+          }
+
+          return nextTickets[0].id;
+        });
+      } catch (error) {
+        if (!silent) {
+          console.error('Admin tickets load failed:', error);
+          toast.error(error instanceof Error ? error.message : 'Ticket kayıtları yüklenemedi');
+        }
+        throw error;
+      } finally {
+        if (!silent) {
+          setIsLoadingTickets(false);
+        }
+      }
+    })().finally(() => {
+      if (loadTicketsPromiseRef.current === request) {
+        loadTicketsPromiseRef.current = null;
+      }
+    });
+
+    loadTicketsPromiseRef.current = request;
+    return request;
+  }, [mfaState.needsVerification, session?.access_token, user]);
 
   useEffect(() => {
-    if (authLoading || !user) {
+    if (authLoading || !user || !session?.access_token || mfaState.needsVerification) {
       return;
     }
 
@@ -123,10 +144,10 @@ const AdminTickets: React.FC = () => {
       window.removeEventListener('focus', syncIfVisible);
       document.removeEventListener('visibilitychange', syncIfVisible);
     };
-  }, [authLoading, loadTickets, user]);
+  }, [authLoading, loadTickets, mfaState.needsVerification, session?.access_token, user]);
 
   const filteredTickets = useMemo(() => {
-    const query = searchQuery.trim().toLocaleLowerCase('tr-TR');
+    const query = deferredSearchQuery.trim().toLocaleLowerCase('tr-TR');
 
     return tickets.filter((ticket) => {
       const matchesStatus = statusFilter === 'all' || ticket.status === statusFilter;
@@ -137,7 +158,7 @@ const AdminTickets: React.FC = () => {
 
       return matchesStatus && matchesSearch;
     });
-  }, [searchQuery, statusFilter, tickets]);
+  }, [deferredSearchQuery, statusFilter, tickets]);
 
   const selectedTicket = useMemo(
     () => filteredTickets.find((ticket) => ticket.id === selectedTicketId) || filteredTickets[0] || null,
@@ -251,104 +272,69 @@ const AdminTickets: React.FC = () => {
   };
 
   return (
-    <div className="space-y-6 lg:space-y-8">
-      <div className="overflow-hidden rounded-[2rem] border border-border bg-card/80 p-5 shadow-xl sm:p-6">
-        <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
-          <div className="space-y-3">
+    <div className="space-y-4">
+      <div className="rounded-3xl border border-border bg-card/80 px-4 py-3 shadow-sm sm:px-5">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex items-center gap-2.5">
             <Badge variant="outline" className="w-fit gap-1.5 border-primary/20 bg-primary/10 text-primary">
               <LifeBuoy className="h-3.5 w-3.5" />
-              Admin Ticket Inbox
+              Destek Talepleri
             </Badge>
-            <div className="space-y-2">
-              <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Destek talepleri</h1>
-              <p className="max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">
-                Kullanıcının hesabını, açılış zamanını, konusunu, son hareketini ve görsel linkini tek yerde gör. Yanıtı gönder, durumu değiştir ve gerekiyorsa bileti kapat.
-              </p>
-            </div>
+            <p className="text-xs text-muted-foreground">
+              {counts.all} toplam • {counts.open} açık • {counts.closed} kapalı
+            </p>
           </div>
-
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-5">
-            <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Toplam</p>
-              <p className="mt-1 text-xl font-bold">{counts.all}</p>
-            </div>
-            <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Açık</p>
-              <p className="mt-1 text-xl font-bold">{counts.open}</p>
-            </div>
-            <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Staff</p>
-              <p className="mt-1 text-xl font-bold">{counts.waiting_staff}</p>
-            </div>
-            <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Kullanıcı</p>
-              <p className="mt-1 text-xl font-bold">{counts.waiting_user}</p>
-            </div>
-            <div className="rounded-2xl border border-border bg-background/70 px-4 py-3">
-              <p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Kapalı</p>
-              <p className="mt-1 text-xl font-bold">{counts.closed}</p>
-            </div>
-          </div>
+          <p className="text-xs text-muted-foreground">
+            {isLoadingTickets ? 'Kayıtlar yenileniyor...' : `${filteredTickets.length} kayıt listeleniyor`}
+          </p>
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
-        <section className="space-y-4">
-          <div className="rounded-3xl border border-border bg-card p-5 shadow-sm sm:p-6">
-            <div className="space-y-4">
-              <div className="flex items-center gap-3">
-                <div className="rounded-2xl bg-primary/10 p-3 text-primary">
-                  <Filter className="h-5 w-5" />
-                </div>
-                <div>
-                  <h2 className="text-lg font-semibold">Filtreler</h2>
-                  <p className="text-sm text-muted-foreground">Arama ve durum ile biletleri daralt.</p>
-                </div>
-              </div>
+      <div className="grid gap-4 xl:grid-cols-[minmax(320px,360px)_minmax(0,1fr)] xl:items-start">
+        <section className="flex min-h-0 min-w-0 flex-col self-start rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5 xl:max-h-[calc(100vh-11rem)]">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-semibold">Biletler</h2>
+              <p className="text-sm text-muted-foreground">
+                {isLoadingTickets ? 'Kayıtlar yenileniyor...' : `${filteredTickets.length} kayıt listeleniyor`}
+              </p>
+            </div>
+            <Badge variant="outline">{statusFilter === 'all' ? 'Tümü' : statusMeta[statusFilter].label}</Badge>
+          </div>
 
-              <div className="space-y-2">
-                <Label>Arama</Label>
-                <div className="relative">
-                  <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                  <Input
-                    value={searchQuery}
-                    onChange={(event) => setSearchQuery(event.target.value)}
-                    placeholder="Başlık, isim veya e-posta"
-                    className="pl-9"
-                  />
-                </div>
+          <div className="my-4 grid gap-3 border-y border-border/60 py-4 sm:grid-cols-[minmax(0,1fr)_160px]">
+            <div className="space-y-2">
+              <Label>Arama</Label>
+              <div className="relative">
+                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={searchQuery}
+                  onChange={(event) => setSearchQuery(event.target.value)}
+                  placeholder="Başlık, isim veya e-posta"
+                  className="pl-9"
+                />
               </div>
+            </div>
 
-              <div className="space-y-2">
-                <Label>Durum</Label>
-                <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as SupportTicketStatus | 'all')}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Durum seç" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Tümü</SelectItem>
-                    <SelectItem value="open">Açık</SelectItem>
-                    <SelectItem value="waiting_staff">Staff Bekliyor</SelectItem>
-                    <SelectItem value="waiting_user">Kullanıcı Bekliyor</SelectItem>
-                    <SelectItem value="closed">Kapalı</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
+            <div className="space-y-2">
+              <Label>Durum</Label>
+              <Select value={statusFilter} onValueChange={(value) => setStatusFilter(value as SupportTicketStatus | 'all')}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Durum seç" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tümü</SelectItem>
+                  <SelectItem value="open">Açık</SelectItem>
+                  <SelectItem value="waiting_staff">Staff Bekliyor</SelectItem>
+                  <SelectItem value="waiting_user">Kullanıcı Bekliyor</SelectItem>
+                  <SelectItem value="closed">Kapalı</SelectItem>
+                </SelectContent>
+              </Select>
             </div>
           </div>
 
-          <div className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
-            <div className="mb-4 flex items-center justify-between">
-              <div>
-                <h2 className="text-lg font-semibold">Biletler</h2>
-                  <p className="text-sm text-muted-foreground">
-                    {isLoadingTickets ? 'Yükleniyor...' : `${filteredTickets.length} kayıt`}
-                  </p>
-              </div>
-              <Badge variant="outline">{statusFilter === 'all' ? 'Tümü' : statusMeta[statusFilter].label}</Badge>
-            </div>
-
-            <div className="space-y-3">
+          <ScrollArea className="min-h-0 flex-1">
+            <div className="space-y-2.5 pr-4">
               {filteredTickets.map((ticket) => {
                 const isSelected = ticket.id === selectedTicketId;
                 const TicketStatusIcon = statusMeta[ticket.status].icon;
@@ -358,30 +344,34 @@ const AdminTickets: React.FC = () => {
                     key={ticket.id}
                     type="button"
                     onClick={() => setSelectedTicketId(ticket.id)}
-                    className={`w-full rounded-2xl border p-4 text-left transition-colors ${
+                    className={`w-full overflow-hidden rounded-2xl border px-3 py-3 text-left transition-colors ${
                       isSelected ? 'border-primary/30 bg-primary/10' : 'border-border bg-background/60 hover:bg-secondary/60'
                     }`}
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="space-y-1">
-                        <p className="font-semibold">{ticket.subject}</p>
-                        <p className="text-xs text-muted-foreground">
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 space-y-1">
+                        <p className="truncate text-sm font-semibold leading-5">{ticket.subject}</p>
+                        <p className="truncate text-[11px] text-muted-foreground">
                           {ticket.userName} · {ticket.userEmail}
                         </p>
                       </div>
-                      <Badge className={`gap-1.5 border ${statusMeta[ticket.status].tone}`}>
+                      <Badge className={`shrink-0 gap-1.5 border ${statusMeta[ticket.status].tone}`}>
                         <TicketStatusIcon className="h-3.5 w-3.5" />
                         {statusMeta[ticket.status].label}
                       </Badge>
                     </div>
-                    <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                    <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-muted-foreground">
                       <span className="inline-flex items-center gap-1.5">
                         <CalendarDays className="h-3.5 w-3.5" />
-                        {formatTicketTime(ticket.createdAt)}
+                        {formatTicketTime(ticket.lastMessageAt)}
                       </span>
                       <span className="inline-flex items-center gap-1.5">
                         <Clock3 className="h-3.5 w-3.5" />
                         {categoryLabels[ticket.category]}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5">
+                        <MessageSquareReply className="h-3.5 w-3.5" />
+                        {ticket.messages.length} mesaj
                       </span>
                     </div>
                   </button>
@@ -398,20 +388,20 @@ const AdminTickets: React.FC = () => {
                 </div>
               )}
             </div>
-          </div>
+          </ScrollArea>
         </section>
 
-        <section className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6">
+        <section className="flex min-h-0 min-w-0 flex-col self-start rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-6">
           {selectedTicket ? (
-            <div className="flex h-full flex-col gap-5">
+            <div className="flex min-h-0 flex-col gap-4">
               {(() => {
                 const SelectedStatusIcon = statusMeta[selectedTicket.status].icon;
 
                 return (
-                  <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                  <div className="flex flex-col gap-4 xl:flex-row xl:items-start xl:justify-between">
                     <div className="space-y-3">
                       <div className="flex flex-wrap items-center gap-2">
-                        <h2 className="text-2xl font-bold">{selectedTicket.subject}</h2>
+                        <h2 className="text-xl font-bold sm:text-2xl">{selectedTicket.subject}</h2>
                         <Badge className={`gap-1.5 border ${statusMeta[selectedTicket.status].tone}`}>
                           <SelectedStatusIcon className="h-3.5 w-3.5" />
                           {statusMeta[selectedTicket.status].label}
@@ -419,19 +409,33 @@ const AdminTickets: React.FC = () => {
                       </div>
 
                       <div className="grid gap-2 text-sm text-muted-foreground sm:grid-cols-2">
-                        <p className="inline-flex items-center gap-2"><User className="h-4 w-4" /> {selectedTicket.userName}</p>
-                        <p className="inline-flex items-center gap-2"><Mail className="h-4 w-4" /> {selectedTicket.userEmail}</p>
+                        <p className="inline-flex min-w-0 items-center gap-2">
+                          <User className="h-4 w-4" />
+                          <span className="truncate">{selectedTicket.userName}</span>
+                          {selectedTicket.isGuestTicket ? (
+                            <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.16em] text-primary">
+                              Misafir
+                            </span>
+                          ) : null}
+                        </p>
+                        <p className="inline-flex min-w-0 items-center gap-2"><Mail className="h-4 w-4" /> <span className="truncate">{selectedTicket.userEmail}</span></p>
                         <p className="inline-flex items-center gap-2"><CalendarDays className="h-4 w-4" /> Açılış: {formatTicketTime(selectedTicket.createdAt)}</p>
                         <p className="inline-flex items-center gap-2"><Clock3 className="h-4 w-4" /> Son hareket: {formatTicketTime(selectedTicket.lastMessageAt)}</p>
+                        {selectedTicket.appealAccountEmail ? (
+                          <p className="inline-flex min-w-0 items-center gap-2 sm:col-span-2">
+                            <ShieldAlert className="h-4 w-4" />
+                            <span className="truncate">Ban itirazı hesabı: {selectedTicket.appealAccountEmail}</span>
+                          </p>
+                        ) : null}
                       </div>
                     </div>
 
                     {selectedTicket.imageUrl && (
-                      <div className="xl:w-64">
+                      <div className="xl:w-56">
                         <SupportImageAttachment
                           url={selectedTicket.imageUrl}
                           alt="Ticket görseli"
-                          previewClassName="h-44 w-full object-cover"
+                          previewClassName="h-36 w-full object-cover"
                         />
                       </div>
                     )}
@@ -439,29 +443,30 @@ const AdminTickets: React.FC = () => {
                 );
               })()}
 
-              <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-                <div className="rounded-2xl border border-border bg-background/60 p-4">
+              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+                <div className="rounded-2xl border border-border bg-background/60 px-3 py-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Kullanıcı</p>
-                  <p className="mt-2 text-sm font-medium">{selectedTicket.userName}</p>
+                  <p className="mt-2 text-sm font-medium">
+                    {selectedTicket.userName}
+                    {selectedTicket.isGuestTicket ? ' · Misafir' : ''}
+                  </p>
                 </div>
-                <div className="rounded-2xl border border-border bg-background/60 p-4">
+                <div className="rounded-2xl border border-border bg-background/60 px-3 py-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Kategori</p>
                   <p className="mt-2 text-sm font-medium">{categoryLabels[selectedTicket.category]}</p>
                 </div>
-                <div className="rounded-2xl border border-border bg-background/60 p-4">
+                <div className="rounded-2xl border border-border bg-background/60 px-3 py-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Mesaj</p>
                   <p className="mt-2 text-sm font-medium">{selectedTicket.messages.length} adet</p>
                 </div>
-                <div className="rounded-2xl border border-border bg-background/60 p-4">
+                <div className="rounded-2xl border border-border bg-background/60 px-3 py-3">
                   <p className="text-xs uppercase tracking-[0.2em] text-muted-foreground">Durum</p>
                   <p className="mt-2 text-sm font-medium">{statusMeta[selectedTicket.status].label}</p>
                 </div>
               </div>
 
-              <Separator />
-
-              <ScrollArea className="h-[480px] pr-3">
-                <div className="space-y-4">
+              <ScrollArea className="min-h-[22rem] max-h-[68vh] pr-1">
+                <div className="space-y-4 pr-4">
                   {selectedTicket.messages.map((item) => {
                     const isOwnMessage = item.authorId === user?.id;
                     const bubbleTone = isOwnMessage
@@ -488,7 +493,7 @@ const AdminTickets: React.FC = () => {
                         key={item.id}
                         className={`flex ${isOwnMessage ? 'justify-end' : 'justify-start'}`}
                       >
-                        <div className={`flex max-w-[90%] flex-col gap-2 rounded-[1.5rem] border px-4 py-3 sm:max-w-[78%] ${
+                        <div className={`flex max-w-[90%] flex-col gap-2 rounded-[1.35rem] border px-3.5 py-3 sm:max-w-[76%] ${
                           isOwnMessage
                             ? 'ml-8 items-end rounded-br-md text-right sm:ml-14'
                             : 'mr-8 items-start rounded-bl-md text-left sm:mr-14'
@@ -527,7 +532,7 @@ const AdminTickets: React.FC = () => {
                 </div>
               </ScrollArea>
 
-              <div className="rounded-3xl border border-border bg-background/70 p-4">
+              <div className="border-t border-border/70 bg-background/70 pt-4">
                 <div className="flex flex-wrap items-center justify-between gap-3">
                   <div className="flex items-center gap-2 text-sm text-muted-foreground">
                     <MessageSquareReply className="h-4 w-4" />
@@ -548,46 +553,48 @@ const AdminTickets: React.FC = () => {
                   </div>
                 </div>
 
-                <div className="mt-4 space-y-3">
+                <div className="mt-4 grid gap-3 xl:grid-cols-[minmax(0,1fr)_280px]">
                   <Textarea
                     value={reply}
                     onChange={(event) => setReply(event.target.value)}
                     placeholder={selectedTicket.status === 'closed' ? 'Ticket kapalı' : 'Cevabını yaz'}
-                    className="min-h-28 resize-none"
+                    className="min-h-28 resize-none xl:min-h-[140px]"
                     disabled={selectedTicket.status === 'closed'}
                   />
-                  <div className="space-y-2">
-                    <Label>Yanıt görsel linki (isteğe bağlı)</Label>
-                    <Input
-                      value={replyImageUrl}
-                      onChange={(event) => setReplyImageUrl(event.target.value)}
-                      placeholder="https://..."
-                      disabled={selectedTicket.status === 'closed'}
-                    />
-                    {replyImageUrl.trim() ? (
-                      <SupportImageAttachment
-                        url={replyImageUrl}
-                        alt="Admin yanıt görsel önizlemesi"
-                        initialPreview
-                        previewClassName="max-h-56 w-full object-cover"
+                  <div className="space-y-3">
+                    <div className="space-y-2">
+                      <Label>Yanıt görsel linki (isteğe bağlı)</Label>
+                      <Input
+                        value={replyImageUrl}
+                        onChange={(event) => setReplyImageUrl(event.target.value)}
+                        placeholder="https://..."
+                        disabled={selectedTicket.status === 'closed'}
                       />
-                    ) : null}
-                  </div>
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                      <ShieldAlert className="h-3.5 w-3.5" />
-                      Son cevap sonrasında durum kullanıcı bekliyor olur. Dış görseller ise kontrollü önizleme ile açılır.
+                      {replyImageUrl.trim() ? (
+                        <SupportImageAttachment
+                          url={replyImageUrl}
+                          alt="Admin yanıt görsel önizlemesi"
+                          initialPreview
+                          previewClassName="max-h-44 w-full object-cover"
+                        />
+                      ) : null}
                     </div>
-                    <Button onClick={() => void handleReply()} disabled={selectedTicket.status === 'closed' || isSubmitting}>
-                      {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
-                      Yanıt Gönder
-                    </Button>
+                    <div className="flex flex-col gap-3">
+                      <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                        <ShieldAlert className="h-3.5 w-3.5" />
+                        Son cevap sonrası durum kullanıcı bekliyor olur.
+                      </div>
+                      <Button onClick={() => void handleReply()} disabled={selectedTicket.status === 'closed' || isSubmitting}>
+                        {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
+                        Yanıt Gönder
+                      </Button>
+                    </div>
                   </div>
                 </div>
               </div>
             </div>
           ) : (
-            <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center">
+            <div className="flex min-h-0 flex-1 flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center">
               <LifeBuoy className="h-12 w-12 text-muted-foreground/40" />
               <h3 className="mt-4 text-xl font-semibold">Bilet seçilmedi</h3>
               <p className="mt-2 max-w-md text-sm text-muted-foreground">
@@ -596,15 +603,6 @@ const AdminTickets: React.FC = () => {
             </div>
           )}
         </section>
-      </div>
-
-      <div className="rounded-2xl border border-sky-500/20 bg-sky-500/10 p-4 text-sm text-sky-100">
-        <p className="flex items-start gap-3">
-          <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />
-          <span>
-            Yanıt gönderildiğinde durum otomatik olarak kullanıcı bekliyor olur. Kapatılan biletler yeniden açılmadan kullanıcı tarafından cevaplanamaz.
-          </span>
-        </p>
       </div>
     </div>
   );

@@ -119,7 +119,7 @@ const OfflineStartupRedirect = () => {
 const AccessGate = ({ children }: { children: React.ReactNode }) => {
   const { isOnline } = useEffectiveOnlineStatus();
   const location = useLocation();
-  const { user, logout, accessState } = useAuth();
+  const { user, accessState } = useAuth();
   const [blockedMessage, setBlockedMessage] = useState<string | null>(null);
 
   useEffect(() => {
@@ -142,10 +142,6 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
       }
 
       if (!access.allowed) {
-        if (user?.id && access.reason !== 'user_banned') {
-          await logout();
-        }
-
         setBlockedMessage(access.message || 'Bu cihaz veya bağlantı için site erişimi engellendi.');
         return;
       }
@@ -156,7 +152,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
     return () => {
       active = false;
     };
-  }, [isOnline, location.pathname, location.search, user?.id, logout]);
+  }, [isOnline, location.pathname, location.search]);
 
   const isSupportPath = location.pathname === '/support' || location.pathname.startsWith('/support/');
   const isAuthPath = location.pathname === '/auth';

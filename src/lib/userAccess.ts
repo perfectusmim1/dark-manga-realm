@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { getAuthenticatedFunctionHeaders, supabase } from '@/lib/supabase';
 import { CurrentUserBanState, CurrentUserWarning } from '@/lib/types';
 
 export interface CurrentUserAccessSnapshot {
@@ -16,6 +16,15 @@ interface UserAccessSnapshotResponse {
   warningCount?: number;
   unreadWarningCount?: number;
 }
+
+const invokeUserAccessState = async (body: Record<string, unknown>) => {
+  const headers = await getAuthenticatedFunctionHeaders();
+
+  return supabase.functions.invoke<UserAccessSnapshotResponse>('user-access-state', {
+    body,
+    headers,
+  });
+};
 
 const normalizeSnapshot = (payload: UserAccessSnapshotResponse | null | undefined): CurrentUserAccessSnapshot => ({
   warning: payload?.warning
@@ -46,10 +55,8 @@ const normalizeSnapshot = (payload: UserAccessSnapshotResponse | null | undefine
 });
 
 export const getCurrentUserAccessSnapshot = async (): Promise<CurrentUserAccessSnapshot> => {
-  const { data, error } = await supabase.functions.invoke('user-access-state', {
-    body: {
-      action: 'get',
-    },
+  const { data, error } = await invokeUserAccessState({
+    action: 'get',
   });
 
   if (error) {
@@ -66,11 +73,9 @@ export const getCurrentUserAccessSnapshot = async (): Promise<CurrentUserAccessS
 export const acknowledgeCurrentUserWarning = async (
   warningId: string,
 ): Promise<CurrentUserAccessSnapshot> => {
-  const { data, error } = await supabase.functions.invoke('user-access-state', {
-    body: {
-      action: 'acknowledge-warning',
-      warningId,
-    },
+  const { data, error } = await invokeUserAccessState({
+    action: 'acknowledge-warning',
+    warningId,
   });
 
   if (error) {

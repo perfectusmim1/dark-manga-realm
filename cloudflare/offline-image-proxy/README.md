@@ -16,6 +16,9 @@ Optional thumbnail transform params:
 
 It is meant to replace the Supabase `offline-image-proxy` function for offline chapter downloads.
 
+`ALLOWED_HOSTS` entries are matched against both the exact host and its subdomains.
+For example, `webtoon-oku.net` also allows `cdn-2.webtoon-oku.net`.
+
 ## What it solves
 
 - moves offline image traffic off Supabase egress

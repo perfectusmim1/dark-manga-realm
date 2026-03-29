@@ -38,6 +38,7 @@ import {
     TableRow,
 } from '@/components/ui/table';
 import { Textarea } from '@/components/ui/textarea';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import {
     getCharacters,
     getAuthors,
@@ -67,6 +68,7 @@ const AdminEntities: React.FC = () => {
     // Edit/Create state
     const [showDialog, setShowDialog] = useState(false);
     const [editingEntity, setEditingEntity] = useState<any | null>(null);
+    const [entityToDelete, setEntityToDelete] = useState<{ id: string; name: string } | null>(null);
     const [formData, setFormData] = useState({
         name: '',
         imageUrl: '',
@@ -138,16 +140,18 @@ const AdminEntities: React.FC = () => {
         }
     };
 
-    const handleDelete = async (id: string) => {
-        if (!confirm('Bu ögeyi silmek istediğinize emin misiniz? Bu işlem geri alınamaz.')) return;
+    const handleDelete = async () => {
+        const targetEntity = entityToDelete;
+        if (!targetEntity) return;
+        setEntityToDelete(null);
 
         try {
             if (activeTab === 'character') {
-                await deleteCharacter(id);
+                await deleteCharacter(targetEntity.id);
             } else if (activeTab === 'author') {
-                await deleteAuthor(id);
+                await deleteAuthor(targetEntity.id);
             } else if (activeTab === 'artist') {
-                await deleteArtist(id);
+                await deleteArtist(targetEntity.id);
             }
 
             toast.success('Başarıyla silindi');
@@ -253,7 +257,7 @@ const AdminEntities: React.FC = () => {
                                                         <Button
                                                             variant="outline"
                                                             className="flex-1 text-destructive hover:text-destructive"
-                                                            onClick={() => handleDelete(item.id)}
+                                                            onClick={() => setEntityToDelete({ id: item.id, name: item.name })}
                                                         >
                                                             <Trash2 className="mr-2 h-4 w-4" />
                                                             Sil
@@ -317,7 +321,7 @@ const AdminEntities: React.FC = () => {
                                                                     variant="ghost"
                                                                     size="icon"
                                                                     className="text-destructive hover:text-destructive hover:bg-destructive/10"
-                                                                    onClick={() => handleDelete(item.id)}
+                                                                    onClick={() => setEntityToDelete({ id: item.id, name: item.name })}
                                                                 >
                                                                     <Trash2 className="h-4 w-4" />
                                                                 </Button>
@@ -397,6 +401,27 @@ const AdminEntities: React.FC = () => {
                     </DialogFooter>
                 </DialogContent>
             </Dialog>
+
+            <ConfirmDialog
+                open={Boolean(entityToDelete)}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setEntityToDelete(null);
+                    }
+                }}
+                title="Öge silinsin mi?"
+                description={
+                    entityToDelete
+                        ? `"${entityToDelete.name}" kaydı silinecek. Bu işlem geri alınamaz.`
+                        : ''
+                }
+                confirmLabel="Sil"
+                cancelLabel="Vazgeç"
+                onConfirm={() => {
+                    void handleDelete();
+                }}
+                destructive
+            />
         </div>
     );
 };

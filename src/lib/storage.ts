@@ -1,6 +1,12 @@
 import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow, Manga } from './types';
-import { supabase } from './supabase';
+import {
+    isRetryableSupabaseBootstrapError,
+    runWithSupabaseBootstrapRetry,
+    supabase,
+    waitForUsableSupabaseSession,
+} from './supabase';
 import { normalizeCommentNavigationLink } from './commentNavigation';
+import { sortChapterBatchItems } from './chapterBatchOrdering';
 import { cacheOfflineManga, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import {
     addCachedBookmark,
@@ -875,19 +881,39 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
         return sortByLastReadDesc(localEntries);
     };
 
-    const { data, error } = await supabase
-        .from('reading_progress')
-        .select(`
-            user_id,
-            manga_id,
-            chapter_id,
-            chapter_number,
-            page,
-            last_read,
-            manga:mangas(id, title, cover, alternative_titles)
-        `)
-        .eq('user_id', userId)
-        .order('last_read', { ascending: false });
+    await waitForUsableSupabaseSession({
+        required: true,
+        maxWaitMs: 5000,
+    }).catch(() => null);
+
+    let data: any[] | null = null;
+    let error: unknown = null;
+
+    try {
+        const response = await runWithSupabaseBootstrapRetry({
+            run: () => supabase
+                .from('reading_progress')
+                .select(`
+                    user_id,
+                    manga_id,
+                    chapter_id,
+                    chapter_number,
+                    page,
+                    last_read,
+                    manga:mangas(id, title, cover, alternative_titles)
+                `)
+                .eq('user_id', userId)
+                .order('last_read', { ascending: false }),
+            timeoutMs: 6000,
+            timeoutMessage: 'Reading history entries fetch timeout',
+            shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
+        });
+
+        data = response.data as any[] | null;
+        error = response.error;
+    } catch (requestError) {
+        error = requestError;
+    }
 
     if (error) {
         console.error('Reading history entries fetch error:', error);
@@ -908,10 +934,15 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
     const chapterTitleMap = new Map<string, string>();
 
     if (chapterIds.length > 0) {
-        const { data: chapterRows, error: chapterError } = await supabase
-            .from('chapters')
-            .select('id, title')
-            .in('id', chapterIds);
+        const { data: chapterRows, error: chapterError } = await runWithSupabaseBootstrapRetry({
+            run: () => supabase
+                .from('chapters')
+                .select('id, title')
+                .in('id', chapterIds),
+            timeoutMs: 5000,
+            timeoutMessage: 'Reading history chapter title fetch timeout',
+            shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
+        });
 
         if (chapterError) {
             console.error('Reading history chapter title fetch error:', chapterError);
@@ -1570,17 +1601,29 @@ export const setReaderSettings = (settings: ReaderSettings): void => {
 // ==================== NOTIFICATIONS ====================
 
 export const getNotifications = async (userId: string): Promise<Notification[]> => {
-    const { data } = await supabase.from('notifications').select('*').eq('user_id', userId).order('created_at', { ascending: false });
-    return (data || []).map(n => ({
-        ...n,
-        userId: n.user_id,
-        mangaId: n.manga_id,
-        chapterId: n.chapter_id,
-        chapterNumber: Number(n.chapter_number),
-        createdAt: n.created_at,
-        fromUserId: n.from_user_id,
-        fromUsername: n.from_username
-    }));
+    const { data } = await supabase
+        .from('notifications')
+        .select('*')
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .order('manga_id', { ascending: true })
+        .order('chapter_number', { ascending: true })
+        .order('id', { ascending: true });
+
+    return sortChapterBatchItems(
+        (data || []).map(n => ({
+            ...n,
+            userId: n.user_id,
+            mangaId: n.manga_id,
+            chapterId: n.chapter_id,
+            chapterNumber: Number(n.chapter_number),
+            createdAt: n.created_at,
+            fromUserId: n.from_user_id,
+            fromUsername: n.from_username
+        })),
+        (notification) => notification.createdAt,
+        (notification) => notification.id
+    );
 };
 
 export const markNotificationAsRead = async (userId: string, id: string): Promise<void> => {

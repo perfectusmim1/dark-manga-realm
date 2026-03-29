@@ -8,8 +8,14 @@ export interface ImageProxyTransformOptions {
   fit?: ImageProxyFit;
 }
 
-const clampInteger = (value: number, min: number, max: number) =>
-  Math.min(max, Math.max(min, Math.round(value)));
+const normalizeSourceUrl = (sourceUrl?: string | null) => {
+  const normalized = sourceUrl?.trim();
+  if (!normalized) {
+    return null;
+  }
+
+  return normalized;
+};
 
 export const supportsImageProxyTransform = () => false;
 
@@ -17,20 +23,19 @@ export const buildImageProxyUrl = (
   sourceUrl: string,
   transform: ImageProxyTransformOptions = {},
 ) => {
-  if (!supportsImageProxyTransform()) {
-    return null;
-  }
-
-  try {
-    const normalizedSourceUrl = new URL(sourceUrl);
-    if (!['http:', 'https:'].includes(normalizedSourceUrl.protocol)) {
-      return null;
-    }
-  } catch {
-    return null;
-  }
-
+  void sourceUrl;
   void transform;
-  void clampInteger;
   return null;
+};
+
+export const resolveDisplayImageUrl = (
+  sourceUrl?: string | null,
+  transform: ImageProxyTransformOptions = {},
+) => {
+  const normalizedSourceUrl = normalizeSourceUrl(sourceUrl);
+  if (!normalizedSourceUrl) {
+    return undefined;
+  }
+
+  return buildImageProxyUrl(normalizedSourceUrl, transform) || normalizedSourceUrl;
 };

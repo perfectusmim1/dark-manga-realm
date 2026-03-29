@@ -1,9 +1,15 @@
 // Supabase Database Integration
 // Fully asynchronous operations replacing localStorage
-import { supabase } from './supabase';
+import {
+    isRetryableSupabaseBootstrapError,
+    runWithSupabaseBootstrapRetry,
+    supabase,
+    waitForUsableSupabaseSession,
+} from './supabase';
 import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import { normalizeGenres } from './mockData';
+import { sortChapterBatchItems } from './chapterBatchOrdering';
 import { cacheOfflineManga, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
 import {
@@ -645,7 +651,10 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
             release_date,
             mangas:manga_id(id, title, cover, type)
         `)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .order('manga_id', { ascending: true })
+        .order('number', { ascending: true })
+        .order('id', { ascending: true });
 
     if (typeof end === 'number') {
         query = query.range(offset, end);
@@ -658,27 +667,31 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
         return [];
     }
 
-    return (data || [])
-        .map((chapter: any) => {
-            const manga = Array.isArray(chapter.mangas) ? chapter.mangas[0] : chapter.mangas;
+    return sortChapterBatchItems(
+        (data || [])
+            .map((chapter: any) => {
+                const manga = Array.isArray(chapter.mangas) ? chapter.mangas[0] : chapter.mangas;
 
-            if (!manga?.id) {
-                return null;
-            }
+                if (!manga?.id) {
+                    return null;
+                }
 
-            return {
-                chapterId: chapter.id,
-                mangaId: manga.id,
-                mangaTitle: manga.title,
-                mangaCover: manga.cover,
-                mangaType: manga.type,
-                chapterNumber: Number(chapter.number),
-                chapterTitle: chapter.title || undefined,
-                addedAt: chapter.created_at || chapter.release_date,
-                releaseDate: chapter.release_date || undefined,
-            } satisfies LatestChapterFeedItem;
-        })
-        .filter(Boolean) as LatestChapterFeedItem[];
+                return {
+                    chapterId: chapter.id,
+                    mangaId: manga.id,
+                    mangaTitle: manga.title,
+                    mangaCover: manga.cover,
+                    mangaType: manga.type,
+                    chapterNumber: Number(chapter.number),
+                    chapterTitle: chapter.title || undefined,
+                    addedAt: chapter.created_at || chapter.release_date,
+                    releaseDate: chapter.release_date || undefined,
+                } satisfies LatestChapterFeedItem;
+            })
+            .filter(Boolean) as LatestChapterFeedItem[],
+        (chapter) => chapter.addedAt,
+        (chapter) => chapter.chapterId
+    );
 };
 
 export const getLatestChaptersCountLast24Hours = async (): Promise<number> => {
@@ -955,17 +968,26 @@ const mapAdminDirectoryUser = (user: any): User => ({
 });
 
 const ensureAuthenticatedAdminSession = async () => {
-    const { data, error } = await supabase.auth.getSession();
+    const session = await waitForUsableSupabaseSession({
+        required: true,
+    });
+
+    const { data, error } = await runWithSupabaseBootstrapRetry({
+        run: () => supabase.auth.getSession(),
+        timeoutMs: 5000,
+        timeoutMessage: 'Admin session fetch timeout',
+        shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
+    });
     if (error) {
         throw error;
     }
 
-    const session = data.session;
-    if (!session?.user || !session.access_token) {
+    const activeSession = data.session || session;
+    if (!activeSession?.user || !activeSession.access_token) {
         throw new Error('ADMIN_SESSION_REQUIRED');
     }
 
-    return session;
+    return activeSession;
 };
 
 const buildPrimaryAdminFallback = (
@@ -982,10 +1004,15 @@ const isMissingTableInSchemaCache = (error: any, tableName: string) =>
     && String(error?.message || '').includes(`public.${tableName}`);
 
 const getAdminDirectoryViaEdgeFunction = async (): Promise<User[]> => {
-    const session = await ensureAuthenticatedAdminSession();
+    await ensureAuthenticatedAdminSession();
 
-    const { data, error } = await supabase.functions.invoke('admin-user-directory', {
-        body: {},
+    const { data, error } = await runWithSupabaseBootstrapRetry({
+        run: () => supabase.functions.invoke('admin-user-directory', {
+            body: {},
+        }),
+        timeoutMs: 7000,
+        timeoutMessage: 'Admin directory fetch timeout',
+        shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
     });
 
     if (error) {
@@ -1005,7 +1032,12 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
     }
 
     adminAccessContextPromise = (async () => {
-        const { data: authData, error: authError } = await supabase.auth.getUser();
+        const { data: authData, error: authError } = await runWithSupabaseBootstrapRetry({
+            run: () => supabase.auth.getUser(),
+            timeoutMs: 5000,
+            timeoutMessage: 'Admin auth user fetch timeout',
+            shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
+        });
 
         if (authError || !authData.user) {
             return {
@@ -1029,11 +1061,16 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
             return value;
         };
 
-        const { data: ownProfile, error: ownProfileError } = await supabase
-            .from('users')
-            .select('role')
-            .eq('id', authUserId)
-            .maybeSingle();
+        const { data: ownProfile, error: ownProfileError } = await runWithSupabaseBootstrapRetry({
+            run: () => supabase
+                .from('users')
+                .select('role')
+                .eq('id', authUserId)
+                .maybeSingle(),
+            timeoutMs: 6000,
+            timeoutMessage: 'Admin access profile fetch timeout',
+            shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
+        });
 
         if (ownProfileError) {
             console.error('Admin access context profile error:', ownProfileError);

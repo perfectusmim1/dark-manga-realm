@@ -237,6 +237,7 @@ const Header: React.FC = () => {
     { path: '/latest-chapters', label: 'Son Bölümler' },
     { path: '/characters', label: 'Karakterler' },
     { path: '/community', label: 'Topluluk', icon: Users },
+    ...(!authLoading && !user ? [{ path: '/support', label: 'Destek', icon: LifeBuoy }] : []),
   ];
 
   const clearDesktopCharactersCloseTimeout = () => {

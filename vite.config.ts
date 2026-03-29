@@ -45,7 +45,10 @@ export default defineConfig(({ mode }) => ({
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
           {
-            urlPattern: ({ request }) => request.destination === "image",
+            urlPattern: ({ request, url }) => (
+              request.destination === "image"
+              && url.origin === self.location.origin
+            ),
             handler: "CacheFirst",
             options: {
               cacheName: "toonparrot-image-cache",

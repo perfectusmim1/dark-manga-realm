@@ -1,4 +1,4 @@
-import { invokeAuthenticatedFunction } from '@/lib/supabase';
+import { invokeAuthenticatedFunction, supabase } from '@/lib/supabase';
 import { SupportTicket, SupportTicketCategory, SupportTicketStatus } from '@/lib/types';
 
 interface SupportTicketsResponse {
@@ -6,6 +6,7 @@ interface SupportTicketsResponse {
   message?: string;
   tickets?: SupportTicket[];
   ticket?: SupportTicket;
+  ticketId?: string;
 }
 
 const ensureSuccess = (data: SupportTicketsResponse | null | undefined, fallback: string) => {
@@ -28,6 +29,7 @@ export const createSupportTicket = async (payload: {
   category: SupportTicketCategory;
   message: string;
   imageUrl?: string | null;
+  appealAccountEmail?: string | null;
 }): Promise<SupportTicket> => {
   const data = await invokeAuthenticatedFunction<SupportTicketsResponse>('support-tickets', {
     action: 'create',
@@ -35,6 +37,27 @@ export const createSupportTicket = async (payload: {
   });
 
   ensureSuccess(data, 'SUPPORT_TICKET_CREATE_FAILED');
+  return data.ticket as SupportTicket;
+};
+
+export const createPublicSupportTicket = async (payload: {
+  subject: string;
+  category: SupportTicketCategory;
+  message: string;
+  imageUrl?: string | null;
+  contactName: string;
+  contactEmail: string;
+  appealAccountEmail?: string | null;
+}): Promise<SupportTicket> => {
+  const { data, error } = await supabase.functions.invoke<SupportTicketsResponse>('support-ticket-public-create', {
+    body: payload,
+  });
+
+  if (error) {
+    throw error;
+  }
+
+  ensureSuccess(data, 'PUBLIC_SUPPORT_TICKET_CREATE_FAILED');
   return data.ticket as SupportTicket;
 };
 
@@ -63,4 +86,18 @@ export const updateSupportTicketStatus = async (payload: {
 
   ensureSuccess(data, 'SUPPORT_TICKET_STATUS_FAILED');
   return data.ticket as SupportTicket;
+};
+
+export const deleteSupportTicket = async (ticketId: string): Promise<string> => {
+  const data = await invokeAuthenticatedFunction<SupportTicketsResponse>('support-tickets', {
+    action: 'delete',
+    ticketId,
+  });
+
+  ensureSuccess(data, 'SUPPORT_TICKET_DELETE_FAILED');
+  if (!data?.ticketId) {
+    throw new Error('SUPPORT_TICKET_DELETE_FAILED');
+  }
+
+  return data.ticketId;
 };

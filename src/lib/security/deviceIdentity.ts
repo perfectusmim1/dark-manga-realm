@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { getCurrentAccessToken, supabase } from '@/lib/supabase';
 import { getDeviceIdentity } from './deviceFingerprint';
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { AccessDecisionReason, CurrentUserBanState, CurrentUserWarning, User } from '@/lib/types';
@@ -113,11 +113,21 @@ export const checkCurrentAccess = async (
                 await sleep(retryDelay);
             }
 
+            const accessToken = await getCurrentAccessToken({
+                forceRefresh: attemptIndex > 0,
+                required: false,
+            });
+
             const { data, error } = await supabase.functions.invoke('check-access', {
                 body: {
                     ...identity,
                     path,
                 },
+                headers: accessToken
+                    ? {
+                        Authorization: `Bearer ${accessToken}`,
+                    }
+                    : undefined,
             });
 
             if (!error) {

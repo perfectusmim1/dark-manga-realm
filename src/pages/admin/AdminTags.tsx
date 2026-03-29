@@ -3,6 +3,7 @@ import { Hash, Plus, Trash2, Edit2, Shield, Search, Loader2, Save, X, CheckCircl
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import TagBadge from '@/components/tags/TagBadge';
 import { Tag, TagCategory } from '@/lib/types';
@@ -31,6 +32,7 @@ const AdminTags: React.FC = () => {
   const [filterApproval, setFilterApproval] = useState<'all' | 'approved' | 'pending'>('all');
   const [showCreateForm, setShowCreateForm] = useState(false);
   const [editingTag, setEditingTag] = useState<Tag | null>(null);
+  const [tagToDelete, setTagToDelete] = useState<Tag | null>(null);
   const [newTag, setNewTag] = useState({ name: '', category: 'general' as TagCategory, description: '' });
   const [saving, setSaving] = useState(false);
 
@@ -83,12 +85,14 @@ const AdminTags: React.FC = () => {
     }
   };
 
-  const handleDelete = async (tag: Tag) => {
-    if (!confirm(`"${tag.name}" etiketini silmek istediğinize emin misiniz?`)) return;
+  const handleDelete = async () => {
+    const targetTag = tagToDelete;
+    if (!targetTag) return;
+    setTagToDelete(null);
     try {
-      await deleteTag(tag.id);
+      await deleteTag(targetTag.id);
       await loadTags();
-      toast.success(`"${tag.name}" silindi`);
+      toast.success(`"${targetTag.name}" silindi`);
     } catch {
       toast.error('Silinemedi');
     }
@@ -381,7 +385,7 @@ const AdminTags: React.FC = () => {
                           <Edit2 className="mr-2 h-3.5 w-3.5" />
                           Düzenle
                         </Button>
-                        <Button size="sm" variant="outline" className="flex-1 text-destructive" onClick={() => handleDelete(tag)}>
+                        <Button size="sm" variant="outline" className="flex-1 text-destructive" onClick={() => setTagToDelete(tag)}>
                           <Trash2 className="mr-2 h-3.5 w-3.5" />
                           Sil
                         </Button>
@@ -466,7 +470,7 @@ const AdminTags: React.FC = () => {
                         <Button size="sm" variant="ghost" className="h-7 w-7 p-0" onClick={() => setEditingTag({ ...tag })}>
                           <Edit2 className="h-3.5 w-3.5" />
                         </Button>
-                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => handleDelete(tag)}>
+                        <Button size="sm" variant="ghost" className="h-7 w-7 p-0 text-destructive" onClick={() => setTagToDelete(tag)}>
                           <Trash2 className="h-3.5 w-3.5" />
                         </Button>
                       </>
@@ -478,6 +482,27 @@ const AdminTags: React.FC = () => {
           </div>
         </div>
       )}
+
+      <ConfirmDialog
+        open={Boolean(tagToDelete)}
+        onOpenChange={(open) => {
+          if (!open) {
+            setTagToDelete(null);
+          }
+        }}
+        title="Etiket silinsin mi?"
+        description={
+          tagToDelete
+            ? `"${tagToDelete.name}" etiketi kalıcı olarak silinecek.`
+            : ''
+        }
+        confirmLabel="Etiketi Sil"
+        cancelLabel="Vazgeç"
+        onConfirm={() => {
+          void handleDelete();
+        }}
+        destructive
+      />
     </div>
   );
 };

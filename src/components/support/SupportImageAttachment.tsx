@@ -65,12 +65,18 @@ const SupportImageAttachment: React.FC<SupportImageAttachmentProps> = ({
             <span className="truncate">{hostLabel}</span>
           </div>
         </div>
-        <div className="flex flex-wrap gap-2">
-          <Button type="button" variant="outline" size="sm" onClick={() => setShowPreview((current) => !current)}>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap sm:justify-end">
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            className="w-full sm:w-auto"
+            onClick={() => setShowPreview((current) => !current)}
+          >
             <ImageIcon className="mr-2 h-4 w-4" />
             {showPreview ? 'Önizlemeyi Gizle' : 'Önizlemeyi Yükle'}
           </Button>
-          <Button asChild type="button" variant="ghost" size="sm">
+          <Button asChild type="button" variant="ghost" size="sm" className="w-full sm:w-auto">
             <a href={normalizedUrl} target="_blank" rel="noreferrer noopener">
               <ExternalLink className="mr-2 h-4 w-4" />
               Yeni Sekmede Aç

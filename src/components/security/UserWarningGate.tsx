@@ -3,11 +3,13 @@ import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 const REQUIRED_WAIT_SECONDS = 5;
 
 const UserWarningGate: React.FC = () => {
-  const { accessState, acknowledgeWarning } = useAuth();
+  const { accessState, acknowledgeWarning, logout } = useAuth();
+  const navigate = useNavigate();
   const warning = accessState.warning;
   const warningId = warning?.id;
   const [secondsLeft, setSecondsLeft] = useState(REQUIRED_WAIT_SECONDS);
@@ -51,6 +53,14 @@ const UserWarningGate: React.FC = () => {
       if (!result.success) {
         throw new Error(result.error || 'WARNING_ACK_FAILED');
       }
+
+      if (result.banActive) {
+        toast.error('Hesap banlandığı için oturum kapatıldı. Destek sayfasından itiraz gönderebilirsiniz.');
+        await logout();
+        navigate('/support', { replace: true });
+        return;
+      }
+
       toast.success('Uyarı okundu olarak işaretlendi');
     } catch (error) {
       console.error('Warning acknowledgement failed:', error);

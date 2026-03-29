@@ -66,6 +66,20 @@ const toScrapedKey = (value?: string | null) =>
 const extractPrimaryScrapedPersonName = (value?: string | null) =>
   normalizeScrapedText(value).split(/[,，]/)[0]?.trim() || '';
 
+const SCRAPED_PLACEHOLDER_PATTERNS = [
+  /^[-–—\s]*$/i,
+  /^(?:n\/a|na|null|undefined|\?)$/i,
+  /^(?:bilinmiyor|unknown|belirtilmedi|girilmedi|girilemedi|girilmemi[sş]|yok|bulunmuyor|mevcut değil)$/i,
+];
+
+const isScrapedPlaceholderValue = (value?: string | null) => {
+  const normalizedValue = normalizeScrapedText(value)
+    .replace(/[.!,:;]+$/g, '')
+    .toLocaleLowerCase('tr-TR');
+
+  return SCRAPED_PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(normalizedValue));
+};
+
 const isParsedChapterDataPayload = (value: unknown): value is ParsedChapterDataPayload => {
   if (!value || typeof value !== 'object') {
     return false;
@@ -502,9 +516,11 @@ const extractDetailAuthors = (doc: Document, labels: string[], fallback: string)
   const field = Array.from(doc.querySelectorAll('.post-content_item'))
     .find((element) => labels.some((label) => element.textContent?.toLocaleLowerCase('tr-TR').includes(label.toLocaleLowerCase('tr-TR'))));
 
-  return extractPrimaryScrapedPersonName(
+  const extractedName = extractPrimaryScrapedPersonName(
     normalizeScrapedText(field?.querySelector('.author-content a, .artist-content a, .summary-content')?.textContent) || fallback,
   );
+
+  return isScrapedPlaceholderValue(extractedName) ? '' : extractedName;
 };
 
 const extractGenres = (doc: Document, fallbackGenres: string[]) => {
@@ -524,9 +540,13 @@ const extractReleaseYear = (doc: Document) => {
     });
 
   const yearText = normalizeScrapedText(yearField?.querySelector('.summary-content')?.textContent || yearField?.textContent);
+  if (!yearText || isScrapedPlaceholderValue(yearText)) {
+    return undefined;
+  }
+
   const yearMatch = yearText.match(/\d{4}/);
 
-  return yearMatch ? parseInt(yearMatch[0], 10) : new Date().getFullYear();
+  return yearMatch ? parseInt(yearMatch[0], 10) : undefined;
 };
 
 const extractAlternativeTitles = (doc: Document, mainTitle?: string) => {
@@ -587,7 +607,7 @@ export const extractScrapedMangaDetail = (
     description: extractDescription(doc, source),
     cover: detailCover || fallbackCard.cover || '',
     banner: detailCover || fallbackCard.cover || '',
-    author: extractDetailAuthors(doc, ['yazar', 'author', 'yazarlar', 'yazar(lar)'], 'Bilinmiyor') || 'Bilinmiyor',
+    author: extractDetailAuthors(doc, ['yazar', 'author', 'yazarlar', 'yazar(lar)'], ''),
     artist: extractDetailAuthors(doc, ['çizer', 'artist', 'çizerler', 'çizer(ler)'], '') || undefined,
     status: extractDetailStatus(doc),
     type: inferMangaType(doc, genres, fallbackCard.genres),

@@ -17,6 +17,7 @@ import {
     DialogTrigger,
     DialogFooter,
 } from '@/components/ui/dialog';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { getAnnouncements, createAnnouncement, deleteAnnouncement, Announcement } from '@/lib/announcements';
 import { useAdminAccess } from '@/hooks/useAdminAccess';
@@ -31,6 +32,7 @@ const AdminAnnouncements: React.FC = () => {
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
+    const [announcementToDelete, setAnnouncementToDelete] = useState<Announcement | null>(null);
     
     // Form state
     const [title, setTitle] = useState('');
@@ -90,12 +92,14 @@ const AdminAnnouncements: React.FC = () => {
         }
     };
 
-    const handleDelete = async (id: string) => {
+    const handleDelete = async () => {
         if (!user || !access.isPrimaryAdmin) return;
-        if (!confirm('Bu duyuruyu silmek istediğinize emin misiniz?')) return;
+        const targetAnnouncement = announcementToDelete;
+        if (!targetAnnouncement) return;
+        setAnnouncementToDelete(null);
 
         try {
-            const { error } = await deleteAnnouncement(id);
+            const { error } = await deleteAnnouncement(targetAnnouncement.id);
             if (error) throw error;
             toast.success('Duyuru silindi');
             loadData();
@@ -200,7 +204,7 @@ const AdminAnnouncements: React.FC = () => {
                                     variant="ghost" 
                                     size="icon" 
                                     className="absolute top-3 right-3 text-destructive opacity-100 transition-opacity sm:top-4 sm:right-4 sm:opacity-0 sm:group-hover:opacity-100"
-                                    onClick={() => handleDelete(announcement.id)}
+                                    onClick={() => setAnnouncementToDelete(announcement)}
                                 >
                                     <Trash2 className="h-4 w-4" />
                                 </Button>
@@ -209,6 +213,27 @@ const AdminAnnouncements: React.FC = () => {
                     ))
                 )}
             </div>
+
+            <ConfirmDialog
+                open={Boolean(announcementToDelete)}
+                onOpenChange={(open) => {
+                    if (!open) {
+                        setAnnouncementToDelete(null);
+                    }
+                }}
+                title="Duyuru silinsin mi?"
+                description={
+                    announcementToDelete
+                        ? `"${announcementToDelete.title}" başlıklı duyuru kalıcı olarak silinecek.`
+                        : ''
+                }
+                confirmLabel="Duyuruyu Sil"
+                cancelLabel="Vazgeç"
+                onConfirm={() => {
+                    void handleDelete();
+                }}
+                destructive
+            />
         </div>
     );
 };

@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js';
+import { createClient, type Session } from '@supabase/supabase-js';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
@@ -78,18 +78,90 @@ export const supabase = createClient(supabaseUrl, supabaseAnonKey, {
 
 const waitFor = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const shouldRetryFunctionAuth = (status: number, message: string | null) => {
-    if (status !== 401) {
-        return false;
+const withTimeout = async <T>(operation: Promise<T>, ms: number, errorMessage: string): Promise<T> => {
+    let timeoutId: ReturnType<typeof setTimeout> | null = null;
+
+    const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => reject(new Error(errorMessage)), ms);
+    });
+
+    try {
+        return await Promise.race([operation, timeoutPromise]);
+    } finally {
+        if (timeoutId !== null) {
+            clearTimeout(timeoutId);
+        }
+    }
+};
+
+const getSupabaseErrorStatus = (error: unknown): number | null => {
+    if (!error || typeof error !== 'object') {
+        return null;
     }
 
-    const normalizedMessage = message?.toLowerCase() || '';
+    if ('status' in error && typeof error.status === 'number') {
+        return error.status;
+    }
+
+    const context = 'context' in error ? error.context : null;
+    if (!context || typeof context !== 'object') {
+        return null;
+    }
+
+    if ('status' in context && typeof context.status === 'number') {
+        return context.status;
+    }
+
+    if (
+        'response' in context
+        && context.response
+        && typeof context.response === 'object'
+        && 'status' in context.response
+        && typeof context.response.status === 'number'
+    ) {
+        return context.response.status;
+    }
+
+    return null;
+};
+
+const getSupabaseErrorMessage = (error: unknown): string => {
+    if (typeof error === 'string') {
+        return error.toLowerCase();
+    }
+
+    if (error instanceof Error) {
+        return error.message.toLowerCase();
+    }
+
+    if (
+        error
+        && typeof error === 'object'
+        && 'message' in error
+        && typeof error.message === 'string'
+    ) {
+        return error.message.toLowerCase();
+    }
+
+    return '';
+};
+
+export const isRetryableSupabaseBootstrapError = (error: unknown, status?: number | null) => {
+    const resolvedStatus = status ?? getSupabaseErrorStatus(error);
+    if (resolvedStatus !== null && [401, 408, 425, 429, 500, 502, 503, 504].includes(resolvedStatus)) {
+        return true;
+    }
+
+    const normalizedMessage = getSupabaseErrorMessage(error);
     return normalizedMessage.includes('invalid jwt')
         || normalizedMessage.includes('jwt')
         || normalizedMessage.includes('token')
         || normalizedMessage.includes('unauthorized')
         || normalizedMessage.includes('not yet valid')
-        || normalizedMessage.includes('future');
+        || normalizedMessage.includes('issued in the future')
+        || normalizedMessage.includes('future')
+        || normalizedMessage.includes('timeout')
+        || normalizedMessage.includes('failed to send a request to the edge function');
 };
 
 const refreshSupabaseSession = async () => {
@@ -102,32 +174,214 @@ const refreshSupabaseSession = async () => {
     }
 };
 
-export const getAuthenticatedFunctionHeaders = async (options?: { forceRefresh?: boolean }) => {
-    if (options?.forceRefresh) {
-        const refreshedAccessToken = await refreshSupabaseSession();
-        if (refreshedAccessToken) {
-            return {
-                Authorization: `Bearer ${refreshedAccessToken}`,
-            };
+const decodeJwtPayload = (token: string) => {
+    try {
+        const [, payload] = token.split('.');
+        if (!payload) {
+            return null;
         }
+
+        const normalizedPayload = payload
+            .replace(/-/g, '+')
+            .replace(/_/g, '/')
+            .padEnd(Math.ceil(payload.length / 4) * 4, '=');
+
+        return JSON.parse(atob(normalizedPayload)) as {
+            iat?: number;
+            nbf?: number;
+        };
+    } catch {
+        return null;
+    }
+};
+
+const getSessionFutureDelayMs = (session: Session | null | undefined) => {
+    const payload = session?.access_token ? decodeJwtPayload(session.access_token) : null;
+    if (!payload) {
+        return 0;
     }
 
-    for (let attempt = 0; attempt < 6; attempt += 1) {
-        const { data } = await supabase.auth.getSession();
-        const accessToken = data.session?.access_token;
-
-        if (accessToken) {
-            return {
-                Authorization: `Bearer ${accessToken}`,
-            };
-        }
-
-        if (attempt < 5) {
-            await waitFor(attempt < 2 ? 150 : 300);
-        }
+    const notBeforeSeconds = Math.max(payload.iat || 0, payload.nbf || 0);
+    if (!notBeforeSeconds) {
+        return 0;
     }
 
-    return {};
+    return Math.max(0, (notBeforeSeconds * 1000) - Date.now());
+};
+
+const SESSION_STABILIZATION_RETRY_DELAYS_MS = [0, 120, 240];
+let inflightSessionStabilization: Promise<Session | null> | null = null;
+
+export const waitForUsableSupabaseSession = async (options?: {
+    preferredSession?: Session | null;
+    forceRefresh?: boolean;
+    required?: boolean;
+    maxWaitMs?: number;
+}) => {
+    const {
+        preferredSession = null,
+        forceRefresh = false,
+        required = false,
+        maxWaitMs = 2200,
+    } = options || {};
+
+    const canReuseInflight = !preferredSession && !forceRefresh && !required;
+    if (canReuseInflight && inflightSessionStabilization) {
+        return inflightSessionStabilization;
+    }
+
+    const run = async (): Promise<Session | null> => {
+        if (forceRefresh) {
+            await refreshSupabaseSession();
+        }
+
+        let candidateSession = preferredSession;
+        let waitedMs = 0;
+
+        for (let attempt = 0; attempt < SESSION_STABILIZATION_RETRY_DELAYS_MS.length; attempt += 1) {
+            const retryDelay = SESSION_STABILIZATION_RETRY_DELAYS_MS[attempt];
+            if (retryDelay > 0) {
+                await waitFor(retryDelay);
+                waitedMs += retryDelay;
+                candidateSession = null;
+            }
+
+            if (!candidateSession) {
+                const { data, error } = await supabase.auth.getSession();
+                if (error) {
+                    if (attempt === SESSION_STABILIZATION_RETRY_DELAYS_MS.length - 1) {
+                        if (!required && isRetryableSupabaseBootstrapError(error)) {
+                            return null;
+                        }
+
+                        throw error;
+                    }
+
+                    continue;
+                }
+
+                candidateSession = data.session;
+            }
+
+            if (!candidateSession?.access_token) {
+                if (!required) {
+                    return null;
+                }
+
+                continue;
+            }
+
+            const futureDelayMs = getSessionFutureDelayMs(candidateSession);
+            if (futureDelayMs <= 0) {
+                return candidateSession;
+            }
+
+            const remainingBudgetMs = Math.max(0, maxWaitMs - waitedMs);
+            const stabilizationDelayMs = Math.min(futureDelayMs + 150, remainingBudgetMs || futureDelayMs + 150);
+            if (stabilizationDelayMs > 0) {
+                await waitFor(stabilizationDelayMs);
+                waitedMs += stabilizationDelayMs;
+            }
+
+            candidateSession = null;
+        }
+
+        const { data, error } = await supabase.auth.getSession();
+        if (error) {
+            if (!required && isRetryableSupabaseBootstrapError(error)) {
+                return null;
+            }
+
+            throw error;
+        }
+
+        return data.session;
+    };
+
+    const promise = run().finally(() => {
+        if (canReuseInflight && inflightSessionStabilization === promise) {
+            inflightSessionStabilization = null;
+        }
+    });
+
+    if (canReuseInflight) {
+        inflightSessionStabilization = promise;
+    }
+
+    return promise;
+};
+
+const shouldRetryFunctionAuth = (status: number, message: string | null) =>
+    isRetryableSupabaseBootstrapError(message || '', status);
+
+export const getAuthenticatedFunctionHeaders = async (options?: { forceRefresh?: boolean; maxWaitMs?: number }) => {
+    const accessToken = await getCurrentAccessToken({
+        forceRefresh: options?.forceRefresh,
+        required: true,
+        maxWaitMs: options?.maxWaitMs ?? 5000,
+    });
+
+    if (accessToken) {
+        return {
+            Authorization: `Bearer ${accessToken}`,
+        };
+    }
+
+    throw new Error('AUTH_SESSION_UNAVAILABLE');
+};
+
+export const getCurrentAccessToken = async (options?: {
+    forceRefresh?: boolean;
+    required?: boolean;
+    maxWaitMs?: number;
+}) => {
+    const session = await waitForUsableSupabaseSession({
+        forceRefresh: options?.forceRefresh,
+        required: options?.required ?? false,
+        maxWaitMs: options?.maxWaitMs ?? 5000,
+    });
+
+    return session?.access_token ?? null;
+};
+
+export const runWithSupabaseBootstrapRetry = async <T>(options: {
+    run: () => Promise<T>;
+    timeoutMs?: number;
+    timeoutMessage: string;
+    shouldRetryResult?: (result: T) => boolean;
+}) => {
+    const {
+        run,
+        timeoutMs = 6000,
+        timeoutMessage,
+        shouldRetryResult,
+    } = options;
+
+    const execute = async (forceRefresh: boolean) => {
+        await waitForUsableSupabaseSession({
+            forceRefresh,
+            required: false,
+        });
+
+        return withTimeout(run(), timeoutMs, timeoutMessage);
+    };
+
+    let result: T;
+    try {
+        result = await execute(false);
+    } catch (error) {
+        if (!isRetryableSupabaseBootstrapError(error)) {
+            throw error;
+        }
+
+        return execute(true);
+    }
+
+    if (shouldRetryResult?.(result)) {
+        return execute(true);
+    }
+
+    return result;
 };
 
 const parseFunctionResponse = async (response: Response) => {
@@ -144,37 +398,62 @@ const parseFunctionResponse = async (response: Response) => {
     }
 };
 
+const getFunctionErrorMessage = async (error: unknown) => {
+    const fallbackMessage = error instanceof Error
+        ? error.message
+        : 'Edge Function invocation failed';
+
+    if (
+        !error
+        || typeof error !== 'object'
+        || !('context' in error)
+        || !(error.context instanceof Response)
+    ) {
+        return {
+            status: getSupabaseErrorStatus(error),
+            message: fallbackMessage,
+        };
+    }
+
+    const response = error.context;
+    const parsedBody = await parseFunctionResponse(response.clone()).catch(() => null);
+    const parsedMessage = typeof parsedBody === 'object'
+        && parsedBody
+        && 'message' in parsedBody
+        && typeof parsedBody.message === 'string'
+        ? parsedBody.message
+        : typeof parsedBody === 'string' && parsedBody
+            ? parsedBody
+            : fallbackMessage;
+
+    return {
+        status: response.status,
+        message: parsedMessage,
+    };
+};
+
 export const invokeAuthenticatedFunction = async <TResponse>(
     functionName: string,
     body: unknown,
 ) => {
-    for (let attempt = 0; attempt < 2; attempt += 1) {
-        const authHeaders = await getAuthenticatedFunctionHeaders({
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const headers = await getAuthenticatedFunctionHeaders({
             forceRefresh: attempt > 0,
-        });
-        const response = await globalThis.fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                apikey: supabaseAnonKey,
-                ...authHeaders,
-            },
-            body: JSON.stringify(body),
+            maxWaitMs: 5000 + (attempt * 1200),
         });
 
-        const data = await parseFunctionResponse(response);
-        const message = typeof data === 'object' && data && 'message' in data && typeof data.message === 'string'
-            ? data.message
-            : typeof data === 'string' && data
-                ? data
-                : `Edge Function returned ${response.status}`;
+        const { data, error } = await supabase.functions.invoke<TResponse>(functionName, {
+            body,
+            headers,
+        });
 
-        if (response.ok) {
-            return data as TResponse;
+        if (!error) {
+            return data;
         }
 
-        if (attempt === 0 && shouldRetryFunctionAuth(response.status, message)) {
-            await waitFor(200);
+        const { status, message } = await getFunctionErrorMessage(error);
+        if (attempt < 2 && shouldRetryFunctionAuth(status ?? 0, message)) {
+            await waitFor(350 * (attempt + 1));
             continue;
         }
 

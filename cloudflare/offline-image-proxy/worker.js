@@ -2,6 +2,8 @@ const DEFAULT_ALLOWED_HOSTS = [
   'hayalistic.net',
   'hayalistic.com',
   'webtoonhatti.club',
+  'webtoonhatti.me',
+  'webtoon-oku.net',
   'yedek.mangawow.com',
   'kirmizikafa.monster',
 ];
@@ -26,6 +28,24 @@ const parseCsv = (value, fallback = []) =>
         .map((item) => item.trim())
         .filter(Boolean)
     : fallback;
+
+const normalizeHostRule = (value) => value.trim().toLowerCase().replace(/^\*\./, '');
+
+const isAllowedHost = (hostname, allowedHosts) => {
+  const normalizedHostname = hostname.trim().toLowerCase();
+
+  return allowedHosts.some((value) => {
+    const normalizedRule = normalizeHostRule(value);
+    if (!normalizedRule) {
+      return false;
+    }
+
+    return (
+      normalizedHostname === normalizedRule
+      || normalizedHostname.endsWith(`.${normalizedRule}`)
+    );
+  });
+};
 
 const jsonResponse = (body, status, corsHeaders) =>
   new Response(JSON.stringify(body), {
@@ -146,7 +166,7 @@ const readRequestPayload = async (request) => {
 
 export default {
   async fetch(request, env) {
-    const allowedHosts = new Set(parseCsv(env.ALLOWED_HOSTS, DEFAULT_ALLOWED_HOSTS));
+    const allowedHosts = parseCsv(env.ALLOWED_HOSTS, DEFAULT_ALLOWED_HOSTS);
     const allowedOrigins = parseCsv(env.ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS);
     const corsHeaders = buildCorsHeaders(request, allowedOrigins);
     const requestOrigin = request.headers.get('Origin');
@@ -198,7 +218,7 @@ export default {
       return jsonResponse({ error: 'Unsupported protocol' }, 400, corsHeaders);
     }
 
-    if (!allowedHosts.has(parsedUrl.hostname.toLowerCase())) {
+    if (!isAllowedHost(parsedUrl.hostname, allowedHosts)) {
       return jsonResponse({ error: 'Host is not allowed' }, 403, corsHeaders);
     }
 

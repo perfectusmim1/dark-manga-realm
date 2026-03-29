@@ -841,11 +841,11 @@ const Profile: React.FC = () => {
                        >
                          <div className="overflow-hidden rounded-2xl border border-border/70 bg-background/40 transition-all hover:border-primary/40 hover:bg-background/70">
                            <div className="relative aspect-[3/4] overflow-hidden">
-                             <img
-                               src={manga.cover}
-                               alt={manga.title}
-                               className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
-                             />
+                              <img
+                                src={manga.cover}
+                                alt={manga.title}
+                                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                              />
                              <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
                              <Badge className="absolute left-3 top-3 rounded-full bg-black/70 text-[10px] text-white hover:bg-black/70">
                                {manga.type === 'manhwa' ? 'Manhwa' : manga.type === 'manhua' ? 'Manhua' : manga.type === 'webtoon' ? 'Webtoon' : 'Manga'}
