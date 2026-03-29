@@ -6,14 +6,17 @@ import { toast } from 'sonner';
 import { useNavigate } from 'react-router-dom';
 
 const REQUIRED_WAIT_SECONDS = 5;
+const PERMANENT_BAN_WARNING_LIMIT = 3;
 
 const UserWarningGate: React.FC = () => {
-  const { accessState, acknowledgeWarning, logout } = useAuth();
+  const { user, accessState, acknowledgeWarning } = useAuth();
   const navigate = useNavigate();
   const warning = accessState.warning;
   const warningId = warning?.id;
   const [secondsLeft, setSecondsLeft] = useState(REQUIRED_WAIT_SECONDS);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const effectiveWarningCount = Math.max(user?.warningCount || 0, warning ? 1 : 0);
+  const remainingWarnings = Math.max(0, PERMANENT_BAN_WARNING_LIMIT - effectiveWarningCount);
 
   useEffect(() => {
     if (!warningId) {
@@ -55,9 +58,8 @@ const UserWarningGate: React.FC = () => {
       }
 
       if (result.banActive) {
-        toast.error('Hesap banlandığı için oturum kapatıldı. Destek sayfasından itiraz gönderebilirsiniz.');
-        await logout();
-        navigate('/support', { replace: true });
+        toast.error('Bu işlem sonrası hesabınız banlandı. Ayrıntılar için ban ekranını ve destek sayfasını kontrol edin.');
+        navigate('/', { replace: true });
         return;
       }
 
@@ -90,11 +92,33 @@ const UserWarningGate: React.FC = () => {
             {warning.message}
           </p>
 
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-amber-200/70">Toplam Uyarı</p>
+              <p className="mt-2 text-2xl font-black text-amber-100">
+                {effectiveWarningCount}/{PERMANENT_BAN_WARNING_LIMIT}
+              </p>
+            </div>
+            <div className="rounded-2xl border border-border bg-background/70 p-4">
+              <p className="text-[11px] uppercase tracking-[0.24em] text-muted-foreground">Kalıcı Ban Eşiği</p>
+              <p className="mt-2 text-base font-semibold text-foreground">
+                {remainingWarnings > 0
+                  ? `${remainingWarnings} uyarı kaldı`
+                  : 'Sınır aşıldı'}
+              </p>
+            </div>
+          </div>
+
           <div className="rounded-2xl border border-border bg-background/70 p-4 text-sm text-muted-foreground">
             <p>Gönderilme: {new Date(warning.createdAt).toLocaleString('tr-TR')}</p>
             <p className="mt-2">
               Devam etmek için bu uyarıyı okuyup anladığını onaylaman gerekiyor.
             </p>
+            {remainingWarnings > 0 ? (
+              <p className="mt-2 text-amber-200">
+                {remainingWarnings} uyarı daha alırsanız hesabınız kalıcı ban yiyecektir.
+              </p>
+            ) : null}
           </div>
 
           <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

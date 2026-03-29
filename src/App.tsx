@@ -38,6 +38,18 @@ const AppInitializer = ({ children }: { children: React.ReactNode }) => {
 import SecurityWrapper from "@/components/security/SecurityWrapper";
 import UserWarningGate from "@/components/security/UserWarningGate";
 
+const getBanTypeLabel = (type?: string | null) => {
+  switch (type) {
+    case 'timed':
+      return 'Süreli Ban';
+    case 'hard':
+      return 'Hard Ban';
+    case 'permanent':
+    default:
+      return 'Kalıcı Ban';
+  }
+};
+
 const Index = lazy(() => import("./pages/Index"));
 const TopTen = lazy(() => import("./pages/TopTen"));
 const Browse = lazy(() => import("./pages/Browse"));
@@ -157,19 +169,24 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
   const isSupportPath = location.pathname === '/support' || location.pathname.startsWith('/support/');
   const isAuthPath = location.pathname === '/auth';
   const hasUserBan = Boolean(user?.isBanned || accessState.ban.active);
+  const banType = user?.activeBanType || accessState.ban.type || null;
+  const finalMessage = blockedMessage || user?.banReason || accessState.ban.reason || 'Hesabınız süresiz olarak dondurulmuştur.';
+  const timedBanUntil = user?.banExpiresAt || accessState.ban.expiresAt;
+  const bannedAt = user?.bannedAt || accessState.ban.bannedAt;
+  const screenTitle = hasUserBan ? 'Hesabınız Banlandı' : 'Erişim Engellendi';
+  const supportingText = hasUserBan
+    ? 'Bu yüzden hesap verileri ve içerik şu anda yüklenmiyor. Aşağıdaki gerekçeyi kontrol edip gerekirse destek talebi açın.'
+    : 'Bu cihaz veya bağlantı için erişim kısıtlandı. Ayrıntılar aşağıda yer alıyor.';
 
   if (blockedMessage || (hasUserBan && !isSupportPath && !isAuthPath)) {
-    const finalMessage = blockedMessage || user?.banReason || accessState.ban.reason || 'Hesabınız süresiz olarak dondurulmuştur.';
-    const timedBanUntil = user?.banExpiresAt || accessState.ban.expiresAt;
-    
     return (
       <div className="min-h-screen bg-[#0a0a0a] text-white flex items-center justify-center p-4">
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_var(--tw-gradient-stops))] from-destructive/10 via-transparent to-transparent pointer-events-none" />
         
-        <div className="relative w-full max-w-lg">
+        <div className="relative w-full max-w-2xl">
           <div className="absolute -inset-1 bg-gradient-to-r from-destructive/50 to-orange-500/50 rounded-2xl blur opacity-25" />
           
-          <div className="relative bg-[#111] border border-white/10 rounded-2xl p-8 md:p-12 shadow-2xl backdrop-blur-xl text-center">
+          <div className="relative bg-[#111] border border-white/10 rounded-2xl p-6 shadow-2xl backdrop-blur-xl md:p-10">
             <div className="mb-8 flex justify-center">
               <div className="w-20 h-20 rounded-full bg-destructive/10 border border-destructive/20 flex items-center justify-center animate-pulse">
                 <svg className="w-10 h-10 text-destructive" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -178,24 +195,43 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
               </div>
             </div>
             
-            <h1 className="text-4xl font-black tracking-tight mb-4 bg-gradient-to-br from-white to-white/60 bg-clip-text text-transparent">
-              Erişim Engellendi
+            <h1 className="text-center text-3xl font-black tracking-tight mb-3 bg-gradient-to-br from-white to-white/60 bg-clip-text text-transparent md:text-4xl">
+              {screenTitle}
             </h1>
             
-            <div className="space-y-4">
-              <p className="text-zinc-400 text-lg leading-relaxed">
-                {finalMessage}
+            <div className="space-y-5 text-center">
+              <p className="mx-auto max-w-xl text-zinc-400 text-base leading-relaxed md:text-lg">
+                {supportingText}
               </p>
 
-              {timedBanUntil && (
-                <p className="text-sm text-amber-300">
-                  Geçici ban bitişi: {new Date(timedBanUntil).toLocaleString('tr-TR')}
+              <div className="flex flex-wrap items-center justify-center gap-2">
+                {hasUserBan ? (
+                  <span className="rounded-full border border-destructive/30 bg-destructive/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-destructive/90">
+                    {getBanTypeLabel(banType)}
+                  </span>
+                ) : null}
+                {timedBanUntil ? (
+                  <span className="rounded-full border border-amber-500/30 bg-amber-500/10 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-amber-200">
+                    Bitiş {new Date(timedBanUntil).toLocaleString('tr-TR')}
+                  </span>
+                ) : null}
+                {bannedAt ? (
+                  <span className="rounded-full border border-white/10 bg-white/5 px-3 py-1 text-xs font-semibold uppercase tracking-[0.2em] text-zinc-300">
+                    Başlangıç {new Date(bannedAt).toLocaleString('tr-TR')}
+                  </span>
+                ) : null}
+              </div>
+
+              <div className="rounded-2xl border border-destructive/20 bg-destructive/10 p-4 text-left">
+                <p className="text-[11px] uppercase tracking-[0.24em] text-destructive/70">Gerekçe</p>
+                <p className="mt-3 text-sm leading-7 text-zinc-100 md:text-base">
+                  {finalMessage}
                 </p>
-              )}
+              </div>
               
               <div className="pt-8 border-t border-white/5">
-                <p className="text-zinc-500 text-sm">
-                  Bir hata olduğunu düşünüyorsanız lütfen destek ekibiyle iletişime geçin.
+                <p className="text-zinc-500 text-sm leading-6">
+                  Banlandığınıza dair bu ekran, verilerin neden yüklenmediğini açıklamak için gösterilir. Bir hata olduğunu düşünüyorsanız destek ekibiyle iletişime geçin.
                 </p>
                 <p className="mt-2 text-zinc-600 font-mono text-xs uppercase tracking-widest">
                   ID: {user?.id?.slice(0, 8) || 'GUEST'}
@@ -204,14 +240,12 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
             </div>
             
             <div className="mt-8 flex flex-wrap items-center justify-center gap-3">
-              {user?.id && (
-                <a
-                  href="/support"
-                  className="px-6 py-2 rounded-full bg-primary/20 border border-primary/30 text-primary text-sm hover:bg-primary/25 transition-all"
-                >
-                  Desteğe Git
-                </a>
-              )}
+              <a
+                href="/support"
+                className="px-6 py-2 rounded-full bg-primary/20 border border-primary/30 text-primary text-sm hover:bg-primary/25 transition-all"
+              >
+                Destek / İtiraz
+              </a>
               {user?.id && (
                 <button 
                   onClick={() => {
@@ -235,7 +269,17 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
 const MfaGate = ({ children }: { children: React.ReactNode }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isLoading, mfaState } = useAuth();
+  const { isLoading, mfaState, session, supabaseUser } = useAuth();
+  const searchParams = new URLSearchParams(location.search);
+  const hasOAuthCallbackParams = searchParams.has('code')
+    || searchParams.has('state')
+    || searchParams.get('provider') === 'google'
+    || location.hash.includes('access_token');
+  const hasAuthenticatedSession = Boolean(session?.user || supabaseUser);
+  const shouldHoldRouteRender = (
+    hasOAuthCallbackParams
+    || hasAuthenticatedSession
+  ) && (isLoading || mfaState.isLoading) && !mfaState.needsVerification;
 
   useEffect(() => {
     if (isLoading || !mfaState.needsVerification || location.pathname === '/auth') {
@@ -244,6 +288,22 @@ const MfaGate = ({ children }: { children: React.ReactNode }) => {
 
     navigate('/auth?step=mfa', { replace: true });
   }, [isLoading, location.pathname, mfaState.needsVerification, navigate]);
+
+  if (shouldHoldRouteRender) {
+    return (
+      <div className="min-h-screen bg-background text-foreground">
+        <div className="container flex min-h-screen max-w-2xl items-center justify-center py-12">
+          <div className="w-full rounded-2xl border border-primary/20 bg-card/60 p-8 text-center shadow-xl backdrop-blur-sm">
+            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+            <h1 className="mt-6 text-3xl font-black">Giriş Doğrulanıyor</h1>
+            <p className="mt-4 text-muted-foreground">
+              Oturum ve iki adımlı doğrulama kontrol ediliyor. Doğrulama tamamlanmadan içerik sayfaları açılmayacak.
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (!isLoading && mfaState.needsVerification && location.pathname !== '/auth') {
     return (

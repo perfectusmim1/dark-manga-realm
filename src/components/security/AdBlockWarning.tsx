@@ -15,6 +15,7 @@ import {
     SiteSecuritySettings,
     subscribeToSiteSecuritySettings,
 } from '@/lib/siteSecurity';
+import { useAuth } from '@/contexts/AuthContext';
 
 const SECURITY_SETTINGS_DEFAULT: SiteSecuritySettings = {
     devtoolsProtectionEnabled: false,
@@ -79,6 +80,7 @@ const detectAdBlocker = async (): Promise<boolean> => {
 
 const AdBlockWarning: React.FC = () => {
     const location = useLocation();
+    const { isLoading: authLoading, mfaState } = useAuth();
     const [settings, setSettings] = useState<SiteSecuritySettings>(SECURITY_SETTINGS_DEFAULT);
     const [isWarningOpen, setIsWarningOpen] = useState(false);
     const [isDismissed, setIsDismissed] = useState(false);
@@ -119,6 +121,13 @@ const AdBlockWarning: React.FC = () => {
             return;
         }
 
+        const isAuthFlowPath = location.pathname === '/auth';
+        if (isAuthFlowPath || authLoading || mfaState.isLoading) {
+            hasCheckedSessionRef.current = false;
+            setIsWarningOpen(false);
+            return;
+        }
+
         if (isDismissed || hasCheckedSessionRef.current || location.pathname.startsWith('/admin')) {
             return;
         }
@@ -139,7 +148,7 @@ const AdBlockWarning: React.FC = () => {
         return () => {
             isActive = false;
         };
-    }, [isDismissed, location.pathname, settings.adblockWarningEnabled]);
+    }, [authLoading, isDismissed, location.pathname, mfaState.isLoading, settings.adblockWarningEnabled]);
 
     return (
         <Dialog

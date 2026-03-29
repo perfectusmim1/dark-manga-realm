@@ -978,7 +978,8 @@ const Index: React.FC = () => {
   const shouldShowContinueReading = isOnline && Boolean(user) && continueReading.length > 0;
   const showContinueReadingSkeleton = canRenderContinueReadingSlot
     && !shouldShowContinueReading
-    && (authLoading || continueReadingLoading);
+    && continueReadingLoading
+    && !authLoading;
   const shouldRenderContinueReadingSlot = shouldShowContinueReading || showContinueReadingSkeleton;
 
   return (

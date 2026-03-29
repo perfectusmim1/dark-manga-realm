@@ -151,6 +151,44 @@ const revokeActiveBans = async (
   }
 };
 
+const formatDateTimeTr = (value?: string | null) => {
+  if (!value) {
+    return null;
+  }
+
+  return new Intl.DateTimeFormat("tr-TR", {
+    dateStyle: "medium",
+    timeStyle: "short",
+    timeZone: "Europe/Istanbul",
+  }).format(new Date(value));
+};
+
+const createSystemNotification = async (
+  serviceClient: ReturnType<typeof createServiceClient>,
+  options: {
+    userId: string;
+    title: string;
+    message: string;
+    link?: string | null;
+  },
+) => {
+  const { error } = await serviceClient
+    .from("notifications")
+    .insert({
+      user_id: options.userId,
+      type: "system",
+      title: options.title,
+      message: options.message,
+      link: options.link || null,
+      read: false,
+      created_at: new Date().toISOString(),
+    });
+
+  if (error) {
+    console.error("System notification insert failed:", error);
+  }
+};
+
 const createBan = async (
   serviceClient: ReturnType<typeof createServiceClient>,
   options: {
@@ -239,6 +277,30 @@ const createBan = async (
 
   await serviceClient.rpc("refresh_user_ban_state", {
     p_user_id: options.targetUserId,
+  });
+
+  const banLabel = options.kind === "timed"
+    ? "Süreli Ban"
+    : options.kind === "hard"
+      ? "Hard Ban"
+      : "Kalıcı Ban";
+  const expiresAtLabel = formatDateTimeTr(expiresAt);
+  const banNotificationParts = [
+    `Hesabınıza yönetim tarafından ${banLabel.toLocaleLowerCase("tr-TR")} uygulandı.`,
+    `Gerekçe: ${options.reason}`,
+  ];
+
+  if (expiresAtLabel) {
+    banNotificationParts.push(`Ban bitişi: ${expiresAtLabel}.`);
+  }
+
+  banNotificationParts.push("İtiraz göndermek isterseniz destek sayfasını kullanabilirsiniz.");
+
+  await createSystemNotification(serviceClient, {
+    userId: options.targetUserId,
+    title: `${banLabel} Uygulandı`,
+    message: banNotificationParts.join(" "),
+    link: "/support",
   });
 
   return {
@@ -333,6 +395,8 @@ Deno.serve(async (req: Request) => {
       });
 
       const latestTargetUser = await loadTargetUser(auth.serviceClient, targetUserId);
+      const warningCount = Math.max(1, latestTargetUser?.warning_count || 0);
+      const remainingWarnings = Math.max(0, 3 - warningCount);
       let autoBan: { kind: BanKind; expiresAt: string | null } | null = null;
 
       if ((latestTargetUser?.warning_count || 0) >= 3) {
@@ -359,6 +423,30 @@ Deno.serve(async (req: Request) => {
           },
         });
       }
+
+      const warningNotificationParts = [
+        "Hesabınıza yönetim tarafından bir uyarı gönderildi.",
+        `Toplam uyarı sayınız ${warningCount}/3.`,
+      ];
+
+      if (remainingWarnings > 0) {
+        warningNotificationParts.push(`${remainingWarnings} uyarı daha alırsanız hesabınız kalıcı olarak banlanacaktır.`);
+      } else if (autoBan?.kind) {
+        warningNotificationParts.push("Bu uyarı sonrası hesabınıza kalıcı ban uygulandı.");
+      }
+
+      if (durationHours > 0) {
+        warningNotificationParts.push(`Bu uyarıyla birlikte ${durationHours} saatlik süreli ban da uygulandı.`);
+      }
+
+      warningNotificationParts.push(`Detay: ${message}`);
+
+      await createSystemNotification(auth.serviceClient, {
+        userId: targetUserId,
+        title: title === "Yönetici uyarısı" ? "Hesabınıza Uyarı Verildi" : title,
+        message: warningNotificationParts.join(" "),
+        link: null,
+      });
 
       const history = await loadUserHistory(auth.serviceClient, targetUserId);
       return json({

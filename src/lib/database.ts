@@ -349,11 +349,6 @@ export const getAllMangas = async (): Promise<Manga[]> => {
         return allMangasPromise;
     }
 
-    // Add a safety timeout
-    const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Manga fetch timeout')), 8000)
-    );
-
     try {
         const fetchManga = async () => {
             const [
@@ -428,12 +423,20 @@ export const getAllMangas = async (): Promise<Manga[]> => {
             });
         };
 
-        allMangasPromise = Promise.race([fetchManga(), timeout]) as Promise<Manga[]>;
+        allMangasPromise = runWithSupabaseBootstrapRetry({
+            run: fetchManga,
+            timeoutMs: 9000,
+            timeoutMessage: 'Manga fetch timeout',
+            shouldRetryResult: (result) => Array.isArray(result) && result.length === 0,
+        });
         const mangas = await allMangasPromise;
-        allMangasCache = {
-            fetchedAt: Date.now(),
-            value: mangas,
-        };
+
+        if (mangas.length > 0) {
+            allMangasCache = {
+                fetchedAt: Date.now(),
+                value: mangas,
+            };
+        }
 
         return mangas;
     } catch (error) {
@@ -469,10 +472,6 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
     if (mangaSummariesPromise) {
         return mangaSummariesPromise;
     }
-
-    const timeout = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error('Manga summary fetch timeout')), 8000)
-    );
 
     try {
         const fetchSummaries = async () => {
@@ -525,12 +524,20 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
             });
         };
 
-        mangaSummariesPromise = Promise.race([fetchSummaries(), timeout]) as Promise<Manga[]>;
+        mangaSummariesPromise = runWithSupabaseBootstrapRetry({
+            run: fetchSummaries,
+            timeoutMs: 9000,
+            timeoutMessage: 'Manga summary fetch timeout',
+            shouldRetryResult: (result) => Array.isArray(result) && result.length === 0,
+        });
         const summaries = await mangaSummariesPromise;
-        mangaSummariesCache = {
-            fetchedAt: Date.now(),
-            value: summaries,
-        };
+
+        if (summaries.length > 0) {
+            mangaSummariesCache = {
+                fetchedAt: Date.now(),
+                value: summaries,
+            };
+        }
 
         return summaries;
     } catch (error) {
@@ -1508,7 +1515,7 @@ export const authenticateAdmin = async (email: string, password: string): Promis
         .single();
 
     if (userError || !userData) {
-        await supabase.auth.signOut();
+        await supabase.auth.signOut({ scope: 'local' });
         return null;
     }
 

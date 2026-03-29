@@ -14,7 +14,7 @@ import {
 } from '@/lib/offline/userSync';
 import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
 import { isDocumentVisible } from '@/lib/documentVisibility';
-import { acknowledgeCurrentUserWarning, getCurrentUserAccessSnapshot } from '@/lib/userAccess';
+import { acknowledgeCurrentUserWarning, getCurrentUserAccessSnapshot, type CurrentUserAccessSnapshot } from '@/lib/userAccess';
 import { toast } from 'sonner';
 
 interface AuthContextType {
@@ -29,6 +29,7 @@ interface AuthContextType {
     error?: string;
     email?: string;
     requiresTwoFactor?: boolean;
+    accessRestricted?: boolean;
     retryAfterSeconds?: number;
   }>;
   register: (username: string, email: string, password: string) => Promise<{ success: boolean; error?: string }>;
@@ -185,6 +186,7 @@ const DEFAULT_ACCESS_STATE: UserAccessState = {
     bannedAt: null,
   },
 };
+const WARNING_BAN_SYNC_INTERVAL_MS = 30000;
 
 const mapAccessCheckToAccessState = (accessCheck: AccessCheckResult): UserAccessState => ({
   reason: accessCheck.reason || 'ok',
@@ -354,6 +356,43 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     setUser((prev) => (prev ? { ...prev, twoFactorEnabled: enabled } : prev));
   }, []);
 
+  const applyCurrentUserAccessSnapshot = useCallback((snapshot: CurrentUserAccessSnapshot) => {
+    const nextAccessState: UserAccessState = {
+      reason: snapshot.ban.active ? 'user_banned' : 'ok',
+      blockedMessage: snapshot.ban.active ? snapshot.ban.reason || null : null,
+      supportOnly: false,
+      warning: snapshot.warning,
+      ban: snapshot.ban,
+    };
+
+    setAccessState((prev) => (
+      JSON.stringify(prev) === JSON.stringify(nextAccessState)
+        ? prev
+        : nextAccessState
+    ));
+
+    setUser((prev) => {
+      if (!prev) {
+        return prev;
+      }
+
+      const nextUser = {
+        ...prev,
+        isBanned: snapshot.ban.active,
+        banReason: snapshot.ban.reason || undefined,
+        bannedAt: snapshot.ban.bannedAt || undefined,
+        activeBanType: snapshot.ban.type || null,
+        banExpiresAt: snapshot.ban.expiresAt || null,
+        warningCount: snapshot.warningCount,
+        unreadWarningCount: snapshot.unreadWarningCount,
+      };
+
+      return JSON.stringify(prev) === JSON.stringify(nextUser)
+        ? prev
+        : nextUser;
+    });
+  }, []);
+
   const refreshAccessState = useCallback(async (): Promise<void> => {
     const activeUser = supabaseUser || (await supabase.auth.getUser()).data.user;
     if (!activeUser) {
@@ -363,75 +402,23 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
     try {
       const snapshot = await getCurrentUserAccessSnapshot();
-      setAccessState({
-        reason: snapshot.ban.active ? 'user_banned' : 'ok',
-        blockedMessage: snapshot.ban.active ? snapshot.ban.reason || null : null,
-        supportOnly: false,
-        warning: snapshot.warning,
-        ban: snapshot.ban,
-      });
-
-      setUser((prev) => prev ? {
-        ...prev,
-        isBanned: snapshot.ban.active,
-        banReason: snapshot.ban.reason || undefined,
-        bannedAt: snapshot.ban.bannedAt || undefined,
-        activeBanType: snapshot.ban.type || null,
-        banExpiresAt: snapshot.ban.expiresAt || null,
-        warningCount: snapshot.warningCount,
-        unreadWarningCount: snapshot.unreadWarningCount,
-      } : prev);
+      applyCurrentUserAccessSnapshot(snapshot);
     } catch (error) {
       console.error('Refresh access state failed:', error);
     }
-  }, [supabaseUser]);
+  }, [applyCurrentUserAccessSnapshot, supabaseUser]);
 
   const acknowledgeWarning = useCallback(async (warningId: string) => {
     try {
       const snapshot = await acknowledgeCurrentUserWarning(warningId);
-      setAccessState({
-        reason: snapshot.ban.active ? 'user_banned' : 'ok',
-        blockedMessage: snapshot.ban.active ? snapshot.ban.reason || null : null,
-        supportOnly: false,
-        warning: snapshot.warning,
-        ban: snapshot.ban,
-      });
-
-      setUser((prev) => prev ? {
-        ...prev,
-        isBanned: snapshot.ban.active,
-        banReason: snapshot.ban.reason || undefined,
-        bannedAt: snapshot.ban.bannedAt || undefined,
-        activeBanType: snapshot.ban.type || null,
-        banExpiresAt: snapshot.ban.expiresAt || null,
-        warningCount: snapshot.warningCount,
-        unreadWarningCount: snapshot.unreadWarningCount,
-      } : prev);
+      applyCurrentUserAccessSnapshot(snapshot);
 
       return { success: true, banActive: snapshot.ban.active };
     } catch (error: unknown) {
       console.error('Acknowledge warning error:', error);
       return { success: false, error: getErrorMessage(error), banActive: false };
     }
-  }, []);
-
-  const forceBanLogoutToSupport = useCallback(async () => {
-    try {
-      await supabase.auth.signOut();
-    } catch (error) {
-      console.error('Forced ban logout error:', error);
-    } finally {
-      setSession(null);
-      setSupabaseUser(null);
-      setUser(null);
-      setMfaState(DEFAULT_MFA_STATE);
-      setAccessState(DEFAULT_ACCESS_STATE);
-
-      if (typeof window !== 'undefined' && window.location.pathname !== '/support') {
-        window.location.replace('/support');
-      }
-    }
-  }, []);
+  }, [applyCurrentUserAccessSnapshot]);
 
   const getPrimaryVerifiedTotpFactor = async (preferredFactorId?: string): Promise<TotpFactor | null> => {
     const { data, error } = await supabase.auth.mfa.listFactors();
@@ -539,12 +526,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (!mounted) return;
 
           setAccessState(mapAccessCheckToAccessState(accessCheck));
-
-          const shouldForceBanLogout = accessCheck.reason === 'user_banned' && !accessCheck.warning;
-          if (shouldForceBanLogout) {
-            await forceBanLogoutToSupport();
-            return;
-          }
 
           const shouldBlockCurrentSession = !accessCheck.allowed && accessCheck.reason !== 'user_banned';
           if (shouldBlockCurrentSession) {
@@ -662,13 +643,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       window.clearInterval(presenceInterval);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [ensureProfile, forceBanLogoutToSupport, refreshMfaState]);
+  }, [ensureProfile, refreshMfaState]);
+
+  useEffect(() => {
+    if (!supabaseUser?.id || !isEffectivelyOnline()) {
+      return;
+    }
+
+    const syncCurrentAccessState = () => {
+      if (isDocumentVisible()) {
+        void refreshAccessState();
+      }
+    };
+
+    syncCurrentAccessState();
+    const intervalId = window.setInterval(syncCurrentAccessState, WARNING_BAN_SYNC_INTERVAL_MS);
+    window.addEventListener('focus', syncCurrentAccessState);
+    document.addEventListener('visibilitychange', syncCurrentAccessState);
+
+    return () => {
+      window.clearInterval(intervalId);
+      window.removeEventListener('focus', syncCurrentAccessState);
+      document.removeEventListener('visibilitychange', syncCurrentAccessState);
+    };
+  }, [refreshAccessState, supabaseUser?.id]);
 
   const login = async (email: string, password: string): Promise<{
     success: boolean;
     error?: string;
     email?: string;
     requiresTwoFactor?: boolean;
+    accessRestricted?: boolean;
     retryAfterSeconds?: number;
   }> => {
     try {
@@ -763,16 +768,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       );
       setAccessState(mapAccessCheckToAccessState(accessCheck));
 
-      if (accessCheck.reason === 'user_banned' && !accessCheck.warning) {
-        await forceBanLogoutToSupport();
-        return {
-          success: false,
-          error: 'Hesap banlı olduğu için giriş kapatıldı',
-        };
-      }
-
-      if (!accessCheck.allowed) {
-        await supabase.auth.signOut();
+      if (!accessCheck.allowed && accessCheck.reason !== 'user_banned') {
+        await supabase.auth.signOut({ scope: 'local' });
         return {
           success: false,
           error: accessCheck.message || 'Bu cihaz veya bağlantı için giriş engellendi',
@@ -802,6 +799,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         success: true,
         email: sessionData.user.email || undefined,
         requiresTwoFactor: assuranceData.nextLevel === 'aal2' && assuranceData.currentLevel !== 'aal2',
+        accessRestricted: Boolean(accessCheck.ban?.active || accessCheck.reason === 'user_banned'),
       };
     } catch (error: unknown) {
       console.error('Login error:', error);
@@ -877,7 +875,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const logout = async () => {
     try {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: 'local' });
       setUser(null);
       setSupabaseUser(null);
       setSession(null);
@@ -1326,8 +1324,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
 
+      const resolvedRedirectTo = redirectTo || `${window.location.origin}/auth?provider=google`;
       const { error } = await supabase.auth.signInWithOAuth({
         provider: 'google',
+        options: {
+          redirectTo: resolvedRedirectTo,
+        },
       });
       if (error) throw error;
     } catch (error: unknown) {

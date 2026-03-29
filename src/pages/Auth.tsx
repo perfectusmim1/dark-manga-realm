@@ -8,7 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { PASSWORD_MIN_LENGTH, getPasswordRequirementError, getPasswordRequirementStatus } from '@/lib/auth/passwordPolicy';
 import { toast } from 'sonner';
 
-type AuthView = 'login' | 'register' | 'forgot-password' | 'email-check' | 'reset-password' | 'verify-mfa';
+type AuthView = 'login' | 'register' | 'forgot-password' | 'email-check' | 'reset-password' | 'verify-mfa' | 'oauth-check';
 type EmailNoticeMode = 'signup' | 'recovery';
 
 const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
@@ -47,6 +47,9 @@ const Auth: React.FC = () => {
   const navigate = useNavigate();
   const registerPasswordStatus = getPasswordRequirementStatus(formData.password, PASSWORD_MIN_LENGTH);
   const resetPasswordStatus = getPasswordRequirementStatus(formData.newPassword, PASSWORD_MIN_LENGTH);
+  const oauthProvider = searchParams.get('provider');
+  const isOAuthCallback = oauthProvider === 'google';
+  const isAuthResolutionPending = authLoading || mfaState.isLoading;
 
   useEffect(() => {
     const type = searchParams.get('type');
@@ -62,10 +65,20 @@ const Auth: React.FC = () => {
       return;
     }
 
-    if (!authLoading && user) {
-      navigate('/');
+    if (isOAuthCallback && isAuthResolutionPending) {
+      setView('oauth-check');
+      return;
     }
-  }, [authLoading, mfaState.needsVerification, navigate, searchParams, user]);
+
+    if (!isAuthResolutionPending && user) {
+      navigate('/');
+      return;
+    }
+
+    if (isOAuthCallback && !isAuthResolutionPending && !user) {
+      setView('login');
+    }
+  }, [authLoading, isAuthResolutionPending, isOAuthCallback, mfaState.isLoading, mfaState.needsVerification, navigate, searchParams, user]);
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -83,6 +96,12 @@ const Auth: React.FC = () => {
         setView('verify-mfa');
         setFormData((prev) => ({ ...prev, mfaCode: '' }));
         toast.info('Girişinizi tamamlamak için Google Authenticator kodunu girin.');
+        return;
+      }
+
+      if (result.accessRestricted) {
+        toast.error('Giriş yapıldı fakat hesabınız şu anda kısıtlı. Ayrıntılar için ban ekranı açılacak.');
+        navigate('/');
         return;
       }
 
@@ -218,6 +237,7 @@ const Auth: React.FC = () => {
     'email-check': 'E-postanızı Kontrol Edin',
     'reset-password': 'Yeni Şifre Belirle',
     'verify-mfa': 'Google Authenticator',
+    'oauth-check': 'Google Girişi Doğrulanıyor',
   }[view];
 
   const description = {
@@ -231,10 +251,11 @@ const Auth: React.FC = () => {
     'verify-mfa': user?.email
       ? `${user.email} hesabı için authenticator uygulamasındaki 6 haneli kodu girin.`
       : 'Authenticator uygulamanızdaki 6 haneli kodu girin.',
+    'oauth-check': 'Google hesabınız doğrulanıyor. İki adımlı doğrulama gerekiyorsa bir sonraki adımda kod ekranı açılacak.',
   }[view];
 
-  const showBackButton = view !== 'login' && view !== 'register' && view !== 'verify-mfa';
-  const showSubmitButton = view !== 'email-check';
+  const showBackButton = view !== 'login' && view !== 'register' && view !== 'verify-mfa' && view !== 'oauth-check';
+  const showSubmitButton = view !== 'email-check' && view !== 'oauth-check';
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-background p-4">
@@ -429,6 +450,20 @@ const Auth: React.FC = () => {
                   <Button type="button" variant="ghost" className="w-full" onClick={() => setView('login')}>
                     Giriş ekranına dön
                   </Button>
+                </div>
+              </div>
+            )}
+
+            {view === 'oauth-check' && (
+              <div className="space-y-6 py-6 text-center">
+                <div className="mx-auto flex h-20 w-20 items-center justify-center rounded-full bg-primary/10">
+                  <div className="h-10 w-10 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
+                </div>
+                <div className="space-y-2">
+                  <h3 className="text-xl font-bold">Google oturumu hazırlanıyor</h3>
+                  <p className="text-sm leading-relaxed text-muted-foreground">
+                    Giriş tamamlanmadan ana sayfaya yönlendirme yapılmayacak. Hesabınızda 2FA açıksa bu adımın hemen ardından kod ekranı açılacak.
+                  </p>
                 </div>
               </div>
             )}
