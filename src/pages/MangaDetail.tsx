@@ -408,7 +408,29 @@ const MangaDetail: React.FC = () => {
   const [seriesBookmarks, setSeriesBookmarks] = useState<Bookmark[]>([]);
   const [isSeriesBookmarksLoading, setIsSeriesBookmarksLoading] = useState(false);
   const [hasLoadedBookmarks, setHasLoadedBookmarks] = useState(false);
+  const [reviews, setReviews] = useState<Review[]>([]);
+  const [avgBreakdown, setAvgBreakdown] = useState<any>({
+    story: 0,
+    characters: 0,
+    art: 0,
+    progression: 0,
+    engagement: 0
+  });
+  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
+  const [userReview, setUserReview] = useState<Partial<Review>>(DEFAULT_USER_REVIEW);
+  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [similarMangas, setSimilarMangas] = useState<Manga[]>([]);
+  const [loadingSimilar, setLoadingSimilar] = useState(false);
+  const [mangaCharacters, setMangaCharacters] = useState<any[]>([]);
+  const [hasLoadedReviews, setHasLoadedReviews] = useState(false);
+  const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false);
+  const [hasLoadedSimilar, setHasLoadedSimilar] = useState(false);
+  const [isReviewsLoading, setIsReviewsLoading] = useState(true);
+  const [isCharsLoading, setIsCharsLoading] = useState(true);
   const overviewLoadMoreRef = React.useRef<HTMLDivElement | null>(null);
+  const backgroundFetchVersionRef = React.useRef(0);
+  const charactersLoadPromiseRef = React.useRef<Promise<Character[]> | null>(null);
+  const similarLoadPromiseRef = React.useRef<Promise<Manga[]> | null>(null);
 
   const offlineSeriesEntry = useMemo<OfflineMangaGroup | undefined>(() => (
     offlineSnapshot.series.find((entry) => entry.manga.mangaId === (manga?.id || mangaId))
@@ -457,6 +479,9 @@ const MangaDetail: React.FC = () => {
   const isReviewsTabActive = activeTab === 'reviews';
   const isCharactersTabActive = activeTab === 'characters';
   const isDiscoverTabActive = activeTab === 'discover';
+  const reviewCount = useMemo(() => (
+    Math.max(manga?.reviewCount || 0, averageRating.count || 0)
+  ), [averageRating.count, manga?.reviewCount]);
 
   const handlePreviewInView = React.useCallback((idx: number) => {
     setCurrentViewedIndex(idx);
@@ -465,6 +490,120 @@ const MangaDetail: React.FC = () => {
   const handlePreviewNearBottom = React.useCallback((idx: number) => {
     setMaxLoadedIndex(prev => Math.max(prev, idx + 1));
   }, []);
+
+  useEffect(() => {
+    backgroundFetchVersionRef.current += 1;
+    charactersLoadPromiseRef.current = null;
+    similarLoadPromiseRef.current = null;
+
+    return () => {
+      backgroundFetchVersionRef.current += 1;
+      charactersLoadPromiseRef.current = null;
+      similarLoadPromiseRef.current = null;
+    };
+  }, [mangaId]);
+
+  const loadCharacters = React.useCallback((options?: { visible?: boolean }) => {
+    if (!mangaId || !isOnline || isOfflineView || isLoading || hasLoadedCharacters) {
+      return Promise.resolve(mangaCharacters);
+    }
+
+    if (options?.visible) {
+      setIsCharsLoading(true);
+    }
+
+    if (charactersLoadPromiseRef.current) {
+      return charactersLoadPromiseRef.current;
+    }
+
+    const requestVersion = backgroundFetchVersionRef.current;
+    const request = getMangaCharacters(mangaId)
+      .then((characters) => {
+        if (requestVersion !== backgroundFetchVersionRef.current) {
+          return [];
+        }
+
+        setMangaCharacters(characters);
+        setHasLoadedCharacters(true);
+        void cacheOfflineMangaCharacters(mangaId, characters);
+
+        return characters;
+      })
+      .catch((error) => {
+        if (requestVersion !== backgroundFetchVersionRef.current) {
+          return [];
+        }
+
+        console.error('Manga characters load error:', error);
+        setMangaCharacters([]);
+        return [];
+      })
+      .finally(() => {
+        if (requestVersion === backgroundFetchVersionRef.current) {
+          setIsCharsLoading(false);
+        }
+
+        if (charactersLoadPromiseRef.current === request) {
+          charactersLoadPromiseRef.current = null;
+        }
+      });
+
+    charactersLoadPromiseRef.current = request;
+    return request;
+  }, [hasLoadedCharacters, isLoading, isOfflineView, isOnline, mangaCharacters, mangaId]);
+
+  const loadSimilarMangas = React.useCallback((options?: { visible?: boolean }) => {
+    if (!mangaId || !manga || !isOnline || isOfflineView || isLoading || hasLoadedSimilar) {
+      return Promise.resolve(similarMangas);
+    }
+
+    if (!manga.genres || manga.genres.length === 0) {
+      setHasLoadedSimilar(true);
+      setLoadingSimilar(false);
+      return Promise.resolve([]);
+    }
+
+    if (options?.visible) {
+      setLoadingSimilar(true);
+    }
+
+    if (similarLoadPromiseRef.current) {
+      return similarLoadPromiseRef.current;
+    }
+
+    const requestVersion = backgroundFetchVersionRef.current;
+    const request = getSimilarMangas(mangaId, manga.genres, 6)
+      .then((similar) => {
+        if (requestVersion !== backgroundFetchVersionRef.current) {
+          return [];
+        }
+
+        setSimilarMangas(similar);
+        setHasLoadedSimilar(true);
+        return similar;
+      })
+      .catch((error) => {
+        if (requestVersion !== backgroundFetchVersionRef.current) {
+          return [];
+        }
+
+        console.error('Error loading similar mangas:', error);
+        setSimilarMangas([]);
+        return [];
+      })
+      .finally(() => {
+        if (requestVersion === backgroundFetchVersionRef.current) {
+          setLoadingSimilar(false);
+        }
+
+        if (similarLoadPromiseRef.current === request) {
+          similarLoadPromiseRef.current = null;
+        }
+      });
+
+    similarLoadPromiseRef.current = request;
+    return request;
+  }, [hasLoadedSimilar, isLoading, isOfflineView, isOnline, manga, mangaId, similarMangas]);
 
   useEffect(() => {
     if (!manga?.chapters?.length) {
@@ -491,27 +630,6 @@ const MangaDetail: React.FC = () => {
     setMinLoadedPreviewIndex((previous) => Math.max(0, previous - PREVIEW_CHAPTER_BATCH_SIZE));
   }, []);
 
-  const [reviews, setReviews] = useState<Review[]>([]);
-  const [avgBreakdown, setAvgBreakdown] = useState<any>({
-    story: 0,
-    characters: 0,
-    art: 0,
-    progression: 0,
-    engagement: 0
-  });
-  const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
-  const [userReview, setUserReview] = useState<Partial<Review>>(DEFAULT_USER_REVIEW);
-  const [isSubmittingReview, setIsSubmittingReview] = useState(false);
-  const [similarMangas, setSimilarMangas] = useState<Manga[]>([]);
-  const [loadingSimilar, setLoadingSimilar] = useState(false);
-  const [mangaCharacters, setMangaCharacters] = useState<any[]>([]);
-  const [hasLoadedReviews, setHasLoadedReviews] = useState(false);
-  const [hasLoadedCharacters, setHasLoadedCharacters] = useState(false);
-  const [hasLoadedSimilar, setHasLoadedSimilar] = useState(false);
-
-
-  const [isReviewsLoading, setIsReviewsLoading] = useState(true);
-  const [isCharsLoading, setIsCharsLoading] = useState(true);
   const mangaReportReasons = [
     'Yanlış seri bilgisi',
     'Kırık veya eksik bölüm',
@@ -822,37 +940,8 @@ const MangaDetail: React.FC = () => {
       return;
     }
 
-    let isCancelled = false;
-    setIsCharsLoading(true);
-
-    void getMangaCharacters(mangaId)
-      .then((characters) => {
-        if (isCancelled) {
-          return;
-        }
-
-        setMangaCharacters(characters);
-        setHasLoadedCharacters(true);
-        void cacheOfflineMangaCharacters(mangaId, characters);
-      })
-      .catch((error) => {
-        if (isCancelled) {
-          return;
-        }
-
-        console.error('Manga characters load error:', error);
-        setMangaCharacters([]);
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setIsCharsLoading(false);
-        }
-      });
-
-    return () => {
-      isCancelled = true;
-    };
-  }, [activeTab, hasLoadedCharacters, isLoading, isOfflineView, isOnline, mangaId]);
+    void loadCharacters({ visible: true });
+  }, [activeTab, hasLoadedCharacters, isLoading, isOfflineView, isOnline, loadCharacters, mangaId]);
 
   useEffect(() => {
     if (
@@ -910,42 +999,47 @@ const MangaDetail: React.FC = () => {
       return;
     }
 
-    if (!manga.genres || manga.genres.length === 0) {
-      setHasLoadedSimilar(true);
-      setLoadingSimilar(false);
+    void loadSimilarMangas({ visible: true });
+  }, [activeTab, hasLoadedSimilar, isLoading, isOfflineView, isOnline, loadSimilarMangas, manga, mangaId]);
+
+  useEffect(() => {
+    if (
+      !mangaId
+      || !manga
+      || !isOnline
+      || isOfflineView
+      || isLoading
+      || (hasLoadedCharacters && hasLoadedSimilar)
+    ) {
       return;
     }
 
-    let isCancelled = false;
-    setLoadingSimilar(true);
+    const prefetchDelayMs = disableHeavyEffects ? 280 : 140;
+    const timerId = window.setTimeout(() => {
+      if (!hasLoadedCharacters) {
+        void loadCharacters();
+      }
 
-    void getSimilarMangas(mangaId, manga.genres, 6)
-      .then((similar) => {
-        if (isCancelled) {
-          return;
-        }
-
-        setSimilarMangas(similar);
-        setHasLoadedSimilar(true);
-      })
-      .catch((error) => {
-        if (isCancelled) {
-          return;
-        }
-
-        console.error('Error loading similar mangas:', error);
-        setSimilarMangas([]);
-      })
-      .finally(() => {
-        if (!isCancelled) {
-          setLoadingSimilar(false);
-        }
-      });
+      if (!hasLoadedSimilar) {
+        void loadSimilarMangas();
+      }
+    }, prefetchDelayMs);
 
     return () => {
-      isCancelled = true;
+      window.clearTimeout(timerId);
     };
-  }, [activeTab, hasLoadedSimilar, isLoading, isOfflineView, isOnline, manga, mangaId]);
+  }, [
+    disableHeavyEffects,
+    hasLoadedCharacters,
+    hasLoadedSimilar,
+    isLoading,
+    isOfflineView,
+    isOnline,
+    loadCharacters,
+    loadSimilarMangas,
+    manga,
+    mangaId,
+  ]);
 
   useEffect(() => {
     if (!mangaId || authLoading) {
@@ -1925,9 +2019,9 @@ const MangaDetail: React.FC = () => {
                   className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
                 >
                   İNCELEMELER
-                  {reviews.length > 0 && (
+                  {reviewCount > 0 && (
                     <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
-                      {reviews.length}
+                      {reviewCount}
                     </Badge>
                   )}
                 </TabsTrigger>
@@ -2330,7 +2424,7 @@ const MangaDetail: React.FC = () => {
                           <Star key={star} className={`h-4 w-4 ${star <= Math.round(averageRating.average) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`} />
                         ))}
                       </div>
-                      <div className="text-muted-foreground font-medium">{reviews.length} inceleme</div>
+                      <div className="text-muted-foreground font-medium">{reviewCount} inceleme</div>
                     </div>
 
                     <div className="lg:col-span-2 space-y-3">

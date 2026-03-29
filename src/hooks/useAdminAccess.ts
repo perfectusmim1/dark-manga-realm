@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { useAuth } from '@/contexts/AuthContext';
 import { AdminAccessContext, getAdminAccessContext, getCachedAdminAccessContext } from '@/lib/database';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import { isExpectedAccessControlError } from '@/lib/supabase';
 
 const DEFAULT_ACCESS: AdminAccessContext = {
     canAccessAdminPanel: false,
@@ -53,7 +54,9 @@ export const useAdminAccess = () => {
                     setAccess(nextAccess);
                 }
             } catch (error) {
-                console.error('Admin access load error:', error);
+                if (!isExpectedAccessControlError(error)) {
+                    console.error('Admin access load error:', error);
+                }
                 if (!isCancelled) {
                     setAccess(DEFAULT_ACCESS);
                 }

@@ -178,12 +178,8 @@ const Support: React.FC = () => {
       if (document.visibilityState === 'visible') void loadTickets(true);
     };
     const intervalId = window.setInterval(syncIfVisible, 8000);
-    window.addEventListener('focus', syncIfVisible);
-    document.addEventListener('visibilitychange', syncIfVisible);
     return () => {
       window.clearInterval(intervalId);
-      window.removeEventListener('focus', syncIfVisible);
-      document.removeEventListener('visibilitychange', syncIfVisible);
     };
   }, [authLoading, loadTickets, mfaState.needsVerification, session?.access_token, user]);
 

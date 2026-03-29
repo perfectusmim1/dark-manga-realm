@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
+    Loader2,
     Plus,
     Shield,
     ShieldCheck,
@@ -50,9 +51,11 @@ const AdminUsers: React.FC = () => {
     const [admins, setAdmins] = useState<AdminUser[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(true);
+    const [isRefreshing, setIsRefreshing] = useState(false);
     const [showAddDialog, setShowAddDialog] = useState(false);
     const [deleteId, setDeleteId] = useState<string | null>(null);
     const [selectedUserId, setSelectedUserId] = useState('');
+    const hasLoadedDataRef = useRef(false);
 
     useEffect(() => {
         if (authLoading) {
@@ -65,12 +68,18 @@ const AdminUsers: React.FC = () => {
             if (!user) {
                 setAdmins([]);
                 setAllUsers([]);
+                hasLoadedDataRef.current = false;
                 setIsLoading(false);
+                setIsRefreshing(false);
                 return;
             }
 
             try {
-                setIsLoading(true);
+                if (hasLoadedDataRef.current) {
+                    setIsRefreshing(true);
+                } else {
+                    setIsLoading(true);
+                }
                 const [staffData, usersData] = await Promise.all([
                     getAdminUsers(),
                     getAllUsers(),
@@ -85,11 +94,15 @@ const AdminUsers: React.FC = () => {
 
                 console.error('Admin staff load error:', error);
                 toast.error('Yetkili kullanıcılar yüklenemedi');
-                setAdmins([]);
-                setAllUsers([]);
+                if (!hasLoadedDataRef.current) {
+                    setAdmins([]);
+                    setAllUsers([]);
+                }
             } finally {
                 if (!isCancelled) {
+                    hasLoadedDataRef.current = true;
                     setIsLoading(false);
+                    setIsRefreshing(false);
                 }
             }
         };
@@ -103,7 +116,11 @@ const AdminUsers: React.FC = () => {
 
     const loadData = async () => {
         try {
-            setIsLoading(true);
+            if (hasLoadedDataRef.current) {
+                setIsRefreshing(true);
+            } else {
+                setIsLoading(true);
+            }
             const [staffData, usersData] = await Promise.all([
                 getAdminUsers(),
                 getAllUsers(),
@@ -114,8 +131,14 @@ const AdminUsers: React.FC = () => {
         } catch (error) {
             console.error('Admin staff refresh error:', error);
             toast.error('Yetkili kullanıcılar yenilenemedi');
+            if (!hasLoadedDataRef.current) {
+                setAdmins([]);
+                setAllUsers([]);
+            }
         } finally {
+            hasLoadedDataRef.current = true;
             setIsLoading(false);
+            setIsRefreshing(false);
         }
     };
 
@@ -186,7 +209,7 @@ const AdminUsers: React.FC = () => {
         );
     }
 
-    if (authLoading || accessLoading || isLoading) {
+    if (authLoading || accessLoading || (isLoading && !hasLoadedDataRef.current)) {
         return (
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -224,7 +247,7 @@ const AdminUsers: React.FC = () => {
                     </p>
                 </div>
                 <Button onClick={() => setShowAddDialog(true)} className="w-full sm:w-auto">
-                    <Plus className="mr-2 h-4 w-4" />
+                    {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                     Yeni Moderatör
                 </Button>
             </div>

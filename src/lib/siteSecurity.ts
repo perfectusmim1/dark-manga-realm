@@ -1,4 +1,4 @@
-import { supabase } from '@/lib/supabase';
+import { isExpectedAccessControlError, supabase } from '@/lib/supabase';
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 
 export interface SiteSecuritySettings {
@@ -66,6 +66,10 @@ export const getSiteSecuritySettings = async (): Promise<SiteSecuritySettings> =
   const { data, error } = await supabase.rpc('get_site_security_settings');
 
   if (error) {
+    if (isExpectedAccessControlError(error)) {
+      return readCachedSiteSecuritySettings();
+    }
+
     throw error;
   }
 

@@ -1,6 +1,8 @@
 // Supabase Database Integration
 // Fully asynchronous operations replacing localStorage
 import {
+    invokeAuthenticatedFunction,
+    isExpectedAccessControlError,
     isRetryableSupabaseBootstrapError,
     runWithSupabaseBootstrapRetry,
     supabase,
@@ -489,7 +491,9 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
                     .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
                 fetchAllChapterMetaRows('id, manga_id, number', { orderByNumberAscending: false })
                     .catch((chapterError) => {
-                        console.error('Manga summary chapter aggregate fetch error:', chapterError);
+                        if (!isExpectedAccessControlError(chapterError)) {
+                            console.error('Manga summary chapter aggregate fetch error:', chapterError);
+                        }
                         return [];
                     }),
             ]);
@@ -543,7 +547,9 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
     } catch (error) {
         mangaSummariesCache = null;
         mangaSummariesPromise = null;
-        console.error('Manga summary fetch global error:', error);
+        if (!isExpectedAccessControlError(error)) {
+            console.error('Manga summary fetch global error:', error);
+        }
         return [];
     } finally {
         mangaSummariesPromise = null;
@@ -1100,18 +1106,11 @@ const isMissingTableInSchemaCache = (error: any, tableName: string) =>
 const getAdminDirectoryViaEdgeFunction = async (): Promise<User[]> => {
     await ensureAuthenticatedAdminSession();
 
-    const { data, error } = await runWithSupabaseBootstrapRetry({
-        run: () => supabase.functions.invoke('admin-user-directory', {
-            body: {},
-        }),
+    const data = await runWithSupabaseBootstrapRetry({
+        run: () => invokeAuthenticatedFunction<{ success?: boolean; message?: string; users?: User[] }>('admin-user-directory', {}),
         timeoutMs: 7000,
         timeoutMessage: 'Admin directory fetch timeout',
-        shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
     });
-
-    if (error) {
-        throw error;
-    }
 
     if (!data?.success || !Array.isArray(data?.users)) {
         throw new Error(data?.message || 'ADMIN_DIRECTORY_FAILED');
@@ -1167,7 +1166,9 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
         });
 
         if (ownProfileError) {
-            console.error('Admin access context profile error:', ownProfileError);
+            if (!isExpectedAccessControlError(ownProfileError)) {
+                console.error('Admin access context profile error:', ownProfileError);
+            }
             return persist({
                 canAccessAdminPanel: false,
                 isPrimaryAdmin: false,

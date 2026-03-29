@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { AlertTriangle, Calendar, Gavel, Loader2, Mail, MessageSquareWarning, Search, ShieldAlert, ShieldBan, ShieldCheck, Trash2, UserCircle, Users } from 'lucide-react';
@@ -13,7 +13,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { getAllUsers, deleteUser } from '@/lib/database';
-import { banUserAccount, getUserAccessHistory, issueUserWarning, type UserAccessHistory, unbanUserAccount } from '@/lib/adminUserAccess';
+import { banUserAccount, deleteUserWarning, getUserAccessHistory, issueUserWarning, type UserAccessHistory, unbanUserAccount } from '@/lib/adminUserAccess';
 import { User, UserBanKind } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -38,6 +38,7 @@ const AdminUserManagement: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshingUsers, setIsRefreshingUsers] = useState(false);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [history, setHistory] = useState<UserAccessHistory | null>(null);
   const [searchQuery, setSearchQuery] = useState('');
@@ -53,42 +54,96 @@ const AdminUserManagement: React.FC = () => {
   const [banKind, setBanKind] = useState<UserBanKind>('timed');
   const [banReason, setBanReason] = useState('');
   const [banDurationHours, setBanDurationHours] = useState('12');
+  const [deletingWarningId, setDeletingWarningId] = useState<string | null>(null);
+  const hasLoadedUsersRef = useRef(false);
+  const loadUsersPromiseRef = useRef<Promise<void> | null>(null);
+  const historyRequestRef = useRef<{ targetUserId: string; promise: Promise<void> } | null>(null);
 
-  const loadUsers = useCallback(async () => {
-    try {
-      setIsLoading(true);
-      const nextUsers = await getAllUsers();
-      setUsers(nextUsers);
-      setSelectedUserId((current) => current || nextUsers[0]?.id || '');
-    } catch (error) {
-      console.error('User load failed:', error);
-      toast.error('Kullanıcılar yüklenemedi');
-      setUsers([]);
-    } finally {
-      setIsLoading(false);
+  const loadUsers = useCallback(async (options?: { preserveVisibleState?: boolean }) => {
+    if (loadUsersPromiseRef.current) {
+      return loadUsersPromiseRef.current;
     }
+
+    const request = (async () => {
+      const shouldPreserveVisibleState = Boolean(options?.preserveVisibleState || hasLoadedUsersRef.current);
+      if (shouldPreserveVisibleState) {
+        setIsRefreshingUsers(true);
+      } else {
+        setIsLoading(true);
+      }
+
+      try {
+        const nextUsers = await getAllUsers();
+        setUsers(nextUsers);
+        setSelectedUserId((current) => current || nextUsers[0]?.id || '');
+      } catch (error) {
+        console.error('User load failed:', error);
+        toast.error('Kullanıcılar yüklenemedi');
+        if (!hasLoadedUsersRef.current) {
+          setUsers([]);
+        }
+      } finally {
+        hasLoadedUsersRef.current = true;
+        setIsLoading(false);
+        setIsRefreshingUsers(false);
+      }
+    })().finally(() => {
+      if (loadUsersPromiseRef.current === request) {
+        loadUsersPromiseRef.current = null;
+      }
+    });
+
+    loadUsersPromiseRef.current = request;
+    return request;
   }, []);
 
   const loadHistory = useCallback(async (targetUserId: string) => {
-    try {
-      setHistoryLoading(true);
-      setHistory(await getUserAccessHistory(targetUserId));
-    } catch (error) {
-      console.error('History load failed:', error);
-      toast.error('Kullanıcı geçmişi yüklenemedi');
-      setHistory(null);
-    } finally {
-      setHistoryLoading(false);
+    if (
+      historyRequestRef.current?.targetUserId === targetUserId
+    ) {
+      return historyRequestRef.current.promise;
     }
+
+    const request = (async () => {
+      try {
+        setHistoryLoading(true);
+        setHistory(await getUserAccessHistory(targetUserId));
+      } catch (error) {
+        console.error('History load failed:', error);
+        toast.error('Kullanıcı geçmişi yüklenemedi');
+        setHistory(null);
+      } finally {
+        setHistoryLoading(false);
+      }
+    })().finally(() => {
+      if (historyRequestRef.current?.promise === request) {
+        historyRequestRef.current = null;
+      }
+    });
+
+    historyRequestRef.current = { targetUserId, promise: request };
+    return request;
   }, []);
 
   useEffect(() => {
-    if (!authLoading && user) void loadUsers();
-    if (!authLoading && !user) {
-      setUsers([]);
-      setIsLoading(false);
+    if (authLoading) {
+      return;
     }
-  }, [authLoading, loadUsers, user]);
+
+    if (user?.id) {
+      void loadUsers();
+      return;
+    }
+
+    if (!user) {
+      setUsers([]);
+      setHistory(null);
+      setDeletingWarningId(null);
+      hasLoadedUsersRef.current = false;
+      setIsLoading(false);
+      setIsRefreshingUsers(false);
+    }
+  }, [authLoading, loadUsers, user?.id]);
 
   const manageableUsers = useMemo(
     () => users.filter((account) => (account.role || 'user') === 'user'),
@@ -117,12 +172,12 @@ const AdminUserManagement: React.FC = () => {
   }, [filteredUsers, selectedUserId]);
 
   useEffect(() => {
-    if (authLoading || !user || !selectedUser?.id) {
+    if (authLoading || !user?.id || !selectedUser?.id) {
       return;
     }
 
     void loadHistory(selectedUser.id);
-  }, [authLoading, loadHistory, selectedUser?.id, user]);
+  }, [authLoading, loadHistory, selectedUser?.id, user?.id]);
 
   const stats = useMemo(() => ({
     total: manageableUsers.length,
@@ -132,8 +187,10 @@ const AdminUserManagement: React.FC = () => {
   }), [manageableUsers]);
 
   const refreshAfterAction = async (targetUserId: string) => {
-    await loadUsers();
-    await loadHistory(targetUserId);
+    await Promise.all([
+      loadUsers({ preserveVisibleState: true }),
+      loadHistory(targetUserId),
+    ]);
   };
 
   const handleWarning = async () => {
@@ -154,7 +211,14 @@ const AdminUserManagement: React.FC = () => {
       setWarningTitle('Yönetici uyarısı');
       setWarningMessage('');
       setWarningDurationHours('');
-      toast.success(result.autoBan ? (result.autoBan.kind === 'timed' ? 'Uyarı ve süreli ban uygulandı' : '3. uyarı sonrası kalıcı ban otomatik uygulandı') : 'Uyarı gönderildi');
+      const notificationFailed = result.warningNotificationDelivered === false || result.banNotificationDelivered === false;
+      if (notificationFailed) {
+        toast.warning(result.autoBan
+          ? 'Uyarı ve ceza kaydedildi ama kullanıcı bildirimi üretilemedi'
+          : 'Uyarı kaydedildi ama kullanıcı bildirimi üretilemedi');
+      } else {
+        toast.success(result.autoBan ? (result.autoBan.kind === 'timed' ? 'Uyarı ve süreli ban uygulandı' : '3. uyarı sonrası kalıcı ban otomatik uygulandı') : 'Uyarı gönderildi');
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Uyarı gönderilemedi'));
     } finally {
@@ -174,13 +238,17 @@ const AdminUserManagement: React.FC = () => {
     }
     try {
       setActiveAction('ban');
-      await banUserAccount({ targetUserId: banTarget.id, kind: banKind, reason: banReason.trim(), durationHours: banKind === 'timed' ? durationHours : undefined });
+      const result = await banUserAccount({ targetUserId: banTarget.id, kind: banKind, reason: banReason.trim(), durationHours: banKind === 'timed' ? durationHours : undefined });
       await refreshAfterAction(banTarget.id);
       setBanTarget(null);
       setBanKind('timed');
       setBanReason('');
       setBanDurationHours('12');
-      toast.success(`${banKindLabels[banKind]} uygulandı`);
+      if (result.banNotificationDelivered === false) {
+        toast.warning(`${banKindLabels[banKind]} uygulandı ama kullanıcı bildirimi üretilemedi`);
+      } else {
+        toast.success(`${banKindLabels[banKind]} uygulandı`);
+      }
     } catch (error) {
       toast.error(getErrorMessage(error, 'Ban uygulanamadı'));
     } finally {
@@ -208,7 +276,7 @@ const AdminUserManagement: React.FC = () => {
     try {
       setActiveAction('delete');
       await deleteUser(deleteTarget.id);
-      await loadUsers();
+      await loadUsers({ preserveVisibleState: true });
       setHistory(null);
       setDeleteTarget(null);
       toast.success('Kullanıcı silindi');
@@ -219,7 +287,21 @@ const AdminUserManagement: React.FC = () => {
     }
   };
 
-  if (authLoading || isLoading) {
+  const handleDeleteWarning = async (warningId: string) => {
+    if (!selectedUser) return;
+    try {
+      setDeletingWarningId(warningId);
+      await deleteUserWarning({ targetUserId: selectedUser.id, warningId });
+      await refreshAfterAction(selectedUser.id);
+      toast.success('Uyarı silindi');
+    } catch (error) {
+      toast.error(getErrorMessage(error, 'Uyarı silinemedi'));
+    } finally {
+      setDeletingWarningId(null);
+    }
+  };
+
+  if (authLoading || (isLoading && !hasLoadedUsersRef.current)) {
     return (
       <div className="space-y-6">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -252,7 +334,7 @@ const AdminUserManagement: React.FC = () => {
         <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Toplam</p><p className="mt-2 text-3xl font-black">{stats.total}</p></div>
         <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Aktif Ban</p><p className="mt-2 text-3xl font-black text-destructive">{stats.banned}</p></div>
         <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Uyarı Alan</p><p className="mt-2 text-3xl font-black text-amber-300">{stats.warned}</p></div>
-        <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Okunmamış</p><p className="mt-2 text-3xl font-black text-sky-300">{stats.unread}</p></div>
+        <div className="rounded-3xl border border-border bg-card p-5 shadow-sm"><div className="flex items-center justify-between gap-3"><p className="text-[11px] uppercase tracking-[0.2em] text-muted-foreground">Okunmamış</p>{isRefreshingUsers ? <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" /> : null}</div><p className="mt-2 text-3xl font-black text-sky-300">{stats.unread}</p></div>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
@@ -325,10 +407,28 @@ const AdminUserManagement: React.FC = () => {
                   <ScrollArea className="mt-4 h-[300px] pr-3">
                     <div className="space-y-3">
                       {history?.warnings.map((warning) => (
-                        <article key={warning.id} className="rounded-2xl border border-border bg-card/70 p-4">
-                          <div className="flex flex-wrap items-center gap-2"><p className="font-semibold">{warning.title}</p><Badge className="border-amber-500/20 bg-amber-500/10 text-amber-200">{warning.acknowledgedAt ? 'Okundu' : 'Bekliyor'}</Badge></div>
+                        <article key={warning.id} className="group relative rounded-2xl border border-border bg-card/70 p-4">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <p className="font-semibold">{warning.title}</p>
+                            <Badge className={warning.acknowledgedAt ? 'border-emerald-500/20 bg-emerald-500/10 text-emerald-200' : 'border-sky-500/20 bg-sky-500/10 text-sky-200'}>
+                              {warning.acknowledgedAt ? 'Okundu' : 'Okunmadı'}
+                            </Badge>
+                          </div>
                           <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-muted-foreground">{warning.message}</p>
-                          <div className="mt-3 space-y-1 text-xs text-muted-foreground"><p>Gönderen: {warning.issuedByName || 'Yönetim'}</p><p>Gönderim: {formatTimestamp(warning.createdAt)}</p><p>Onay: {formatTimestamp(warning.acknowledgedAt)}</p></div>
+                          <div className="mt-3 space-y-1 text-xs text-muted-foreground">
+                            <p>Gönderen: {warning.issuedByName || 'Yönetim'}</p>
+                            <p>Gönderim: {formatTimestamp(warning.createdAt)}</p>
+                            <p>Okundu: {warning.acknowledgedAt ? formatTimestamp(warning.acknowledgedAt) : 'Henüz kullanıcı tarafından okunmadı'}</p>
+                          </div>
+                          <Button 
+                            variant="ghost" 
+                            size="icon" 
+                            className="absolute right-2 top-2 h-8 w-8 text-muted-foreground opacity-0 hover:text-destructive group-hover:opacity-100"
+                            onClick={() => void handleDeleteWarning(warning.id)}
+                            disabled={deletingWarningId === warning.id}
+                          >
+                            {deletingWarningId === warning.id ? <Loader2 className="h-4 w-4 animate-spin" /> : <Trash2 className="h-4 w-4" />}
+                          </Button>
                         </article>
                       ))}
                       {!historyLoading && !history?.warnings.length ? <div className="rounded-2xl border border-dashed border-border p-6 text-center text-sm text-muted-foreground">Kayıtlı uyarı yok.</div> : null}

@@ -31,6 +31,7 @@ import { Notification } from '@/lib/types';
 import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import { isDocumentVisible } from '@/lib/documentVisibility';
+import { isExpectedAccessControlError } from '@/lib/supabase';
 
 const NotificationDropdown: React.FC = () => {
     const { user } = useAuth();
@@ -48,7 +49,9 @@ const NotificationDropdown: React.FC = () => {
             const count = await getUnreadNotificationCount(user.id);
             setUnreadCount(count);
         } catch (error) {
-            console.error('Error loading notifications:', error);
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Error loading notifications:', error);
+            }
         }
     }, [isOnline, user]);
 
@@ -59,12 +62,6 @@ const NotificationDropdown: React.FC = () => {
             return;
         }
 
-        const handleVisibilityChange = () => {
-            if (isDocumentVisible()) {
-                void loadNotifications();
-            }
-        };
-
         void loadNotifications();
         const interval = window.setInterval(() => {
             if (isDocumentVisible()) {
@@ -72,10 +69,8 @@ const NotificationDropdown: React.FC = () => {
             }
         }, 30000);
 
-        document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => {
             window.clearInterval(interval);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [isOnline, loadNotifications, user]);
 

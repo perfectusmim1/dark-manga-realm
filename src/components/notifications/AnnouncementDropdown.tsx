@@ -23,6 +23,7 @@ import {
     Announcement
 } from '@/lib/announcements';
 import { isDocumentVisible } from '@/lib/documentVisibility';
+import { isExpectedAccessControlError } from '@/lib/supabase';
 
 const AnnouncementDropdown: React.FC = () => {
     const { user } = useAuth();
@@ -57,7 +58,9 @@ const AnnouncementDropdown: React.FC = () => {
             setUnreadCount(unreadCount);
             setReadIds(nextReadIds);
         } catch (error) {
-            console.error('Error loading announcements:', error);
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Error loading announcements:', error);
+            }
         }
     }, [user]);
 
@@ -69,12 +72,6 @@ const AnnouncementDropdown: React.FC = () => {
             return;
         }
 
-        const handleVisibilityChange = () => {
-            if (isDocumentVisible()) {
-                void loadAnnouncements();
-            }
-        };
-
         void loadAnnouncements();
         const interval = window.setInterval(() => {
             if (isDocumentVisible()) {
@@ -82,10 +79,8 @@ const AnnouncementDropdown: React.FC = () => {
             }
         }, 60000);
 
-        document.addEventListener('visibilitychange', handleVisibilityChange);
         return () => {
             window.clearInterval(interval);
-            document.removeEventListener('visibilitychange', handleVisibilityChange);
         };
     }, [loadAnnouncements, user]);
 
@@ -103,7 +98,9 @@ const AnnouncementDropdown: React.FC = () => {
             setReadIds(prev => [...prev, announcementId]);
             setUnreadCount(prev => Math.max(0, prev - 1));
         } catch (error) {
-            console.error('Error marking as read:', error);
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Error marking as read:', error);
+            }
         }
     };
 

@@ -1,5 +1,6 @@
 import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow, Manga } from './types';
 import {
+    isExpectedAccessControlError,
     isRetryableSupabaseBootstrapError,
     runWithSupabaseBootstrapRetry,
     supabase,
@@ -208,7 +209,9 @@ const getExistingChapterIds = async (chapterIds: string[]): Promise<Set<string>>
             .in('id', chunk);
 
         if (error) {
-            console.error('Chapter batch existence check error:', error);
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Chapter batch existence check error:', error);
+            }
             chunk.forEach((chapterId) => existingIds.add(chapterId));
             continue;
         }
@@ -341,6 +344,10 @@ const isMissingChapterReadFeatureError = (error: any) => {
 };
 
 const handleChapterReadTableFeatureError = (error: any) => {
+    if (isExpectedAccessControlError(error)) {
+        return true;
+    }
+
     if (isMissingChapterReadFeatureError(error)) {
         chapterReadTableFeatureState = 'unavailable';
         return true;
@@ -351,6 +358,10 @@ const handleChapterReadTableFeatureError = (error: any) => {
 };
 
 const handleChapterReadPublicFeatureError = (error: any) => {
+    if (isExpectedAccessControlError(error)) {
+        return true;
+    }
+
     if (isMissingChapterReadFeatureError(error)) {
         chapterReadPublicFeatureState = 'unavailable';
         return true;
@@ -643,7 +654,9 @@ export const syncLocalChapterReadFallbackToRemote = async (userId: string): Prom
                     return;
                 }
 
-                console.error('Fallback chapter progress prefetch error:', error);
+                if (!isExpectedAccessControlError(error)) {
+                    console.error('Fallback chapter progress prefetch error:', error);
+                }
                 return;
             }
 
@@ -916,7 +929,9 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
     }
 
     if (error) {
-        console.error('Reading history entries fetch error:', error);
+        if (!isExpectedAccessControlError(error)) {
+            console.error('Reading history entries fetch error:', error);
+        }
         const localEntries = await buildLocalReadingHistoryEntries();
         if (localEntries.length > 0) {
             return localEntries;

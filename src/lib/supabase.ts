@@ -125,6 +125,28 @@ const getSupabaseErrorStatus = (error: unknown): number | null => {
     return null;
 };
 
+const getSupabaseErrorCode = (error: unknown): string | null => {
+    if (!error || typeof error !== 'object') {
+        return null;
+    }
+
+    if ('code' in error && typeof error.code === 'string') {
+        return error.code;
+    }
+
+    if (
+        'error' in error
+        && error.error
+        && typeof error.error === 'object'
+        && 'code' in error.error
+        && typeof error.error.code === 'string'
+    ) {
+        return error.error.code;
+    }
+
+    return null;
+};
+
 const getSupabaseErrorMessage = (error: unknown): string => {
     if (typeof error === 'string') {
         return error.toLowerCase();
@@ -146,6 +168,30 @@ const getSupabaseErrorMessage = (error: unknown): string => {
     return '';
 };
 
+export const isSiteAccessBlockedError = (error: unknown) => {
+    const code = getSupabaseErrorCode(error)?.toUpperCase() || '';
+    const message = getSupabaseErrorMessage(error);
+
+    return code === 'SITE_ACCESS_BLOCKED'
+        || message.includes('site_access_blocked');
+};
+
+export const isAuthSessionUnavailableError = (error: unknown) => {
+    const code = getSupabaseErrorCode(error)?.toUpperCase() || '';
+    const status = getSupabaseErrorStatus(error);
+    const message = getSupabaseErrorMessage(error);
+
+    return code === 'AUTH_SESSION_UNAVAILABLE'
+        || status === 401
+        || message.includes('auth_session_unavailable')
+        || message.includes('unauthorized');
+};
+
+export const isExpectedAccessControlError = (error: unknown) => (
+    isSiteAccessBlockedError(error)
+    || isAuthSessionUnavailableError(error)
+);
+
 export const isRetryableSupabaseBootstrapError = (error: unknown, status?: number | null) => {
     const resolvedStatus = status ?? getSupabaseErrorStatus(error);
     if (resolvedStatus !== null && [401, 408, 425, 429, 500, 502, 503, 504].includes(resolvedStatus)) {
@@ -154,20 +200,22 @@ export const isRetryableSupabaseBootstrapError = (error: unknown, status?: numbe
 
     const normalizedMessage = getSupabaseErrorMessage(error);
     return normalizedMessage.includes('invalid jwt')
-        || normalizedMessage.includes('jwt')
-        || normalizedMessage.includes('token')
-        || normalizedMessage.includes('unauthorized')
-        || normalizedMessage.includes('not yet valid')
-        || normalizedMessage.includes('issued in the future')
-        || normalizedMessage.includes('future')
-        || normalizedMessage.includes('timeout')
+        || normalizedMessage.includes('protected header formatting')
+        || normalizedMessage.includes('refresh_token_not_found')
+        || normalizedMessage.includes('session_not_found')
+        || normalizedMessage.includes('refresh token')
+        || normalizedMessage.includes('jwt expired')
         || normalizedMessage.includes('failed to send a request to the edge function');
 };
 
-const refreshSupabaseSession = async () => {
+const refreshSupabaseSession = async (): Promise<Session | null> => {
     try {
-        const { data } = await supabase.auth.refreshSession();
-        return data.session?.access_token || null;
+        const { data, error } = await supabase.auth.refreshSession();
+        if (error) {
+            throw error;
+        }
+
+        return data.session ?? null;
     } catch (error) {
         console.error('Supabase session refresh failed:', error);
         return null;
@@ -231,11 +279,10 @@ export const waitForUsableSupabaseSession = async (options?: {
     }
 
     const run = async (): Promise<Session | null> => {
-        if (forceRefresh) {
-            await refreshSupabaseSession();
-        }
-
         let candidateSession = preferredSession;
+        if (forceRefresh) {
+            candidateSession = await refreshSupabaseSession();
+        }
         let waitedMs = 0;
 
         for (let attempt = 0; attempt < SESSION_STABILIZATION_RETRY_DELAYS_MS.length; attempt += 1) {
@@ -288,6 +335,13 @@ export const waitForUsableSupabaseSession = async (options?: {
 
         const { data, error } = await supabase.auth.getSession();
         if (error) {
+            const errorInfo = await getFunctionErrorMessage(error);
+            console.error(`Edge function error (attempt ${'?'}/${'?'}):`, {
+                status: errorInfo.status,
+                message: errorInfo.message,
+                originalError: error
+            });
+
             if (!required && isRetryableSupabaseBootstrapError(error)) {
                 return null;
             }
@@ -435,12 +489,23 @@ const getFunctionErrorMessage = async (error: unknown) => {
 export const invokeAuthenticatedFunction = async <TResponse>(
     functionName: string,
     body: unknown,
+    options?: {
+        maxAttempts?: number;
+        retryDelayMs?: number;
+        preferredAccessToken?: string | null;
+    },
 ) => {
-    for (let attempt = 0; attempt < 3; attempt += 1) {
-        const headers = await getAuthenticatedFunctionHeaders({
-            forceRefresh: attempt > 0,
-            maxWaitMs: 5000 + (attempt * 1200),
-        });
+    const maxAttempts = Math.max(1, options?.maxAttempts ?? 3);
+    const retryDelayMs = Math.max(0, options?.retryDelayMs ?? 350);
+    const preferredAccessToken = options?.preferredAccessToken?.trim() || null;
+
+    for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+        const headers = (attempt === 0 && preferredAccessToken)
+            ? { Authorization: `Bearer ${preferredAccessToken}` }
+            : await getAuthenticatedFunctionHeaders({
+                forceRefresh: attempt > 0,
+                maxWaitMs: 5000 + (attempt * 1200),
+            });
 
         const { data, error } = await supabase.functions.invoke<TResponse>(functionName, {
             body,
@@ -452,11 +517,14 @@ export const invokeAuthenticatedFunction = async <TResponse>(
         }
 
         const { status, message } = await getFunctionErrorMessage(error);
-        if (attempt < 2 && shouldRetryFunctionAuth(status ?? 0, message)) {
-            await waitFor(350 * (attempt + 1));
+        
+        if (attempt < maxAttempts - 1 && isRetryableSupabaseBootstrapError(error, status)) {
+            console.warn(`Retrying authenticated function ${functionName} (attempt ${attempt + 1}/${maxAttempts}) due to retryable error:`, { status, message });
+            await waitFor(retryDelayMs * (attempt + 1));
             continue;
         }
 
+        console.error(`Authenticated function ${functionName} failed:`, { status, message, error });
         throw new Error(message);
     }
 

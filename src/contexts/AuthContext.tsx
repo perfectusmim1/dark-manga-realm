@@ -1,7 +1,7 @@
 import React, { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/supabase-js';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
-import { supabase, waitForUsableSupabaseSession } from '@/lib/supabase';
+import { isAuthSessionUnavailableError, isExpectedAccessControlError, supabase, waitForUsableSupabaseSession } from '@/lib/supabase';
 import { User, UserAccessState } from '@/lib/types';
 import { checkCurrentAccess, recoverAccessCheckFailure, type AccessCheckResult } from '@/lib/security/deviceIdentity';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
@@ -186,7 +186,9 @@ const DEFAULT_ACCESS_STATE: UserAccessState = {
     bannedAt: null,
   },
 };
+const ACCESS_STATE_BOOTSTRAP_RETRY_DELAY_MS = 4000;
 const WARNING_BAN_SYNC_INTERVAL_MS = 30000;
+const USER_ACCESS_STATE_AUTH_FAILURE_BACKOFF_MS = 5000;
 const USER_ACCESS_STATE_FAILURE_BACKOFF_MS = 3 * 60 * 1000;
 
 const mapAccessCheckToAccessState = (accessCheck: AccessCheckResult): UserAccessState => ({
@@ -202,6 +204,54 @@ const mapAccessCheckToAccessState = (accessCheck: AccessCheckResult): UserAccess
     bannedAt: null,
   },
 });
+
+const shouldHydrateAccessSnapshot = (accessCheck: AccessCheckResult) => (
+  accessCheck.reason === 'access_check_failed'
+  || (
+    accessCheck.reason === 'ok'
+    && !accessCheck.user
+    && !accessCheck.ban?.active
+  )
+);
+
+const mergeAccessCheckWithSnapshot = (
+  accessCheck: AccessCheckResult,
+  snapshot: CurrentUserAccessSnapshot,
+): AccessCheckResult => {
+  if (!shouldHydrateAccessSnapshot(accessCheck)) {
+    return {
+      ...accessCheck,
+      warning: snapshot.warning,
+      ban: snapshot.ban,
+      user: accessCheck.user
+        ? {
+          ...accessCheck.user,
+          warningCount: snapshot.warningCount,
+          unreadWarningCount: snapshot.unreadWarningCount,
+        }
+        : accessCheck.user,
+    };
+  }
+
+  return {
+    ...accessCheck,
+    allowed: !snapshot.ban.active,
+    reason: snapshot.ban.active ? 'user_banned' : 'ok',
+    supportOnly: snapshot.ban.active,
+    message: snapshot.ban.active
+      ? snapshot.ban.reason || accessCheck.message || 'Hesabınız banlandı.'
+      : undefined,
+    warning: snapshot.warning,
+    ban: snapshot.ban,
+    user: accessCheck.user
+      ? {
+        ...accessCheck.user,
+        warningCount: snapshot.warningCount,
+        unreadWarningCount: snapshot.unreadWarningCount,
+      }
+      : accessCheck.user,
+  };
+};
 
 const buildProfileFromAccessCheck = (
   supabaseUser: SupabaseUser,
@@ -299,12 +349,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       ]) as PostgrestSingleResponse<UserProfileRow>;
 
       if (error) {
-        console.error('Error fetching profile:', error);
+        if (!isExpectedAccessControlError(error)) {
+          console.error('Error fetching profile:', error);
+        }
         return null;
       }
       return data;
     } catch (err) {
-      console.error('Profile fetch failed:', err);
+      if (!isExpectedAccessControlError(err)) {
+        console.error('Profile fetch failed:', err);
+      }
       return null;
     }
   }, []);
@@ -327,7 +381,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       });
 
       if (error) {
-        console.error('Profile sync failed:', error);
+        if (!isExpectedAccessControlError(error)) {
+          console.error('Profile sync failed:', error);
+        }
         return null;
       }
 
@@ -338,7 +394,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       return await fetchProfile(currentUser.id);
     } catch (error) {
-      console.error('Profile sync exception:', error);
+      if (!isExpectedAccessControlError(error)) {
+        console.error('Profile sync exception:', error);
+      }
       return null;
     }
   }, [fetchProfile]);
@@ -405,8 +463,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
-    const activeUser = supabaseUser || (await supabase.auth.getUser()).data.user;
-    if (!activeUser) {
+    const activeSession = await waitForUsableSupabaseSession({
+      preferredSession: session,
+      required: false,
+      maxWaitMs: 2000,
+    }).catch(() => session);
+    const activeUser = activeSession?.user || supabaseUser;
+
+    if (!activeUser || !activeSession?.access_token) {
       setAccessState(DEFAULT_ACCESS_STATE);
       return;
     }
@@ -414,15 +478,26 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     accessStateRefreshInFlightRef.current = true;
 
     try {
-      const snapshot = await getCurrentUserAccessSnapshot();
+      const snapshot = await getCurrentUserAccessSnapshot({
+        preferredAccessToken: activeSession.access_token,
+        maxAttempts: 2,
+        bypassBackoff: true,
+      });
       applyCurrentUserAccessSnapshot(snapshot);
       accessStateRefreshFailureUntilRef.current = 0;
-    } catch {
-      accessStateRefreshFailureUntilRef.current = Date.now() + USER_ACCESS_STATE_FAILURE_BACKOFF_MS;
+    } catch (error) {
+      if (isExpectedAccessControlError(error)) {
+        setAccessState(DEFAULT_ACCESS_STATE);
+      }
+      accessStateRefreshFailureUntilRef.current = Date.now() + (
+        isAuthSessionUnavailableError(error)
+          ? USER_ACCESS_STATE_AUTH_FAILURE_BACKOFF_MS
+          : USER_ACCESS_STATE_FAILURE_BACKOFF_MS
+      );
     } finally {
       accessStateRefreshInFlightRef.current = false;
     }
-  }, [applyCurrentUserAccessSnapshot, supabaseUser]);
+  }, [applyCurrentUserAccessSnapshot, session, supabaseUser]);
 
   useEffect(() => {
     accessStateRefreshInFlightRef.current = false;
@@ -517,6 +592,21 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   useEffect(() => {
     let mounted = true;
     let authSyncQueue = Promise.resolve();
+    let latestSessionSnapshot: Session | null = null;
+    let lastQueuedAuthSyncKey = '';
+    let lastQueuedAuthSyncAt = 0;
+
+    const getAuthSyncKey = (currentSession: Session | null) => {
+      if (!currentSession?.user) {
+        return 'signed-out';
+      }
+
+      const tokenFragment = currentSession.access_token
+        ? currentSession.access_token.slice(-16)
+        : 'no-token';
+
+      return `${currentSession.user.id}:${tokenFragment}`;
+    };
 
     const syncAuthState = async (currentSession: Session | null) => {
       if (!mounted) return;
@@ -541,10 +631,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           const currentPath = typeof window !== 'undefined'
             ? `${window.location.pathname}${window.location.search}`
             : '/';
-          const accessCheck = await checkCurrentAccess(currentPath).catch((error) =>
+          let accessCheck = await checkCurrentAccess(currentPath, {
+            preferredAccessToken: activeSession.access_token,
+          }).catch((error) =>
             allowAccessOnFailure(error, 'Access gate check failed during auth sync:')
           );
           if (!mounted) return;
+
+          if (shouldHydrateAccessSnapshot(accessCheck)) {
+            try {
+              const snapshot = await getCurrentUserAccessSnapshot({
+                preferredAccessToken: activeSession.access_token,
+                maxAttempts: 2,
+                bypassBackoff: true,
+              });
+              accessCheck = mergeAccessCheckWithSnapshot(accessCheck, snapshot);
+            } catch (snapshotError) {
+              if (
+                !isExpectedAccessControlError(snapshotError)
+                && !(snapshotError instanceof Error && snapshotError.message === 'USER_ACCESS_STATE_BACKOFF_ACTIVE')
+              ) {
+                console.warn('Immediate access snapshot hydration failed:', snapshotError);
+              }
+            }
+
+            if (!mounted) return;
+          }
 
           setAccessState(mapAccessCheckToAccessState(accessCheck));
 
@@ -575,15 +687,41 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           if (profile) {
             const newUser = mapSupabaseUserToUser(activeSession.user, profile);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(newUser) ? prev : newUser);
-            void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
+            if (
+              !accessCheck.supportOnly
+              && !accessCheck.ban?.active
+              && accessCheck.reason !== 'user_banned'
+            ) {
+              void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
+            }
           } else {
-            console.error('Critical: Could not establish a user profile.');
+            if (
+              !accessCheck.supportOnly
+              && !accessCheck.ban?.active
+              && accessCheck.reason !== 'user_banned'
+            ) {
+              console.error('Critical: Could not establish a user profile.');
+            }
             const fallbackUser = mapSupabaseUserToUser(activeSession.user, null);
             setUser(prev => JSON.stringify(prev) === JSON.stringify(fallbackUser) ? prev : fallbackUser);
-            void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
+            if (
+              !accessCheck.supportOnly
+              && !accessCheck.ban?.active
+              && accessCheck.reason !== 'user_banned'
+            ) {
+              void syncLocalChapterReadFallbackToRemote(activeSession.user.id);
+            }
           }
 
-          await refreshMfaState();
+          if (
+            accessCheck.supportOnly
+            || accessCheck.ban?.active
+            || accessCheck.reason === 'user_banned'
+          ) {
+            setMfaState((prev) => ({ ...prev, isLoading: false }));
+          } else {
+            await refreshMfaState();
+          }
         } else {
           setSession(null);
           setSupabaseUser(null);
@@ -592,7 +730,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           setAccessState(DEFAULT_ACCESS_STATE);
         }
       } catch (err) {
-        console.error('Failed to sync auth state:', err);
+        if (!isExpectedAccessControlError(err)) {
+          console.error('Failed to sync auth state:', err);
+        }
       } finally {
         if (mounted) setIsLoading(false);
       }
@@ -603,13 +743,32 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return;
       }
 
-      const { data: { session: s } } = await supabase.auth.getSession();
-      if (s?.user) {
-        await supabase.rpc('update_user_presence', { p_user_id: s.user.id });
+      const activeSession = latestSessionSnapshot;
+      if (!activeSession?.user || !activeSession.access_token) {
+        return;
+      }
+
+      try {
+        await supabase.rpc('update_user_presence', { p_user_id: activeSession.user.id });
+      } catch (error) {
+        if (!isExpectedAccessControlError(error)) {
+          console.error('Presence heartbeat failed:', error);
+        }
       }
     };
 
     const enqueueAuthStateSync = (currentSession: Session | null) => {
+      latestSessionSnapshot = currentSession;
+      const syncKey = getAuthSyncKey(currentSession);
+      const now = Date.now();
+
+      if (syncKey === lastQueuedAuthSyncKey && now - lastQueuedAuthSyncAt < 1500) {
+        return authSyncQueue;
+      }
+
+      lastQueuedAuthSyncKey = syncKey;
+      lastQueuedAuthSyncAt = now;
+
       authSyncQueue = authSyncQueue
         .catch(() => undefined)
         .then(() => syncAuthState(currentSession));
@@ -621,28 +780,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       void pushPresenceHeartbeat();
     }, 30000);
 
-    const handleVisibilityChange = () => {
-      if (isDocumentVisible()) {
-        void pushPresenceHeartbeat();
-      }
-    };
-
-    document.addEventListener('visibilitychange', handleVisibilityChange);
-
     // Initial check
     supabase.auth.getSession().then(({ data: { session: s } }) => {
+      latestSessionSnapshot = s;
       void enqueueAuthStateSync(s);
-      if (s?.user && isEffectivelyOnline() && isDocumentVisible()) {
-        void supabase.rpc('update_user_presence', { p_user_id: s.user.id });
-      }
+      void pushPresenceHeartbeat();
     }).catch(err => {
-      console.error('Initial session check failed:', err);
+      if (!isExpectedAccessControlError(err)) {
+        console.error('Initial session check failed:', err);
+      }
       if (mounted) setIsLoading(false);
     });
 
     // 2. Continuous listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
+        latestSessionSnapshot = currentSession;
         // We only trigger re-sync for significant events to avoid loops
         if (
           event === 'SIGNED_IN'
@@ -661,12 +814,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       mounted = false;
       subscription.unsubscribe();
       window.clearInterval(presenceInterval);
-      document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
   }, [ensureProfile, refreshMfaState]);
 
   useEffect(() => {
-    if (!supabaseUser?.id || !isEffectivelyOnline()) {
+    if (!supabaseUser?.id || !session?.access_token || isLoading || !isEffectivelyOnline()) {
       return;
     }
 
@@ -677,16 +829,18 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
 
     syncCurrentAccessState();
+    const bootstrapRetryTimeoutId = window.setTimeout(syncCurrentAccessState, ACCESS_STATE_BOOTSTRAP_RETRY_DELAY_MS);
     const intervalId = window.setInterval(syncCurrentAccessState, WARNING_BAN_SYNC_INTERVAL_MS);
     window.addEventListener('focus', syncCurrentAccessState);
     document.addEventListener('visibilitychange', syncCurrentAccessState);
 
     return () => {
+      window.clearTimeout(bootstrapRetryTimeoutId);
       window.clearInterval(intervalId);
       window.removeEventListener('focus', syncCurrentAccessState);
       document.removeEventListener('visibilitychange', syncCurrentAccessState);
     };
-  }, [refreshAccessState, supabaseUser?.id]);
+  }, [isLoading, refreshAccessState, session?.access_token, supabaseUser?.id]);
 
   const login = async (email: string, password: string): Promise<{
     success: boolean;
@@ -783,9 +937,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const currentPath = typeof window !== 'undefined'
         ? `${window.location.pathname}${window.location.search}`
         : '/';
-      const accessCheck = await checkCurrentAccess(currentPath).catch((error) =>
+      let accessCheck = await checkCurrentAccess(currentPath, {
+        preferredAccessToken: activeSession.access_token,
+      }).catch((error) =>
         allowAccessOnFailure(error, 'Access check error during login:')
       );
+
+      if (shouldHydrateAccessSnapshot(accessCheck)) {
+        try {
+          const snapshot = await getCurrentUserAccessSnapshot({
+            preferredAccessToken: activeSession.access_token,
+            maxAttempts: 2,
+            bypassBackoff: true,
+          });
+          accessCheck = mergeAccessCheckWithSnapshot(accessCheck, snapshot);
+        } catch (snapshotError) {
+          if (
+            !isExpectedAccessControlError(snapshotError)
+            && !(snapshotError instanceof Error && snapshotError.message === 'USER_ACCESS_STATE_BACKOFF_ACTIVE')
+          ) {
+            console.warn('Immediate login access snapshot hydration failed:', snapshotError);
+          }
+        }
+      }
+
       setAccessState(mapAccessCheckToAccessState(accessCheck));
 
       if (!accessCheck.allowed && accessCheck.reason !== 'user_banned') {
@@ -808,6 +983,16 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setSupabaseUser(activeSession.user);
       setUser(mapSupabaseUserToUser(activeSession.user, profile));
 
+      if (accessCheck.ban?.active || accessCheck.reason === 'user_banned' || accessCheck.supportOnly) {
+        setMfaState((prev) => ({ ...prev, isLoading: false }));
+        return {
+          success: true,
+          email: sessionData.user.email || undefined,
+          requiresTwoFactor: false,
+          accessRestricted: true,
+        };
+      }
+
       const { data: assuranceData, error: assuranceError } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       if (assuranceError) {
         throw assuranceError;
@@ -819,7 +1004,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         success: true,
         email: sessionData.user.email || undefined,
         requiresTwoFactor: assuranceData.nextLevel === 'aal2' && assuranceData.currentLevel !== 'aal2',
-        accessRestricted: Boolean(accessCheck.ban?.active || accessCheck.reason === 'user_banned'),
+        accessRestricted: false,
       };
     } catch (error: unknown) {
       console.error('Login error:', error);

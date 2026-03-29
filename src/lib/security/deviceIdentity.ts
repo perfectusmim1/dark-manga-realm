@@ -75,16 +75,23 @@ const buildSoftAccessCheckFallback = (): AccessCheckResult => ({
     user: null,
 });
 
-const getAccessCheckCacheKey = async (path: string) => {
-    const { data } = await supabase.auth.getSession();
-    const tokenKey = data.session?.access_token?.slice(-24) || 'anon';
+const getAccessCheckCacheKey = async (
+    path: string,
+    preferredAccessToken?: string | null,
+) => {
+    const tokenKey = preferredAccessToken?.trim()
+        ? preferredAccessToken.trim().slice(-24)
+        : (await supabase.auth.getSession()).data.session?.access_token?.slice(-24) || 'anon';
     return `${tokenKey}:${path}`;
 };
 
 export const checkCurrentAccess = async (
     path = typeof window !== 'undefined'
         ? `${window.location.pathname}${window.location.search}`
-        : '/'
+        : '/',
+    options?: {
+        preferredAccessToken?: string | null;
+    },
 ): Promise<AccessCheckResult> => {
     if (!isEffectivelyOnline()) {
         return {
@@ -98,7 +105,8 @@ export const checkCurrentAccess = async (
         };
     }
 
-    const cacheKey = await getAccessCheckCacheKey(path);
+    const preferredAccessToken = options?.preferredAccessToken?.trim() || null;
+    const cacheKey = await getAccessCheckCacheKey(path, preferredAccessToken);
     const inflightRequest = accessCheckInflightRequests.get(cacheKey);
     if (inflightRequest) {
         return inflightRequest;
@@ -113,7 +121,7 @@ export const checkCurrentAccess = async (
                 await sleep(retryDelay);
             }
 
-            const accessToken = await getCurrentAccessToken({
+            const accessToken = preferredAccessToken || await getCurrentAccessToken({
                 forceRefresh: attemptIndex > 0,
                 required: false,
             });
@@ -131,6 +139,11 @@ export const checkCurrentAccess = async (
             });
 
             if (!error) {
+                return data as AccessCheckResult;
+            }
+
+            const status = getAccessCheckErrorStatus(error);
+            if (status === 403 && data && typeof data === 'object' && 'allowed' in data) {
                 return data as AccessCheckResult;
             }
 

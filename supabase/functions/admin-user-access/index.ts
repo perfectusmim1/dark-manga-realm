@@ -186,7 +186,10 @@ const createSystemNotification = async (
 
   if (error) {
     console.error("System notification insert failed:", error);
+    return false;
   }
+
+  return true;
 };
 
 const createBan = async (
@@ -296,7 +299,7 @@ const createBan = async (
 
   banNotificationParts.push("İtiraz göndermek isterseniz destek sayfasını kullanabilirsiniz.");
 
-  await createSystemNotification(serviceClient, {
+  const notificationDelivered = await createSystemNotification(serviceClient, {
     userId: options.targetUserId,
     title: `${banLabel} Uygulandı`,
     message: banNotificationParts.join(" "),
@@ -306,6 +309,7 @@ const createBan = async (
   return {
     kind: options.kind,
     expiresAt,
+    notificationDelivered,
   };
 };
 
@@ -397,7 +401,7 @@ Deno.serve(async (req: Request) => {
       const latestTargetUser = await loadTargetUser(auth.serviceClient, targetUserId);
       const warningCount = Math.max(1, latestTargetUser?.warning_count || 0);
       const remainingWarnings = Math.max(0, 3 - warningCount);
-      let autoBan: { kind: BanKind; expiresAt: string | null } | null = null;
+      let autoBan: { kind: BanKind; expiresAt: string | null; notificationDelivered: boolean } | null = null;
 
       if ((latestTargetUser?.warning_count || 0) >= 3) {
         autoBan = await createBan(auth.serviceClient, {
@@ -441,11 +445,11 @@ Deno.serve(async (req: Request) => {
 
       warningNotificationParts.push(`Detay: ${message}`);
 
-      await createSystemNotification(auth.serviceClient, {
+      const warningNotificationDelivered = await createSystemNotification(auth.serviceClient, {
         userId: targetUserId,
         title: title === "Yönetici uyarısı" ? "Hesabınıza Uyarı Verildi" : title,
         message: warningNotificationParts.join(" "),
-        link: null,
+        link: "/notifications",
       });
 
       const history = await loadUserHistory(auth.serviceClient, targetUserId);
@@ -453,6 +457,8 @@ Deno.serve(async (req: Request) => {
         success: true,
         warningId: warning.id,
         autoBan,
+        warningNotificationDelivered,
+        banNotificationDelivered: autoBan?.notificationDelivered ?? null,
         ...history,
       });
     }
@@ -485,6 +491,7 @@ Deno.serve(async (req: Request) => {
       return json({
         success: true,
         ban,
+        banNotificationDelivered: ban.notificationDelivered,
         ...history,
       });
     }
@@ -506,6 +513,31 @@ Deno.serve(async (req: Request) => {
         success: true,
         ...history,
       });
+    }
+
+    if (action === "delete-warning") {
+      const warningId = (payload as any).warningId?.trim();
+      if (!warningId) {
+        return json({ success: false, message: "warningId is required" }, 400);
+      }
+
+      const { error: deleteError } = await auth.serviceClient
+        .from("user_warnings")
+        .delete()
+        .eq("id", warningId)
+        .eq("user_id", targetUserId);
+
+      if (deleteError) {
+        console.error("Warning delete failed:", deleteError);
+        return json({ success: false, message: "Uyarı silinemedi" }, 500);
+      }
+
+      await auth.serviceClient.rpc("refresh_user_warning_summary", {
+        p_user_id: targetUserId,
+      });
+
+      const history = await loadUserHistory(auth.serviceClient, targetUserId);
+      return json({ success: true, ...history });
     }
 
     return json({ success: false, message: "Unknown action" }, 400);

@@ -215,5 +215,5 @@ export const normalizeGenres = (genres?: readonly string[] | null): string[] => 
 
 // Initialize database on import (no mock data)
 export const initializeMockData = (): void => {
-  console.log('App initialized with Supabase backend');
+  // Supabase-backed app; no mock bootstrap work is needed here.
 };

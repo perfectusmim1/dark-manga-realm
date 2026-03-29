@@ -1,4 +1,4 @@
-import { getAuthenticatedFunctionHeaders, supabase } from '@/lib/supabase';
+import { invokeAuthenticatedFunction, isAuthSessionUnavailableError } from '@/lib/supabase';
 import { CurrentUserBanState, CurrentUserWarning } from '@/lib/types';
 
 export interface CurrentUserAccessSnapshot {
@@ -17,17 +17,25 @@ interface UserAccessSnapshotResponse {
   unreadWarningCount?: number;
 }
 
+interface UserAccessSnapshotRequestOptions {
+  preferredAccessToken?: string | null;
+  maxAttempts?: number;
+  bypassBackoff?: boolean;
+}
+
 const USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS = 3 * 60 * 1000;
+const USER_ACCESS_AUTH_RETRY_BACKOFF_MS = 45 * 1000;
 let nextUserAccessSnapshotRetryAt = 0;
 
-const invokeUserAccessState = async (body: Record<string, unknown>) => {
-  const headers = await getAuthenticatedFunctionHeaders();
-
-  return supabase.functions.invoke<UserAccessSnapshotResponse>('user-access-state', {
-    body,
-    headers,
-  });
-};
+const invokeUserAccessState = (
+  body: Record<string, unknown>,
+  options?: UserAccessSnapshotRequestOptions,
+) => (
+  invokeAuthenticatedFunction<UserAccessSnapshotResponse>('user-access-state', body, {
+    maxAttempts: options?.maxAttempts,
+    preferredAccessToken: options?.preferredAccessToken,
+  })
+);
 
 const normalizeSnapshot = (payload: UserAccessSnapshotResponse | null | undefined): CurrentUserAccessSnapshot => ({
   warning: payload?.warning
@@ -57,17 +65,27 @@ const normalizeSnapshot = (payload: UserAccessSnapshotResponse | null | undefine
   unreadWarningCount: Number(payload?.unreadWarningCount) || 0,
 });
 
-export const getCurrentUserAccessSnapshot = async (): Promise<CurrentUserAccessSnapshot> => {
-  if (Date.now() < nextUserAccessSnapshotRetryAt) {
+export const getCurrentUserAccessSnapshot = async (
+  options?: UserAccessSnapshotRequestOptions,
+): Promise<CurrentUserAccessSnapshot> => {
+  if (!options?.bypassBackoff && Date.now() < nextUserAccessSnapshotRetryAt) {
     throw new Error('USER_ACCESS_STATE_BACKOFF_ACTIVE');
   }
 
-  const { data, error } = await invokeUserAccessState({
-    action: 'get',
-  });
-
-  if (error) {
-    nextUserAccessSnapshotRetryAt = Date.now() + USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS;
+  let data: UserAccessSnapshotResponse | null | undefined;
+  try {
+    data = await invokeUserAccessState({
+      action: 'get',
+    }, {
+      maxAttempts: options?.maxAttempts ?? 2,
+      preferredAccessToken: options?.preferredAccessToken,
+    });
+  } catch (error) {
+    nextUserAccessSnapshotRetryAt = Date.now() + (
+      isAuthSessionUnavailableError(error)
+        ? USER_ACCESS_AUTH_RETRY_BACKOFF_MS
+        : USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS
+    );
     throw error;
   }
 
@@ -83,14 +101,10 @@ export const getCurrentUserAccessSnapshot = async (): Promise<CurrentUserAccessS
 export const acknowledgeCurrentUserWarning = async (
   warningId: string,
 ): Promise<CurrentUserAccessSnapshot> => {
-  const { data, error } = await invokeUserAccessState({
+  const data = await invokeUserAccessState({
     action: 'acknowledge-warning',
     warningId,
   });
-
-  if (error) {
-    throw error;
-  }
 
   if (!data?.success) {
     throw new Error(data?.message || 'WARNING_ACK_FAILED');

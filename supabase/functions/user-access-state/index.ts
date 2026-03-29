@@ -39,7 +39,9 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
+    console.log("Auth starting...");
     const auth = await requireRequester(req);
+    console.log("Auth result ok:", auth.ok);
     if (!auth.ok) {
       return auth.response;
     }
@@ -52,14 +54,19 @@ Deno.serve(async (req: Request) => {
     }
 
     const action = payload.action || "get";
-    await auth.serviceClient.rpc("refresh_user_ban_state", {
+    console.log("Action:", action);
+    
+    console.log("Refreshing ban state for:", auth.requesterProfile.id);
+    const { error: banRefreshError } = await auth.serviceClient.rpc("refresh_user_ban_state", {
       p_user_id: auth.requesterProfile.id,
-    }).catch((error) => {
-      console.error("Failed to refresh user ban state:", error);
     });
+    if (banRefreshError) {
+      console.error("Failed to refresh user ban state:", banRefreshError);
+    }
 
     if (action === "acknowledge-warning") {
       const warningId = payload.warningId?.trim();
+      console.log("Acknowledging warning:", warningId);
       if (!warningId) {
         return json({ success: false, message: "warningId is required" }, 400);
       }
@@ -72,7 +79,7 @@ Deno.serve(async (req: Request) => {
 
       if (warningError) {
         console.error("Warning lookup failed:", warningError);
-        return json({ success: false, message: "Warning lookup failed" }, 500);
+        return json({ success: false, message: "Warning lookup failed" }, 200);
       }
 
       if (!warning || warning.user_id !== auth.requesterProfile.id) {
@@ -88,17 +95,19 @@ Deno.serve(async (req: Request) => {
 
         if (updateError) {
           console.error("Warning acknowledgement failed:", updateError);
-          return json({ success: false, message: "Warning acknowledgement failed" }, 500);
+          return json({ success: false, message: "Warning acknowledgement failed" }, 200);
         }
       }
 
-      await auth.serviceClient.rpc("refresh_user_warning_summary", {
+      const { error: warningSummaryError } = await auth.serviceClient.rpc("refresh_user_warning_summary", {
         p_user_id: auth.requesterProfile.id,
-      }).catch((error) => {
-        console.error("Failed to refresh warning summary:", error);
       });
+      if (warningSummaryError) {
+        console.error("Failed to refresh warning summary:", warningSummaryError);
+      }
     }
 
+    console.log("Fetching refreshed profile...");
     const { data: refreshedProfile, error: refreshedProfileError } = await auth.serviceClient
       .from("users")
       .select("id, role, is_banned, ban_reason, banned_at, active_ban_type, ban_expires_at, warning_count, unread_warning_count")
@@ -106,17 +115,19 @@ Deno.serve(async (req: Request) => {
       .maybeSingle();
 
     if (refreshedProfileError) {
-      console.error("Profile refresh failed, using requester fallback:", refreshedProfileError);
+      console.error("Profile refresh failed:", refreshedProfileError);
     }
 
+    console.log("Loading unread warning...");
     let warning = null;
     try {
       warning = await loadLatestUnreadWarning(auth.serviceClient, auth.requesterProfile.id);
     } catch (error) {
-      console.error("Warning refresh failed, continuing without warning payload:", error);
+      console.error("Warning refresh failed:", error);
     }
 
     const effectiveProfile = refreshedProfile || auth.requesterProfile;
+    console.log("Effective profile found:", !!effectiveProfile);
 
     return json({
       success: true,
@@ -141,6 +152,10 @@ Deno.serve(async (req: Request) => {
     });
   } catch (error) {
     console.error("Unexpected error in user-access-state:", error);
-    return json({ success: false, message: "An unexpected error occurred" }, 500);
+    return json({ 
+      success: false, 
+      message: "An unexpected error occurred",
+      error: error instanceof Error ? error.stack || error.message : String(error)
+    }, 200);
   }
 });

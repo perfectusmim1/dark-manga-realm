@@ -124,7 +124,7 @@ Deno.serve(async (req: Request) => {
         allowed: false,
         reason: "ip_banned",
         message: "Bu bağlantı için site erişimi engellendi.",
-      }, 403);
+      }, 200);
     }
 
     if (deviceBan) {
@@ -132,7 +132,7 @@ Deno.serve(async (req: Request) => {
         allowed: false,
         reason: "device_banned",
         message: "Bu cihaz için site erişimi engellendi.",
-      }, 403);
+      }, 200);
     }
 
     let userRecord: {
@@ -244,9 +244,10 @@ Deno.serve(async (req: Request) => {
         message,
         ban: {
           active: true,
-          type: userRecord.active_ban_type,
+          type: userRecord.active_ban_type || null,
           reason: message,
-          expiresAt: userRecord.ban_expires_at,
+          expiresAt: userRecord.ban_expires_at || null,
+          bannedAt: userRecord.banned_at || null,
         },
         warning,
         user: {
@@ -257,7 +258,7 @@ Deno.serve(async (req: Request) => {
           warningCount: userRecord.warning_count,
           unreadWarningCount: userRecord.unread_warning_count,
         },
-      }, supportOnly ? 200 : 403);
+      }, 200);
     }
 
     return json({
