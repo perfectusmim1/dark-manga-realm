@@ -147,6 +147,7 @@ let allMangasCache: { fetchedAt: number; value: Manga[] } | null = null;
 let allMangasPromise: Promise<Manga[]> | null = null;
 let mangaSummariesCache: { fetchedAt: number; value: Manga[] } | null = null;
 let mangaSummariesPromise: Promise<Manga[]> | null = null;
+const CHAPTER_META_BATCH_SIZE = 1000;
 
 const invalidateAllMangasCache = () => {
     allMangasCache = null;
@@ -256,13 +257,82 @@ const buildLatestChapterPreviewsByMangaId = (chapters: any[] = []) => {
         const mangaId = chapter.manga_id;
         const existing = latestChapterPreviewsByMangaId.get(mangaId) || [];
 
-        if (existing.length < 2) {
+        if (!existing.some((item) => item.id === chapter.id)) {
             existing.push({ id: chapter.id, number: chapter.number });
+            existing.sort((left, right) => right.number - left.number);
+
+            if (existing.length > 2) {
+                existing.length = 2;
+            }
+
             latestChapterPreviewsByMangaId.set(mangaId, existing);
         }
     }
 
     return latestChapterPreviewsByMangaId;
+};
+
+const fetchAllChapterMetaRows = async (
+    selectColumns: string,
+    options?: {
+        mangaIds?: string[];
+        orderByNumberAscending?: boolean;
+    },
+) => {
+    const uniqueMangaIds = [...new Set((options?.mangaIds || []).filter(Boolean))];
+
+    let countQuery = supabase
+        .from('chapters')
+        .select('id', { count: 'exact', head: true });
+
+    if (uniqueMangaIds.length > 0) {
+        countQuery = countQuery.in('manga_id', uniqueMangaIds);
+    }
+
+    const { count, error: countError } = await countQuery;
+
+    if (countError) {
+        throw countError;
+    }
+
+    if (!count || count < 1) {
+        return [] as any[];
+    }
+
+    const pageCount = Math.ceil(count / CHAPTER_META_BATCH_SIZE);
+    const requests = Array.from({ length: pageCount }, (_, pageIndex) => {
+        const rangeStart = pageIndex * CHAPTER_META_BATCH_SIZE;
+        const rangeEnd = rangeStart + CHAPTER_META_BATCH_SIZE - 1;
+
+        let query = supabase
+            .from('chapters')
+            .select(selectColumns)
+            .order('manga_id', { ascending: true })
+            .range(rangeStart, rangeEnd);
+
+        if (selectColumns.includes('number')) {
+            query = query.order('number', { ascending: options?.orderByNumberAscending ?? false });
+        }
+
+        if (uniqueMangaIds.length > 0) {
+            query = query.in('manga_id', uniqueMangaIds);
+        }
+
+        return query;
+    });
+
+    const responses = await Promise.all(requests);
+    const rows: any[] = [];
+
+    for (const response of responses) {
+        if (response.error) {
+            throw response.error;
+        }
+
+        rows.push(...(response.data || []));
+    }
+
+    return rows;
 };
 
 // ==================== MANGA OPERATIONS ====================
@@ -289,7 +359,7 @@ export const getAllMangas = async (): Promise<Manga[]> => {
             const [
                 { data, error },
                 { data: revData, error: reviewsError },
-                { data: cData, error: chaptersError },
+                chapterRows,
             ] = await Promise.all([
                 supabase
                     .from('mangas')
@@ -298,18 +368,18 @@ export const getAllMangas = async (): Promise<Manga[]> => {
                 supabase
                     .from('reviews')
                     .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
-                supabase
-                    .from('chapters')
-                    .select('id, manga_id, number')
-                    .order('number', { ascending: true }),
+                fetchAllChapterMetaRows('id, manga_id, number', { orderByNumberAscending: true })
+                    .catch((chapterError) => {
+                        console.error('Manga list chapter aggregate fetch error:', chapterError);
+                        return [];
+                    }),
             ]);
 
             if (error) throw error;
             if (reviewsError) console.error('Manga list review aggregate fetch error:', reviewsError);
-            if (chaptersError) console.error('Manga list chapter aggregate fetch error:', chaptersError);
 
             const chaptersByMangaId = new Map<string, { id: string; number: number }[]>();
-            for (const chapter of cData || []) {
+            for (const chapter of chapterRows) {
                 const mangaChapters = chaptersByMangaId.get(chapter.manga_id) || [];
                 mangaChapters.push({ id: chapter.id, number: chapter.number });
                 chaptersByMangaId.set(chapter.manga_id, mangaChapters);
@@ -409,7 +479,7 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
             const [
                 { data: mangaRows, error: mangaError },
                 { data: reviewRows, error: reviewError },
-                { data: chapterRows, error: chapterError },
+                chapterRows,
             ] = await Promise.all([
                 supabase
                     .from('mangas')
@@ -418,10 +488,11 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
                 supabase
                     .from('reviews')
                     .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
-                supabase
-                    .from('chapters')
-                    .select('id, manga_id, number')
-                    .order('number', { ascending: false }),
+                fetchAllChapterMetaRows('id, manga_id, number', { orderByNumberAscending: false })
+                    .catch((chapterError) => {
+                        console.error('Manga summary chapter aggregate fetch error:', chapterError);
+                        return [];
+                    }),
             ]);
 
             if (mangaError) {
@@ -432,13 +503,9 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
                 console.error('Manga summary review aggregate fetch error:', reviewError);
             }
 
-            if (chapterError) {
-                console.error('Manga summary chapter aggregate fetch error:', chapterError);
-            }
-
             const reviewStatsByMangaId = buildReviewStatsByMangaId(reviewRows || []);
-            const chapterCountByMangaId = buildChapterCountByMangaId(chapterRows || []);
-            const latestChapterPreviewsByMangaId = buildLatestChapterPreviewsByMangaId(chapterRows || []);
+            const chapterCountByMangaId = buildChapterCountByMangaId(chapterRows);
+            const latestChapterPreviewsByMangaId = buildLatestChapterPreviewsByMangaId(chapterRows);
 
             return (mangaRows || []).map((manga: any) => {
                 const reviewStats = reviewStatsByMangaId.get(manga.id);
@@ -2293,15 +2360,16 @@ const fetchReadingListItemSummaries = async (mangaIds: string[]) => {
         return {} as Record<string, ReturnType<typeof mapMangaToCachedReadingListItem>>;
     }
 
-    const [{ data: mangaRows, error: mangaError }, { data: chapterRows, error: chapterError }] = await Promise.all([
+    const [{ data: mangaRows, error: mangaError }, chapterRows] = await Promise.all([
         supabase
             .from('mangas')
             .select('id, title, alternative_titles, cover, banner, author, artist, status, genres, description, type, views, last_updated, created_at')
             .in('id', uniqueMangaIds),
-        supabase
-            .from('chapters')
-            .select('manga_id')
-            .in('manga_id', uniqueMangaIds),
+        fetchAllChapterMetaRows('manga_id', { mangaIds: uniqueMangaIds })
+            .catch((chapterError) => {
+                console.error('Reading list chapter count fetch error:', chapterError);
+                return [];
+            }),
     ]);
 
     if (mangaError || !mangaRows) {
@@ -2311,11 +2379,7 @@ const fetchReadingListItemSummaries = async (mangaIds: string[]) => {
         return {} as Record<string, ReturnType<typeof mapMangaToCachedReadingListItem>>;
     }
 
-    if (chapterError) {
-        console.error('Reading list chapter count fetch error:', chapterError);
-    }
-
-    const chapterCountMap = (chapterRows || []).reduce<Record<string, number>>((map, chapter: any) => {
+    const chapterCountMap = chapterRows.reduce<Record<string, number>>((map, chapter: any) => {
         map[chapter.manga_id] = (map[chapter.manga_id] || 0) + 1;
         return map;
     }, {});
@@ -3032,8 +3096,10 @@ export const getSimilarMangas = async (
         const allReviews = revData || [];
 
         // Get chapter counts
-        const { data: cData } = await supabase.from('chapters').select('manga_id');
-        const chapterCounts = cData || [];
+        const chapterCounts = await fetchAllChapterMetaRows('manga_id').catch((chapterError) => {
+            console.error('Similar manga chapter count fetch error:', chapterError);
+            return [];
+        });
 
         // Calculate similarity score and map data
         const scoredMangas = data.map(m => {
