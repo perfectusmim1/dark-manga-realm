@@ -17,6 +17,9 @@ interface UserAccessSnapshotResponse {
   unreadWarningCount?: number;
 }
 
+const USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS = 3 * 60 * 1000;
+let nextUserAccessSnapshotRetryAt = 0;
+
 const invokeUserAccessState = async (body: Record<string, unknown>) => {
   const headers = await getAuthenticatedFunctionHeaders();
 
@@ -55,18 +58,25 @@ const normalizeSnapshot = (payload: UserAccessSnapshotResponse | null | undefine
 });
 
 export const getCurrentUserAccessSnapshot = async (): Promise<CurrentUserAccessSnapshot> => {
+  if (Date.now() < nextUserAccessSnapshotRetryAt) {
+    throw new Error('USER_ACCESS_STATE_BACKOFF_ACTIVE');
+  }
+
   const { data, error } = await invokeUserAccessState({
     action: 'get',
   });
 
   if (error) {
+    nextUserAccessSnapshotRetryAt = Date.now() + USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS;
     throw error;
   }
 
   if (!data?.success) {
+    nextUserAccessSnapshotRetryAt = Date.now() + USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS;
     throw new Error(data?.message || 'USER_ACCESS_STATE_FAILED');
   }
 
+  nextUserAccessSnapshotRetryAt = 0;
   return normalizeSnapshot(data);
 };
 

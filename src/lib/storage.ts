@@ -986,12 +986,19 @@ export const syncChapterReadProgress = async (
         mangaAlternativeTitles?: string[];
         chapterTitle?: string;
     },
+    options?: {
+        skipRemote?: boolean;
+    },
 ): Promise<ChapterReadProgressEntry | null> => {
     if (!userId) {
         return null;
     }
 
     const localEntry = upsertLocalChapterReadProgress(userId, progress);
+    if (options?.skipRemote) {
+        return localEntry;
+    }
+
     if (!(await hasPersistedChapterRecord(progress.chapterId))) {
         return localEntry;
     }

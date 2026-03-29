@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
-import { Link, useParams, useNavigate } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
 import {
   getReaderSettings,
@@ -66,9 +66,15 @@ const sanitizeReaderChapter = (chapter?: Chapter | null): Chapter | null => {
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
   const navigate = useNavigate();
+  const location = useLocation();
   const { user, isLoading: authLoading } = useAuth();
   const { isOnline: isOnlineNow } = useEffectiveOnlineStatus();
   const viewTracked = useRef(false);
+  const forceOfflineRead = useMemo(
+    () => new URLSearchParams(location.search).get('offline') === '1',
+    [location.search],
+  );
+  const canUseNetworkReaderFeatures = isOnlineNow && !forceOfflineRead;
 
   const [manga, setManga] = useState<any>(null);
   const [chapter, setChapter] = useState<any>(null);
@@ -120,7 +126,7 @@ const Reader: React.FC = () => {
     const sanitizedChapter = sanitizeReaderChapter(chapterToPrime);
     if (
       !sanitizedChapter
-      || !isOnlineNow
+      || !canUseNetworkReaderFeatures
       || isOfflineChapter
       || !Array.isArray(sanitizedChapter.pages)
       || sanitizedChapter.pages.length === 0
@@ -130,7 +136,7 @@ const Reader: React.FC = () => {
 
     const criticalSources = sanitizedChapter.pages.slice(0, Math.min(3, sanitizedChapter.pages.length));
     await Promise.allSettled(criticalSources.map((page) => prefetchImageAsset(page)));
-  }, [isOfflineChapter, isOnlineNow]);
+  }, [canUseNetworkReaderFeatures, isOfflineChapter]);
 
   const getNextChapterPrefetchSources = useCallback((chapterToPrefetch?: Chapter) => {
     const sanitizedChapter = sanitizeReaderChapter(chapterToPrefetch);
@@ -158,7 +164,7 @@ const Reader: React.FC = () => {
   const prepareChapterTransition = useCallback((targetChapter?: Chapter) => {
     const sanitizedTargetChapter = sanitizeReaderChapter(targetChapter);
     if (
-      isOnlineNow
+      canUseNetworkReaderFeatures
       && !isOfflineChapter
       && settings.prefetchNextChapter
       && sanitizedTargetChapter
@@ -197,7 +203,7 @@ const Reader: React.FC = () => {
     }
 
     window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [getNextChapterPrefetchSources, isOfflineChapter, isOnlineNow, mangaId, settings.prefetchNextChapter, warmCriticalChapterPages]);
+  }, [canUseNetworkReaderFeatures, getNextChapterPrefetchSources, isOfflineChapter, mangaId, settings.prefetchNextChapter, warmCriticalChapterPages]);
 
   const handleBeforeChapterChange = useCallback(async (targetChapter?: Chapter) => {
     if (targetChapter) {
@@ -235,17 +241,17 @@ const Reader: React.FC = () => {
       return;
     }
 
-    if (isOnlineNow) {
+    if (canUseNetworkReaderFeatures) {
       await logChapterRead(user.id, mangaId, chapterId, chapter.number, elapsedSeconds);
       await flushPendingReaderSync();
       return;
     }
-  }, [user, mangaId, chapterId, chapter, isIncognito, isOnlineNow]);
+  }, [canUseNetworkReaderFeatures, user, mangaId, chapterId, chapter, isIncognito]);
 
   // Reset state and scroll on chapter change
   useEffect(() => {
     const preparedTransition = preparedTransitionRef.current;
-    const canUsePreparedTransition = Boolean(
+    const canUsePreparedTransition = !forceOfflineRead && Boolean(
       preparedTransition
       && preparedTransition.mangaId === mangaId
       && preparedTransition.chapterId === chapterId
@@ -276,7 +282,7 @@ const Reader: React.FC = () => {
     setPageCommentModalPage(null);
     revokeOfflineUrlsRef.current?.();
     revokeOfflineUrlsRef.current = null;
-  }, [chapterId]);
+  }, [chapterId, forceOfflineRead]);
 
   useEffect(() => () => {
     revokeOfflineUrlsRef.current?.();
@@ -353,7 +359,7 @@ const Reader: React.FC = () => {
       try {
         setIsLoading(true);
         const preparedTransition = preparedTransitionRef.current;
-        const hasPreparedTransition = Boolean(
+        const hasPreparedTransition = !forceOfflineRead && Boolean(
           preparedTransition
           && preparedTransition.mangaId === mangaId
           && preparedTransition.chapterId === chapterId
@@ -362,7 +368,7 @@ const Reader: React.FC = () => {
         const existingManga = currentMangaRef.current && currentMangaRef.current.id === mangaId
           ? currentMangaRef.current
           : null;
-        const mData = isOnlineNow ? (existingManga ?? await getMangaById(mangaId)) : undefined;
+        const mData = canUseNetworkReaderFeatures ? (existingManga ?? await getMangaById(mangaId)) : undefined;
         const fallbackManga = mData || await getOfflineMangaDetail(mangaId);
 
         if (mData) {
@@ -392,7 +398,7 @@ const Reader: React.FC = () => {
           return;
         }
 
-        if (!isOnlineNow && offlineChapter?.downloadStatus === 'completed') {
+        if ((forceOfflineRead || !isOnlineNow) && offlineChapter?.downloadStatus === 'completed') {
           setChapter(resolvedChapter);
           const offlinePages = await buildOfflineReaderPages(
             chapterId,
@@ -415,7 +421,7 @@ const Reader: React.FC = () => {
             setIsOfflineChapter(false);
             setOfflineUnavailable(true);
           }
-        } else if (!isOnlineNow) {
+        } else if (forceOfflineRead || !isOnlineNow) {
           setChapter(resolvedChapter);
           setResolvedPages([]);
           setIsOfflineChapter(false);
@@ -438,14 +444,14 @@ const Reader: React.FC = () => {
         console.error('Reader load error:', err);
         setResolvedPages([]);
         setIsOfflineChapter(false);
-        setOfflineUnavailable(!isOnlineNow);
+        setOfflineUnavailable(forceOfflineRead || !isOnlineNow);
         setIsContentReady(false);
         setIsLoading(false);
       }
     };
 
     loadContent();
-  }, [chapterId, isOnlineNow, mangaId, navigate]);
+  }, [canUseNetworkReaderFeatures, chapterId, forceOfflineRead, isOnlineNow, mangaId, navigate]);
 
   useEffect(() => {
     if (initialized || !isContentReady || !mangaId || !chapterId) {
@@ -508,14 +514,14 @@ const Reader: React.FC = () => {
   }, [authLoading, chapterId, initialized, isContentReady, isOnlineNow, mangaId, user]);
 
   useEffect(() => {
-    if (!initialized || !chapter || !mangaId || !chapterId || viewTracked.current || isIncognito || !isOnlineNow) {
+    if (!initialized || !chapter || !mangaId || !chapterId || viewTracked.current || isIncognito || !canUseNetworkReaderFeatures) {
       return;
     }
 
     incrementMangaViews(mangaId);
     incrementChapterViews(mangaId, chapterId);
     viewTracked.current = true;
-  }, [chapter, chapterId, initialized, isIncognito, isOnlineNow, mangaId]);
+  }, [canUseNetworkReaderFeatures, chapter, chapterId, initialized, isIncognito, mangaId]);
 
   useEffect(() => {
     if (!initialized || isLoading || !chapter || resolvedPages.length === 0 || offlineUnavailable) {
@@ -546,9 +552,9 @@ const Reader: React.FC = () => {
             mangaCover: manga?.cover,
             mangaAlternativeTitles: manga?.alternativeTitles || [],
             chapterTitle: chapter.title,
-          });
+          }, { skipRemote: forceOfflineRead });
 
-          if (isOnlineNow) {
+          if (canUseNetworkReaderFeatures) {
             await updateReadingProgress(user.id, {
               mangaId,
               chapterId,
@@ -572,7 +578,7 @@ const Reader: React.FC = () => {
       }
     };
     saveProgress();
-  }, [chapter, chapterId, currentPage, initialized, isOnlineNow, isTrackingReady, manga, mangaId, resolvedPages.length, user]);
+  }, [canUseNetworkReaderFeatures, chapter, chapterId, currentPage, initialized, isTrackingReady, manga, mangaId, resolvedPages.length, user]);
 
   useEffect(() => {
     if (!isTrackingReady || !isOfflineChapter || !chapterId || resolvedPages.length === 0) {
@@ -751,7 +757,7 @@ const Reader: React.FC = () => {
 
   useEffect(() => {
     if (
-      !isOnlineNow
+      !canUseNetworkReaderFeatures
       || isOfflineChapter
       || !settings.prefetchNextChapter
       || !nextChapter
@@ -772,9 +778,9 @@ const Reader: React.FC = () => {
       );
     }
   }, [
+    canUseNetworkReaderFeatures,
     getNextChapterPrefetchSources,
     isOfflineChapter,
-    isOnlineNow,
     nextChapter,
     settings.prefetchNextChapter,
     warmCriticalChapterPages,
@@ -1042,8 +1048,8 @@ const Reader: React.FC = () => {
       <div className="min-h-screen bg-background px-4 py-20">
         <div className="mx-auto max-w-2xl">
           <OfflineNotice
-            title={isOnlineNow ? 'Bölüm açılamadı' : 'Çevrimdışısınız'}
-            description={isOnlineNow
+            title={canUseNetworkReaderFeatures ? 'Bölüm açılamadı' : 'Çevrimdışı moddasınız'}
+            description={canUseNetworkReaderFeatures
               ? 'Bölüm verisi yüklenemedi. Tekrar deneyin.'
               : 'Bu bölüm bu cihazda çevrimdışı hazır değil veya okunacak içerik bulunamadı.'}
             actionHref="/downloads"
@@ -1112,11 +1118,12 @@ const Reader: React.FC = () => {
         onAutoScrollToggle={handleAutoScrollToggle}
         onAutoScrollSpeedChange={handleAutoScrollSpeedChange}
         isOfflineChapter={isOfflineChapter}
-        isOnline={isOnlineNow}
+        isOnline={canUseNetworkReaderFeatures}
+        forceOfflineRead={forceOfflineRead}
         onBeforeChapterChange={handleBeforeChapterChange}
       />
 
-      {!isReaderTransitionActive && isOnlineNow && showPageCommentRail && (
+      {!isReaderTransitionActive && canUseNetworkReaderFeatures && showPageCommentRail && (
         <PageCommentRail
           mangaId={manga.id}
           mangaTitle={manga.title}
@@ -1184,7 +1191,7 @@ const Reader: React.FC = () => {
         className="mx-auto mt-6 max-w-4xl border-t border-border px-3 pt-6 pb-28 sm:mt-8 sm:px-4 sm:pt-8 md:pb-32"
         onClick={(e) => e.stopPropagation()}
       >
-        {isOnlineNow ? (
+        {canUseNetworkReaderFeatures ? (
           <DeferredMount
             rootMargin="320px 0px"
             placeholderMinHeight={180}
@@ -1201,7 +1208,9 @@ const Reader: React.FC = () => {
           </DeferredMount>
         ) : (
           <div className="rounded-2xl border border-border bg-card/40 px-4 py-6 text-center text-sm text-muted-foreground">
-            Yorumlar için internet bağlantısı gerekiyor.
+            {forceOfflineRead
+              ? 'Çevrimdışı okuma modunda yorumlar kapalı.'
+              : 'Yorumlar için internet bağlantısı gerekiyor.'}
           </div>
         )}
       </div>

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useEffect, useState, ReactNode } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState, ReactNode } from 'react';
 import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/supabase-js';
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { supabase, waitForUsableSupabaseSession } from '@/lib/supabase';
@@ -187,6 +187,7 @@ const DEFAULT_ACCESS_STATE: UserAccessState = {
   },
 };
 const WARNING_BAN_SYNC_INTERVAL_MS = 30000;
+const USER_ACCESS_STATE_FAILURE_BACKOFF_MS = 3 * 60 * 1000;
 
 const mapAccessCheckToAccessState = (accessCheck: AccessCheckResult): UserAccessState => ({
   reason: accessCheck.reason || 'ok',
@@ -276,6 +277,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [isLoading, setIsLoading] = useState(true);
   const [mfaState, setMfaState] = useState<MfaState>(DEFAULT_MFA_STATE);
   const [accessState, setAccessState] = useState<UserAccessState>(DEFAULT_ACCESS_STATE);
+  const accessStateRefreshInFlightRef = useRef(false);
+  const accessStateRefreshFailureUntilRef = useRef(0);
 
   const fetchProfile = useCallback(async (id: string): Promise<UserProfileRow | null> => {
     // Add a 5s timeout to prevent infinite hangs on DB calls during initialization
@@ -394,19 +397,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }, []);
 
   const refreshAccessState = useCallback(async (): Promise<void> => {
+    if (!isEffectivelyOnline()) {
+      return;
+    }
+
+    if (accessStateRefreshInFlightRef.current || Date.now() < accessStateRefreshFailureUntilRef.current) {
+      return;
+    }
+
     const activeUser = supabaseUser || (await supabase.auth.getUser()).data.user;
     if (!activeUser) {
       setAccessState(DEFAULT_ACCESS_STATE);
       return;
     }
 
+    accessStateRefreshInFlightRef.current = true;
+
     try {
       const snapshot = await getCurrentUserAccessSnapshot();
       applyCurrentUserAccessSnapshot(snapshot);
-    } catch (error) {
-      console.error('Refresh access state failed:', error);
+      accessStateRefreshFailureUntilRef.current = 0;
+    } catch {
+      accessStateRefreshFailureUntilRef.current = Date.now() + USER_ACCESS_STATE_FAILURE_BACKOFF_MS;
+    } finally {
+      accessStateRefreshInFlightRef.current = false;
     }
   }, [applyCurrentUserAccessSnapshot, supabaseUser]);
+
+  useEffect(() => {
+    accessStateRefreshInFlightRef.current = false;
+    accessStateRefreshFailureUntilRef.current = 0;
+  }, [supabaseUser?.id]);
 
   const acknowledgeWarning = useCallback(async (warningId: string) => {
     try {
@@ -622,7 +643,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     // 2. Continuous listener
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
-        console.log('Auth event change detected:', event);
         // We only trigger re-sync for significant events to avoid loops
         if (
           event === 'SIGNED_IN'

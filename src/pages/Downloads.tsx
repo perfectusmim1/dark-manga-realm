@@ -2,7 +2,6 @@ import React, { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronDown,
-  ChevronUp,
   Download,
   HardDriveDownload,
   PauseCircle,
@@ -92,6 +91,13 @@ const formatDateTime = (value?: string) => {
     minute: '2-digit',
   });
 };
+
+const buildOfflineReaderHref = (mangaId: string, chapterId: string) => (
+  `/manga/${mangaId}/chapter/${chapterId}?offline=1`
+);
+
+const SERIES_PANEL_TRANSITION =
+  'transition-[grid-template-rows,opacity,transform] duration-220 [transition-timing-function:cubic-bezier(0.16,0.84,0.28,1)]';
 
 const Downloads: React.FC = () => {
   const { snapshot, isLoading, isOnline } = useOfflineLibrary();
@@ -185,7 +191,7 @@ const Downloads: React.FC = () => {
   const toggleSeries = (mangaId: string) => {
     setExpandedSeries((prev) => ({
       ...prev,
-      [mangaId]: !(prev[mangaId] ?? true),
+      [mangaId]: !(prev[mangaId] ?? false),
     }));
   };
 
@@ -330,7 +336,7 @@ const Downloads: React.FC = () => {
               const firstReadableChapter = entry.chapters
                 .filter((chapter) => chapter.downloadStatus === 'completed')
                 .sort((a, b) => a.chapterNumber - b.chapterNumber)[0];
-              const isExpanded = expandedSeries[entry.manga.mangaId] ?? true;
+              const isExpanded = expandedSeries[entry.manga.mangaId] ?? false;
 
               return (
                 <section
@@ -414,7 +420,9 @@ const Downloads: React.FC = () => {
                         )}
 
                         <Button variant="outline" onClick={() => toggleSeries(entry.manga.mangaId)} className="h-10 text-sm sm:h-11">
-                          {isExpanded ? <ChevronUp className="mr-2 h-4 w-4" /> : <ChevronDown className="mr-2 h-4 w-4" />}
+                          <ChevronDown
+                            className={`mr-2 h-4 w-4 transition-transform duration-220 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}
+                          />
                           Bölümler
                         </Button>
 
@@ -433,8 +441,14 @@ const Downloads: React.FC = () => {
                     </div>
                   </div>
 
-                  {isExpanded && (
-                    <div className="border-t border-border/80 bg-background/20">
+                  <div
+                    className={`grid border-t border-border/80 bg-background/20 ${SERIES_PANEL_TRANSITION} ${
+                      isExpanded
+                        ? 'grid-rows-[1fr] opacity-100 translate-y-0'
+                        : 'grid-rows-[0fr] opacity-0 -translate-y-1 pointer-events-none'
+                    }`}
+                  >
+                    <div className="min-h-0 overflow-hidden">
                       <div className="divide-y divide-border/70">
                         {entry.chapters.map((chapter) => {
                           const isChapterReady = chapter.downloadStatus === 'completed';
@@ -461,7 +475,7 @@ const Downloads: React.FC = () => {
                               <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:justify-end">
                                 {isChapterReady && (
                                   <Button asChild size="sm" className="h-9 text-xs sm:text-sm">
-                                    <Link to={`/manga/${entry.manga.mangaId}/chapter/${chapter.chapterId}`}>
+                                    <Link to={buildOfflineReaderHref(entry.manga.mangaId, chapter.chapterId)}>
                                       Çevrimdışı Oku
                                     </Link>
                                   </Button>
@@ -501,7 +515,7 @@ const Downloads: React.FC = () => {
                         })}
                       </div>
                     </div>
-                  )}
+                  </div>
                 </section>
               );
             })}

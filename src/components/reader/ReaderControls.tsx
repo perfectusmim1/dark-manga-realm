@@ -48,6 +48,7 @@ interface ReaderControlsProps {
   onAutoScrollSpeedChange: (speed: number) => void;
   isOfflineChapter?: boolean;
   isOnline?: boolean;
+  forceOfflineRead?: boolean;
   onBeforeChapterChange?: (chapter?: Chapter) => Promise<void> | void;
 }
 
@@ -72,6 +73,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   onAutoScrollSpeedChange,
   isOfflineChapter = false,
   isOnline = true,
+  forceOfflineRead = false,
   onBeforeChapterChange,
 }) => {
   const navigate = useNavigate();
@@ -116,11 +118,16 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
     try {
       await onBeforeChapterChange?.(chapter);
-      navigate(`/manga/${mangaId}/chapter/${chapter.id}?page=1`);
+      const nextParams = new URLSearchParams();
+      nextParams.set('page', '1');
+      if (forceOfflineRead) {
+        nextParams.set('offline', '1');
+      }
+      navigate(`/manga/${mangaId}/chapter/${chapter.id}?${nextParams.toString()}`);
     } finally {
       setNavigatingChapterId(null);
     }
-  }, [mangaId, navigate, navigatingChapterId, onBeforeChapterChange]);
+  }, [forceOfflineRead, mangaId, navigate, navigatingChapterId, onBeforeChapterChange]);
 
   return (
     <>

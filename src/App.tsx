@@ -269,43 +269,23 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
 const MfaGate = ({ children }: { children: React.ReactNode }) => {
   const navigate = useNavigate();
   const location = useLocation();
-  const { isLoading, mfaState, session, supabaseUser } = useAuth();
-  const searchParams = new URLSearchParams(location.search);
-  const hasOAuthCallbackParams = searchParams.has('code')
-    || searchParams.has('state')
-    || searchParams.get('provider') === 'google'
-    || location.hash.includes('access_token');
-  const hasAuthenticatedSession = Boolean(session?.user || supabaseUser);
-  const shouldHoldRouteRender = (
-    hasOAuthCallbackParams
-    || hasAuthenticatedSession
-  ) && (isLoading || mfaState.isLoading) && !mfaState.needsVerification;
+  const { isLoading, mfaState } = useAuth();
+  const shouldRedirectToMfa = (
+    !isLoading
+    && !mfaState.isLoading
+    && mfaState.needsVerification
+    && location.pathname !== '/auth'
+  );
 
   useEffect(() => {
-    if (isLoading || !mfaState.needsVerification || location.pathname === '/auth') {
+    if (!shouldRedirectToMfa) {
       return;
     }
 
     navigate('/auth?step=mfa', { replace: true });
-  }, [isLoading, location.pathname, mfaState.needsVerification, navigate]);
+  }, [navigate, shouldRedirectToMfa]);
 
-  if (shouldHoldRouteRender) {
-    return (
-      <div className="min-h-screen bg-background text-foreground">
-        <div className="container flex min-h-screen max-w-2xl items-center justify-center py-12">
-          <div className="w-full rounded-2xl border border-primary/20 bg-card/60 p-8 text-center shadow-xl backdrop-blur-sm">
-            <div className="mx-auto h-12 w-12 animate-spin rounded-full border-2 border-primary/20 border-t-primary" />
-            <h1 className="mt-6 text-3xl font-black">Giriş Doğrulanıyor</h1>
-            <p className="mt-4 text-muted-foreground">
-              Oturum ve iki adımlı doğrulama kontrol ediliyor. Doğrulama tamamlanmadan içerik sayfaları açılmayacak.
-            </p>
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  if (!isLoading && mfaState.needsVerification && location.pathname !== '/auth') {
+  if (shouldRedirectToMfa) {
     return (
       <div className="min-h-screen bg-background text-foreground">
         <div className="container flex min-h-screen max-w-2xl items-center justify-center py-12">

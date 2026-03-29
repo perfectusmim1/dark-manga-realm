@@ -1516,7 +1516,7 @@ const MangaDetail: React.FC = () => {
             </Badge>
             <Button asChild size="sm" className="h-9 px-3 text-xs sm:text-sm">
               <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
-                Çevrimdışı Oku
+                Oku
               </Link>
             </Button>
             <Button

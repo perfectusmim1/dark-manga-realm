@@ -99,29 +99,35 @@ Deno.serve(async (req: Request) => {
       });
     }
 
-    const refreshedProfile = await auth.serviceClient
+    const { data: refreshedProfile, error: refreshedProfileError } = await auth.serviceClient
       .from("users")
-      .select("id, role, email, is_banned, ban_reason, banned_at, active_ban_type, ban_expires_at, warning_count, unread_warning_count")
+      .select("id, role, is_banned, ban_reason, banned_at, active_ban_type, ban_expires_at, warning_count, unread_warning_count")
       .eq("id", auth.requesterProfile.id)
       .maybeSingle();
 
-    if (refreshedProfile.error) {
-      console.error("Profile refresh failed:", refreshedProfile.error);
-      return json({ success: false, message: "Profile refresh failed" }, 500);
+    if (refreshedProfileError) {
+      console.error("Profile refresh failed, using requester fallback:", refreshedProfileError);
     }
 
-    const warning = await loadLatestUnreadWarning(auth.serviceClient, auth.requesterProfile.id);
+    let warning = null;
+    try {
+      warning = await loadLatestUnreadWarning(auth.serviceClient, auth.requesterProfile.id);
+    } catch (error) {
+      console.error("Warning refresh failed, continuing without warning payload:", error);
+    }
+
+    const effectiveProfile = refreshedProfile || auth.requesterProfile;
 
     return json({
       success: true,
       warning,
-      ban: refreshedProfile.data
+      ban: effectiveProfile
         ? {
-          active: Boolean(refreshedProfile.data.is_banned),
-          type: refreshedProfile.data.active_ban_type,
-          reason: refreshedProfile.data.ban_reason,
-          expiresAt: refreshedProfile.data.ban_expires_at,
-          bannedAt: refreshedProfile.data.banned_at,
+          active: Boolean(effectiveProfile.is_banned),
+          type: effectiveProfile.active_ban_type,
+          reason: effectiveProfile.ban_reason,
+          expiresAt: effectiveProfile.ban_expires_at,
+          bannedAt: effectiveProfile.banned_at,
         }
         : {
           active: false,
@@ -130,8 +136,8 @@ Deno.serve(async (req: Request) => {
           expiresAt: null,
           bannedAt: null,
         },
-      warningCount: refreshedProfile.data?.warning_count || 0,
-      unreadWarningCount: refreshedProfile.data?.unread_warning_count || 0,
+      warningCount: effectiveProfile?.warning_count || 0,
+      unreadWarningCount: effectiveProfile?.unread_warning_count || 0,
     });
   } catch (error) {
     console.error("Unexpected error in user-access-state:", error);
