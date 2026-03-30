@@ -113,6 +113,8 @@ export interface User {
     };
     appearance?: {
       manga_hover_preview?: boolean;
+      show_header_search_bar?: boolean;
+      show_header_offline_toggle?: boolean;
     };
     privacy?: {
       visibility: 'public' | 'members' | 'mutuals' | 'private';

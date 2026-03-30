@@ -101,6 +101,8 @@ const Header: React.FC = () => {
   const navigate = useNavigate();
   const location = useLocation();
   const isAdmin = access.canAccessAdminPanel;
+  const showSecondaryHeaderSearch = user?.preferences?.appearance?.show_header_search_bar ?? true;
+  const showHeaderOfflineToggle = user?.preferences?.appearance?.show_header_offline_toggle ?? true;
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
   const { disableHeavyEffects } = useDeviceProfile();
@@ -626,107 +628,107 @@ const Header: React.FC = () => {
         </nav>
 
         {/* Search Bar & Dice Button */}
-        <div className="flex-1 flex items-center gap-2 max-w-md hidden md:flex">
+        <div className="hidden max-w-md flex-1 items-center gap-2 md:flex">
           {renderRandomMangaButton()}
-          {renderOfflineToggleButton()}
+          {showHeaderOfflineToggle && renderOfflineToggleButton()}
 
           <form onSubmit={handleSearch} className="flex-1">
             <div className="relative w-full">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              type="search"
-              placeholder="Manga, manhwa, webtoon veya yazar ara..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              onFocus={() => {
-                setIsSearchFocused(true);
-                void ensureQuickSearchData();
-              }}
-              onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
-              className="w-full pl-10"
-            />
-            {/* Quick Search Dropdown */}
-            {isSearchFocused && (quickResults.length > 0 || quickCharacterResults.length > 0) && (
-              <div className="absolute top-full left-0 right-0 mt-2 overflow-hidden rounded-xl border border-border bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
-                <div className="p-2">
-                  {quickResults.length > 0 && (
-                    <>
-                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Seriler</p>
-                      <div className="mt-1 space-y-1">
-                        {quickResults.map((manga) => (
-                          <button
-                            key={manga.id}
-                            onClick={() => handleResultClick(manga.id)}
-                            className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
-                          >
-                            <img
-                              src={manga.cover}
-                              alt={manga.title}
-                              className="h-12 w-9 rounded object-cover shadow-sm group-hover:scale-105 transition-transform"
-                            />
-                            <div className="flex-1 min-w-0">
-                              <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className="text-[10px] text-muted-foreground capitalize">{manga.type}</span>
-                                <span className="h-1 w-1 rounded-full bg-border" />
-                                <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
-                                  <Star className="h-2.5 w-2.5 fill-current" />
-                                  {typeof manga.averageRating === 'number' ? manga.averageRating.toFixed(1) : '0.0'}
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Manga, manhwa, webtoon veya yazar ara..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onFocus={() => {
+                  setIsSearchFocused(true);
+                  void ensureQuickSearchData();
+                }}
+                onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
+                className="w-full pl-10"
+              />
+              {/* Quick Search Dropdown */}
+              {isSearchFocused && (quickResults.length > 0 || quickCharacterResults.length > 0) && (
+                <div className="absolute top-full left-0 right-0 mt-2 overflow-hidden rounded-xl border border-border bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+                  <div className="p-2">
+                    {quickResults.length > 0 && (
+                      <>
+                        <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Seriler</p>
+                        <div className="mt-1 space-y-1">
+                          {quickResults.map((manga) => (
+                            <button
+                              key={manga.id}
+                              onClick={() => handleResultClick(manga.id)}
+                              className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
+                            >
+                              <img
+                                src={manga.cover}
+                                alt={manga.title}
+                                className="h-12 w-9 rounded object-cover shadow-sm group-hover:scale-105 transition-transform"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
+                                <div className="flex items-center gap-2 mt-0.5">
+                                  <span className="text-[10px] text-muted-foreground capitalize">{manga.type}</span>
+                                  <span className="h-1 w-1 rounded-full bg-border" />
+                                  <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
+                                    <Star className="h-2.5 w-2.5 fill-current" />
+                                    {typeof manga.averageRating === 'number' ? manga.averageRating.toFixed(1) : '0.0'}
+                                  </div>
                                 </div>
                               </div>
-                            </div>
-                          </button>
-                        ))}
-                      </div>
-                    </>
-                  )}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
 
-                  {quickCharacterResults.length > 0 && (
-                    <div className="mt-3">
-                      <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Karakterler</p>
-                      <div className="mt-1 space-y-1">
-                        {quickCharacterResults.map(char => (
-                          <button
-                            key={char.id}
-                            onClick={() => {
-                              navigate(`/character/${char.id}`);
-                              setSearchQuery('');
-                              setQuickCharacterResults([]);
-                              setQuickResults([]);
-                              setIsSearchFocused(false);
-                            }}
-                            className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
-                          >
-                            <Avatar className="h-8 w-8">
-                              <AvatarImage src={char.imageUrl} />
-                              <AvatarFallback className="text-[10px]">{char.name[0]}</AvatarFallback>
-                            </Avatar>
-                            <div className="flex-1 min-w-0">
-                              <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{char.name}</h4>
-                              <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                <Heart className="h-2 w-2 fill-primary text-primary" /> {char.likesCount} Beğeni
+                    {quickCharacterResults.length > 0 && (
+                      <div className="mt-3">
+                        <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Karakterler</p>
+                        <div className="mt-1 space-y-1">
+                          {quickCharacterResults.map(char => (
+                            <button
+                              key={char.id}
+                              onClick={() => {
+                                navigate(`/character/${char.id}`);
+                                setSearchQuery('');
+                                setQuickCharacterResults([]);
+                                setQuickResults([]);
+                                setIsSearchFocused(false);
+                              }}
+                              className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
+                            >
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={char.imageUrl} />
+                                <AvatarFallback className="text-[10px]">{char.name[0]}</AvatarFallback>
+                              </Avatar>
+                              <div className="flex-1 min-w-0">
+                                <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{char.name}</h4>
+                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                  <Heart className="h-2 w-2 fill-primary text-primary" /> {char.likesCount} Beğeni
+                                </div>
                               </div>
-                            </div>
-                          </button>
-                        ))}
+                            </button>
+                          ))}
+                        </div>
                       </div>
-                    </div>
-                  )}
+                    )}
 
-                  <div className="mt-2 border-t border-border pt-1">
-                    <button
-                      onClick={handleSearch}
-                      className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-                    >
-                      <span>"{searchQuery}" için tüm sonuçlar</span>
-                      <Search className="h-3 w-3" />
-                    </button>
+                    <div className="mt-2 border-t border-border pt-1">
+                      <button
+                        onClick={handleSearch}
+                        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+                      >
+                        <span>"{searchQuery}" için tüm sonuçlar</span>
+                        <Search className="h-3 w-3" />
+                      </button>
+                    </div>
                   </div>
                 </div>
-              </div>
-            )}
-          </div>
-        </form>
+              )}
+            </div>
+          </form>
         </div>
 
         {/* User Actions */}
@@ -743,9 +745,11 @@ const Header: React.FC = () => {
 
           {/* Notifications & Search */}
           <div className="flex items-center gap-1">
-            <div className="hidden md:block">
-              <SuperSearch />
-            </div>
+            {showSecondaryHeaderSearch && (
+              <div className="hidden md:block">
+                <SuperSearch />
+              </div>
+            )}
             <Button
               variant="ghost"
               size="icon"
@@ -757,7 +761,7 @@ const Header: React.FC = () => {
               {isMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
             </Button>
             <div className="md:hidden">
-              {renderOfflineToggleButton()}
+              {showHeaderOfflineToggle && renderOfflineToggleButton()}
             </div>
             <InstallAppButton
               iconOnly

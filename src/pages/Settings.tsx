@@ -65,6 +65,8 @@ type PreferenceState = {
     };
     appearance: {
         manga_hover_preview: boolean;
+        show_header_search_bar: boolean;
+        show_header_offline_toggle: boolean;
     };
     privacy: {
         visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['visibility'];
@@ -106,6 +108,8 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
     },
     appearance: {
         manga_hover_preview: preferences?.appearance?.manga_hover_preview ?? false,
+        show_header_search_bar: preferences?.appearance?.show_header_search_bar ?? true,
+        show_header_offline_toggle: preferences?.appearance?.show_header_offline_toggle ?? true,
     },
     privacy: {
         visibility: preferences?.privacy?.visibility ?? 'public',
@@ -1308,7 +1312,7 @@ const Settings: React.FC = () => {
                                     <SlidersHorizontal className="h-5 w-5" />
                                     Diğer Tercihler
                                 </CardTitle>
-                                <CardDescription>Yorum görünümü ve genel kullanım davranışlarını buradan belirleyebilirsiniz.</CardDescription>
+                                <CardDescription>Üst çubuk, yorum görünümü ve genel kullanım davranışlarını buradan belirleyebilirsiniz.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
@@ -1326,7 +1330,37 @@ const Settings: React.FC = () => {
                                         disabled={isUpdatingPrefs}
                                     />
                                 </div>
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
+                                        <Label htmlFor="show-header-search-bar">2. Arama Çubuğunu Göster</Label>
+                                        <p className="text-sm text-muted-foreground">Sağ üstteki küçük arama düğmesini görünür tut.</p>
+                                    </div>
+                                    <Switch
+                                        id="show-header-search-bar"
+                                        checked={prefs.appearance?.show_header_search_bar ?? true}
+                                        onCheckedChange={(checked) => handleUpdatePreferences({
+                                            ...prefs,
+                                            appearance: { ...prefs.appearance, show_header_search_bar: checked }
+                                        }, 'Tercihler güncellendi')}
+                                        disabled={isUpdatingPrefs}
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
+                                        <Label htmlFor="show-header-offline-toggle">Üst Çubukta Çevrimdışı Mod Butonunu Göster</Label>
+                                        <p className="text-sm text-muted-foreground">Header içindeki hızlı çevrimdışı mod düğmesini görünür tut.</p>
+                                    </div>
+                                    <Switch
+                                        id="show-header-offline-toggle"
+                                        checked={prefs.appearance?.show_header_offline_toggle ?? true}
+                                        onCheckedChange={(checked) => handleUpdatePreferences({
+                                            ...prefs,
+                                            appearance: { ...prefs.appearance, show_header_offline_toggle: checked }
+                                        }, 'Tercihler güncellendi')}
+                                        disabled={isUpdatingPrefs}
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                                     <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="auto-show-replies">Yanıtları Otomatik Aç</Label>
                                         <p className="text-sm text-muted-foreground">Yorum başlıklarının altındaki yanıtlar varsayılan olarak açık gelsin.</p>
