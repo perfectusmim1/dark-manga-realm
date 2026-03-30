@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { Heart, Trophy, BookOpen, MessageCircle, ArrowLeft, Calendar } from 'lucide-react';
+import { Heart, Trophy, BookOpen, ArrowLeft, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Separator } from '@/components/ui/separator';
-import { Textarea } from '@/components/ui/textarea';
 import { getCharacterById, toggleEntityLike } from '@/lib/database';
 import { Character } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
@@ -14,6 +12,8 @@ import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import EntitySeriesGrid from '@/components/entities/EntitySeriesGrid';
+import EntityMetadataGrid from '@/components/entities/EntityMetadataGrid';
+import EntityGalleryGrid from '@/components/entities/EntityGalleryGrid';
 import { supabase } from '@/lib/supabase'; // Added for like check
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -129,7 +129,6 @@ const CharacterDetail: React.FC = () => {
             />
         </div>
     );
-
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">
             <Header />
@@ -204,8 +203,16 @@ const CharacterDetail: React.FC = () => {
                             </div>
                         </div>
 
+                        <EntityMetadataGrid
+                            metadata={character.details}
+                            alternativeNames={character.alternativeNames}
+                            sourceLinks={character.sourceLinks}
+                            title="Karakter Profili"
+                        />
+
                         {descriptionSection}
                         {seriesSection}
+                        <EntityGalleryGrid images={character.gallery} title="Karakter Galerisi" />
 
                         <Separator className="my-8" />
 

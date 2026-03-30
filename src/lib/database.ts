@@ -8,7 +8,27 @@ import {
     supabase,
     waitForUsableSupabaseSession,
 } from './supabase';
-import { Manga, Chapter, User, MangaRating, Comment, ReadingList, ReadingListItem, Review, MangaReaction, Character, Author, Artist } from './types';
+import {
+    Manga,
+    Chapter,
+    User,
+    MangaRating,
+    Comment,
+    ReadingList,
+    ReadingListItem,
+    Review,
+    MangaReaction,
+    Character,
+    Author,
+    Artist,
+    VoiceActor,
+    CharacterVoiceActorRole,
+    VoiceActorRole,
+    MangaRelation,
+    EntityMetadata,
+    ExternalSourceLink,
+    EntityGalleryImage,
+} from './types';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import { normalizeGenres } from './mockData';
 import { sortChapterBatchItems } from './chapterBatchOrdering';
@@ -37,7 +57,7 @@ import {
 import { warmPersistentImageUrls } from '@/lib/offline/persistentImageWarmup';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
-    value?.split(/[,，]/)[0]?.trim().replace(/\s+/g, ' ') || '';
+    value?.trim().replace(/\s+/g, ' ') || '';
 
 const normalizeNamedEntityKey = (value?: string | null) =>
     normalizeNamedEntityValue(value).toLocaleLowerCase('tr-TR');
@@ -51,16 +71,108 @@ const mapAuthorRow = (row: any): Author => ({
     ...row,
     imageUrl: row.image_url,
     likesCount: row.likes_count ?? 0,
+    isPublic: row.is_public ?? true,
+    alternativeNames: row.alternative_names || [],
+    details: row.details || {},
+    gallery: row.gallery || [],
+    sourceLinks: row.source_links || [],
 });
 
 const mapArtistRow = (row: any): Artist => ({
     ...row,
     imageUrl: row.image_url,
     likesCount: row.likes_count ?? 0,
+    isPublic: row.is_public ?? true,
+    alternativeNames: row.alternative_names || [],
+    details: row.details || {},
+    gallery: row.gallery || [],
+    sourceLinks: row.source_links || [],
+});
+
+const mapCharacterRow = (row: any): Character => ({
+    id: row.id,
+    name: row.name,
+    imageUrl: row.image_url,
+    description: row.description,
+    likesCount: row.likes_count ?? 0,
+    createdAt: row.created_at,
+    isPublic: row.is_public ?? true,
+    alternativeNames: row.alternative_names || [],
+    details: row.details || {},
+    gallery: row.gallery || [],
+    sourceLinks: row.source_links || [],
+});
+
+const mapVoiceActorRow = (row: any): VoiceActor => ({
+    id: row.id,
+    name: row.name,
+    imageUrl: row.image_url,
+    description: row.description,
+    likesCount: row.likes_count ?? 0,
+    createdAt: row.created_at,
+    isPublic: row.is_public ?? true,
+    alternativeNames: row.alternative_names || [],
+    details: row.details || {},
+    gallery: row.gallery || [],
+    sourceLinks: row.source_links || [],
+});
+
+const mapMangaRelationRow = (row: any): MangaRelation => ({
+    id: row.id,
+    mangaId: row.manga_id,
+    relatedMangaId: row.related_manga_id,
+    relationType: row.relation_type,
+    sourceName: row.source_name || undefined,
+    sourceUrl: row.source_url || undefined,
+    sortOrder: row.sort_order ?? 0,
+    relatedManga: row.related_manga
+        ? {
+            ...row.related_manga,
+            alternativeTitles: row.related_manga.alternative_titles || [],
+            lastUpdated: row.related_manga.last_updated,
+            createdAt: row.related_manga.created_at,
+            releaseYear: row.related_manga.release_year,
+            chapters: [],
+            ratings: [],
+            averageRating: row.related_manga.average_rating ?? 0,
+            reviewCount: row.related_manga.review_count ?? 0,
+            details: row.related_manga.details || {},
+            sourceLinks: row.related_manga.source_links || [],
+        } as Manga
+        : undefined,
+});
+
+const normalizeEntityMetadata = (metadata?: EntityMetadata | Record<string, unknown> | null) => (
+    metadata && typeof metadata === 'object' && !Array.isArray(metadata)
+        ? metadata
+        : {}
+) as EntityMetadata;
+
+const normalizeEntityGallery = (gallery?: EntityGalleryImage[] | unknown) => (
+    Array.isArray(gallery)
+        ? gallery.filter((item) => item && typeof item === 'object' && typeof (item as EntityGalleryImage).url === 'string')
+        : []
+) as EntityGalleryImage[];
+
+const normalizeEntitySourceLinks = (sourceLinks?: ExternalSourceLink[] | unknown) => (
+    Array.isArray(sourceLinks)
+        ? sourceLinks.filter((item) => item && typeof item === 'object' && typeof (item as ExternalSourceLink).url === 'string')
+        : []
+) as ExternalSourceLink[];
+
+const createRichEntityPayload = (entity: Partial<Character | Author | Artist | VoiceActor>) => ({
+    name: normalizeNamedEntityValue(entity.name),
+    image_url: entity.imageUrl,
+    description: entity.description,
+    is_public: entity.isPublic ?? true,
+    alternative_names: entity.alternativeNames || [],
+    details: normalizeEntityMetadata(entity.details),
+    gallery: normalizeEntityGallery(entity.gallery),
+    source_links: normalizeEntitySourceLinks(entity.sourceLinks),
 });
 
 const getOrderedEntityRank = async (
-    tableName: 'authors' | 'artists',
+    tableName: 'characters' | 'authors' | 'artists' | 'voice_actors',
     entityId: string,
 ): Promise<number | undefined> => {
     const { data, error } = await (supabase as any)
@@ -76,6 +188,27 @@ const getOrderedEntityRank = async (
     const rankIndex = data.findIndex((row: { id: string }) => row.id === entityId);
     return rankIndex >= 0 ? rankIndex + 1 : undefined;
 };
+
+const applyPublicEntityFilter = <TQuery extends { eq: (column: string, value: any) => TQuery }>(
+    query: TQuery,
+    includePrivate?: boolean,
+) => (
+    includePrivate ? query : query.eq('is_public', true)
+);
+
+const joinNamedEntityValues = (values: Array<string | null | undefined>) => (
+    Array.from(
+        new Set(
+            values
+                .map((value) => normalizeNamedEntityValue(value))
+                .filter(Boolean)
+                .map((value) => `${value}`),
+        ),
+    ).join(', ')
+);
+
+type RichEntityType = 'character' | 'author' | 'artist' | 'voice_actor';
+type CommentEntityType = 'manga' | RichEntityType;
 
 export interface LatestChapterFeedItem {
     chapterId: string;
@@ -115,7 +248,7 @@ export interface MangaReport {
 export interface CommentReport {
     id: string;
     commentId: string;
-    commentEntityType: 'manga' | 'character' | 'author' | 'artist';
+    commentEntityType: CommentEntityType;
     targetEntityId: string;
     targetTitle?: string;
     reporterId: string;
@@ -577,7 +710,10 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
 /**
  * Get a single manga by ID with all its chapters
  */
-export const getMangaById = async (mangaId: string): Promise<Manga | undefined> => {
+export const getMangaById = async (
+    mangaId: string,
+    options?: { includePrivate?: boolean }
+): Promise<Manga | undefined> => {
     const { data, error } = await supabase
         .from('mangas')
         .select(`
@@ -594,12 +730,14 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
 
     const [
         { data: reviewData },
-        { data: authorData },
-        { data: artistData }
+        authorsDetails,
+        artistsDetails,
+        relatedSeries,
     ] = await Promise.all([
         supabase.from('reviews').select('*').eq('manga_id', mangaId),
-        data.author ? supabase.from('authors').select('*').eq('name', data.author).maybeSingle() : Promise.resolve({ data: null }),
-        data.artist ? supabase.from('artists').select('*').eq('name', data.artist).maybeSingle() : Promise.resolve({ data: null })
+        getMangaAuthors(mangaId, options),
+        getMangaArtists(mangaId, options),
+        getMangaRelatedSeries(mangaId),
     ]);
 
     const reviews = reviewData || [];
@@ -630,10 +768,15 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
 
     return {
         ...data,
+        author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || data.author,
+        artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || data.artist,
         alternativeTitles: data.alternative_titles || [],
         lastUpdated: data.last_updated,
         createdAt: data.created_at,
         releaseYear: data.release_year,
+        details: data.details || {},
+        sourceLinks: data.source_links || [],
+        relatedSeries,
         chapters: (data.chapters || []).sort((a: any, b: any) => b.number - a.number).map((c: any) => ({
             ...c,
             releaseDate: c.release_date
@@ -646,8 +789,10 @@ export const getMangaById = async (mangaId: string): Promise<Manga | undefined> 
         averageRating: average,
         ratingBreakdown: breakdown,
         reviewCount: reviews.length,
-        authorDetails: authorData ? { ...authorData, imageUrl: authorData.image_url, likesCount: authorData.likes_count } : undefined,
-        artistDetails: artistData ? { ...artistData, imageUrl: artistData.image_url, likesCount: artistData.likes_count } : undefined
+        authorDetails: authorsDetails[0],
+        artistDetails: artistsDetails[0],
+        authorsDetails,
+        artistsDetails,
     } as any;
 };
 
@@ -669,6 +814,8 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         views: manga.views || 0,
         release_year: manga.releaseYear,
         alternative_titles: manga.alternativeTitles || [],
+        details: normalizeEntityMetadata(manga.details),
+        source_links: normalizeEntitySourceLinks(manga.sourceLinks),
         last_updated: new Date().toISOString(),
         created_at: manga.createdAt || new Date().toISOString(),
     };
@@ -1173,7 +1320,7 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
         };
 
         const { data: ownProfile, error: ownProfileError } = await runWithSupabaseBootstrapRetry({
-            run: () => supabase
+            run: async () => await supabase
                 .from('users')
                 .select('role')
                 .eq('id', authUserId)
@@ -1401,6 +1548,8 @@ export const getMangasByIds = async (mangaIds: string[]): Promise<Manga[]> => {
                     releaseYear: m.release_year,
                     lastUpdated: m.last_updated,
                     createdAt: m.created_at,
+                    details: m.details || {},
+                    sourceLinks: m.source_links || [],
                     chapters: mangaChapters.map((chapter: any) => ({
                         id: chapter.id,
                         number: chapter.number,
@@ -1610,7 +1759,7 @@ export const getCommentsForManga = async (
 };
 
 export const getEntityCommentsV2 = async (
-    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityType: CommentEntityType,
     entityId: string,
     chapterId?: string,
     sortBy: 'newest' | 'popular' = 'newest',
@@ -2044,7 +2193,7 @@ export const createMangaReport = async (payload: {
 
 export const createCommentReport = async (payload: {
     commentId: string;
-    commentEntityType: 'manga' | 'character' | 'author' | 'artist';
+    commentEntityType: CommentEntityType;
     targetEntityId: string;
     reporterId: string;
     reportedUserId: string;
@@ -2171,6 +2320,7 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
         character: data.filter((report: any) => report.comment_entity_type === 'character').map((report: any) => report.comment_id),
         author: data.filter((report: any) => report.comment_entity_type === 'author').map((report: any) => report.comment_id),
         artist: data.filter((report: any) => report.comment_entity_type === 'artist').map((report: any) => report.comment_id),
+        voice_actor: data.filter((report: any) => report.comment_entity_type === 'voice_actor').map((report: any) => report.comment_id),
     };
 
     const [
@@ -2178,6 +2328,7 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
         { data: characterCommentsData },
         { data: authorCommentsData },
         { data: artistCommentsData },
+        { data: voiceActorCommentsData },
     ] = await Promise.all([
         groupedIds.manga.length
             ? supabase.from('comments').select('id, manga_id, user_id, username, content, created_at').in('id', groupedIds.manga)
@@ -2191,6 +2342,9 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
         groupedIds.artist.length
             ? supabase.from('artist_comments').select('id, artist_id, user_id, username, content, created_at').in('id', groupedIds.artist)
             : Promise.resolve({ data: [] as any[] }),
+        groupedIds.voice_actor.length
+            ? supabase.from('voice_actor_comments').select('id, voice_actor_id, user_id, username, content, created_at').in('id', groupedIds.voice_actor)
+            : Promise.resolve({ data: [] as any[] }),
     ]);
 
     const commentMap = new Map<string, any>();
@@ -2198,12 +2352,14 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
     (characterCommentsData || []).forEach((comment: any) => commentMap.set(`character:${comment.id}`, comment));
     (authorCommentsData || []).forEach((comment: any) => commentMap.set(`author:${comment.id}`, comment));
     (artistCommentsData || []).forEach((comment: any) => commentMap.set(`artist:${comment.id}`, comment));
+    (voiceActorCommentsData || []).forEach((comment: any) => commentMap.set(`voice_actor:${comment.id}`, comment));
 
     const targetIds = {
         manga: [...new Set(data.filter((report: any) => report.comment_entity_type === 'manga').map((report: any) => report.target_entity_id).filter(Boolean))],
         character: [...new Set(data.filter((report: any) => report.comment_entity_type === 'character').map((report: any) => report.target_entity_id).filter(Boolean))],
         author: [...new Set(data.filter((report: any) => report.comment_entity_type === 'author').map((report: any) => report.target_entity_id).filter(Boolean))],
         artist: [...new Set(data.filter((report: any) => report.comment_entity_type === 'artist').map((report: any) => report.target_entity_id).filter(Boolean))],
+        voice_actor: [...new Set(data.filter((report: any) => report.comment_entity_type === 'voice_actor').map((report: any) => report.target_entity_id).filter(Boolean))],
     };
 
     const [
@@ -2211,6 +2367,7 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
         { data: characterTargetsData },
         { data: authorTargetsData },
         { data: artistTargetsData },
+        { data: voiceActorTargetsData },
     ] = await Promise.all([
         targetIds.manga.length
             ? supabase.from('mangas').select('id, title').in('id', targetIds.manga)
@@ -2224,6 +2381,9 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
         targetIds.artist.length
             ? supabase.from('artists').select('id, name').in('id', targetIds.artist)
             : Promise.resolve({ data: [] as any[] }),
+        targetIds.voice_actor.length
+            ? supabase.from('voice_actors').select('id, name').in('id', targetIds.voice_actor)
+            : Promise.resolve({ data: [] as any[] }),
     ]);
 
     const targetTitleMap = new Map<string, string>();
@@ -2231,6 +2391,7 @@ export const getCommentReports = async (): Promise<CommentReport[]> => {
     (characterTargetsData || []).forEach((target: any) => targetTitleMap.set(`character:${target.id}`, target.name));
     (authorTargetsData || []).forEach((target: any) => targetTitleMap.set(`author:${target.id}`, target.name));
     (artistTargetsData || []).forEach((target: any) => targetTitleMap.set(`artist:${target.id}`, target.name));
+    (voiceActorTargetsData || []).forEach((target: any) => targetTitleMap.set(`voice_actor:${target.id}`, target.name));
 
     return data.map((report: any) => {
         const commentKey = `${report.comment_entity_type}:${report.comment_id}`;
@@ -2984,7 +3145,7 @@ export const getMangaReactions = async (mangaId: string, chapterId?: string): Pr
     return getEntityReactions('manga', mangaId, chapterId);
 };
 
-export const getEntityReactions = async (entityType: 'manga' | 'character' | 'author' | 'artist', entityId: string, chapterId?: string): Promise<Record<string, number>> => {
+export const getEntityReactions = async (entityType: CommentEntityType, entityId: string, chapterId?: string): Promise<Record<string, number>> => {
     const tableName = `${entityType}_reactions`;
     const colName = `${entityType}_id`;
 
@@ -3017,7 +3178,7 @@ export const getUserMangaReaction = async (mangaId: string, userId: string, chap
     return getUserEntityReaction('manga', mangaId, userId, chapterId);
 };
 
-export const getUserEntityReaction = async (entityType: 'manga' | 'character' | 'author' | 'artist', entityId: string, userId: string, chapterId?: string): Promise<string | null> => {
+export const getUserEntityReaction = async (entityType: CommentEntityType, entityId: string, userId: string, chapterId?: string): Promise<string | null> => {
     const tableName = `${entityType}_reactions`;
     const colName = `${entityType}_id`;
 
@@ -3045,7 +3206,7 @@ export const addMangaReaction = async (mangaId: string, userId: string, reaction
     return addEntityReactionV2('manga', mangaId, userId, reactionType, chapterId);
 };
 
-export const addEntityReactionV2 = async (entityType: 'manga' | 'character' | 'author' | 'artist', entityId: string, userId: string, reactionType: string, chapterId?: string): Promise<void> => {
+export const addEntityReactionV2 = async (entityType: CommentEntityType, entityId: string, userId: string, reactionType: string, chapterId?: string): Promise<void> => {
     const tableName = `${entityType}_reactions`;
     const colName = `${entityType}_id`;
 
@@ -3183,34 +3344,61 @@ export const getSimilarMangas = async (
 
 // ==================== CHARACTER, AUTHOR, ARTIST OPERATIONS ====================
 
-export const getCharacters = async (): Promise<Character[]> => {
-    const { data, error } = await supabase
-        .from('characters')
-        .select('*')
-        .order('likes_count', { ascending: false })
-        .order('name', { ascending: true });
+export const getCharacters = async (
+    options?: { includePrivate?: boolean }
+): Promise<Character[]> => {
+    return getCharactersList(options);
+};
+
+export const getCharactersList = async (
+    options?: { includePrivate?: boolean }
+): Promise<Character[]> => {
+    const { data, error } = await applyPublicEntityFilter(
+        supabase
+            .from('characters')
+            .select('*')
+            .order('likes_count', { ascending: false })
+            .order('name', { ascending: true }),
+        options?.includePrivate,
+    );
 
     if (error) return [];
-    return data.map((c, index) => ({
-        id: c.id,
-        name: c.name,
-        imageUrl: c.image_url,
-        description: c.description,
-        likesCount: c.likes_count ?? 0,
-        createdAt: c.created_at,
-        rank: index + 1
+    return (data || []).map((character, index) => ({
+        ...mapCharacterRow(character),
+        rank: index + 1,
     }));
 };
 
-export const getCharacterById = async (id: string): Promise<Character | undefined> => {
+export const findCharacterByName = async (name: string): Promise<Character | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
     const { data, error } = await supabase
         .from('characters')
-        .select(`
-            *,
-            mangas:manga_characters(manga:mangas(*))
-        `)
-        .eq('id', id)
-        .maybeSingle();
+        .select('*')
+        .ilike('name', normalizedName)
+        .limit(1);
+
+    if (error) throw error;
+    return data?.[0] ? mapCharacterRow(data[0]) : null;
+};
+
+export const getCharacterById = async (
+    id: string,
+    options?: { includePrivate?: boolean }
+): Promise<Character | undefined> => {
+    const { data, error } = await applyPublicEntityFilter(
+        supabase
+            .from('characters')
+            .select(`
+                *,
+                mangas:manga_characters(manga:mangas(*))
+            `)
+            .eq('id', id),
+        options?.includePrivate,
+    ).maybeSingle();
 
     if (error || !data) return undefined;
 
@@ -3218,42 +3406,75 @@ export const getCharacterById = async (id: string): Promise<Character | undefine
         .map((item: any) => item.manga?.id)
         .filter(Boolean);
 
-    const [{ count }, series] = await Promise.all([
-        supabase
-            .from('characters')
-            .select('*', { count: 'exact', head: true })
-            .gt('likes_count', data.likes_count),
+    const [series, rank, voiceActors] = await Promise.all([
         getMangasByIds(seriesIds),
+        getOrderedEntityRank('characters', id),
+        getCharacterVoiceActors(id, options),
     ]);
 
     return {
-        id: data.id,
-        name: data.name,
-        imageUrl: data.image_url,
-        description: data.description,
-        likesCount: data.likes_count,
-        createdAt: data.created_at,
-        rank: (count || 0) + 1,
+        ...mapCharacterRow(data),
+        rank,
         series,
+        voiceActors,
     };
 };
 
 export const saveCharacter = async (character: Partial<Character>): Promise<string> => {
-    const data = {
-        name: character.name,
-        image_url: character.imageUrl,
-        description: character.description,
-    };
+    const normalizedName = normalizeNamedEntityValue(character.name);
+    if (!normalizedName) {
+        throw new Error('CHARACTER_NAME_REQUIRED');
+    }
+
+    const data = createRichEntityPayload({
+        ...character,
+        name: normalizedName,
+    });
 
     if (character.id) {
-        const { error } = await supabase.from('characters').update(data).eq('id', character.id);
+        const { error } = await supabase
+            .from('characters')
+            .update(data)
+            .eq('id', character.id);
         if (error) throw error;
         return character.id;
-    } else {
-        const { data: inserted, error } = await supabase.from('characters').insert(data).select().single();
-        if (error) throw error;
-        return inserted.id;
     }
+
+    const { data: inserted, error } = await supabase
+        .from('characters')
+        .insert(data)
+        .select('id')
+        .single();
+
+    if (error) throw error;
+    return inserted.id;
+};
+
+export const ensureCharacterByName = async (name: string): Promise<Character | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
+    const existing = await findCharacterByName(normalizedName);
+    if (existing) {
+        return existing;
+    }
+
+    const id = await saveCharacter({ name: normalizedName });
+    return {
+        id,
+        name: normalizedName,
+        imageUrl: undefined,
+        description: undefined,
+        likesCount: 0,
+        createdAt: new Date().toISOString(),
+        isPublic: true,
+        alternativeNames: [],
+        details: {},
+        gallery: [],
+        sourceLinks: [],
+    };
 };
 
 export const deleteCharacter = async (id: string): Promise<void> => {
@@ -3269,30 +3490,32 @@ export const unlinkMangaFromCharacter = async (mangaId: string, characterId: str
     await supabase.from('manga_characters').delete().eq('manga_id', mangaId).eq('character_id', characterId);
 };
 
-export const getMangaCharacters = async (mangaId: string): Promise<Character[]> => {
+export const getMangaCharacters = async (
+    mangaId: string,
+    options?: { includePrivate?: boolean }
+): Promise<Character[]> => {
     const { data, error } = await supabase
         .from('manga_characters')
         .select('character:characters(*)')
         .eq('manga_id', mangaId);
 
     if (error) return [];
-    return data.map((d: any) => ({
-        id: d.character.id,
-        name: d.character.name,
-        imageUrl: d.character.image_url,
-        description: d.character.description,
-        likesCount: d.character.likes_count,
-        createdAt: d.character.created_at
-    }));
+    return (data || [])
+        .map((entry: any) => entry.character)
+        .filter((character: any) => character && (options?.includePrivate || character.is_public !== false))
+        .map((character: any) => mapCharacterRow(character));
 };
 
 // Same for Authors/Artists (shorter versions)
-export const getAuthors = async (): Promise<Author[]> => {
-    const { data, error } = await supabase
-        .from('authors')
-        .select('*')
-        .order('likes_count', { ascending: false })
-        .order('name', { ascending: true });
+export const getAuthors = async (options?: { includePrivate?: boolean }): Promise<Author[]> => {
+    const { data, error } = await applyPublicEntityFilter(
+        supabase
+            .from('authors')
+            .select('*')
+            .order('likes_count', { ascending: false })
+            .order('name', { ascending: true }),
+        options?.includePrivate,
+    );
 
     if (error) return [];
 
@@ -3302,12 +3525,15 @@ export const getAuthors = async (): Promise<Author[]> => {
     }));
 };
 
-export const getArtists = async (): Promise<Artist[]> => {
-    const { data, error } = await supabase
-        .from('artists')
-        .select('*')
-        .order('likes_count', { ascending: false })
-        .order('name', { ascending: true });
+export const getArtists = async (options?: { includePrivate?: boolean }): Promise<Artist[]> => {
+    const { data, error } = await applyPublicEntityFilter(
+        supabase
+            .from('artists')
+            .select('*')
+            .order('likes_count', { ascending: false })
+            .order('name', { ascending: true }),
+        options?.includePrivate,
+    );
 
     if (error) return [];
 
@@ -3317,12 +3543,35 @@ export const getArtists = async (): Promise<Artist[]> => {
     }));
 };
 
-export const getAuthorById = async (id: string): Promise<Author | undefined> => {
-    const { data, error } = await supabase
-        .from('authors')
-        .select(`*, mangas:manga_authors(manga:mangas(*))`)
-        .eq('id', id)
-        .maybeSingle();
+export const getVoiceActors = async (options?: { includePrivate?: boolean }): Promise<VoiceActor[]> => {
+    const { data, error } = await applyPublicEntityFilter(
+        supabase
+            .from('voice_actors')
+            .select('*')
+            .order('likes_count', { ascending: false })
+            .order('name', { ascending: true }),
+        options?.includePrivate,
+    );
+
+    if (error) return [];
+
+    return (data || []).map((voiceActor, index) => ({
+        ...mapVoiceActorRow(voiceActor),
+        rank: index + 1,
+    }));
+};
+
+export const getAuthorById = async (
+    id: string,
+    options?: { includePrivate?: boolean }
+): Promise<Author | undefined> => {
+    const { data, error } = await applyPublicEntityFilter(
+        supabase
+            .from('authors')
+            .select(`*, mangas:manga_authors(manga:mangas(*))`)
+            .eq('id', id),
+        options?.includePrivate,
+    ).maybeSingle();
     if (error || !data) return undefined;
 
     const seriesIds = ((data as any).mangas || [])
@@ -3336,12 +3585,17 @@ export const getAuthorById = async (id: string): Promise<Author | undefined> => 
     return { ...mapAuthorRow(data), series, rank };
 };
 
-export const getArtistById = async (id: string): Promise<Artist | undefined> => {
-    const { data, error } = await supabase
-        .from('artists')
-        .select(`*, mangas:manga_artists(manga:mangas(*))`)
-        .eq('id', id)
-        .maybeSingle();
+export const getArtistById = async (
+    id: string,
+    options?: { includePrivate?: boolean }
+): Promise<Artist | undefined> => {
+    const { data, error } = await applyPublicEntityFilter(
+        supabase
+            .from('artists')
+            .select(`*, mangas:manga_artists(manga:mangas(*))`)
+            .eq('id', id),
+        options?.includePrivate,
+    ).maybeSingle();
     if (error || !data) return undefined;
 
     const seriesIds = ((data as any).mangas || [])
@@ -3353,6 +3607,32 @@ export const getArtistById = async (id: string): Promise<Artist | undefined> => 
     ]);
 
     return { ...mapArtistRow(data), series, rank };
+};
+
+export const getVoiceActorById = async (
+    id: string,
+    options?: { includePrivate?: boolean }
+): Promise<VoiceActor | undefined> => {
+    const { data, error } = await applyPublicEntityFilter(
+        supabase
+            .from('voice_actors')
+            .select('*')
+            .eq('id', id),
+        options?.includePrivate,
+    ).maybeSingle();
+
+    if (error || !data) return undefined;
+
+    const [roles, rank] = await Promise.all([
+        getVoiceActorRoles(id, options),
+        getOrderedEntityRank('voice_actors', id),
+    ]);
+
+    return {
+        ...mapVoiceActorRow(data),
+        rank,
+        roles,
+    };
 };
 
 export const findAuthorByName = async (name: string): Promise<Author | null> => {
@@ -3387,20 +3667,45 @@ export const findArtistByName = async (name: string): Promise<Artist | null> => 
     return data?.[0] ? mapArtistRow(data[0]) : null;
 };
 
+export const findVoiceActorByName = async (name: string): Promise<VoiceActor | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
+    const { data, error } = await supabase
+        .from('voice_actors')
+        .select('*')
+        .ilike('name', normalizedName)
+        .limit(1);
+
+    if (error) throw error;
+    return data?.[0] ? mapVoiceActorRow(data[0]) : null;
+};
+
 export const saveAuthor = async (author: Partial<Author>) => {
     const normalizedName = normalizeNamedEntityValue(author.name);
     if (!normalizedName) {
         throw new Error('AUTHOR_NAME_REQUIRED');
     }
 
-    const data = { name: normalizedName, image_url: author.imageUrl, description: author.description };
+    const data = createRichEntityPayload({
+        ...author,
+        name: normalizedName,
+    });
     if (author.id) {
-        await supabase.from('authors').update(data).eq('id', author.id);
+        const { error } = await supabase.from('authors').update(data).eq('id', author.id);
+        if (error) throw error;
         return author.id;
-    } else {
-        const { data: inserted } = await supabase.from('authors').insert(data).select().single();
-        return inserted.id;
     }
+
+    const { data: inserted, error } = await supabase
+        .from('authors')
+        .insert(data)
+        .select('id')
+        .single();
+    if (error) throw error;
+    return inserted.id;
 };
 
 export const deleteAuthor = async (id: string): Promise<void> => {
@@ -3414,18 +3719,58 @@ export const saveArtist = async (artist: Partial<Artist>) => {
         throw new Error('ARTIST_NAME_REQUIRED');
     }
 
-    const data = { name: normalizedName, image_url: artist.imageUrl, description: artist.description };
+    const data = createRichEntityPayload({
+        ...artist,
+        name: normalizedName,
+    });
     if (artist.id) {
-        await supabase.from('artists').update(data).eq('id', artist.id);
+        const { error } = await supabase.from('artists').update(data).eq('id', artist.id);
+        if (error) throw error;
         return artist.id;
-    } else {
-        const { data: inserted } = await supabase.from('artists').insert(data).select().single();
-        return inserted.id;
     }
+
+    const { data: inserted, error } = await supabase
+        .from('artists')
+        .insert(data)
+        .select('id')
+        .single();
+    if (error) throw error;
+    return inserted.id;
 };
 
 export const deleteArtist = async (id: string): Promise<void> => {
     const { error } = await supabase.from('artists').delete().eq('id', id);
+    if (error) throw error;
+};
+
+export const saveVoiceActor = async (voiceActor: Partial<VoiceActor>) => {
+    const normalizedName = normalizeNamedEntityValue(voiceActor.name);
+    if (!normalizedName) {
+        throw new Error('VOICE_ACTOR_NAME_REQUIRED');
+    }
+
+    const data = createRichEntityPayload({
+        ...voiceActor,
+        name: normalizedName,
+    });
+
+    if (voiceActor.id) {
+        const { error } = await supabase.from('voice_actors').update(data).eq('id', voiceActor.id);
+        if (error) throw error;
+        return voiceActor.id;
+    }
+
+    const { data: inserted, error } = await supabase
+        .from('voice_actors')
+        .insert(data)
+        .select('id')
+        .single();
+    if (error) throw error;
+    return inserted.id;
+};
+
+export const deleteVoiceActor = async (id: string): Promise<void> => {
+    const { error } = await supabase.from('voice_actors').delete().eq('id', id);
     if (error) throw error;
 };
 
@@ -3448,6 +3793,11 @@ export const ensureAuthorByName = async (name: string): Promise<Author | null> =
         description: undefined,
         likesCount: 0,
         createdAt: new Date().toISOString(),
+        isPublic: true,
+        alternativeNames: [],
+        details: {},
+        gallery: [],
+        sourceLinks: [],
     };
 };
 
@@ -3470,7 +3820,79 @@ export const ensureArtistByName = async (name: string): Promise<Artist | null> =
         description: undefined,
         likesCount: 0,
         createdAt: new Date().toISOString(),
+        isPublic: true,
+        alternativeNames: [],
+        details: {},
+        gallery: [],
+        sourceLinks: [],
     };
+};
+
+export const ensureVoiceActorByName = async (name: string): Promise<VoiceActor | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
+    const existing = await findVoiceActorByName(normalizedName);
+    if (existing) {
+        return existing;
+    }
+
+    const id = await saveVoiceActor({ name: normalizedName });
+    return {
+        id,
+        name: normalizedName,
+        imageUrl: undefined,
+        description: undefined,
+        likesCount: 0,
+        createdAt: new Date().toISOString(),
+        isPublic: true,
+        alternativeNames: [],
+        details: {},
+        gallery: [],
+        sourceLinks: [],
+    };
+};
+
+export const getMangaAuthors = async (
+    mangaId: string,
+    options?: { includePrivate?: boolean }
+): Promise<Author[]> => {
+    const { data, error } = await supabase
+        .from('manga_authors')
+        .select('author:authors(*)')
+        .eq('manga_id', mangaId);
+
+    if (error) {
+        console.error('Manga authors fetch error:', error);
+        return [];
+    }
+
+    return (data || [])
+        .map((entry: any) => entry.author)
+        .filter((author: any) => author && (options?.includePrivate || author.is_public !== false))
+        .map((author: any) => mapAuthorRow(author));
+};
+
+export const getMangaArtists = async (
+    mangaId: string,
+    options?: { includePrivate?: boolean }
+): Promise<Artist[]> => {
+    const { data, error } = await supabase
+        .from('manga_artists')
+        .select('artist:artists(*)')
+        .eq('manga_id', mangaId);
+
+    if (error) {
+        console.error('Manga artists fetch error:', error);
+        return [];
+    }
+
+    return (data || [])
+        .map((entry: any) => entry.artist)
+        .filter((artist: any) => artist && (options?.includePrivate || artist.is_public !== false))
+        .map((artist: any) => mapArtistRow(artist));
 };
 
 export const linkMangaToAuthor = async (mangaId: string, authorId: string) => {
@@ -3481,8 +3903,229 @@ export const linkMangaToArtist = async (mangaId: string, artistId: string) => {
     await supabase.from('manga_artists').upsert({ manga_id: mangaId, artist_id: artistId });
 };
 
+export const replaceMangaAuthors = async (mangaId: string, authorIds: string[]) => {
+    const { error: deleteError } = await supabase
+        .from('manga_authors')
+        .delete()
+        .eq('manga_id', mangaId);
+
+    if (deleteError) {
+        throw deleteError;
+    }
+
+    const uniqueAuthorIds = [...new Set(authorIds.filter(Boolean))];
+    if (uniqueAuthorIds.length === 0) {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('manga_authors')
+        .insert(uniqueAuthorIds.map((authorId) => ({ manga_id: mangaId, author_id: authorId })));
+
+    if (error) {
+        throw error;
+    }
+};
+
+export const replaceMangaArtists = async (mangaId: string, artistIds: string[]) => {
+    const { error: deleteError } = await supabase
+        .from('manga_artists')
+        .delete()
+        .eq('manga_id', mangaId);
+
+    if (deleteError) {
+        throw deleteError;
+    }
+
+    const uniqueArtistIds = [...new Set(artistIds.filter(Boolean))];
+    if (uniqueArtistIds.length === 0) {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('manga_artists')
+        .insert(uniqueArtistIds.map((artistId) => ({ manga_id: mangaId, artist_id: artistId })));
+
+    if (error) {
+        throw error;
+    }
+};
+
+export const getCharacterVoiceActors = async (
+    characterId: string,
+    options?: { includePrivate?: boolean }
+): Promise<CharacterVoiceActorRole[]> => {
+    const { data, error } = await supabase
+        .from('character_voice_actors')
+        .select('*, voice_actor:voice_actors(*)')
+        .eq('character_id', characterId)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        console.error('Character voice actors fetch error:', error);
+        return [];
+    }
+
+    return (data || [])
+        .filter((row: any) => row.voice_actor && (options?.includePrivate || row.voice_actor.is_public !== false))
+        .map((row: any) => ({
+            id: row.id,
+            characterId: row.character_id,
+            voiceActorId: row.voice_actor_id,
+            language: row.language || undefined,
+            localeCode: row.locale_code || undefined,
+            roleLabel: row.role_label || undefined,
+            sortOrder: row.sort_order ?? 0,
+            sourceName: row.source_name || undefined,
+            sourceUrl: row.source_url || undefined,
+            details: row.details || {},
+            voiceActor: mapVoiceActorRow(row.voice_actor),
+        }));
+};
+
+export const getVoiceActorRoles = async (
+    voiceActorId: string,
+    options?: { includePrivate?: boolean }
+): Promise<VoiceActorRole[]> => {
+    const { data, error } = await supabase
+        .from('character_voice_actors')
+        .select('*, character:characters(*)')
+        .eq('voice_actor_id', voiceActorId)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        console.error('Voice actor roles fetch error:', error);
+        return [];
+    }
+
+    return (data || [])
+        .filter((row: any) => row.character && (options?.includePrivate || row.character.is_public !== false))
+        .map((row: any) => ({
+            id: row.id,
+            characterId: row.character_id,
+            voiceActorId: row.voice_actor_id,
+            characterName: row.character.name,
+            characterImageUrl: row.character.image_url || undefined,
+            language: row.language || undefined,
+            localeCode: row.locale_code || undefined,
+            roleLabel: row.role_label || undefined,
+            sortOrder: row.sort_order ?? 0,
+            sourceName: row.source_name || undefined,
+            sourceUrl: row.source_url || undefined,
+            details: row.details || {},
+        }));
+};
+
+export const replaceCharacterVoiceActors = async (
+    characterId: string,
+    roles: Array<Partial<CharacterVoiceActorRole>>
+): Promise<void> => {
+    const { error: deleteError } = await supabase
+        .from('character_voice_actors')
+        .delete()
+        .eq('character_id', characterId);
+
+    if (deleteError) {
+        throw deleteError;
+    }
+
+    const normalizedRows = roles
+        .filter((role) => role.voiceActorId)
+        .map((role, index) => ({
+            character_id: characterId,
+            voice_actor_id: role.voiceActorId,
+            language: role.language || null,
+            locale_code: role.localeCode || null,
+            role_label: role.roleLabel || null,
+            sort_order: role.sortOrder ?? index,
+            source_name: role.sourceName || null,
+            source_url: role.sourceUrl || null,
+            details: role.details || {},
+        }));
+
+    if (normalizedRows.length === 0) {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('character_voice_actors')
+        .insert(normalizedRows);
+
+    if (error) {
+        throw error;
+    }
+};
+
+export const getMangaRelatedSeries = async (mangaId: string): Promise<MangaRelation[]> => {
+    const { data, error } = await supabase
+        .from('manga_relations')
+        .select('*')
+        .eq('manga_id', mangaId)
+        .order('sort_order', { ascending: true })
+        .order('created_at', { ascending: true });
+
+    if (error) {
+        console.error('Manga relations fetch error:', error);
+        return [];
+    }
+
+    const relatedMangaIds = [...new Set((data || []).map((row: any) => row.related_manga_id).filter(Boolean))];
+    const relatedManga = await getMangasByIds(relatedMangaIds);
+    const mangaMap = new Map(relatedManga.map((manga) => [manga.id, manga]));
+
+    return (data || []).map((row: any) => ({
+        id: row.id,
+        mangaId: row.manga_id,
+        relatedMangaId: row.related_manga_id,
+        relationType: row.relation_type,
+        sourceName: row.source_name || undefined,
+        sourceUrl: row.source_url || undefined,
+        sortOrder: row.sort_order ?? 0,
+        relatedManga: mangaMap.get(row.related_manga_id),
+    }));
+};
+
+export const replaceMangaRelatedSeries = async (
+    mangaId: string,
+    relations: Array<Partial<MangaRelation>>
+): Promise<void> => {
+    const { error: deleteError } = await supabase
+        .from('manga_relations')
+        .delete()
+        .eq('manga_id', mangaId);
+
+    if (deleteError) {
+        throw deleteError;
+    }
+
+    const normalizedRows = relations
+        .filter((relation) => relation.relatedMangaId)
+        .map((relation, index) => ({
+            manga_id: mangaId,
+            related_manga_id: relation.relatedMangaId,
+            relation_type: relation.relationType || 'related',
+            source_name: relation.sourceName || null,
+            source_url: relation.sourceUrl || null,
+            sort_order: relation.sortOrder ?? index,
+        }));
+
+    if (normalizedRows.length === 0) {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('manga_relations')
+        .insert(normalizedRows);
+
+    if (error) {
+        throw error;
+    }
+};
+
 // Generic Like Toggle for Entities
-export const toggleEntityLike = async (entityType: 'character' | 'author' | 'artist', entityId: string, userId: string): Promise<void> => {
+export const toggleEntityLike = async (entityType: RichEntityType, entityId: string, userId: string): Promise<void> => {
     const tableName = `${entityType}_likes`;
     const colName = `${entityType}_id`;
 
@@ -3506,11 +4149,11 @@ export const toggleEntityLike = async (entityType: 'character' | 'author' | 'art
 
 // ==================== WRAPPERS FOR COMPATIBILITY ====================
 
-export const getEntityComments = async (entityType: 'character' | 'author' | 'artist', entityId: string): Promise<Comment[]> => {
+export const getEntityComments = async (entityType: RichEntityType, entityId: string): Promise<Comment[]> => {
     return getEntityCommentsV2(entityType, entityId);
 };
 
-export const addEntityComment = async (entityType: 'character' | 'author' | 'artist', entityId: string, userId: string, content: string): Promise<void> => {
+export const addEntityComment = async (entityType: RichEntityType, entityId: string, userId: string, content: string): Promise<void> => {
     await addCommentV2({
         entityId,
         entityType,
@@ -3683,7 +4326,7 @@ export const deleteTag = async (tagId: string): Promise<void> => {
 };
 
 export const getTagsForEntity = async (
-    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityType: CommentEntityType,
     entityId: string
 ): Promise<Tag[]> => {
     const tableName = `${entityType}_tags`;
@@ -3706,7 +4349,7 @@ export const getTagsForEntity = async (
 };
 
 export const addTagToEntity = async (
-    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityType: CommentEntityType,
     entityId: string,
     tagId: string,
     userId?: string,
@@ -3746,7 +4389,7 @@ export const addTagToEntity = async (
 };
 
 export const removeTagFromEntity = async (
-    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityType: CommentEntityType,
     entityId: string,
     tagId: string
 ): Promise<boolean> => {
@@ -3764,7 +4407,7 @@ export const removeTagFromEntity = async (
 
 export const voteOnTag = async (
     tagId: string,
-    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityType: CommentEntityType,
     entityId: string,
     userId: string,
     voteType: 'up' | 'down'
@@ -3809,7 +4452,7 @@ export const voteOnTag = async (
 };
 
 export const getTagVotes = async (
-    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityType: CommentEntityType,
     entityId: string
 ): Promise<Record<string, { up: number; down: number }>> => {
     const { data, error } = await supabase
@@ -3829,7 +4472,7 @@ export const getTagVotes = async (
 };
 
 export const getUserTagVotes = async (
-    entityType: 'manga' | 'character' | 'author' | 'artist',
+    entityType: CommentEntityType,
     entityId: string,
     userId: string
 ): Promise<Record<string, 'up' | 'down'>> => {

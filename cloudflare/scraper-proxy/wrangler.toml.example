@@ -4,7 +4,7 @@ compatibility_date = "2026-03-27"
 workers_dev = true
 
 [vars]
-ALLOWED_HOSTS = "hayalistic.net,hayalistic.com,webtoonhatti.club,yedek.mangawow.com,kirmizikafa.monster"
+ALLOWED_HOSTS = "hayalistic.net,hayalistic.com,webtoonhatti.club,yedek.mangawow.com,kirmizikafa.monster,myanimelist.net,cdn.myanimelist.net,mangaupdates.com,api.mangaupdates.com,anilist.co,graphql.anilist.co,api.jikan.moe"
 ALLOWED_ORIGINS = "https://toonparrot.vercel.app,https://*.vercel.app,http://localhost:*,http://127.0.0.1:*"
 
 # Optional:

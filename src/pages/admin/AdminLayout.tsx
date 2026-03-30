@@ -58,6 +58,7 @@ const AdminLayout: React.FC = () => {
         { icon: BookOpen, label: 'Mangalar', path: '/admin/mangas' },
         { icon: Plus, label: 'Manga Ekle', path: '/admin/mangas/new' },
         ...(canUseScrapers ? [{ icon: Download, label: 'İçerik Çek', path: '/admin/scraper' }] : []),
+        ...(canUseScrapers ? [{ icon: Download, label: 'Metadata Import', path: '/admin/metadata-import' }] : []),
         ...(canUseScrapers ? [{ icon: RefreshCw, label: 'Bölüm Çekme', path: '/admin/chapter-scraper' }] : []),
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
         { icon: Users, label: 'Karakter & Sanatçı', path: '/admin/entities' },

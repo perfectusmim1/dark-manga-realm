@@ -54,6 +54,7 @@ import {
     getCharacterById,
     getAuthorById,
     getArtistById,
+    getVoiceActorById,
     getEntityCommentsV2,
     getEntityReactions,
     getUserEntityReaction,
@@ -83,7 +84,7 @@ import { toast } from 'sonner';
 interface CommentSectionProps {
     mangaId?: string;
     entityId?: string;
-    entityType?: 'manga' | 'character' | 'author' | 'artist';
+    entityType?: 'manga' | 'character' | 'author' | 'artist' | 'voice_actor';
     chapterId?: string;
     blockedUserIds?: string[];
     totalReaderPages?: number;
@@ -748,6 +749,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             case 'artist': {
                 const artist = await getArtistById(entityId);
                 return artist?.name || 'Çizer';
+            }
+            case 'voice_actor': {
+                const voiceActor = await getVoiceActorById(entityId);
+                return voiceActor?.name || 'Seslendiren';
             }
             default:
                 return 'İçerik';

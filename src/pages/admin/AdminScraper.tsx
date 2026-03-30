@@ -72,7 +72,23 @@ const toScrapedKey = (value?: string | null) =>
     normalizeScrapedText(value).toLocaleLowerCase('tr-TR');
 
 const extractPrimaryScrapedPersonName = (value?: string | null) =>
-    normalizeScrapedText(value).split(/[,，]/)[0]?.trim() || '';
+    normalizeScrapedText(value);
+
+const splitScrapedEntityNames = (value?: string | null) => {
+    const normalized = normalizeScrapedText(value);
+    if (!normalized) {
+        return [] as string[];
+    }
+
+    return Array.from(
+        new Set(
+            normalized
+                .split(/[,，;\n|/]+/g)
+                .map((item) => extractPrimaryScrapedPersonName(item))
+                .filter(Boolean),
+        ),
+    );
+};
 
 const getScrapedSummaryField = (doc: Document, labels: string[]) => {
     const normalizedLabels = labels.map((label) => label.toLocaleLowerCase('tr-TR'));
@@ -339,13 +355,16 @@ const AdminScraper: React.FC = () => {
                 }
             }
 
-            const normalizedAuthorName = normalizeScrapedText(fetchedData.author);
-            const normalizedArtistName = normalizeScrapedText(fetchedData.artist);
-
-            const [authorEntity, artistEntity] = await Promise.all([
-                normalizedAuthorName ? ensureAuthorByName(normalizedAuthorName) : Promise.resolve(null),
-                normalizedArtistName ? ensureArtistByName(normalizedArtistName) : Promise.resolve(null),
-            ]);
+            const normalizedAuthorNames = splitScrapedEntityNames(fetchedData.author);
+            const normalizedArtistNames = splitScrapedEntityNames(fetchedData.artist);
+            const authorEntities = (await Promise.all(
+                normalizedAuthorNames.map((name) => ensureAuthorByName(name)),
+            )).filter(Boolean);
+            const artistEntities = (await Promise.all(
+                normalizedArtistNames.map((name) => ensureArtistByName(name)),
+            )).filter(Boolean);
+            const normalizedAuthorLabel = normalizedAuthorNames.join(', ');
+            const normalizedArtistLabel = normalizedArtistNames.join(', ');
 
             const finalManga: Manga = {
                 id: mangaId,
@@ -354,8 +373,8 @@ const AdminScraper: React.FC = () => {
                 description: fetchedData.description!,
                 cover: fetchedData.cover!,
                 banner: fetchedData.banner || fetchedData.cover!,
-                author: authorEntity?.name || normalizedAuthorName || '',
-                artist: artistEntity?.name || normalizedArtistName || undefined,
+                author: normalizedAuthorLabel || '',
+                artist: normalizedArtistLabel || undefined,
                 status: fetchedData.status!,
                 type: fetchedData.type!,
                 genres: fetchedData.genres!,
@@ -371,11 +390,11 @@ const AdminScraper: React.FC = () => {
 
             await saveManga(finalManga);
 
-            if (authorEntity) {
+            for (const authorEntity of authorEntities) {
                 await linkMangaToAuthor(mangaId, authorEntity.id);
             }
 
-            if (artistEntity) {
+            for (const artistEntity of artistEntities) {
                 await linkMangaToArtist(mangaId, artistEntity.id);
             }
 

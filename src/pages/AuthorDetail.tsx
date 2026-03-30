@@ -12,6 +12,8 @@ import CommentSection from '@/components/comments/CommentSection';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import EntityDetailRankBadge from '@/components/entities/EntityDetailRankBadge';
 import EntitySeriesGrid from '@/components/entities/EntitySeriesGrid';
+import EntityMetadataGrid from '@/components/entities/EntityMetadataGrid';
+import EntityGalleryGrid from '@/components/entities/EntityGalleryGrid';
 import { supabase } from '@/lib/supabase';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -199,8 +201,16 @@ const AuthorDetail: React.FC = () => {
                             </div>
                         </div>
 
+                        <EntityMetadataGrid
+                            metadata={author.details}
+                            alternativeNames={author.alternativeNames}
+                            sourceLinks={author.sourceLinks}
+                            title="Yazar Profili"
+                        />
+
                         {descriptionSection}
                         {seriesSection}
+                        <EntityGalleryGrid images={author.gallery} title="Yazar Galerisi" />
 
                         <Separator className="my-8" />
 

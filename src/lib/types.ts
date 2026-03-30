@@ -22,6 +22,11 @@ export interface Manga {
   characters?: Character[];
   authorDetails?: Author;
   artistDetails?: Artist;
+  authorsDetails?: Author[];
+  artistsDetails?: Artist[];
+  details?: EntityMetadata;
+  sourceLinks?: ExternalSourceLink[];
+  relatedSeries?: MangaRelation[];
   averageRating: number;
   reviewCount: number;
   ratingBreakdown?: {
@@ -33,7 +38,64 @@ export interface Manga {
   };
 }
 
-export interface Character {
+export type ExternalSourceName = 'anilist' | 'myanimelist' | 'mangaupdates';
+
+export interface ExternalSourceLink {
+  source: ExternalSourceName | string;
+  url: string;
+  label?: string;
+  kind?: string;
+}
+
+export interface EntityGalleryImage {
+  url: string;
+  thumbUrl?: string;
+  source?: ExternalSourceName | string;
+  sourceUrl?: string;
+  label?: string;
+}
+
+export interface EntityMetadata {
+  nativeName?: string;
+  englishName?: string;
+  romajiName?: string;
+  status?: string;
+  age?: string;
+  gender?: string;
+  birthday?: string;
+  birthDate?: string;
+  birthPlace?: string;
+  bloodType?: string;
+  zodiac?: string;
+  nationality?: string;
+  occupation?: string;
+  role?: string;
+  className?: string;
+  rankTitle?: string;
+  affiliation?: string[];
+  relatives?: string[];
+  website?: string;
+  twitter?: string;
+  favorites?: number;
+  popularity?: number;
+  averageScore?: number;
+  meanScore?: number;
+  chapters?: number;
+  volumes?: number;
+  startDate?: string;
+  endDate?: string;
+  sourceMaterial?: string;
+  countryOfOrigin?: string;
+  originalPublisher?: string;
+  officialTranslations?: string[];
+  originalWebtoon?: string[];
+  genres?: string[];
+  tags?: string[];
+  comments?: string;
+  extra?: Record<string, string | number | boolean | string[] | null>;
+}
+
+export interface BaseRichEntity {
   id: string;
   name: string;
   imageUrl?: string;
@@ -42,28 +104,117 @@ export interface Character {
   createdAt: string;
   series?: Manga[];
   rank?: number;
+  isPublic?: boolean;
+  alternativeNames?: string[];
+  details?: EntityMetadata;
+  gallery?: EntityGalleryImage[];
+  sourceLinks?: ExternalSourceLink[];
+}
+
+export interface Character {
+  id: BaseRichEntity['id'];
+  name: BaseRichEntity['name'];
+  imageUrl?: BaseRichEntity['imageUrl'];
+  description?: BaseRichEntity['description'];
+  likesCount: BaseRichEntity['likesCount'];
+  createdAt: BaseRichEntity['createdAt'];
+  series?: BaseRichEntity['series'];
+  rank?: BaseRichEntity['rank'];
+  isPublic?: BaseRichEntity['isPublic'];
+  alternativeNames?: BaseRichEntity['alternativeNames'];
+  details?: BaseRichEntity['details'];
+  gallery?: BaseRichEntity['gallery'];
+  sourceLinks?: BaseRichEntity['sourceLinks'];
+  voiceActors?: CharacterVoiceActorRole[];
 }
 
 export interface Author {
-  id: string;
-  name: string;
-  imageUrl?: string;
-  description?: string;
-  likesCount: number;
-  createdAt: string;
-  series?: Manga[];
-  rank?: number;
+  id: BaseRichEntity['id'];
+  name: BaseRichEntity['name'];
+  imageUrl?: BaseRichEntity['imageUrl'];
+  description?: BaseRichEntity['description'];
+  likesCount: BaseRichEntity['likesCount'];
+  createdAt: BaseRichEntity['createdAt'];
+  series?: BaseRichEntity['series'];
+  rank?: BaseRichEntity['rank'];
+  isPublic?: BaseRichEntity['isPublic'];
+  alternativeNames?: BaseRichEntity['alternativeNames'];
+  details?: BaseRichEntity['details'];
+  gallery?: BaseRichEntity['gallery'];
+  sourceLinks?: BaseRichEntity['sourceLinks'];
 }
 
 export interface Artist {
+  id: BaseRichEntity['id'];
+  name: BaseRichEntity['name'];
+  imageUrl?: BaseRichEntity['imageUrl'];
+  description?: BaseRichEntity['description'];
+  likesCount: BaseRichEntity['likesCount'];
+  createdAt: BaseRichEntity['createdAt'];
+  series?: BaseRichEntity['series'];
+  rank?: BaseRichEntity['rank'];
+  isPublic?: BaseRichEntity['isPublic'];
+  alternativeNames?: BaseRichEntity['alternativeNames'];
+  details?: BaseRichEntity['details'];
+  gallery?: BaseRichEntity['gallery'];
+  sourceLinks?: BaseRichEntity['sourceLinks'];
+}
+
+export interface VoiceActor {
+  id: BaseRichEntity['id'];
+  name: BaseRichEntity['name'];
+  imageUrl?: BaseRichEntity['imageUrl'];
+  description?: BaseRichEntity['description'];
+  likesCount: BaseRichEntity['likesCount'];
+  createdAt: BaseRichEntity['createdAt'];
+  series?: BaseRichEntity['series'];
+  rank?: BaseRichEntity['rank'];
+  isPublic?: BaseRichEntity['isPublic'];
+  alternativeNames?: BaseRichEntity['alternativeNames'];
+  details?: BaseRichEntity['details'];
+  gallery?: BaseRichEntity['gallery'];
+  sourceLinks?: BaseRichEntity['sourceLinks'];
+  roles?: VoiceActorRole[];
+}
+
+export interface CharacterVoiceActorRole {
   id: string;
-  name: string;
-  imageUrl?: string;
-  description?: string;
-  likesCount: number;
-  createdAt: string;
-  series?: Manga[];
-  rank?: number;
+  characterId: string;
+  voiceActorId: string;
+  language?: string;
+  localeCode?: string;
+  roleLabel?: string;
+  sortOrder?: number;
+  sourceName?: string;
+  sourceUrl?: string;
+  details?: Record<string, unknown>;
+  voiceActor?: VoiceActor;
+}
+
+export interface VoiceActorRole {
+  id: string;
+  characterId: string;
+  voiceActorId: string;
+  characterName: string;
+  characterImageUrl?: string;
+  language?: string;
+  localeCode?: string;
+  roleLabel?: string;
+  sortOrder?: number;
+  sourceName?: string;
+  sourceUrl?: string;
+  details?: Record<string, unknown>;
+}
+
+export interface MangaRelation {
+  id: string;
+  mangaId: string;
+  relatedMangaId: string;
+  relationType: string;
+  sourceName?: string;
+  sourceUrl?: string;
+  sortOrder?: number;
+  relatedManga?: Manga;
 }
 
 
@@ -222,7 +373,7 @@ export interface Comment {
   id: string;
   mangaId?: string;
   entityId?: string;
-  entityType?: 'manga' | 'character' | 'author' | 'artist';
+  entityType?: 'manga' | 'character' | 'author' | 'artist' | 'voice_actor';
   chapterId?: string;
   pageNumber?: number;
   userId: string;

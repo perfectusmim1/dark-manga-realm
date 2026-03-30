@@ -64,7 +64,7 @@ const toScrapedKey = (value?: string | null) =>
   normalizeScrapedText(value).toLocaleLowerCase('tr-TR');
 
 const extractPrimaryScrapedPersonName = (value?: string | null) =>
-  normalizeScrapedText(value).split(/[,，]/)[0]?.trim() || '';
+  normalizeScrapedText(value);
 
 const SCRAPED_PLACEHOLDER_PATTERNS = [
   /^[-–—\s]*$/i,
@@ -267,9 +267,10 @@ const extractWebtoonHattiCardsFromHtml = (html: string): ScrapedMangaCard[] => {
     const imageMatches = Array.from(
       snippet.matchAll(/<img[^>]+(?:data-src|data-lazy-src|src)="([^"]+)"/gi),
     );
+    const lastImageMatch = imageMatches.length > 0 ? imageMatches[imageMatches.length - 1] : undefined;
     const cover = normalizeUrl(
       SOURCE_CONFIG.webtoonhatti.baseUrl,
-      decodeHtmlValue(imageMatches.at(-1)?.[1] || ''),
+      decodeHtmlValue(lastImageMatch?.[1] || ''),
     );
     const genres = Array.from(
       snippet.matchAll(/<a[^>]+href="[^"]*\/webtoon-tur\/[^"]*"[^>]*>([\s\S]*?)<\/a>/gi),
@@ -516,9 +517,14 @@ const extractDetailAuthors = (doc: Document, labels: string[], fallback: string)
   const field = Array.from(doc.querySelectorAll('.post-content_item'))
     .find((element) => labels.some((label) => element.textContent?.toLocaleLowerCase('tr-TR').includes(label.toLocaleLowerCase('tr-TR'))));
 
-  const extractedName = extractPrimaryScrapedPersonName(
-    normalizeScrapedText(field?.querySelector('.author-content a, .artist-content a, .summary-content')?.textContent) || fallback,
-  );
+  const linkedNames = Array.from(field?.querySelectorAll('.author-content a, .artist-content a, .summary-content a') || [])
+    .map((item) => extractPrimaryScrapedPersonName(item.textContent))
+    .filter(Boolean);
+  const extractedName = linkedNames.length > 0
+    ? linkedNames.join(', ')
+    : extractPrimaryScrapedPersonName(
+      normalizeScrapedText(field?.querySelector('.author-content, .artist-content, .summary-content')?.textContent) || fallback,
+    );
 
   return isScrapedPlaceholderValue(extractedName) ? '' : extractedName;
 };

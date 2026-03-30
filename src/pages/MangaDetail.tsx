@@ -1767,26 +1767,57 @@ const MangaDetail: React.FC = () => {
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
-                  <div className="flex items-center">
-                    {manga.authorDetails ? (
-                      <Link to={`/author/${manga.authorDetails.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
-                        {manga.author}
-                      </Link>
-                    ) : (
-                      <span>{manga.author}</span>
-                    )}
-                    
-                    {manga.artist && (
-                      <span className="mx-2">•</span>
-                    )}
-                    
-                    {manga.artist && manga.artistDetails ? (
-                      <Link to={`/artist/${manga.artistDetails.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
-                        {manga.artist}
-                      </Link>
-                    ) : manga.artist ? (
-                      <span>{manga.artist}</span>
-                    ) : null}
+                  <div className="flex flex-wrap items-center gap-2">
+                    {(() => {
+                      const authorItems = manga.authorsDetails?.length
+                        ? manga.authorsDetails
+                        : manga.authorDetails
+                          ? [manga.authorDetails]
+                          : [];
+                      const artistItems = manga.artistsDetails?.length
+                        ? manga.artistsDetails
+                        : manga.artistDetails
+                          ? [manga.artistDetails]
+                          : [];
+
+                      return (
+                        <>
+                          {authorItems.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-1">
+                              {authorItems.map((author, index) => (
+                                <React.Fragment key={author.id}>
+                                  {index > 0 ? <span>,</span> : null}
+                                  <Link to={`/author/${author.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
+                                    {author.name}
+                                  </Link>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          ) : (
+                            <span>{manga.author}</span>
+                          )}
+
+                          {artistItems.length > 0 || manga.artist ? (
+                            <span className="mx-1">•</span>
+                          ) : null}
+
+                          {artistItems.length > 0 ? (
+                            <div className="flex flex-wrap items-center gap-1">
+                              {artistItems.map((artist, index) => (
+                                <React.Fragment key={artist.id}>
+                                  {index > 0 ? <span>,</span> : null}
+                                  <Link to={`/artist/${artist.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
+                                    {artist.name}
+                                  </Link>
+                                </React.Fragment>
+                              ))}
+                            </div>
+                          ) : manga.artist ? (
+                            <span>{manga.artist}</span>
+                          ) : null}
+                        </>
+                      );
+                    })()}
                   </div>
 
                   {manga.releaseYear && (
@@ -2112,6 +2143,59 @@ const MangaDetail: React.FC = () => {
                           </div>
                         )}
                       </div>
+
+                      {manga.relatedSeries && manga.relatedSeries.length > 0 && (
+                        <div className="rounded-xl border border-border bg-card/50 p-4 sm:p-6">
+                          <div className="mb-4">
+                            <h2 className="text-xl font-bold">İlgili Seriler</h2>
+                            <p className="text-sm text-muted-foreground">
+                              Devam serileri, öncüller ve diğer bağlantılı içerikler.
+                            </p>
+                          </div>
+
+                          <div className="grid gap-3 sm:grid-cols-2">
+                            {manga.relatedSeries.map((relation) => (
+                              relation.relatedManga ? (
+                                <Link
+                                  key={relation.id}
+                                  to={`/manga/${relation.relatedManga.id}`}
+                                  className="group flex gap-3 rounded-2xl border border-border bg-background/40 p-3 transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg"
+                                >
+                                  <div className="h-24 w-16 shrink-0 overflow-hidden rounded-xl border border-border bg-secondary">
+                                    {relation.relatedManga.cover ? (
+                                      <OptimizedImage
+                                        src={relation.relatedManga.cover}
+                                        alt={relation.relatedManga.title}
+                                        rootMargin="420px 0px"
+                                        containerClassName="h-full w-full"
+                                        placeholderClassName="rounded-none"
+                                        className="h-full w-full object-cover"
+                                      />
+                                    ) : (
+                                      <EntityPlaceholderArt
+                                        name={relation.relatedManga.title}
+                                        className="rounded-none"
+                                        initialClassName="text-xl"
+                                      />
+                                    )}
+                                  </div>
+                                  <div className="min-w-0 flex-1">
+                                    <Badge variant="secondary" className="mb-2 rounded-full capitalize">
+                                      {relation.relationType.replace(/_/g, ' ')}
+                                    </Badge>
+                                    <p className="line-clamp-2 font-semibold group-hover:text-primary">
+                                      {relation.relatedManga.title}
+                                    </p>
+                                    <p className="mt-2 text-sm text-muted-foreground">
+                                      {relation.relatedManga.type} {relation.relatedManga.releaseYear ? `• ${relation.relatedManga.releaseYear}` : ''}
+                                    </p>
+                                  </div>
+                                </Link>
+                              ) : null
+                            ))}
+                          </div>
+                        </div>
+                      )}
 
                     </div>
 

@@ -4,6 +4,13 @@ const DEFAULT_ALLOWED_HOSTS = [
   'webtoonhatti.club',
   'yedek.mangawow.com',
   'kirmizikafa.monster',
+  'myanimelist.net',
+  'cdn.myanimelist.net',
+  'mangaupdates.com',
+  'api.mangaupdates.com',
+  'anilist.co',
+  'graphql.anilist.co',
+  'api.jikan.moe',
 ];
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -15,6 +22,14 @@ const DEFAULT_ALLOWED_ORIGINS = [
 
 const BROWSER_LIKE_USER_AGENT =
   'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/136.0.0.0 Safari/537.36';
+
+const FORWARDED_HEADER_ALLOWLIST = new Set([
+  'accept',
+  'accept-language',
+  'authorization',
+  'cache-control',
+  'content-type',
+]);
 
 const parseCsv = (value, fallback = []) => {
   const parsed = (value || '')
@@ -97,6 +112,9 @@ const readRequestPayload = async (request) => {
   if (request.method === 'GET') {
     return {
       sourceUrl: requestUrl.searchParams.get('url'),
+      upstreamMethod: 'GET',
+      upstreamHeaders: {},
+      upstreamBody: undefined,
     };
   }
 
@@ -112,15 +130,38 @@ const readRequestPayload = async (request) => {
       const parsedBody = JSON.parse(textBody);
       return {
         sourceUrl: typeof parsedBody?.url === 'string' ? parsedBody.url : '',
+        upstreamMethod: typeof parsedBody?.method === 'string' ? parsedBody.method : 'GET',
+        upstreamHeaders: parsedBody?.headers && typeof parsedBody.headers === 'object'
+          ? parsedBody.headers
+          : {},
+        upstreamBody: typeof parsedBody?.body === 'string'
+          ? parsedBody.body
+          : parsedBody?.body != null
+            ? JSON.stringify(parsedBody.body)
+            : undefined,
       };
     } catch {
-      return { sourceUrl: textBody };
+      return {
+        sourceUrl: textBody,
+        upstreamMethod: 'GET',
+        upstreamHeaders: {},
+        upstreamBody: undefined,
+      };
     }
   }
 
   const body = await request.json().catch(() => null);
   return {
     sourceUrl: typeof body?.url === 'string' ? body.url : '',
+    upstreamMethod: typeof body?.method === 'string' ? body.method : 'GET',
+    upstreamHeaders: body?.headers && typeof body.headers === 'object'
+      ? body.headers
+      : {},
+    upstreamBody: typeof body?.body === 'string'
+      ? body.body
+      : body?.body != null
+        ? JSON.stringify(body.body)
+        : undefined,
   };
 };
 
@@ -134,6 +175,35 @@ const isAllowedHost = (hostname, allowedHosts) => {
       normalizedHostname.endsWith(`.${normalizedAllowedHost}`)
     );
   });
+};
+
+const sanitizeUpstreamMethod = (method) => {
+  const normalizedMethod = `${method || 'GET'}`.trim().toUpperCase();
+  return ['GET', 'POST'].includes(normalizedMethod) ? normalizedMethod : null;
+};
+
+const sanitizeUpstreamHeaders = (headers) => {
+  const sanitized = new Headers();
+
+  if (!headers || typeof headers !== 'object' || Array.isArray(headers)) {
+    return sanitized;
+  }
+
+  for (const [key, value] of Object.entries(headers)) {
+    const normalizedKey = `${key}`.trim().toLowerCase();
+    if (!FORWARDED_HEADER_ALLOWLIST.has(normalizedKey)) {
+      continue;
+    }
+
+    const normalizedValue = typeof value === 'string' ? value.trim() : '';
+    if (!normalizedValue) {
+      continue;
+    }
+
+    sanitized.set(normalizedKey, normalizedValue);
+  }
+
+  return sanitized;
 };
 
 export default {
@@ -160,7 +230,12 @@ export default {
       return jsonResponse({ error: 'Method not allowed' }, 405, corsHeaders);
     }
 
-    const { sourceUrl } = await readRequestPayload(request);
+    const {
+      sourceUrl,
+      upstreamMethod,
+      upstreamHeaders,
+      upstreamBody,
+    } = await readRequestPayload(request);
 
     if (!sourceUrl) {
       return jsonResponse(
@@ -210,16 +285,30 @@ export default {
       return jsonResponse({ error: 'Host is not allowed' }, 403, corsHeaders);
     }
 
-    const upstreamHeaders = new Headers({
+    const resolvedMethod = sanitizeUpstreamMethod(upstreamMethod);
+    if (!resolvedMethod) {
+      return jsonResponse({ error: 'Unsupported upstream method' }, 400, corsHeaders);
+    }
+
+    const resolvedUpstreamHeaders = new Headers({
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
       'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
       'User-Agent': BROWSER_LIKE_USER_AGENT,
       Referer: `${parsedUrl.origin}/`,
+      Origin: parsedUrl.origin,
     });
 
+    const forwardedHeaders = sanitizeUpstreamHeaders(upstreamHeaders);
+    forwardedHeaders.forEach((value, key) => {
+      resolvedUpstreamHeaders.set(key, value);
+    });
+
+    const shouldSendBody = resolvedMethod === 'POST' && typeof upstreamBody === 'string';
+
     const upstreamResponse = await fetch(parsedUrl.toString(), {
-      method: 'GET',
-      headers: upstreamHeaders,
+      method: resolvedMethod,
+      headers: resolvedUpstreamHeaders,
+      body: shouldSendBody ? upstreamBody : undefined,
       redirect: 'follow',
       cf: {
         cacheEverything: false,

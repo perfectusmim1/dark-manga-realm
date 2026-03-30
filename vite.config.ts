@@ -19,7 +19,7 @@ export default defineConfig(({ mode }) => ({
       manifest: {
         name: "ToonParrot",
         short_name: "ToonParrot",
-        description: "ToonParrot - Binlerce manga ve manhwa'yi cevrimdisi da oku.",
+        description: "ToonParrot - Binlerce manga ve manhwa'yı çevrimdışı da oku.",
         theme_color: "#0a0a0b",
         background_color: "#0a0a0b",
         display: "standalone",
@@ -45,10 +45,10 @@ export default defineConfig(({ mode }) => ({
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
           {
-            urlPattern: ({ request, url }) => (
-              request.destination === "image"
-              && url.origin === self.location.origin
-            ),
+            urlPattern: ({ request, url }: any) => {
+              // @ts-ignore: self is available in Service Worker scope
+              return request.destination === "image" && url.origin === self.location.origin;
+            },
             handler: "CacheFirst",
             options: {
               cacheName: "toonparrot-image-cache",

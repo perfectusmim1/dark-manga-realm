@@ -904,7 +904,7 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
 
     try {
         const response = await runWithSupabaseBootstrapRetry({
-            run: () => supabase
+            run: async () => await supabase
                 .from('reading_progress')
                 .select(`
                     user_id,
@@ -950,7 +950,7 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
 
     if (chapterIds.length > 0) {
         const { data: chapterRows, error: chapterError } = await runWithSupabaseBootstrapRetry({
-            run: () => supabase
+            run: async () => await supabase
                 .from('chapters')
                 .select('id, title')
                 .in('id', chapterIds),
