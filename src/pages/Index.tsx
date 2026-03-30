@@ -361,13 +361,13 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(244,114,182,0.12),transparent_34%)]" />
         <div className="absolute inset-0 bg-gradient-to-br from-background via-background/92 to-background/78" />
 
-        <div className="relative z-10 grid gap-4 px-4 py-4 sm:gap-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1.15fr)_240px] lg:items-end lg:gap-10 lg:px-10 lg:py-10">
-          <div className="order-2 lg:order-1">
+        <div className="relative z-10 grid grid-cols-[minmax(0,1fr)_8.75rem] items-start gap-3 px-3 py-3 min-[430px]:grid-cols-[minmax(0,1fr)_10rem] min-[430px]:gap-4 sm:gap-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1.15fr)_240px] lg:items-end lg:gap-10 lg:px-10 lg:py-10">
+          <div className="order-1 min-w-0">
             <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
               Son kaldığın seri
             </div>
 
-            <h3 className="mt-3 max-w-3xl truncate pb-[0.08em] text-[2rem] font-black leading-[1.08] tracking-tight sm:mt-4 sm:text-4xl sm:leading-[1.06] lg:text-[2.75rem] lg:leading-[1.04]">
+            <h3 className="mt-3 max-w-3xl pb-[0.08em] pr-1 text-[1.85rem] font-black leading-[1.02] tracking-tight min-[430px]:text-[2.05rem] sm:mt-4 sm:text-4xl sm:leading-[1.06] lg:text-[2.75rem] lg:leading-[1.04]">
               {featured.manga.title}
             </h3>
 
@@ -375,7 +375,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
               {featured.manga.description || 'Kaldığın bölüme tek dokunuşla geri dön ve okumayı bıraktığın yerden devam et.'}
             </p>
 
-            <div className="mt-5 flex flex-wrap gap-2">
+            <div className="mt-4 flex flex-wrap gap-2 sm:mt-5">
               <Badge variant="secondary" className="h-8 rounded-full px-3 text-xs">
                 Bölüm {featured.chapterNumber}
               </Badge>
@@ -392,26 +392,26 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
               )}
             </div>
 
-            <div className="mt-6 flex flex-wrap items-center gap-3">
-              <Button asChild variant="glow" className="rounded-full px-5">
+            <div className="mt-5 flex flex-col gap-2.5 sm:mt-6 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
+              <Button asChild variant="glow" className="w-full rounded-full px-5 sm:w-auto">
                 <Link to={continueHref}>
                   <Play className="mr-2 h-4 w-4" />
                   Devam Et
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="rounded-full px-5">
+              <Button asChild variant="outline" className="w-full rounded-full px-5 sm:w-auto">
                 <Link to={detailsHref}>Seri Sayfası</Link>
               </Button>
-              <p className="text-xs text-muted-foreground">{formatContinueReadingLastRead(featured.lastRead)}</p>
+              <p className="text-xs text-muted-foreground sm:ml-1">{formatContinueReadingLastRead(featured.lastRead)}</p>
             </div>
           </div>
 
-          <div className="order-1 flex justify-center lg:order-2 lg:justify-end">
+          <div className="order-2 flex justify-end self-start lg:justify-end">
             <Link
               to={continueHref}
-              className="group block w-[9.75rem] sm:w-[14rem] lg:w-full lg:max-w-[16rem]"
+              className="group block w-full max-w-[8.75rem] min-[430px]:max-w-[10rem] sm:w-[14rem] sm:max-w-none lg:w-full lg:max-w-[16rem]"
             >
-              <div className="relative aspect-[3/4] overflow-hidden rounded-[28px] border border-white/10 bg-black/20 shadow-[0_20px_40px_rgba(0,0,0,0.28)]">
+              <div className="relative aspect-[3/4] overflow-hidden rounded-[24px] border border-white/10 bg-black/20 shadow-[0_20px_40px_rgba(0,0,0,0.28)] sm:rounded-[28px]">
                 <OptimizedImage
                   src={featured.manga.cover}
                   alt={featured.manga.title}
@@ -423,13 +423,13 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                   rootMargin="640px 0px"
                   transform={CONTINUE_READING_COVER_TRANSFORM}
                   containerClassName="h-full w-full"
-                  placeholderClassName="rounded-[28px]"
+                  placeholderClassName="rounded-[24px] sm:rounded-[28px]"
                   className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105'}`}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                <div className="absolute inset-x-0 bottom-0 p-4">
+                <div className="absolute inset-x-0 bottom-0 p-3 sm:p-4">
                   <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Devam Noktan</p>
-                  <p className="mt-1 text-lg font-black text-white">Bölüm {featured.chapterNumber}</p>
+                  <p className="mt-1 text-base font-black text-white sm:text-lg">Bölüm {featured.chapterNumber}</p>
                 </div>
               </div>
             </Link>

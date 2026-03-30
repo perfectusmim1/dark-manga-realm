@@ -66,6 +66,7 @@ const Notifications = lazy(() => import("./pages/Notifications"));
 const Announcements = lazy(() => import("./pages/Announcements"));
 const ReadingLists = lazy(() => import("./pages/ReadingLists"));
 const ReadingTime = lazy(() => import("./pages/ReadingTime"));
+const ReadingTimeMangaDetail = lazy(() => import("./pages/ReadingTimeMangaDetail"));
 const ReadingListDetail = lazy(() => import("./pages/ReadingListDetail"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Support = lazy(() => import("./pages/support/Support"));
@@ -344,6 +345,7 @@ const App = () => (
                     <Route path="/downloads" element={<Downloads />} />
                     <Route path="/latest-chapters" element={<LatestChapters />} />
                     <Route path="/reading-time" element={<ReadingTime />} />
+                    <Route path="/reading-time/manga/:mangaId" element={<ReadingTimeMangaDetail />} />
                     <Route path="/bookmarks" element={<Bookmarks />} />
                     <Route path="/notifications" element={<Notifications />} />
                     <Route path="/announcements" element={<Announcements />} />

@@ -176,6 +176,10 @@ export interface ReadingTimeTimelineOptions {
     endDate?: Date | string | null;
 }
 
+interface ReadingTimeEntryQueryOptions extends ReadingTimeTimelineOptions {
+    mangaId?: string | null;
+}
+
 const getLocalDateKey = (value: string | Date) => {
     const date = value instanceof Date ? value : new Date(value);
     const year = date.getFullYear();
@@ -805,16 +809,20 @@ export const getReadingTimeHistoryCalendar = async (userId: string): Promise<Rea
         });
 };
 
-export const getReadingTimeTimeline = async (
+const getReadingTimeEntries = async (
     userId: string,
     range: ReadingTimeRange = 'week',
-    options?: ReadingTimeTimelineOptions,
-): Promise<ReadingTimeDayBucket[]> => {
+    options?: ReadingTimeEntryQueryOptions,
+): Promise<ReadingTimeEntry[]> => {
     let query = supabase
         .from('reading_activity_log')
         .select('id, manga_id, chapter_id, chapter_number, read_at, seconds_spent')
         .eq('user_id', userId)
         .order('read_at', { ascending: false });
+
+    if (options?.mangaId) {
+        query = query.eq('manga_id', options.mangaId);
+    }
 
     const customStartDate = resolveTimelineBoundary(options?.startDate, 'start');
     const customEndDate = resolveTimelineBoundary(options?.endDate, 'end');
@@ -835,7 +843,7 @@ export const getReadingTimeTimeline = async (
     const { data, error } = await query;
 
     if (error) {
-        console.error('Reading time timeline error:', error);
+        console.error('Reading time entries error:', error);
         return [];
     }
 
@@ -846,12 +854,11 @@ export const getReadingTimeTimeline = async (
         : { data: [] as any[] };
 
     const mangaMap = new Map((mangaRows || []).map((manga: any) => [manga.id, manga]));
-    const dayMap = new Map<string, ReadingTimeDayBucket>();
 
-    logs.forEach((log: any) => {
-        const dateKey = getLocalDateKey(log.read_at);
+    return logs.map((log: any) => {
         const manga = mangaMap.get(log.manga_id);
-        const entry: ReadingTimeEntry = {
+
+        return {
             id: log.id,
             mangaId: log.manga_id,
             mangaTitle: manga?.title || 'Seri',
@@ -860,8 +867,20 @@ export const getReadingTimeTimeline = async (
             chapterNumber: log.chapter_number ? Number(log.chapter_number) : undefined,
             readAt: log.read_at,
             secondsSpent: clampReadingSeconds(log.seconds_spent || 0),
-        };
+        } satisfies ReadingTimeEntry;
+    });
+};
 
+export const getReadingTimeTimeline = async (
+    userId: string,
+    range: ReadingTimeRange = 'week',
+    options?: ReadingTimeTimelineOptions,
+): Promise<ReadingTimeDayBucket[]> => {
+    const entries = await getReadingTimeEntries(userId, range, options);
+    const dayMap = new Map<string, ReadingTimeDayBucket>();
+
+    entries.forEach((entry) => {
+        const dateKey = getLocalDateKey(entry.readAt);
         const existingBucket = dayMap.get(dateKey);
         if (existingBucket) {
             existingBucket.seconds += entry.secondsSpent;
@@ -873,7 +892,7 @@ export const getReadingTimeTimeline = async (
 
         dayMap.set(dateKey, {
             date: dateKey,
-            label: new Date(log.read_at).toLocaleDateString('tr-TR', {
+            label: new Date(entry.readAt).toLocaleDateString('tr-TR', {
                 weekday: 'long',
                 day: 'numeric',
                 month: 'long',
@@ -886,6 +905,18 @@ export const getReadingTimeTimeline = async (
     });
 
     return Array.from(dayMap.values()).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+};
+
+export const getReadingTimeMangaEntries = async (
+    userId: string,
+    mangaId: string,
+    range: ReadingTimeRange = 'week',
+    options?: ReadingTimeTimelineOptions,
+): Promise<ReadingTimeEntry[]> => {
+    return getReadingTimeEntries(userId, range, {
+        ...options,
+        mangaId,
+    });
 };
 
 export const updatePrivacySettings = async (userId: string, visibility: 'public' | 'private' | 'members' | 'mutuals', currentPreferences: any = {}) => {
