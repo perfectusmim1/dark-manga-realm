@@ -15,15 +15,22 @@ import Header from '@/components/layout/Header';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Calendar } from '@/components/ui/calendar';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { ScrollArea } from '@/components/ui/scroll-area';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
 import {
     ReadingTimeDayBucket,
     ReadingTimeEntry,
+    ReadingTimeHistoryMonth,
+    ReadingTimeHistoryWeek,
     ReadingTimeOverview,
     ReadingTimeRange,
     formatReadingDuration,
+    getReadingTimeHistoryCalendar,
     getReadingTimeOverview,
     getReadingTimeTimeline,
 } from '@/lib/profile';
@@ -59,7 +66,7 @@ const VIEW_OPTIONS: Array<{
 }> = [
         {
             value: 'line',
-            label: 'Çizgi Grafik',
+            label: 'Çizgi',
             icon: LineChartIcon,
             description: 'Her nokta bir günü temsil eder.',
         },
@@ -90,6 +97,39 @@ interface ReadingChartDatum {
 const parseDateKey = (value: string) => {
     const [year, month, day] = value.split('-').map(Number);
     return new Date(year, (month || 1) - 1, day || 1);
+};
+
+const getDateKey = (value: Date) => {
+    const year = value.getFullYear();
+    const month = `${value.getMonth() + 1}`.padStart(2, '0');
+    const day = `${value.getDate()}`.padStart(2, '0');
+
+    return `${year}-${month}-${day}`;
+};
+
+const getMonthKey = (value: Date) => `${value.getFullYear()}-${`${value.getMonth() + 1}`.padStart(2, '0')}`;
+
+const formatWeekRange = (startDate: string, endDate: string) => {
+    const start = parseDateKey(startDate);
+    const end = parseDateKey(endDate);
+    const sameMonth = start.getFullYear() === end.getFullYear() && start.getMonth() === end.getMonth();
+
+    if (sameMonth) {
+        return `${start.toLocaleDateString('tr-TR', { day: 'numeric' })} - ${end.toLocaleDateString('tr-TR', {
+            day: 'numeric',
+            month: 'long',
+            year: 'numeric',
+        })}`;
+    }
+
+    return `${start.toLocaleDateString('tr-TR', {
+        day: 'numeric',
+        month: 'short',
+    })} - ${end.toLocaleDateString('tr-TR', {
+        day: 'numeric',
+        month: 'short',
+        year: 'numeric',
+    })}`;
 };
 
 const formatCompactReadingDuration = (seconds: number) => {
@@ -266,6 +306,13 @@ const ReadingTrendChart = ({
     const innerHeight = height - padding.top - padding.bottom;
     const maxMinutes = Math.max(...data.map((item) => item.minutes), 1);
     const guideCount = 4;
+    const tickStride = data.length > 72
+        ? Math.ceil(data.length / 12)
+        : data.length > 30
+            ? 4
+            : data.length > 16
+                ? 2
+                : 1;
 
     const points = data.map((item, index) => {
         const x = data.length === 1
@@ -316,10 +363,10 @@ const ReadingTrendChart = ({
                     </AnimatePresence>
                 </div>
 
-                <div className="mt-4 overflow-x-auto">
+                <div className="mt-4 overflow-hidden">
                     <svg
                         viewBox={`0 0 ${width} ${height}`}
-                        className="h-[18rem] min-w-[42rem] w-full"
+                        className="h-[15rem] w-full sm:h-[18rem]"
                         role="img"
                         aria-label="Okuma süresi çizgi grafiği"
                     >
@@ -370,8 +417,12 @@ const ReadingTrendChart = ({
                             />
                         )}
 
-                        {points.map((point) => {
+                        {points.map((point, index) => {
                             const isSelected = point.date === selectedPoint?.date;
+                            const shouldRenderLabel = isSelected
+                                || index === 0
+                                || index === points.length - 1
+                                || index % tickStride === 0;
 
                             return (
                                 <g
@@ -406,17 +457,19 @@ const ReadingTrendChart = ({
                                         transition={VIEW_TRANSITION}
                                         fill="hsl(var(--primary))"
                                     />
-                                    <text
-                                        x={point.x}
-                                        y={height - 10}
-                                        textAnchor="middle"
-                                        className={cn(
-                                            'text-[11px] transition-colors duration-200',
-                                            isSelected ? 'fill-primary' : 'fill-muted-foreground',
-                                        )}
-                                    >
-                                        {point.shortLabel}
-                                    </text>
+                                    {shouldRenderLabel && (
+                                        <text
+                                            x={point.x}
+                                            y={height - 10}
+                                            textAnchor="middle"
+                                            className={cn(
+                                                'text-[11px] transition-colors duration-200',
+                                                isSelected ? 'fill-primary' : 'fill-muted-foreground',
+                                            )}
+                                        >
+                                            {point.shortLabel}
+                                        </text>
+                                    )}
                                 </g>
                             );
                         })}
@@ -464,6 +517,11 @@ const ReadingTime: React.FC = () => {
     const [view, setView] = React.useState<ReadingTimeView>('line');
     const [expandedDays, setExpandedDays] = React.useState<Record<string, boolean>>({});
     const [selectedDayDate, setSelectedDayDate] = React.useState<string | null>(null);
+    const [customWeek, setCustomWeek] = React.useState<ReadingTimeHistoryWeek | null>(null);
+    const [historyMonths, setHistoryMonths] = React.useState<ReadingTimeHistoryMonth[]>([]);
+    const [calendarMonthKey, setCalendarMonthKey] = React.useState<string | null>(null);
+    const [isHistoryLoading, setIsHistoryLoading] = React.useState(true);
+    const [isWeekPickerOpen, setIsWeekPickerOpen] = React.useState(false);
     const [overview, setOverview] = React.useState<ReadingTimeOverview>({
         todaySeconds: 0,
         weekSeconds: 0,
@@ -508,6 +566,46 @@ const ReadingTime: React.FC = () => {
 
     React.useEffect(() => {
         if (!user) {
+            setHistoryMonths([]);
+            setCalendarMonthKey(null);
+            setCustomWeek(null);
+            setIsHistoryLoading(false);
+            return;
+        }
+
+        const loadHistoryMonths = async () => {
+            try {
+                setIsHistoryLoading(true);
+                const months = await getReadingTimeHistoryCalendar(user.id);
+                setHistoryMonths(months);
+                setCalendarMonthKey((current) => (
+                    current && months.some((month) => month.monthKey === current)
+                        ? current
+                        : months[0]?.monthKey ?? null
+                ));
+                setCustomWeek((current) => {
+                    if (!current) {
+                        return null;
+                    }
+
+                    const resolvedWeek = months
+                        .find((month) => month.monthKey === current.monthKey)
+                        ?.weeks.find((week) => week.id === current.id);
+
+                    return resolvedWeek || null;
+                });
+            } catch (error) {
+                console.error('Reading time history calendar page error:', error);
+            } finally {
+                setIsHistoryLoading(false);
+            }
+        };
+
+        void loadHistoryMonths();
+    }, [user]);
+
+    React.useEffect(() => {
+        if (!user) {
             setIsTimelineLoading(false);
             return;
         }
@@ -516,7 +614,16 @@ const ReadingTime: React.FC = () => {
             try {
                 setIsTimelineLoading(true);
                 setExpandedDays({});
-                const data = await getReadingTimeTimeline(user.id, range);
+                const data = await getReadingTimeTimeline(
+                    user.id,
+                    range,
+                    customWeek
+                        ? {
+                            startDate: customWeek.startDate,
+                            endDate: customWeek.endDate,
+                        }
+                        : undefined,
+                );
                 setTimeline(data);
             } catch (error) {
                 console.error('Reading time timeline page error:', error);
@@ -526,7 +633,7 @@ const ReadingTime: React.FC = () => {
         };
 
         void loadTimeline();
-    }, [user, range]);
+    }, [customWeek, range, user]);
 
     React.useEffect(() => {
         if (timeline.length === 0) {
@@ -550,18 +657,64 @@ const ReadingTime: React.FC = () => {
         sortedTimeline.map((day) => ({
             date: day.date,
             label: day.label,
-            shortLabel: getChartTickLabel(day.date, range),
+            shortLabel: getChartTickLabel(day.date, customWeek ? 'week' : range),
             seconds: day.seconds,
             minutes: Number((day.seconds / 60).toFixed(1)),
             chapters: day.chapters,
             seriesCount: day.seriesCount,
         }))
-    ), [range, sortedTimeline]);
+    ), [customWeek, range, sortedTimeline]);
 
     const selectedDay = React.useMemo(
         () => timeline.find((day) => day.date === selectedDayDate) || null,
         [selectedDayDate, timeline],
     );
+
+    const selectedHistoryMonth = React.useMemo(
+        () => historyMonths.find((month) => month.monthKey === calendarMonthKey) || historyMonths[0] || null,
+        [calendarMonthKey, historyMonths],
+    );
+
+    const selectedHistoryMonthDate = React.useMemo(
+        () => selectedHistoryMonth ? parseDateKey(selectedHistoryMonth.monthDate) : null,
+        [selectedHistoryMonth],
+    );
+
+    const selectedHistoryActiveDateSet = React.useMemo(
+        () => new Set(selectedHistoryMonth?.activeDates || []),
+        [selectedHistoryMonth],
+    );
+
+    const calendarHighlightedDates = React.useMemo(
+        () => (selectedHistoryMonth?.activeDates || []).map((dateKey) => parseDateKey(dateKey)),
+        [selectedHistoryMonth],
+    );
+
+    const selectedCustomWeekDates = React.useMemo(
+        () => customWeek && selectedHistoryMonth?.monthKey === customWeek.monthKey
+            ? customWeek.activeDates.map((dateKey) => parseDateKey(dateKey))
+            : [],
+        [customWeek, selectedHistoryMonth],
+    );
+
+    const activeRangeLabel = customWeek ? `${customWeek.monthLabel} • ${customWeek.label}` : RANGE_LABELS[range];
+    const activeRangeDetail = customWeek ? formatWeekRange(customWeek.startDate, customWeek.endDate) : null;
+
+    const applyHistoricalWeek = React.useCallback((week: ReadingTimeHistoryWeek) => {
+        setCustomWeek(week);
+        setIsWeekPickerOpen(false);
+    }, []);
+
+    const handleCalendarDateSelect = React.useCallback((date?: Date) => {
+        if (!date || !selectedHistoryMonth) {
+            return;
+        }
+
+        const matchingWeek = selectedHistoryMonth.weeks.find((week) => week.activeDates.includes(getDateKey(date)));
+        if (matchingWeek) {
+            applyHistoricalWeek(matchingWeek);
+        }
+    }, [applyHistoricalWeek, selectedHistoryMonth]);
 
     if (!user) {
         return (
@@ -598,24 +751,18 @@ const ReadingTime: React.FC = () => {
                         </div>
                         <h1 className="text-3xl font-bold tracking-tight">Okuma Süresi</h1>
                         <p className="mt-2 max-w-2xl text-muted-foreground">
-                            Bugün, haftalık, aylık ve tüm zaman okuma süreni farklı görünümlerle takip et. Çizgi grafik, ızgara ve liste arasında geçip günlük yoğunluğu daha rahat görebilirsin.
+                            Bugün, haftalık, aylık ve tüm zaman okuma süreni farklı görünümlerle takip et. Çizgi, ızgara ve liste arasında geçip günlük yoğunluğu daha rahat görebilirsin.
                         </p>
                     </div>
 
                     <div className="rounded-2xl border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground">
-                        Aktif görünüm: <span className="font-semibold text-foreground">{RANGE_LABELS[range]}</span>
+                        <div>
+                            Aktif görünüm: <span className="font-semibold text-foreground">{activeRangeLabel}</span>
+                        </div>
+                        {activeRangeDetail && (
+                            <div className="mt-1 text-xs text-muted-foreground">{activeRangeDetail}</div>
+                        )}
                     </div>
-                </div>
-
-                <div
-                    className="mb-5 animate-fade-up flex items-start gap-3 rounded-2xl border border-amber-500/20 bg-amber-500/10 px-4 py-3 text-sm leading-relaxed text-amber-100/85 opacity-0 sm:mb-6"
-                    style={{ animationDelay: '0.08s', animationFillMode: 'forwards' }}
-                >
-                    <Info className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
-                    <p>
-                        Okuma süresi verileri tahmini olarak hesaplanır. Arka planda açık kalan sekmeler, çevrimdışı kullanım ve bağlantı farkları nedeniyle
-                        gösterilen süre tam birebir olmayabilir.
-                    </p>
                 </div>
 
                 {isOverviewLoading ? (
@@ -637,31 +784,210 @@ const ReadingTime: React.FC = () => {
                     className="mt-6 animate-fade-up rounded-3xl border border-border bg-card/35 p-4 opacity-0 sm:mt-8 sm:p-5 md:p-6"
                     style={{ animationDelay: '0.18s', animationFillMode: 'forwards' }}
                 >
-                    <Tabs value={range} onValueChange={(value) => setRange(value as ReadingTimeRange)} className="space-y-5 sm:space-y-6">
+                    <Tabs
+                        value={range}
+                        onValueChange={(value) => {
+                            setRange(value as ReadingTimeRange);
+                            setCustomWeek(null);
+                        }}
+                        className="space-y-5 sm:space-y-6"
+                    >
                         <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-secondary/40 p-1 sm:flex sm:flex-wrap">
-                            <TabsTrigger value="today" className="w-full whitespace-normal px-3 py-2 text-center text-sm leading-tight sm:w-auto sm:whitespace-nowrap">
+                            <TabsTrigger value="today" className="w-full whitespace-normal px-2 py-2 text-center text-xs leading-tight sm:w-auto sm:px-3 sm:text-sm sm:whitespace-nowrap">
                                 Bugün
                             </TabsTrigger>
-                            <TabsTrigger value="week" className="w-full whitespace-normal px-3 py-2 text-center text-sm leading-tight sm:w-auto sm:whitespace-nowrap">
+                            <TabsTrigger value="week" className="w-full whitespace-normal px-2 py-2 text-center text-xs leading-tight sm:w-auto sm:px-3 sm:text-sm sm:whitespace-nowrap">
                                 Haftalık
                             </TabsTrigger>
-                            <TabsTrigger value="month" className="w-full whitespace-normal px-3 py-2 text-center text-sm leading-tight sm:w-auto sm:whitespace-nowrap">
+                            <TabsTrigger value="month" className="w-full whitespace-normal px-2 py-2 text-center text-xs leading-tight sm:w-auto sm:px-3 sm:text-sm sm:whitespace-nowrap">
                                 Aylık
                             </TabsTrigger>
-                            <TabsTrigger value="all" className="w-full whitespace-normal px-3 py-2 text-center text-sm leading-tight sm:w-auto sm:whitespace-nowrap">
+                            <TabsTrigger value="all" className="w-full whitespace-normal px-2 py-2 text-center text-xs leading-tight sm:w-auto sm:px-3 sm:text-sm sm:whitespace-nowrap">
                                 Tüm Zaman
                             </TabsTrigger>
                         </TabsList>
+
+                        <div className="rounded-2xl border border-border bg-background/25 p-3">
+                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                                <div>
+                                    <p className="text-sm font-semibold">Geçmişten Hafta Bul</p>
+                                    <p className="hidden text-xs text-muted-foreground sm:block">
+                                        Hızlı filtreler üstte kalır. Daha eski bir haftayı arıyorsan takvimden, sadece kayıt olan aylara gidip seçebilirsin.
+                                    </p>
+                                    <p className="text-xs text-muted-foreground sm:hidden">
+                                        Eski haftalar için takvimden seçim yap.
+                                    </p>
+                                </div>
+
+                                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                                    <Popover open={isWeekPickerOpen} onOpenChange={setIsWeekPickerOpen}>
+                                        <PopoverTrigger asChild>
+                                            <Button
+                                                type="button"
+                                                variant={customWeek ? 'default' : 'outline'}
+                                                size="sm"
+                                                className="w-full justify-center gap-2 sm:w-auto"
+                                            >
+                                                <CalendarDays className="h-4 w-4" />
+                                                Takvimden Hafta Seç
+                                            </Button>
+                                        </PopoverTrigger>
+
+                                        <PopoverContent
+                                            align="center"
+                                            side="bottom"
+                                            className="w-[calc(100vw-1rem)] max-h-[85vh] max-w-[32rem] overflow-hidden rounded-2xl border-border bg-card p-0"
+                                        >
+                                            <div className="border-b border-border/70 px-4 py-4">
+                                                <p className="text-sm font-semibold">Geçmişten Hafta Seç</p>
+                                                <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                                                    Sadece okuma kaydı olan aylar listelenir. Bir güne dokunarak veya doğrudan hafta kartını seçerek o dönemi açabilirsin.
+                                                </p>
+                                            </div>
+
+                                            <ScrollArea className="max-h-[calc(85vh-4.5rem)]">
+                                                <div className="space-y-4 p-4">
+                                                {isHistoryLoading ? (
+                                                    <div className="space-y-3">
+                                                        <Skeleton className="h-10 rounded-xl" />
+                                                        <Skeleton className="h-[19rem] rounded-2xl" />
+                                                        <Skeleton className="h-28 rounded-2xl" />
+                                                    </div>
+                                                ) : selectedHistoryMonth && selectedHistoryMonthDate ? (
+                                                    <>
+                                                        <div className="space-y-2">
+                                                            <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/75">Kayıtlı Ay</p>
+                                                            <Select value={selectedHistoryMonth.monthKey} onValueChange={setCalendarMonthKey}>
+                                                                <SelectTrigger className="h-11 rounded-xl border-border bg-background/70">
+                                                                    <SelectValue placeholder="Ay seç" />
+                                                                </SelectTrigger>
+                                                                <SelectContent>
+                                                                    {historyMonths.map((month) => (
+                                                                        <SelectItem key={month.monthKey} value={month.monthKey}>
+                                                                            {month.label}
+                                                                        </SelectItem>
+                                                                    ))}
+                                                                </SelectContent>
+                                                            </Select>
+                                                        </div>
+
+                                                        <div className="rounded-2xl border border-border bg-background/45">
+                                                            <Calendar
+                                                                mode="single"
+                                                                month={selectedHistoryMonthDate}
+                                                                fromMonth={selectedHistoryMonthDate}
+                                                                toMonth={selectedHistoryMonthDate}
+                                                                selected={customWeek?.monthKey === selectedHistoryMonth.monthKey
+                                                                    ? parseDateKey(customWeek.activeDates[customWeek.activeDates.length - 1] || customWeek.startDate)
+                                                                    : undefined}
+                                                                onSelect={handleCalendarDateSelect}
+                                                                showOutsideDays={false}
+                                                                disabled={(date) => !selectedHistoryActiveDateSet.has(getDateKey(date))}
+                                                                modifiers={{
+                                                                    hasData: calendarHighlightedDates,
+                                                                    selectedWeek: selectedCustomWeekDates,
+                                                                }}
+                                                                modifiersClassNames={{
+                                                                    hasData: 'bg-primary/10 text-foreground hover:bg-primary/15',
+                                                                    selectedWeek: 'bg-primary text-primary-foreground hover:bg-primary',
+                                                                }}
+                                                                className="mx-auto scale-[0.96] sm:scale-100"
+                                                                classNames={{
+                                                                    months: 'flex flex-col',
+                                                                    month: 'space-y-3',
+                                                                    table: 'w-full border-collapse space-y-1',
+                                                                    head_cell: 'text-muted-foreground rounded-md w-8 text-[0.7rem] font-normal sm:w-9 sm:text-[0.8rem]',
+                                                                    cell: 'h-8 w-8 p-0 text-center text-sm sm:h-9 sm:w-9',
+                                                                    day: 'h-8 w-8 p-0 text-xs font-normal aria-selected:opacity-100 sm:h-9 sm:w-9 sm:text-sm',
+                                                                    day_disabled: 'text-muted-foreground/25 opacity-30',
+                                                                }}
+                                                            />
+                                                        </div>
+
+                                                        <div className="space-y-2">
+                                                            <div className="flex items-center justify-between">
+                                                                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/75">
+                                                                    Ayın Haftaları
+                                                                </p>
+                                                                <Badge variant="outline">{selectedHistoryMonth.weeks.length} hafta</Badge>
+                                                            </div>
+
+                                                            <ScrollArea className="max-h-60 rounded-2xl border border-border bg-background/25">
+                                                                <div className="space-y-2 p-2">
+                                                                    {selectedHistoryMonth.weeks.map((week) => {
+                                                                        const isActive = customWeek?.id === week.id;
+
+                                                                        return (
+                                                                            <button
+                                                                                key={week.id}
+                                                                                type="button"
+                                                                                onClick={() => applyHistoricalWeek(week)}
+                                                                                className={cn(
+                                                                                    'w-full rounded-2xl border px-3 py-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:border-primary/35 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                                                                    isActive
+                                                                                        ? 'border-primary/40 bg-primary/10 shadow-[0_12px_28px_rgba(59,130,246,0.14)]'
+                                                                                        : 'border-border bg-background/40',
+                                                                                )}
+                                                                            >
+                                                                                <div className="flex items-start justify-between gap-3">
+                                                                                    <div>
+                                                                                        <p className="text-sm font-semibold">{week.label}</p>
+                                                                                        <p className="mt-1 text-xs text-muted-foreground">
+                                                                                            {formatWeekRange(week.startDate, week.endDate)}
+                                                                                        </p>
+                                                                                    </div>
+                                                                                    <Badge variant="outline">{week.activeDayCount} aktif gün</Badge>
+                                                                                </div>
+                                                                            </button>
+                                                                        );
+                                                                    })}
+                                                                </div>
+                                                            </ScrollArea>
+                                                        </div>
+                                                    </>
+                                                ) : (
+                                                    <div className="rounded-2xl border border-dashed border-border bg-background/30 px-4 py-10 text-center">
+                                                        <CalendarDays className="mx-auto h-9 w-9 text-muted-foreground/60" />
+                                                        <p className="mt-3 text-sm font-semibold">Henüz seçim yapılacak geçmiş hafta yok</p>
+                                                        <p className="mt-1 text-xs text-muted-foreground">
+                                                            Okuma kaydı oluştukça burada ay ve hafta bazlı geçmişin görünecek.
+                                                        </p>
+                                                    </div>
+                                                )}
+                                                </div>
+                                            </ScrollArea>
+                                        </PopoverContent>
+                                    </Popover>
+
+                                    {customWeek && (
+                                        <>
+                                            <Badge variant="outline" className="max-w-full self-start sm:self-auto">
+                                                {customWeek.monthLabel} • {customWeek.label}
+                                            </Badge>
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                className="justify-center sm:justify-start"
+                                                onClick={() => setCustomWeek(null)}
+                                            >
+                                                Özel Haftayı Kapat
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
+                            </div>
+                        </div>
 
                         <div className="rounded-2xl border border-border bg-background/30 p-3">
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
                                     <p className="text-sm font-semibold">Görünüm tipi</p>
                                     <p className="text-xs text-muted-foreground">
-                                        İstersen grafik, istersen ızgara, istersen klasik günlük liste görünümüne geç.
+                                        Çizgi, ızgara veya liste görünümüne geç.
                                     </p>
                                 </div>
-                                <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                                <div className="grid w-full grid-cols-3 gap-2 sm:w-auto">
                                     {VIEW_OPTIONS.map((option) => {
                                         const Icon = option.icon;
 
@@ -671,7 +997,7 @@ const ReadingTime: React.FC = () => {
                                                 type="button"
                                                 variant={view === option.value ? 'default' : 'outline'}
                                                 size="sm"
-                                                className="justify-start gap-2"
+                                                className="justify-center gap-1.5 px-2 text-xs sm:justify-start sm:gap-2 sm:px-3 sm:text-sm"
                                                 onClick={() => setView(option.value)}
                                             >
                                                 <Icon className="h-4 w-4" />
@@ -684,6 +1010,7 @@ const ReadingTime: React.FC = () => {
                             <p className="mt-3 text-xs text-muted-foreground">
                                 {VIEW_OPTIONS.find((option) => option.value === view)?.description}
                                 {(view === 'line' || view === 'grid') && timeline.length > 0 ? ' Detay görmek için gün seçebilirsin.' : ''}
+                                {timeline.length > 24 && view !== 'list' ? ' Çok daha eski haftalar için üstteki takvim seçiciyi kullanman daha rahat olur.' : ''}
                             </p>
                         </div>
 
@@ -792,7 +1119,12 @@ const ReadingTime: React.FC = () => {
                                                                     ? 'scale-[1.015] -translate-y-0.5 border-primary/45 bg-primary/10 shadow-[0_10px_24px_rgba(59,130,246,0.12),0_0_0_1px_rgba(59,130,246,0.18)]'
                                                                     : 'border-border bg-background/40',
                                                             )}
-                                                            style={{ animationDelay: `${0.06 + Math.min(index, 15) * 0.02}s`, animationFillMode: 'forwards' }}
+                                                            style={{
+                                                                animationDelay: `${0.06 + Math.min(index, 15) * 0.02}s`,
+                                                                animationFillMode: 'forwards',
+                                                                contentVisibility: 'auto',
+                                                                containIntrinsicSize: '180px',
+                                                            }}
                                                         >
                                                             <div className="flex h-full flex-col justify-between">
                                                                 <div>
@@ -845,7 +1177,12 @@ const ReadingTime: React.FC = () => {
                                                 <div
                                                     key={day.date}
                                                     className="animate-fade-up rounded-2xl border border-border bg-background/40 p-3 opacity-0 sm:p-4"
-                                                    style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
+                                                    style={{
+                                                        animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`,
+                                                        animationFillMode: 'forwards',
+                                                        contentVisibility: 'auto',
+                                                        containIntrinsicSize: '320px',
+                                                    }}
                                                 >
                                                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
                                                         <div className="min-w-0">
@@ -859,7 +1196,7 @@ const ReadingTime: React.FC = () => {
 
                                                         <div className="min-w-0 text-left md:min-w-[10rem] md:text-right">
                                                             <p className="break-words text-lg font-bold leading-tight text-primary sm:text-xl">{formatReadingDuration(day.seconds)}</p>
-                                                            <p className="text-xs text-muted-foreground">{RANGE_LABELS[range]} görünümünde</p>
+                                                            <p className="text-xs text-muted-foreground">{activeRangeLabel} görünümünde</p>
                                                         </div>
                                                     </div>
 

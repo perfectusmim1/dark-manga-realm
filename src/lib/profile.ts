@@ -151,6 +151,31 @@ export interface ReadingTimeDayBucket {
     entries: ReadingTimeEntry[];
 }
 
+export interface ReadingTimeHistoryWeek {
+    id: string;
+    monthKey: string;
+    monthLabel: string;
+    weekIndex: number;
+    label: string;
+    startDate: string;
+    endDate: string;
+    activeDates: string[];
+    activeDayCount: number;
+}
+
+export interface ReadingTimeHistoryMonth {
+    monthKey: string;
+    label: string;
+    monthDate: string;
+    activeDates: string[];
+    weeks: ReadingTimeHistoryWeek[];
+}
+
+export interface ReadingTimeTimelineOptions {
+    startDate?: Date | string | null;
+    endDate?: Date | string | null;
+}
+
 const getLocalDateKey = (value: string | Date) => {
     const date = value instanceof Date ? value : new Date(value);
     const year = date.getFullYear();
@@ -158,6 +183,43 @@ const getLocalDateKey = (value: string | Date) => {
     const day = `${date.getDate()}`.padStart(2, '0');
 
     return `${year}-${month}-${day}`;
+};
+
+const parseDateKey = (value: string) => {
+    const [year, month, day] = value.split('-').map(Number);
+    return new Date(year, (month || 1) - 1, day || 1);
+};
+
+const getLocalMonthKey = (value: string | Date) => {
+    const date = value instanceof Date ? value : new Date(value);
+    const year = date.getFullYear();
+    const month = `${date.getMonth() + 1}`.padStart(2, '0');
+
+    return `${year}-${month}`;
+};
+
+const resolveTimelineBoundary = (value: Date | string | null | undefined, type: 'start' | 'end') => {
+    if (!value) {
+        return null;
+    }
+
+    const resolved = typeof value === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(value)
+        ? parseDateKey(value)
+        : new Date(value);
+
+    if (!Number.isFinite(resolved.getTime())) {
+        return null;
+    }
+
+    const normalized = new Date(resolved);
+
+    if (type === 'start') {
+        normalized.setHours(0, 0, 0, 0);
+    } else {
+        normalized.setHours(23, 59, 59, 999);
+    }
+
+    return normalized;
 };
 
 const clampReadingSeconds = (seconds: number) => {
@@ -657,16 +719,117 @@ export const getMangaReadingTimeTotal = async (userId: string, mangaId: string):
     return (data || []).reduce((sum: number, row: any) => sum + clampReadingSeconds(row.seconds_spent || 0), 0);
 };
 
-export const getReadingTimeTimeline = async (userId: string, range: ReadingTimeRange = 'week'): Promise<ReadingTimeDayBucket[]> => {
+export const getReadingTimeHistoryCalendar = async (userId: string): Promise<ReadingTimeHistoryMonth[]> => {
+    const { data, error } = await supabase
+        .from('reading_activity_log')
+        .select('read_at')
+        .eq('user_id', userId)
+        .order('read_at', { ascending: false });
+
+    if (error) {
+        console.error('Reading time history calendar error:', error);
+        return [];
+    }
+
+    const uniqueDateKeys = Array.from(new Set((data || []).map((row: any) => getLocalDateKey(row.read_at))));
+    const monthMap = new Map<string, Set<string>>();
+
+    uniqueDateKeys.forEach((dateKey) => {
+        const monthKey = getLocalMonthKey(parseDateKey(dateKey));
+        const existingDates = monthMap.get(monthKey);
+
+        if (existingDates) {
+            existingDates.add(dateKey);
+            return;
+        }
+
+        monthMap.set(monthKey, new Set([dateKey]));
+    });
+
+    return Array.from(monthMap.entries())
+        .sort((left, right) => right[0].localeCompare(left[0]))
+        .map(([monthKey, activeDateSet]) => {
+            const monthDate = parseDateKey(`${monthKey}-01`);
+            const daysInMonth = new Date(monthDate.getFullYear(), monthDate.getMonth() + 1, 0).getDate();
+            const weekdayOffset = (monthDate.getDay() + 6) % 7;
+            const weekMap = new Map<number, Set<string>>();
+
+            Array.from(activeDateSet).forEach((dateKey) => {
+                const resolvedDate = parseDateKey(dateKey);
+                const weekIndex = Math.floor((weekdayOffset + resolvedDate.getDate() - 1) / 7) + 1;
+                const existingWeekDates = weekMap.get(weekIndex);
+
+                if (existingWeekDates) {
+                    existingWeekDates.add(dateKey);
+                    return;
+                }
+
+                weekMap.set(weekIndex, new Set([dateKey]));
+            });
+
+            const label = monthDate.toLocaleDateString('tr-TR', {
+                month: 'long',
+                year: 'numeric',
+            });
+
+            const weeks = Array.from(weekMap.entries())
+                .sort((left, right) => left[0] - right[0])
+                .map(([weekIndex, weekDateSet]) => {
+                    const startPosition = (weekIndex - 1) * 7;
+                    const endPosition = startPosition + 6;
+                    const startDay = Math.max(1, startPosition - weekdayOffset + 1);
+                    const endDay = Math.min(daysInMonth, endPosition - weekdayOffset + 1);
+                    const startDate = getLocalDateKey(new Date(monthDate.getFullYear(), monthDate.getMonth(), startDay));
+                    const endDate = getLocalDateKey(new Date(monthDate.getFullYear(), monthDate.getMonth(), endDay));
+
+                    return {
+                        id: `${monthKey}-week-${weekIndex}`,
+                        monthKey,
+                        monthLabel: label,
+                        weekIndex,
+                        label: `${weekIndex}. hafta`,
+                        startDate,
+                        endDate,
+                        activeDates: Array.from(weekDateSet).sort((leftDate, rightDate) => leftDate.localeCompare(rightDate)),
+                        activeDayCount: weekDateSet.size,
+                    } satisfies ReadingTimeHistoryWeek;
+                });
+
+            return {
+                monthKey,
+                label,
+                monthDate: `${monthKey}-01`,
+                activeDates: Array.from(activeDateSet).sort((leftDate, rightDate) => rightDate.localeCompare(leftDate)),
+                weeks,
+            } satisfies ReadingTimeHistoryMonth;
+        });
+};
+
+export const getReadingTimeTimeline = async (
+    userId: string,
+    range: ReadingTimeRange = 'week',
+    options?: ReadingTimeTimelineOptions,
+): Promise<ReadingTimeDayBucket[]> => {
     let query = supabase
         .from('reading_activity_log')
         .select('id, manga_id, chapter_id, chapter_number, read_at, seconds_spent')
         .eq('user_id', userId)
         .order('read_at', { ascending: false });
 
-    const startDate = getRangeStartDate(range);
-    if (startDate) {
-        query = query.gte('read_at', startDate.toISOString());
+    const customStartDate = resolveTimelineBoundary(options?.startDate, 'start');
+    const customEndDate = resolveTimelineBoundary(options?.endDate, 'end');
+
+    if (customStartDate) {
+        query = query.gte('read_at', customStartDate.toISOString());
+    } else {
+        const startDate = getRangeStartDate(range);
+        if (startDate) {
+            query = query.gte('read_at', startDate.toISOString());
+        }
+    }
+
+    if (customEndDate) {
+        query = query.lte('read_at', customEndDate.toISOString());
     }
 
     const { data, error } = await query;
