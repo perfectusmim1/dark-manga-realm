@@ -1095,7 +1095,11 @@ const Index: React.FC = () => {
                     ))
                   ) : (
                     trendingTags.map((tag, index) => (
-                      <Link key={tag.id} to={`/browse?tags=${tag.slug}`}>
+                      <Link
+                        key={tag.id}
+                        to={`/browse?tags=${tag.slug}`}
+                        className="inline-block rounded-full transition-transform duration-200 hover:scale-105 active:scale-95 focus-visible:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                      >
                         <TagBadge tag={tag} size={index < 5 ? 'md' : 'sm'} />
                       </Link>
                     ))
