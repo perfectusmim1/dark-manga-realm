@@ -1,7 +1,9 @@
 import React, { useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
+    ArrowUpRight,
     Loader2,
     MessageSquare,
     Pin,
@@ -18,6 +20,33 @@ import { Comment } from '@/lib/types';
 import { toast } from 'sonner';
 
 const PAGE_SIZE = 30;
+
+const buildAdminCommentTargetHref = (comment: Comment): string | null => {
+    if (!comment.mangaId) {
+        return null;
+    }
+
+    const commentId = encodeURIComponent(comment.id);
+
+    if (!comment.chapterId) {
+        return `/manga/${comment.mangaId}?commentId=${commentId}`;
+    }
+
+    const params = new URLSearchParams({
+        commentId: comment.id,
+    });
+
+    if (comment.pageNumber && comment.pageNumber > 0) {
+        params.set('page', String(comment.pageNumber));
+        params.set('commentScope', 'page');
+        params.set('commentPage', String(comment.pageNumber));
+    } else {
+        params.set('page', '1');
+        params.set('commentScope', 'chapter');
+    }
+
+    return `/manga/${comment.mangaId}/chapter/${comment.chapterId}?${params.toString()}`;
+};
 
 const AdminComments: React.FC = () => {
     const [comments, setComments] = useState<Comment[]>([]);
@@ -262,7 +291,10 @@ const AdminComments: React.FC = () => {
                         <p className="mt-1 text-sm text-muted-foreground">Arama filtresini değiştirip tekrar deneyin.</p>
                     </div>
                 ) : (
-                    comments.map((comment) => (
+                    comments.map((comment) => {
+                        const commentTargetHref = buildAdminCommentTargetHref(comment);
+
+                        return (
                         <div
                             key={comment.id}
                             className={`rounded-2xl border bg-card/60 p-4 transition-colors ${selectedComments.has(comment.id) ? 'border-primary/50 bg-primary/5' : 'border-border hover:border-primary/20'}`}
@@ -282,7 +314,12 @@ const AdminComments: React.FC = () => {
 
                                     <div className="min-w-0 space-y-3">
                                         <div className="flex flex-wrap items-center gap-2">
-                                            <span className="font-semibold">{comment.username}</span>
+                                            <Link
+                                                to={`/profile/${comment.userId}`}
+                                                className="font-semibold transition-colors hover:text-primary"
+                                            >
+                                                {comment.username}
+                                            </Link>
                                             <Badge variant="outline">{getMangaTitle(comment.mangaId)}</Badge>
                                             {comment.isPinned && (
                                                 <Badge variant="secondary" className="bg-primary/15 text-primary">
@@ -313,6 +350,14 @@ const AdminComments: React.FC = () => {
                                 </div>
 
                                 <div className="flex shrink-0 items-center gap-2 lg:pl-4">
+                                    {commentTargetHref && (
+                                        <Button asChild variant="outline" size="sm" className="gap-2">
+                                            <Link to={commentTargetHref}>
+                                                <ArrowUpRight className="h-4 w-4" />
+                                                Yoruma Git
+                                            </Link>
+                                        </Button>
+                                    )}
                                     <Button
                                         variant="ghost"
                                         size="icon"
@@ -337,7 +382,7 @@ const AdminComments: React.FC = () => {
                                 </div>
                             </div>
                         </div>
-                    ))
+                    )})
                 )}
             </div>
 
