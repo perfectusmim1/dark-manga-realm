@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { AnimatePresence, motion } from 'framer-motion';
 import {
     BookOpen,
     CalendarDays,
@@ -34,6 +35,18 @@ const RANGE_LABELS: Record<ReadingTimeRange, string> = {
     week: 'Haftalık',
     month: 'Aylık',
     all: 'Tüm Zaman',
+};
+
+const VIEW_TRANSITION = {
+    duration: 0.24,
+    ease: [0.22, 1, 0.36, 1] as const,
+};
+
+const DAY_PANEL_MOTION = {
+    initial: { opacity: 0, y: 14, scale: 0.985 },
+    animate: { opacity: 1, y: 0, scale: 1 },
+    exit: { opacity: 0, y: -8, scale: 0.992 },
+    transition: VIEW_TRANSITION,
 };
 
 type ReadingTimeView = 'line' | 'grid' | 'list';
@@ -199,7 +212,10 @@ const SelectedDayPanel = ({
     day: ReadingTimeDayBucket;
     title: string;
 }) => (
-    <div className="rounded-2xl border border-border bg-background/40 p-4 sm:p-5">
+    <motion.div
+        {...DAY_PANEL_MOTION}
+        className="rounded-2xl border border-border bg-background/40 p-4 sm:p-5"
+    >
         <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
             <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">{title}</p>
@@ -231,7 +247,7 @@ const SelectedDayPanel = ({
                 <ReadingEntryCard key={entry.id} entry={entry} />
             ))}
         </div>
-    </div>
+    </motion.div>
 );
 
 const ReadingTrendChart = ({
@@ -283,12 +299,21 @@ const ReadingTrendChart = ({
                             Noktalara basarak o günün detayını seçebilirsin.
                         </p>
                     </div>
-                    {selectedPoint && (
-                        <div className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-right">
-                            <p className="text-xs text-muted-foreground">{selectedPoint.label}</p>
-                            <p className="text-sm font-semibold text-primary">{formatReadingDuration(selectedPoint.seconds)}</p>
-                        </div>
-                    )}
+                    <AnimatePresence mode="wait" initial={false}>
+                        {selectedPoint && (
+                            <motion.div
+                                key={selectedPoint.date}
+                                initial={{ opacity: 0, y: 8, scale: 0.98 }}
+                                animate={{ opacity: 1, y: 0, scale: 1 }}
+                                exit={{ opacity: 0, y: -6, scale: 0.98 }}
+                                transition={VIEW_TRANSITION}
+                                className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-right"
+                            >
+                                <p className="text-xs text-muted-foreground">{selectedPoint.label}</p>
+                                <p className="text-sm font-semibold text-primary">{formatReadingDuration(selectedPoint.seconds)}</p>
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
                 </div>
 
                 <div className="mt-4 overflow-x-auto">
@@ -362,19 +387,23 @@ const ReadingTrendChart = ({
                                     }}
                                     className="cursor-pointer outline-none"
                                 >
-                                    <circle
+                                    <motion.circle
                                         cx={point.x}
                                         cy={point.y}
-                                        r={isSelected ? 10 : 8}
+                                        animate={{
+                                            r: isSelected ? 10 : 8,
+                                            strokeWidth: isSelected ? 4 : 3,
+                                            opacity: isSelected ? 1 : 0.95,
+                                        }}
+                                        transition={VIEW_TRANSITION}
                                         fill="hsl(var(--background))"
                                         stroke="hsl(var(--primary))"
-                                        strokeWidth={isSelected ? 4 : 3}
-                                        opacity={isSelected ? 1 : 0.95}
                                     />
-                                    <circle
+                                    <motion.circle
                                         cx={point.x}
                                         cy={point.y}
-                                        r={isSelected ? 4.5 : 3.25}
+                                        animate={{ r: isSelected ? 4.5 : 3.25 }}
+                                        transition={VIEW_TRANSITION}
                                         fill="hsl(var(--primary))"
                                     />
                                     <text
@@ -382,7 +411,7 @@ const ReadingTrendChart = ({
                                         y={height - 10}
                                         textAnchor="middle"
                                         className={cn(
-                                            'text-[11px]',
+                                            'text-[11px] transition-colors duration-200',
                                             isSelected ? 'fill-primary' : 'fill-muted-foreground',
                                         )}
                                     >
@@ -395,26 +424,35 @@ const ReadingTrendChart = ({
                 </div>
             </div>
 
-            {selectedPoint && (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-                    <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
-                        <p className="text-xs text-muted-foreground">Okuma süresi</p>
-                        <p className="mt-1 text-lg font-semibold text-primary">{formatReadingDuration(selectedPoint.seconds)}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
-                        <p className="text-xs text-muted-foreground">Bölüm</p>
-                        <p className="mt-1 text-lg font-semibold">{selectedPoint.chapters}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
-                        <p className="text-xs text-muted-foreground">Seri</p>
-                        <p className="mt-1 text-lg font-semibold">{selectedPoint.seriesCount}</p>
-                    </div>
-                    <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
-                        <p className="text-xs text-muted-foreground">Tarih</p>
-                        <p className="mt-1 text-sm font-semibold">{new Date(`${selectedPoint.date}T00:00:00`).toLocaleDateString('tr-TR')}</p>
-                    </div>
-                </div>
-            )}
+            <AnimatePresence mode="wait" initial={false}>
+                {selectedPoint && (
+                    <motion.div
+                        key={selectedPoint.date}
+                        initial={{ opacity: 0, y: 12 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        exit={{ opacity: 0, y: -8 }}
+                        transition={VIEW_TRANSITION}
+                        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
+                    >
+                        <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Okuma süresi</p>
+                            <p className="mt-1 text-lg font-semibold text-primary">{formatReadingDuration(selectedPoint.seconds)}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Bölüm</p>
+                            <p className="mt-1 text-lg font-semibold">{selectedPoint.chapters}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Seri</p>
+                            <p className="mt-1 text-lg font-semibold">{selectedPoint.seriesCount}</p>
+                        </div>
+                        <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
+                            <p className="text-xs text-muted-foreground">Tarih</p>
+                            <p className="mt-1 text-sm font-semibold">{new Date(`${selectedPoint.date}T00:00:00`).toLocaleDateString('tr-TR')}</p>
+                        </div>
+                    </motion.div>
+                )}
+            </AnimatePresence>
         </div>
     );
 };
@@ -682,9 +720,16 @@ const ReadingTime: React.FC = () => {
                                 ))}
                             </div>
                         ) : timeline.length > 0 ? (
-                            <>
+                            <AnimatePresence mode="wait" initial={false}>
                                 {view === 'line' && (
-                                    <div className="space-y-4">
+                                    <motion.div
+                                        key="reading-time-line"
+                                        initial={{ opacity: 0, y: 14 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -10 }}
+                                        transition={VIEW_TRANSITION}
+                                        className="space-y-4"
+                                    >
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
                                                 <h2 className="text-lg font-semibold">Günlük Trend Grafiği</h2>
@@ -701,14 +746,27 @@ const ReadingTime: React.FC = () => {
                                             onSelect={setSelectedDayDate}
                                         />
 
-                                        {selectedDay && (
-                                            <SelectedDayPanel day={selectedDay} title="Grafikten Seçilen Gün" />
-                                        )}
-                                    </div>
+                                        <AnimatePresence mode="wait" initial={false}>
+                                            {selectedDay && (
+                                                <SelectedDayPanel
+                                                    key={selectedDay.date}
+                                                    day={selectedDay}
+                                                    title="Grafikten Seçilen Gün"
+                                                />
+                                            )}
+                                        </AnimatePresence>
+                                    </motion.div>
                                 )}
 
                                 {view === 'grid' && (
-                                    <div className="space-y-4">
+                                    <motion.div
+                                        key="reading-time-grid"
+                                        initial={{ opacity: 0, y: 14 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -10 }}
+                                        transition={VIEW_TRANSITION}
+                                        className="space-y-4"
+                                    >
                                         <div className="flex items-start gap-3 rounded-2xl border border-border bg-background/30 px-4 py-3 text-sm text-muted-foreground">
                                             <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                                             <p>Her kare bir günü temsil eder. Güne basınca detay paneli aşağıda açılır.</p>
@@ -729,9 +787,9 @@ const ReadingTime: React.FC = () => {
                                                             type="button"
                                                             onClick={() => setSelectedDayDate(day.date)}
                                                             className={cn(
-                                                                'animate-fade-up aspect-square rounded-2xl border p-3 text-left opacity-0 transition-all hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                                                'animate-fade-up aspect-square rounded-2xl border p-3 text-left opacity-0 transition-[transform,background-color,border-color,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                                                                 isSelected
-                                                                    ? 'border-primary/45 bg-primary/10 shadow-[0_0_0_1px_rgba(59,130,246,0.18)]'
+                                                                    ? 'scale-[1.015] -translate-y-0.5 border-primary/45 bg-primary/10 shadow-[0_10px_24px_rgba(59,130,246,0.12),0_0_0_1px_rgba(59,130,246,0.18)]'
                                                                     : 'border-border bg-background/40',
                                                             )}
                                                             style={{ animationDelay: `${0.06 + Math.min(index, 15) * 0.02}s`, animationFillMode: 'forwards' }}
@@ -756,14 +814,27 @@ const ReadingTime: React.FC = () => {
                                             </div>
                                         </div>
 
-                                        {selectedDay && (
-                                            <SelectedDayPanel day={selectedDay} title="Seçili Gün" />
-                                        )}
-                                    </div>
+                                        <AnimatePresence mode="wait" initial={false}>
+                                            {selectedDay && (
+                                                <SelectedDayPanel
+                                                    key={selectedDay.date}
+                                                    day={selectedDay}
+                                                    title="Seçili Gün"
+                                                />
+                                            )}
+                                        </AnimatePresence>
+                                    </motion.div>
                                 )}
 
                                 {view === 'list' && (
-                                    <div className="space-y-4">
+                                    <motion.div
+                                        key="reading-time-list"
+                                        initial={{ opacity: 0, y: 14 }}
+                                        animate={{ opacity: 1, y: 0 }}
+                                        exit={{ opacity: 0, y: -10 }}
+                                        transition={VIEW_TRANSITION}
+                                        className="space-y-4"
+                                    >
                                         {timeline.map((day, index) => {
                                             const width = maxDaySeconds > 0 ? Math.max((day.seconds / maxDaySeconds) * 100, 6) : 0;
                                             const isExpanded = Boolean(expandedDays[day.date]);
@@ -815,11 +886,11 @@ const ReadingTime: React.FC = () => {
                                                         )}
                                                     </div>
                                                 </div>
-                                            );
-                                        })}
-                                    </div>
+                                                );
+                                            })}
+                                    </motion.div>
                                 )}
-                            </>
+                            </AnimatePresence>
                         ) : (
                             <div className="rounded-2xl border border-dashed border-border bg-background/30 py-16 text-center">
                                 <Clock3 className="mx-auto h-12 w-12 text-muted-foreground/60" />
