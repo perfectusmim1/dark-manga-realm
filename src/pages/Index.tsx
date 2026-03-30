@@ -143,6 +143,7 @@ const HOME_CARD_ANIMATION_DURATION_MS = 220;
 const HOME_CAROUSEL_ARROW_STEP_ITEMS = 5;
 const HOME_CAROUSEL_SCROLL_SETTLE_DELAY_MS = 280;
 const HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX = 12;
+const DISABLE_HOME_DEFERRED_MOUNTS = true;
 
 const CONTINUE_READING_SESSION_CACHE_KEY = 'toonparrot-home-continue-reading-v1';
 
@@ -320,12 +321,10 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
       className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
       style={
         disableHeavyEffects
-          ? { contentVisibility: 'auto', containIntrinsicSize: '760px 1120px' }
+          ? undefined
           : {
               animationDelay: '0.12s',
               animationFillMode: 'forwards',
-              contentVisibility: 'auto',
-              containIntrinsicSize: '760px 1120px',
             }
       }
     >
@@ -636,10 +635,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     window.setTimeout(requestLayoutMetricsUpdate, HOME_CAROUSEL_SCROLL_SETTLE_DELAY_MS);
   }, [itemStride, requestLayoutMetricsUpdate]);
 
-  const sectionStyle: React.CSSProperties = {
-    contentVisibility: 'auto',
-    containIntrinsicSize: '420px 1120px',
-  };
+  const sectionStyle: React.CSSProperties = {};
 
   if (!disableHeavyEffects) {
     sectionStyle.animationDelay = delay;
@@ -1031,7 +1027,7 @@ const Index: React.FC = () => {
 
         {isOnline ? (
           <>
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
               <HorizontalMangaSection
                 title="Yeni Çıkan Seriler"
                 icon={Sparkles}
@@ -1046,7 +1042,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
               <HorizontalMangaSection
                 title="Son Güncellenenler"
                 icon={Clock}
@@ -1061,7 +1057,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
               <HorizontalMangaSection
                 title="Trend Olanlar"
                 icon={TrendingUp}
@@ -1076,10 +1072,10 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin={blockDeferredRootMargin}>
+            <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin={blockDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
               <section
                 className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
-                style={disableHeavyEffects ? { contentVisibility: 'auto', containIntrinsicSize: '260px 1120px' } : { animationDelay: '0.45s', animationFillMode: 'forwards', contentVisibility: 'auto', containIntrinsicSize: '260px 1120px' }}
+                style={disableHeavyEffects ? undefined : { animationDelay: '0.45s', animationFillMode: 'forwards' }}
               >
                 <div className="mb-6 flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-primary" />
@@ -1109,10 +1105,10 @@ const Index: React.FC = () => {
             </DeferredMount>
           </>
         ) : (
-          <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin}>
+          <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
             <section
               className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
-              style={disableHeavyEffects ? { contentVisibility: 'auto', containIntrinsicSize: '720px 1120px' } : { animationDelay: '0.16s', animationFillMode: 'forwards', contentVisibility: 'auto', containIntrinsicSize: '720px 1120px' }}
+              style={disableHeavyEffects ? undefined : { animationDelay: '0.16s', animationFillMode: 'forwards' }}
             >
               <div className="mb-5 flex items-center justify-between">
                 <div className="flex items-center gap-2">
