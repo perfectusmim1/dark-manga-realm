@@ -45,7 +45,6 @@ const TagBadge: React.FC<TagBadgeProps> = ({
 
   return (
     <div
-      title={tag.name}
       className={cn(
         'group inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-full border transition-all duration-200',
         size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm',

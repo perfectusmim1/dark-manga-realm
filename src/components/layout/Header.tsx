@@ -483,6 +483,27 @@ const Header: React.FC = () => {
   };
 
   const offlineModeLabel = offlinePreferences.forceOfflineMode ? 'Çevrimdışı Mod Açık' : 'Çevrimdışı Mod';
+  const randomMangaLabel = 'Rastgele Manga';
+
+  const renderRandomMangaButton = (extraClassName = '') => (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label={randomMangaLabel}
+          onClick={handleRandomManga}
+          className={`shrink-0 h-9 w-9 group transition-all hover:bg-primary/20 hover:border-primary/50 ${extraClassName}`}
+        >
+          <Dices className="h-4 w-4 text-primary transition-transform group-hover:rotate-12" />
+        </Button>
+      </TooltipTrigger>
+      <TooltipContent side="bottom">
+        {randomMangaLabel}
+      </TooltipContent>
+    </Tooltip>
+  );
 
   const renderOfflineToggleButton = (extraClassName = '') => (
     <Tooltip>
@@ -491,9 +512,9 @@ const Header: React.FC = () => {
           type="button"
           variant="outline"
           size="icon"
+          aria-label={offlineModeLabel}
           aria-pressed={offlinePreferences.forceOfflineMode}
           onClick={handleToggleOfflineMode}
-          title={offlineModeLabel}
           className={`shrink-0 h-9 w-9 transition-all ${
             offlinePreferences.forceOfflineMode
               ? 'border-primary/50 bg-primary/12 text-primary hover:bg-primary/18 hover:border-primary/60'
@@ -606,15 +627,7 @@ const Header: React.FC = () => {
 
         {/* Search Bar & Dice Button */}
         <div className="flex-1 flex items-center gap-2 max-w-md hidden md:flex">
-          <Button 
-            variant="outline" 
-            size="icon" 
-            className="shrink-0 h-9 w-9 group transition-all hover:bg-primary/20 hover:border-primary/50" 
-            onClick={handleRandomManga}
-            title="Rastgele Manga"
-          >
-            <Dices className="h-4 w-4 text-primary group-hover:rotate-12 transition-transform" />
-          </Button>
+          {renderRandomMangaButton()}
           {renderOfflineToggleButton()}
 
           <form onSubmit={handleSearch} className="flex-1">

@@ -367,7 +367,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
               Son kaldığın seri
             </div>
 
-            <h3 className="mt-3 max-w-3xl line-clamp-1 text-[2rem] font-black leading-[1.02] tracking-tight sm:mt-4 sm:text-4xl lg:text-[2.75rem] lg:leading-none">
+            <h3 className="mt-3 max-w-3xl truncate pb-[0.08em] text-[2rem] font-black leading-[1.08] tracking-tight sm:mt-4 sm:text-4xl sm:leading-[1.06] lg:text-[2.75rem] lg:leading-[1.04]">
               {featured.manga.title}
             </h3>
 

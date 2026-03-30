@@ -107,6 +107,26 @@ const AuthorDetail: React.FC = () => {
     }
 
     const hasDescription = Boolean(author.description?.trim());
+    const descriptionSection = hasDescription ? (
+        <div className="space-y-4">
+            <h2 className="text-2xl font-bold">Hakkında</h2>
+            <div className="bg-secondary/30 rounded-2xl p-6 border border-border leading-relaxed text-lg italic text-foreground/90 whitespace-pre-line">
+                {author.description}
+            </div>
+        </div>
+    ) : null;
+    const seriesSection = (
+        <div className="space-y-4">
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+                <BookOpen className="h-6 w-6 text-primary" />
+                Katkıda Bulunduğu Seriler
+            </h2>
+            <EntitySeriesGrid
+                mangas={author.series}
+                emptyText="Henüz bir seriyle ilişkilendirilmemiş."
+            />
+        </div>
+    );
 
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">
@@ -179,25 +199,8 @@ const AuthorDetail: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="space-y-4">
-                            <h2 className="text-2xl font-bold flex items-center gap-2">
-                                <BookOpen className="h-6 w-6 text-primary" />
-                                Katkıda Bulunduğu Seriler
-                            </h2>
-                            <EntitySeriesGrid
-                                mangas={author.series}
-                                emptyText="Henüz bir seriyle ilişkilendirilmemiş."
-                            />
-                        </div>
-
-                        {hasDescription && (
-                            <div className="space-y-4">
-                                <h2 className="text-2xl font-bold">Hakkında</h2>
-                                <div className="bg-secondary/30 rounded-2xl p-6 border border-border leading-relaxed text-lg italic text-foreground/90 whitespace-pre-line">
-                                    {author.description}
-                                </div>
-                            </div>
-                        )}
+                        {descriptionSection}
+                        {seriesSection}
 
                         <Separator className="my-8" />
 
