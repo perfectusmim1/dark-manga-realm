@@ -80,12 +80,10 @@ const TOP_TEN_CARD_WIDTH_CLASS = 'w-[calc((100%-16px)/2.22)] min-[480px]:w-[calc
 const TopTenCard: React.FC<{
   manga: Manga;
   index: number;
-  priority: boolean;
   disableHeavyEffects: boolean;
 }> = ({
   manga,
   index,
-  priority,
   disableHeavyEffects,
 }) => {
   const engagementLabel = typeof manga.engagementScore === 'number' && Number.isFinite(manga.engagementScore)
@@ -113,7 +111,7 @@ const TopTenCard: React.FC<{
             height={TOP_TEN_CARD_INTRINSIC_HEIGHT}
             srcSet={coverSrcSet}
             sizes={TOP_TEN_CARD_SIZES}
-            priority={priority}
+            priority
             rootMargin="620px 0px"
             transform={TOP_TEN_CARD_TRANSFORM}
             containerClassName="h-full w-full"
@@ -399,7 +397,6 @@ const TopTenSectionBlock: React.FC<{
                 <TopTenCard
                   manga={item}
                   index={index}
-                  priority={timeframe === 'today' && index < 4}
                   disableHeavyEffects={disableHeavyEffects}
                 />
               </div>

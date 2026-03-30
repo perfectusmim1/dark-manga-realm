@@ -62,6 +62,8 @@ const MANGA_CARD_SIZES = '(min-width: 1536px) 14vw, (min-width: 1280px) 15vw, (m
 
 const HIGHLIGHT_BADGE_BASE =
   'relative h-auto overflow-hidden border px-2.5 pb-[0.28rem] pt-[0.34rem] text-[8px] font-black uppercase leading-none tracking-[0.18em] shadow-[0_10px_26px_rgba(0,0,0,0.22)]';
+const TOP_TEN_CORNER_CLIP_PATH = 'polygon(100% 0, 100% 100%, 0 0)';
+const TOP_TEN_CORNER_SIZE = 'clamp(3rem, 28%, 4.3rem)';
 
 const getLatestChapterLinks = (chapters: Manga['chapters']) => {
   const latest: Manga['chapters'] = [];
@@ -119,7 +121,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   const genres = manga.genres || [];
   const chapters = manga.chapters || [];
   const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : chapters.length;
-  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? true;
+  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
   const coverSrcSet = useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
   const latestChapterLinks = useMemo(() => getLatestChapterLinks(chapters), [chapters]);
 
@@ -256,42 +258,52 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           {manga.type.toUpperCase()}
         </Badge>
 
-        <div className="absolute right-2 top-2 z-10 flex flex-col items-end gap-1">
-          {isTopTenWeek && (
-            <Badge
+        {isTopTenWeek && (
+          <div
+            className="pointer-events-none absolute right-0 top-0 z-10"
+            style={{ width: TOP_TEN_CORNER_SIZE, height: TOP_TEN_CORNER_SIZE }}
+          >
+            <div
               className={cn(
-                HIGHLIGHT_BADGE_BASE,
-                'border-amber-200/55 bg-[linear-gradient(135deg,rgba(252,211,77,0.96),rgba(251,191,36,0.96),rgba(249,115,22,0.92))] text-slate-950',
-                disableHeavyEffects
-                  ? 'shadow-[0_10px_24px_rgba(251,191,36,0.26)]'
-                  : 'shadow-[0_10px_28px_rgba(251,191,36,0.3)] backdrop-blur-md before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.46),transparent_52%)] before:opacity-90',
+                'absolute inset-0 overflow-hidden border-l border-b border-amber-100/30 bg-[linear-gradient(220deg,rgba(255,246,178,0.98)_0%,rgba(251,191,36,0.96)_56%,rgba(217,119,6,0.92)_100%)] shadow-[0_8px_18px_rgba(217,119,6,0.24)]',
+                disableHeavyEffects ? '' : 'before:absolute before:inset-0 before:bg-[linear-gradient(225deg,rgba(255,255,255,0.18),transparent_55%)] before:opacity-80',
               )}
+              style={{
+                clipPath: TOP_TEN_CORNER_CLIP_PATH,
+              }}
             >
-              <span className="relative z-10 block">
-                Top 10
-              </span>
-            </Badge>
-          )}
-          {isNewRelease && (
-            <Badge
-              className={cn(
-                HIGHLIGHT_BADGE_BASE,
-                'pr-[1.15rem]',
-                'border-cyan-200/45 bg-[linear-gradient(135deg,rgba(103,232,249,0.94),rgba(34,211,238,0.94),rgba(52,211,153,0.9))] text-slate-950',
-                disableHeavyEffects
-                  ? 'shadow-[0_10px_24px_rgba(34,211,238,0.22)]'
-                  : 'shadow-[0_10px_28px_rgba(34,211,238,0.26)] backdrop-blur-md before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.42),transparent_54%)] before:opacity-90',
-              )}
-            >
-              <span className="pointer-events-none absolute right-[0.22rem] top-[0.16rem] z-10">
-                <Sparkles className="h-[0.55rem] w-[0.55rem]" />
-              </span>
-              <span className="relative z-10 block">
-                Yeni
-              </span>
-            </Badge>
-          )}
-        </div>
+              <div className="absolute right-[clamp(0.3rem,2.6vw,0.58rem)] top-[clamp(0.18rem,1.6vw,0.34rem)] flex flex-col items-end text-slate-950">
+                <span className="text-[0.35rem] font-black uppercase tracking-[0.28em] text-slate-900/62">
+                  Top
+                </span>
+                <span className="mt-[-0.02rem] text-[clamp(0.98rem,7vw,1.42rem)] font-black leading-none tracking-[-0.1em]">
+                  10
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {isNewRelease && (
+          <Badge
+            className={cn(
+              HIGHLIGHT_BADGE_BASE,
+              'absolute z-10 pr-[1.15rem]',
+              isTopTenWeek ? 'left-2 top-10' : 'right-2 top-2',
+              'border-cyan-200/45 bg-[linear-gradient(135deg,rgba(103,232,249,0.94),rgba(34,211,238,0.94),rgba(52,211,153,0.9))] text-slate-950',
+              disableHeavyEffects
+                ? 'shadow-[0_10px_24px_rgba(34,211,238,0.22)]'
+                : 'shadow-[0_10px_28px_rgba(34,211,238,0.26)] backdrop-blur-md before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.42),transparent_54%)] before:opacity-90',
+            )}
+          >
+            <span className="pointer-events-none absolute right-[0.22rem] top-[0.16rem] z-10">
+              <Sparkles className="h-[0.55rem] w-[0.55rem]" />
+            </span>
+            <span className="relative z-10 block">
+              Yeni
+            </span>
+          </Badge>
+        )}
 
         <div className="pointer-events-none absolute inset-x-2 bottom-2 z-10 flex items-end justify-between gap-2">
           <Badge

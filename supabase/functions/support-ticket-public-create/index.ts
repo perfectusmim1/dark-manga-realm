@@ -5,7 +5,8 @@ import { corsHeaders } from "../_shared/cors.ts";
 type TicketCategory = "bug_report" | "account" | "content_issue" | "ban_appeal" | "other";
 
 const TICKET_CATEGORIES = new Set<TicketCategory>(["bug_report", "account", "content_issue", "ban_appeal", "other"]);
-const TICKET_CREATION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const TICKET_CREATION_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+const PUBLIC_TICKET_CREATION_COOLDOWN_MESSAGE = "Aynı iletişim e-postasıyla 3 saatte yalnızca 1 destek bileti oluşturabilirsin.";
 
 const normalizeImageUrl = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -37,6 +38,18 @@ const normalizeEmail = (value?: string | null) => {
 const normalizeContactName = (value?: string | null) => {
   const trimmed = value?.trim();
   return trimmed && trimmed.length >= 2 ? trimmed : null;
+};
+
+const getRateLimitMessage = (message?: string | null) => {
+  if (!message) {
+    return null;
+  }
+
+  if (message.includes("3 saatte yalnızca 1 destek bileti")) {
+    return message;
+  }
+
+  return null;
 };
 
 Deno.serve(async (req: Request) => {
@@ -117,7 +130,7 @@ Deno.serve(async (req: Request) => {
     if (recentTicket) {
       return json({
         success: false,
-        message: "Aynı iletişim e-postasıyla 24 saat içinde yalnızca 1 destek bileti oluşturabilirsin.",
+        message: PUBLIC_TICKET_CREATION_COOLDOWN_MESSAGE,
       }, 429);
     }
 
@@ -142,6 +155,10 @@ Deno.serve(async (req: Request) => {
 
     if (ticketError || !createdTicket) {
       console.error("Public ticket create failed:", ticketError);
+      const rateLimitMessage = getRateLimitMessage(ticketError?.message);
+      if (rateLimitMessage) {
+        return json({ success: false, message: rateLimitMessage }, 429);
+      }
       return json({ success: false, message: "Bilet oluşturulamadı" }, 500);
     }
 

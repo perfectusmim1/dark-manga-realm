@@ -528,7 +528,16 @@ const Support: React.FC = () => {
                         </div>
                         {selectedTicket.appealAccountEmail ? <p className="text-xs text-amber-200">Ban itirazı hesabı: {selectedTicket.appealAccountEmail}</p> : null}
                       </div>
-                      {selectedTicket.imageUrl ? <div className="xl:w-56"><SupportImageAttachment url={selectedTicket.imageUrl} alt="Ticket görseli" previewClassName="h-32 w-full rounded-2xl object-cover" /></div> : null}
+                      {selectedTicket.imageUrl ? (
+                        <div className="xl:w-56">
+                          <SupportImageAttachment
+                            url={selectedTicket.imageUrl}
+                            alt="Ticket görseli"
+                            variant="adminCompact"
+                            previewClassName="h-32 w-full rounded-xl object-cover"
+                          />
+                        </div>
+                      ) : null}
                     </div>
                     <Separator />
                     <ScrollArea className="h-[400px] pr-2 sm:h-[430px]">
@@ -538,13 +547,13 @@ const Support: React.FC = () => {
                           const bubble = isOwn ? 'border-sky-400/30 bg-sky-500/15' : item.authorRole === 'admin' ? 'border-violet-500/25 bg-violet-500/10' : item.authorRole === 'moderator' ? 'border-emerald-500/25 bg-emerald-500/10' : item.authorRole === 'system' ? 'border-amber-500/25 bg-amber-500/10' : 'border-border bg-background/70';
                           const roleTone = isOwn ? 'border-sky-400/25 bg-sky-500/12 text-sky-100' : item.authorRole === 'admin' ? 'border-violet-500/25 bg-violet-500/12 text-violet-100' : item.authorRole === 'moderator' ? 'border-emerald-500/25 bg-emerald-500/12 text-emerald-100' : item.authorRole === 'system' ? 'border-amber-500/25 bg-amber-500/12 text-amber-100' : 'border-border bg-background/60 text-muted-foreground';
                           return (
-                            <article key={item.id} className={`flex ${isOwn ? 'justify-end' : 'justify-start'}`}>
-                              <div className={`flex max-w-[92%] flex-col gap-2 rounded-[1.35rem] border px-3.5 py-3 sm:max-w-[78%] ${isOwn ? 'ml-6 items-end rounded-br-md text-right sm:ml-10' : 'mr-6 items-start rounded-bl-md text-left sm:mr-10'} ${bubble}`}>
+                            <article key={item.id} className={`flex min-w-0 ${isOwn ? 'justify-end' : 'justify-start'}`}>
+                              <div className={`flex min-w-0 max-w-[92%] flex-col gap-2 rounded-[1.35rem] border px-3.5 py-3 sm:max-w-[78%] ${isOwn ? 'ml-6 items-end rounded-br-md text-right sm:ml-10' : 'mr-6 items-start rounded-bl-md text-left sm:mr-10'} ${bubble}`}>
                                 <div className={`flex flex-wrap items-center gap-2 ${isOwn ? 'justify-end' : 'justify-start'}`}>
                                   <span className="text-sm font-semibold text-foreground">{item.authorName}</span>
                                   <span className={`rounded-full border px-2 py-0.5 text-[10px] font-medium uppercase tracking-[0.16em] ${roleTone}`}>{messageRoleLabels[item.authorRole]}</span>
                                 </div>
-                                <p className={`w-full whitespace-pre-wrap text-sm leading-6 ${isOwn ? 'text-right text-foreground' : 'text-left text-foreground/90'}`}>{item.content}</p>
+                                <p className={`w-full whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-sm leading-6 ${isOwn ? 'text-right text-foreground' : 'text-left text-foreground/90'}`}>{item.content}</p>
                                 {item.imageUrl ? <SupportImageAttachment url={item.imageUrl} alt="Bilet görseli" className="mt-1 w-full" /> : null}
                                 <p className={`w-full text-[10px] uppercase tracking-[0.2em] text-muted-foreground ${isOwn ? 'text-right' : 'text-left'}`}>{formatTicketTime(item.createdAt)}</p>
                               </div>

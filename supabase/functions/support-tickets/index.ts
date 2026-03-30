@@ -9,7 +9,10 @@ type AuthorRole = "user" | "moderator" | "admin" | "system";
 const STAFF_ROLES = new Set(["admin", "moderator"]);
 const TICKET_STATUSES = new Set<TicketStatus>(["open", "waiting_staff", "waiting_user", "closed"]);
 const TICKET_CATEGORIES = new Set<TicketCategory>(["bug_report", "account", "content_issue", "ban_appeal", "other"]);
-const TICKET_CREATION_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const TICKET_CREATION_COOLDOWN_MS = 3 * 60 * 60 * 1000;
+const USER_REPLY_COOLDOWN_MS = 10 * 1000;
+const TICKET_CREATION_COOLDOWN_MESSAGE = "Her 3 saatte yalnızca 1 destek bileti oluşturabilirsin.";
+const USER_REPLY_COOLDOWN_MESSAGE = "Yanıtlar arasında en az 10 saniye beklemelisin.";
 
 type TicketRow = {
   id: string;
@@ -40,6 +43,21 @@ type TicketMessageRow = {
 };
 
 const isStaff = (role: string) => STAFF_ROLES.has(role);
+
+const getRateLimitMessage = (message?: string | null) => {
+  if (!message) {
+    return null;
+  }
+
+  if (
+    message.includes("3 saatte yalnızca 1 destek bileti")
+    || message.includes("10 saniye beklemelisin")
+  ) {
+    return message;
+  }
+
+  return null;
+};
 
 const normalizeImageUrl = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -281,7 +299,7 @@ Deno.serve(async (req: Request) => {
         if (recentTicket) {
           return json({
             success: false,
-            message: "24 saat içinde yalnızca 1 destek bileti oluşturabilirsin.",
+            message: TICKET_CREATION_COOLDOWN_MESSAGE,
           }, 429);
         }
       }
@@ -307,6 +325,10 @@ Deno.serve(async (req: Request) => {
 
       if (ticketError || !createdTicket) {
         console.error("Ticket create failed:", ticketError);
+        const rateLimitMessage = getRateLimitMessage(ticketError?.message);
+        if (rateLimitMessage) {
+          return json({ success: false, message: rateLimitMessage }, 429);
+        }
         return json({ success: false, message: "Bilet oluşturulamadı" }, 500);
       }
 
@@ -424,6 +446,31 @@ Deno.serve(async (req: Request) => {
         }, 409);
       }
 
+      if (!requesterIsStaff) {
+        const recentReplyWindowStart = new Date(Date.now() - USER_REPLY_COOLDOWN_MS).toISOString();
+        const { data: recentReply, error: recentReplyError } = await auth.serviceClient
+          .from("support_ticket_messages")
+          .select("id, created_at")
+          .eq("author_id", requesterId)
+          .eq("author_role", "user")
+          .gte("created_at", recentReplyWindowStart)
+          .order("created_at", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        if (recentReplyError) {
+          console.error("Recent reply lookup failed:", recentReplyError);
+          return json({ success: false, message: "Yanıt limiti kontrol edilemedi" }, 500);
+        }
+
+        if (recentReply) {
+          return json({
+            success: false,
+            message: USER_REPLY_COOLDOWN_MESSAGE,
+          }, 429);
+        }
+      }
+
       const now = new Date().toISOString();
       const nextStatus: TicketStatus = requesterIsStaff ? "waiting_user" : "waiting_staff";
 
@@ -443,6 +490,10 @@ Deno.serve(async (req: Request) => {
 
       if (replyError || !insertedReply) {
         console.error("Ticket reply failed:", replyError);
+        const rateLimitMessage = getRateLimitMessage(replyError?.message);
+        if (rateLimitMessage) {
+          return json({ success: false, message: rateLimitMessage }, 429);
+        }
         return json({ success: false, message: "Yanıt kaydedilemedi" }, 500);
       }
 

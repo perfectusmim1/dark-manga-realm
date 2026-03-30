@@ -8,7 +8,8 @@ import {
   Rows,
   Columns,
   List,
-  X,
+  Home,
+  BookOpen,
   Eye,
   EyeOff,
   Play,
@@ -141,9 +142,14 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           className="container flex h-auto items-center justify-between gap-2 py-2 sm:h-14 sm:gap-4 sm:py-0"
         >
           <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="icon">
+            <Button asChild variant="ghost" size="icon" title="Ana Sayfa" aria-label="Ana sayfaya git">
+              <Link to="/">
+                <Home className="h-5 w-5" />
+              </Link>
+            </Button>
+            <Button asChild variant="ghost" size="icon" title="Seri Sayfası" aria-label="Seri sayfasına git">
               <Link to={`/manga/${mangaId}`}>
-                <X className="h-5 w-5" />
+                <BookOpen className="h-5 w-5" />
               </Link>
             </Button>
             <div className="flex flex-col">

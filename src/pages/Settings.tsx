@@ -105,7 +105,7 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
         show_page_comments: preferences?.comments?.show_page_comments ?? false,
     },
     appearance: {
-        manga_hover_preview: preferences?.appearance?.manga_hover_preview ?? true,
+        manga_hover_preview: preferences?.appearance?.manga_hover_preview ?? false,
     },
     privacy: {
         visibility: preferences?.privacy?.visibility ?? 'public',
@@ -1318,7 +1318,7 @@ const Settings: React.FC = () => {
                                     </div>
                                     <Switch
                                         id="manga-hover-preview"
-                                        checked={prefs.appearance?.manga_hover_preview ?? true}
+                                        checked={prefs.appearance?.manga_hover_preview ?? false}
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             appearance: { ...prefs.appearance, manga_hover_preview: checked }

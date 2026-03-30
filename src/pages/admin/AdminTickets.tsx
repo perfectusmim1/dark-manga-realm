@@ -98,7 +98,6 @@ const statusMeta: Record<SupportTicketStatus, StatusMetaEntry> = {
 
 const statusFilterMeta: Record<StatusFilterValue, {
   label: string;
-  description: string;
   icon: React.ComponentType<{ className?: string }>;
   panelTone: string;
   surfaceTone: string;
@@ -106,7 +105,6 @@ const statusFilterMeta: Record<StatusFilterValue, {
 }> = {
   all: {
     label: 'Tümü',
-    description: 'Açık, bekleyen ve kapanan tüm kayıtlar.',
     icon: Filter,
     panelTone: 'from-white/14 via-white/[0.05] to-transparent',
     surfaceTone: 'border-white/12 bg-white/[0.03]',
@@ -114,7 +112,6 @@ const statusFilterMeta: Record<StatusFilterValue, {
   },
   open: {
     label: statusMeta.open.label,
-    description: 'Yeni veya aktif işlem bekleyen talepler.',
     icon: statusMeta.open.icon,
     panelTone: statusMeta.open.panelTone,
     surfaceTone: statusMeta.open.surfaceTone,
@@ -122,7 +119,6 @@ const statusFilterMeta: Record<StatusFilterValue, {
   },
   waiting_staff: {
     label: statusMeta.waiting_staff.label,
-    description: 'Ekip aksiyonu gereken kayıtlar.',
     icon: statusMeta.waiting_staff.icon,
     panelTone: statusMeta.waiting_staff.panelTone,
     surfaceTone: statusMeta.waiting_staff.surfaceTone,
@@ -130,7 +126,6 @@ const statusFilterMeta: Record<StatusFilterValue, {
   },
   waiting_user: {
     label: statusMeta.waiting_user.label,
-    description: 'Kullanıcı dönüşü beklenen konuşmalar.',
     icon: statusMeta.waiting_user.icon,
     panelTone: statusMeta.waiting_user.panelTone,
     surfaceTone: statusMeta.waiting_user.surfaceTone,
@@ -138,7 +133,6 @@ const statusFilterMeta: Record<StatusFilterValue, {
   },
   closed: {
     label: statusMeta.closed.label,
-    description: 'İşlemi tamamlanmış veya arşivlenmiş talepler.',
     icon: statusMeta.closed.icon,
     panelTone: statusMeta.closed.panelTone,
     surfaceTone: statusMeta.closed.surfaceTone,
@@ -184,6 +178,20 @@ const ownMessageMeta: RoleMetaEntry = {
 
 const formatTicketTime = (value: string) => formatDistanceToNow(new Date(value), { addSuffix: true, locale: tr });
 
+const getTicketQueuePreview = (content?: string | null, maxLength = 180) => {
+  const normalized = content?.replace(/\s+/g, ' ').trim();
+
+  if (!normalized) {
+    return 'Mesaj içeriği bulunamadı.';
+  }
+
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
+};
+
 const TicketStatusBadge = ({
   status,
   className,
@@ -209,7 +217,6 @@ const TicketStatusBadge = ({
 
 const FilterOverviewCard = ({
   label,
-  description,
   count,
   icon: Icon,
   panelTone,
@@ -218,7 +225,6 @@ const FilterOverviewCard = ({
   onClick,
 }: {
   label: string;
-  description: string;
   count: number;
   icon: React.ComponentType<{ className?: string }>;
   panelTone: string;
@@ -247,7 +253,6 @@ const FilterOverviewCard = ({
     <div className="relative mt-4">
       <p className="text-xl font-semibold tracking-tight text-foreground">{count}</p>
       <p className="mt-1 text-sm font-medium text-foreground/90">{label}</p>
-      <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">{description}</p>
     </div>
   </button>
 );
@@ -256,13 +261,11 @@ const DetailMetaCard = ({
   icon: Icon,
   label,
   value,
-  hint,
   className,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   value: React.ReactNode;
-  hint?: string;
   className?: string;
 }) => (
   <div className={cn('rounded-[1.2rem] border border-white/10 bg-white/[0.03] p-3.5', className)}>
@@ -271,7 +274,6 @@ const DetailMetaCard = ({
       {label}
     </div>
     <div className="mt-2.5 text-sm font-medium leading-5 text-foreground">{value}</div>
-    {hint ? <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">{hint}</p> : null}
   </div>
 );
 
@@ -547,9 +549,6 @@ const AdminTickets: React.FC = () => {
               <h1 className="mt-3 text-xl font-semibold tracking-tight text-foreground sm:text-2xl">
                 Ticket akışını tek panelden yönet
               </h1>
-              <p className="mt-2 max-w-2xl text-sm leading-6 text-muted-foreground">
-                Ölçeği düşürülmüş, daha sade ve daha hızlı taranabilen görünüm. Durum etiketleri doğrudan açık-kapalı mantığıyla ayrılıyor.
-              </p>
             </div>
 
             <div className="flex flex-col items-start gap-2 xl:items-end">
@@ -574,7 +573,6 @@ const AdminTickets: React.FC = () => {
               <FilterOverviewCard
                 key={item.value}
                 label={item.label}
-                description={item.description}
                 count={item.count}
                 icon={item.icon}
                 panelTone={item.panelTone}
@@ -624,7 +622,6 @@ const AdminTickets: React.FC = () => {
                   <span className={cn('h-2.5 w-2.5 rounded-full shadow-[0_0_18px_currentColor]', activeFilterMeta.dotTone)} />
                   <p className="text-sm font-medium text-foreground">{activeFilterMeta.label}</p>
                 </div>
-                <p className="mt-1.5 text-[11px] leading-5 text-muted-foreground">{activeFilterMeta.description}</p>
               </div>
             </div>
           </div>
@@ -635,6 +632,8 @@ const AdminTickets: React.FC = () => {
                 const isSelected = ticket.id === selectedTicketId;
                 const ticketStatus = statusMeta[ticket.status];
                 const lastMessage = ticket.messages[ticket.messages.length - 1];
+                const ticketSubjectPreview = getTicketQueuePreview(ticket.subject, 48);
+                const ticketPreview = getTicketQueuePreview(lastMessage?.content, 96);
 
                 return (
                   <button
@@ -642,7 +641,7 @@ const AdminTickets: React.FC = () => {
                     type="button"
                     onClick={() => setSelectedTicketId(ticket.id)}
                     className={cn(
-                      'group relative w-full overflow-hidden rounded-[1.2rem] border text-left transition-all duration-200',
+                      'group relative min-w-0 w-full overflow-hidden rounded-[1.2rem] border text-left transition-all duration-200',
                       isSelected
                         ? 'border-white/14 bg-white/[0.07] shadow-[0_14px_36px_rgba(2,6,23,0.28)]'
                         : 'border-white/8 bg-black/10 hover:border-white/14 hover:bg-white/[0.04]',
@@ -651,13 +650,15 @@ const AdminTickets: React.FC = () => {
                     <div className={cn('absolute inset-y-0 left-0 w-1 bg-gradient-to-b', ticketStatus.railTone)} />
                     <div className={cn('absolute inset-x-0 top-0 h-20 bg-gradient-to-b opacity-75', ticketStatus.panelTone)} />
 
-                    <div className="relative p-3.5">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0 flex-1">
-                          <div className="flex flex-wrap items-center gap-2">
-                            <p className="truncate text-[15px] font-semibold leading-5 text-foreground">{ticket.subject}</p>
+                    <div className="relative min-w-0 overflow-hidden p-3.5">
+                      <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-start gap-3 overflow-hidden">
+                        <div className="min-w-0 overflow-hidden">
+                          <div className="flex min-w-0 items-center gap-2 overflow-hidden">
+                            <p className="min-w-0 flex-1 truncate text-[15px] font-semibold leading-5 text-foreground">
+                              {ticketSubjectPreview}
+                            </p>
                             {ticket.isGuestTicket ? (
-                              <span className="rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-primary">
+                              <span className="shrink-0 rounded-full border border-primary/20 bg-primary/10 px-2 py-0.5 text-[9px] font-medium uppercase tracking-[0.14em] text-primary">
                                 Misafir
                               </span>
                             ) : null}
@@ -671,8 +672,8 @@ const AdminTickets: React.FC = () => {
                         <TicketStatusBadge status={ticket.status} className="shrink-0" />
                       </div>
 
-                      <p className="mt-2.5 line-clamp-2 text-[13px] leading-5 text-foreground/80">
-                        {lastMessage?.content || 'Mesaj içeriği bulunamadı.'}
+                      <p className="mt-2.5 max-w-full overflow-hidden text-ellipsis whitespace-nowrap text-[13px] leading-5 text-foreground/80">
+                        {ticketPreview}
                       </p>
 
                       <div className="mt-3 flex flex-wrap items-center gap-x-3 gap-y-1.5 text-[10px] uppercase tracking-[0.14em] text-muted-foreground">
@@ -778,25 +779,21 @@ const AdminTickets: React.FC = () => {
                   icon={Clock3}
                   label="Kategori"
                   value={categoryLabels[selectedTicket.category]}
-                  hint="Talebin türünü hızlıca ayırt eder."
                 />
                 <DetailMetaCard
                   icon={MessageSquareReply}
                   label="Mesaj Sayısı"
                   value={`${selectedTicket.messages.length} adet`}
-                  hint="Konuşma yoğunluğunu gösterir."
                 />
                 <DetailMetaCard
                   icon={CalendarDays}
                   label="Açılış"
                   value={formatTicketTime(selectedTicket.createdAt)}
-                  hint="İlk ticket zamanı."
                 />
                 <DetailMetaCard
                   icon={LifeBuoy}
                   label="Son Hareket"
                   value={formatTicketTime(selectedTicket.lastMessageAt)}
-                  hint="En son etkileşim zamanı."
                 />
               </div>
 
@@ -859,11 +856,11 @@ const AdminTickets: React.FC = () => {
                       return (
                         <article
                           key={item.id}
-                          className={cn('flex', isOwnMessage ? 'justify-end' : 'justify-start')}
+                          className={cn('flex min-w-0', isOwnMessage ? 'justify-end' : 'justify-start')}
                         >
                           <div
                             className={cn(
-                              'max-w-[88%] rounded-[1.1rem] border px-3 py-2.5 shadow-[0_10px_24px_rgba(0,0,0,0.16)] sm:max-w-[74%]',
+                              'min-w-0 max-w-[88%] rounded-[1.1rem] border px-3 py-2.5 shadow-[0_10px_24px_rgba(0,0,0,0.16)] sm:max-w-[74%]',
                               roleMeta.bubbleTone,
                               isOwnMessage ? 'rounded-tr-md text-right' : 'rounded-tl-md text-left',
                             )}
@@ -875,7 +872,9 @@ const AdminTickets: React.FC = () => {
                               </span>
                             </div>
 
-                            <p className="mt-1.5 whitespace-pre-wrap text-[12px] leading-5 text-inherit">{item.content}</p>
+                            <p className="mt-1.5 whitespace-pre-wrap break-words [overflow-wrap:anywhere] text-[12px] leading-5 text-inherit">
+                              {item.content}
+                            </p>
 
                             {item.imageUrl ? (
                               <div className="mt-2">
