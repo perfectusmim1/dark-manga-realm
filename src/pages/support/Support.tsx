@@ -21,7 +21,9 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import Header from '@/components/layout/Header';
+import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useAuth } from '@/contexts/AuthContext';
+import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -89,6 +91,7 @@ const SupportTicketBadge = ({ status }: { status: SupportTicketStatus }) => {
 
 const Support: React.FC = () => {
   const { user, session, mfaState, isLoading: authLoading } = useAuth();
+  const { isOnline } = useEffectiveOnlineStatus();
   const [tickets, setTickets] = useState<SupportTicket[]>([]);
   const [selectedTicketId, setSelectedTicketId] = useState('');
   const [category, setCategory] = useState<SupportTicketCategory>('bug_report');
@@ -365,6 +368,17 @@ const Support: React.FC = () => {
       </div>
     </div>
   );
+
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        title="Destek çevrimdışında açılamaz"
+        description="Destek talepleri ve ban itirazı akışı internet bağlantısı gerektirir. Bağlantı geri geldiğinde tekrar deneyin."
+        actionHref="/downloads"
+        actionLabel="İndirilenlere Git"
+      />
+    );
+  }
 
   return (
     <div className="min-h-screen bg-background">

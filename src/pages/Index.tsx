@@ -1121,7 +1121,7 @@ const Index: React.FC = () => {
               </div>
 
               {offlineManga.length > 0 ? (
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
+                <div className="grid grid-cols-2 gap-4 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
                   {offlineManga.map((manga, index) => (
                     <MangaCard
                       key={manga.id}

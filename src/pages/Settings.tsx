@@ -1215,7 +1215,15 @@ const Settings: React.FC = () => {
                                 </div>
                             </CardHeader>
                             <CardContent className="space-y-3">
-                                {isSessionsLoading ? (
+                                {!isOnline ? (
+                                    <Alert className="border-amber-500/20 bg-amber-500/10">
+                                        <WifiOff className="h-4 w-4 text-amber-200" />
+                                        <AlertTitle>Çevrimdışısınız</AlertTitle>
+                                        <AlertDescription>
+                                            Cihazlar ve aktif oturum yönetimi internet bağlantısı gerektirir. Çevrimiçi olduğunuzda bu liste tekrar yüklenir.
+                                        </AlertDescription>
+                                    </Alert>
+                                ) : isSessionsLoading ? (
                                     <div className="flex items-center justify-center py-10 text-sm text-muted-foreground">
                                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                                         Oturumlar yükleniyor...
