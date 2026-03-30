@@ -22,6 +22,14 @@ const FAVORITES_FALLBACK_COVER = `data:image/svg+xml;charset=utf-8,${encodeURICo
   '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 400 600"><rect width="400" height="600" fill="#111827"/><rect x="32" y="32" width="336" height="536" rx="28" fill="#1f2937"/><text x="200" y="286" fill="#93c5fd" font-size="34" font-family="Arial, sans-serif" text-anchor="middle">Toonparrot</text><text x="200" y="332" fill="#e5e7eb" font-size="22" font-family="Arial, sans-serif" text-anchor="middle">Çevrimdışı</text></svg>'
 )}`;
 
+const getSixColumnDesktopCount = (width: number) => {
+  if (width >= 1024) return 6;
+  if (width >= 768) return 5;
+  if (width >= 640) return 4;
+  if (width >= 430) return 3;
+  return 2;
+};
+
 const buildFavoriteFallbackManga = (favorite: Favorite): Manga => ({
   id: favorite.mangaId,
   title: favorite.mangaTitle || 'Favori seri',
@@ -141,7 +149,10 @@ const Favorites: React.FC = () => {
           <TabsContent value="manga" className="mt-0">
             {activeTab === 'manga' ? (
               favoriteManga.length > 0 ? (
-                <MangaGrid manga={favoriteManga} />
+                <MangaGrid
+                  manga={favoriteManga}
+                  getColumnCount={getSixColumnDesktopCount}
+                />
               ) : (
                 <div className="flex min-h-[40vh] items-center justify-center">
                   <div className="text-center">

@@ -8,6 +8,7 @@ interface VirtualMangaGridProps {
   title?: string;
   emptyMessage?: string;
   overscanRows?: number;
+  getColumnCount?: (viewportWidth: number) => number;
 }
 
 const GRID_GAP_PX = 12;
@@ -27,7 +28,7 @@ const getWindowMetrics = () => ({
   scrollY: typeof window === 'undefined' ? 0 : window.scrollY,
 });
 
-const getColumnCount = (viewportWidth: number) => {
+const getDefaultColumnCount = (viewportWidth: number) => {
   if (viewportWidth >= 1536) return 8;
   if (viewportWidth >= 1280) return 7;
   if (viewportWidth >= 1024) return 6;
@@ -42,6 +43,7 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
   title,
   emptyMessage = 'Manga bulunamadı',
   overscanRows = 3,
+  getColumnCount = getDefaultColumnCount,
 }) => {
   const { disableHeavyEffects } = useDeviceProfile();
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -140,7 +142,7 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
 
   const columns = useMemo(
     () => getColumnCount(windowMetrics.width),
-    [windowMetrics.width],
+    [getColumnCount, windowMetrics.width],
   );
 
   const cardWidth = useMemo(() => {
@@ -235,7 +237,10 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
 
         {topSpacerHeight > 0 && <div aria-hidden style={{ height: topSpacerHeight }} />}
 
-        <div className="grid grid-cols-2 gap-3 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8">
+        <div
+          className="grid gap-3"
+          style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+        >
           {visibleManga.map((item, index) => (
             <MangaCard
               key={item.id}

@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { Search, Plus, X, Hash, Loader2 } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -79,18 +79,6 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
   const searchRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
-    if (!isOnline) {
-      setIsLoading(false);
-      setTags([]);
-      setVotes({});
-      setUserVotes({});
-      return;
-    }
-
-    loadData();
-  }, [entityId, entityType, isOnline]);
-
-  useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (searchRef.current && !searchRef.current.contains(event.target as Node)) {
         setIsSearchOpen(false);
@@ -100,27 +88,38 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const loadData = async () => {
+  const loadData = useCallback(async () => {
+    if (!isOnline) {
+      setIsLoading(false);
+      setTags([]);
+      setVotes({});
+      setUserVotes({});
+      return;
+    }
+
     setIsLoading(true);
     try {
-      const [entityTags, tagVotes, all] = await Promise.all([
+      const [entityTags, tagVotes, all, currentUserVotes] = await Promise.all([
         getTagsForEntity(entityType, entityId),
         getTagVotes(entityType, entityId),
         getAllTags(),
+        user?.id
+          ? getUserTagVotes(entityType, entityId, user.id)
+          : Promise.resolve({} as Record<string, 'up' | 'down'>),
       ]);
 
       setTags(entityTags);
       setVotes(tagVotes);
       setAllTags(all);
-
-      if (user) {
-        const uVotes = await getUserTagVotes(entityType, entityId, user.id);
-        setUserVotes(uVotes);
-      }
+      setUserVotes(currentUserVotes);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [entityId, entityType, isOnline, user?.id]);
+
+  useEffect(() => {
+    void loadData();
+  }, [loadData]);
 
   const handleSearch = async (query: string) => {
     setSearchQuery(query);

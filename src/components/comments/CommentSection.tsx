@@ -163,6 +163,9 @@ const getCommentMediaUrls = (comment: Comment) => {
     return comment.mediaUrl ? [comment.mediaUrl] : [];
 };
 
+const hasCommentMedia = (comment: Comment) => getCommentMediaUrls(comment).length > 0;
+const hasCommentGif = (comment: Comment) => Boolean(comment.gifUrl);
+
 const renderFormattedText = (content: string) => {
     const plainText = stripCommentFormatting(content).replace(/\r\n/g, '\n');
     const lines = plainText.split('\n');
@@ -205,6 +208,65 @@ const shouldShowEditedLabel = (comment: Comment) => {
 
     return true;
 };
+
+interface CommentRevealPanelProps {
+    expanded: boolean;
+    onToggle: () => void;
+    openLabel: string;
+    closeLabel: string;
+    collapsedHint: string;
+    expandedHint: string;
+    children: React.ReactNode;
+}
+
+const CommentRevealPanel: React.FC<CommentRevealPanelProps> = ({
+    expanded,
+    onToggle,
+    openLabel,
+    closeLabel,
+    collapsedHint,
+    expandedHint,
+    children,
+}) => (
+    <div className="rounded-xl border border-border/70 bg-background/50 p-3">
+        <button
+            type="button"
+            onClick={onToggle}
+            aria-expanded={expanded}
+            className="group w-full rounded-lg border border-border/70 bg-background/70 p-3 text-left transition-[background-color,border-color,box-shadow,transform] duration-200 hover:border-primary/35 hover:bg-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.995] motion-reduce:transform-none motion-reduce:transition-none"
+        >
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="min-w-0">
+                    <span className="flex items-center gap-2 font-medium text-foreground">
+                        {expanded ? (
+                            <EyeOff className="h-4 w-4 shrink-0" />
+                        ) : (
+                            <Eye className="h-4 w-4 shrink-0" />
+                        )}
+                        {expanded ? closeLabel : openLabel}
+                    </span>
+                    <span className="mt-1 block pl-6 text-xs text-muted-foreground">
+                        {expanded ? expandedHint : collapsedHint}
+                    </span>
+                </div>
+                <span className="inline-flex shrink-0 items-center gap-2 self-start text-xs font-semibold text-foreground/80 sm:self-center">
+                    {expanded ? (
+                        <EyeOff className="h-4 w-4 transition-transform duration-200 group-hover:scale-110 group-focus-visible:scale-110 motion-reduce:transition-none" />
+                    ) : (
+                        <Eye className="h-4 w-4 transition-transform duration-200 group-hover:scale-110 group-focus-visible:scale-110 motion-reduce:transition-none" />
+                    )}
+                    {expanded ? 'Basınca gizlenir' : 'Basınca açılır'}
+                </span>
+            </div>
+        </button>
+
+        {expanded && (
+            <div className="mt-3 space-y-3">
+                {children}
+            </div>
+        )}
+    </div>
+);
 
 interface CommentComposerProps {
     draft: CommentDraft;
@@ -502,6 +564,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const [animatedReactionType, setAnimatedReactionType] = useState<string | null>(null);
     const [expandedReplies, setExpandedReplies] = useState<Record<string, boolean>>({});
     const [expandedMedia, setExpandedMedia] = useState<Record<string, boolean>>({});
+    const [expandedGifs, setExpandedGifs] = useState<Record<string, boolean>>({});
     const [revealedSpoilers, setRevealedSpoilers] = useState<Record<string, boolean>>({});
     const [mediaLoadErrors, setMediaLoadErrors] = useState<Record<string, boolean>>({});
     const [pendingCommentLikes, setPendingCommentLikes] = useState<Record<string, boolean>>({});
@@ -708,8 +771,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     });
 
     const shouldAutoExpandMedia = (comment: Comment) =>
-        (commentPreferences.autoShowMedia && getCommentMediaUrls(comment).length > 0) ||
-        (commentPreferences.autoShowGifs && Boolean(comment.gifUrl));
+        commentPreferences.autoShowMedia && hasCommentMedia(comment);
+    const shouldAutoExpandGifs = (comment: Comment) =>
+        commentPreferences.autoShowGifs && hasCommentGif(comment);
 
     useEffect(() => {
         setExpandedMedia((previous) => {
@@ -725,7 +789,23 @@ const CommentSection: React.FC<CommentSectionProps> = ({
 
             return changed ? next : previous;
         });
-    }, [comments, commentPreferences.autoShowMedia, commentPreferences.autoShowGifs]);
+    }, [comments, commentPreferences.autoShowMedia]);
+
+    useEffect(() => {
+        setExpandedGifs((previous) => {
+            let changed = false;
+            const next = { ...previous };
+
+            for (const comment of comments) {
+                if (shouldAutoExpandGifs(comment) && !next[comment.id]) {
+                    next[comment.id] = true;
+                    changed = true;
+                }
+            }
+
+            return changed ? next : previous;
+        });
+    }, [comments, commentPreferences.autoShowGifs]);
 
     const handleReaction = async (type: string) => {
         if (!user) {
@@ -1681,6 +1761,10 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         setExpandedMedia(prev => ({ ...prev, [commentId]: !prev[commentId] }));
     };
 
+    const toggleGif = (commentId: string) => {
+        setExpandedGifs(prev => ({ ...prev, [commentId]: !prev[commentId] }));
+    };
+
     const toggleSpoiler = (commentId: string) => {
         setRevealedSpoilers(prev => ({ ...prev, [commentId]: !prev[commentId] }));
     };
@@ -1848,27 +1932,50 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                             <p className="text-sm leading-relaxed text-foreground/90">
                                                 {renderFormattedText(reply.content)}
                                             </p>
-                                            {(getCommentMediaUrls(reply).length > 0 || reply.gifUrl) && (
-                                                <Button variant="outline" size="sm" onClick={() => toggleMedia(reply.id)}>
-                                                    {expandedMedia[reply.id] ? 'Medyayı Gizle' : 'Medyayı Görüntüle'}
-                                                </Button>
+                                            {hasCommentMedia(reply) && (
+                                                <CommentRevealPanel
+                                                    expanded={Boolean(expandedMedia[reply.id])}
+                                                    onToggle={() => toggleMedia(reply.id)}
+                                                    openLabel="Medyayı Görüntüle"
+                                                    closeLabel="Medyayı Gizle"
+                                                    collapsedHint="Dokunarak veya tıklayarak açılır."
+                                                    expandedHint="Dokunarak veya tıklayarak gizlenir."
+                                                >
+                                                    {getCommentMediaUrls(reply).map((mediaUrl, index) => (
+                                                        mediaLoadErrors[`${reply.id}:media:${index}`] ? (
+                                                            <div key={`${reply.id}-media-error-${index}`} className="text-sm text-destructive">Görsel yüklenemedi.</div>
+                                                        ) : (
+                                                            <img
+                                                                key={`${reply.id}-media-${index}`}
+                                                                src={mediaUrl}
+                                                                alt={`Reply media ${index + 1}`}
+                                                                className="max-h-64 w-full rounded-lg object-contain"
+                                                                onError={() => markMediaAsFailed(`${reply.id}:media:${index}`)}
+                                                            />
+                                                        )
+                                                    ))}
+                                                </CommentRevealPanel>
                                             )}
-                                            {expandedMedia[reply.id] && getCommentMediaUrls(reply).map((mediaUrl, index) => (
-                                                <img
-                                                    key={`${reply.id}-media-${index}`}
-                                                    src={mediaUrl}
-                                                    alt={`Reply media ${index + 1}`}
-                                                    className="mt-2 max-h-64 w-full rounded-lg object-contain"
-                                                    onError={() => markMediaAsFailed(`${reply.id}:media:${index}`)}
-                                                />
-                                            ))}
-                                            {expandedMedia[reply.id] && reply.gifUrl && (
-                                                <img
-                                                    src={reply.gifUrl}
-                                                    alt="Reply GIF"
-                                                    className="mt-2 max-h-48 w-full rounded-lg object-contain"
-                                                    onError={() => markMediaAsFailed(`${reply.id}:gif`)}
-                                                />
+                                            {hasCommentGif(reply) && (
+                                                <CommentRevealPanel
+                                                    expanded={Boolean(expandedGifs[reply.id])}
+                                                    onToggle={() => toggleGif(reply.id)}
+                                                    openLabel="GIF'i Görüntüle"
+                                                    closeLabel="GIF'i Gizle"
+                                                    collapsedHint="Dokunarak veya tıklayarak açılır."
+                                                    expandedHint="Dokunarak veya tıklayarak gizlenir."
+                                                >
+                                                    {mediaLoadErrors[`${reply.id}:gif`] ? (
+                                                        <div className="text-sm text-destructive">GIF yüklenemedi.</div>
+                                                    ) : (
+                                                        <img
+                                                            src={reply.gifUrl!}
+                                                            alt="Reply GIF"
+                                                            className="max-h-48 w-full rounded-lg object-contain"
+                                                            onError={() => markMediaAsFailed(`${reply.id}:gif`)}
+                                                        />
+                                                    )}
+                                                </CommentRevealPanel>
                                             )}
                                         </div>
                                     )}
@@ -2302,18 +2409,29 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                 ) : (
                                                     <div className="mt-2 space-y-2">
                                                         {comment.isSpoiler && !revealedSpoilers[comment.id] ? (
-                                                            <div className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-100">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => toggleSpoiler(comment.id)}
+                                                                aria-label="Spoiler içeren yorumu göster"
+                                                                aria-expanded={false}
+                                                                className="group w-full rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-left text-sm text-amber-100 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:border-amber-400/50 hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.995] motion-reduce:transform-none motion-reduce:transition-none"
+                                                            >
                                                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                                                    <span className="flex items-center gap-2">
-                                                                        <AlertTriangle className="h-4 w-4" />
-                                                                        Bu yorum spoiler olarak işaretlendi.
+                                                                    <div className="min-w-0">
+                                                                        <span className="flex items-center gap-2 font-medium">
+                                                                            <AlertTriangle className="h-4 w-4 shrink-0" />
+                                                                            Bu yorum spoiler olarak işaretlendi.
+                                                                        </span>
+                                                                        <span className="mt-1 block pl-6 text-xs text-amber-100/80">
+                                                                            Dokunarak veya tıklayarak açılır.
+                                                                        </span>
+                                                                    </div>
+                                                                    <span className="inline-flex shrink-0 items-center gap-2 self-start text-xs font-semibold text-amber-50/90 sm:self-center">
+                                                                        <Eye className="h-4 w-4 transition-transform duration-200 group-hover:scale-110 group-focus-visible:scale-110 motion-reduce:transition-none" />
+                                                                        Basınca açılır
                                                                     </span>
-                                                                    <Button size="sm" variant="secondary" className="w-full sm:w-auto" onClick={() => toggleSpoiler(comment.id)}>
-                                                                        <Eye className="mr-2 h-4 w-4" />
-                                                                        Spoileri Göster
-                                                                    </Button>
                                                                 </div>
-                                                            </div>
+                                                            </button>
                                                         ) : (
                                                             <>
                                                                 {comment.title && <h4 className="font-bold text-foreground">{comment.title}</h4>}
@@ -2322,59 +2440,62 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                 </p>
 
                                                                 {comment.isSpoiler && (
-                                                                    <Button variant="ghost" size="sm" className="px-0 text-amber-200 hover:text-amber-100" onClick={() => toggleSpoiler(comment.id)}>
+                                                                    <Button
+                                                                        variant="ghost"
+                                                                        size="sm"
+                                                                        className="h-9 rounded-lg px-3 text-amber-200 hover:bg-secondary/80 hover:text-amber-100"
+                                                                        onClick={() => toggleSpoiler(comment.id)}
+                                                                    >
                                                                         <EyeOff className="mr-2 h-4 w-4" />
                                                                         Spoileri Gizle
                                                                     </Button>
                                                                 )}
 
-                                                                {(getCommentMediaUrls(comment).length > 0 || comment.gifUrl) && (
-                                                                    <div className="rounded-xl border border-border/70 bg-background/50 p-3">
-                                                                        <Button variant="outline" size="sm" onClick={() => toggleMedia(comment.id)}>
-                                                                            {expandedMedia[comment.id] ? (
-                                                                                <>
-                                                                                    <EyeOff className="mr-2 h-4 w-4" />
-                                                                                    Medyayı Gizle
-                                                                                </>
+                                                                {hasCommentMedia(comment) && (
+                                                                    <CommentRevealPanel
+                                                                        expanded={Boolean(expandedMedia[comment.id])}
+                                                                        onToggle={() => toggleMedia(comment.id)}
+                                                                        openLabel="Medyayı Görüntüle"
+                                                                        closeLabel="Medyayı Gizle"
+                                                                        collapsedHint="Dokunarak veya tıklayarak açılır."
+                                                                        expandedHint="Dokunarak veya tıklayarak gizlenir."
+                                                                    >
+                                                                        {getCommentMediaUrls(comment).map((mediaUrl, index) => (
+                                                                            mediaLoadErrors[`${comment.id}:media:${index}`] ? (
+                                                                                <div key={`${comment.id}-media-error-${index}`} className="text-sm text-destructive">Görsel yüklenemedi.</div>
                                                                             ) : (
-                                                                                <>
-                                                                                    <Eye className="mr-2 h-4 w-4" />
-                                                                                    Medyayı Görüntüle
-                                                                                </>
-                                                                            )}
-                                                                        </Button>
+                                                                                <img
+                                                                                    key={`${comment.id}-media-${index}`}
+                                                                                    src={mediaUrl}
+                                                                                    alt={`Comment media ${index + 1}`}
+                                                                                    className="max-h-[30rem] w-full rounded-lg object-contain"
+                                                                                    onError={() => markMediaAsFailed(`${comment.id}:media:${index}`)}
+                                                                                />
+                                                                            )
+                                                                        ))}
+                                                                    </CommentRevealPanel>
+                                                                )}
 
-                                                                        {expandedMedia[comment.id] && (
-                                                                            <div className="mt-3 space-y-3">
-                                                                                {getCommentMediaUrls(comment).map((mediaUrl, index) => (
-                                                                                    mediaLoadErrors[`${comment.id}:media:${index}`] ? (
-                                                                                        <div key={`${comment.id}-media-error-${index}`} className="text-sm text-destructive">Görsel yüklenemedi.</div>
-                                                                                    ) : (
-                                                                                        <img
-                                                                                            key={`${comment.id}-media-${index}`}
-                                                                                            src={mediaUrl}
-                                                                                            alt={`Comment media ${index + 1}`}
-                                                                                            className="max-h-[30rem] w-full rounded-lg object-contain"
-                                                                                            onError={() => markMediaAsFailed(`${comment.id}:media:${index}`)}
-                                                                                        />
-                                                                                    )
-                                                                                ))}
-
-                                                                                {comment.gifUrl && (
-                                                                                    mediaLoadErrors[`${comment.id}:gif`] ? (
-                                                                                        <div className="text-sm text-destructive">GIF yüklenemedi.</div>
-                                                                                    ) : (
-                                                                                        <img
-                                                                                            src={comment.gifUrl}
-                                                                                            alt="Comment GIF"
-                                                                                            className="max-h-48 w-full rounded-lg object-contain"
-                                                                                            onError={() => markMediaAsFailed(`${comment.id}:gif`)}
-                                                                                        />
-                                                                                    )
-                                                                                )}
-                                                                            </div>
+                                                                {hasCommentGif(comment) && (
+                                                                    <CommentRevealPanel
+                                                                        expanded={Boolean(expandedGifs[comment.id])}
+                                                                        onToggle={() => toggleGif(comment.id)}
+                                                                        openLabel="GIF'i Görüntüle"
+                                                                        closeLabel="GIF'i Gizle"
+                                                                        collapsedHint="Dokunarak veya tıklayarak açılır."
+                                                                        expandedHint="Dokunarak veya tıklayarak gizlenir."
+                                                                    >
+                                                                        {mediaLoadErrors[`${comment.id}:gif`] ? (
+                                                                            <div className="text-sm text-destructive">GIF yüklenemedi.</div>
+                                                                        ) : (
+                                                                            <img
+                                                                                src={comment.gifUrl!}
+                                                                                alt="Comment GIF"
+                                                                                className="max-h-48 w-full rounded-lg object-contain"
+                                                                                onError={() => markMediaAsFailed(`${comment.id}:gif`)}
+                                                                            />
                                                                         )}
-                                                                    </div>
+                                                                    </CommentRevealPanel>
                                                                 )}
                                                             </>
                                                         )}

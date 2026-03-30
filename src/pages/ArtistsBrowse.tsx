@@ -57,7 +57,6 @@ const ArtistsBrowse: React.FC = () => {
           items={artists}
           loading={loading}
           buildHref={(artist) => `/artist/${artist.id}`}
-          resolveRank={(_, index) => index + 1}
         />
       </main>
     </div>

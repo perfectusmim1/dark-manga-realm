@@ -16,6 +16,7 @@ import OfflineNotice from '@/components/offline/OfflineNotice';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
 import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
+import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
 
 type EnrichedBookmark = Bookmark & {
   manga?: Manga;
@@ -201,7 +202,8 @@ const Bookmarks: React.FC = () => {
                 const { manga, chapter } = item;
                 const mangaTitle = manga?.title || item.mangaTitle || 'Seri';
                 const chapterLabel = chapter?.number || item.chapterNumber;
-                const chapterTitle = chapter?.title || item.chapterTitle;
+                const chapterNumberLabel = formatChapterNumberLabel(chapterLabel);
+                const chapterTitle = sanitizeChapterTitle(chapterLabel, chapter?.title || item.chapterTitle);
                 const previewImage = !isOnline
                   ? (manga?.cover || item.mangaCover)
                   : (chapter?.pages && chapter.pages.length >= item.page)
@@ -266,7 +268,7 @@ const Bookmarks: React.FC = () => {
 
                       <div className="mt-1 flex items-center justify-between">
                         <p className="text-xs font-medium text-primary sm:text-sm">
-                          Bölüm {chapterLabel}
+                          Bölüm {chapterNumberLabel}
                         </p>
                       </div>
 

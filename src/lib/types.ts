@@ -52,6 +52,7 @@ export interface Author {
   likesCount: number;
   createdAt: string;
   series?: Manga[];
+  rank?: number;
 }
 
 export interface Artist {
@@ -62,6 +63,7 @@ export interface Artist {
   likesCount: number;
   createdAt: string;
   series?: Manga[];
+  rank?: number;
 }
 
 

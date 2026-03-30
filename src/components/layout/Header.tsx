@@ -846,6 +846,7 @@ const Header: React.FC = () => {
                     Ayarlar
                   </Link>
                 </DropdownMenuItem>
+                <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
                   <Link to="/support" className="flex items-center gap-2">
                     <LifeBuoy className="h-4 w-4" />

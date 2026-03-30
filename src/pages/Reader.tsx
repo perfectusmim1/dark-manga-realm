@@ -46,6 +46,9 @@ const READING_SESSION_FLUSH_INTERVAL_MS = 30000;
 const NEXT_CHAPTER_CRITICAL_PAGES = 4;
 const NEXT_CHAPTER_PREFETCH_PAGES = 8;
 const NEXT_CHAPTER_PREFETCH_CONCURRENCY = 6;
+const RESTORE_FORWARD_READY_PAGES = 1;
+const RESTORE_LAYOUT_MAX_ATTEMPTS = 60;
+const RESTORE_LAYOUT_RETRY_MS = 80;
 
 const sanitizeReaderChapter = (chapter?: Chapter | null): Chapter | null => {
   if (!chapter) {
@@ -250,33 +253,21 @@ const Reader: React.FC = () => {
 
   // Reset state and scroll on chapter change
   useEffect(() => {
-    const preparedTransition = preparedTransitionRef.current;
-    const canUsePreparedTransition = !forceOfflineRead && Boolean(
-      preparedTransition
-      && preparedTransition.mangaId === mangaId
-      && preparedTransition.chapterId === chapterId
-    );
-
     setCurrentPage(1);
     window.scrollTo({ top: 0, behavior: 'auto' });
     viewTracked.current = false;
     setInitialized(false);
     setIsTrackingReady(false);
     setIsInitialViewportReady(false);
-    setIsContentReady(canUsePreparedTransition);
+    setIsContentReady(false);
     if (!resumeAutoScrollAfterNavigationRef.current) {
       persistedAutoScrollIntent = false;
       setIsAutoScrolling(false);
     }
     setOfflineUnavailable(false);
-    if (canUsePreparedTransition && preparedTransition) {
-      setChapter(preparedTransition.chapter);
-      setResolvedPages(preparedTransition.resolvedPages);
-      setIsOfflineChapter(false);
-    } else {
-      setResolvedPages([]);
-      setIsOfflineChapter(false);
-    }
+    setChapter(null);
+    setResolvedPages([]);
+    setIsOfflineChapter(false);
     pendingInitialRestorePageRef.current = null;
     setPageCommentModalOpen(false);
     setPageCommentModalPage(null);
@@ -358,18 +349,20 @@ const Reader: React.FC = () => {
 
       try {
         setIsLoading(true);
-        const preparedTransition = preparedTransitionRef.current;
-        const hasPreparedTransition = !forceOfflineRead && Boolean(
-          preparedTransition
-          && preparedTransition.mangaId === mangaId
-          && preparedTransition.chapterId === chapterId
-        );
-        const offlineChapter = await getOfflineChapter(chapterId);
         const existingManga = currentMangaRef.current && currentMangaRef.current.id === mangaId
           ? currentMangaRef.current
           : null;
-        const mData = canUseNetworkReaderFeatures ? (existingManga ?? await getMangaById(mangaId)) : undefined;
-        const fallbackManga = mData || await getOfflineMangaDetail(mangaId);
+        const [offlineChapter, mData, offlineManga] = await Promise.all([
+          getOfflineChapter(chapterId),
+          canUseNetworkReaderFeatures
+            ? getMangaById(mangaId).catch((error) => {
+                console.error('Reader chapter refresh error:', error);
+                return existingManga;
+              })
+            : Promise.resolve(undefined),
+          getOfflineMangaDetail(mangaId),
+        ]);
+        const fallbackManga = mData || existingManga || offlineManga;
 
         if (mData) {
           void cacheOfflineManga(mData);
@@ -397,6 +390,8 @@ const Reader: React.FC = () => {
           navigate(`/manga/${mangaId}`);
           return;
         }
+
+        warmCriticalChapterPages(resolvedChapter);
 
         if ((forceOfflineRead || !isOnlineNow) && offlineChapter?.downloadStatus === 'completed') {
           setChapter(resolvedChapter);
@@ -426,11 +421,6 @@ const Reader: React.FC = () => {
           setResolvedPages([]);
           setIsOfflineChapter(false);
           setOfflineUnavailable(true);
-        } else if (hasPreparedTransition && preparedTransition) {
-          setChapter(preparedTransition.chapter);
-          setResolvedPages(preparedTransition.resolvedPages);
-          setIsOfflineChapter(false);
-          setOfflineUnavailable(false);
         } else {
           setChapter(resolvedChapter);
           setResolvedPages(resolvedChapter.pages.map((page) => ({ src: page, source: 'remote' })));
@@ -451,7 +441,7 @@ const Reader: React.FC = () => {
     };
 
     loadContent();
-  }, [canUseNetworkReaderFeatures, chapterId, forceOfflineRead, isOnlineNow, mangaId, navigate]);
+  }, [canUseNetworkReaderFeatures, chapterId, forceOfflineRead, isOnlineNow, mangaId, navigate, warmCriticalChapterPages]);
 
   useEffect(() => {
     if (initialized || !isContentReady || !mangaId || !chapterId) {
@@ -791,15 +781,19 @@ const Reader: React.FC = () => {
 
   const isRestoreLayoutReady = useCallback((targetPage: number) => {
     const targetIndex = Math.max(0, Math.min(resolvedPages.length, targetPage) - 1);
+    const readyThroughIndex = Math.min(
+      resolvedPages.length - 1,
+      targetIndex + RESTORE_FORWARD_READY_PAGES,
+    );
 
-    for (let index = 0; index <= targetIndex; index += 1) {
+    for (let index = 0; index <= readyThroughIndex; index += 1) {
       const pageElement = document.querySelector(`[data-page-index="${index}"]`) as HTMLElement | null;
 
       if (!pageElement || pageElement.offsetHeight < 32) {
         return false;
       }
 
-      if (index !== targetIndex) {
+      if (index < targetIndex) {
         continue;
       }
 
@@ -899,6 +893,11 @@ const Reader: React.FC = () => {
         return;
       }
 
+      if (!isRestoreLayoutReady(targetPage) && attempt < RESTORE_LAYOUT_MAX_ATTEMPTS) {
+        restoreTimerId = window.setTimeout(() => restore(attempt + 1), RESTORE_LAYOUT_RETRY_MS);
+        return;
+      }
+
       if (targetPage <= 1) {
         window.scrollTo({ top: 0, behavior: 'auto' });
         setCurrentPage(1);
@@ -906,15 +905,10 @@ const Reader: React.FC = () => {
         return;
       }
 
-      if (!isRestoreLayoutReady(targetPage) && attempt < 40) {
-        restoreTimerId = window.setTimeout(() => restore(attempt + 1), 80);
-        return;
-      }
-
       if (targetPage > 1) {
         const didScroll = scrollToPage(targetPage, false);
-        if (!didScroll && attempt < 40) {
-          restoreTimerId = window.setTimeout(() => restore(attempt + 1), 80);
+        if (!didScroll && attempt < RESTORE_LAYOUT_MAX_ATTEMPTS) {
+          restoreTimerId = window.setTimeout(() => restore(attempt + 1), RESTORE_LAYOUT_RETRY_MS);
           return;
         }
 

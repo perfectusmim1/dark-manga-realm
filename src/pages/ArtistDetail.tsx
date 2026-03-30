@@ -10,6 +10,7 @@ import { toast } from 'sonner';
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
+import EntityDetailRankBadge from '@/components/entities/EntityDetailRankBadge';
 import EntitySeriesGrid from '@/components/entities/EntitySeriesGrid';
 import { supabase } from '@/lib/supabase';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
@@ -138,6 +139,11 @@ const ArtistDetail: React.FC = () => {
                                         initialClassName="text-8xl md:text-9xl"
                                     />
                                 )}
+                                {artist.rank && artist.rank <= 3 && (
+                                    <div className="absolute top-4 left-4">
+                                        <EntityDetailRankBadge rank={artist.rank} />
+                                    </div>
+                                )}
                             </div>
                         </div>
 
@@ -151,6 +157,11 @@ const ArtistDetail: React.FC = () => {
                                 <Heart className={`mr-2 h-5 w-5 ${isLiked ? 'fill-current' : ''}`} />
                                 {artist.likesCount || 0}
                             </Button>
+                            {artist.rank && (
+                                <div className="w-20 h-11 flex items-center justify-center rounded-xl bg-secondary border border-border">
+                                    <span className="text-xl font-bold">#{artist.rank}</span>
+                                </div>
+                            )}
                         </div>
                     </div>
 

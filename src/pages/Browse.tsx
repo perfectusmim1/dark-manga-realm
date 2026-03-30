@@ -23,6 +23,14 @@ import DeferredMount from '@/components/performance/DeferredMount';
 
 let browsePageCache: Manga[] | null = null;
 
+const getSixColumnDesktopCount = (width: number) => {
+  if (width >= 1024) return 6;
+  if (width >= 768) return 5;
+  if (width >= 640) return 4;
+  if (width >= 430) return 3;
+  return 2;
+};
+
 const Browse: React.FC = () => {
   const { isOnline } = useEffectiveOnlineStatus();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -321,6 +329,7 @@ const Browse: React.FC = () => {
           <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
             <VirtualMangaGrid
               manga={filteredManga}
+              getColumnCount={getSixColumnDesktopCount}
               emptyMessage="Arama kriterlerinize uygun manga bulunamadı"
             />
           </div>

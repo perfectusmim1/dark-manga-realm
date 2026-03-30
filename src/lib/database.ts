@@ -59,6 +59,24 @@ const mapArtistRow = (row: any): Artist => ({
     likesCount: row.likes_count ?? 0,
 });
 
+const getOrderedEntityRank = async (
+    tableName: 'authors' | 'artists',
+    entityId: string,
+): Promise<number | undefined> => {
+    const { data, error } = await (supabase as any)
+        .from(tableName)
+        .select('id')
+        .order('likes_count', { ascending: false })
+        .order('name', { ascending: true });
+
+    if (error || !Array.isArray(data)) {
+        return undefined;
+    }
+
+    const rankIndex = data.findIndex((row: { id: string }) => row.id === entityId);
+    return rankIndex >= 0 ? rankIndex + 1 : undefined;
+};
+
 export interface LatestChapterFeedItem {
     chapterId: string;
     mangaId: string;
@@ -3169,7 +3187,8 @@ export const getCharacters = async (): Promise<Character[]> => {
     const { data, error } = await supabase
         .from('characters')
         .select('*')
-        .order('likes_count', { ascending: false });
+        .order('likes_count', { ascending: false })
+        .order('name', { ascending: true });
 
     if (error) return [];
     return data.map((c, index) => ({
@@ -3177,7 +3196,7 @@ export const getCharacters = async (): Promise<Character[]> => {
         name: c.name,
         imageUrl: c.image_url,
         description: c.description,
-        likesCount: c.likes_count,
+        likesCount: c.likes_count ?? 0,
         createdAt: c.created_at,
         rank: index + 1
     }));
@@ -3268,14 +3287,34 @@ export const getMangaCharacters = async (mangaId: string): Promise<Character[]> 
 };
 
 // Same for Authors/Artists (shorter versions)
-export const getAuthors = async () => {
-    const { data } = await supabase.from('authors').select('*').order('name');
-    return (data || []).map(mapAuthorRow);
+export const getAuthors = async (): Promise<Author[]> => {
+    const { data, error } = await supabase
+        .from('authors')
+        .select('*')
+        .order('likes_count', { ascending: false })
+        .order('name', { ascending: true });
+
+    if (error) return [];
+
+    return (data || []).map((author, index) => ({
+        ...mapAuthorRow(author),
+        rank: index + 1,
+    }));
 };
 
-export const getArtists = async () => {
-    const { data } = await supabase.from('artists').select('*').order('name');
-    return (data || []).map(mapArtistRow);
+export const getArtists = async (): Promise<Artist[]> => {
+    const { data, error } = await supabase
+        .from('artists')
+        .select('*')
+        .order('likes_count', { ascending: false })
+        .order('name', { ascending: true });
+
+    if (error) return [];
+
+    return (data || []).map((artist, index) => ({
+        ...mapArtistRow(artist),
+        rank: index + 1,
+    }));
 };
 
 export const getAuthorById = async (id: string): Promise<Author | undefined> => {
@@ -3289,9 +3328,12 @@ export const getAuthorById = async (id: string): Promise<Author | undefined> => 
     const seriesIds = ((data as any).mangas || [])
         .map((item: any) => item.manga?.id)
         .filter(Boolean);
-    const series = await getMangasByIds(seriesIds);
+    const [series, rank] = await Promise.all([
+        getMangasByIds(seriesIds),
+        getOrderedEntityRank('authors', id),
+    ]);
 
-    return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series };
+    return { ...mapAuthorRow(data), series, rank };
 };
 
 export const getArtistById = async (id: string): Promise<Artist | undefined> => {
@@ -3305,9 +3347,12 @@ export const getArtistById = async (id: string): Promise<Artist | undefined> => 
     const seriesIds = ((data as any).mangas || [])
         .map((item: any) => item.manga?.id)
         .filter(Boolean);
-    const series = await getMangasByIds(seriesIds);
+    const [series, rank] = await Promise.all([
+        getMangasByIds(seriesIds),
+        getOrderedEntityRank('artists', id),
+    ]);
 
-    return { ...data, imageUrl: data.image_url, likesCount: data.likes_count, series };
+    return { ...mapArtistRow(data), series, rank };
 };
 
 export const findAuthorByName = async (name: string): Promise<Author | null> => {

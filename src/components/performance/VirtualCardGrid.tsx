@@ -207,7 +207,10 @@ function VirtualCardGrid<T>({
 
       {topSpacerHeight > 0 && <div aria-hidden style={{ height: topSpacerHeight }} />}
 
-      <div className={gridClassName}>
+      <div
+        className={gridClassName}
+        style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
+      >
         {visibleItems.map((item, index) => {
           const absoluteIndex = startIndex + index;
 

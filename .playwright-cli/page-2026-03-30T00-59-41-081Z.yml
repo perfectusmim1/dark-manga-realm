@@ -1,0 +1,97 @@
+- generic [ref=e3]:
+  - region "Notifications (F8)":
+    - list
+  - region "Notifications alt+T"
+  - generic [ref=e4]:
+    - generic [ref=e6]:
+      - generic [ref=e7]:
+        - link [ref=e8] [cursor=pointer]:
+          - /url: /manga/manga-1767813305364
+          - img
+        - generic [ref=e9]:
+          - generic [ref=e10]: 4000 Yılın Ardından Dönen Kadim Büyücü
+          - generic [ref=e11]: Bölüm 3
+      - generic [ref=e12]:
+        - button "Gizli Modu Aç" [ref=e13] [cursor=pointer]:
+          - img
+        - button "Yer İmlerime Ekle" [ref=e14] [cursor=pointer]:
+          - img
+        - button [ref=e15] [cursor=pointer]:
+          - img
+        - button [ref=e16] [cursor=pointer]:
+          - img
+    - generic [ref=e18]:
+      - button "Önceki" [ref=e19] [cursor=pointer]:
+        - img
+        - generic [ref=e20]: Önceki
+      - generic [ref=e21]:
+        - generic [ref=e22]: 1 / 27
+        - generic [ref=e26]: "%0"
+        - generic [ref=e27]:
+          - button "Otomatik kaydırmayı başlat" [ref=e28] [cursor=pointer]:
+            - img
+          - button "30 px/sn" [ref=e29] [cursor=pointer]:
+            - img
+            - generic [ref=e30]: 30 px/sn
+      - button "Sonraki" [ref=e31] [cursor=pointer]:
+        - generic [ref=e32]: Sonraki
+        - img
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - generic: P1
+      - generic [ref=e40]:
+        - generic: P2
+      - generic [ref=e44]:
+        - generic: P3
+      - generic [ref=e48]:
+        - generic: P4
+      - generic [ref=e52]:
+        - generic: P5
+      - generic [ref=e55]:
+        - generic: P6
+      - generic [ref=e58]:
+        - generic: P7
+      - generic [ref=e61]:
+        - generic: P8
+      - generic [ref=e64]:
+        - generic: P9
+      - generic [ref=e67]:
+        - generic: P10
+      - generic [ref=e70]:
+        - generic: P11
+      - generic [ref=e73]:
+        - generic: P12
+      - generic [ref=e76]:
+        - generic: P13
+      - generic [ref=e79]:
+        - generic: P14
+      - generic [ref=e82]:
+        - generic: P15
+      - generic [ref=e85]:
+        - generic: P16
+      - generic [ref=e88]:
+        - generic: P17
+      - generic [ref=e91]:
+        - generic: P18
+      - generic [ref=e94]:
+        - generic: P19
+      - generic [ref=e97]:
+        - generic: P20
+      - generic [ref=e100]:
+        - generic: P21
+      - generic [ref=e103]:
+        - generic: P22
+      - generic [ref=e106]:
+        - generic: P23
+      - generic [ref=e109]:
+        - generic: P24
+      - generic [ref=e112]:
+        - generic: P25
+      - generic [ref=e115]:
+        - generic: P26
+      - generic [ref=e118]:
+        - generic: P27
+    - button "En Üste Git" [ref=e121] [cursor=pointer]:
+      - img
+    - button "En Alta Git" [ref=e122] [cursor=pointer]:
+      - img

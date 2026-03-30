@@ -31,6 +31,14 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
 
+const getSixColumnDesktopCount = (width: number) => {
+    if (width >= 1024) return 6;
+    if (width >= 768) return 5;
+    if (width >= 640) return 4;
+    if (width >= 430) return 3;
+    return 2;
+};
+
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
     const { user, isLoading: authLoading } = useAuth();
@@ -297,8 +305,8 @@ const ReadingListDetail: React.FC = () => {
                 <main className="container pt-20">
                     <Skeleton className="h-8 w-48 mb-4" />
                     <Skeleton className="h-4 w-96 mb-8" />
-                    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                        {[1, 2, 3].map(i => <Skeleton key={i} className="h-32 w-full" />)}
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                        {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-32 w-full" />)}
                     </div>
                 </main>
             </div>
@@ -458,14 +466,8 @@ const ReadingListDetail: React.FC = () => {
                         <VirtualCardGrid
                             items={listItems}
                             getItemKey={(manga) => manga.id}
-                            gridClassName="grid grid-cols-3 gap-3 sm:grid-cols-4 lg:grid-cols-6 xl:grid-cols-7 2xl:grid-cols-8"
-                            getColumnCount={(width) => {
-                                if (width >= 1536) return 8;
-                                if (width >= 1280) return 7;
-                                if (width >= 1024) return 6;
-                                if (width >= 640) return 4;
-                                return 3;
-                            }}
+                            gridClassName="grid gap-3"
+                            getColumnCount={getSixColumnDesktopCount}
                             gapPx={12}
                             estimatedItemHeight={320}
                             overscanRows={4}
@@ -475,7 +477,7 @@ const ReadingListDetail: React.FC = () => {
 
                                 return (
                                     <div
-                                        className="relative mx-auto w-full max-w-[9rem] sm:max-w-[9.5rem]"
+                                        className="relative w-full"
                                     >
                                         <div className={cn(isSelectionMode && 'pointer-events-none')}>
                                             <MangaCard manga={manga} index={index} />

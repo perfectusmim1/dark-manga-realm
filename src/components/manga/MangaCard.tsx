@@ -4,6 +4,7 @@ import { Star, Eye, BookOpen, Clock, User, Sparkles } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { getTopTenMangas } from '@/lib/database';
+import MangaRatingBadge from '@/components/manga/MangaRatingBadge';
 import {
   HoverCard,
   HoverCardContent,
@@ -128,11 +129,17 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
     return views.toString();
   };
 
-  const averageRating = typeof manga.averageRating === 'number'
-    ? manga.averageRating.toFixed(1)
+  const averageRatingValue = typeof manga.averageRating === 'number'
+    ? manga.averageRating
     : ratings.length > 0
-      ? (ratings.reduce((acc, curr) => acc + curr.rating, 0) / ratings.length).toFixed(1)
-      : '0.0';
+      ? ratings.reduce((acc, curr) => acc + curr.rating, 0) / ratings.length
+      : 0;
+  const averageRating = averageRatingValue.toFixed(1);
+  const reviewCount = Math.max(
+    typeof manga.reviewCount === 'number' ? manga.reviewCount : 0,
+    ratings.length,
+  );
+  const hasVisibleRating = averageRatingValue > 0 || reviewCount > 0;
 
   const isNewRelease = useMemo(() => {
     if (!manga.createdAt) return false;
@@ -147,7 +154,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   }, [manga.createdAt]);
 
   const typeBadgeClassName = cn(
-    `absolute left-2 top-2 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
+    `absolute left-2 top-2 z-10 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
     manga.type === 'manhwa' ? 'bg-orange-600/90 text-white shadow-lg shadow-orange-500/20' :
       manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
         manga.type === 'webtoon' ? 'bg-sky-600/90 text-white shadow-lg shadow-sky-500/20' :
@@ -235,6 +242,11 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
         <div className="absolute inset-0 bg-black/20" style={{ opacity: 0.9 }} />
 
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(6,8,14,0.56)_0%,rgba(6,8,14,0.26)_55%,rgba(6,8,14,0)_100%)] sm:h-28"
+        />
+
         <div className={`absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent ${disableHeavyEffects ? '' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100'}`} />
 
         <Badge
@@ -281,24 +293,37 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           )}
         </div>
 
-        <Badge
-          variant={manga.status === 'completed' ? 'default' : 'outline'}
-          className={cn(
-            `absolute right-2 bottom-2 text-[10px] font-bold z-10 ${disableHeavyEffects ? '' : 'transition-opacity duration-300 group-hover:opacity-0'}`,
-            manga.status === 'completed'
-              ? 'bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 border-none'
-              : `border-white/20 bg-black/60 text-white ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`
-          )}
-        >
-          {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara'}
-        </Badge>
+        <div className="pointer-events-none absolute inset-x-2 bottom-2 z-10 flex items-end justify-between gap-2">
+          <Badge
+            variant={manga.status === 'completed' ? 'default' : 'outline'}
+            className={cn(
+              `max-w-[60%] text-[10px] font-bold ${disableHeavyEffects ? '' : 'transition-opacity duration-300 group-hover:opacity-0'}`,
+              manga.status === 'completed'
+                ? 'bg-primary/90 text-primary-foreground shadow-lg shadow-primary/20 border-none'
+                : `border-white/20 bg-black/60 text-white ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`
+            )}
+          >
+            <span className="truncate">
+              {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara'}
+            </span>
+          </Badge>
+
+          {hasVisibleRating ? (
+            <MangaRatingBadge
+              value={averageRatingValue}
+              className={cn(
+                `text-[11px] ${disableHeavyEffects ? '' : 'transition-opacity duration-300 group-hover:opacity-0'}`
+              )}
+            />
+          ) : null}
+        </div>
 
         {!disableHeavyEffects && (
           <div className="absolute bottom-0 left-0 right-0 translate-y-full p-3 transition-transform duration-300 group-hover:translate-y-0">
             <div className="flex items-center gap-3 text-xs text-white">
               <span className="flex items-center gap-1 font-medium drop-shadow-md">
                 <Star className="h-3 w-3 fill-primary text-primary" />
-                {averageRating}
+                {averageRating} ({reviewCount})
               </span>
               <span className="flex items-center gap-1 font-medium drop-shadow-md">
                 <Eye className="h-3 w-3" />

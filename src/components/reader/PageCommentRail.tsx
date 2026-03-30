@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { MessageCircle, Reply, ThumbsUp } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, MessageCircle, Reply, ThumbsUp } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import StaffBadge from '@/components/user/StaffBadge';
@@ -58,6 +58,7 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
     const [comments, setComments] = useState<Comment[]>([]);
     const [refreshTick, setRefreshTick] = useState(0);
     const [layout, setLayout] = useState<RailLayout | null>(null);
+    const [revealedSpoilers, setRevealedSpoilers] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         if (!enabled || !mangaId || !chapterId || currentPage < 1) {
@@ -106,6 +107,10 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
         return () => {
             window.removeEventListener(PAGE_COMMENTS_UPDATED_EVENT, handleCommentsUpdated);
         };
+    }, [chapterId, currentPage]);
+
+    useEffect(() => {
+        setRevealedSpoilers({});
     }, [chapterId, currentPage]);
 
     useEffect(() => {
@@ -233,6 +238,13 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
         setComments(nextComments);
     };
 
+    const toggleSpoiler = (commentId: string) => {
+        setRevealedSpoilers((current) => ({
+            ...current,
+            [commentId]: !current[commentId],
+        }));
+    };
+
     const handleLike = async (commentId: string, event: React.MouseEvent<HTMLButtonElement>) => {
         event.stopPropagation();
 
@@ -293,6 +305,7 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
 
     const renderCommentCard = (comment: Comment, index: number, total: number, side: 'left' | 'right') => {
         const previewMedia = getPreviewMedia(comment);
+        const isSpoilerHidden = comment.isSpoiler && !revealedSpoilers[comment.id];
         const topPercent = ((index + 1) / (total + 1)) * 100;
         const drift = side === 'left' ? -8 : 8;
         const rotation = side === 'left' ? -2.5 : 2.5;
@@ -365,20 +378,59 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
                                 </Badge>
                             )}
 
-                            {comment.content && (
-                                <p className="line-clamp-5 text-xs leading-relaxed text-slate-100">
-                                    {comment.content}
-                                </p>
-                            )}
+                            {isSpoilerHidden ? (
+                                <button
+                                    type="button"
+                                    onClick={() => toggleSpoiler(comment.id)}
+                                    aria-label="Spoiler içeren sayfa yorumunu göster"
+                                    aria-expanded={false}
+                                    className="group w-full rounded-xl border border-amber-500/30 bg-amber-500/10 px-3 py-2.5 text-left text-[11px] text-amber-100 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:border-amber-400/50 hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-slate-950 active:scale-[0.995] motion-reduce:transform-none motion-reduce:transition-none"
+                                >
+                                    <div className="flex items-start justify-between gap-3">
+                                        <div className="min-w-0">
+                                            <span className="flex items-center gap-2 font-semibold">
+                                                <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
+                                                Spoiler yorum
+                                            </span>
+                                            <span className="mt-1 block pl-[1.35rem] text-[10px] text-amber-100/80">
+                                                Dokunarak veya tıklayarak açılır.
+                                            </span>
+                                        </div>
+                                        <span className="inline-flex shrink-0 items-center gap-1 text-[10px] font-semibold text-amber-50/90">
+                                            <Eye className="h-3.5 w-3.5 transition-transform duration-200 group-hover:scale-110 group-focus-visible:scale-110 motion-reduce:transition-none" />
+                                            Aç
+                                        </span>
+                                    </div>
+                                </button>
+                            ) : (
+                                <>
+                                    {comment.content && (
+                                        <p className="line-clamp-5 text-xs leading-relaxed text-slate-100">
+                                            {comment.content}
+                                        </p>
+                                    )}
 
-                            {previewMedia && (
-                                <div className="overflow-hidden rounded-xl border border-white/10 bg-card/50">
-                                    <img
-                                        src={previewMedia}
-                                        alt="Yorum medyası"
-                                        className="h-24 w-full object-cover"
-                                    />
-                                </div>
+                                    {comment.isSpoiler && (
+                                        <button
+                                            type="button"
+                                            onClick={() => toggleSpoiler(comment.id)}
+                                            className="inline-flex w-fit items-center gap-1 rounded-full border border-amber-400/20 bg-amber-400/10 px-2 py-1 text-[10px] font-medium text-amber-100 transition-colors hover:border-amber-300/35 hover:bg-amber-400/15"
+                                        >
+                                            <EyeOff className="h-3 w-3" />
+                                            Spoileri Gizle
+                                        </button>
+                                    )}
+
+                                    {previewMedia && (
+                                        <div className="overflow-hidden rounded-xl border border-white/10 bg-card/50">
+                                            <img
+                                                src={previewMedia}
+                                                alt="Yorum medyası"
+                                                className="h-24 w-full object-cover"
+                                            />
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
                     </div>

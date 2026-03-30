@@ -1,7 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { BarChart3, ChevronLeft, ChevronRight, Clock3, Crown, Flame, Star } from 'lucide-react';
+import { BarChart3, ChevronLeft, ChevronRight, Clock3, Crown, Flame } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import MangaRatingBadge from '@/components/manga/MangaRatingBadge';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { Badge } from '@/components/ui/badge';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
@@ -146,10 +147,7 @@ const TopTenCard: React.FC<{
             </h3>
             <div className="mt-2 flex items-center justify-between gap-3 text-xs text-white/84">
               <span className="truncate drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)]">{manga.author}</span>
-              <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-black/35 px-2 py-1 font-semibold text-amber-300 shadow-[0_6px_18px_rgba(0,0,0,0.28)] ring-1 ring-white/10">
-                <Star className="h-3.5 w-3.5 fill-current text-amber-400" />
-                {Number(manga.averageRating || 0).toFixed(1)}
-              </span>
+              <MangaRatingBadge value={Number(manga.averageRating || 0)} className="text-xs" />
             </div>
           </div>
         </div>

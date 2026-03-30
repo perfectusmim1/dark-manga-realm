@@ -57,7 +57,6 @@ const AuthorsBrowse: React.FC = () => {
           items={authors}
           loading={loading}
           buildHref={(author) => `/author/${author.id}`}
-          resolveRank={(_, index) => index + 1}
         />
       </main>
     </div>
