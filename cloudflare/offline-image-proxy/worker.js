@@ -1,4 +1,7 @@
 const DEFAULT_ALLOWED_HOSTS = [
+  'cdn.anime-planet.com',
+  'anime-planet.com',
+  'www.anime-planet.com',
   'hayalistic.net',
   'hayalistic.com',
   'webtoonhatti.club',

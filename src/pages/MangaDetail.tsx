@@ -2581,12 +2581,13 @@ const MangaDetail: React.FC = () => {
                                     initialClassName="text-5xl sm:text-6xl"
                                   />
                                 )}
-                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent p-3">
+                                <div className="pointer-events-none absolute inset-x-0 bottom-0 h-[44%] bg-gradient-to-t from-black/95 via-black/65 via-35% to-transparent" />
+                                <div className="absolute inset-x-0 bottom-0 p-3">
                                   <div className="flex items-center justify-between gap-2">
-                                    <span className="rounded-full bg-black/45 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/90">
+                                    <span className="rounded-full bg-black/55 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white shadow-[0_1px_6px_rgba(0,0,0,0.55)]">
                                       {getCharacterListingRoleLabel(group.role)}
                                     </span>
-                                    <div className="text-white text-xs font-bold flex items-center gap-1">
+                                    <div className="flex items-center gap-1 text-xs font-bold text-white drop-shadow-[0_1px_6px_rgba(0,0,0,0.8)]">
                                       <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
                                     </div>
                                   </div>

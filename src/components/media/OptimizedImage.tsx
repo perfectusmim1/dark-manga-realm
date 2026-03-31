@@ -1,7 +1,11 @@
 import React from 'react';
 import { cn } from '@/lib/utils';
 import { useNearViewport } from '@/hooks/use-near-viewport';
-import { buildImageProxyUrl, type ImageProxyTransformOptions } from '@/lib/imageProxy';
+import {
+  buildImageProxyUrl,
+  shouldAvoidRawImageFallback,
+  type ImageProxyTransformOptions,
+} from '@/lib/imageProxy';
 
 interface OptimizedImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'alt'> {
   src: string;
@@ -38,10 +42,11 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   });
   const transformKey = React.useMemo(() => getTransformKey(transform), [transform]);
   const [shouldBypassProxy, setShouldBypassProxy] = React.useState(false);
+  const avoidRawFallback = React.useMemo(() => shouldAvoidRawImageFallback(src), [src]);
 
   const shouldLoad = priority || isNearViewport;
   const resolvedSrc = React.useMemo(() => {
-    if (shouldBypassProxy || !transform) {
+    if (shouldBypassProxy) {
       return src;
     }
 
@@ -54,14 +59,14 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
-      if (!shouldBypassProxy && resolvedSrc !== src) {
+      if (!avoidRawFallback && !shouldBypassProxy && resolvedSrc !== src) {
         setShouldBypassProxy(true);
         return;
       }
 
       onError?.(event);
     },
-    [onError, resolvedSrc, shouldBypassProxy, src],
+    [avoidRawFallback, onError, resolvedSrc, shouldBypassProxy, src],
   );
 
   return (

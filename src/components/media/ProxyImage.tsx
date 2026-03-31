@@ -1,5 +1,9 @@
 import React from 'react';
-import { buildImageProxyUrl, type ImageProxyTransformOptions } from '@/lib/imageProxy';
+import {
+  buildImageProxyUrl,
+  shouldAvoidRawImageFallback,
+  type ImageProxyTransformOptions,
+} from '@/lib/imageProxy';
 
 interface ProxyImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'alt'> {
   src: string;
@@ -22,6 +26,7 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
 }) => {
   const transformKey = React.useMemo(() => getTransformKey(transform), [transform]);
   const [shouldBypassProxy, setShouldBypassProxy] = React.useState(false);
+  const avoidRawFallback = React.useMemo(() => shouldAvoidRawImageFallback(src), [src]);
 
   React.useEffect(() => {
     setShouldBypassProxy(false);
@@ -37,14 +42,14 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
-      if (!shouldBypassProxy && proxiedSrc !== src) {
+      if (!avoidRawFallback && !shouldBypassProxy && proxiedSrc !== src) {
         setShouldBypassProxy(true);
         return;
       }
 
       onError?.(event);
     },
-    [onError, proxiedSrc, shouldBypassProxy, src],
+    [avoidRawFallback, onError, proxiedSrc, shouldBypassProxy, src],
   );
 
   return (

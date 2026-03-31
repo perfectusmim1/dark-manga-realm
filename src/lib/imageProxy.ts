@@ -27,21 +27,70 @@ const PROXY_SUPPORTED_HOSTS = [
   'kirmizikafa.monster',
 ] as const;
 
-const shouldProxyImageUrl = (sourceUrl?: string | null) => {
+const SUPABASE_PROXY_OVERRIDE_HOSTS = [
+  'cdn.anime-planet.com',
+  'anime-planet.com',
+  'www.anime-planet.com',
+] as const;
+
+const PROXY_ONLY_HOSTS = [
+  'cdn.anime-planet.com',
+  'anime-planet.com',
+  'www.anime-planet.com',
+] as const;
+
+const matchesHostRule = (hostname: string, rule: string) => (
+  hostname === rule || hostname.endsWith(`.${rule}`)
+);
+
+const getParsedSourceUrl = (sourceUrl?: string | null) => {
   const normalizedSourceUrl = normalizeSourceUrl(sourceUrl);
-  if (!normalizedSourceUrl || !offlineProxyConfig.url) {
-    return false;
+  if (!normalizedSourceUrl) {
+    return null;
   }
 
   try {
-    const parsedUrl = new URL(normalizedSourceUrl);
-    return PROXY_SUPPORTED_HOSTS.some((host) => parsedUrl.hostname === host || parsedUrl.hostname.endsWith(`.${host}`));
+    return new URL(normalizedSourceUrl);
   } catch {
-    return false;
+    return null;
   }
 };
 
+const getProxyBaseUrl = (sourceUrl?: string | null) => {
+  const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
+  if (!parsedSourceUrl) {
+    return null;
+  }
+
+  if (
+    offlineProxyConfig.defaultUrl
+    && SUPABASE_PROXY_OVERRIDE_HOSTS.some((host) => matchesHostRule(parsedSourceUrl.hostname, host))
+  ) {
+    return offlineProxyConfig.defaultUrl;
+  }
+
+  return offlineProxyConfig.url || null;
+};
+
+const shouldProxyImageUrl = (sourceUrl?: string | null) => {
+  const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
+  if (!parsedSourceUrl || !getProxyBaseUrl(sourceUrl)) {
+    return false;
+  }
+
+  return PROXY_SUPPORTED_HOSTS.some((host) => matchesHostRule(parsedSourceUrl.hostname, host));
+};
+
 export const supportsImageProxyTransform = () => Boolean(offlineProxyConfig.url);
+
+export const shouldAvoidRawImageFallback = (sourceUrl?: string | null) => {
+  const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
+  if (!parsedSourceUrl) {
+    return false;
+  }
+
+  return PROXY_ONLY_HOSTS.some((host) => matchesHostRule(parsedSourceUrl.hostname, host));
+};
 
 export const buildImageProxyUrl = (
   sourceUrl: string,
@@ -53,7 +102,12 @@ export const buildImageProxyUrl = (
   }
 
   try {
-    const proxyUrl = new URL(offlineProxyConfig.url);
+    const proxyBaseUrl = getProxyBaseUrl(normalizedSourceUrl);
+    if (!proxyBaseUrl) {
+      return null;
+    }
+
+    const proxyUrl = new URL(proxyBaseUrl);
     proxyUrl.searchParams.set('url', normalizedSourceUrl);
 
     if (transform.width) {

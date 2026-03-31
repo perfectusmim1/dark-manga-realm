@@ -949,6 +949,33 @@ const toAbsoluteUrl = (value: string, baseUrl: string) => {
   }
 };
 
+const getImageUrlFromElement = (image?: Element | null) => {
+  if (!(image instanceof HTMLElement)) {
+    return '';
+  }
+
+  const directUrl = normalizeText(
+    image.getAttribute('data-src')
+    || image.getAttribute('src')
+    || image.getAttribute('data-original'),
+  );
+
+  if (directUrl) {
+    return directUrl;
+  }
+
+  const srcSetCandidate = normalizeText(
+    image.getAttribute('data-srcset')
+    || image.getAttribute('srcset'),
+  );
+
+  if (!srcSetCandidate) {
+    return '';
+  }
+
+  return normalizeText(srcSetCandidate.split(',')[0]?.trim().split(/\s+/)[0]);
+};
+
 const parseMalGallery = (html: string, galleryPageUrl: string): EntityGalleryImage[] => {
   const doc = parseHtml(html);
   const galleryAnchors = Array.from(
@@ -1646,17 +1673,17 @@ const parseAnimePlanetCharacterSection = (doc: Document) => {
         continue;
       }
 
-      seen.add(url);
-      results.push({
-        name,
-        url,
-        imageUrl: sanitizeEntityImageUrl(
-          row.querySelector<HTMLImageElement>('td.tableAvatar img')?.getAttribute('src'),
-        ),
-        tags: uniqueStrings(
-          Array.from(row.querySelectorAll('.tags a[href]')).map((tag) => normalizeText(tag.textContent)),
-        ),
-        roleLabel: localizedRoleLabel,
+        seen.add(url);
+        results.push({
+          name,
+          url,
+          imageUrl: sanitizeEntityImageUrl(
+            getImageUrlFromElement(row.querySelector('td.tableAvatar img')),
+          ),
+          tags: uniqueStrings(
+            Array.from(row.querySelectorAll('.tags a[href]')).map((tag) => normalizeText(tag.textContent)),
+          ),
+          roleLabel: localizedRoleLabel,
         roleType,
       });
     }
