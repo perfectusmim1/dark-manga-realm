@@ -39,18 +39,19 @@ const envFromFiles = {
 };
 
 const getEnv = (key) => process.env[key] || envFromFiles[key] || '';
+const getEnvFallback = (...keys) => keys.map((key) => getEnv(key)).find(Boolean) || '';
 
 const SUPABASE_URL = getEnv('VITE_SUPABASE_URL');
 const SUPABASE_ANON_KEY = getEnv('VITE_SUPABASE_ANON_KEY');
-const MEDIA_INGEST_URL = getEnv('VITE_MEDIA_INGEST_URL');
-const MEDIA_INGEST_TOKEN = getEnv('VITE_MEDIA_INGEST_TOKEN');
+const MEDIA_INGEST_URL = getEnvFallback('MEDIA_INGEST_URL', 'VITE_MEDIA_INGEST_URL');
+const MEDIA_INGEST_TOKEN = getEnvFallback('MEDIA_INGEST_TOKEN', 'VITE_MEDIA_INGEST_TOKEN');
 const MEDIA_BUCKET_URL = getEnv('VITE_MEDIA_BUCKET_URL');
 
 const requiredEnv = [
   ['VITE_SUPABASE_URL', SUPABASE_URL],
   ['VITE_SUPABASE_ANON_KEY', SUPABASE_ANON_KEY],
-  ['VITE_MEDIA_INGEST_URL', MEDIA_INGEST_URL],
-  ['VITE_MEDIA_INGEST_TOKEN', MEDIA_INGEST_TOKEN],
+  ['MEDIA_INGEST_URL', MEDIA_INGEST_URL],
+  ['MEDIA_INGEST_TOKEN', MEDIA_INGEST_TOKEN],
   ['VITE_MEDIA_BUCKET_URL', MEDIA_BUCKET_URL],
 ].filter(([, value]) => !value);
 

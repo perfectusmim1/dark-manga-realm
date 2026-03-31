@@ -1,3 +1,4 @@
+import { invokeAuthenticatedFunction } from '@/lib/supabase';
 import type { ExternalSourceName } from '@/lib/types';
 
 export type MediaEntityType = 'manga' | 'character' | 'author' | 'artist';
@@ -39,8 +40,6 @@ interface MaterializeWorkerResponseItem {
   error?: string;
 }
 
-const configuredMediaIngestUrl = import.meta.env.VITE_MEDIA_INGEST_URL?.trim() || '';
-const configuredMediaIngestToken = import.meta.env.VITE_MEDIA_INGEST_TOKEN?.trim() || '';
 const configuredMediaBucketUrl = import.meta.env.VITE_MEDIA_BUCKET_URL?.trim() || '';
 const configuredOfflineImageProxyUrl = import.meta.env.VITE_OFFLINE_IMAGE_PROXY_URL?.trim() || '';
 const configuredScraperProxyUrl = import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '';
@@ -134,7 +133,7 @@ export const isStoredMediaUrl = (sourceUrl?: string | null) => {
   }
 };
 
-export const canMaterializeRemoteMedia = () => Boolean(configuredMediaIngestUrl && configuredMediaIngestToken);
+export const canMaterializeRemoteMedia = () => Boolean(configuredMediaBucketUrl);
 
 export const buildMaterializedObjectKey = (
   entityType: MediaEntityType,
@@ -183,20 +182,12 @@ export const materializeRemoteImages = async (inputs: MaterializeRemoteImageInpu
     return new Map<string, string>();
   }
 
-  const response = await fetch(configuredMediaIngestUrl, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: `Bearer ${configuredMediaIngestToken}`,
-    },
-    body: JSON.stringify({ items }),
+  const data = await invokeAuthenticatedFunction<{ items?: MaterializeWorkerResponseItem[] }>(
+    'admin-media-ingest',
+    { items },
+  ).catch((error) => {
+    throw new Error(error instanceof Error ? error.message : 'Media ingest failed');
   });
-
-  if (!response.ok) {
-    throw new Error(`Media ingest failed (${response.status})`);
-  }
-
-  const data = await response.json().catch(() => null) as { items?: MaterializeWorkerResponseItem[] } | null;
   const results = new Map<string, string>();
 
   for (const item of data?.items || []) {

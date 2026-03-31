@@ -808,7 +808,7 @@ const AdminMediaMigration: React.FC = () => {
 
           {!mediaEnabled ? (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              `VITE_MEDIA_INGEST_URL`, `VITE_MEDIA_INGEST_TOKEN` ve bucket public URL yapilandirmasi eksik.
+              Bucket public URL veya admin media-ingest backend yapilandirmasi eksik.
             </div>
           ) : null}
 
