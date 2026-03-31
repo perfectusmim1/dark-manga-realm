@@ -3,9 +3,15 @@ main = "worker.js"
 compatibility_date = "2026-03-26"
 workers_dev = true
 
+[observability]
+enabled = true
+head_sampling_rate = 1
+
 [vars]
 ALLOWED_HOSTS = "cdn.anime-planet.com,anime-planet.com,www.anime-planet.com,hayalistic.net,hayalistic.com,webtoonhatti.club,webtoonhatti.me,webtoon-oku.net,yedek.mangawow.com,kirmizikafa.monster"
-ALLOWED_ORIGINS = "https://toonparrot.vercel.app,http://localhost:8080,http://127.0.0.1:8080"
+ALLOWED_ORIGINS = "https://toonparrot.vercel.app,https://*.vercel.app,http://localhost:*,http://127.0.0.1:*"
+METRICS_INGEST_URL = "https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/cloudflare-metrics-ingest"
 
 # Set this with `wrangler secret put PROXY_TOKEN`
 # PROXY_TOKEN = ""
+# wrangler secret put METRICS_INGEST_TOKEN

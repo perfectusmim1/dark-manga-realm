@@ -1,5 +1,5 @@
 import React from 'react';
-import { ExternalLink, Languages } from 'lucide-react';
+import { Languages } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buildEntityMetadataEntries } from '@/lib/entityMetadata';
@@ -20,9 +20,8 @@ const EntityMetadataGrid: React.FC<EntityMetadataGridProps> = ({
 }) => {
   const entries = buildEntityMetadataEntries(metadata);
   const visibleAlternativeNames = (alternativeNames || []).filter(Boolean);
-  const visibleSourceLinks = (sourceLinks || []).filter((item) => item?.url);
 
-  if (entries.length === 0 && visibleAlternativeNames.length === 0 && visibleSourceLinks.length === 0) {
+  if (entries.length === 0 && visibleAlternativeNames.length === 0) {
     return null;
   }
 
@@ -66,25 +65,6 @@ const EntityMetadataGrid: React.FC<EntityMetadataGridProps> = ({
           </div>
         )}
 
-        {visibleSourceLinks.length > 0 && (
-          <div className="space-y-3">
-            <p className="text-sm font-semibold text-muted-foreground">Kaynak Linkleri</p>
-            <div className="flex flex-wrap gap-2">
-              {visibleSourceLinks.map((link) => (
-                <a
-                  key={`${link.source}-${link.url}`}
-                  href={link.url}
-                  target="_blank"
-                  rel="noreferrer"
-                  className="inline-flex items-center gap-2 rounded-full border border-primary/25 bg-primary/10 px-3 py-1.5 text-sm text-primary transition-colors hover:bg-primary/15"
-                >
-                  <span>{link.label || link.source}</span>
-                  <ExternalLink className="h-3.5 w-3.5" />
-                </a>
-              ))}
-            </div>
-          </div>
-        )}
       </CardContent>
     </Card>
   );

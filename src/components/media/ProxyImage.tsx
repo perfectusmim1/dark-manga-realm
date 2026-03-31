@@ -37,7 +37,10 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
       return src;
     }
 
-    return buildImageProxyUrl(src, transform) || src;
+    return buildImageProxyUrl(src, transform, {
+      purpose: 'preview',
+      surface: 'admin_preview',
+    }) || src;
   }, [shouldBypassProxy, src, transform]);
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(

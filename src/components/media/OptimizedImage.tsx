@@ -50,7 +50,10 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
       return src;
     }
 
-    return buildImageProxyUrl(src, transform) || src;
+    return buildImageProxyUrl(src, transform, {
+      purpose: 'render',
+      surface: 'public_render',
+    }) || src;
   }, [shouldBypassProxy, src, transform, transformKey]);
 
   React.useEffect(() => {

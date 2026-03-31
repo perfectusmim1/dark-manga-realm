@@ -1,4 +1,5 @@
 import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
+import { isStoredMediaUrl } from '@/lib/mediaStorage';
 
 export type ImageProxyFormat = 'webp' | 'avif' | 'jpeg' | 'png';
 export type ImageProxyFit = 'scale-down' | 'contain' | 'cover';
@@ -8,6 +9,12 @@ export interface ImageProxyTransformOptions {
   quality?: number;
   format?: ImageProxyFormat;
   fit?: ImageProxyFit;
+}
+
+export interface ImageProxyRequestMetadata {
+  purpose?: string;
+  entityType?: string;
+  surface?: string;
 }
 
 const normalizeSourceUrl = (sourceUrl?: string | null) => {
@@ -74,7 +81,7 @@ const getProxyBaseUrl = (sourceUrl?: string | null) => {
 
 const shouldProxyImageUrl = (sourceUrl?: string | null) => {
   const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
-  if (!parsedSourceUrl || !getProxyBaseUrl(sourceUrl)) {
+  if (!parsedSourceUrl || isStoredMediaUrl(sourceUrl) || !getProxyBaseUrl(sourceUrl)) {
     return false;
   }
 
@@ -85,7 +92,7 @@ export const supportsImageProxyTransform = () => Boolean(offlineProxyConfig.url)
 
 export const shouldAvoidRawImageFallback = (sourceUrl?: string | null) => {
   const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
-  if (!parsedSourceUrl) {
+  if (!parsedSourceUrl || isStoredMediaUrl(sourceUrl)) {
     return false;
   }
 
@@ -95,6 +102,7 @@ export const shouldAvoidRawImageFallback = (sourceUrl?: string | null) => {
 export const buildImageProxyUrl = (
   sourceUrl: string,
   transform: ImageProxyTransformOptions = {},
+  metadata: ImageProxyRequestMetadata = {},
 ) => {
   const normalizedSourceUrl = normalizeSourceUrl(sourceUrl);
   if (!normalizedSourceUrl || !shouldProxyImageUrl(normalizedSourceUrl)) {
@@ -126,6 +134,18 @@ export const buildImageProxyUrl = (
       proxyUrl.searchParams.set('fit', transform.fit);
     }
 
+    if (metadata.purpose) {
+      proxyUrl.searchParams.set('purpose', metadata.purpose);
+    }
+
+    if (metadata.entityType) {
+      proxyUrl.searchParams.set('entityType', metadata.entityType);
+    }
+
+    if (metadata.surface) {
+      proxyUrl.searchParams.set('surface', metadata.surface);
+    }
+
     return proxyUrl.toString();
   } catch {
     return null;
@@ -135,11 +155,12 @@ export const buildImageProxyUrl = (
 export const resolveDisplayImageUrl = (
   sourceUrl?: string | null,
   transform: ImageProxyTransformOptions = {},
+  metadata: ImageProxyRequestMetadata = {},
 ) => {
   const normalizedSourceUrl = normalizeSourceUrl(sourceUrl);
   if (!normalizedSourceUrl) {
     return undefined;
   }
 
-  return buildImageProxyUrl(normalizedSourceUrl, transform) || normalizedSourceUrl;
+  return buildImageProxyUrl(normalizedSourceUrl, transform, metadata) || normalizedSourceUrl;
 };

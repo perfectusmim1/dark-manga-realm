@@ -17,6 +17,7 @@ import {
     Megaphone,
     Flag,
     LifeBuoy,
+    Image as ImageIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -59,6 +60,7 @@ const AdminLayout: React.FC = () => {
         { icon: Plus, label: 'Manga Ekle', path: '/admin/mangas/new' },
         ...(canUseScrapers ? [{ icon: Download, label: 'İçerik Çek', path: '/admin/scraper' }] : []),
         ...(canUseScrapers ? [{ icon: Download, label: 'Metadata Import', path: '/admin/metadata-import' }] : []),
+        ...(canUseScrapers ? [{ icon: ImageIcon, label: 'Medya Taşıma', path: '/admin/media-migration' }] : []),
         ...(canUseScrapers ? [{ icon: RefreshCw, label: 'Bölüm Çekme', path: '/admin/chapter-scraper' }] : []),
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
         { icon: Users, label: 'Karakter & Sanatçı', path: '/admin/entities' },

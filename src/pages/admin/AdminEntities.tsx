@@ -13,6 +13,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import { Checkbox } from '@/components/ui/checkbox';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
@@ -133,6 +134,8 @@ const AdminEntities: React.FC = () => {
   const [showDialog, setShowDialog] = useState(false);
   const [editingEntity, setEditingEntity] = useState<EditableEntity | null>(null);
   const [entityToDelete, setEntityToDelete] = useState<{ id: string; name: string } | null>(null);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [formData, setFormData] = useState<EntityDialogFormState>(createEmptyFormState());
 
   const loadData = async () => {
@@ -158,6 +161,10 @@ const AdminEntities: React.FC = () => {
   useEffect(() => {
     void loadData();
   }, []);
+
+  useEffect(() => {
+    setSelectedIds([]);
+  }, [activeTab]);
 
   const handleOpenDialog = (entity?: EditableEntity) => {
     if (entity) {
@@ -286,6 +293,14 @@ const AdminEntities: React.FC = () => {
     }
   };
 
+  const toggleItemSelection = (id: string, checked: boolean) => {
+    setSelectedIds((current) => (
+      checked
+        ? (current.includes(id) ? current : [...current, id])
+        : current.filter((itemId) => itemId !== id)
+    ));
+  };
+
   const currentItems = useMemo(() => {
     switch (activeTab) {
       case 'character':
@@ -311,6 +326,55 @@ const AdminEntities: React.FC = () => {
       || (item.alternativeNames || []).some((name) => name.toLocaleLowerCase('tr-TR').includes(normalizedQuery))
     ));
   }, [currentItems, searchQuery]);
+
+  const visibleSelectedIds = useMemo(
+    () => filteredItems.map((item) => item.id).filter((id) => selectedIds.includes(id)),
+    [filteredItems, selectedIds],
+  );
+
+  const allFilteredSelected = filteredItems.length > 0 && visibleSelectedIds.length === filteredItems.length;
+
+  const toggleSelectAllFiltered = (checked: boolean) => {
+    const filteredIds = filteredItems.map((item) => item.id);
+    setSelectedIds((current) => {
+      if (checked) {
+        return Array.from(new Set([...current, ...filteredIds]));
+      }
+
+      return current.filter((id) => !filteredIds.includes(id));
+    });
+  };
+
+  const handleBulkDelete = async () => {
+    const idsToDelete = [...selectedIds];
+    if (idsToDelete.length === 0) {
+      setShowBulkDeleteConfirm(false);
+      return;
+    }
+
+    setShowBulkDeleteConfirm(false);
+
+    const deleteFn = activeTab === 'character'
+      ? deleteCharacter
+      : activeTab === 'author'
+        ? deleteAuthor
+        : deleteArtist;
+
+    const results = await Promise.allSettled(idsToDelete.map((id) => deleteFn(id)));
+    const successCount = results.filter((result) => result.status === 'fulfilled').length;
+    const failureCount = results.length - successCount;
+
+    if (successCount > 0) {
+      toast.success(`${successCount} kayıt silindi`);
+    }
+
+    if (failureCount > 0) {
+      toast.error(`${failureCount} kayıt silinemedi. Bağlantılı veriler olabilir.`);
+    }
+
+    setSelectedIds((current) => current.filter((id) => !idsToDelete.includes(id)));
+    void loadData();
+  };
 
   return (
     <div className="space-y-6">
@@ -361,6 +425,43 @@ const AdminEntities: React.FC = () => {
             </div>
           </Tabs>
 
+          <div className="flex flex-col gap-3 rounded-2xl border border-border bg-background/40 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex items-center gap-3">
+              <Checkbox
+                id="select-all-entities"
+                checked={allFilteredSelected}
+                onCheckedChange={(checked) => toggleSelectAllFiltered(checked === true)}
+                disabled={filteredItems.length === 0}
+              />
+              <label htmlFor="select-all-entities" className="text-sm text-muted-foreground">
+                {filteredItems.length > 0
+                  ? `${filteredItems.length} sonuç içinden tümünü seç`
+                  : 'Seçilecek kayıt yok'}
+              </label>
+            </div>
+
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="secondary">{selectedIds.length} seçili</Badge>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => setSelectedIds([])}
+                disabled={selectedIds.length === 0}
+              >
+                Temizle
+              </Button>
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setShowBulkDeleteConfirm(true)}
+                disabled={selectedIds.length === 0}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Seçilileri Sil
+              </Button>
+            </div>
+          </div>
+
           {loading ? (
             <div className="flex h-64 items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -372,6 +473,12 @@ const AdminEntities: React.FC = () => {
                   filteredItems.map((item) => (
                     <div key={item.id} className="space-y-4 p-4">
                       <div className="flex items-start gap-3">
+                        <Checkbox
+                          checked={selectedIds.includes(item.id)}
+                          onCheckedChange={(checked) => toggleItemSelection(item.id, checked === true)}
+                          aria-label={`${item.name} seç`}
+                          className="mt-4"
+                        />
                         <div className="h-14 w-14 overflow-hidden rounded-2xl border border-border bg-muted">
                           {item.imageUrl ? (
                             <img
@@ -431,6 +538,14 @@ const AdminEntities: React.FC = () => {
                 <Table>
                   <TableHeader>
                     <TableRow className="hover:bg-transparent border-border">
+                      <TableHead className="w-12">
+                        <Checkbox
+                          checked={allFilteredSelected}
+                          onCheckedChange={(checked) => toggleSelectAllFiltered(checked === true)}
+                          disabled={filteredItems.length === 0}
+                          aria-label="Tümünü seç"
+                        />
+                      </TableHead>
                       <TableHead className="w-16">Resim</TableHead>
                       <TableHead>İsim</TableHead>
                       <TableHead>Görünürlük</TableHead>
@@ -443,6 +558,13 @@ const AdminEntities: React.FC = () => {
                     {filteredItems.length > 0 ? (
                       filteredItems.map((item) => (
                         <TableRow key={item.id} className="border-border hover:bg-white/5 transition-colors">
+                          <TableCell>
+                            <Checkbox
+                              checked={selectedIds.includes(item.id)}
+                              onCheckedChange={(checked) => toggleItemSelection(item.id, checked === true)}
+                              aria-label={`${item.name} seç`}
+                            />
+                          </TableCell>
                           <TableCell>
                             <div className="h-11 w-11 overflow-hidden rounded-2xl border border-border bg-muted">
                               {item.imageUrl ? (
@@ -502,7 +624,7 @@ const AdminEntities: React.FC = () => {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
                           Sonuç bulunamadı
                         </TableCell>
                       </TableRow>
@@ -748,6 +870,22 @@ const AdminEntities: React.FC = () => {
         cancelLabel="Vazgeç"
         onConfirm={() => {
           void handleDelete();
+        }}
+      />
+
+      <ConfirmDialog
+        open={showBulkDeleteConfirm}
+        onOpenChange={setShowBulkDeleteConfirm}
+        title="Seçili kayıtlar silinsin mi?"
+        description={
+          selectedIds.length > 0
+            ? `${selectedIds.length} ${ENTITY_LABELS[activeTab].toLocaleLowerCase('tr-TR')} kaydı kalıcı olarak silinecek. Bu işlem geri alınamaz.`
+            : ''
+        }
+        confirmLabel="Seçilileri Sil"
+        cancelLabel="Vazgeç"
+        onConfirm={() => {
+          void handleBulkDelete();
         }}
       />
     </div>

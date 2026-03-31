@@ -96,6 +96,125 @@ const jsonResponse = (body, status, corsHeaders) =>
     },
   });
 
+const getRequestId = (request) => (
+  request.headers.get('cf-ray')
+  || request.headers.get('x-request-id')
+  || crypto.randomUUID()
+);
+
+const getRefererPath = (request) => {
+  const referer = request.headers.get('Referer');
+  if (!referer) {
+    return null;
+  }
+
+  try {
+    const parsed = new URL(referer);
+    return `${parsed.origin}${parsed.pathname}`;
+  } catch {
+    return null;
+  }
+};
+
+const detectSourceName = (hostname) => {
+  const normalizedHostname = `${hostname || ''}`.toLowerCase();
+
+  if (normalizedHostname.endsWith('myanimelist.net')) return 'myanimelist';
+  if (normalizedHostname.endsWith('anime-planet.com')) return 'animeplanet';
+  if (normalizedHostname.endsWith('mangaupdates.com')) return 'mangaupdates';
+  if (normalizedHostname === 'anilist.co' || normalizedHostname === 'graphql.anilist.co') return 'anilist';
+  if (normalizedHostname === 'api.jikan.moe') return 'jikan';
+
+  return normalizedHostname || 'unknown';
+};
+
+const detectOperation = (url) => {
+  const hostname = `${url.hostname || ''}`.toLowerCase();
+  const pathname = `${url.pathname || ''}`.toLowerCase();
+
+  if (hostname.endsWith('myanimelist.net')) {
+    if (pathname === '/manga.php') return 'search';
+    if (/^\/manga\/\d+\/?[^/]*\/characters\/?$/.test(pathname)) return 'characters';
+    if (/^\/manga\/\d+\/?[^/]*\/pics\/?$/.test(pathname)) return 'gallery';
+    if (/^\/manga\/\d+/.test(pathname)) return 'manga_detail';
+    if (/^\/character\/\d+\/?[^/]*\/pics\/?$/.test(pathname)) return 'character_gallery';
+    if (/^\/character\/\d+/.test(pathname)) return 'character_detail';
+    if (/^\/people\/\d+\/?[^/]*\/pics\/?$/.test(pathname)) return 'person_gallery';
+    if (/^\/people\/\d+/.test(pathname)) return 'person_detail';
+  }
+
+  if (hostname.endsWith('anime-planet.com')) {
+    if (pathname === '/manga/all') return 'search';
+    if (/^\/manga\/[^/]+\/characters\/?$/.test(pathname)) return 'characters';
+    if (/^\/manga\/[^/]+\/staff\/?$/.test(pathname)) return 'staff';
+    if (/^\/manga\/[^/]+\/?$/.test(pathname)) return 'manga_detail';
+    if (/^\/people\/[^/]+\/?$/.test(pathname)) return 'person_detail';
+    if (/^\/characters\/[^/]+\/?$/.test(pathname)) return 'character_detail';
+  }
+
+  if (hostname.endsWith('mangaupdates.com')) {
+    if (pathname.includes('/site/search/result')) return 'search';
+    if (/^\/series\/[^/]+\/?$/.test(pathname)) return 'manga_detail';
+    if (/^\/author\/[^/]+\/?$/.test(pathname)) return 'person_detail';
+  }
+
+  if (hostname === 'anilist.co' || hostname === 'graphql.anilist.co') {
+    if (pathname.startsWith('/search/manga')) return 'search';
+    if (/^\/manga\/\d+/.test(pathname)) return pathname.endsWith('/characters') ? 'characters' : pathname.endsWith('/staff') ? 'staff' : 'manga_detail';
+    if (/^\/character\/\d+/.test(pathname)) return 'character_detail';
+    if (pathname === '/') return 'graphql';
+  }
+
+  if (hostname === 'api.jikan.moe') {
+    if (pathname.includes('/characters')) return 'characters';
+    if (pathname.includes('/people')) return 'person_detail';
+    if (pathname.includes('/manga')) return 'manga_detail';
+  }
+
+  return 'fetch';
+};
+
+const logProxyEvent = (event, payload) => {
+  console.log(JSON.stringify({
+    service: 'scraper-proxy',
+    event,
+    timestamp: new Date().toISOString(),
+    ...payload,
+  }));
+};
+
+const queueMetric = (env, ctx, event, payload) => {
+  const metricsUrl = `${env.METRICS_INGEST_URL || ''}`.trim();
+  const metricsToken = `${env.METRICS_INGEST_TOKEN || ''}`.trim();
+
+  if (!ctx || !metricsUrl || !metricsToken) {
+    return;
+  }
+
+  ctx.waitUntil(
+    fetch(metricsUrl, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: `Bearer ${metricsToken}`,
+      },
+      body: JSON.stringify({
+        service: 'scraper-proxy',
+        event,
+        createdAt: new Date().toISOString(),
+        ...payload,
+      }),
+    }).catch((error) => {
+      console.error('scraper-proxy metric enqueue failed', error);
+    }),
+  );
+};
+
+const reportProxyEvent = (env, ctx, event, payload) => {
+  logProxyEvent(event, payload);
+  queueMetric(env, ctx, event, payload);
+};
+
 const getOriginFromValue = (value) => {
   if (!value) {
     return null;
@@ -209,7 +328,9 @@ const sanitizeUpstreamHeaders = (headers) => {
 };
 
 export default {
-  async fetch(request, env) {
+  async fetch(request, env, ctx) {
+    const startedAt = Date.now();
+    const requestId = getRequestId(request);
     const allowedHosts = parseCsv(env.ALLOWED_HOSTS, DEFAULT_ALLOWED_HOSTS);
     const allowedOriginPatterns = parseCsv(env.ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS);
     const allowedOrigin = resolveAllowedOrigin(request, allowedOriginPatterns);
@@ -222,6 +343,13 @@ export default {
 
     if (request.method === 'OPTIONS') {
       if (requestOrigin && !allowedOrigin) {
+        reportProxyEvent(env, ctx, 'blocked', {
+          requestId,
+          reason: 'origin_not_allowed',
+          status: 403,
+          method: request.method,
+          refererPath: getRefererPath(request),
+        });
         return jsonResponse({ error: 'Origin is not allowed' }, 403, corsHeaders);
       }
 
@@ -229,6 +357,13 @@ export default {
     }
 
     if (!['GET', 'POST'].includes(request.method)) {
+      reportProxyEvent(env, ctx, 'blocked', {
+        requestId,
+        reason: 'method_not_allowed',
+        status: 405,
+        method: request.method,
+        refererPath: getRefererPath(request),
+      });
       return jsonResponse({ error: 'Method not allowed' }, 405, corsHeaders);
     }
 
@@ -240,6 +375,12 @@ export default {
     } = await readRequestPayload(request);
 
     if (!sourceUrl) {
+      reportProxyEvent(env, ctx, 'healthcheck', {
+        requestId,
+        status: 200,
+        method: request.method,
+        refererPath: getRefererPath(request),
+      });
       return jsonResponse(
         {
           ok: true,
@@ -256,10 +397,24 @@ export default {
     const isTrustedBrowserRequest = !!allowedOrigin || !!isAllowedReferer;
 
     if (requestOrigin && !allowedOrigin) {
+      reportProxyEvent(env, ctx, 'blocked', {
+        requestId,
+        reason: 'origin_not_allowed',
+        status: 403,
+        method: request.method,
+        refererPath: getRefererPath(request),
+      });
       return jsonResponse({ error: 'Origin is not allowed' }, 403, corsHeaders);
     }
 
     if (!requestOrigin && refererOrigin && !isAllowedReferer) {
+      reportProxyEvent(env, ctx, 'blocked', {
+        requestId,
+        reason: 'referer_not_allowed',
+        status: 403,
+        method: request.method,
+        refererPath: getRefererPath(request),
+      });
       return jsonResponse({ error: 'Referer is not allowed' }, 403, corsHeaders);
     }
 
@@ -268,6 +423,13 @@ export default {
       const bearerToken = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
 
       if (!expectedToken || bearerToken !== expectedToken) {
+        reportProxyEvent(env, ctx, 'blocked', {
+          requestId,
+          reason: 'unauthorized',
+          status: 401,
+          method: request.method,
+          refererPath: getRefererPath(request),
+        });
         return jsonResponse({ error: 'Unauthorized' }, 401, corsHeaders);
       }
     }
@@ -276,21 +438,57 @@ export default {
     try {
       parsedUrl = new URL(sourceUrl);
     } catch {
+      reportProxyEvent(env, ctx, 'invalid_request', {
+        requestId,
+        reason: 'invalid_url',
+        status: 400,
+        method: request.method,
+        sourceUrl,
+        refererPath: getRefererPath(request),
+      });
       return jsonResponse({ error: 'Invalid url' }, 400, corsHeaders);
     }
 
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      reportProxyEvent(env, ctx, 'invalid_request', {
+        requestId,
+        reason: 'unsupported_protocol',
+        status: 400,
+        method: request.method,
+        sourceUrl,
+        refererPath: getRefererPath(request),
+      });
       return jsonResponse({ error: 'Unsupported protocol' }, 400, corsHeaders);
     }
 
     if (!isAllowedHost(parsedUrl.hostname, allowedHosts)) {
+      reportProxyEvent(env, ctx, 'blocked', {
+        requestId,
+        reason: 'host_not_allowed',
+        status: 403,
+        method: request.method,
+        sourceUrl,
+        sourceHost: parsedUrl.hostname,
+        refererPath: getRefererPath(request),
+      });
       return jsonResponse({ error: 'Host is not allowed' }, 403, corsHeaders);
     }
 
     const resolvedMethod = sanitizeUpstreamMethod(upstreamMethod);
     if (!resolvedMethod) {
+      reportProxyEvent(env, ctx, 'invalid_request', {
+        requestId,
+        reason: 'unsupported_upstream_method',
+        status: 400,
+        method: request.method,
+        sourceUrl,
+        refererPath: getRefererPath(request),
+      });
       return jsonResponse({ error: 'Unsupported upstream method' }, 400, corsHeaders);
     }
+
+    const sourceName = detectSourceName(parsedUrl.hostname);
+    const operation = detectOperation(parsedUrl);
 
     const resolvedUpstreamHeaders = new Headers({
       Accept: 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
@@ -317,6 +515,16 @@ export default {
       },
     }).catch((error) => {
       console.error('Upstream request failed', error);
+      reportProxyEvent(env, ctx, 'upstream_failure', {
+        requestId,
+        sourceName,
+        operation,
+        sourceHost: parsedUrl.hostname,
+        sourceUrl: parsedUrl.toString(),
+        method: resolvedMethod,
+        refererPath: getRefererPath(request),
+        durationMs: Date.now() - startedAt,
+      });
       return null;
     });
 
@@ -325,6 +533,18 @@ export default {
     }
 
     if (!upstreamResponse.ok || !upstreamResponse.body) {
+      reportProxyEvent(env, ctx, 'upstream_response', {
+        requestId,
+        sourceName,
+        operation,
+        sourceHost: parsedUrl.hostname,
+        sourceUrl: parsedUrl.toString(),
+        method: resolvedMethod,
+        status: upstreamResponse.status,
+        result: upstreamResponse.ok ? 'empty_body' : 'error',
+        refererPath: getRefererPath(request),
+        durationMs: Date.now() - startedAt,
+      });
       return jsonResponse(
         {
           error: `Upstream request failed (${upstreamResponse.status})`,
@@ -342,6 +562,20 @@ export default {
     );
     responseHeaders.set('Cache-Control', 'no-store');
     responseHeaders.set('X-Proxy-Upstream-Status', String(upstreamResponse.status));
+    responseHeaders.set('X-Proxy-Source', sourceName);
+    responseHeaders.set('X-Proxy-Operation', operation);
+
+    reportProxyEvent(env, ctx, 'success', {
+      requestId,
+      sourceName,
+      operation,
+      sourceHost: parsedUrl.hostname,
+      sourceUrl: parsedUrl.toString(),
+      method: resolvedMethod,
+      status: upstreamResponse.status,
+      refererPath: getRefererPath(request),
+      durationMs: Date.now() - startedAt,
+    });
 
     return new Response(upstreamResponse.body, {
       status: 200,

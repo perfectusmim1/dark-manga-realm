@@ -154,6 +154,20 @@ const normalizeEntitySourceLinks = (sourceLinks?: ExternalSourceLink[] | unknown
         : []
 ) as ExternalSourceLink[];
 
+const normalizeSeriesGalleryUrls = (details?: EntityMetadata | Record<string, unknown> | null) => {
+    const rawGallery = details && typeof details === 'object' && !Array.isArray(details)
+        ? (details as EntityMetadata)?.extra?.seriesGallery
+        : undefined;
+
+    if (!Array.isArray(rawGallery)) {
+        return [];
+    }
+
+    return rawGallery
+        .map((value) => typeof value === 'string' ? value.trim() : '')
+        .filter(Boolean);
+};
+
 const createRichEntityPayload = (entity: Partial<Character | Author | Artist>) => ({
     name: normalizeNamedEntityValue(entity.name),
     image_url: sanitizeEntityImageUrl(entity.imageUrl),
@@ -202,6 +216,21 @@ const joinNamedEntityValues = (values: Array<string | null | undefined>) => (
 );
 
 const LEGACY_MANGA_PERSON_LABEL_LIMIT = 100;
+
+export interface MangaMediaRecord {
+    id: string;
+    title: string;
+    cover?: string;
+    banner?: string;
+    galleryUrls: string[];
+}
+
+export interface NamedEntityMediaRecord {
+    id: string;
+    name: string;
+    imageUrl?: string;
+    gallery: EntityGalleryImage[];
+}
 
 const toLegacyMangaPersonLabel = (value?: string | null) => {
     const normalized = normalizeNamedEntityValue(value);
@@ -744,6 +773,25 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
     }
 };
 
+export const getMangaMediaRecords = async (): Promise<MangaMediaRecord[]> => {
+    const { data, error } = await supabase
+        .from('mangas')
+        .select('id, title, cover, banner, details')
+        .order('title', { ascending: true });
+
+    if (error) {
+        throw error;
+    }
+
+    return (data || []).map((row) => ({
+        id: row.id,
+        title: row.title,
+        cover: row.cover || undefined,
+        banner: row.banner || undefined,
+        galleryUrls: normalizeSeriesGalleryUrls(row.details),
+    }));
+};
+
 /**
  * Get a single manga by ID with all its chapters
  */
@@ -891,6 +939,66 @@ export const deleteManga = async (mangaId: string): Promise<void> => {
     const { error } = await supabase
         .from('mangas')
         .delete()
+        .eq('id', mangaId);
+
+    if (error) throw error;
+    invalidateAllMangasCache();
+};
+
+export const updateMangaMediaUrls = async (
+    mangaId: string,
+    media: { cover?: string | null; banner?: string | null; galleryUrls?: string[] | null },
+): Promise<void> => {
+    const payload: Record<string, unknown> = {};
+
+    if (typeof media.cover === 'string') {
+        payload.cover = media.cover;
+    }
+
+    if (typeof media.banner === 'string') {
+        payload.banner = media.banner;
+    }
+
+    const shouldUpdateGallery = Array.isArray(media.galleryUrls);
+
+    if (Object.keys(payload).length === 0 && !shouldUpdateGallery) {
+        return;
+    }
+
+    if (shouldUpdateGallery) {
+        const { data: existingRow, error: existingError } = await supabase
+            .from('mangas')
+            .select('details')
+            .eq('id', mangaId)
+            .maybeSingle();
+
+        if (existingError) throw existingError;
+
+        const nextDetails = normalizeEntityMetadata(existingRow?.details);
+        const nextExtra = {
+            ...(nextDetails.extra || {}),
+        };
+
+        if ((media.galleryUrls || []).length > 0) {
+            nextExtra.seriesGallery = media.galleryUrls || [];
+        } else {
+            delete nextExtra.seriesGallery;
+        }
+
+        if (Object.keys(nextExtra).length > 0) {
+            nextDetails.extra = nextExtra;
+        } else {
+            delete nextDetails.extra;
+        }
+
+        payload.details = nextDetails;
+    }
+
+    payload.last_updated = new Date().toISOString();
+
+    const { error } = await supabase
+        .from('mangas')
+        .update(payload)
         .eq('id', mangaId);
 
     if (error) throw error;
@@ -3375,6 +3483,24 @@ export const getCharacters = async (
     return getCharactersList(options);
 };
 
+export const getCharacterMediaRecords = async (): Promise<NamedEntityMediaRecord[]> => {
+    const { data, error } = await supabase
+        .from('characters')
+        .select('id, name, image_url, gallery')
+        .order('name', { ascending: true });
+
+    if (error) {
+        throw error;
+    }
+
+    return (data || []).map((row) => ({
+        id: row.id,
+        name: row.name,
+        imageUrl: sanitizeEntityImageUrl(row.image_url),
+        gallery: normalizeEntityGallery(row.gallery),
+    }));
+};
+
 export const getCharactersList = async (
     options?: { includePrivate?: boolean }
 ): Promise<Character[]> => {
@@ -3472,6 +3598,39 @@ export const saveCharacter = async (character: Partial<Character>): Promise<stri
 
     if (error) throw error;
     return inserted.id;
+};
+
+export const updateCharacterImageUrl = async (
+    characterId: string,
+    imageUrl?: string | null,
+): Promise<void> => {
+    await updateCharacterMedia(characterId, { imageUrl });
+};
+
+export const updateCharacterMedia = async (
+    characterId: string,
+    media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
+): Promise<void> => {
+    const payload: Record<string, unknown> = {};
+
+    if ('imageUrl' in media) {
+        payload.image_url = sanitizeEntityImageUrl(media.imageUrl);
+    }
+
+    if ('gallery' in media) {
+        payload.gallery = normalizeEntityGallery(media.gallery || []);
+    }
+
+    if (Object.keys(payload).length === 0) {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('characters')
+        .update(payload)
+        .eq('id', characterId);
+
+    if (error) throw error;
 };
 
 export const ensureCharacterByName = async (name: string): Promise<Character | null> => {
@@ -3633,6 +3792,24 @@ export const getAuthors = async (options?: { includePrivate?: boolean }): Promis
     }));
 };
 
+export const getAuthorMediaRecords = async (): Promise<NamedEntityMediaRecord[]> => {
+    const { data, error } = await supabase
+        .from('authors')
+        .select('id, name, image_url, gallery')
+        .order('name', { ascending: true });
+
+    if (error) {
+        throw error;
+    }
+
+    return (data || []).map((row) => ({
+        id: row.id,
+        name: row.name,
+        imageUrl: sanitizeEntityImageUrl(row.image_url),
+        gallery: normalizeEntityGallery(row.gallery),
+    }));
+};
+
 export const getArtists = async (options?: { includePrivate?: boolean }): Promise<Artist[]> => {
     const { data, error } = await applyPublicEntityFilter(
         supabase
@@ -3648,6 +3825,24 @@ export const getArtists = async (options?: { includePrivate?: boolean }): Promis
     return (data || []).map((artist, index) => ({
         ...mapArtistRow(artist),
         rank: index + 1,
+    }));
+};
+
+export const getArtistMediaRecords = async (): Promise<NamedEntityMediaRecord[]> => {
+    const { data, error } = await supabase
+        .from('artists')
+        .select('id, name, image_url, gallery')
+        .order('name', { ascending: true });
+
+    if (error) {
+        throw error;
+    }
+
+    return (data || []).map((row) => ({
+        id: row.id,
+        name: row.name,
+        imageUrl: sanitizeEntityImageUrl(row.image_url),
+        gallery: normalizeEntityGallery(row.gallery),
     }));
 };
 
@@ -3756,6 +3951,39 @@ export const saveAuthor = async (author: Partial<Author>) => {
     return inserted.id;
 };
 
+export const updateAuthorImageUrl = async (
+    authorId: string,
+    imageUrl?: string | null,
+): Promise<void> => {
+    await updateAuthorMedia(authorId, { imageUrl });
+};
+
+export const updateAuthorMedia = async (
+    authorId: string,
+    media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
+): Promise<void> => {
+    const payload: Record<string, unknown> = {};
+
+    if ('imageUrl' in media) {
+        payload.image_url = sanitizeEntityImageUrl(media.imageUrl);
+    }
+
+    if ('gallery' in media) {
+        payload.gallery = normalizeEntityGallery(media.gallery || []);
+    }
+
+    if (Object.keys(payload).length === 0) {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('authors')
+        .update(payload)
+        .eq('id', authorId);
+
+    if (error) throw error;
+};
+
 export const deleteAuthor = async (id: string): Promise<void> => {
     const { error } = await supabase.from('authors').delete().eq('id', id);
     if (error) throw error;
@@ -3784,6 +4012,39 @@ export const saveArtist = async (artist: Partial<Artist>) => {
         .single();
     if (error) throw error;
     return inserted.id;
+};
+
+export const updateArtistImageUrl = async (
+    artistId: string,
+    imageUrl?: string | null,
+): Promise<void> => {
+    await updateArtistMedia(artistId, { imageUrl });
+};
+
+export const updateArtistMedia = async (
+    artistId: string,
+    media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
+): Promise<void> => {
+    const payload: Record<string, unknown> = {};
+
+    if ('imageUrl' in media) {
+        payload.image_url = sanitizeEntityImageUrl(media.imageUrl);
+    }
+
+    if ('gallery' in media) {
+        payload.gallery = normalizeEntityGallery(media.gallery || []);
+    }
+
+    if (Object.keys(payload).length === 0) {
+        return;
+    }
+
+    const { error } = await supabase
+        .from('artists')
+        .update(payload)
+        .eq('id', artistId);
+
+    if (error) throw error;
 };
 
 export const deleteArtist = async (id: string): Promise<void> => {

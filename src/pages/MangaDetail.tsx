@@ -1061,17 +1061,13 @@ const MangaDetail: React.FC = () => {
       || !isOnline
       || isOfflineView
       || isLoading
-      || (hasLoadedCharacters && hasLoadedSimilar)
+      || hasLoadedSimilar
     ) {
       return;
     }
 
     const prefetchDelayMs = disableHeavyEffects ? 280 : 140;
     const timerId = window.setTimeout(() => {
-      if (!hasLoadedCharacters) {
-        void loadCharacters();
-      }
-
       if (!hasLoadedSimilar) {
         void loadSimilarMangas();
       }
@@ -1082,12 +1078,10 @@ const MangaDetail: React.FC = () => {
     };
   }, [
     disableHeavyEffects,
-    hasLoadedCharacters,
     hasLoadedSimilar,
     isLoading,
     isOfflineView,
     isOnline,
-    loadCharacters,
     loadSimilarMangas,
     manga,
     mangaId,

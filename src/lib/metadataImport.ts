@@ -17,8 +17,16 @@ import {
   saveAuthor,
   saveCharacter,
   saveManga,
+  updateArtistMedia,
+  updateAuthorMedia,
+  updateCharacterMedia,
 } from '@/lib/database';
 import { fetchScraperContent } from '@/lib/scraperProxy';
+import {
+  buildMaterializedGalleryObjectKey,
+  materializeRemoteImage,
+  materializeRemoteImages,
+} from '@/lib/mediaStorage';
 import {
   Artist,
   Author,
@@ -201,7 +209,7 @@ const uniqueStrings = (values: Array<string | null | undefined>) => {
 const uniqueByUrl = <T extends { url?: string; sourceUrl?: string }>(items: T[]) => {
   const seen = new Set<string>();
   return items.filter((item) => {
-    const key = normalizeText(item.url || item.sourceUrl);
+    const key = normalizeText(item.sourceUrl || item.url);
     if (!key || seen.has(key)) {
       return false;
     }
@@ -1916,16 +1924,202 @@ const stripCharacterListingRoleMetadata = (details?: EntityMetadata): EntityMeta
   return nextDetails;
 };
 
+const materializeImportedImage = async ({
+  id,
+  sourceUrl,
+  entityType,
+  entityId,
+  variant,
+  sourceName,
+}: {
+  id: string;
+  sourceUrl?: string | null;
+  entityType: 'manga' | 'character' | 'author' | 'artist';
+  entityId: string;
+  variant: 'cover' | 'banner' | 'profile' | 'gallery';
+  sourceName?: ExternalSourceName | string;
+}) => {
+  const normalizedSourceUrl = normalizeText(sourceUrl);
+  if (!normalizedSourceUrl) {
+    return undefined;
+  }
+
+  try {
+    return await materializeRemoteImage({
+      id,
+      sourceUrl: normalizedSourceUrl,
+      entityType,
+      entityId,
+      variant,
+      sourceName,
+    }) || normalizedSourceUrl;
+  } catch (error) {
+    console.warn('Media materialize failed:', error);
+    return normalizedSourceUrl;
+  }
+};
+
+const materializeImportedGallery = async ({
+  images,
+  entityType,
+  entityId,
+  sourceName,
+}: {
+  images?: EntityGalleryImage[];
+  entityType: 'manga' | 'character' | 'author' | 'artist';
+  entityId: string;
+  sourceName?: ExternalSourceName | string;
+}) => {
+  const sourceImages = (images || []).filter((image) => normalizeText(image?.url));
+  if (sourceImages.length === 0) {
+    return [] as EntityGalleryImage[];
+  }
+
+  try {
+    const results = await materializeRemoteImages(
+      sourceImages.map((image, index) => ({
+        id: `${entityType}:${entityId}:gallery:${index}`,
+        sourceUrl: image.url,
+        entityType,
+        entityId,
+        variant: 'gallery' as const,
+        sourceName: image.source || sourceName,
+        objectKey: buildMaterializedGalleryObjectKey(
+          entityType,
+          entityId,
+          image.sourceUrl || image.url || `${index}`,
+        ),
+      })),
+    );
+
+    return sourceImages.map((image, index) => {
+      const originalUrl = normalizeText(image.url);
+      const materializedUrl = results.get(`${entityType}:${entityId}:gallery:${index}`) || originalUrl;
+
+      return {
+        ...image,
+        url: materializedUrl,
+        thumbUrl: materializedUrl,
+        sourceUrl: normalizeText(image.sourceUrl) || originalUrl,
+      };
+    });
+  } catch (error) {
+    console.warn('Gallery materialize failed:', error);
+    return sourceImages.map((image) => ({
+      ...image,
+      url: normalizeText(image.url),
+      thumbUrl: normalizeText(image.thumbUrl) || normalizeText(image.url),
+      sourceUrl: normalizeText(image.sourceUrl) || normalizeText(image.url),
+    }));
+  }
+};
+
 const resolveAuthor = async (draft: ImportedPersonDraft, importAsPublic: boolean) => {
   const existing = await findAuthorByName(draft.name);
-  const id = await saveAuthor(mergeImportedPerson(existing, draft, importAsPublic));
-  return existing?.id || id;
+  const payload = mergeImportedPerson(existing, draft, importAsPublic) as Partial<Author>;
+
+  if (existing?.id) {
+    const imageUrl = await materializeImportedImage({
+      id: `author:${existing.id}`,
+      sourceUrl: payload.imageUrl,
+      entityType: 'author',
+      entityId: existing.id,
+      variant: 'profile',
+      sourceName: draft.sourceLinks?.[0]?.source,
+    });
+    const gallery = await materializeImportedGallery({
+      images: payload.gallery,
+      entityType: 'author',
+      entityId: existing.id,
+      sourceName: draft.sourceLinks?.[0]?.source,
+    });
+
+    const id = await saveAuthor({
+      ...payload,
+      id: existing.id,
+      imageUrl,
+      gallery,
+    });
+    return existing.id || id;
+  }
+
+  const id = await saveAuthor(payload);
+  const imageUrl = await materializeImportedImage({
+    id: `author:${id}`,
+    sourceUrl: payload.imageUrl,
+    entityType: 'author',
+    entityId: id,
+    variant: 'profile',
+    sourceName: draft.sourceLinks?.[0]?.source,
+  });
+  const gallery = await materializeImportedGallery({
+    images: payload.gallery,
+    entityType: 'author',
+    entityId: id,
+    sourceName: draft.sourceLinks?.[0]?.source,
+  });
+
+  if (imageUrl && imageUrl !== payload.imageUrl) {
+    await updateAuthorMedia(id, { imageUrl, gallery });
+  } else if (gallery.length > 0) {
+    await updateAuthorMedia(id, { gallery });
+  }
+
+  return id;
 };
 
 const resolveArtist = async (draft: ImportedPersonDraft, importAsPublic: boolean) => {
   const existing = await findArtistByName(draft.name);
-  const id = await saveArtist(mergeImportedPerson(existing, draft, importAsPublic));
-  return existing?.id || id;
+  const payload = mergeImportedPerson(existing, draft, importAsPublic) as Partial<Artist>;
+
+  if (existing?.id) {
+    const imageUrl = await materializeImportedImage({
+      id: `artist:${existing.id}`,
+      sourceUrl: payload.imageUrl,
+      entityType: 'artist',
+      entityId: existing.id,
+      variant: 'profile',
+      sourceName: draft.sourceLinks?.[0]?.source,
+    });
+    const gallery = await materializeImportedGallery({
+      images: payload.gallery,
+      entityType: 'artist',
+      entityId: existing.id,
+      sourceName: draft.sourceLinks?.[0]?.source,
+    });
+
+    const id = await saveArtist({
+      ...payload,
+      id: existing.id,
+      imageUrl,
+      gallery,
+    });
+    return existing.id || id;
+  }
+
+  const id = await saveArtist(payload);
+  const imageUrl = await materializeImportedImage({
+    id: `artist:${id}`,
+    sourceUrl: payload.imageUrl,
+    entityType: 'artist',
+    entityId: id,
+    variant: 'profile',
+    sourceName: draft.sourceLinks?.[0]?.source,
+  });
+  const gallery = await materializeImportedGallery({
+    images: payload.gallery,
+    entityType: 'artist',
+    entityId: id,
+    sourceName: draft.sourceLinks?.[0]?.source,
+  });
+
+  if (imageUrl && imageUrl !== payload.imageUrl) {
+    await updateArtistMedia(id, { imageUrl, gallery });
+  } else if (gallery.length > 0) {
+    await updateArtistMedia(id, { gallery });
+  }
+
+  return id;
 };
 
 const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: boolean) => {
@@ -1934,11 +2128,60 @@ const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: b
     ...draft,
     details: stripCharacterListingRoleMetadata(draft.details) || {},
   }, importAsPublic) as Partial<Character>;
+
+  if (existing?.id) {
+    const imageUrl = await materializeImportedImage({
+      id: `character:${existing.id}`,
+      sourceUrl: payload.imageUrl,
+      entityType: 'character',
+      entityId: existing.id,
+      variant: 'profile',
+      sourceName: draft.sourceLinks?.[0]?.source,
+    });
+    const gallery = await materializeImportedGallery({
+      images: payload.gallery,
+      entityType: 'character',
+      entityId: existing.id,
+      sourceName: draft.sourceLinks?.[0]?.source,
+    });
+
+    const id = await saveCharacter({
+      ...payload,
+      id: existing.id,
+      imageUrl,
+      gallery,
+      details: stripCharacterListingRoleMetadata(payload.details),
+    });
+
+    return existing.id || id;
+  }
+
   const id = await saveCharacter({
     ...payload,
     details: stripCharacterListingRoleMetadata(payload.details),
   });
-  return existing?.id || id;
+  const imageUrl = await materializeImportedImage({
+    id: `character:${id}`,
+    sourceUrl: payload.imageUrl,
+    entityType: 'character',
+    entityId: id,
+    variant: 'profile',
+    sourceName: draft.sourceLinks?.[0]?.source,
+  });
+  const gallery = await materializeImportedGallery({
+    images: payload.gallery,
+    entityType: 'character',
+    entityId: id,
+    sourceName: draft.sourceLinks?.[0]?.source,
+  });
+
+  if (imageUrl && imageUrl !== payload.imageUrl) {
+    await updateCharacterMedia(id, { imageUrl, gallery });
+  } else if (gallery.length > 0) {
+    await updateCharacterMedia(id, { gallery });
+  }
+
+  return id;
 };
 
 const buildMangaSourceLink = (preview: ImportedMangaPayload) =>
@@ -2111,6 +2354,49 @@ export const importPreviewIntoManga = async (
   );
 
   const nextManga = mergeMangaDetails(manga, preview, selection.enabledOptions);
+  const materializedMangaMedia = selection.enabledOptions.manga_core
+    ? await materializeRemoteImages([
+      {
+        id: `manga:${mangaId}:cover`,
+        sourceUrl: nextManga.cover,
+        entityType: 'manga',
+        entityId: mangaId,
+        variant: 'cover',
+        sourceName: preview.source,
+      },
+      {
+        id: `manga:${mangaId}:banner`,
+        sourceUrl: nextManga.banner,
+        entityType: 'manga',
+        entityId: mangaId,
+        variant: 'banner',
+        sourceName: preview.source,
+      },
+    ]).catch((error) => {
+      console.warn('Manga media materialize failed:', error);
+      return new Map<string, string>();
+    })
+    : new Map<string, string>();
+  const materializedSeriesGallery = selection.enabledOptions.gallery
+    ? await materializeImportedGallery({
+      images: preview.gallery,
+      entityType: 'manga',
+      entityId: mangaId,
+      sourceName: preview.source,
+    })
+    : [];
+
+  nextManga.cover = materializedMangaMedia.get(`manga:${mangaId}:cover`) || nextManga.cover;
+  nextManga.banner = materializedMangaMedia.get(`manga:${mangaId}:banner`) || nextManga.banner;
+  if (selection.enabledOptions.gallery && materializedSeriesGallery.length > 0) {
+    nextManga.details = {
+      ...(nextManga.details || {}),
+      extra: {
+        ...(nextManga.details?.extra || {}),
+        seriesGallery: uniqueStrings(materializedSeriesGallery.map((item) => item.url)),
+      },
+    };
+  }
   await saveManga(nextManga);
 
   if (selection.enabledOptions.tags && preview.tagMatches) {
