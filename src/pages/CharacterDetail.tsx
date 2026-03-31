@@ -19,6 +19,7 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import DeferredMount from '@/components/performance/DeferredMount';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
 const CharacterDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
@@ -27,6 +28,7 @@ const CharacterDetail: React.FC = () => {
     const [character, setCharacter] = useState<Character | null>(null);
     const [loading, setLoading] = useState(true);
     const [isLiked, setIsLiked] = useState(false);
+    const [activeDetailTab, setActiveDetailTab] = useState<'general' | 'series' | 'gallery'>('general');
 
     if (!isOnline) {
         return (
@@ -117,18 +119,7 @@ const CharacterDetail: React.FC = () => {
             </div>
         </div>
     ) : null;
-    const seriesSection = (
-        <div className="space-y-4">
-            <h2 className="text-2xl font-bold flex items-center gap-2">
-                <BookOpen className="h-6 w-6 text-primary" />
-                Seri Bağlantıları
-            </h2>
-            <EntitySeriesGrid
-                mangas={character.series}
-                emptyText="Henüz bir seriyle ilişkilendirilmemiş."
-            />
-        </div>
-    );
+
     return (
         <div className="min-h-screen bg-background flex flex-col pt-16">
             <Header />
@@ -191,39 +182,88 @@ const CharacterDetail: React.FC = () => {
 
                     {/* Right Side - Info */}
                     <div className="space-y-8">
-                        <div>
-                            <h1 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
-                                {character.name}
-                            </h1>
-                            <div className="flex items-center gap-4 mt-4 text-muted-foreground">
-                                <div className="flex items-center gap-1">
-                                    <Calendar className="h-4 w-4" />
-                                    <span>{new Date(character.createdAt).getFullYear()}'de Eklendi</span>
+                        <Tabs value={activeDetailTab} onValueChange={(value) => setActiveDetailTab(value as 'general' | 'series' | 'gallery')} className="space-y-8">
+                            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                                <div className="min-w-0">
+                                    <h1 className="text-4xl md:text-5xl font-black bg-gradient-to-r from-foreground to-foreground/70 bg-clip-text text-transparent">
+                                        {character.name}
+                                    </h1>
+                                    <div className="flex items-center gap-4 mt-4 text-muted-foreground">
+                                        <div className="flex items-center gap-1">
+                                            <Calendar className="h-4 w-4" />
+                                            <span>{new Date(character.createdAt).getFullYear()}'de Eklendi</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="w-full xl:w-auto xl:flex-none">
+                                    <TabsList className="grid h-auto w-full grid-cols-3 rounded-2xl border border-border bg-secondary/30 p-1.5 xl:w-auto xl:min-w-[320px]">
+                                        <TabsTrigger
+                                            value="general"
+                                            className="rounded-xl px-4 py-2.5 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-lg"
+                                        >
+                                            Genel
+                                        </TabsTrigger>
+                                        <TabsTrigger
+                                            value="series"
+                                            className="rounded-xl px-4 py-2.5 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-lg"
+                                        >
+                                            Seri
+                                        </TabsTrigger>
+                                        <TabsTrigger
+                                            value="gallery"
+                                            className="rounded-xl px-4 py-2.5 text-sm font-semibold data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-lg"
+                                        >
+                                            Galeri
+                                        </TabsTrigger>
+                                    </TabsList>
                                 </div>
                             </div>
-                        </div>
 
-                        <EntityMetadataGrid
-                            metadata={character.details}
-                            alternativeNames={character.alternativeNames}
-                            sourceLinks={character.sourceLinks}
-                            title="Karakter Profili"
-                        />
+                            <TabsContent value="general" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="space-y-8">
+                                    <EntityMetadataGrid
+                                        metadata={character.details}
+                                        alternativeNames={character.alternativeNames}
+                                        sourceLinks={character.sourceLinks}
+                                        title="Karakter Profili"
+                                    />
 
-                        {descriptionSection}
-                        {seriesSection}
-                        <EntityGalleryGrid images={character.gallery} title="Karakter Galerisi" />
+                                    {descriptionSection}
+                                </div>
+                            </TabsContent>
 
-                        <Separator className="my-8" />
+                            <TabsContent value="series" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <div className="space-y-4">
+                                    <h2 className="text-2xl font-bold flex items-center gap-2">
+                                        <BookOpen className="h-6 w-6 text-primary" />
+                                        Seri Bağlantıları
+                                    </h2>
+                                    <EntitySeriesGrid
+                                        mangas={character.series}
+                                        emptyText="Henüz bir seriyle ilişkilendirilmemiş."
+                                    />
+                                </div>
+                            </TabsContent>
 
-                        {/* Comments Section */}
-                        <DeferredMount placeholderMinHeight={360} rootMargin="720px 0px">
-                            <div className="space-y-6">
-                                <CommentSection entityId={id} entityType="character" />
-                            </div>
-                        </DeferredMount>
+                            <TabsContent value="gallery" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                                <EntityGalleryGrid
+                                    images={character.gallery}
+                                    title="Karakter Galerisi"
+                                    emptyText="Bu karakter için galeri bulunamadı."
+                                />
+                            </TabsContent>
+                        </Tabs>
                     </div>
                 </div>
+
+                <Separator className="my-8" />
+
+                <DeferredMount placeholderMinHeight={360} rootMargin="720px 0px">
+                    <div className="space-y-6">
+                        <CommentSection entityId={id} entityType="character" />
+                    </div>
+                </DeferredMount>
             </main>
         </div>
     );

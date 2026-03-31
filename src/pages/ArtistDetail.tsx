@@ -211,16 +211,16 @@ const ArtistDetail: React.FC = () => {
                         {descriptionSection}
                         {seriesSection}
                         <EntityGalleryGrid images={artist.gallery} title="Çizer Galerisi" />
-
-                        <Separator className="my-8" />
-
-                        <DeferredMount placeholderMinHeight={360} rootMargin="720px 0px">
-                            <div className="space-y-6">
-                                <CommentSection entityId={id} entityType="artist" />
-                            </div>
-                        </DeferredMount>
                     </div>
                 </div>
+
+                <Separator className="my-8" />
+
+                <DeferredMount placeholderMinHeight={360} rootMargin="720px 0px">
+                    <div className="space-y-6">
+                        <CommentSection entityId={id} entityType="artist" />
+                    </div>
+                </DeferredMount>
             </main>
         </div>
     );

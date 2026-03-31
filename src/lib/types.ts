@@ -38,7 +38,7 @@ export interface Manga {
   };
 }
 
-export type ExternalSourceName = 'anilist' | 'myanimelist' | 'mangaupdates';
+export type ExternalSourceName = 'anilist' | 'myanimelist' | 'mangaupdates' | 'animeplanet';
 
 export interface ExternalSourceLink {
   source: ExternalSourceName | string;
@@ -125,7 +125,7 @@ export interface Character {
   details?: BaseRichEntity['details'];
   gallery?: BaseRichEntity['gallery'];
   sourceLinks?: BaseRichEntity['sourceLinks'];
-  voiceActors?: CharacterVoiceActorRole[];
+  listingRole?: 'main' | 'supporting' | 'minor';
 }
 
 export interface Author {
@@ -158,52 +158,6 @@ export interface Artist {
   details?: BaseRichEntity['details'];
   gallery?: BaseRichEntity['gallery'];
   sourceLinks?: BaseRichEntity['sourceLinks'];
-}
-
-export interface VoiceActor {
-  id: BaseRichEntity['id'];
-  name: BaseRichEntity['name'];
-  imageUrl?: BaseRichEntity['imageUrl'];
-  description?: BaseRichEntity['description'];
-  likesCount: BaseRichEntity['likesCount'];
-  createdAt: BaseRichEntity['createdAt'];
-  series?: BaseRichEntity['series'];
-  rank?: BaseRichEntity['rank'];
-  isPublic?: BaseRichEntity['isPublic'];
-  alternativeNames?: BaseRichEntity['alternativeNames'];
-  details?: BaseRichEntity['details'];
-  gallery?: BaseRichEntity['gallery'];
-  sourceLinks?: BaseRichEntity['sourceLinks'];
-  roles?: VoiceActorRole[];
-}
-
-export interface CharacterVoiceActorRole {
-  id: string;
-  characterId: string;
-  voiceActorId: string;
-  language?: string;
-  localeCode?: string;
-  roleLabel?: string;
-  sortOrder?: number;
-  sourceName?: string;
-  sourceUrl?: string;
-  details?: Record<string, unknown>;
-  voiceActor?: VoiceActor;
-}
-
-export interface VoiceActorRole {
-  id: string;
-  characterId: string;
-  voiceActorId: string;
-  characterName: string;
-  characterImageUrl?: string;
-  language?: string;
-  localeCode?: string;
-  roleLabel?: string;
-  sortOrder?: number;
-  sourceName?: string;
-  sourceUrl?: string;
-  details?: Record<string, unknown>;
 }
 
 export interface MangaRelation {
@@ -373,7 +327,7 @@ export interface Comment {
   id: string;
   mangaId?: string;
   entityId?: string;
-  entityType?: 'manga' | 'character' | 'author' | 'artist' | 'voice_actor';
+  entityType?: 'manga' | 'character' | 'author' | 'artist';
   chapterId?: string;
   pageNumber?: number;
   userId: string;
@@ -454,6 +408,7 @@ export interface Tag {
   communityApproved?: boolean;
   isDiscoverable?: boolean;
   createdBy?: string;
+  relationAddedBy?: string;
   createdAt: string;
 }
 

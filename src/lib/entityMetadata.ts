@@ -1,4 +1,5 @@
 import type { EntityMetadata } from '@/lib/types';
+import { getCharacterListingRoleLabel, normalizeCharacterListingRole } from '@/lib/characterRoles';
 
 export interface EntityMetadataFormState {
   nativeName: string;
@@ -30,6 +31,62 @@ export interface EntityMetadataFormState {
 }
 
 const LIST_SEPARATOR_PATTERN = /[\n,;]+/;
+
+const translateMetadataRole = (value?: string | null) => {
+  const normalized = (value || '').trim().toLocaleLowerCase('tr-TR');
+
+  switch (normalized) {
+    case 'author':
+      return 'Yazar';
+    case 'artist':
+      return 'Çizer';
+    case 'voice actor':
+      return 'Seslendiren';
+    default: {
+      const characterRole = getCharacterListingRoleLabel(normalizeCharacterListingRole(value));
+      return characterRole || value || '';
+    }
+  }
+};
+
+const translateMetadataGender = (value?: string | null) => {
+  const normalized = (value || '').trim().toLocaleLowerCase('tr-TR');
+
+  switch (normalized) {
+    case 'male':
+      return 'Erkek';
+    case 'female':
+      return 'Kadın';
+    case 'non-binary':
+    case 'nonbinary':
+      return 'İkili Olmayan';
+    default:
+      return value || '';
+  }
+};
+
+const translateMetadataStatus = (value?: string | null) => {
+  const normalized = (value || '').trim().toLocaleLowerCase('tr-TR');
+
+  switch (normalized) {
+    case 'finished':
+    case 'completed':
+      return 'Tamamlandı';
+    case 'publishing':
+    case 'ongoing':
+      return 'Devam Ediyor';
+    case 'hiatus':
+    case 'on hiatus':
+      return 'Ara Verildi';
+    case 'upcoming':
+      return 'Yakında';
+    case 'cancelled':
+    case 'canceled':
+      return 'İptal Edildi';
+    default:
+      return value || '';
+  }
+};
 
 export const parseDelimitedList = (value?: string | null) => (
   (value || '')
@@ -172,24 +229,24 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
     }
   };
 
-  push('Native', metadata.nativeName);
-  push('English', metadata.englishName);
-  push('Romaji', metadata.romajiName);
-  push('Durum', metadata.status);
+  push('Orijinal Ad', metadata.nativeName);
+  push('İngilizce Ad', metadata.englishName);
+  push('Romaji Ad', metadata.romajiName);
+  push('Durum', translateMetadataStatus(metadata.status));
   push('Yaş', metadata.age);
-  push('Cinsiyet', metadata.gender);
+  push('Cinsiyet', translateMetadataGender(metadata.gender));
   push('Doğum Günü', metadata.birthday || metadata.birthDate);
   push('Doğum Yeri', metadata.birthPlace);
   push('Kan Grubu', metadata.bloodType);
   push('Burç', metadata.zodiac);
   push('Uyruk', metadata.nationality);
   push('Meslek', metadata.occupation);
-  push('Rol', metadata.role);
+  push('Rol', translateMetadataRole(metadata.role));
   push('Sınıf', metadata.className);
   push('Unvan', metadata.rankTitle);
   push('Bağlılık', metadata.affiliation);
   push('Yakınlar', metadata.relatives);
-  push('Website', metadata.website);
+  push('Web Sitesi', metadata.website);
   push('Twitter', metadata.twitter);
   push('Kaynak Materyal', metadata.sourceMaterial);
   push('Başlangıç', metadata.startDate);
@@ -205,14 +262,43 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
   push('Notlar', metadata.comments);
 
   if (metadata.extra) {
+    const extraFieldLabels: Record<string, string> = {
+      hairColor: 'Saç Rengi',
+      eyeColor: 'Göz Rengi',
+      animePlanetLovedRank: 'Anime-Planet Beğeni Sırası',
+      malMembers: 'MAL Üye Sayısı',
+      malRank: 'MAL Sırası',
+      serializations: 'Yayıncı / Dergi',
+      relatedAnime: 'İlgili Animeler',
+      officialEnglish: 'Resmi İngilizce Ad',
+      format: 'Format',
+      source: 'Kaynak',
+    };
+
+    const hiddenExtraFields = new Set([
+      'characterRoleType',
+      'animePlanetSlug',
+      'raw',
+      'seriesGallery',
+    ]);
+
     Object.entries(metadata.extra).forEach(([key, value]) => {
+      if (hiddenExtraFields.has(key)) {
+        return;
+      }
+
+      const resolvedLabel = extraFieldLabels[key] || key
+        .replace(/([a-z])([A-Z])/g, '$1 $2')
+        .replace(/_/g, ' ')
+        .replace(/\b\w/g, (char) => char.toLocaleUpperCase('tr-TR'));
+
       if (Array.isArray(value)) {
-        push(key, value.map((item) => String(item)));
+        push(resolvedLabel, value.map((item) => String(item)));
         return;
       }
 
       if (value !== null && value !== undefined && value !== false && value !== '') {
-        push(key, String(value));
+        push(resolvedLabel, String(value));
       }
     });
   }

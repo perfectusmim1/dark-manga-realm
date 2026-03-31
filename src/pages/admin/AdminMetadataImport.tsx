@@ -32,7 +32,8 @@ import {
   DialogDescription,
 } from '@/components/ui/dialog';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { getMangaSummaries } from '@/lib/database';
+import ProxyImage from '@/components/media/ProxyImage';
+import { getCharacters, getMangaById, getMangaCharacters, getMangaSummaries, getTagsForEntity } from '@/lib/database';
 import {
   createDefaultImportOptions,
   importPreviewIntoManga,
@@ -43,15 +44,21 @@ import {
   SOURCE_OPTION_SUPPORT,
   SOURCE_RUNTIME_WARNINGS,
   SourceSearchCandidate,
+  type ImportedCharacterDraft,
   type ImportedMangaPayload,
+  type ImportedPersonDraft,
+  type ImportedRelatedSeriesDraft,
   type TagMatchResult,
 } from '@/lib/metadataImport';
-import type { Manga } from '@/lib/types';
+import type { Character, EntityGalleryImage, Manga } from '@/lib/types';
+import { getCharacterListingRoleLabel } from '@/lib/characterRoles';
+import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 
 const SOURCE_LABELS: Record<MetadataImportSource, string> = {
   anilist: 'AniList',
   myanimelist: 'MyAnimeList',
   mangaupdates: 'MangaUpdates',
+  animeplanet: 'Anime-Planet',
 };
 
 const OPTION_LABELS: Record<ImportOptionKey, { title: string; description: string }> = {
@@ -69,7 +76,7 @@ const OPTION_LABELS: Record<ImportOptionKey, { title: string; description: strin
   },
   related_series: {
     title: 'İlgili Seriler',
-    description: 'Local sitede eşleşen devam, prequel ve adaptasyon ilişkilerini bağlar',
+    description: 'Local sitede eşleşen devam, öncül ve uyarlama ilişkilerini bağlar',
   },
   authors: {
     title: 'Yazarlar',
@@ -82,10 +89,6 @@ const OPTION_LABELS: Record<ImportOptionKey, { title: string; description: strin
   characters: {
     title: 'Karakterler',
     description: 'Karakter yaş, cinsiyet, ilişki, sınıf ve benzeri detayları import eder',
-  },
-  voice_actors: {
-    title: 'Seslendirenler',
-    description: 'Manga import akışında kullanılmaz',
   },
   gallery: {
     title: 'Görsel Havuzu',
@@ -121,162 +124,187 @@ const DETAIL_LABELS: Record<PreviewDetailKey, string> = {
   gallery: 'Galeri',
 };
 
+type PreviewSelectionCategory =
+  | 'alternative_title'
+  | 'tag'
+  | 'author'
+  | 'artist'
+  | 'character'
+  | 'related_series'
+  | 'series_gallery'
+  | 'character_gallery';
+
+interface PreviewToggleItem<TItem> {
+  key: string;
+  label: string;
+  subtitle?: string;
+  badgeLabel?: string;
+  checked: boolean;
+  skipped: boolean;
+  skipReason?: string;
+  imageUrl?: string;
+  item: TItem;
+}
+
+interface CharacterGalleryToggleItem extends PreviewToggleItem<EntityGalleryImage> {
+  characterKey: string;
+  characterName: string;
+}
+
+interface PreviewCollections {
+  alternativeTitles: PreviewToggleItem<string>[];
+  tags: PreviewToggleItem<TagMatchResult | string>[];
+  authors: PreviewToggleItem<ImportedPersonDraft>[];
+  artists: PreviewToggleItem<ImportedPersonDraft>[];
+  characters: PreviewToggleItem<ImportedCharacterDraft>[];
+  relatedSeries: PreviewToggleItem<ImportedRelatedSeriesDraft>[];
+  seriesGallery: PreviewToggleItem<EntityGalleryImage>[];
+  characterGallery: CharacterGalleryToggleItem[];
+}
+
+const normalizePreviewKey = (value?: string | null) => value?.replace(/\s+/g, ' ').trim().toLocaleLowerCase('tr-TR') || '';
+
+const buildPreviewItemKey = (category: PreviewSelectionCategory, value: string) => (
+  `${category}:${normalizePreviewKey(value) || value}`
+);
+
+const getPreviewItemChecked = (
+  overrides: Record<string, boolean>,
+  key: string,
+  defaultChecked: boolean,
+) => (
+  Object.prototype.hasOwnProperty.call(overrides, key) ? overrides[key] : defaultChecked
+);
+
+const getInitial = (value?: string | null) => (value?.trim().charAt(0) || '?').toLocaleUpperCase('tr-TR');
+
 interface PreviewDetailDialogProps {
   detailKey: PreviewDetailKey | null;
   preview: ImportedMangaPayload;
+  collections: PreviewCollections | null;
+  onToggleItem: (key: string, checked: boolean) => void;
   onClose: () => void;
 }
 
-const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({ detailKey, preview, onClose }) => {
+const PreviewSelectionRow = ({
+  item,
+  onToggle,
+}: {
+  item: PreviewToggleItem<unknown>;
+  onToggle: (key: string, checked: boolean) => void;
+}) => (
+  <label className="flex gap-3 rounded-xl border border-border bg-card px-3 py-3 transition-colors hover:border-primary/30">
+    <Checkbox
+      checked={item.checked}
+      onCheckedChange={(checked) => onToggle(item.key, Boolean(checked))}
+      className="mt-1"
+    />
+    {item.imageUrl ? (
+      <ProxyImage
+        src={item.imageUrl}
+        alt={item.label}
+        className="h-12 w-12 shrink-0 rounded-xl border border-border object-cover"
+      />
+    ) : (
+      <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl border border-border bg-muted text-sm font-bold text-muted-foreground">
+        {getInitial(item.label)}
+      </div>
+    )}
+    <div className="min-w-0 flex-1 space-y-1">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="truncate text-sm font-medium">{item.label}</p>
+        {item.badgeLabel ? <Badge variant="secondary">{item.badgeLabel}</Badge> : null}
+        <Badge variant={item.checked ? 'default' : 'secondary'}>
+          {item.checked ? 'İçe Aktar' : 'Atla'}
+        </Badge>
+      </div>
+      {item.subtitle ? (
+        <p className="text-xs text-muted-foreground">{item.subtitle}</p>
+      ) : null}
+      {item.skipped && item.skipReason ? (
+        <p className="text-xs text-amber-300">{item.skipReason}</p>
+      ) : null}
+    </div>
+  </label>
+);
+
+const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
+  detailKey,
+  preview,
+  collections,
+  onToggleItem,
+  onClose,
+}) => {
   if (!detailKey) return null;
 
   const renderContent = () => {
+    if (!collections) {
+      return <p className="text-sm text-muted-foreground">Detay verisi hazırlanıyor.</p>;
+    }
+
     switch (detailKey) {
       case 'alternative_titles':
         return (
           <div className="space-y-1">
-            {preview.alternativeTitles.length === 0 ? (
+            {collections.alternativeTitles.length === 0 ? (
               <p className="text-sm text-muted-foreground">Veri bulunamadı.</p>
             ) : (
-              preview.alternativeTitles.map((title, index) => (
-                <div key={index} className="flex items-center gap-2 rounded-lg border border-border bg-card px-3 py-2 text-sm">
-                  <Badge variant="secondary" className="shrink-0">{index + 1}</Badge>
-                  <span>{title}</span>
-                </div>
+              collections.alternativeTitles.map((item) => (
+                <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
               ))
             )}
           </div>
         );
 
       case 'tags': {
-        const genreMatches = preview.tagMatches?.filter((m) => m.isStandardGenre) || [];
-        const normalMatches = preview.tagMatches?.filter((m) => m.isMatched && !m.isStandardGenre) || [];
-        const unmatches = preview.tagMatches?.filter((m) => !m.isMatched) || [];
-
-        return (
-          <div className="space-y-4">
-            {genreMatches.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-primary/80">Eşleşen Türler ({genreMatches.length})</p>
-                <div className="flex flex-wrap gap-2">
-                  {genreMatches.map((match, index) => (
-                    <div key={index} className="group relative flex items-center gap-1.5 rounded-lg border border-primary/30 bg-primary/10 px-2.5 py-1.5 text-sm ring-1 ring-primary/10 transition-all hover:bg-primary/20">
-                      <div className="absolute -right-1 -top-1 flex h-4 items-center rounded-full bg-primary px-1.5 text-[9px] font-extrabold uppercase text-primary-foreground shadow-sm">Tür</div>
-                      <CheckCircle2 className="h-3.5 w-3.5 text-primary" />
-                      <span className="text-primary-foreground/90">{match.sourceTag}</span>
-                      <span className="text-primary/70">→</span>
-                      <span className="font-bold text-primary">{match.genreMatchName}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {normalMatches.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-emerald-400/80">Eşleşen Etiketler ({normalMatches.length})</p>
-                <div className="flex flex-wrap gap-2">
-                  {normalMatches.map((match, index) => (
-                    <div key={index} className="flex items-center gap-1.5 rounded-lg border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-1.5 text-sm transition-colors hover:bg-emerald-500/20">
-                      <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
-                      <span className="text-emerald-100">{match.sourceTag}</span>
-                      <span className="text-emerald-400/70">→</span>
-                      <span className="font-medium text-emerald-300">{match.matchedTag?.name}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {unmatches.length > 0 && (
-              <div className="space-y-1.5">
-                <p className="text-[10px] font-bold uppercase tracking-widest text-amber-400/80">Yeni Etiketler ({unmatches.length}) — Kayıt oluşturulacak</p>
-                <div className="flex flex-wrap gap-2">
-                  {unmatches.map((match, index) => (
-                    <div key={index} className="flex items-center gap-1.5 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2.5 py-1.5 text-sm transition-colors hover:bg-amber-500/20">
-                      <AlertTriangle className="h-3.5 w-3.5 text-amber-400" />
-                      <span className="text-amber-100">{match.sourceTag}</span>
-                    </div>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {(!preview.tagMatches || preview.tagMatches.length === 0) && preview.tags.length > 0 && (
-              <div className="flex flex-wrap gap-2">
-                {preview.tags.map((tag, index) => (
-                  <Badge key={index} variant="default">{tag}</Badge>
-                ))}
-              </div>
-            )}
-
-            {(!preview.tagMatches || preview.tagMatches.length === 0) && preview.tags.length === 0 && (
-              <p className="text-sm text-muted-foreground text-center py-4">Gösterilecek etiket veya tür bulunamadı.</p>
-            )}
-          </div>
-        );
-      }
-
-      case 'authors_artists': {
-        const allPeople = [
-          ...preview.authors.map((author) => ({ ...author, role: 'Author' as const })),
-          ...preview.artists.map((artist) => ({ ...artist, role: 'Artist' as const })),
-        ];
         return (
           <div className="space-y-2">
-            {allPeople.length === 0 ? (
-              <p className="text-sm text-muted-foreground">Veri bulunamadı.</p>
+            {collections.tags.length === 0 ? (
+              <p className="text-sm text-muted-foreground text-center py-4">Gösterilecek etiket veya tür bulunamadı.</p>
             ) : (
-              allPeople.map((person, index) => (
-                <div key={index} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
-                  {person.imageUrl ? (
-                    <img src={person.imageUrl} alt={person.name} className="h-10 w-10 shrink-0 rounded-full object-cover" />
-                  ) : (
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-                      {person.name.charAt(0)}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{person.name}</p>
-                    {person.description ? (
-                      <p className="line-clamp-1 text-xs text-muted-foreground">{person.description}</p>
-                    ) : null}
-                  </div>
-                  <Badge variant={person.role === 'Author' ? 'default' : 'secondary'}>{person.role === 'Author' ? 'Yazar' : 'Çizer'}</Badge>
-                </div>
+              collections.tags.map((item) => (
+                <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
               ))
             )}
           </div>
         );
       }
 
+      case 'authors_artists':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Yazarlar</p>
+              {collections.authors.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Yazar verisi bulunamadı.</p>
+              ) : (
+                collections.authors.map((item) => (
+                  <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
+                ))
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Çizerler</p>
+              {collections.artists.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Çizer verisi bulunamadı.</p>
+              ) : (
+                collections.artists.map((item) => (
+                  <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
+                ))
+              )}
+            </div>
+          </div>
+        );
+
       case 'characters':
         return (
           <div className="space-y-2">
-            {preview.characters.length === 0 ? (
+            {collections.characters.length === 0 ? (
               <p className="text-sm text-muted-foreground">Veri bulunamadı.</p>
             ) : (
-              preview.characters.map((character, index) => (
-                <div key={index} className="flex items-center gap-3 rounded-lg border border-border bg-card px-3 py-2">
-                  {character.imageUrl ? (
-                    <img src={character.imageUrl} alt={character.name} className="h-10 w-10 shrink-0 rounded-full object-cover" />
-                  ) : (
-                    <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-muted text-xs font-bold text-muted-foreground">
-                      {character.name.charAt(0)}
-                    </div>
-                  )}
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{character.name}</p>
-                    {character.roleLabel ? (
-                      <p className="text-xs text-muted-foreground">{character.roleLabel}</p>
-                    ) : null}
-                  </div>
-                  {character.sourceUrl ? (
-                    <a href={character.sourceUrl} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-primary">
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  ) : null}
-                </div>
+              collections.characters.map((item) => (
+                <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
               ))
             )}
           </div>
@@ -285,54 +313,53 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({ detailKey, pr
       case 'related_series':
         return (
           <div className="space-y-2">
-            {preview.relatedSeries.length === 0 ? (
+            {collections.relatedSeries.length === 0 ? (
               <p className="text-sm text-muted-foreground">Veri bulunamadı.</p>
             ) : (
-              preview.relatedSeries.map((series, index) => (
-                <div key={index} className="flex items-center justify-between gap-3 rounded-lg border border-border bg-card px-3 py-2">
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium">{series.title}</p>
-                  </div>
-                  <Badge variant="secondary" className="shrink-0 capitalize">{series.relationType.replace('_', ' ')}</Badge>
-                  {series.sourceUrl ? (
-                    <a href={series.sourceUrl} target="_blank" rel="noreferrer" className="text-muted-foreground hover:text-primary">
-                      <ExternalLink className="h-3.5 w-3.5" />
-                    </a>
-                  ) : null}
-                </div>
+              collections.relatedSeries.map((item) => (
+                <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
               ))
             )}
           </div>
         );
 
-      case 'gallery': {
-        const totalGallery = [
-          ...preview.gallery,
-          ...preview.characters.flatMap((ch) => ch.gallery),
-        ];
+      case 'gallery':
+        return (
+          <div className="space-y-4">
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Seri Galerisi</p>
+              {collections.seriesGallery.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Seriye ait galeri bulunamadı.</p>
+              ) : (
+                collections.seriesGallery.map((item) => (
+                  <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
+                ))
+              )}
+            </div>
+
+            <div className="space-y-2">
+              <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Karakter Galerileri</p>
+              {collections.characterGallery.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Karakter galerisi bulunamadı.</p>
+              ) : (
+                collections.characterGallery.map((item) => (
+                  <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
+                ))
+              )}
+            </div>
+          </div>
+        );
+
+      default:
         return (
           <div className="space-y-2">
-            {totalGallery.length === 0 ? (
+            {preview.gallery.length === 0 ? (
               <p className="text-sm text-muted-foreground">Veri bulunamadı.</p>
             ) : (
-              <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                {totalGallery.map((image, index) => (
-                  <a key={index} href={image.url} target="_blank" rel="noreferrer" className="group overflow-hidden rounded-lg border border-border">
-                    <img
-                      src={image.thumbUrl || image.url}
-                      alt={image.label || `Gallery ${index + 1}`}
-                      className="aspect-square w-full object-cover transition-transform group-hover:scale-105"
-                    />
-                  </a>
-                ))}
-              </div>
+              <p className="text-sm text-muted-foreground">Gösterim desteklenmiyor.</p>
             )}
           </div>
         );
-      }
-
-      default:
-        return null;
     }
   };
 
@@ -355,8 +382,12 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({ detailKey, pr
 
 const AdminMetadataImport: React.FC = () => {
   const [mangas, setMangas] = useState<Manga[]>([]);
+  const [allLocalCharacters, setAllLocalCharacters] = useState<Character[]>([]);
   const [mangaFilter, setMangaFilter] = useState('');
   const [selectedMangaId, setSelectedMangaId] = useState('');
+  const [selectedLocalManga, setSelectedLocalManga] = useState<Manga | null>(null);
+  const [selectedLocalCharacters, setSelectedLocalCharacters] = useState<Character[]>([]);
+  const [selectedLocalTags, setSelectedLocalTags] = useState<string[]>([]);
   const [source, setSource] = useState<MetadataImportSource>('myanimelist');
   const [query, setQuery] = useState('');
   const [enabledOptions, setEnabledOptions] = useState(createDefaultImportOptions('myanimelist'));
@@ -369,16 +400,61 @@ const AdminMetadataImport: React.FC = () => {
   const [selectedCandidateId, setSelectedCandidateId] = useState('');
   const [preview, setPreview] = useState<ImportedMangaPayload | null>(null);
   const [detailDialogKey, setDetailDialogKey] = useState<PreviewDetailKey | null>(null);
+  const [previewOverrides, setPreviewOverrides] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
     void (async () => {
-      const data = await getMangaSummaries();
-      setMangas(data);
-      if (data[0]) {
-        setSelectedMangaId(data[0].id);
+      const [mangaData, characterData] = await Promise.all([
+        getMangaSummaries(),
+        getCharacters({ includePrivate: true }),
+      ]);
+      setMangas(mangaData);
+      setAllLocalCharacters(characterData);
+      if (mangaData[0]) {
+        setSelectedMangaId(mangaData[0].id);
       }
     })();
   }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!selectedMangaId) {
+      setSelectedLocalManga(null);
+      setSelectedLocalCharacters([]);
+      setSelectedLocalTags([]);
+      return;
+    }
+
+    void (async () => {
+      try {
+        const [mangaDetail, characters, tags] = await Promise.all([
+          getMangaById(selectedMangaId, { includePrivate: true }),
+          getMangaCharacters(selectedMangaId, { includePrivate: true }),
+          getTagsForEntity('manga', selectedMangaId),
+        ]);
+
+        if (cancelled) {
+          return;
+        }
+
+        setSelectedLocalManga(mangaDetail || null);
+        setSelectedLocalCharacters(characters);
+        setSelectedLocalTags(tags.map((tag) => tag.name));
+      } catch (error) {
+        if (!cancelled) {
+          console.error(error);
+          setSelectedLocalManga(null);
+          setSelectedLocalCharacters([]);
+          setSelectedLocalTags([]);
+        }
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedMangaId]);
 
   const filteredMangas = useMemo(() => {
     const filterKey = mangaFilter.trim().toLocaleLowerCase('tr-TR');
@@ -399,12 +475,310 @@ const AdminMetadataImport: React.FC = () => {
     [candidates, selectedCandidateId],
   );
 
+  const previewCollections = useMemo<PreviewCollections | null>(() => {
+    if (!preview) {
+      return null;
+    }
+
+    const existingTitleKeys = new Set(
+      [selectedLocalManga?.title, ...(selectedLocalManga?.alternativeTitles || [])]
+        .map((value) => normalizePreviewKey(value))
+        .filter(Boolean),
+    );
+    const existingGenreKeys = new Set((selectedLocalManga?.genres || []).map((value) => normalizePreviewKey(value)).filter(Boolean));
+    const existingTagKeys = new Set(selectedLocalTags.map((value) => normalizePreviewKey(value)).filter(Boolean));
+    const existingAuthorKeys = new Set(
+      [
+        ...(selectedLocalManga?.authorsDetails || []).map((author) => author.name),
+        ...(selectedLocalManga?.author?.split(',') || []),
+      ].map((value) => normalizePreviewKey(value)).filter(Boolean),
+    );
+    const existingArtistKeys = new Set(
+      [
+        ...(selectedLocalManga?.artistsDetails || []).map((artist) => artist.name),
+        ...(selectedLocalManga?.artist?.split(',') || []),
+      ].map((value) => normalizePreviewKey(value)).filter(Boolean),
+    );
+    const existingCharacterKeys = new Set(selectedLocalCharacters.map((character) => normalizePreviewKey(character.name)).filter(Boolean));
+    const existingGlobalCharacterMap = new Map(
+      allLocalCharacters
+        .map((character) => [normalizePreviewKey(character.name), character] as const)
+        .filter(([key]) => Boolean(key)),
+    );
+    const existingRelatedKeys = new Set(
+      (selectedLocalManga?.relatedSeries || [])
+        .flatMap((relation) => [
+          relation.relatedManga?.title,
+          relation.relatedMangaId,
+        ])
+        .map((value) => normalizePreviewKey(value))
+        .filter(Boolean),
+    );
+    const existingSeriesGalleryKeys = new Set(
+      (Array.isArray(selectedLocalManga?.details?.extra?.seriesGallery) ? selectedLocalManga?.details?.extra?.seriesGallery : [])
+        .map((value) => normalizePreviewKey(typeof value === 'string' ? value : ''))
+        .filter(Boolean),
+    );
+
+    const alternativeTitles = preview.alternativeTitles.map((title) => {
+      const key = buildPreviewItemKey('alternative_title', title);
+      const skipped = existingTitleKeys.has(normalizePreviewKey(title));
+      return {
+        key,
+        label: title,
+        checked: getPreviewItemChecked(previewOverrides, key, !skipped),
+        skipped,
+        skipReason: skipped ? 'Bu alternatif isim zaten mangada var' : undefined,
+        item: title,
+      } satisfies PreviewToggleItem<string>;
+    });
+
+    const tags = (preview.tagMatches?.length ? preview.tagMatches : preview.tags).map((tagEntry) => {
+      const isObjectEntry = typeof tagEntry !== 'string';
+      const sourceTag = isObjectEntry ? tagEntry.sourceTag : tagEntry;
+      const matchedName = isObjectEntry ? (tagEntry.genreMatchName || tagEntry.matchedTag?.name || tagEntry.sourceTag) : sourceTag;
+      const isGenre = isObjectEntry ? Boolean(tagEntry.isStandardGenre) : existingGenreKeys.has(normalizePreviewKey(sourceTag));
+      const skipped = isGenre
+        ? existingGenreKeys.has(normalizePreviewKey(matchedName))
+        : existingTagKeys.has(normalizePreviewKey(matchedName));
+      const key = buildPreviewItemKey('tag', sourceTag);
+
+      return {
+        key,
+        label: sourceTag,
+        subtitle: isObjectEntry
+          ? (
+              tagEntry.isStandardGenre
+                ? `Tür eşleşmesi: ${matchedName}`
+                : tagEntry.isMatched
+                  ? `Eşleşen etiket: ${matchedName}`
+                  : 'Yeni etiket oluşturulacak'
+            )
+          : undefined,
+        badgeLabel: isGenre ? 'Tür' : isObjectEntry && !tagEntry.isMatched ? 'Yeni' : 'Etiket',
+        checked: getPreviewItemChecked(previewOverrides, key, !skipped),
+        skipped,
+        skipReason: skipped
+          ? (isGenre ? 'Bu tür zaten mangada var' : 'Bu etiket zaten mangaya bağlı')
+          : undefined,
+        item: tagEntry,
+      } satisfies PreviewToggleItem<TagMatchResult | string>;
+    });
+
+    const authors = preview.authors.map((author) => {
+      const key = buildPreviewItemKey('author', author.name);
+      const alreadyLinked = existingAuthorKeys.has(normalizePreviewKey(author.name));
+      return {
+        key,
+        label: author.name,
+        subtitle: alreadyLinked
+          ? 'Zaten bağlı, seçili kalırsa metadata güncellenecek'
+          : (author.description || author.details?.nativeName),
+        badgeLabel: 'Yazar',
+        imageUrl: author.imageUrl,
+        checked: getPreviewItemChecked(previewOverrides, key, true),
+        skipped: false,
+        skipReason: undefined,
+        item: author,
+      } satisfies PreviewToggleItem<ImportedPersonDraft>;
+    });
+
+    const artists = preview.artists.map((artist) => {
+      const key = buildPreviewItemKey('artist', artist.name);
+      const alreadyLinked = existingArtistKeys.has(normalizePreviewKey(artist.name));
+      return {
+        key,
+        label: artist.name,
+        subtitle: alreadyLinked
+          ? 'Zaten bağlı, seçili kalırsa metadata güncellenecek'
+          : (artist.description || artist.details?.nativeName),
+        badgeLabel: 'Çizer',
+        imageUrl: artist.imageUrl,
+        checked: getPreviewItemChecked(previewOverrides, key, true),
+        skipped: false,
+        skipReason: undefined,
+        item: artist,
+      } satisfies PreviewToggleItem<ImportedPersonDraft>;
+    });
+
+    const characters = preview.characters.map((character) => {
+      const key = buildPreviewItemKey('character', character.name);
+      const alreadyLinked = existingCharacterKeys.has(normalizePreviewKey(character.name));
+      const existingGlobalCharacter = existingGlobalCharacterMap.get(normalizePreviewKey(character.name));
+      return {
+        key,
+        label: character.name,
+        subtitle: alreadyLinked
+          ? 'Zaten bağlı, seçili kalırsa rol ve metadata güncellenecek'
+          : existingGlobalCharacter
+            ? 'Sistemde mevcut, seçili kalırsa bu mangaya bağlanıp rol ve metadata güncellenecek'
+          : (character.description || character.details?.nativeName),
+        badgeLabel: character.roleType ? getCharacterListingRoleLabel(character.roleType) : (character.roleLabel || 'Karakter'),
+        imageUrl: character.imageUrl,
+        checked: getPreviewItemChecked(previewOverrides, key, true),
+        skipped: false,
+        skipReason: undefined,
+        item: character,
+      } satisfies PreviewToggleItem<ImportedCharacterDraft>;
+    });
+
+    const characterCheckedMap = new Map(characters.map((character) => [character.key, character.checked]));
+
+    const relatedSeries = preview.relatedSeries.map((series) => {
+      const key = buildPreviewItemKey('related_series', series.title);
+      const skipped = existingRelatedKeys.has(normalizePreviewKey(series.title));
+      return {
+        key,
+        label: series.title,
+        subtitle: series.sourceUrl || undefined,
+        badgeLabel: getMangaRelationTypeLabel(series.relationType),
+        checked: getPreviewItemChecked(previewOverrides, key, !skipped),
+        skipped,
+        skipReason: skipped ? 'Bu ilişki zaten mangada var' : undefined,
+        item: series,
+      } satisfies PreviewToggleItem<ImportedRelatedSeriesDraft>;
+    });
+
+    const seriesGallery = preview.gallery.map((image, index) => {
+      const key = buildPreviewItemKey('series_gallery', image.url);
+      const skipped = existingSeriesGalleryKeys.has(normalizePreviewKey(image.url));
+      return {
+        key,
+        label: image.label || `Seri Görseli ${index + 1}`,
+        subtitle: image.url,
+        badgeLabel: 'Seri',
+        imageUrl: image.thumbUrl || image.url,
+        checked: getPreviewItemChecked(previewOverrides, key, !skipped),
+        skipped,
+        skipReason: skipped ? 'Bu görsel seri galerisinde zaten var' : undefined,
+        item: image,
+      } satisfies PreviewToggleItem<EntityGalleryImage>;
+    });
+
+    const characterGallery = preview.characters.flatMap((character) => {
+      const characterKey = buildPreviewItemKey('character', character.name);
+      const parentChecked = characterCheckedMap.get(characterKey) ?? true;
+
+      return character.gallery.map((image, index) => {
+        const key = buildPreviewItemKey('character_gallery', `${character.name}:${image.url}`);
+        return {
+          key,
+          label: image.label || `${character.name} Görseli ${index + 1}`,
+          subtitle: character.name,
+          badgeLabel: character.roleType ? getCharacterListingRoleLabel(character.roleType) : (character.roleLabel || 'Karakter'),
+          imageUrl: image.thumbUrl || image.url,
+          checked: getPreviewItemChecked(previewOverrides, key, parentChecked),
+          skipped: !parentChecked,
+          skipReason: !parentChecked ? 'Karakter importtan çıkarıldığı için bu galeri de atlanacak' : undefined,
+          item: image,
+          characterKey,
+          characterName: character.name,
+        } satisfies CharacterGalleryToggleItem;
+      });
+    });
+
+    return {
+      alternativeTitles,
+      tags,
+      authors,
+      artists,
+      characters,
+      relatedSeries,
+      seriesGallery,
+      characterGallery,
+    };
+  }, [allLocalCharacters, preview, previewOverrides, selectedLocalCharacters, selectedLocalManga, selectedLocalTags]);
+
+  const filteredPreview = useMemo<ImportedMangaPayload | null>(() => {
+    if (!preview || !previewCollections) {
+      return null;
+    }
+
+    const selectedCharacterGalleryMap = new Map<string, EntityGalleryImage[]>();
+    previewCollections.characterGallery
+      .filter((item) => item.checked)
+      .forEach((item) => {
+        const existing = selectedCharacterGalleryMap.get(item.characterKey) || [];
+        existing.push(item.item);
+        selectedCharacterGalleryMap.set(item.characterKey, existing);
+      });
+
+    return {
+      ...preview,
+      alternativeTitles: previewCollections.alternativeTitles.filter((item) => item.checked).map((item) => item.item),
+      tags: previewCollections.tags.filter((item) => item.checked).map((item) => typeof item.item === 'string' ? item.item : item.item.sourceTag),
+      tagMatches: preview.tagMatches
+        ? previewCollections.tags
+          .filter((item): item is PreviewToggleItem<TagMatchResult> => item.checked && typeof item.item !== 'string')
+          .map((item) => item.item)
+        : undefined,
+      authors: previewCollections.authors.filter((item) => item.checked).map((item) => item.item),
+      artists: previewCollections.artists.filter((item) => item.checked).map((item) => item.item),
+      characters: previewCollections.characters
+        .filter((item) => item.checked)
+        .map((item) => ({
+          ...item.item,
+          gallery: selectedCharacterGalleryMap.get(item.key) || [],
+        })),
+      relatedSeries: previewCollections.relatedSeries.filter((item) => item.checked).map((item) => item.item),
+      gallery: previewCollections.seriesGallery.filter((item) => item.checked).map((item) => item.item),
+    };
+  }, [preview, previewCollections]);
+
+  const previewCounts = useMemo(() => {
+    if (!previewCollections) {
+      return null;
+    }
+
+    return {
+      alternativeTitles: {
+        selected: previewCollections.alternativeTitles.filter((item) => item.checked).length,
+        total: previewCollections.alternativeTitles.length,
+      },
+      tags: {
+        selected: previewCollections.tags.filter((item) => item.checked).length,
+        total: previewCollections.tags.length,
+      },
+      authors: {
+        selected: previewCollections.authors.filter((item) => item.checked).length,
+        total: previewCollections.authors.length,
+      },
+      artists: {
+        selected: previewCollections.artists.filter((item) => item.checked).length,
+        total: previewCollections.artists.length,
+      },
+      characters: {
+        selected: previewCollections.characters.filter((item) => item.checked).length,
+        total: previewCollections.characters.length,
+      },
+      relatedSeries: {
+        selected: previewCollections.relatedSeries.filter((item) => item.checked).length,
+        total: previewCollections.relatedSeries.length,
+      },
+      gallery: {
+        selected: [
+          ...previewCollections.seriesGallery,
+          ...previewCollections.characterGallery,
+        ].filter((item) => item.checked).length,
+        total: previewCollections.seriesGallery.length + previewCollections.characterGallery.length,
+      },
+    };
+  }, [previewCollections]);
+
   const handleSourceChange = (nextSource: MetadataImportSource) => {
     setSource(nextSource);
     setEnabledOptions(createDefaultImportOptions(nextSource));
     setCandidates([]);
     setSelectedCandidateId('');
     setPreview(null);
+    setPreviewOverrides({});
+  };
+
+  const handleTogglePreviewItem = (key: string, checked: boolean) => {
+    setPreviewOverrides((current) => ({
+      ...current,
+      [key]: checked,
+    }));
   };
 
   const handleOptionChange = (option: ImportOptionKey, checked: boolean) => {
@@ -429,6 +803,7 @@ const AdminMetadataImport: React.FC = () => {
 
     setSearching(true);
     setPreview(null);
+    setPreviewOverrides({});
     setCandidates([]);
     setSelectedCandidateId('');
 
@@ -459,6 +834,7 @@ const AdminMetadataImport: React.FC = () => {
 
     setPreviewLoading(true);
     setPreview(null);
+    setPreviewOverrides({});
 
     try {
       const data = await loadMetadataImportPreview(selectedCandidate, enabledOptions, { translateToTurkish });
@@ -473,14 +849,14 @@ const AdminMetadataImport: React.FC = () => {
   };
 
   const handleImport = async () => {
-    if (!selectedMangaId || !preview) {
+    if (!selectedMangaId || !filteredPreview) {
       toast.error('Import için manga ve önizleme seçilmeli');
       return;
     }
 
     setImporting(true);
     try {
-      await importPreviewIntoManga(selectedMangaId, preview, {
+      await importPreviewIntoManga(selectedMangaId, filteredPreview, {
         enabledOptions,
         importAsPublic,
         translateToTurkish,
@@ -767,7 +1143,9 @@ const AdminMetadataImport: React.FC = () => {
                     >
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Alternatif İsim</p>
                       <div className="mt-1 flex items-center justify-between">
-                        <p className="text-lg font-semibold">{preview.alternativeTitles.length}</p>
+                        <p className="text-lg font-semibold">
+                          {previewCounts ? `${previewCounts.alternativeTitles.selected} / ${previewCounts.alternativeTitles.total}` : preview.alternativeTitles.length}
+                        </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
                     </button>
@@ -778,7 +1156,9 @@ const AdminMetadataImport: React.FC = () => {
                     >
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Tag / Genre</p>
                       <div className="mt-1 flex items-center justify-between">
-                        <p className="text-lg font-semibold">{preview.tags.length}</p>
+                        <p className="text-lg font-semibold">
+                          {previewCounts ? `${previewCounts.tags.selected} / ${previewCounts.tags.total}` : preview.tags.length}
+                        </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
                     </button>
@@ -789,7 +1169,11 @@ const AdminMetadataImport: React.FC = () => {
                     >
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Yazar / Çizer</p>
                       <div className="mt-1 flex items-center justify-between">
-                        <p className="text-lg font-semibold">{preview.authors.length} / {preview.artists.length}</p>
+                        <p className="text-lg font-semibold">
+                          {previewCounts
+                            ? `${previewCounts.authors.selected}/${previewCounts.authors.total} • ${previewCounts.artists.selected}/${previewCounts.artists.total}`
+                            : `${preview.authors.length} / ${preview.artists.length}`}
+                        </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
                     </button>
@@ -800,7 +1184,9 @@ const AdminMetadataImport: React.FC = () => {
                     >
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Karakter</p>
                       <div className="mt-1 flex items-center justify-between">
-                        <p className="text-lg font-semibold">{preview.characters.length}</p>
+                        <p className="text-lg font-semibold">
+                          {previewCounts ? `${previewCounts.characters.selected} / ${previewCounts.characters.total}` : preview.characters.length}
+                        </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
                     </button>
@@ -811,7 +1197,9 @@ const AdminMetadataImport: React.FC = () => {
                     >
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">İlgili Seri</p>
                       <div className="mt-1 flex items-center justify-between">
-                        <p className="text-lg font-semibold">{preview.relatedSeries.length}</p>
+                        <p className="text-lg font-semibold">
+                          {previewCounts ? `${previewCounts.relatedSeries.selected} / ${previewCounts.relatedSeries.total}` : preview.relatedSeries.length}
+                        </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
                     </button>
@@ -823,12 +1211,20 @@ const AdminMetadataImport: React.FC = () => {
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Galeri</p>
                       <div className="mt-1 flex items-center justify-between">
                         <p className="text-lg font-semibold">
-                          {preview.gallery.length + preview.characters.reduce((sum, item) => sum + item.gallery.length, 0)}
+                          {previewCounts
+                            ? `${previewCounts.gallery.selected} / ${previewCounts.gallery.total}`
+                            : preview.gallery.length + preview.characters.reduce((sum, item) => sum + item.gallery.length, 0)}
                         </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
                     </button>
                   </div>
+
+                  {previewCounts ? (
+                    <div className="rounded-xl border border-primary/20 bg-primary/5 px-4 py-3 text-xs text-muted-foreground">
+                      Önizleme detaylarına girip işaretleri değiştirebilirsin. Varsayılan olarak sitede zaten bulunan veriler `Atla` durumuna çekilir.
+                    </div>
+                  ) : null}
 
                   {preview.warnings.length > 0 ? (
                     <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
@@ -844,6 +1240,8 @@ const AdminMetadataImport: React.FC = () => {
                   <PreviewDetailDialog
                     detailKey={detailDialogKey}
                     preview={preview}
+                    collections={previewCollections}
+                    onToggleItem={handleTogglePreviewItem}
                     onClose={() => setDetailDialogKey(null)}
                   />
                 </>
@@ -866,7 +1264,7 @@ const AdminMetadataImport: React.FC = () => {
                 </p>
               </div>
 
-              <Button className="w-full" disabled={!preview || !selectedMangaId || importing} onClick={handleImport}>
+              <Button className="w-full" disabled={!filteredPreview || !selectedMangaId || importing} onClick={handleImport}>
                 {importing ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (

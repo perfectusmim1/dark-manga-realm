@@ -795,7 +795,7 @@ const Profile: React.FC = () => {
 
                              <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
-                                 {comment.entityType === 'manga' ? 'Seri' : comment.entityType === 'character' ? 'Karakter' : comment.entityType === 'author' ? 'Yazar' : 'Cizer'}
+                      {comment.entityType === 'manga' ? 'Seri' : comment.entityType === 'character' ? 'Karakter' : comment.entityType === 'author' ? 'Yazar' : 'Çizer'}
                                </Badge>
                                <span className="max-w-full truncate font-medium text-foreground/80">{comment.targetName}</span>
                                <span className="hidden sm:inline text-muted-foreground/50">•</span>

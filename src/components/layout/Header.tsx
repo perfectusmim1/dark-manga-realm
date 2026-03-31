@@ -85,11 +85,6 @@ const characterMenuItems = [
     label: 'Çizerler',
     description: 'Çizim ekibi ve görsel kadro',
   },
-  {
-    path: '/voice-actors',
-    label: 'Seslendirenler',
-    description: 'Karakterlere hayat veren ses kadrosu',
-  },
 ];
 
 const Header: React.FC = () => {
@@ -233,11 +228,9 @@ const Header: React.FC = () => {
     location.pathname === '/characters'
     || location.pathname === '/authors'
     || location.pathname === '/artists'
-    || location.pathname === '/voice-actors'
     || location.pathname.startsWith('/character/')
     || location.pathname.startsWith('/author/')
     || location.pathname.startsWith('/artist/')
-    || location.pathname.startsWith('/voice-actor/')
   );
 
   const navLinks: { path: string; label: string; icon?: LucideIcon; featured?: boolean }[] = [
@@ -322,9 +315,7 @@ const Header: React.FC = () => {
           ? location.pathname === '/characters' || location.pathname.startsWith('/character/')
           : item.path === '/authors'
             ? location.pathname === '/authors' || location.pathname.startsWith('/author/')
-            : item.path === '/artists'
-              ? location.pathname === '/artists' || location.pathname.startsWith('/artist/')
-              : location.pathname === '/voice-actors' || location.pathname.startsWith('/voice-actor/');
+            : location.pathname === '/artists' || location.pathname.startsWith('/artist/');
 
         return (
           <Link

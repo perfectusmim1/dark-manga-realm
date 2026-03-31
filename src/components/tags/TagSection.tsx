@@ -43,7 +43,7 @@ const getTagModerationState = (
   const score = up - down;
   const isAccepted = tag.isOfficial || !!tag.communityApproved;
   const isRejected = !tag.isOfficial && down >= SMART_TAG_REMOVE_DOWNVOTES;
-  const isDiscoverable = tag.isOfficial || !!tag.isDiscoverable;
+  const isDiscoverable = !!tag.isDiscoverable;
 
   return {
     up,
@@ -56,10 +56,16 @@ const getTagModerationState = (
 };
 
 interface TagSectionProps {
-  entityType: 'manga' | 'character' | 'author' | 'artist' | 'voice_actor';
+  entityType: 'manga' | 'character' | 'author' | 'artist';
   entityId: string;
   editable?: boolean;
 }
+
+const canUserRemoveTag = (tag: Tag, userId?: string) => (
+  Boolean(userId)
+  && !tag.isDiscoverable
+  && tag.relationAddedBy === userId
+);
 
 const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable = true }) => {
   const { user } = useAuth();
@@ -172,11 +178,19 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
       return;
     }
 
-    const tagName = tags.find(t => t.id === tagId)?.name;
+    const targetTag = tags.find(t => t.id === tagId);
+    const tagName = targetTag?.name;
+    if (!targetTag || !canUserRemoveTag(targetTag, user.id)) {
+      toast.error('Bu etiketi kaldıramazsınız');
+      return;
+    }
+
     const success = await removeTagFromEntity(entityType, entityId, tagId);
     if (success) {
       setTags(prev => prev.filter(t => t.id !== tagId));
       toast.success(`"${tagName}" etiketi kaldırıldı`);
+    } else {
+      toast.error('Etiket kaldırılamadı');
     }
   };
 
@@ -359,7 +373,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
                     userVote={userVotes[tag.id]}
                     onVoteUp={() => handleVote(tag.id, 'up')}
                     onVoteDown={() => handleVote(tag.id, 'down')}
-                    removable={editable && !!user}
+                    removable={editable && canUserRemoveTag(tag, user?.id)}
                     onRemove={() => handleRemoveTag(tag.id)}
                   />
                   );

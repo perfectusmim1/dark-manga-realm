@@ -4,35 +4,39 @@ import {
   findArtistByName,
   findAuthorByName,
   findCharacterByName,
-  findVoiceActorByName,
   getAllTags,
   getMangaById,
+  getMangaCharacters,
   getMangaSummaries,
+  getTagsForEntity,
   linkMangaToArtist,
   linkMangaToAuthor,
   linkMangaToCharacter,
-  replaceCharacterVoiceActors,
   replaceMangaRelatedSeries,
   saveArtist,
   saveAuthor,
   saveCharacter,
   saveManga,
-  saveVoiceActor,
 } from '@/lib/database';
 import { fetchScraperContent } from '@/lib/scraperProxy';
 import {
   Artist,
   Author,
   Character,
-  CharacterVoiceActorRole,
   EntityGalleryImage,
   EntityMetadata,
   ExternalSourceLink,
   ExternalSourceName,
   Manga,
   MangaRelation,
-  VoiceActor,
 } from '@/lib/types';
+import {
+  getCharacterListingRoleLabel,
+  normalizeCharacterListingRole,
+  type CharacterListingRole,
+} from '@/lib/characterRoles';
+import { sanitizeCharacterDescription } from '@/lib/descriptionSanitizers';
+import { sanitizeEntityImageUrl } from '@/lib/entityImages';
 
 export type MetadataImportSource = ExternalSourceName;
 
@@ -44,7 +48,6 @@ export type ImportOptionKey =
   | 'authors'
   | 'artists'
   | 'characters'
-  | 'voice_actors'
   | 'gallery';
 
 export interface SourceSearchCandidate {
@@ -67,15 +70,9 @@ export interface ImportedPersonDraft {
   sourceUrl?: string;
 }
 
-export interface ImportedVoiceActorDraft extends ImportedPersonDraft {
-  language?: string;
-  localeCode?: string;
-  roleLabel?: string;
-}
-
 export interface ImportedCharacterDraft extends ImportedPersonDraft {
   roleLabel?: string;
-  voiceActors: ImportedVoiceActorDraft[];
+  roleType?: CharacterListingRole;
 }
 
 export interface ImportedRelatedSeriesDraft {
@@ -131,7 +128,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     authors: true,
     artists: true,
     characters: true,
-    voice_actors: false,
     gallery: false,
   },
   myanimelist: {
@@ -142,7 +138,6 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     authors: true,
     artists: true,
     characters: true,
-    voice_actors: false,
     gallery: true,
   },
   mangaupdates: {
@@ -153,7 +148,16 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     authors: true,
     artists: true,
     characters: false,
-    voice_actors: false,
+    gallery: false,
+  },
+  animeplanet: {
+    manga_core: true,
+    alternative_titles: true,
+    tags: true,
+    related_series: true,
+    authors: true,
+    artists: true,
+    characters: true,
     gallery: false,
   },
 };
@@ -166,6 +170,8 @@ export const SOURCE_RUNTIME_WARNINGS: Partial<Record<MetadataImportSource, strin
 const MAL_HOST_PATTERN = /^https?:\/\/(?:www\.)?myanimelist\.net\//i;
 const MANGA_UPDATES_HOST_PATTERN = /^https?:\/\/(?:www\.)?mangaupdates\.com\//i;
 const ANILIST_HOST_PATTERN = /^https?:\/\/(?:www\.)?anilist\.co\//i;
+const ANIME_PLANET_HOST_PATTERN = /^https?:\/\/(?:www\.)?anime-planet\.com\//i;
+const ANIME_PLANET_BASE_URL = 'https://www.anime-planet.com';
 
 const MAL_REQUEST_DELAY_MS = 650;
 const MAX_IMPORT_ENTITY_COUNT = 200;
@@ -252,6 +258,20 @@ const mergeMetadata = (base?: EntityMetadata, incoming?: EntityMetadata): Entity
 
 const sleep = (ms: number) => new Promise((resolve) => window.setTimeout(resolve, ms));
 
+const BLOCKED_GENRE_OR_TAG_KEYS = new Set([
+  'bl',
+  'gl',
+  'boys love',
+  "boys' love",
+  'girls love',
+  "girls' love",
+  'yaoi',
+  'yuri',
+  'shounen ai',
+  'shoujo ai',
+  'soft yuri',
+]);
+
 const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Aksiyon': ['action'],
   'Macera': ['adventure'],
@@ -296,8 +316,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'İntikam': ['revenge'],
   'Hayatta Kalma': ['survival', 'survival game'],
   'Suç': ['crime'],
-  'BL': ['boys love', "boys' love", 'bl', 'yaoi'],
-  'GL': ['girls love', "girls' love", 'gl', 'yuri', 'shoujo ai', 'soft yuri'],
   'Webtoon': ['webtoon', 'long strip'],
   'Manhwa': ['manhwa'],
   'Manhua': ['manhua'],
@@ -349,21 +367,29 @@ const buildGenreAliasLookup = () => {
 
 const genreAliasLookup = buildGenreAliasLookup();
 
+const isBlockedGenreOrTag = (value?: string | null) =>
+  !!value && BLOCKED_GENRE_OR_TAG_KEYS.has(normalizeKey(value));
+
 export const translateGenresWithAliases = (genres: string[]): string[] => {
   const aggressiveNormalize = (str: string) => 
     normalizeKey(str).replace(/[\s-]/g, '');
 
-  return uniqueStrings(genres.map((genre) => {
-    const sourceKey = normalizeKey(genre);
-    const aggressiveSourceKey = aggressiveNormalize(genre);
-    
-    const aliasedTurkish = genreAliasLookup.get(sourceKey) || genreAliasLookup.get(aggressiveSourceKey);
-    if (aliasedTurkish) {
-      return aliasedTurkish;
-    }
+  return uniqueStrings(
+    genres
+      .filter((genre) => !isBlockedGenreOrTag(genre))
+      .map((genre) => {
+        const sourceKey = normalizeKey(genre);
+        const aggressiveSourceKey = aggressiveNormalize(genre);
 
-    return genre;
-  }));
+        const aliasedTurkish = genreAliasLookup.get(sourceKey) || genreAliasLookup.get(aggressiveSourceKey);
+        if (aliasedTurkish) {
+          return aliasedTurkish;
+        }
+
+        return genre;
+      })
+      .filter(Boolean),
+  );
 };
 
 export const matchGenresWithSiteTags = async (
@@ -384,7 +410,9 @@ export const matchGenresWithSiteTags = async (
     aggressiveSiteTagLookup.set(aggressiveNormalize(tag.name), { id: tag.id, name: tag.name });
   }
 
-  return importedTags.map((sourceTag) => {
+  return importedTags
+    .filter((sourceTag) => !isBlockedGenreOrTag(sourceTag))
+    .map((sourceTag) => {
     const sourceKey = normalizeKey(sourceTag);
     const aggressiveSourceKey = aggressiveNormalize(sourceTag);
 
@@ -417,8 +445,8 @@ export const matchGenresWithSiteTags = async (
       }
     }
 
-    return { sourceTag, isMatched: false };
-  });
+      return { sourceTag, isMatched: false };
+    });
 };
 
 const TRANSLATE_BATCH_SIZE = 5;
@@ -592,7 +620,7 @@ const createImportedPersonDraft = (
   partial?: Partial<ImportedPersonDraft>,
 ): ImportedPersonDraft => ({
   name: normalizeText(name),
-  imageUrl: normalizeText(partial?.imageUrl) || undefined,
+  imageUrl: sanitizeEntityImageUrl(partial?.imageUrl),
   description: normalizeText(partial?.description) || undefined,
   alternativeNames: uniqueStrings(partial?.alternativeNames || []),
   details: partial?.details || {},
@@ -614,6 +642,9 @@ const parseMyAnimeListCharacterId = (input: string) => parseUrlId(/\/character\/
 const parseMyAnimeListPeopleId = (input: string) => parseUrlId(/\/people\/(\d+)/i, input);
 const parseMangaUpdatesSeriesPath = (input: string) => input.match(/\/series\/([^/?#]+)/i)?.[1];
 const parseAniListId = (input: string) => parseUrlId(/\/manga\/(\d+)/i, input);
+const parseAnimePlanetMangaSlug = (input: string) => input.match(/\/manga\/([^/?#]+)/i)?.[1];
+const parseAnimePlanetCharacterSlug = (input: string) => input.match(/\/characters\/([^/?#]+)/i)?.[1];
+const parseAnimePlanetPeopleSlug = (input: string) => input.match(/\/people\/([^/?#]+)/i)?.[1];
 
 const parseAboutLines = (about?: string | null) => {
   const lines = (about || '')
@@ -637,6 +668,179 @@ const parseAboutLines = (about?: string | null) => {
 };
 
 const parseHtml = (html: string) => new DOMParser().parseFromString(html, 'text/html');
+
+const parseHtmlFragment = (html: string) => parseHtml(`<body>${html}</body>`);
+
+const fetchAnimePlanetHtml = (url: string) => (
+  fetchScraperContent(url, { provider: 'supabase' })
+);
+
+const getMetaContent = (doc: Document, attribute: 'property' | 'name', value: string) => (
+  normalizeText(doc.querySelector(`meta[${attribute}="${value}"]`)?.getAttribute('content'))
+);
+
+const getAnimePlanetStructuredData = (doc: Document) => {
+  const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+
+  for (const script of scripts) {
+    try {
+      const parsed = JSON.parse(script.textContent || '{}');
+      const candidateList = Array.isArray(parsed)
+        ? parsed
+        : parsed?.['@graph'] && Array.isArray(parsed['@graph'])
+          ? parsed['@graph']
+          : [parsed];
+      const candidate = candidateList.find((item) => (
+        item
+        && typeof item === 'object'
+        && (
+          item['@type'] === 'BookSeries'
+          || item['@type'] === 'Book'
+          || item['@type'] === 'Series'
+        )
+      ));
+
+      if (candidate) {
+        return candidate as Record<string, any>;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+};
+
+const splitAnimePlanetNames = (value?: string | null) => uniqueStrings(
+  normalizeText(value)
+    .replace(/^(alt titles?|aka):\s*/i, '')
+    .split(/\s*,\s*/)
+    .map((item) => normalizeText(item)),
+);
+
+const getAnimePlanetTitle = (doc: Document) => (
+  normalizeText(doc.querySelector('h1[itemprop="name"], h1')?.textContent)
+);
+
+const getAnimePlanetAltTitles = (doc: Document) => (
+  splitAnimePlanetNames(doc.querySelector('h2.aka')?.textContent)
+);
+
+const getAnimePlanetTags = (doc: Document) => uniqueStrings(
+  Array.from(doc.querySelectorAll('.tags a[href]'))
+    .map((anchor) => normalizeText(anchor.textContent)),
+);
+
+const getAnimePlanetGenreSubset = (tags: string[]) => {
+  const aggressiveNormalize = (str: string) => normalizeKey(str).replace(/[\s-]/g, '');
+
+  return uniqueStrings(
+    tags.filter((tag) => (
+      genreAliasLookup.has(normalizeKey(tag))
+      || genreAliasLookup.has(aggressiveNormalize(tag))
+    )),
+  );
+};
+
+const getAnimePlanetDescription = (doc: Document) => (
+  normalizeText(doc.querySelector('.synopsisManga, .synopsis')?.textContent) || undefined
+);
+
+const getAnimePlanetCover = (doc: Document) => sanitizeEntityImageUrl(
+  doc.querySelector('img[itemprop="image"], .mainEntry img')?.getAttribute('src')
+  || getMetaContent(doc, 'property', 'og:image'),
+);
+
+const getAnimePlanetChapterCount = (doc: Document) => {
+  const match = normalizeText(doc.querySelector('.entryBar')?.textContent).match(/\bCh:\s*(\d+)/i);
+  return match ? Number(match[1]) : undefined;
+};
+
+const getAnimePlanetPublisherLabel = (doc: Document) => (
+  normalizeText(doc.querySelector('.entryBar a[href*="/manga/magazines/"]')?.textContent) || undefined
+);
+
+const parseAnimePlanetYearRange = (doc: Document) => {
+  const raw = normalizeText(doc.querySelector('.entryBar .iconYear')?.textContent);
+  const match = raw.match(/(\d{4})(?:\s*-\s*(\d{4}|\?))?/);
+
+  if (!match) {
+    return { startDate: undefined, endDate: undefined };
+  }
+
+  const startDate = `${match[1]}-01-01`;
+  const endDate = match[2] && match[2] !== '?' ? `${match[2]}-12-31` : undefined;
+  return { startDate, endDate };
+};
+
+const getAnimePlanetAverageScore = (doc: Document, structuredData?: Record<string, any> | null) => {
+  const structuredValue = Number(structuredData?.aggregateRating?.ratingValue || 0);
+  if (structuredValue > 0) {
+    return Math.round((structuredValue <= 5 ? structuredValue * 20 : structuredValue));
+  }
+
+  const raw = normalizeText(doc.querySelector('.avgRating')?.getAttribute('title'));
+  const match = raw.match(/([0-9]+(?:\.[0-9]+)?)\s*out of 5/i);
+  return match ? Math.round(Number(match[1]) * 20) : undefined;
+};
+
+const getAnimePlanetVoteCount = (doc: Document, structuredData?: Record<string, any> | null) => {
+  const structuredValue = Number(structuredData?.aggregateRating?.ratingCount || 0);
+  if (structuredValue > 0) {
+    return structuredValue;
+  }
+
+  const raw = normalizeText(doc.querySelector('.avgRating')?.getAttribute('title'));
+  const match = raw.match(/from\s+([\d,]+)\s+votes/i);
+  return match ? Number(match[1].replace(/,/g, '')) : undefined;
+};
+
+const getAnimePlanetTrackingCount = (doc: Document) => {
+  const match = normalizeText(doc.body.textContent).match(/([\d,]+)\s+users are tracking this/i);
+  return match ? Number(match[1].replace(/,/g, '')) : undefined;
+};
+
+const getAnimePlanetRank = (doc: Document) => {
+  const match = normalizeText(doc.querySelector('.entryBar')?.textContent).match(/Rank\s+#([\d,]+)/i);
+  return match ? Number(match[1].replace(/,/g, '')) : undefined;
+};
+
+const getAnimePlanetNotes = (doc: Document) => uniqueStrings(
+  Array.from(doc.querySelectorAll('.notes p'))
+    .map((item) => normalizeText(item.textContent)),
+);
+
+const getAnimePlanetSourceMaterial = (tags: string[]) => {
+  for (const tag of tags) {
+    const normalized = normalizeText(tag);
+    const basedOnMatch = normalized.match(/^Based on (?:a|an)\s+(.+)$/i);
+    if (basedOnMatch) {
+      return normalizeText(basedOnMatch[1]);
+    }
+  }
+
+  return undefined;
+};
+
+const mapWithConcurrency = async <TItem, TResult>(
+  items: TItem[],
+  limit: number,
+  mapper: (item: TItem, index: number) => Promise<TResult>,
+) => {
+  const results = new Array<TResult>(items.length);
+  let nextIndex = 0;
+
+  const workers = Array.from({ length: Math.max(1, Math.min(limit, items.length || 1)) }, async () => {
+    while (nextIndex < items.length) {
+      const index = nextIndex;
+      nextIndex += 1;
+      results[index] = await mapper(items[index], index);
+    }
+  });
+
+  await Promise.all(workers);
+  return results;
+};
 
 const createEmptyPreview = (
   source: MetadataImportSource,
@@ -797,7 +1001,7 @@ const buildMalGallery = async (sourceUrl: string): Promise<EntityGalleryImage[]>
 const buildMalPersonDraft = async (
   personId: string,
   personUrl: string,
-  role: 'author' | 'artist' | 'voice_actor',
+  role: 'author' | 'artist',
   includeGallery: boolean,
 ): Promise<ImportedPersonDraft> => {
   const person = await getJikan<any>(`/people/${personId}/full`);
@@ -811,7 +1015,7 @@ const buildMalPersonDraft = async (
     website: normalizeText(person.website_url) || undefined,
     comments: metadata.profile,
     favorites: typeof person.favorites === 'number' ? person.favorites : undefined,
-    role: role === 'voice_actor' ? 'Voice Actor' : role === 'artist' ? 'Artist' : 'Author',
+    role: role === 'artist' ? 'Çizer' : 'Yazar',
   };
 
   return createImportedPersonDraft('myanimelist', person.name, personUrl, {
@@ -828,7 +1032,7 @@ const getCachedMalPersonDraft = async (
   cache: Map<string, ImportedPersonDraft>,
   personId: string,
   personUrl: string,
-  role: 'author' | 'artist' | 'voice_actor',
+  role: 'author' | 'artist',
   includeGallery: boolean,
 ) => {
   const cached = cache.get(personId);
@@ -845,40 +1049,17 @@ const buildMalCharacterDraft = async (
   characterId: string,
   characterUrl: string,
   roleLabel: string | undefined,
-  includeVoiceActors: boolean,
   includeGallery: boolean,
-  personCache: Map<string, ImportedPersonDraft>,
 ): Promise<ImportedCharacterDraft> => {
   const character = await getJikan<any>(`/characters/${characterId}/full`);
   const { metadata, description } = parseAboutLines(character.about);
-  const voiceActors: ImportedVoiceActorDraft[] = [];
-
-  if (includeVoiceActors) {
-    for (const voice of character.voices || []) {
-      const personId = `${voice.person?.mal_id || ''}`;
-      const person = personId
-        ? await getCachedMalPersonDraft(
-            personCache,
-            personId,
-            voice.person.url,
-            'voice_actor',
-            includeGallery,
-          )
-        : null;
-
-      voiceActors.push({
-        ...(person || createImportedPersonDraft('myanimelist', voice.person?.name || 'Unknown', voice.person?.url, {})),
-        language: normalizeText(voice.language) || undefined,
-        localeCode: normalizeText(voice.language) || undefined,
-        roleLabel,
-      });
-    }
-  }
+  const roleType = normalizeCharacterListingRole(roleLabel);
+  const localizedRoleLabel = getCharacterListingRoleLabel(roleType) || normalizeText(roleLabel) || undefined;
 
   return {
     ...createImportedPersonDraft('myanimelist', character.name, characterUrl, {
-      imageUrl: character.images?.jpg?.image_url || character.images?.webp?.image_url,
-      description,
+      imageUrl: sanitizeEntityImageUrl(character.images?.jpg?.image_url || character.images?.webp?.image_url),
+      description: sanitizeCharacterDescription(description),
       alternativeNames: [character.name_kanji, ...(character.nicknames || [])],
       details: {
         nativeName: normalizeText(character.name_kanji) || undefined,
@@ -895,8 +1076,8 @@ const buildMalCharacterDraft = async (
       gallery: includeGallery ? await buildMalGallery(`${characterUrl}/pics`) : [],
       sourceLinks: [createSourceLink('myanimelist', character.url || characterUrl, 'character', character.name)],
     }),
-    roleLabel,
-    voiceActors,
+    roleLabel: localizedRoleLabel,
+    roleType,
   };
 };
 
@@ -1006,7 +1187,7 @@ const loadMyAnimeListPreview = async (
         preview.artists.push(draft);
       } else if (resolvedRole === 'both') {
         preview.authors.push(draft);
-        preview.artists.push({ ...draft, details: { ...draft.details, role: 'Artist' } });
+        preview.artists.push({ ...draft, details: { ...draft.details, role: 'Çizer' } });
       } else {
         preview.authors.push(draft);
       }
@@ -1028,9 +1209,7 @@ const loadMyAnimeListPreview = async (
           characterId,
           entry.character.url,
           normalizeText(entry.role) || undefined,
-          false,
           !!enabledOptions.gallery,
-          personCache,
         ),
       );
     }
@@ -1156,7 +1335,7 @@ const buildMangaUpdatesPersonDraft = async (
       website: getInfoBoxTextByLabel(doc, 'Official Website') || undefined,
       twitter: getInfoBoxTextByLabel(doc, 'Twitter') || undefined,
       genres: uniqueStrings(getInfoBoxLinks(doc, 'genres').map((item) => item.title)),
-      role: role === 'artist' ? 'Artist' : 'Author',
+      role: role === 'artist' ? 'Çizer' : 'Yazar',
     },
     sourceLinks: [createSourceLink('mangaupdates', sourceUrl, 'person', title)],
   });
@@ -1270,13 +1449,408 @@ const loadMangaUpdatesPreview = async (
   return preview;
 };
 
+const toAnimePlanetAbsoluteUrl = (value?: string | null) => (
+  value ? toAbsoluteUrl(value, ANIME_PLANET_BASE_URL) : ''
+);
+
+const getAnimePlanetCanonicalMangaUrl = (input: string) => {
+  const slug = parseAnimePlanetMangaSlug(input);
+  return slug ? `${ANIME_PLANET_BASE_URL}/manga/${slug}` : normalizeText(input);
+};
+
+const getAnimePlanetTooltipAltTitles = (value?: string | null) => {
+  const tooltipHtml = normalizeText(value);
+  if (!tooltipHtml) {
+    return undefined;
+  }
+
+  const doc = parseHtmlFragment(tooltipHtml);
+  return normalizeText(doc.querySelector('.tooltip-alt')?.textContent).replace(/^(alt titles?|aka):\s*/i, '') || undefined;
+};
+
+const classifyAnimePlanetStaffRole = (value?: string | null): 'author' | 'artist' | undefined => {
+  const normalized = normalizeKey(value);
+
+  if (!normalized) {
+    return undefined;
+  }
+
+  if (normalized.includes('artist')) {
+    return 'artist';
+  }
+
+  if (
+    normalized.includes('creator')
+    || normalized.includes('author')
+    || normalized.includes('writer')
+    || normalized.includes('story')
+  ) {
+    return 'author';
+  }
+
+  return undefined;
+};
+
+const parseAnimePlanetStaffCards = (doc: Document) => {
+  const seen = new Set<string>();
+
+  return Array.from(doc.querySelectorAll<HTMLAnchorElement>('a.CharacterCard[data-character-type="people"][href]'))
+    .map((anchor) => {
+      const url = toAnimePlanetAbsoluteUrl(anchor.getAttribute('href'));
+      const name = normalizeText(anchor.querySelector('.CharacterCard__title')?.textContent);
+      const roleLabel = normalizeText(anchor.querySelector('.CharacterCard__body')?.textContent);
+      const kind = classifyAnimePlanetStaffRole(roleLabel);
+
+      if (!url || !name || seen.has(url)) {
+        return null;
+      }
+
+      seen.add(url);
+      return { name, url, roleLabel, kind };
+    })
+    .filter((item): item is NonNullable<typeof item> => item !== null);
+};
+
+const buildAnimePlanetPersonDraft = async (
+  sourceUrl: string,
+  role: 'author' | 'artist',
+): Promise<ImportedPersonDraft> => {
+  const html = await fetchAnimePlanetHtml(sourceUrl);
+  const doc = parseHtml(html);
+  const title = getAnimePlanetTitle(doc) || normalizeText(doc.title.replace(/\s*\|\s*Anime-Planet\s*$/i, ''));
+  const descriptionHost = doc.querySelector('div[itemprop="description"]')?.parentElement;
+  let description = '';
+
+  if (descriptionHost) {
+    const clone = descriptionHost.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('.EntryMetadata, .staffLinks, .myFeelings, .cta, table, h3, h4, h5, .commentSection, .tab').forEach((element) => element.remove());
+    description = normalizeText(clone.textContent);
+  }
+
+  const externalLinks = Array.from(doc.querySelectorAll<HTMLAnchorElement>('.staffLinks a[href]'))
+    .map((anchor) => ({
+      url: normalizeText(anchor.getAttribute('href')),
+      label: normalizeText(anchor.textContent) || undefined,
+    }))
+    .filter((item) => item.url.startsWith('http'));
+
+  return createImportedPersonDraft('animeplanet', title, sourceUrl, {
+    imageUrl: sanitizeEntityImageUrl(
+      doc.querySelector('img[itemprop="image"], img.screenshots')?.getAttribute('src'),
+    ),
+    description: description || undefined,
+    alternativeNames: getAnimePlanetAltTitles(doc),
+    details: {
+      website: externalLinks[0]?.url || undefined,
+      role: role === 'artist' ? 'Çizer' : 'Yazar',
+      extra: parseAnimePlanetPeopleSlug(sourceUrl)
+        ? { animePlanetSlug: parseAnimePlanetPeopleSlug(sourceUrl) }
+        : undefined,
+    },
+    sourceLinks: [
+      createSourceLink('animeplanet', sourceUrl, 'person', title),
+      ...externalLinks.map((item) => ({
+        source: 'animeplanet' as const,
+        url: item.url,
+        kind: 'external',
+        label: item.label,
+      })),
+    ],
+  });
+};
+
+const buildAnimePlanetCharacterDraft = async (
+  sourceUrl: string,
+  roleLabel: string | undefined,
+  fallbackName: string,
+  fallbackImageUrl: string | undefined,
+  fallbackTags: string[],
+): Promise<ImportedCharacterDraft> => {
+  const html = await fetchAnimePlanetHtml(sourceUrl);
+  const doc = parseHtml(html);
+  const roleType = normalizeCharacterListingRole(roleLabel);
+  const localizedRoleLabel = getCharacterListingRoleLabel(roleType) || normalizeText(roleLabel) || undefined;
+  const statValues = Array.from(doc.querySelectorAll('.entryBar > div'))
+    .map((item) => normalizeText(item.textContent))
+    .filter(Boolean);
+  const detailMap = new Map<string, string>();
+
+  for (const stat of statValues) {
+    const pairMatch = stat.match(/^([^:]+):\s*(.+)$/);
+    if (pairMatch) {
+      detailMap.set(normalizeKey(pairMatch[1]), normalizeText(pairMatch[2]));
+    }
+  }
+
+  const lovedRankMatch = statValues.find((item) => /rank\s*#\d+/i.test(item));
+  const rankValue = lovedRankMatch?.match(/#([\d,]+)/)?.[1];
+  const tags = uniqueStrings([...fallbackTags, ...getAnimePlanetTags(doc)]);
+  const title = getAnimePlanetTitle(doc) || fallbackName;
+
+  return {
+    ...createImportedPersonDraft('animeplanet', title, sourceUrl, {
+      imageUrl: sanitizeEntityImageUrl(
+        doc.querySelector('img[itemprop="image"], img.screenshots')?.getAttribute('src')
+        || fallbackImageUrl,
+      ),
+      description: undefined,
+      alternativeNames: getAnimePlanetAltTitles(doc),
+      details: {
+        gender: detailMap.get('gender') || getMetaContent(doc, 'property', 'profile:gender') || undefined,
+        tags,
+        extra: {
+          ...(detailMap.get('hair color') ? { hairColor: detailMap.get('hair color') } : {}),
+          ...(detailMap.get('eye color') ? { eyeColor: detailMap.get('eye color') } : {}),
+          ...(rankValue ? { animePlanetLovedRank: Number(rankValue.replace(/,/g, '')) } : {}),
+          ...(parseAnimePlanetCharacterSlug(sourceUrl) ? { animePlanetSlug: parseAnimePlanetCharacterSlug(sourceUrl) } : {}),
+        },
+      },
+      sourceLinks: [createSourceLink('animeplanet', sourceUrl, 'character', title)],
+    }),
+    roleLabel: localizedRoleLabel,
+    roleType,
+  };
+};
+
+const parseAnimePlanetCharacterSection = (doc: Document) => {
+  const seen = new Set<string>();
+  const results: Array<{
+    name: string;
+    url: string;
+    imageUrl?: string;
+    tags: string[];
+    roleLabel?: string;
+    roleType?: CharacterListingRole;
+  }> = [];
+
+  for (const heading of Array.from(doc.querySelectorAll('h3.sub'))) {
+    const headingText = normalizeText(heading.textContent);
+    const roleType = normalizeCharacterListingRole(headingText);
+    const localizedRoleLabel = getCharacterListingRoleLabel(roleType) || headingText || undefined;
+    let table = heading.nextElementSibling;
+
+    while (table && table.tagName !== 'TABLE') {
+      table = table.nextElementSibling;
+    }
+
+    if (!table) {
+      continue;
+    }
+
+    for (const row of Array.from(table.querySelectorAll('tr'))) {
+      const anchor = row.querySelector<HTMLAnchorElement>('td.tableCharInfo a.name[href], td.tableAvatar a[href]');
+      const name = normalizeText(row.querySelector('td.tableCharInfo a.name')?.textContent || anchor?.textContent);
+      const url = toAnimePlanetAbsoluteUrl(anchor?.getAttribute('href'));
+
+      if (!name || !url || seen.has(url)) {
+        continue;
+      }
+
+      seen.add(url);
+      results.push({
+        name,
+        url,
+        imageUrl: sanitizeEntityImageUrl(
+          row.querySelector<HTMLImageElement>('td.tableAvatar img')?.getAttribute('src'),
+        ),
+        tags: uniqueStrings(
+          Array.from(row.querySelectorAll('.tags a[href]')).map((tag) => normalizeText(tag.textContent)),
+        ),
+        roleLabel: localizedRoleLabel,
+        roleType,
+      });
+    }
+  }
+
+  return results;
+};
+
+const searchAnimePlanetCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
+  const slug = ANIME_PLANET_HOST_PATTERN.test(input) ? parseAnimePlanetMangaSlug(input) : undefined;
+
+  if (slug) {
+    const url = `${ANIME_PLANET_BASE_URL}/manga/${slug}`;
+
+    try {
+      const html = await fetchAnimePlanetHtml(url);
+      const doc = parseHtml(html);
+      return [{
+        id: slug,
+        source: 'animeplanet',
+        title: getAnimePlanetTitle(doc) || normalizeText(slug.replace(/-/g, ' ')) || 'Anime-Planet manga',
+        subtitle: getAnimePlanetAltTitles(doc).slice(0, 2).join(', ') || undefined,
+        url,
+        imageUrl: getAnimePlanetCover(doc),
+      }];
+    } catch {
+      return [{
+        id: slug,
+        source: 'animeplanet',
+        title: normalizeText(slug.replace(/-/g, ' ')) || 'Anime-Planet manga',
+        url,
+      }];
+    }
+  }
+
+  const searchUrl = `${ANIME_PLANET_BASE_URL}/manga/all?name=${encodeURIComponent(input)}`;
+  const html = await fetchAnimePlanetHtml(searchUrl);
+  const doc = parseHtml(html);
+  const results: SourceSearchCandidate[] = [];
+  const seen = new Set<string>();
+
+  for (const anchor of Array.from(doc.querySelectorAll<HTMLAnchorElement>('a.tooltip[href^="/manga/"]'))) {
+    const url = toAnimePlanetAbsoluteUrl(anchor.getAttribute('href'));
+    const title = normalizeText(anchor.querySelector('.cardName')?.textContent || anchor.getAttribute('aria-label'));
+
+    if (!url || !title || seen.has(url) || url.includes('/manga/all')) {
+      continue;
+    }
+
+    seen.add(url);
+    results.push({
+      id: parseAnimePlanetMangaSlug(url) || url,
+      source: 'animeplanet',
+      title,
+      subtitle: getAnimePlanetTooltipAltTitles(anchor.getAttribute('title')) || undefined,
+      url,
+      imageUrl: sanitizeEntityImageUrl(
+        anchor.querySelector<HTMLImageElement>('img')?.getAttribute('data-src')
+        || anchor.querySelector<HTMLImageElement>('img')?.getAttribute('src'),
+      ),
+    });
+
+    if (results.length >= 8) {
+      break;
+    }
+  }
+
+  return results;
+};
+
+const loadAnimePlanetPreview = async (
+  candidate: SourceSearchCandidate,
+  enabledOptions: Partial<Record<ImportOptionKey, boolean>>,
+): Promise<ImportedMangaPayload> => {
+  const mangaUrl = getAnimePlanetCanonicalMangaUrl(candidate.url);
+  const html = await fetchAnimePlanetHtml(mangaUrl);
+  const doc = parseHtml(html);
+  const structuredData = getAnimePlanetStructuredData(doc);
+  const tags = getAnimePlanetTags(doc);
+  const genres = getAnimePlanetGenreSubset(tags);
+  const preview = createEmptyPreview('animeplanet', mangaUrl, getAnimePlanetTitle(doc) || candidate.title);
+  const { startDate, endDate } = parseAnimePlanetYearRange(doc);
+  const publisherLabel = getAnimePlanetPublisherLabel(doc);
+  const notes = getAnimePlanetNotes(doc);
+
+  preview.cover = getAnimePlanetCover(doc) || undefined;
+  preview.description = getAnimePlanetDescription(doc);
+  preview.alternativeTitles = uniqueStrings([
+    preview.sourceTitle,
+    ...(structuredData?.alternateName || []),
+    ...getAnimePlanetAltTitles(doc),
+  ]);
+  preview.tags = tags;
+  preview.genres = genres;
+  preview.relatedSeries = Array.from(doc.querySelectorAll<HTMLAnchorElement>('a.RelatedEntry[href^="/manga/"]'))
+    .map((anchor) => ({
+      title: normalizeText(anchor.querySelector('.RelatedEntry__name')?.textContent),
+      relationType: 'related',
+      sourceUrl: toAnimePlanetAbsoluteUrl(anchor.getAttribute('href')) || undefined,
+      cover: sanitizeEntityImageUrl(anchor.querySelector<HTMLImageElement>('.RelatedEntry__image')?.getAttribute('src')),
+    }))
+    .filter((item) => item.title);
+  preview.details = {
+    englishName: preview.sourceTitle,
+    status: endDate ? 'Completed' : 'Ongoing',
+    chapters: getAnimePlanetChapterCount(doc),
+    popularity: getAnimePlanetTrackingCount(doc),
+    averageScore: getAnimePlanetAverageScore(doc, structuredData),
+    startDate: structuredData?.startDate || startDate,
+    endDate: structuredData?.endDate || endDate,
+    originalPublisher: publisherLabel || undefined,
+    sourceMaterial: genres.find((genre) => /^(manga|manhwa|manhua|webtoon|webtoons)$/i.test(genre)) || undefined,
+    genres,
+    tags,
+    comments: notes.join(' | ') || undefined,
+    extra: {
+      ...(getAnimePlanetRank(doc) ? { animePlanetRank: getAnimePlanetRank(doc) } : {}),
+      ...(getAnimePlanetTrackingCount(doc) ? { animePlanetTrackingCount: getAnimePlanetTrackingCount(doc) } : {}),
+      ...(getAnimePlanetVoteCount(doc, structuredData) ? { animePlanetVoteCount: getAnimePlanetVoteCount(doc, structuredData) } : {}),
+      ...(getAnimePlanetSourceMaterial(tags) ? { adaptedFrom: getAnimePlanetSourceMaterial(tags) } : {}),
+      ...(publisherLabel ? { publisherLabel } : {}),
+      ...(parseAnimePlanetMangaSlug(mangaUrl) ? { animePlanetSlug: parseAnimePlanetMangaSlug(mangaUrl) } : {}),
+    },
+  };
+
+  if (enabledOptions.authors || enabledOptions.artists) {
+    const staffHtml = await fetchAnimePlanetHtml(`${mangaUrl}/staff`);
+    const staffDoc = parseHtml(staffHtml);
+    const staffCards = parseAnimePlanetStaffCards(staffDoc);
+    const unsupportedRoles = uniqueStrings(
+      staffCards
+        .filter((item) => !item.kind)
+        .map((item) => item.roleLabel),
+    );
+
+    if (unsupportedRoles.length > 0) {
+      preview.warnings.push(
+        `Anime-Planet staff sayfasındaki şu roller şu an içe aktarılmıyor: ${unsupportedRoles.join(', ')}.`,
+      );
+    }
+
+    const personCache = new Map<string, ImportedPersonDraft>();
+    const supportedCards = staffCards.filter((item) => item.kind && (
+      (item.kind === 'author' && enabledOptions.authors)
+      || (item.kind === 'artist' && enabledOptions.artists)
+    ));
+
+    const drafts = await mapWithConcurrency(supportedCards, 4, async (item) => {
+      const cached = personCache.get(item.url);
+      if (cached) {
+        return { kind: item.kind!, draft: cached };
+      }
+
+      const draft = await buildAnimePlanetPersonDraft(item.url, item.kind!);
+      personCache.set(item.url, draft);
+      return { kind: item.kind!, draft };
+    });
+
+    for (const entry of drafts) {
+      if (entry.kind === 'artist') {
+        preview.artists.push(entry.draft);
+      } else {
+        preview.authors.push(entry.draft);
+      }
+    }
+  }
+
+  if (enabledOptions.characters) {
+    const characterHtml = await fetchAnimePlanetHtml(`${mangaUrl}/characters`);
+    const characterDoc = parseHtml(characterHtml);
+    const characterRows = parseAnimePlanetCharacterSection(characterDoc).slice(0, MAX_IMPORT_ENTITY_COUNT);
+    const drafts = await mapWithConcurrency(characterRows, 4, async (item) => (
+      buildAnimePlanetCharacterDraft(
+        item.url,
+        item.roleLabel,
+        item.name,
+        item.imageUrl,
+        item.tags,
+      )
+    ));
+
+    preview.characters.push(...drafts);
+  }
+
+  return preview;
+};
+
 const searchAniListCandidates = async () => {
   throw new Error(
     'AniList public GraphQL endpoint 30 Mart 2026 itibarıyla geçici olarak devre dışı. Cloudflare proxy üzerinden de upstream 403 alındığı için bu kaynak için import daha sonra yeniden açılabilir.',
   );
 };
 
-const mergeImportedPerson = <TEntity extends Character | Author | Artist | VoiceActor>(
+const mergeImportedPerson = <TEntity extends Character | Author | Artist>(
   existing: TEntity | null,
   draft: ImportedPersonDraft,
   importAsPublic: boolean,
@@ -1292,6 +1866,29 @@ const mergeImportedPerson = <TEntity extends Character | Author | Artist | Voice
   sourceLinks: mergeSourceLinks(existing?.sourceLinks, draft.sourceLinks),
 }) as Partial<TEntity>;
 
+const stripCharacterListingRoleMetadata = (details?: EntityMetadata): EntityMetadata | undefined => {
+  if (!details) {
+    return undefined;
+  }
+
+  const nextDetails: EntityMetadata = { ...details };
+  const nextExtra = { ...(nextDetails.extra || {}) };
+
+  delete nextExtra.characterRoleType;
+
+  if (normalizeCharacterListingRole(nextDetails.role)) {
+    delete nextDetails.role;
+  }
+
+  if (Object.keys(nextExtra).length > 0) {
+    nextDetails.extra = nextExtra;
+  } else {
+    delete nextDetails.extra;
+  }
+
+  return nextDetails;
+};
+
 const resolveAuthor = async (draft: ImportedPersonDraft, importAsPublic: boolean) => {
   const existing = await findAuthorByName(draft.name);
   const id = await saveAuthor(mergeImportedPerson(existing, draft, importAsPublic));
@@ -1304,15 +1901,16 @@ const resolveArtist = async (draft: ImportedPersonDraft, importAsPublic: boolean
   return existing?.id || id;
 };
 
-const resolveVoiceActor = async (draft: ImportedVoiceActorDraft, importAsPublic: boolean) => {
-  const existing = await findVoiceActorByName(draft.name);
-  const id = await saveVoiceActor(mergeImportedPerson(existing, draft, importAsPublic));
-  return existing?.id || id;
-};
-
 const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: boolean) => {
   const existing = await findCharacterByName(draft.name);
-  const id = await saveCharacter(mergeImportedPerson(existing, draft, importAsPublic));
+  const payload = mergeImportedPerson(existing, {
+    ...draft,
+    details: stripCharacterListingRoleMetadata(draft.details) || {},
+  }, importAsPublic) as Partial<Character>;
+  const id = await saveCharacter({
+    ...payload,
+    details: stripCharacterListingRoleMetadata(payload.details),
+  });
   return existing?.id || id;
 };
 
@@ -1403,6 +2001,10 @@ export const searchMetadataImportCandidates = async (
     return searchMangaUpdatesCandidates(query);
   }
 
+  if (source === 'animeplanet') {
+    return searchAnimePlanetCandidates(query);
+  }
+
   return searchAniListCandidates();
 };
 
@@ -1417,6 +2019,8 @@ export const loadMetadataImportPreview = async (
     preview = await loadMyAnimeListPreview(candidate, enabledOptions);
   } else if (candidate.source === 'mangaupdates') {
     preview = await loadMangaUpdatesPreview(candidate, enabledOptions);
+  } else if (candidate.source === 'animeplanet') {
+    preview = await loadAnimePlanetPreview(candidate, enabledOptions);
   } else {
     throw new Error(
       'AniList public endpointi 30 Mart 2026 itibarıyla kullanılamıyor. Cloudflare proxy üzerinden de upstream 403 alındığı için bu kaynak importta geçici olarak beklemede.',
@@ -1454,6 +2058,31 @@ export const importPreviewIntoManga = async (
     throw new Error('MANGA_NOT_FOUND');
   }
 
+  const [existingCharacters, existingTags] = await Promise.all([
+    selection.enabledOptions.characters ? getMangaCharacters(mangaId, { includePrivate: true }) : Promise.resolve([]),
+    selection.enabledOptions.tags ? getTagsForEntity('manga', mangaId) : Promise.resolve([]),
+  ]);
+
+  const existingAuthorKeys = new Set(
+    [
+      ...(manga.authorsDetails || []).map((author) => author.name),
+      ...(manga.author?.split(',') || []),
+    ].map((value) => normalizeKey(value)).filter(Boolean),
+  );
+  const existingArtistKeys = new Set(
+    [
+      ...(manga.artistsDetails || []).map((artist) => artist.name),
+      ...(manga.artist?.split(',') || []),
+    ].map((value) => normalizeKey(value)).filter(Boolean),
+  );
+  const existingCharacterKeys = new Set(existingCharacters.map((character) => normalizeKey(character.name)).filter(Boolean));
+  const existingTagKeys = new Set(
+    [
+      ...(manga.genres || []),
+      ...existingTags.map((tag) => tag.name),
+    ].map((value) => normalizeKey(value)).filter(Boolean),
+  );
+
   const nextManga = mergeMangaDetails(manga, preview, selection.enabledOptions);
   await saveManga(nextManga);
 
@@ -1466,41 +2095,70 @@ export const importPreviewIntoManga = async (
       }
 
       if (match.isMatched && match.matchedTag) {
+        if (existingTagKeys.has(normalizeKey(match.matchedTag.name))) {
+          continue;
+        }
+
         await addTagToEntity('manga', mangaId, match.matchedTag.id);
+        existingTagKeys.add(normalizeKey(match.matchedTag.name));
       } else {
+        if (existingTagKeys.has(normalizeKey(match.sourceTag))) {
+          continue;
+        }
+
         const tag = await createTag(match.sourceTag, 'general');
         if (tag) {
           await addTagToEntity('manga', mangaId, tag.id);
+          existingTagKeys.add(normalizeKey(tag.name));
         }
       }
     }
   } else if (selection.enabledOptions.tags) {
     for (const tagName of uniqueStrings(preview.tags)) {
+      if (existingTagKeys.has(normalizeKey(tagName))) {
+        continue;
+      }
+
       const tag = await createTag(tagName, 'general');
       if (tag) {
         await addTagToEntity('manga', mangaId, tag.id);
+        existingTagKeys.add(normalizeKey(tag.name));
       }
     }
   }
 
   if (selection.enabledOptions.authors) {
     for (const author of preview.authors) {
+      const authorKey = normalizeKey(author.name);
       const authorId = await resolveAuthor(author, selection.importAsPublic);
-      await linkMangaToAuthor(mangaId, authorId);
+      if (!existingAuthorKeys.has(authorKey)) {
+        await linkMangaToAuthor(mangaId, authorId);
+        existingAuthorKeys.add(authorKey);
+      }
     }
   }
 
   if (selection.enabledOptions.artists) {
     for (const artist of preview.artists) {
+      const artistKey = normalizeKey(artist.name);
       const artistId = await resolveArtist(artist, selection.importAsPublic);
-      await linkMangaToArtist(mangaId, artistId);
+      if (!existingArtistKeys.has(artistKey)) {
+        await linkMangaToArtist(mangaId, artistId);
+        existingArtistKeys.add(artistKey);
+      }
     }
   }
 
   if (selection.enabledOptions.characters) {
     for (const character of preview.characters) {
+      const characterKey = normalizeKey(character.name);
       const characterId = await resolveCharacter(character, selection.importAsPublic);
-      await linkMangaToCharacter(mangaId, characterId);
+      await linkMangaToCharacter(mangaId, characterId, {
+        listingRole: character.roleType,
+      });
+      if (!existingCharacterKeys.has(characterKey)) {
+        existingCharacterKeys.add(characterKey);
+      }
     }
   }
 

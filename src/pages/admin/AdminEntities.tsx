@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import {
   Dialog,
   DialogContent,
@@ -60,6 +61,11 @@ import {
   parseDelimitedList,
 } from '@/lib/entityMetadata';
 import { toast } from 'sonner';
+import {
+  getCharacterListingRoleFromMetadata,
+  getCharacterListingRoleLabel,
+  type CharacterListingRole,
+} from '@/lib/characterRoles';
 
 type EntityType = 'character' | 'author' | 'artist';
 type EditableEntity = Character | Author | Artist;
@@ -72,6 +78,7 @@ interface EntityDialogFormState {
   alternativeNames: string;
   galleryUrls: string;
   sourceLinksJson: string;
+  characterRoleType: '' | CharacterListingRole;
   metadata: EntityMetadataFormState;
 }
 
@@ -83,6 +90,7 @@ const createEmptyFormState = (): EntityDialogFormState => ({
   alternativeNames: '',
   galleryUrls: '',
   sourceLinksJson: '',
+  characterRoleType: '',
   metadata: createEmptyEntityMetadataFormState(),
 });
 
@@ -162,8 +170,12 @@ const AdminEntities: React.FC = () => {
         alternativeNames: (entity.alternativeNames || []).join('\n'),
         galleryUrls: (entity.gallery || []).map((image) => image.url).join('\n'),
         sourceLinksJson: entity.sourceLinks?.length ? JSON.stringify(entity.sourceLinks, null, 2) : '',
+        characterRoleType: activeTab === 'character'
+          ? (getCharacterListingRoleFromMetadata(entity.details) || '')
+          : '',
         metadata: entityMetadataToFormState(entity.details),
       });
+      setShowDialog(true);
       return;
     }
 
@@ -211,7 +223,26 @@ const AdminEntities: React.FC = () => {
       alternativeNames: parseDelimitedList(formData.alternativeNames),
       gallery: parseDelimitedList(formData.galleryUrls).map((url) => ({ url })),
       sourceLinks,
-      details: formStateToEntityMetadata(formData.metadata),
+      details: (() => {
+        const metadata = formStateToEntityMetadata(formData.metadata);
+
+        if (activeTab !== 'character') {
+          return metadata;
+        }
+
+        const nextExtra = { ...(metadata.extra || {}) };
+        if (formData.characterRoleType) {
+          nextExtra.characterRoleType = formData.characterRoleType;
+        } else {
+          delete nextExtra.characterRoleType;
+        }
+
+        return {
+          ...metadata,
+          role: metadata.role || (formData.characterRoleType ? getCharacterListingRoleLabel(formData.characterRoleType) : undefined),
+          extra: Object.keys(nextExtra).length > 0 ? nextExtra : undefined,
+        };
+      })(),
     };
 
     try {
@@ -515,6 +546,32 @@ const AdminEntities: React.FC = () => {
                 />
               </div>
             </div>
+
+            {activeTab === 'character' ? (
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Varsayılan Karakter Konumu</label>
+                <Select
+                  value={formData.characterRoleType || 'auto'}
+                  onValueChange={(value) => setFormData((current) => ({
+                    ...current,
+                    characterRoleType: value === 'auto' ? '' : value as CharacterListingRole,
+                  }))}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seçilmezse diğer karakterler grubuna düşer" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">Otomatik / Seçilmedi</SelectItem>
+                    <SelectItem value="main">Ana Karakter</SelectItem>
+                    <SelectItem value="supporting">Yan Karakter</SelectItem>
+                    <SelectItem value="minor">Diğer Karakter</SelectItem>
+                  </SelectContent>
+                </Select>
+                <p className="text-xs text-muted-foreground">
+                  Bu alan yalnızca varsayılan profil bilgisidir. Seri bazlı ana/yan/diğer rolü manga düzenleme ekranından veya import sırasında ayrı ayarlanır.
+                </p>
+              </div>
+            ) : null}
 
             <div className="grid gap-4 md:grid-cols-[1fr,auto] md:items-end">
               <div className="space-y-2">

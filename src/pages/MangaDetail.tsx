@@ -104,6 +104,13 @@ import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import DeferredMount from '@/components/performance/DeferredMount';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
+import EntityGalleryGrid from '@/components/entities/EntityGalleryGrid';
+import {
+  getCharacterListingRoleLabel,
+  getCharacterListingRoleSectionTitle,
+  type CharacterListingRole,
+} from '@/lib/characterRoles';
+import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -398,6 +405,7 @@ const MangaDetail: React.FC = () => {
   const [reportReason, setReportReason] = useState('Yanlış seri bilgisi');
   const [reportDetails, setReportDetails] = useState('');
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
+  const [isAlternativeTitlesExpanded, setIsAlternativeTitlesExpanded] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [seriesReadingSeconds, setSeriesReadingSeconds] = useState(0);
   const [isSeriesReadingTimeLoading, setIsSeriesReadingTimeLoading] = useState(false);
@@ -477,11 +485,48 @@ const MangaDetail: React.FC = () => {
   const isPreviewTabActive = activeTab === 'preview';
   const isBookmarksTabActive = activeTab === 'bookmarks';
   const isReviewsTabActive = activeTab === 'reviews';
+  const isGalleryTabActive = activeTab === 'gallery';
   const isCharactersTabActive = activeTab === 'characters';
   const isDiscoverTabActive = activeTab === 'discover';
   const reviewCount = useMemo(() => (
     Math.max(manga?.reviewCount || 0, averageRating.count || 0)
   ), [averageRating.count, manga?.reviewCount]);
+  const seriesGalleryImages = useMemo(() => {
+    const rawGallery = manga?.details?.extra?.seriesGallery;
+    if (!Array.isArray(rawGallery)) {
+      return [];
+    }
+
+    return rawGallery
+      .map((value) => typeof value === 'string' ? value.trim() : '')
+      .filter(Boolean)
+      .map((url, index) => ({
+        url,
+        thumbUrl: url,
+        source: 'import',
+        sourceUrl: url,
+        label: `Seri Galerisi ${index + 1}`,
+      }));
+  }, [manga?.details?.extra?.seriesGallery]);
+  const groupedMangaCharacters = useMemo(() => {
+    const groups = new Map<CharacterListingRole, Character[]>();
+    groups.set('main', []);
+    groups.set('supporting', []);
+    groups.set('minor', []);
+
+    mangaCharacters.forEach((character) => {
+      const role = character.listingRole || 'minor';
+      groups.get(role)?.push(character);
+    });
+
+    return (['main', 'supporting', 'minor'] as CharacterListingRole[])
+      .map((role) => ({
+        role,
+        title: getCharacterListingRoleSectionTitle(role),
+        items: [...(groups.get(role) || [])].sort((left, right) => left.name.localeCompare(right.name, 'tr')),
+      }))
+      .filter((group) => group.items.length > 0);
+  }, [mangaCharacters]);
 
   const handlePreviewInView = React.useCallback((idx: number) => {
     setCurrentViewedIndex(idx);
@@ -652,6 +697,12 @@ const MangaDetail: React.FC = () => {
     return `${(lastSpaceIndex > 120 ? sliced.slice(0, lastSpaceIndex) : sliced).trimEnd()}...`;
   }, [manga?.description]);
   const shouldShowDescriptionToggle = Boolean(manga?.description && descriptionPreview !== manga.description.trim());
+  const alternativeTitlesText = React.useMemo(() => (
+    manga?.alternativeTitles?.filter(Boolean).join(', ').trim() || ''
+  ), [manga?.alternativeTitles]);
+  const shouldShowAlternativeTitlesToggle = React.useMemo(() => (
+    Boolean(alternativeTitlesText && (alternativeTitlesText.length > 120 || (manga?.alternativeTitles?.length || 0) > 2))
+  ), [alternativeTitlesText, manga?.alternativeTitles?.length]);
   const activeMangaId = manga?.id || mangaId || '';
   const seriesBookmarkEntries = useMemo(() => {
     if (!hasLoadedBookmarks) {
@@ -718,6 +769,7 @@ const MangaDetail: React.FC = () => {
 
   useEffect(() => {
     setIsDescriptionExpanded(false);
+    setIsAlternativeTitlesExpanded(false);
   }, [manga?.id]);
 
   useEffect(() => {
@@ -1760,10 +1812,38 @@ const MangaDetail: React.FC = () => {
 
                 <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{manga.title}</h1>
 
-                {manga.alternativeTitles && manga.alternativeTitles.length > 0 && (
-                  <p className="text-sm text-muted-foreground italic">
-                    {manga.alternativeTitles.join(', ')}
-                  </p>
+                {alternativeTitlesText && (
+                  <div className="space-y-1">
+                    <button
+                      type="button"
+                      onClick={() => shouldShowAlternativeTitlesToggle && setIsAlternativeTitlesExpanded((previous) => !previous)}
+                      className={cn(
+                        'w-full text-left text-sm text-muted-foreground italic',
+                        shouldShowAlternativeTitlesToggle && 'cursor-pointer transition-colors hover:text-foreground/85',
+                        !isAlternativeTitlesExpanded && 'truncate',
+                      )}
+                      aria-expanded={isAlternativeTitlesExpanded}
+                      title={shouldShowAlternativeTitlesToggle ? 'Alternatif başlıkları göster/gizle' : undefined}
+                    >
+                      {alternativeTitlesText}
+                    </button>
+                    {shouldShowAlternativeTitlesToggle && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        onClick={() => setIsAlternativeTitlesExpanded((previous) => !previous)}
+                        className="h-8 px-0 text-sm font-medium text-primary hover:bg-transparent hover:text-primary"
+                      >
+                        {isAlternativeTitlesExpanded ? 'Daha Az Göster' : 'Tümünü Gör'}
+                        {isAlternativeTitlesExpanded ? (
+                          <ChevronUp className="ml-2 h-4 w-4" />
+                        ) : (
+                          <ChevronDown className="ml-2 h-4 w-4" />
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 )}
 
                 <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
@@ -1861,10 +1941,7 @@ const MangaDetail: React.FC = () => {
                 </div>
 
                 <div>
-                  <p className="hidden text-foreground/80 leading-relaxed md:block">
-                    {manga.description}
-                  </p>
-                  <p className="text-foreground/80 leading-relaxed md:hidden">
+                  <p className="text-foreground/80 leading-relaxed">
                     {shouldShowDescriptionToggle && !isDescriptionExpanded ? descriptionPreview : manga.description}
                   </p>
                   {shouldShowDescriptionToggle && (
@@ -1873,7 +1950,7 @@ const MangaDetail: React.FC = () => {
                       variant="ghost"
                       size="sm"
                       onClick={() => setIsDescriptionExpanded((previous) => !previous)}
-                      className="mt-2 h-8 px-0 text-sm font-medium text-primary hover:bg-transparent hover:text-primary md:hidden"
+                      className="mt-2 h-8 px-0 text-sm font-medium text-primary hover:bg-transparent hover:text-primary"
                     >
                       {isDescriptionExpanded ? 'Daha Az Göster' : 'Tamamını Gör'}
                       {isDescriptionExpanded ? (
@@ -2067,6 +2144,17 @@ const MangaDetail: React.FC = () => {
                     </Badge>
                   )}
                 </TabsTrigger>
+                {seriesGalleryImages.length > 0 && (
+                  <TabsTrigger
+                    value="gallery"
+                    className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                  >
+                    GALERİ
+                    <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
+                      {seriesGalleryImages.length}
+                    </Badge>
+                  </TabsTrigger>
+                )}
                 <TabsTrigger
                   value="discover"
                   className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
@@ -2180,8 +2268,8 @@ const MangaDetail: React.FC = () => {
                                     )}
                                   </div>
                                   <div className="min-w-0 flex-1">
-                                    <Badge variant="secondary" className="mb-2 rounded-full capitalize">
-                                      {relation.relationType.replace(/_/g, ' ')}
+                                    <Badge variant="secondary" className="mb-2 rounded-full">
+                                      {getMangaRelationTypeLabel(relation.relationType)}
                                     </Badge>
                                     <p className="line-clamp-2 font-semibold group-hover:text-primary">
                                       {relation.relatedManga.title}
@@ -2339,6 +2427,26 @@ const MangaDetail: React.FC = () => {
               ) : null}
             </TabsContent>
 
+            <TabsContent value="gallery" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+              {isGalleryTabActive ? (
+                seriesGalleryImages.length > 0 ? (
+                  <div className="rounded-xl border border-border bg-card/50 p-4 sm:p-6">
+                    <EntityGalleryGrid
+                      images={seriesGalleryImages}
+                      title="Seri Galerisi"
+                    />
+                  </div>
+                ) : (
+                  <div className="rounded-xl border border-dashed border-border bg-card/30 p-10 text-center">
+                    <h3 className="text-xl font-semibold">Bu seri için galeri bulunamadı</h3>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      İçe aktarılan seri görselleri olduğunda bu sekmede görünecek.
+                    </p>
+                  </div>
+                )
+              ) : null}
+            </TabsContent>
+
             <TabsContent value="bookmarks" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
               {isBookmarksTabActive ? (
               <div className="mx-auto max-w-5xl space-y-6">
@@ -2433,43 +2541,67 @@ const MangaDetail: React.FC = () => {
 
             <TabsContent value="characters" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
               {isCharactersTabActive ? (
-                <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 md:grid-cols-4 lg:grid-cols-6">
+                <div className="space-y-8">
                   {isCharsLoading ? (
-                    // Characters Skeleton
-                    Array.from({ length: 6 }).map((_, i) => (
-                      <div key={i} className="space-y-3">
-                        <div className="aspect-[3/4] rounded-xl bg-secondary/30 animate-pulse border border-border" />
-                        <div className="h-4 w-2/3 bg-secondary/50 rounded mx-auto animate-pulse" />
-                      </div>
-                    ))
+                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 md:grid-cols-4 lg:grid-cols-6">
+                      {Array.from({ length: 6 }).map((_, i) => (
+                        <div key={i} className="space-y-3">
+                          <div className="aspect-[3/4] rounded-xl bg-secondary/30 animate-pulse border border-border" />
+                          <div className="h-4 w-2/3 bg-secondary/50 rounded mx-auto animate-pulse" />
+                        </div>
+                      ))}
+                    </div>
                   ) : mangaCharacters.length > 0 ? (
-                    mangaCharacters.map((char) => (
-                      <Link key={char.id} to={`/character/${char.id}`} className="group space-y-3">
-                        <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-lg border border-border bg-secondary/30">
-                          {char.imageUrl ? (
-                            <OptimizedImage
-                              src={char.imageUrl}
-                              alt={char.name}
-                              rootMargin="420px 0px"
-                              containerClassName="h-full w-full"
-                              placeholderClassName="rounded-[inherit]"
-                              className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                            />
-                          ) : (
-                            <EntityPlaceholderArt
-                              name={char.name}
-                              className="rounded-[inherit]"
-                              initialClassName="text-5xl sm:text-6xl"
-                            />
-                          )}
-                          <div className="absolute inset-0 bg-gradient-to-t from-black/60 to-transparent opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-3">
-                            <div className="text-white text-xs font-bold flex items-center gap-1">
-                              <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
-                            </div>
+                    groupedMangaCharacters.map((group) => (
+                      <section key={group.role} className="space-y-4">
+                        <div className="flex items-center justify-between gap-3">
+                          <div>
+                            <h2 className="text-xl font-bold sm:text-2xl">{group.title}</h2>
+                            <p className="text-sm text-muted-foreground">{group.items.length} karakter</p>
                           </div>
                         </div>
-                        <h3 className="text-center font-bold text-sm truncate group-hover:text-primary transition-colors">{char.name}</h3>
-                      </Link>
+
+                        <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 sm:gap-6 md:grid-cols-4 lg:grid-cols-6">
+                          {group.items.map((char) => (
+                            <Link key={char.id} to={`/character/${char.id}`} className="group space-y-3">
+                              <div className="relative aspect-[3/4] rounded-xl overflow-hidden shadow-lg border border-border bg-secondary/30">
+                                {char.imageUrl ? (
+                                  <OptimizedImage
+                                    src={char.imageUrl}
+                                    alt={char.name}
+                                    rootMargin="420px 0px"
+                                    containerClassName="h-full w-full"
+                                    placeholderClassName="rounded-[inherit]"
+                                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                  />
+                                ) : (
+                                  <EntityPlaceholderArt
+                                    name={char.name}
+                                    className="rounded-[inherit]"
+                                    initialClassName="text-5xl sm:text-6xl"
+                                  />
+                                )}
+                                <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent p-3">
+                                  <div className="flex items-center justify-between gap-2">
+                                    <span className="rounded-full bg-black/45 px-2 py-1 text-[10px] font-semibold uppercase tracking-wide text-white/90">
+                                      {getCharacterListingRoleLabel(group.role)}
+                                    </span>
+                                    <div className="text-white text-xs font-bold flex items-center gap-1">
+                                      <Heart className="h-3 w-3 fill-current" /> {char.likesCount}
+                                    </div>
+                                  </div>
+                                </div>
+                              </div>
+                              <div className="space-y-1 text-center">
+                                <h3 className="truncate font-bold text-sm group-hover:text-primary transition-colors">{char.name}</h3>
+                                {char.details?.role ? (
+                                  <p className="truncate text-xs text-muted-foreground">{char.details.role}</p>
+                                ) : null}
+                              </div>
+                            </Link>
+                          ))}
+                        </div>
+                      </section>
                     ))
                   ) : (
                     <div className="col-span-full py-20 text-center text-muted-foreground italic bg-secondary/10 rounded-2xl border border-dashed border-border">

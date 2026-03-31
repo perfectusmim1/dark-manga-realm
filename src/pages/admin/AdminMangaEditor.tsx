@@ -37,14 +37,13 @@ import {
     getCharacters,
     getAuthors,
     getArtists,
-    linkMangaToCharacter,
-    unlinkMangaFromCharacter,
     saveCharacter,
     saveAuthor,
     saveArtist,
     getMangaCharacters,
     ensureAuthorByName,
     ensureArtistByName,
+    replaceMangaCharacters,
     replaceMangaAuthors,
     replaceMangaArtists,
     replaceMangaRelatedSeries,
@@ -52,7 +51,9 @@ import {
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { Manga, Chapter, Character, Author, Artist, MangaRelation } from '@/lib/types';
 import { allGenres, normalizeGenres } from '@/lib/mockData';
+import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 import { createNotificationForFollowers } from '@/lib/storage';
+import { getCharacterListingRoleLabel, type CharacterListingRole } from '@/lib/characterRoles';
 import { toast } from 'sonner';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
@@ -63,15 +64,30 @@ const normalizeNamedEntityKey = (value?: string | null) =>
 
 const splitManualEntityNames = (value?: string | null) => {
     const normalized = value || '';
-    const hasStructuredSeparator = /[\n;|/]/.test(normalized);
+    const hasStructuredSeparator = /[\n;,|/]/.test(normalized);
     const values = hasStructuredSeparator
-        ? normalized.split(/[\n;|/]+/g)
+        ? normalized.split(/[\n;,|/]+/g)
         : [normalized];
 
     return Array.from(
         new Set(
             values
                 .map((item) => normalizeNamedEntityValue(item))
+                .filter(Boolean),
+        ),
+    );
+};
+
+const getSeriesGalleryUrls = (details?: Manga['details']) => {
+    const rawGallery = details?.extra?.seriesGallery;
+    if (!Array.isArray(rawGallery)) {
+        return [];
+    }
+
+    return Array.from(
+        new Set(
+            rawGallery
+                .map((value) => (typeof value === 'string' ? value.trim() : ''))
                 .filter(Boolean),
         ),
     );
@@ -87,6 +103,17 @@ const joinEntityNames = (values: Array<string | null | undefined>) => (
     ).join(', ')
 );
 
+const removeEntityNameFromManualValue = (
+    currentValue: string | null | undefined,
+    removedName: string,
+) => (
+    joinEntityNames(
+        splitManualEntityNames(currentValue).filter(
+            (value) => normalizeNamedEntityKey(value) !== normalizeNamedEntityKey(removedName),
+        ),
+    )
+);
+
 const upsertNamedEntity = <T extends { id: string }>(items: T[], entity: T) => {
     const existingIndex = items.findIndex((item) => item.id === entity.id);
     if (existingIndex === -1) {
@@ -95,6 +122,8 @@ const upsertNamedEntity = <T extends { id: string }>(items: T[], entity: T) => {
 
     return items.map((item) => (item.id === entity.id ? entity : item));
 };
+
+const DEFAULT_CHARACTER_LISTING_ROLE: CharacterListingRole = 'minor';
 
 const AdminMangaEditor: React.FC = () => {
     const navigate = useNavigate();
@@ -137,7 +166,6 @@ const AdminMangaEditor: React.FC = () => {
     const [mangaCharacters, setMangaCharacters] = useState<Character[]>([]);
     const [selectedAuthors, setSelectedAuthors] = useState<Author[]>([]);
     const [selectedArtists, setSelectedArtists] = useState<Artist[]>([]);
-    const [deletedCharacterIds, setDeletedCharacterIds] = useState<string[]>([]);
     const [relatedSeries, setRelatedSeries] = useState<MangaRelation[]>([]);
     const [selectedRelatedMangaId, setSelectedRelatedMangaId] = useState<string>('');
     const [selectedRelationType, setSelectedRelationType] = useState<string>('related');
@@ -191,7 +219,10 @@ const AdminMangaEditor: React.FC = () => {
 
                         // Load related entities
                         const chars = await getMangaCharacters(mangaId, { includePrivate: true });
-                        setMangaCharacters(chars);
+                        setMangaCharacters(chars.map((character) => ({
+                            ...character,
+                            listingRole: character.listingRole || DEFAULT_CHARACTER_LISTING_ROLE,
+                        })));
                         setRelatedSeries(existingManga.relatedSeries || []);
                         setSelectedAuthors(existingManga.authorsDetails || []);
                         setSelectedArtists(existingManga.artistsDetails || []);
@@ -218,6 +249,25 @@ const AdminMangaEditor: React.FC = () => {
         setManga(prev => ({ ...prev, [field]: value }));
     };
 
+    const updateSeriesGalleryUrls = (value: string) => {
+        const urls = Array.from(
+            new Set(
+                value
+                    .split(/\r?\n/g)
+                    .map((item) => item.trim())
+                    .filter(Boolean),
+            ),
+        );
+
+        handleChange('details', {
+            ...(manga.details || {}),
+            extra: {
+                ...(manga.details?.extra || {}),
+                seriesGallery: urls,
+            },
+        } as Manga['details']);
+    };
+
     const addSelectedAuthor = (author: Author) => {
         setSelectedAuthors((current) => {
             if (current.some((item) => item.id === author.id)) {
@@ -226,6 +276,7 @@ const AdminMangaEditor: React.FC = () => {
 
             return [...current, author];
         });
+        handleChange('author', removeEntityNameFromManualValue(manga.author, author.name));
     };
 
     const addSelectedArtist = (artist: Artist) => {
@@ -236,14 +287,31 @@ const AdminMangaEditor: React.FC = () => {
 
             return [...current, artist];
         });
+        handleChange('artist', removeEntityNameFromManualValue(manga.artist, artist.name));
     };
 
     const removeSelectedAuthor = (authorId: string) => {
+        const authorToRemove = selectedAuthors.find((item) => item.id === authorId);
         setSelectedAuthors((current) => current.filter((item) => item.id !== authorId));
+        if (authorToRemove) {
+            handleChange('author', removeEntityNameFromManualValue(manga.author, authorToRemove.name));
+        }
     };
 
     const removeSelectedArtist = (artistId: string) => {
+        const artistToRemove = selectedArtists.find((item) => item.id === artistId);
         setSelectedArtists((current) => current.filter((item) => item.id !== artistId));
+        if (artistToRemove) {
+            handleChange('artist', removeEntityNameFromManualValue(manga.artist, artistToRemove.name));
+        }
+    };
+
+    const updateCharacterListingRole = (characterId: string, listingRole: CharacterListingRole) => {
+        setMangaCharacters((current) => current.map((character) => (
+            character.id === characterId
+                ? { ...character, listingRole }
+                : character
+        )));
     };
 
     const addAlternativeTitle = () => {
@@ -498,19 +566,19 @@ const AdminMangaEditor: React.FC = () => {
                 averageRating: manga.averageRating ?? 0,
                 reviewCount: manga.reviewCount ?? 0,
                 releaseYear: manga.releaseYear,
+                details: manga.details || {},
+                sourceLinks: manga.sourceLinks || [],
             };
 
             await saveManga(mangaToSave);
 
-            if (isEditing && manga.id) {
-                for (const charId of deletedCharacterIds) {
-                    await unlinkMangaFromCharacter(manga.id, charId);
-                }
-            }
-
-            for (const char of mangaCharacters) {
-                await linkMangaToCharacter(mangaToSave.id, char.id);
-            }
+            await replaceMangaCharacters(
+                mangaToSave.id,
+                mangaCharacters.map((character) => ({
+                    characterId: character.id,
+                    listingRole: character.listingRole || DEFAULT_CHARACTER_LISTING_ROLE,
+                })),
+            );
 
             await replaceMangaAuthors(mangaToSave.id, resolvedAuthors.map((author) => author.id));
             await replaceMangaArtists(mangaToSave.id, resolvedArtists.map((artist) => artist.id));
@@ -524,7 +592,6 @@ const AdminMangaEditor: React.FC = () => {
                 })),
             );
 
-            setDeletedCharacterIds([]);
             toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
             navigate('/admin/mangas');
         } catch (err) {
@@ -550,7 +617,12 @@ const AdminMangaEditor: React.FC = () => {
                 const chars = await getCharacters({ includePrivate: true });
                 setAllCharacters(chars);
                 const created = chars.find(c => c.id === id);
-                if (created) setMangaCharacters(prev => [...prev, created]);
+                if (created) {
+                    setMangaCharacters((prev) => [...prev, {
+                        ...created,
+                        listingRole: DEFAULT_CHARACTER_LISTING_ROLE,
+                    }]);
+                }
             } else if (showEntityDialog.type === 'author') {
                 id = await saveAuthor(entity);
                 const auths = await getAuthors({ includePrivate: true });
@@ -575,6 +647,8 @@ const AdminMangaEditor: React.FC = () => {
             toast.error('Oluşturulamadı');
         }
     };
+
+    const seriesGalleryUrls = getSeriesGalleryUrls(manga.details);
 
     return (
         <div className="space-y-6">
@@ -813,7 +887,13 @@ const AdminMangaEditor: React.FC = () => {
                                     <Select onValueChange={(val) => {
                                         const char = allCharacters.find(c => c.id === val);
                                         if (char && !mangaCharacters.find(mc => mc.id === char.id)) {
-                                            setMangaCharacters([...mangaCharacters, char]);
+                                            setMangaCharacters([
+                                                ...mangaCharacters,
+                                                {
+                                                    ...char,
+                                                    listingRole: DEFAULT_CHARACTER_LISTING_ROLE,
+                                                },
+                                            ]);
                                         }
                                     }}>
                                         <SelectTrigger className="flex-1">
@@ -826,36 +906,62 @@ const AdminMangaEditor: React.FC = () => {
                                         </SelectContent>
                                     </Select>
                                 </div>
-                                <div className="flex flex-wrap gap-2">
+                                <div className="grid gap-3">
                                     {mangaCharacters.map(char => (
-                                        <Badge key={char.id} variant="secondary" className="px-3 py-1 gap-2 border-primary/20 hover:border-primary/40 transition-colors">
-                                            <div className="w-5 h-5 rounded-full bg-muted overflow-hidden flex items-center justify-center shrink-0 border border-white/10">
-                                                {char.imageUrl ? (
-                                                    <img
-                                                        src={char.imageUrl}
-                                                        className="w-full h-full object-cover"
-                                                        onError={(e) => {
-                                                            (e.target as HTMLImageElement).src = 'https://via.placeholder.com/40?text=?';
-                                                        }}
-                                                    />
-                                                ) : (
-                                                    <span className="text-[10px] text-muted-foreground">?</span>
-                                                )}
+                                        <div
+                                            key={char.id}
+                                            className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/20 p-3 sm:flex-row sm:items-center"
+                                        >
+                                            <div className="flex min-w-0 flex-1 items-center gap-3">
+                                                <div className="flex h-10 w-10 shrink-0 items-center justify-center overflow-hidden rounded-full border border-white/10 bg-muted">
+                                                    {char.imageUrl ? (
+                                                        <img
+                                                            src={char.imageUrl}
+                                                            className="h-full w-full object-cover"
+                                                            onError={(e) => {
+                                                                (e.target as HTMLImageElement).src = 'https://via.placeholder.com/40?text=?';
+                                                            }}
+                                                        />
+                                                    ) : (
+                                                        <span className="text-xs text-muted-foreground">?</span>
+                                                    )}
+                                                </div>
+                                                <div className="min-w-0">
+                                                    <p className="truncate font-medium">{char.name}</p>
+                                                    <p className="text-xs text-muted-foreground">
+                                                        Bu serideki rolünü ayrı ayarlayabilirsin
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <span className="max-w-[150px] truncate">{char.name}</span>
-                                            <button
-                                                type="button"
-                                                className="hover:text-destructive transition-colors ml-1"
-                                                onClick={() => {
-                                                    setMangaCharacters(mangaCharacters.filter(c => c.id !== char.id));
-                                                    if (!deletedCharacterIds.includes(char.id)) {
-                                                        setDeletedCharacterIds([...deletedCharacterIds, char.id]);
-                                                    }
-                                                }}
-                                            >
-                                                <X className="h-3 w-3" />
-                                            </button>
-                                        </Badge>
+
+                                            <div className="flex items-center gap-2 sm:justify-end">
+                                                <Select
+                                                    value={char.listingRole || DEFAULT_CHARACTER_LISTING_ROLE}
+                                                    onValueChange={(value) => updateCharacterListingRole(char.id, value as CharacterListingRole)}
+                                                >
+                                                    <SelectTrigger className="w-full sm:w-[170px]">
+                                                        <SelectValue placeholder="Rol seçin" />
+                                                    </SelectTrigger>
+                                                    <SelectContent>
+                                                        <SelectItem value="main">{getCharacterListingRoleLabel('main')}</SelectItem>
+                                                        <SelectItem value="supporting">{getCharacterListingRoleLabel('supporting')}</SelectItem>
+                                                        <SelectItem value="minor">{getCharacterListingRoleLabel('minor')}</SelectItem>
+                                                    </SelectContent>
+                                                </Select>
+
+                                                <Button
+                                                    type="button"
+                                                    variant="outline"
+                                                    size="icon"
+                                                    className="shrink-0 hover:text-destructive"
+                                                    onClick={() => {
+                                                        setMangaCharacters(mangaCharacters.filter(c => c.id !== char.id));
+                                                    }}
+                                                >
+                                                    <X className="h-4 w-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
                                     ))}
                                 </div>
                             </div>
@@ -916,8 +1022,8 @@ const AdminMangaEditor: React.FC = () => {
                                         >
                                             <div>
                                                 <p className="font-medium">{relation.relatedManga?.title || relation.relatedMangaId}</p>
-                                                <p className="text-sm capitalize text-muted-foreground">
-                                                    {relation.relationType.replace(/_/g, ' ')}
+                                                <p className="text-sm text-muted-foreground">
+                                                    {getMangaRelationTypeLabel(relation.relationType)}
                                                 </p>
                                             </div>
                                             <Button
@@ -1041,6 +1147,41 @@ const AdminMangaEditor: React.FC = () => {
                                     }}
                                 />
                             )}
+                        </div>
+
+                        <div className="space-y-3 border-t border-border pt-4">
+                            <div className="space-y-1">
+                                <label className="text-sm font-medium">Seri Galerisi</label>
+                                <p className="text-xs text-muted-foreground">
+                                    Her satıra bir görsel URL'si yazın. Bu görseller manga sayfasında `Galeri` sekmesinde gösterilir.
+                                </p>
+                            </div>
+                            <Textarea
+                                value={seriesGalleryUrls.join('\n')}
+                                onChange={(e) => updateSeriesGalleryUrls(e.target.value)}
+                                placeholder={'https://example.com/gallery-1.jpg\nhttps://example.com/gallery-2.jpg'}
+                                className="min-h-[120px]"
+                            />
+                            <p className="text-xs text-muted-foreground">
+                                {seriesGalleryUrls.length} seri görseli kayıtlı
+                            </p>
+                            {seriesGalleryUrls.length > 0 ? (
+                                <div className="grid grid-cols-2 gap-2">
+                                    {seriesGalleryUrls.map((url, index) => (
+                                        <div key={`${url}-${index}`} className="space-y-2 rounded-lg border border-border p-2">
+                                            <img
+                                                src={url}
+                                                alt={`Seri galeri ${index + 1}`}
+                                                className="aspect-[3/4] w-full rounded-md object-cover"
+                                                onError={(e) => {
+                                                    (e.target as HTMLImageElement).src = 'https://via.placeholder.com/300x400?text=No+Image';
+                                                }}
+                                            />
+                                            <p className="truncate text-[11px] text-muted-foreground">{url}</p>
+                                        </div>
+                                    ))}
+                                </div>
+                            ) : null}
                         </div>
                     </div>
 

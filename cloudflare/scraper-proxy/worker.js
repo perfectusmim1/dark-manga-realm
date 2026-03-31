@@ -11,6 +11,8 @@ const DEFAULT_ALLOWED_HOSTS = [
   'anilist.co',
   'graphql.anilist.co',
   'api.jikan.moe',
+  'anime-planet.com',
+  'www.anime-planet.com',
 ];
 
 const DEFAULT_ALLOWED_ORIGINS = [

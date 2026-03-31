@@ -54,8 +54,6 @@ export const allGenres = [
   'Anti Kahraman',
   'Asalet',
   'Beden Değişimi',
-  'BL',
-  'GL',
   'Çocuk Bakımı',
   'Distopya',
   'Hayatta Kalma',
@@ -151,8 +149,6 @@ const genreAliasMap: Record<string, string> = {
   'anti hero': 'Anti Kahraman',
   nobility: 'Asalet',
   'body swap': 'Beden Değişimi',
-  'boys love': 'BL',
-  'girls love': 'GL',
   childcare: 'Çocuk Bakımı',
   dystopia: 'Distopya',
   survival: 'Hayatta Kalma',
@@ -184,9 +180,27 @@ const toGenreKey = (value: string) =>
     .toLocaleLowerCase('tr-TR')
     .replace(/\s+/g, ' ');
 
+const BLOCKED_GENRE_KEYS = new Set([
+  'bl',
+  'gl',
+  'boys love',
+  "boys' love",
+  'girls love',
+  "girls' love",
+  'yaoi',
+  'yuri',
+  'shounen ai',
+  'shoujo ai',
+  'soft yuri',
+]);
+
 export const normalizeGenreName = (genre: string): string => {
   const trimmed = genre.trim();
   if (!trimmed) {
+    return '';
+  }
+
+  if (BLOCKED_GENRE_KEYS.has(toGenreKey(trimmed))) {
     return '';
   }
 

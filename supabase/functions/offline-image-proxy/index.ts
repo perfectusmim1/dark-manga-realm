@@ -1,6 +1,9 @@
 import { corsHeaders } from '../_shared/cors.ts';
 
 const DEFAULT_ALLOWED_HOSTS = new Set([
+  'cdn.anime-planet.com',
+  'anime-planet.com',
+  'www.anime-planet.com',
   'yedek.mangawow.com',
   'kirmizikafa.monster',
 ]);
@@ -28,29 +31,45 @@ const jsonResponse = (body: Record<string, unknown>, status = 200) =>
     },
   });
 
+const getUpstreamReferer = (parsedUrl: URL) => {
+  const hostname = parsedUrl.hostname.toLowerCase();
+
+  if (hostname === 'cdn.anime-planet.com' || hostname.endsWith('.anime-planet.com')) {
+    return 'https://www.anime-planet.com/';
+  }
+
+  return `${parsedUrl.protocol}//${parsedUrl.hostname}/`;
+};
+
 Deno.serve(async (req) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders });
   }
 
-  if (req.method !== 'POST') {
+  if (!['GET', 'POST'].includes(req.method)) {
     return jsonResponse({ error: 'Method not allowed' }, 405);
   }
 
   try {
-    const rawBody = await req.text();
-    if (!rawBody.trim()) {
-      return jsonResponse({ error: 'Request body is required' }, 400);
-    }
+    let url: unknown;
 
-    let parsedBody: { url?: unknown };
-    try {
-      parsedBody = JSON.parse(rawBody);
-    } catch {
-      return jsonResponse({ error: 'Invalid JSON body' }, 400);
-    }
+    if (req.method === 'GET') {
+      url = new URL(req.url).searchParams.get('url');
+    } else {
+      const rawBody = await req.text();
+      if (!rawBody.trim()) {
+        return jsonResponse({ error: 'Request body is required' }, 400);
+      }
 
-    const { url } = parsedBody;
+      let parsedBody: { url?: unknown };
+      try {
+        parsedBody = JSON.parse(rawBody);
+      } catch {
+        return jsonResponse({ error: 'Invalid JSON body' }, 400);
+      }
+
+      url = parsedBody.url;
+    }
 
     if (typeof url !== 'string' || !url.trim()) {
       return jsonResponse({ error: 'Valid url is required' }, 400);
@@ -75,6 +94,9 @@ Deno.serve(async (req) => {
     const upstreamResponse = await fetch(parsedUrl.toString(), {
       method: 'GET',
       headers: {
+        'Accept': 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8',
+        'Origin': getUpstreamReferer(parsedUrl).replace(/\/$/, ''),
+        'Referer': getUpstreamReferer(parsedUrl),
         'User-Agent': 'ToonParrot Offline Proxy/1.0',
       },
     });
