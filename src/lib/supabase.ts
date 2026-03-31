@@ -336,7 +336,7 @@ export const waitForUsableSupabaseSession = async (options?: {
         const { data, error } = await supabase.auth.getSession();
         if (error) {
             const errorInfo = await getFunctionErrorMessage(error);
-            console.error(`Edge function error (attempt ${'?'}/${'?'}):`, {
+            console.error('Edge function error during session bootstrap', {
                 status: errorInfo.status,
                 message: errorInfo.message,
                 originalError: error
@@ -535,12 +535,23 @@ export const invokeAuthenticatedFunction = async <TResponse>(
                 : `Edge function ${functionName} failed`;
         
         if (attempt < maxAttempts - 1 && isRetryableSupabaseBootstrapError(message, status)) {
-            console.warn(`Retrying authenticated function ${functionName} (attempt ${attempt + 1}/${maxAttempts}) due to retryable error:`, { status, message });
+            console.warn('Retrying authenticated function after retryable error', {
+                functionName,
+                attempt: attempt + 1,
+                maxAttempts,
+                status,
+                message,
+            });
             await waitFor(retryDelayMs * (attempt + 1));
             continue;
         }
 
-        console.error(`Authenticated function ${functionName} failed:`, { status, message, responseBody: parsedBody });
+        console.error('Authenticated function failed', {
+            functionName,
+            status,
+            message,
+            responseBody: parsedBody,
+        });
         throw new Error(message);
     }
 

@@ -1,10 +1,5 @@
 import React from 'react';
 import {
-  Activity,
-  AlertTriangle,
-  CheckCircle2,
-  Clock3,
-  HardDrive,
   ImageIcon,
   Loader2,
   RefreshCw,
@@ -37,18 +32,12 @@ import {
   updateMangaMediaUrls,
 } from '@/lib/database';
 import {
-  getAdminMediaMetrics,
-  type AdminMediaMetricsBreakdownRow,
-  type AdminMediaMetricsSnapshot,
-} from '@/lib/adminMediaMetrics';
-import {
   buildMaterializedGalleryObjectKey,
   canMaterializeRemoteMedia,
   isStoredMediaUrl,
   materializeRemoteImages,
 } from '@/lib/mediaStorage';
 import { useAuth } from '@/contexts/AuthContext';
-import { waitForUsableSupabaseSession } from '@/lib/supabase';
 import type { EntityGalleryImage } from '@/lib/types';
 
 type ProcessingKey =
@@ -78,36 +67,6 @@ const getExternalMediaUrl = (value?: string | null) => {
 const getExternalGalleryImages = (gallery?: EntityGalleryImage[]) => (
   (gallery || []).filter((image) => Boolean(getExternalMediaUrl(image?.url)))
 );
-
-const formatBytes = (value: number) => {
-  if (!Number.isFinite(value) || value <= 0) {
-    return '0 B';
-  }
-
-  const units = ['B', 'KB', 'MB', 'GB', 'TB'];
-  let size = value;
-  let unitIndex = 0;
-
-  while (size >= 1024 && unitIndex < units.length - 1) {
-    size /= 1024;
-    unitIndex += 1;
-  }
-
-  return `${size >= 10 || unitIndex === 0 ? size.toFixed(0) : size.toFixed(1)} ${units[unitIndex]}`;
-};
-
-const formatDateTime = (value?: string | null) => {
-  if (!value) {
-    return 'Henüz veri yok';
-  }
-
-  const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) {
-    return 'Henüz veri yok';
-  }
-
-  return parsed.toLocaleString('tr-TR');
-};
 
 const CandidatePreviewList = ({ values }: { values: string[] }) => {
   if (values.length === 0) {
@@ -150,85 +109,11 @@ const LabelledInput = ({
   </div>
 );
 
-const MetricBreakdownList = ({
-  rows,
-  emptyText,
-  showBytes = false,
-}: {
-  rows: AdminMediaMetricsBreakdownRow[];
-  emptyText: string;
-  showBytes?: boolean;
-}) => {
-  if (rows.length === 0) {
-    return <p className="text-sm text-muted-foreground">{emptyText}</p>;
-  }
-
-  return (
-    <div className="space-y-3">
-      {rows.map((row) => (
-        <div
-          key={`${row.label}-${row.sublabel || ''}`}
-          className="rounded-2xl border border-border/70 bg-background/70 px-4 py-4"
-        >
-          <div className="flex items-start justify-between gap-3">
-            <div className="min-w-0">
-              <p className="truncate text-sm font-semibold capitalize">{row.label}</p>
-              {row.sublabel ? (
-                <p className="mt-1 truncate text-xs text-muted-foreground">{row.sublabel}</p>
-              ) : null}
-            </div>
-            <Badge variant={row.errors > 0 ? 'destructive' : 'secondary'}>
-              {row.requests}
-            </Badge>
-          </div>
-
-          <div className="mt-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
-            <span>{row.errors} hata</span>
-            <span>{row.averageDurationMs} ms ort.</span>
-            {showBytes ? <span>{formatBytes(row.bytesTotal || 0)}</span> : null}
-            <span>Son: {formatDateTime(row.lastSeenAt)}</span>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-};
-
-const MetricSummaryCard = ({
-  icon: Icon,
-  label,
-  value,
-  description,
-}: {
-  icon: React.ComponentType<{ className?: string }>;
-  label: string;
-  value: string;
-  description: string;
-}) => (
-  <div className="rounded-2xl border border-border/70 bg-background/70 px-4 py-4">
-    <div className="flex items-center gap-3">
-      <div className="rounded-xl border border-primary/20 bg-primary/10 p-2 text-primary">
-        <Icon className="h-4 w-4" />
-      </div>
-      <div className="min-w-0">
-        <p className="text-xs font-bold uppercase tracking-[0.22em] text-muted-foreground">
-          {label}
-        </p>
-        <p className="mt-2 text-2xl font-bold">{value}</p>
-      </div>
-    </div>
-    <p className="mt-3 text-xs text-muted-foreground">{description}</p>
-  </div>
-);
-
 const AdminMediaMigration: React.FC = () => {
   const { user, session, mfaState, isLoading: authLoading } = useAuth();
   const [batchSize, setBatchSize] = React.useState('20');
   const [isLoading, setIsLoading] = React.useState(true);
-  const [metricsLoading, setMetricsLoading] = React.useState(true);
   const [processingKey, setProcessingKey] = React.useState<ProcessingKey>(null);
-  const [metrics, setMetrics] = React.useState<AdminMediaMetricsSnapshot | null>(null);
-  const [metricsError, setMetricsError] = React.useState<string | null>(null);
   const [mangaCandidates, setMangaCandidates] = React.useState<MangaMediaRecord[]>([]);
   const [characterCandidates, setCharacterCandidates] = React.useState<NamedEntityMediaRecord[]>([]);
   const [authorCandidates, setAuthorCandidates] = React.useState<NamedEntityMediaRecord[]>([]);
@@ -241,7 +126,7 @@ const AdminMediaMigration: React.FC = () => {
       return 20;
     }
 
-    return Math.max(1, Math.min(100, numeric));
+    return Math.max(1, Math.min(2000, numeric));
   }, [batchSize]);
 
   const loadCandidates = React.useCallback(async () => {
@@ -267,44 +152,13 @@ const AdminMediaMigration: React.FC = () => {
     }
   }, []);
 
-  const loadMetrics = React.useCallback(async () => {
-    if (authLoading || !user || !session?.access_token || mfaState.needsVerification) {
-      setMetrics(null);
-      setMetricsError(null);
-      setMetricsLoading(false);
-      return;
-    }
-
-    setMetricsLoading(true);
-    setMetricsError(null);
-
-    try {
-      const stabilizedSession = await waitForUsableSupabaseSession({
-        preferredSession: session,
-        required: true,
-        maxWaitMs: 7000,
-      }).catch(() => session);
-      const nextMetrics = await getAdminMediaMetrics(stabilizedSession?.access_token || session.access_token);
-      setMetrics(nextMetrics);
-    } catch (error) {
-      console.error(error);
-      setMetrics(null);
-      setMetricsError(error instanceof Error ? error.message : 'Metrics yüklenemedi');
-    } finally {
-      setMetricsLoading(false);
-    }
-  }, [authLoading, mfaState.needsVerification, session, user]);
-
   const refreshDashboard = React.useCallback(async () => {
     if (authLoading || !user || !session?.access_token || mfaState.needsVerification) {
       return;
     }
 
-    await Promise.all([
-      loadCandidates(),
-      loadMetrics(),
-    ]);
-  }, [authLoading, loadCandidates, loadMetrics, mfaState.needsVerification, session?.access_token, user]);
+    await loadCandidates();
+  }, [authLoading, loadCandidates, mfaState.needsVerification, session?.access_token, user]);
 
   React.useEffect(() => {
     if (authLoading) {
@@ -312,9 +166,6 @@ const AdminMediaMigration: React.FC = () => {
     }
 
     if (!user || !session?.access_token || mfaState.needsVerification) {
-      setMetrics(null);
-      setMetricsError(null);
-      setMetricsLoading(false);
       return;
     }
 
@@ -323,7 +174,7 @@ const AdminMediaMigration: React.FC = () => {
 
   const migrateMangaMediaBatch = async () => {
     if (!mediaEnabled) {
-      toast.error('Media ingest yapılandırması eksik');
+      toast.error('Medya ingest yapılandırması eksik');
       return;
     }
 
@@ -399,7 +250,7 @@ const AdminMediaMigration: React.FC = () => {
 
   const migrateMangaGalleryBatch = async () => {
     if (!mediaEnabled) {
-      toast.error('Media ingest yapılandırması eksik');
+      toast.error('Medya ingest yapılandırması eksik');
       return;
     }
 
@@ -464,7 +315,7 @@ const AdminMediaMigration: React.FC = () => {
     candidates: NamedEntityMediaRecord[],
   ) => {
     if (!mediaEnabled) {
-      toast.error('Media ingest yapılandırması eksik');
+      toast.error('Medya ingest yapılandırması eksik');
       return;
     }
 
@@ -533,7 +384,7 @@ const AdminMediaMigration: React.FC = () => {
     candidates: NamedEntityMediaRecord[],
   ) => {
     if (!mediaEnabled) {
-      toast.error('Media ingest yapılandırması eksik');
+      toast.error('Medya ingest yapılandırması eksik');
       return;
     }
 
@@ -566,7 +417,7 @@ const AdminMediaMigration: React.FC = () => {
               objectKey: buildMaterializedGalleryObjectKey(
                 entityType,
                 item.id,
-                image.sourceUrl || image.url || `${index}`,
+                image.url || image.sourceUrl || `${index}`,
               ),
             }];
           })
@@ -690,122 +541,17 @@ const AdminMediaMigration: React.FC = () => {
     },
   ];
 
-  const totalPendingCount = summaryCards.reduce((sum, card) => sum + card.count, 0);
-
   return (
     <div className="space-y-6">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
-            <Activity className="h-5 w-5 text-primary" />
-            Proxy ve Storage Ozeti
-          </CardTitle>
-          <CardDescription>
-            Son 24 saatlik proxy trafigi ile R2&apos;ye yazilan medya hacmini ayni panelde toplar.
-            Source ve operation bazli hangi hattin istek yedigini buradan okuyabilirsin.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-5">
-          {metricsError ? (
-            <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              Metrics paneli hazir degil: {metricsError}
-            </div>
-          ) : null}
-
-          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-4">
-            <MetricSummaryCard
-              icon={Activity}
-              label="24 Saat Proxy"
-              value={metricsLoading ? '...' : `${metrics?.summary.requests24h || 0}`}
-              description="Scraper ve offline-image proxy isteklerinin toplami"
-            />
-            <MetricSummaryCard
-              icon={AlertTriangle}
-              label="24 Saat Hata"
-              value={metricsLoading ? '...' : `${metrics?.summary.errors24h || 0}`}
-              description="4xx, 5xx ve blocked eventlerinin toplam sayisi"
-            />
-            <MetricSummaryCard
-              icon={Clock3}
-              label="Ortalama Sure"
-              value={metricsLoading ? '...' : `${metrics?.summary.averageDurationMs24h || 0} ms`}
-              description="Son 24 saatte proxy cevap suresi ortalamasi"
-            />
-            <MetricSummaryCard
-              icon={HardDrive}
-              label="Yaklasik Storage"
-              value={metricsLoading ? '...' : formatBytes(metrics?.summary.storedBytesTotal || 0)}
-              description="Media ingest worker tarafindan R2&apos;ye yazilan toplam boyut"
-            />
-          </div>
-
-          <div className="grid gap-4 lg:grid-cols-3">
-            <Card className="border-border/70 bg-card/60">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Scraper Proxy</CardTitle>
-                <CardDescription>
-                  Kaynak ve islem bazli son 24 saat istegi
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <MetricBreakdownList
-                  rows={metrics?.scraper || []}
-                  emptyText="Scraper proxy icin metrik bulunamadi."
-                />
-              </CardContent>
-            </Card>
-
-            <Card className="border-border/70 bg-card/60">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">Offline Image Proxy</CardTitle>
-                <CardDescription>
-                  Purpose ve entity bazli hangi gorsel yolu daha cok kullaniliyor
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <MetricBreakdownList
-                  rows={metrics?.offline || []}
-                  emptyText="Offline image proxy icin metrik bulunamadi."
-                />
-              </CardContent>
-            </Card>
-
-            <Card className="border-border/70 bg-card/60">
-              <CardHeader className="pb-3">
-                <CardTitle className="text-lg">R2 Dagilimi</CardTitle>
-                <CardDescription>
-                  Hangi entity ve varyant ne kadar yer kapliyor
-                </CardDescription>
-              </CardHeader>
-              <CardContent>
-                <MetricBreakdownList
-                  rows={metrics?.storage || []}
-                  emptyText="Storage dagilimi henuz olusmadi."
-                  showBytes
-                />
-              </CardContent>
-            </Card>
-          </div>
-
-          <div className="rounded-xl border border-border/70 bg-background/70 px-4 py-4 text-sm text-muted-foreground">
-            Son veri: {metricsLoading ? 'Yukleniyor...' : formatDateTime(metrics?.summary.lastSeenAt)}
-            {' • '}
-            Son 24 saatte ingest edilen item: {metrics?.summary.ingestItems24h || 0}
-            {' • '}
-            Toplam kayitli obje: {metrics?.summary.storedObjectsTotal || 0}
-          </div>
-        </CardContent>
-      </Card>
-
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
             <UploadCloud className="h-5 w-5 text-primary" />
-            Medya Tasima
+            Medya Taşıma
           </CardTitle>
           <CardDescription>
-            Dis kaynakli kapak, banner, profil ve galeri gorsellerini sikistirilmis WebP olarak R2&apos;ye tasir.
-            Public tarafta bu islemden sonra proxy yerine dogrudan bucket URL&apos;si kullanilir.
+            Dış kaynaklı kapak, banner, profil ve galeri görsellerini sıkıştırılmış WebP olarak R2&apos;ye taşır.
+            Public tarafta bu işlemden sonra proxy yerine doğrudan bucket URL&apos;si kullanılır.
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -818,15 +564,15 @@ const AdminMediaMigration: React.FC = () => {
 
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant={mediaEnabled ? 'default' : 'destructive'}>
-                {mediaEnabled ? 'Media ingest aktif' : 'Media ingest eksik'}
+                {mediaEnabled ? 'Medya ingest aktif' : 'Medya ingest eksik'}
               </Badge>
               <Button
                 type="button"
                 variant="outline"
                 onClick={() => void refreshDashboard()}
-                disabled={isLoading || metricsLoading || Boolean(processingKey)}
+                disabled={isLoading || Boolean(processingKey)}
               >
-                {(isLoading || metricsLoading) ? (
+                {isLoading ? (
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                 ) : (
                   <RefreshCw className="mr-2 h-4 w-4" />
@@ -838,7 +584,7 @@ const AdminMediaMigration: React.FC = () => {
 
           {!mediaEnabled ? (
             <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
-              Bucket public URL veya admin media-ingest backend yapilandirmasi eksik.
+              Bucket public URL veya admin medya-ingest backend yapılandırması eksik.
             </div>
           ) : null}
 
@@ -850,7 +596,7 @@ const AdminMediaMigration: React.FC = () => {
                     <div>
                       <CardTitle className="text-lg">{card.title}</CardTitle>
                       <CardDescription>
-                        {card.count} kayit tasinmayi bekliyor
+                        {card.count} kayıt taşınmayı bekliyor
                       </CardDescription>
                     </div>
                     <Badge variant={card.count > 0 ? 'secondary' : 'outline'}>
@@ -872,7 +618,7 @@ const AdminMediaMigration: React.FC = () => {
                     ) : (
                       <ImageIcon className="mr-2 h-4 w-4" />
                     )}
-                    Sonraki {Math.min(parsedBatchSize, card.count)} kaydi tasi
+                    Sonraki {Math.min(parsedBatchSize, card.count)} kaydı taşı
                   </Button>
                 </CardContent>
               </Card>
@@ -880,35 +626,9 @@ const AdminMediaMigration: React.FC = () => {
           </div>
 
           <div className="rounded-xl border border-border bg-muted/20 px-4 py-3 text-sm text-muted-foreground">
-            Gecis mantigi idempotent calisir. Zaten R2 uzerinde duran URL&apos;ler tekrar tasinmaz;
-            yarida kesilirse ayni ekrandan devam edebilirsin.
+            Geçiş mantığı idempotent çalışır. Zaten R2 üzerinde duran URL&apos;ler tekrar taşınmaz;
+            yarıda kesilirse aynı ekrandan devam edebilirsin.
           </div>
-        </CardContent>
-      </Card>
-
-      <Card className="border-border/70 bg-card/60">
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-lg">
-            {totalPendingCount === 0 ? (
-              <CheckCircle2 className="h-5 w-5 text-emerald-400" />
-            ) : (
-              <AlertTriangle className="h-5 w-5 text-amber-300" />
-            )}
-            Gecis Durumu
-          </CardTitle>
-          <CardDescription>
-            Proxy ihtiyaci olan medya kalemleri burada ozetlenir. Bu sayi sifira yaklastikca public tarafta dis gorsel bagimliligi azalir.
-          </CardDescription>
-        </CardHeader>
-        <CardContent className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
-          {summaryCards.map((card) => (
-            <div key={card.key} className="rounded-xl border border-border bg-background/60 px-4 py-4">
-              <p className="text-xs font-bold uppercase tracking-[0.28em] text-muted-foreground">
-                {card.title}
-              </p>
-              <p className="mt-3 text-3xl font-bold">{card.count}</p>
-            </div>
-          ))}
         </CardContent>
       </Card>
     </div>

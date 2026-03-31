@@ -288,32 +288,36 @@ const ReadingTimeMangaCard = ({
 }) => (
     <Link
         to={`/reading-time/manga/${aggregate.mangaId}${detailSearch}`}
-        className="group flex h-full min-h-[14.5rem] flex-col rounded-2xl border border-border bg-card/45 p-3 transition-[transform,background-color,border-color,box-shadow] duration-300 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-card hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:min-h-[13.65rem]"
+        className="group flex h-full min-h-[14.5rem] flex-col rounded-2xl border border-border bg-card/45 p-3 [transform:translateZ(0)] transition-[transform,background-color,border-color,box-shadow] duration-300 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-card hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:min-h-[13.65rem]"
     >
-        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-background/50 leading-none">
-            {aggregate.mangaCover ? (
-                <img
-                    src={aggregate.mangaCover}
-                    alt={aggregate.mangaTitle}
-                    className="block aspect-[4/5] w-full object-cover transition-transform duration-300 group-hover:scale-[1.02] lg:aspect-[4/4.45]"
-                />
-            ) : (
-                <div className="flex aspect-[4/5] w-full items-center justify-center bg-secondary/40 lg:aspect-[4/4.45]">
-                    <BookOpen className="h-8 w-8 text-muted-foreground" />
-                </div>
-            )}
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-black/75 leading-none">
+            <div className="relative aspect-[4/5] lg:aspect-[4/4.45]">
+                <div className="absolute inset-0 transform-gpu transition-transform duration-300 ease-out group-hover:scale-[1.025]">
+                    {aggregate.mangaCover ? (
+                        <img
+                            src={aggregate.mangaCover}
+                            alt={aggregate.mangaTitle}
+                            className="block h-full w-full object-cover"
+                        />
+                    ) : (
+                        <div className="flex h-full w-full items-center justify-center bg-secondary/40">
+                            <BookOpen className="h-8 w-8 text-muted-foreground" />
+                        </div>
+                    )}
 
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/90 via-black/60 to-transparent lg:h-20" />
-            <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 via-background/30 to-transparent px-3 pb-3 pt-10 lg:pb-2.5 lg:pt-8">
-                <p className="text-sm font-semibold text-primary drop-shadow-[0_2px_10px_rgba(0,0,0,0.75)]">
-                    {formatCompactReadingDuration(aggregate.totalSeconds)}
-                </p>
-                <p className="mt-1 text-[11px] text-white/80 drop-shadow-[0_2px_8px_rgba(0,0,0,0.75)]">
-                    {new Date(aggregate.lastReadAt).toLocaleTimeString('tr-TR', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                    })}
-                </p>
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/90 via-black/60 to-transparent lg:h-20" />
+                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 via-background/30 to-transparent px-3 pb-3 pt-10 lg:pb-2.5 lg:pt-8">
+                        <p className="text-sm font-semibold text-primary drop-shadow-[0_2px_10px_rgba(0,0,0,0.75)]">
+                            {formatCompactReadingDuration(aggregate.totalSeconds)}
+                        </p>
+                        <p className="mt-1 text-[11px] text-white/80 drop-shadow-[0_2px_8px_rgba(0,0,0,0.75)]">
+                            {new Date(aggregate.lastReadAt).toLocaleTimeString('tr-TR', {
+                                hour: '2-digit',
+                                minute: '2-digit',
+                            })}
+                        </p>
+                    </div>
+                </div>
             </div>
         </div>
 

@@ -20,6 +20,7 @@ import TagFilterPanel from '@/components/tags/TagFilterPanel';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import DeferredMount from '@/components/performance/DeferredMount';
+import { matchesMangaSearch } from '@/lib/searchMatching';
 
 let browsePageCache: Manga[] | null = null;
 
@@ -117,12 +118,8 @@ const Browse: React.FC = () => {
 
     // Search filter
     if (deferredSearchQuery) {
-      const query = deferredSearchQuery.toLocaleLowerCase('tr-TR');
       result = result.filter(
-        manga =>
-          manga.title.toLocaleLowerCase('tr-TR').includes(query) ||
-          manga.author.toLocaleLowerCase('tr-TR').includes(query) ||
-          manga.alternativeTitles?.some(title => title.toLocaleLowerCase('tr-TR').includes(query))
+        (manga) => matchesMangaSearch(manga, deferredSearchQuery)
       );
     }
 

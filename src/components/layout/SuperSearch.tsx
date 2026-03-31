@@ -24,6 +24,7 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
 import { toast } from 'sonner';
+import { matchesMangaSearch } from '@/lib/searchMatching';
 
 const SuperSearch: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -82,12 +83,8 @@ const SuperSearch: React.FC = () => {
     const filteredMangas = useMemo(() => {
         if (!searchQuery.trim()) return [];
 
-        const query = searchQuery.toLocaleLowerCase('tr-TR');
         return allMangas.filter(m => {
-            const matchesSearch = m.title.toLocaleLowerCase('tr-TR').includes(query) ||
-                m.alternativeTitles?.some(t => t.toLocaleLowerCase('tr-TR').includes(query)) ||
-                m.author.toLocaleLowerCase('tr-TR').includes(query);
-
+            const matchesSearch = matchesMangaSearch(m, searchQuery);
             const matchesGenre = activeGenre === 'Hepsi' || m.genres.includes(activeGenre);
 
             return matchesSearch && matchesGenre;
@@ -133,7 +130,7 @@ const SuperSearch: React.FC = () => {
             <DialogContent className="max-w-2xl p-0 gap-0 bg-[#1A1A1A] border-none shadow-2xl rounded-2xl overflow-hidden sm:max-w-2xl [&>button]:hidden">
                 <DialogTitle className="sr-only">Manga Arama</DialogTitle>
                 <DialogDescription className="sr-only">
-                    Manga, yazar veya kategoriye göre arama yapın.
+                    Manga, yazar, çizer veya kategoriye göre arama yapın.
                 </DialogDescription>
                 <div className="flex flex-col h-[600px]">
                     {/* Search Header */}
@@ -151,7 +148,7 @@ const SuperSearch: React.FC = () => {
                             )}
                             <input
                                 autoFocus
-                                placeholder="Type to search..."
+                                placeholder="Manga, yazar veya çizer ara..."
                                 value={searchQuery}
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 className="flex-1 bg-transparent border-none outline-none py-2.5 text-[15px] placeholder:text-muted-foreground/30 text-white"
@@ -346,14 +343,41 @@ const SuperSearch: React.FC = () => {
 // Helper for title highlighting
 const highlightText = (text: string, query: string) => {
     if (!query) return text;
-    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const parts = text.split(new RegExp(`(${escapedQuery})`, 'gi'));
+    const normalizedQuery = query.trim().toLocaleLowerCase('tr-TR');
+    const normalizedText = text.toLocaleLowerCase('tr-TR');
+
+    if (!normalizedQuery) {
+        return text;
+    }
+
+    const parts: Array<{ value: string; highlighted: boolean }> = [];
+    let cursor = 0;
+
+    while (cursor < text.length) {
+        const matchIndex = normalizedText.indexOf(normalizedQuery, cursor);
+
+        if (matchIndex === -1) {
+            parts.push({ value: text.slice(cursor), highlighted: false });
+            break;
+        }
+
+        if (matchIndex > cursor) {
+            parts.push({ value: text.slice(cursor, matchIndex), highlighted: false });
+        }
+
+        parts.push({
+            value: text.slice(matchIndex, matchIndex + normalizedQuery.length),
+            highlighted: true,
+        });
+        cursor = matchIndex + normalizedQuery.length;
+    }
+
     return (
         <span>
             {parts.map((part, i) =>
-                part.toLowerCase() === query.toLowerCase()
-                    ? <span key={i} className="bg-yellow-400/90 text-black px-0.5 rounded-sm shrink-0">{part}</span>
-                    : part
+                part.highlighted
+                    ? <span key={i} className="bg-yellow-400/90 text-black px-0.5 rounded-sm shrink-0">{part.value}</span>
+                    : <React.Fragment key={i}>{part.value}</React.Fragment>
             )}
         </span>
     );

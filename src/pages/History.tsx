@@ -22,7 +22,7 @@ import {
 } from '@/lib/storage';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import { formatChapterDisplayTitle, sanitizeChapterTitle } from '@/lib/chapterTitle';
-import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
+import { flushPendingReaderSync, initializeOfflineReaderSync } from '@/lib/offline/offlineReaderSync';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OptimizedImage from '@/components/media/OptimizedImage';
@@ -222,6 +222,10 @@ const History: React.FC = () => {
   const [activeTab, setActiveTab] = React.useState<'series' | 'chapters'>('series');
 
   const deferredSearchQuery = React.useDeferredValue(normalizeSearchValue(searchQuery));
+
+  React.useEffect(() => {
+    initializeOfflineReaderSync();
+  }, []);
 
   React.useEffect(() => {
     const fetchHistory = async () => {

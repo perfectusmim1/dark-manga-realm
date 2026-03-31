@@ -36,7 +36,7 @@ const UserListModal: React.FC<UserListModalProps> = ({ isOpen, onClose, userId, 
         setHasMore(response.users.length === 50);
       }
     } catch (error) {
-      console.error(`Error fetching ${type}:`, error);
+      console.error('Error fetching user list', { type, error });
     } finally {
       setLoading(false);
     }

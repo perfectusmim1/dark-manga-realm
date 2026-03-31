@@ -41,12 +41,26 @@ const NotificationDropdown: React.FC = () => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [isOpen, setIsOpen] = useState(false);
 
+    const loadUnreadCount = useCallback(async () => {
+        if (!user || !isOnline || !isDocumentVisible()) return;
+        try {
+            const count = await getUnreadNotificationCount(user.id);
+            setUnreadCount(count);
+        } catch (error) {
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Error loading unread notification count:', error);
+            }
+        }
+    }, [isOnline, user]);
+
     const loadNotifications = useCallback(async () => {
         if (!user || !isOnline || !isDocumentVisible()) return;
         try {
-            const allNotifications = await getNotifications(user.id);
+            const [allNotifications, count] = await Promise.all([
+                getNotifications(user.id),
+                getUnreadNotificationCount(user.id),
+            ]);
             setNotifications(allNotifications.slice(0, 8)); // Show max 8 in dropdown
-            const count = await getUnreadNotificationCount(user.id);
             setUnreadCount(count);
         } catch (error) {
             if (!isExpectedAccessControlError(error)) {
@@ -62,23 +76,18 @@ const NotificationDropdown: React.FC = () => {
             return;
         }
 
-        void loadNotifications();
+        void (isOpen ? loadNotifications() : loadUnreadCount());
+
         const interval = window.setInterval(() => {
             if (isDocumentVisible()) {
-                void loadNotifications();
+                void (isOpen ? loadNotifications() : loadUnreadCount());
             }
         }, 30000);
 
         return () => {
             window.clearInterval(interval);
         };
-    }, [isOnline, loadNotifications, user]);
-
-    useEffect(() => {
-        if (isOpen && isOnline) {
-            void loadNotifications();
-        }
-    }, [isOnline, isOpen, loadNotifications]);
+    }, [isOnline, isOpen, loadNotifications, loadUnreadCount, user]);
 
     const handleNotificationClick = async (notification: Notification) => {
         if (!notification.read && user) {

@@ -29,6 +29,7 @@ const EntityGalleryGrid: React.FC<EntityGalleryGridProps> = ({
   const lightboxImages = React.useMemo<LightboxImageItem[]>(
     () => visibleImages.map((image, index) => ({
       src: image.url,
+      fallbackSrc: image.thumbUrl || image.url,
       alt: image.label || `${title} ${index + 1}`,
       caption: normalizeDisplayText(image.label) || normalizeDisplayText(image.source),
     })),
@@ -55,34 +56,36 @@ const EntityGalleryGrid: React.FC<EntityGalleryGridProps> = ({
             <button
               type="button"
               key={`${image.url}-${index}`}
-              className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-transform duration-200 hover:-translate-y-1"
+              className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-200 hover:-translate-y-1 [transform:translateZ(0)]"
               onClick={() => setOpenIndex(index)}
             >
-              <div className="relative aspect-[4/5] overflow-hidden">
-                <OptimizedImage
-                  src={image.thumbUrl || image.url}
-                  alt={primaryLabel}
-                  rootMargin="520px 0px"
-                  containerClassName="h-full w-full"
-                  placeholderClassName="rounded-none"
-                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
-                />
-                {primaryLabel && (
-                  <div className="absolute inset-x-0 bottom-0 bg-gradient-to-t from-black/80 via-black/25 to-transparent p-3 text-white">
-                    <p className="line-clamp-2 text-xs font-medium">
-                      {primaryLabel}
-                    </p>
-                  </div>
-                )}
+              <div className="relative isolate aspect-[4/5] overflow-hidden bg-black/75">
+                <div className="absolute inset-0 transform-gpu transition-transform duration-300 ease-out group-hover:scale-[1.045]">
+                  <OptimizedImage
+                    src={image.thumbUrl || image.url}
+                    alt={primaryLabel}
+                    rootMargin="520px 0px"
+                    containerClassName="h-full w-full bg-black/40"
+                    placeholderClassName="rounded-none bg-black/40"
+                    className="h-full w-full object-cover"
+                  />
+                  {primaryLabel && (
+                    <div className="absolute inset-x-0 bottom-0 top-1/2 flex flex-col justify-end bg-gradient-to-t from-black/80 via-black/25 to-transparent p-3 pb-3 text-white">
+                      <p className="line-clamp-2 text-xs font-medium">
+                        {primaryLabel}
+                      </p>
+                    </div>
+                  )}
+                </div>
                 <div className="absolute right-3 top-3 rounded-full bg-black/55 p-2 text-white opacity-0 transition-opacity group-hover:opacity-100">
                   <ZoomIn className="h-4 w-4" />
                 </div>
               </div>
 
               <div className="flex items-center justify-between border-t border-border/60 px-3 py-2 text-left text-xs text-muted-foreground">
-                <span className="truncate">{secondaryLabel || primaryLabel || 'Gorsel'}</span>
+                <span className="truncate">{secondaryLabel || primaryLabel || 'Görsel'}</span>
                 <span className="text-[11px] font-semibold uppercase tracking-[0.16em] text-primary/80">
-                  Buyut
+                  BÜYÜT
                 </span>
               </div>
             </button>

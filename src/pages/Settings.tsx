@@ -141,21 +141,6 @@ const getTotpQrImageSrc = (qrCode: string | undefined) => {
     return normalized;
 };
 
-const getTotpQrSvgMarkup = (qrCode: string | undefined) => {
-    const normalized = qrCode?.trim();
-
-    if (!normalized) {
-        return null;
-    }
-
-    const svgIndex = normalized.indexOf('<svg');
-    if (svgIndex === -1) {
-        return null;
-    }
-
-    return normalized.slice(svgIndex);
-};
-
 const getNextUsernameChangeDate = (usernameChangedAt?: string) => {
     if (!usernameChangedAt) {
         return null;
@@ -600,7 +585,6 @@ const Settings: React.FC = () => {
     }
 
     const qrCodeDataUrl = getTotpQrImageSrc(pendingEnrollment?.qrCodeSvg);
-    const qrCodeSvgMarkup = getTotpQrSvgMarkup(pendingEnrollment?.qrCodeSvg);
     const activeTotpFactor = mfaState.factors.find((factor) => factor.status === 'verified') || null;
     const authProviders = Array.isArray((supabaseUser?.app_metadata as any)?.providers)
         ? ((supabaseUser?.app_metadata as any)?.providers as string[]).map((provider) => provider.toLowerCase())
@@ -624,9 +608,8 @@ const Settings: React.FC = () => {
             return;
         }
 
-        const qrMarkup = qrCodeSvgMarkup
-            ? `<div style="width:320px;height:320px;">${qrCodeSvgMarkup}</div>`
-            : `<img src="${qrCodeDataUrl}" alt="Google Authenticator QR" style="width:320px;height:320px;display:block;" />`;
+        const safeQrCodeSrc = qrCodeDataUrl.replace(/"/g, '&quot;');
+        const qrMarkup = `<img src="${safeQrCodeSrc}" alt="Google Authenticator QR" style="width:320px;height:320px;display:block;" />`;
 
         popup.document.write(`
           <!doctype html>
@@ -953,20 +936,12 @@ const Settings: React.FC = () => {
                                                     {qrCodeDataUrl && (
                                                         <div className="flex flex-col items-center gap-3">
                                                             <div className="select-none rounded-2xl bg-white p-4 shadow-xl" data-allow-image-interaction="true">
-                                                                {qrCodeSvgMarkup ? (
-                                                                    <div
-                                                                        className="h-52 w-52 [&>svg]:h-full [&>svg]:w-full"
-                                                                        data-allow-image-interaction="true"
-                                                                        dangerouslySetInnerHTML={{ __html: qrCodeSvgMarkup }}
-                                                                    />
-                                                                ) : (
-                                                                    <img
-                                                                        src={qrCodeDataUrl}
-                                                                        alt="Google Authenticator QR"
-                                                                        className="h-52 w-52"
-                                                                        data-allow-image-interaction="true"
-                                                                    />
-                                                                )}
+                                                                <img
+                                                                    src={qrCodeDataUrl}
+                                                                    alt="Google Authenticator QR"
+                                                                    className="h-52 w-52"
+                                                                    data-allow-image-interaction="true"
+                                                                />
                                                             </div>
                                                             <Button
                                                                 type="button"

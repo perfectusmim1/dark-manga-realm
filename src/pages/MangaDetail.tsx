@@ -98,7 +98,7 @@ import { isDownloadAuthRequiredError, offlineDownloadManager } from '@/lib/offli
 import { cacheOfflineManga, cacheOfflineMangaCharacters, getOfflineMangaCharacters, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { areBookmarksInitialized, getCachedBookmarksState } from '@/lib/offline/userSync';
-import { flushPendingReaderSync } from '@/lib/offline/offlineReaderSync';
+import { flushPendingReaderSync, initializeOfflineReaderSync } from '@/lib/offline/offlineReaderSync';
 import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import OptimizedImage from '@/components/media/OptimizedImage';
@@ -439,6 +439,11 @@ const MangaDetail: React.FC = () => {
   const backgroundFetchVersionRef = React.useRef(0);
   const charactersLoadPromiseRef = React.useRef<Promise<Character[]> | null>(null);
   const similarLoadPromiseRef = React.useRef<Promise<Manga[]> | null>(null);
+
+  useEffect(() => {
+    void offlineDownloadManager.initialize();
+    initializeOfflineReaderSync();
+  }, []);
 
   const offlineSeriesEntry = useMemo<OfflineMangaGroup | undefined>(() => (
     offlineSnapshot.series.find((entry) => entry.manga.mangaId === (manga?.id || mangaId))
@@ -2241,7 +2246,7 @@ const MangaDetail: React.FC = () => {
                                 <Link
                                   key={relation.id}
                                   to={`/manga/${relation.relatedManga.id}`}
-                                  className="group flex gap-3 rounded-2xl border border-border bg-background/40 p-3 transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg"
+                                  className="group flex gap-3 rounded-2xl border border-border bg-background/40 p-3 transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg [transform:translateZ(0)]"
                                 >
                                   <div className="h-24 w-16 shrink-0 overflow-hidden rounded-xl border border-border bg-secondary">
                                     {relation.relatedManga.cover ? (
@@ -2476,7 +2481,7 @@ const MangaDetail: React.FC = () => {
                         <Link
                           key={`${bookmark.chapterId}-${bookmark.page}-${bookmark.createdAt || index}`}
                           to={`/manga/${manga.id}/chapter/${bookmark.chapterId}?page=${bookmark.page}`}
-                          className="group flex gap-4 rounded-xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 animate-fade-up opacity-0"
+                          className="group flex gap-4 rounded-xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 animate-fade-up opacity-0 [transform:translateZ(0)]"
                           style={{ animationDelay: `${0.08 + index * 0.04}s`, animationFillMode: 'forwards' }}
                         >
                           <BookmarkPagePreview

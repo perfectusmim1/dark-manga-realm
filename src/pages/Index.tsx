@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Clock, Sparkles, Play, ChevronLeft, ChevronRight, Download, WifiOff } from 'lucide-react';
 import Header from '@/components/layout/Header';
@@ -6,7 +6,12 @@ import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import MangaCard from '@/components/manga/MangaCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import { getMangaSummaries, getTrendingTags } from '@/lib/database';
+import {
+  getHomePageMangaSections,
+  getTopTenMangaIds,
+  getTrendingTags,
+  type HomePageMangaSections,
+} from '@/lib/database';
 import TagBadge from '@/components/tags/TagBadge';
 import { getReadingHistoryEntries, type ReadingHistoryEntry } from '@/lib/storage';
 import { supabaseUrl } from '@/lib/supabase';
@@ -28,11 +33,13 @@ interface HorizontalMangaSectionProps {
   iconClassName: string;
   linkTo: string;
   manga: Manga[];
+  topTenWeekIds?: ReadonlySet<string> | null;
   delay: string;
   disableHeavyEffects: boolean;
   isCoarsePointer: boolean;
   withTopSpacing?: boolean;
   priorityCount?: number;
+  coverRootMargin?: string;
   sectionAnimationDurationMs?: number;
   cardAnimationDelayStepMs?: number;
   cardAnimationDurationMs?: number;
@@ -101,12 +108,18 @@ const getEstimatedHomeCarouselItemWidth = (viewportWidth: number, clientWidth: n
   return 156;
 };
 
+const EMPTY_HOME_PAGE_SECTIONS: HomePageMangaSections = {
+  trendingManga: [],
+  newlyAddedSeries: [],
+  recentlyUpdated: [],
+};
+
 const HOME_PAGE_CACHE: {
-  mangas: Manga[] | null;
+  sections: HomePageMangaSections | null;
   trendingTags: Tag[] | null;
   continueReadingByUser: Record<string, ReadingHistoryEntry[] | undefined>;
 } = {
-  mangas: null,
+  sections: null,
   trendingTags: null,
   continueReadingByUser: {},
 };
@@ -130,20 +143,25 @@ const CONTINUE_READING_COVER_INTRINSIC_HEIGHT = 640;
 const CONTINUE_READING_COVER_SIZES = '(min-width: 1024px) 16rem, (min-width: 640px) 14rem, 9.75rem';
 const CONTINUE_READING_BANNER_SIZES = '100vw';
 const HOME_SECTION_DEFERRED_ROOT_MARGIN = {
-  coarse: '420px 0px',
-  fine: '320px 0px',
+  coarse: '1040px 0px',
+  fine: '820px 0px',
 } as const;
 const HOME_BLOCK_DEFERRED_ROOT_MARGIN = {
-  coarse: '520px 0px',
-  fine: '380px 0px',
+  coarse: '1160px 0px',
+  fine: '920px 0px',
+} as const;
+const HOME_CARD_IMAGE_ROOT_MARGIN = {
+  coarse: '1080px 0px',
+  fine: '860px 0px',
 } as const;
 const HOME_SECTION_ANIMATION_DURATION_MS = 220;
-const HOME_CARD_ANIMATION_DELAY_STEP_MS = 16;
-const HOME_CARD_ANIMATION_DURATION_MS = 220;
+const HOME_CARD_ANIMATION_DELAY_STEP_MS = 12;
+const HOME_CARD_ANIMATION_DURATION_MS = 180;
 const HOME_CAROUSEL_ARROW_STEP_ITEMS = 5;
 const HOME_CAROUSEL_SCROLL_SETTLE_DELAY_MS = 280;
 const HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX = 12;
-const DISABLE_HOME_DEFERRED_MOUNTS = true;
+const HOME_SECTION_PROGRESSIVE_REVEAL_DELAY_MS = 12;
+const DISABLE_HOME_DEFERRED_MOUNTS = false;
 
 const CONTINUE_READING_SESSION_CACHE_KEY = 'toonparrot-home-continue-reading-v1';
 
@@ -217,6 +235,22 @@ const clearPersistedContinueReadingCache = () => {
   }
 
   window.sessionStorage.removeItem(CONTINUE_READING_SESSION_CACHE_KEY);
+};
+
+const getInitialVisibleHomeSectionCardCount = (viewportWidth: number, isCoarsePointer: boolean) => {
+  if (viewportWidth >= 1280) {
+    return 6;
+  }
+
+  if (viewportWidth >= 1024) {
+    return 5;
+  }
+
+  if (viewportWidth >= 640) {
+    return 4;
+  }
+
+  return isCoarsePointer ? 3 : 4;
 };
 
 const formatContinueReadingLastRead = (lastRead: string) => {
@@ -482,11 +516,13 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   iconClassName,
   linkTo,
   manga,
+  topTenWeekIds,
   delay,
   disableHeavyEffects,
   isCoarsePointer,
   withTopSpacing = true,
   priorityCount = 0,
+  coverRootMargin = '520px 0px',
   sectionAnimationDurationMs = HOME_SECTION_ANIMATION_DURATION_MS,
   cardAnimationDelayStepMs = HOME_CARD_ANIMATION_DELAY_STEP_MS,
   cardAnimationDurationMs = HOME_CARD_ANIMATION_DURATION_MS,
@@ -494,6 +530,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
   const layoutRafRef = useRef<number | null>(null);
+  const progressiveRevealTimerRef = useRef<number | null>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
   const [itemWidth, setItemWidth] = useState(0);
@@ -502,6 +539,50 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth,
   }));
   const showArrowControls = !isCoarsePointer && !disableHeavyEffects;
+  const initialVisibleCount = useMemo(
+    () => Math.min(
+      manga.length,
+      Math.max(priorityCount, getInitialVisibleHomeSectionCardCount(scrollMetrics.viewportWidth, isCoarsePointer)),
+    ),
+    [isCoarsePointer, manga.length, priorityCount, scrollMetrics.viewportWidth],
+  );
+  const revealBatchSize = isCoarsePointer ? 2 : 3;
+  const [visibleCount, setVisibleCount] = useState(() => initialVisibleCount);
+
+  useEffect(() => {
+    setVisibleCount(initialVisibleCount);
+  }, [initialVisibleCount, manga]);
+
+  useEffect(() => {
+    if (visibleCount >= manga.length || typeof window === 'undefined') {
+      return;
+    }
+
+    progressiveRevealTimerRef.current = window.setTimeout(() => {
+      startTransition(() => {
+        setVisibleCount((current) => Math.min(manga.length, current + revealBatchSize));
+      });
+    }, HOME_SECTION_PROGRESSIVE_REVEAL_DELAY_MS);
+
+    return () => {
+      if (progressiveRevealTimerRef.current !== null) {
+        window.clearTimeout(progressiveRevealTimerRef.current);
+        progressiveRevealTimerRef.current = null;
+      }
+    };
+  }, [manga.length, revealBatchSize, visibleCount]);
+
+  useEffect(() => () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+
+    if (progressiveRevealTimerRef.current !== null) {
+      window.clearTimeout(progressiveRevealTimerRef.current);
+    }
+  }, []);
+
+  const visibleManga = useMemo(() => manga.slice(0, visibleCount), [manga, visibleCount]);
 
   const updateLayoutMetrics = useCallback(() => {
     if (!scrollRef.current) {
@@ -564,6 +645,10 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
     return () => window.removeEventListener('resize', requestLayoutMetricsUpdate);
   }, [manga.length, requestLayoutMetricsUpdate, showArrowControls]);
+
+  useEffect(() => {
+    requestLayoutMetricsUpdate();
+  }, [requestLayoutMetricsUpdate, visibleCount]);
 
   useEffect(() => () => {
     if (typeof window === 'undefined') {
@@ -705,16 +790,24 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
           className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-0 scrollbar-hide sm:gap-4"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
-          {manga.map((item, index) => (
+          {visibleManga.map((item, index) => (
             <div
               key={item.id}
               className="w-[9.75rem] shrink-0 snap-start min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/6)] 2xl:w-[calc((100%-96px)/6)]"
+              style={{
+                contentVisibility: 'auto',
+                containIntrinsicSize: '252px 420px',
+              }}
             >
               <MangaCard
                 manga={item}
                 index={index}
+                topTenWeekIds={topTenWeekIds}
                 disableHeavyEffects={disableHeavyEffects}
                 coverPriority={index < priorityCount}
+                coverRootMargin={coverRootMargin}
+                enableEntryAnimation
+                entryAnimationClassName="animate-card-reveal-fast"
                 entryAnimationDelayStepMs={cardAnimationDelayStepMs}
                 entryAnimationDurationMs={cardAnimationDurationMs}
               />
@@ -730,14 +823,30 @@ const Index: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
-  const [mangas, setMangas] = useState<Manga[]>(() => HOME_PAGE_CACHE.mangas ?? []);
+  const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => HOME_PAGE_CACHE.sections ?? EMPTY_HOME_PAGE_SECTIONS);
+  const [topTenWeekIds, setTopTenWeekIds] = useState<ReadonlySet<string> | null>(null);
   const [hasPersistedAuthSession, setHasPersistedAuthSession] = useState(() => hasPersistedSupabaseSession());
   const [continueReadingSeed, setContinueReadingSeed] = useState<ReadingHistoryEntry[]>(() => (
     readPersistedContinueReadingCache()?.entries ?? []
   ));
-  const [continueReadingLoading, setContinueReadingLoading] = useState(false);
+  const [continueReadingLoading, setContinueReadingLoading] = useState(() => hasPersistedSupabaseSession());
   const [trendingTags, setTrendingTags] = useState<Tag[]>(() => HOME_PAGE_CACHE.trendingTags ?? []);
   const [tagsLoading, setTagsLoading] = useState(() => HOME_PAGE_CACHE.trendingTags === null);
+  const mangas = useMemo(() => {
+    const uniqueMangaById = new Map<string, Manga>();
+
+    [
+      ...homeSections.newlyAddedSeries,
+      ...homeSections.recentlyUpdated,
+      ...homeSections.trendingManga,
+    ].forEach((manga) => {
+      if (!uniqueMangaById.has(manga.id)) {
+        uniqueMangaById.set(manga.id, manga);
+      }
+    });
+
+    return [...uniqueMangaById.values()];
+  }, [homeSections]);
   const mangaById = useMemo(() => new Map(mangas.map((item) => [item.id, item])), [mangas]);
   const sectionDeferredRootMargin = isCoarsePointer
     ? HOME_SECTION_DEFERRED_ROOT_MARGIN.coarse
@@ -745,6 +854,9 @@ const Index: React.FC = () => {
   const blockDeferredRootMargin = isCoarsePointer
     ? HOME_BLOCK_DEFERRED_ROOT_MARGIN.coarse
     : HOME_BLOCK_DEFERRED_ROOT_MARGIN.fine;
+  const homeCardImageRootMargin = isCoarsePointer
+    ? HOME_CARD_IMAGE_ROOT_MARGIN.coarse
+    : HOME_CARD_IMAGE_ROOT_MARGIN.fine;
 
   const offlineManga = React.useMemo<Manga[]>(() => (
     offlineSnapshot.series.map((entry: OfflineMangaGroup) => ({
@@ -780,15 +892,8 @@ const Index: React.FC = () => {
   ), [offlineSnapshot.series]);
 
   useEffect(() => {
-    if (isOnline) {
-      return;
-    }
-
-    setMangas(offlineManga);
-  }, [isOnline, offlineManga]);
-
-  useEffect(() => {
     if (!isOnline) {
+      setTopTenWeekIds(null);
       return;
     }
 
@@ -796,19 +901,34 @@ const Index: React.FC = () => {
 
     const loadMainContent = async () => {
       try {
-        const allMangas = await getMangaSummaries();
+        const sections = await getHomePageMangaSections();
         if (!active) {
           return;
         }
 
-        HOME_PAGE_CACHE.mangas = allMangas;
-        setMangas(allMangas);
+        HOME_PAGE_CACHE.sections = sections;
+        setHomeSections(sections);
       } catch (err) {
         console.error('Data loading error:', err);
       }
     };
 
-    loadMainContent();
+    const loadTopTenWeekIds = async () => {
+      try {
+        const ids = await getTopTenMangaIds('week');
+        if (active) {
+          setTopTenWeekIds(ids);
+        }
+      } catch (err) {
+        if (active) {
+          setTopTenWeekIds(new Set<string>());
+        }
+        console.error('Top ten id loading error:', err);
+      }
+    };
+
+    void loadMainContent();
+    void loadTopTenWeekIds();
 
     return () => {
       active = false;
@@ -960,22 +1080,13 @@ const Index: React.FC = () => {
     trendingManga,
     newlyAddedSeries,
     recentlyUpdated,
-  } = useMemo(() => ({
-    trendingManga: [...mangas].sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 8),
-    newlyAddedSeries: [...mangas]
-      .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-      .slice(0, 8),
-    recentlyUpdated: [...mangas]
-      .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
-      .slice(0, 12),
-  }), [mangas]);
+  } = homeSections;
 
   const canRenderContinueReadingSlot = isOnline && (Boolean(user) || (authLoading && hasPersistedAuthSession));
   const shouldShowContinueReading = isOnline && Boolean(user) && continueReading.length > 0;
   const showContinueReadingSkeleton = canRenderContinueReadingSlot
     && !shouldShowContinueReading
-    && continueReadingLoading
-    && !authLoading;
+    && (continueReadingLoading || authLoading);
   const shouldRenderContinueReadingSlot = shouldShowContinueReading || showContinueReadingSkeleton;
 
   return (
@@ -1034,11 +1145,13 @@ const Index: React.FC = () => {
                 iconClassName="h-5 w-5 text-amber-400"
                 linkTo="/browse?sort=created"
                 manga={newlyAddedSeries}
+                topTenWeekIds={topTenWeekIds}
                 delay="0s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
                 priorityCount={2}
+                coverRootMargin={homeCardImageRootMargin}
               />
             </DeferredMount>
 
@@ -1049,11 +1162,13 @@ const Index: React.FC = () => {
                 iconClassName="h-5 w-5 text-primary"
                 linkTo="/browse?sort=updated"
                 manga={recentlyUpdated}
+                topTenWeekIds={topTenWeekIds}
                 delay="0.02s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
                 priorityCount={0}
+                coverRootMargin={homeCardImageRootMargin}
               />
             </DeferredMount>
 
@@ -1064,11 +1179,13 @@ const Index: React.FC = () => {
                 iconClassName="h-5 w-5 text-primary"
                 linkTo="/browse?sort=trending"
                 manga={trendingManga}
+                topTenWeekIds={topTenWeekIds}
                 delay="0.04s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
                 withTopSpacing={false}
                 priorityCount={0}
+                coverRootMargin={homeCardImageRootMargin}
               />
             </DeferredMount>
 

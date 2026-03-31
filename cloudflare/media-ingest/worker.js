@@ -45,16 +45,38 @@ const parseCsv = (value, fallback = []) => {
   return parsed.length > 0 ? parsed : fallback;
 };
 
-const escapeRegex = (value) => value.replace(/[|\\{}()[\]^$+?.]/g, '\\$&');
-
-const patternToRegex = (pattern) => new RegExp(`^${escapeRegex(pattern).replace(/\*/g, '.*')}$`);
-
 const matchesOriginPattern = (origin, pattern) => {
   if (!origin || !pattern) {
     return false;
   }
 
-  return patternToRegex(pattern).test(origin);
+  if (pattern === '*') {
+    return true;
+  }
+
+  const parts = pattern.split('*').filter(Boolean);
+  if (parts.length === 0) {
+    return true;
+  }
+
+  let searchIndex = 0;
+
+  for (let index = 0; index < parts.length; index += 1) {
+    const part = parts[index];
+    const foundIndex = origin.indexOf(part, searchIndex);
+
+    if (foundIndex === -1) {
+      return false;
+    }
+
+    if (index === 0 && !pattern.startsWith('*') && foundIndex !== 0) {
+      return false;
+    }
+
+    searchIndex = foundIndex + part.length;
+  }
+
+  return pattern.endsWith('*') || origin.endsWith(parts[parts.length - 1]);
 };
 
 const resolveAllowedOrigin = (request, allowedOriginPatterns) => {

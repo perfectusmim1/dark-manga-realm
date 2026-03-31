@@ -333,7 +333,7 @@ const AdminScraper: React.FC = () => {
                     const images = extractChapterImageUrls(chDoc, rc.source || activeScrapeSource);
 
                     if (images.length === 0) {
-                        console.warn(`Bölüm ${rc.number} için görsel bulunamadı.`);
+                        console.warn('Chapter image missing during admin import', { chapterNumber: rc.number });
                         toast.error(`Bölüm ${rc.number} için görsel bulunamadı, boş geçiliyor.`);
                     }
 
@@ -350,7 +350,7 @@ const AdminScraper: React.FC = () => {
                         toast.info(`${i + 1} / ${selectedChaptersToImport.length} bölüm tamamlandı...`);
                     }
                 } catch (e) {
-                    console.error(`Bölüm ${rc.number} çekilemedi:`, e);
+                    console.error('Chapter fetch failed during admin import', { chapterNumber: rc.number, error: e });
                     toast.error(`Bölüm ${rc.number} atlandı (Hata: ${e instanceof Error ? e.message : 'Proxy hatası'})`);
                 }
             }

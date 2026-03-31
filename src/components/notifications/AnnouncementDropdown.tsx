@@ -19,6 +19,7 @@ import {
     getAnnouncements,
     markAsRead,
     getReadList,
+    getUnreadAnnouncementCount,
     markAllAnnouncementsAsRead,
     Announcement
 } from '@/lib/announcements';
@@ -31,6 +32,18 @@ const AnnouncementDropdown: React.FC = () => {
     const [unreadCount, setUnreadCount] = useState(0);
     const [readIds, setReadIds] = useState<string[]>([]);
     const [isOpen, setIsOpen] = useState(false);
+
+    const loadUnreadCount = useCallback(async () => {
+        if (!user || !isDocumentVisible()) return;
+        try {
+            const { count } = await getUnreadAnnouncementCount(user.id);
+            setUnreadCount(count || 0);
+        } catch (error) {
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Error loading announcement unread count:', error);
+            }
+        }
+    }, [user]);
 
     const loadAnnouncements = useCallback(async (markViewed = false) => {
         if (!user || !isDocumentVisible()) return;
@@ -72,23 +85,18 @@ const AnnouncementDropdown: React.FC = () => {
             return;
         }
 
-        void loadAnnouncements();
+        void (isOpen ? loadAnnouncements(true) : loadUnreadCount());
+
         const interval = window.setInterval(() => {
             if (isDocumentVisible()) {
-                void loadAnnouncements();
+                void (isOpen ? loadAnnouncements() : loadUnreadCount());
             }
         }, 60000);
 
         return () => {
             window.clearInterval(interval);
         };
-    }, [loadAnnouncements, user]);
-
-    useEffect(() => {
-        if (isOpen) {
-            void loadAnnouncements(true);
-        }
-    }, [isOpen, loadAnnouncements]);
+    }, [isOpen, loadAnnouncements, loadUnreadCount, user]);
 
     const handleMarkAsRead = async (announcementId: string) => {
         if (!user || readIds.includes(announcementId)) return;

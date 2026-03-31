@@ -12,8 +12,6 @@ import { useAuth } from "@/contexts/AuthContext";
 
 // Pages
 import ScrollToTop from "./components/layout/ScrollToTop";
-import { offlineDownloadManager } from "@/lib/offline/downloadManager";
-import { initializeOfflineReaderSync } from "@/lib/offline/offlineReaderSync";
 import { initializeOfflineUserSync } from "@/lib/offline/userSync";
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -27,8 +25,6 @@ const queryClient = new QueryClient({
 const AppInitializer = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     initializeMockData();
-    void offlineDownloadManager.initialize();
-    initializeOfflineReaderSync();
     initializeOfflineUserSync();
   }, []);
 

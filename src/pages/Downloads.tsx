@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import {
   ChevronDown,
@@ -105,6 +105,10 @@ const Downloads: React.FC = () => {
   const { user } = useAuth();
   const [activeFilter, setActiveFilter] = useState<DownloadsFilter>('Tümü');
   const [expandedSeries, setExpandedSeries] = useState<Record<string, boolean>>({});
+
+  useEffect(() => {
+    void offlineDownloadManager.initialize();
+  }, []);
 
   const filteredSeries = useMemo(() => {
     return snapshot.series.filter((entry) => {

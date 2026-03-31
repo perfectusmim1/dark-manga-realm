@@ -449,7 +449,7 @@ const AdminTickets: React.FC = () => {
       await navigator.clipboard.writeText(value);
       toast.success(`${label} panoya kopyalandı`);
     } catch (error) {
-      console.error(`Admin ticket ${label} copy failed:`, error);
+      console.error('Admin ticket field copy failed', { label, error });
       toast.error(`${label} kopyalanamadı`);
     }
   }, []);

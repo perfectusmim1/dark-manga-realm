@@ -1,4 +1,5 @@
-const escapeRegExp = (value: string) => value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const CHAPTER_PREFIXES = ['bölüm', 'bolum', 'chapter', 'chap', 'episode', 'ep'];
+const CHAPTER_SEPARATOR_CHARS = new Set([':', '：', '-', '–', '—', '|', '.', '_']);
 
 export const formatChapterNumberLabel = (value: number | string) => {
     if (typeof value === 'number') {
@@ -14,18 +15,49 @@ export const formatChapterNumberLabel = (value: number | string) => {
 
 const stripRepeatedChapterPrefix = (title: string, chapterNumberLabel: string) => {
     const trimmedTitle = title.trim();
-    const escapedNumber = escapeRegExp(chapterNumberLabel);
-    const patterns = [
-        new RegExp(`^(?:b[oö]l[uü]m|chapter|chap(?:ter)?|ep(?:isode)?)\\s*${escapedNumber}(?:\\s*[:：\\-–—|._]+\\s*)?`, 'i'),
-        new RegExp(`^${escapedNumber}(?:\\s*[:：\\-–—|._]+\\s*)?`, 'i'),
-    ];
+    const normalizedTitle = trimmedTitle.toLocaleLowerCase('tr-TR');
+    const normalizedChapterNumber = chapterNumberLabel.trim().toLocaleLowerCase('tr-TR');
 
-    for (const pattern of patterns) {
-        const strippedTitle = trimmedTitle.replace(pattern, '').trim();
+    const trimLeadingDecorators = (value: string) => {
+        let index = 0;
 
+        while (index < value.length && /\s/u.test(value[index])) {
+            index += 1;
+        }
+
+        while (index < value.length && CHAPTER_SEPARATOR_CHARS.has(value[index])) {
+            index += 1;
+        }
+
+        while (index < value.length && /\s/u.test(value[index])) {
+            index += 1;
+        }
+
+        return value.slice(index);
+    };
+
+    const stripPrefixedTitle = (prefix: string) => {
+        if (!normalizedTitle.startsWith(prefix)) {
+            return trimmedTitle;
+        }
+
+        const remainder = trimmedTitle.slice(prefix.length).trimStart();
+        if (!remainder.toLocaleLowerCase('tr-TR').startsWith(normalizedChapterNumber)) {
+            return trimmedTitle;
+        }
+
+        return trimLeadingDecorators(remainder.slice(chapterNumberLabel.length)).trim();
+    };
+
+    for (const prefix of CHAPTER_PREFIXES) {
+        const strippedTitle = stripPrefixedTitle(prefix);
         if (strippedTitle !== trimmedTitle) {
             return strippedTitle;
         }
+    }
+
+    if (normalizedTitle.startsWith(normalizedChapterNumber)) {
+        return trimLeadingDecorators(trimmedTitle.slice(chapterNumberLabel.length)).trim();
     }
 
     return trimmedTitle;

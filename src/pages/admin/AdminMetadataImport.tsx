@@ -36,6 +36,7 @@ import ProxyImage from '@/components/media/ProxyImage';
 import { getCharacters, getMangaById, getMangaCharacters, getMangaSummaries, getTagsForEntity } from '@/lib/database';
 import {
   createDefaultImportOptions,
+  filterImportedPreviewByOptions,
   importPreviewIntoManga,
   ImportOptionKey,
   loadMetadataImportPreview,
@@ -475,8 +476,13 @@ const AdminMetadataImport: React.FC = () => {
     [candidates, selectedCandidateId],
   );
 
+  const effectivePreview = useMemo(
+    () => (preview ? filterImportedPreviewByOptions(preview, enabledOptions) : null),
+    [enabledOptions, preview],
+  );
+
   const previewCollections = useMemo<PreviewCollections | null>(() => {
-    if (!preview) {
+    if (!effectivePreview) {
       return null;
     }
 
@@ -520,7 +526,7 @@ const AdminMetadataImport: React.FC = () => {
         .filter(Boolean),
     );
 
-    const alternativeTitles = preview.alternativeTitles.map((title) => {
+    const alternativeTitles = effectivePreview.alternativeTitles.map((title) => {
       const key = buildPreviewItemKey('alternative_title', title);
       const skipped = existingTitleKeys.has(normalizePreviewKey(title));
       return {
@@ -533,7 +539,7 @@ const AdminMetadataImport: React.FC = () => {
       } satisfies PreviewToggleItem<string>;
     });
 
-    const tags = (preview.tagMatches?.length ? preview.tagMatches : preview.tags).map((tagEntry) => {
+    const tags = (effectivePreview.tagMatches?.length ? effectivePreview.tagMatches : effectivePreview.tags).map((tagEntry) => {
       const isObjectEntry = typeof tagEntry !== 'string';
       const sourceTag = isObjectEntry ? tagEntry.sourceTag : tagEntry;
       const matchedName = isObjectEntry ? (tagEntry.genreMatchName || tagEntry.matchedTag?.name || tagEntry.sourceTag) : sourceTag;
@@ -565,7 +571,7 @@ const AdminMetadataImport: React.FC = () => {
       } satisfies PreviewToggleItem<TagMatchResult | string>;
     });
 
-    const authors = preview.authors.map((author) => {
+    const authors = effectivePreview.authors.map((author) => {
       const key = buildPreviewItemKey('author', author.name);
       const alreadyLinked = existingAuthorKeys.has(normalizePreviewKey(author.name));
       return {
@@ -583,7 +589,7 @@ const AdminMetadataImport: React.FC = () => {
       } satisfies PreviewToggleItem<ImportedPersonDraft>;
     });
 
-    const artists = preview.artists.map((artist) => {
+    const artists = effectivePreview.artists.map((artist) => {
       const key = buildPreviewItemKey('artist', artist.name);
       const alreadyLinked = existingArtistKeys.has(normalizePreviewKey(artist.name));
       return {
@@ -601,7 +607,7 @@ const AdminMetadataImport: React.FC = () => {
       } satisfies PreviewToggleItem<ImportedPersonDraft>;
     });
 
-    const characters = preview.characters.map((character) => {
+    const characters = effectivePreview.characters.map((character) => {
       const key = buildPreviewItemKey('character', character.name);
       const alreadyLinked = existingCharacterKeys.has(normalizePreviewKey(character.name));
       const existingGlobalCharacter = existingGlobalCharacterMap.get(normalizePreviewKey(character.name));
@@ -624,7 +630,7 @@ const AdminMetadataImport: React.FC = () => {
 
     const characterCheckedMap = new Map(characters.map((character) => [character.key, character.checked]));
 
-    const relatedSeries = preview.relatedSeries.map((series) => {
+    const relatedSeries = effectivePreview.relatedSeries.map((series) => {
       const key = buildPreviewItemKey('related_series', series.title);
       const skipped = existingRelatedKeys.has(normalizePreviewKey(series.title));
       return {
@@ -639,7 +645,7 @@ const AdminMetadataImport: React.FC = () => {
       } satisfies PreviewToggleItem<ImportedRelatedSeriesDraft>;
     });
 
-    const seriesGallery = preview.gallery.map((image, index) => {
+    const seriesGallery = effectivePreview.gallery.map((image, index) => {
       const key = buildPreviewItemKey('series_gallery', image.url);
       const skipped = existingSeriesGalleryKeys.has(normalizePreviewKey(image.url));
       return {
@@ -655,7 +661,7 @@ const AdminMetadataImport: React.FC = () => {
       } satisfies PreviewToggleItem<EntityGalleryImage>;
     });
 
-    const characterGallery = preview.characters.flatMap((character) => {
+    const characterGallery = effectivePreview.characters.flatMap((character) => {
       const characterKey = buildPreviewItemKey('character', character.name);
       const parentChecked = characterCheckedMap.get(characterKey) ?? true;
 
@@ -687,10 +693,10 @@ const AdminMetadataImport: React.FC = () => {
       seriesGallery,
       characterGallery,
     };
-  }, [allLocalCharacters, preview, previewOverrides, selectedLocalCharacters, selectedLocalManga, selectedLocalTags]);
+  }, [allLocalCharacters, effectivePreview, previewOverrides, selectedLocalCharacters, selectedLocalManga, selectedLocalTags]);
 
   const filteredPreview = useMemo<ImportedMangaPayload | null>(() => {
-    if (!preview || !previewCollections) {
+    if (!effectivePreview || !previewCollections) {
       return null;
     }
 
@@ -704,10 +710,10 @@ const AdminMetadataImport: React.FC = () => {
       });
 
     return {
-      ...preview,
+      ...effectivePreview,
       alternativeTitles: previewCollections.alternativeTitles.filter((item) => item.checked).map((item) => item.item),
       tags: previewCollections.tags.filter((item) => item.checked).map((item) => typeof item.item === 'string' ? item.item : item.item.sourceTag),
-      tagMatches: preview.tagMatches
+      tagMatches: effectivePreview.tagMatches
         ? previewCollections.tags
           .filter((item): item is PreviewToggleItem<TagMatchResult> => item.checked && typeof item.item !== 'string')
           .map((item) => item.item)
@@ -723,7 +729,7 @@ const AdminMetadataImport: React.FC = () => {
       relatedSeries: previewCollections.relatedSeries.filter((item) => item.checked).map((item) => item.item),
       gallery: previewCollections.seriesGallery.filter((item) => item.checked).map((item) => item.item),
     };
-  }, [preview, previewCollections]);
+  }, [effectivePreview, previewCollections]);
 
   const previewCounts = useMemo(() => {
     if (!previewCollections) {
@@ -1108,7 +1114,7 @@ const AdminMetadataImport: React.FC = () => {
               </CardDescription>
             </CardHeader>
             <CardContent className="space-y-4">
-              {!preview ? (
+              {!effectivePreview ? (
                 <div className="rounded-xl border border-dashed border-border px-4 py-8 text-center text-sm text-muted-foreground">
                   Önizleme henüz hazır değil.
                 </div>
@@ -1116,21 +1122,21 @@ const AdminMetadataImport: React.FC = () => {
                 <>
                   <div className="space-y-2 rounded-xl border border-border bg-card px-4 py-4">
                     <div className="flex flex-wrap items-center gap-2">
-                      <h2 className="text-lg font-semibold">{preview.sourceTitle}</h2>
-                      <Badge>{SOURCE_LABELS[preview.source]}</Badge>
+                      <h2 className="text-lg font-semibold">{effectivePreview.sourceTitle}</h2>
+                      <Badge>{SOURCE_LABELS[effectivePreview.source]}</Badge>
                     </div>
                     <a
                       className="inline-flex items-center gap-1 text-xs text-muted-foreground hover:text-primary"
-                      href={preview.sourceUrl}
+                      href={effectivePreview.sourceUrl}
                       rel="noreferrer"
                       target="_blank"
                     >
                       Kaynak sayfasını aç
                       <ExternalLink className="h-3 w-3" />
                     </a>
-                    {preview.description ? (
+                    {effectivePreview.description ? (
                       <p className="line-clamp-5 text-sm text-muted-foreground">
-                        {preview.description}
+                        {effectivePreview.description}
                       </p>
                     ) : null}
                   </div>
@@ -1144,7 +1150,7 @@ const AdminMetadataImport: React.FC = () => {
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Alternatif İsim</p>
                       <div className="mt-1 flex items-center justify-between">
                         <p className="text-lg font-semibold">
-                          {previewCounts ? `${previewCounts.alternativeTitles.selected} / ${previewCounts.alternativeTitles.total}` : preview.alternativeTitles.length}
+                          {previewCounts ? `${previewCounts.alternativeTitles.selected} / ${previewCounts.alternativeTitles.total}` : effectivePreview.alternativeTitles.length}
                         </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
@@ -1157,7 +1163,7 @@ const AdminMetadataImport: React.FC = () => {
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Tag / Genre</p>
                       <div className="mt-1 flex items-center justify-between">
                         <p className="text-lg font-semibold">
-                          {previewCounts ? `${previewCounts.tags.selected} / ${previewCounts.tags.total}` : preview.tags.length}
+                          {previewCounts ? `${previewCounts.tags.selected} / ${previewCounts.tags.total}` : effectivePreview.tags.length}
                         </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
@@ -1172,7 +1178,7 @@ const AdminMetadataImport: React.FC = () => {
                         <p className="text-lg font-semibold">
                           {previewCounts
                             ? `${previewCounts.authors.selected}/${previewCounts.authors.total} • ${previewCounts.artists.selected}/${previewCounts.artists.total}`
-                            : `${preview.authors.length} / ${preview.artists.length}`}
+                            : `${effectivePreview.authors.length} / ${effectivePreview.artists.length}`}
                         </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
@@ -1185,7 +1191,7 @@ const AdminMetadataImport: React.FC = () => {
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">Karakter</p>
                       <div className="mt-1 flex items-center justify-between">
                         <p className="text-lg font-semibold">
-                          {previewCounts ? `${previewCounts.characters.selected} / ${previewCounts.characters.total}` : preview.characters.length}
+                          {previewCounts ? `${previewCounts.characters.selected} / ${previewCounts.characters.total}` : effectivePreview.characters.length}
                         </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
@@ -1198,7 +1204,7 @@ const AdminMetadataImport: React.FC = () => {
                       <p className="text-xs uppercase tracking-wide text-muted-foreground">İlgili Seri</p>
                       <div className="mt-1 flex items-center justify-between">
                         <p className="text-lg font-semibold">
-                          {previewCounts ? `${previewCounts.relatedSeries.selected} / ${previewCounts.relatedSeries.total}` : preview.relatedSeries.length}
+                          {previewCounts ? `${previewCounts.relatedSeries.selected} / ${previewCounts.relatedSeries.total}` : effectivePreview.relatedSeries.length}
                         </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
@@ -1213,7 +1219,7 @@ const AdminMetadataImport: React.FC = () => {
                         <p className="text-lg font-semibold">
                           {previewCounts
                             ? `${previewCounts.gallery.selected} / ${previewCounts.gallery.total}`
-                            : preview.gallery.length + preview.characters.reduce((sum, item) => sum + item.gallery.length, 0)}
+                            : effectivePreview.gallery.length + effectivePreview.characters.reduce((sum, item) => sum + item.gallery.length, 0)}
                         </p>
                         <Eye className="h-4 w-4 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100" />
                       </div>
@@ -1226,11 +1232,11 @@ const AdminMetadataImport: React.FC = () => {
                     </div>
                   ) : null}
 
-                  {preview.warnings.length > 0 ? (
+                  {effectivePreview.warnings.length > 0 ? (
                     <div className="rounded-xl border border-amber-500/20 bg-amber-500/10 px-4 py-3">
                       <p className="text-sm font-medium text-amber-100">Runtime Uyarıları</p>
                       <ul className="mt-2 space-y-1 text-xs text-amber-50">
-                        {preview.warnings.map((warning) => (
+                        {effectivePreview.warnings.map((warning) => (
                           <li key={warning}>{warning}</li>
                         ))}
                       </ul>
@@ -1239,7 +1245,7 @@ const AdminMetadataImport: React.FC = () => {
 
                   <PreviewDetailDialog
                     detailKey={detailDialogKey}
-                    preview={preview}
+                    preview={effectivePreview}
                     collections={previewCollections}
                     onToggleItem={handleTogglePreviewItem}
                     onClose={() => setDetailDialogKey(null)}

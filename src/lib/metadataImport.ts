@@ -923,10 +923,33 @@ const parseMalAuthorRoles = (html: string) => {
   const rowText = normalizeText(authorsRow.textContent);
   const anchorNames = Array.from(authorsRow.querySelectorAll('a')).map((anchor) => normalizeText(anchor.textContent));
 
+  const extractRoleText = (name: string) => {
+    const normalizedName = normalizeText(name);
+    const startIndex = rowText.toLocaleLowerCase('tr-TR').indexOf(normalizedName.toLocaleLowerCase('tr-TR'));
+
+    if (startIndex === -1) {
+      return '';
+    }
+
+    let cursor = startIndex + normalizedName.length;
+    while (cursor < rowText.length && /\s/u.test(rowText[cursor])) {
+      cursor += 1;
+    }
+
+    if (rowText[cursor] !== '(') {
+      return '';
+    }
+
+    const endIndex = rowText.indexOf(')', cursor + 1);
+    if (endIndex === -1) {
+      return '';
+    }
+
+    return rowText.slice(cursor + 1, endIndex);
+  };
+
   for (const anchorName of anchorNames) {
-    const escapedName = anchorName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    const match = rowText.match(new RegExp(`${escapedName}\\s*\\(([^)]+)\\)`, 'i'));
-    const roleText = normalizeKey(match?.[1]);
+    const roleText = normalizeKey(extractRoleText(anchorName));
 
     if (roleText.includes('story') && roleText.includes('art')) {
       roleMap.set(normalizeKey(anchorName), 'both');
@@ -2254,6 +2277,31 @@ export const createDefaultImportOptions = (
   ) as Partial<Record<ImportOptionKey, boolean>>;
 };
 
+export const filterImportedPreviewByOptions = (
+  preview: ImportedMangaPayload,
+  enabledOptions: Partial<Record<ImportOptionKey, boolean>>,
+): ImportedMangaPayload => ({
+  ...preview,
+  cover: enabledOptions.manga_core ? preview.cover : undefined,
+  banner: enabledOptions.manga_core ? preview.banner : undefined,
+  description: enabledOptions.manga_core ? preview.description : undefined,
+  alternativeTitles: enabledOptions.alternative_titles ? preview.alternativeTitles : [],
+  genres: enabledOptions.manga_core ? preview.genres : [],
+  tags: enabledOptions.tags ? preview.tags : [],
+  gallery: enabledOptions.gallery ? preview.gallery : [],
+  details: enabledOptions.manga_core ? preview.details : {},
+  relatedSeries: enabledOptions.related_series ? preview.relatedSeries : [],
+  authors: enabledOptions.authors ? preview.authors : [],
+  artists: enabledOptions.artists ? preview.artists : [],
+  characters: enabledOptions.characters
+    ? preview.characters.map((character) => ({
+      ...character,
+      gallery: enabledOptions.gallery ? character.gallery : [],
+    }))
+    : [],
+  tagMatches: enabledOptions.tags ? preview.tagMatches : undefined,
+});
+
 export const searchMetadataImportCandidates = async (
   source: MetadataImportSource,
   input: string,
@@ -2297,6 +2345,8 @@ export const loadMetadataImportPreview = async (
     );
   }
 
+  preview = filterImportedPreviewByOptions(preview, enabledOptions);
+
   // Manga içindeki 'genres' dizisini Türkçe karşılıklarına dönüştür
   if (enabledOptions.manga_core) {
     if (preview.genres) {
@@ -2315,7 +2365,7 @@ export const loadMetadataImportPreview = async (
     preview = await translatePreviewDescriptions(preview);
   }
 
-  return preview;
+  return filterImportedPreviewByOptions(preview, enabledOptions);
 };
 
 export const importPreviewIntoManga = async (

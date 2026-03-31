@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { Star, Eye, BookOpen, Clock, User, Sparkles } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
-import { getTopTenMangas } from '@/lib/database';
+import { getTopTenMangaIds } from '@/lib/database';
 import MangaRatingBadge from '@/components/manga/MangaRatingBadge';
 import {
   HoverCard,
@@ -24,12 +24,12 @@ interface MangaCardProps {
   topTenWeekIds?: ReadonlySet<string> | null;
   disableHeavyEffects?: boolean;
   coverPriority?: boolean;
+  coverRootMargin?: string;
+  enableEntryAnimation?: boolean;
+  entryAnimationClassName?: string;
   entryAnimationDelayStepMs?: number;
   entryAnimationDurationMs?: number;
 }
-
-let topTenWeekIdsCache: Set<string> | null = null;
-let topTenWeekIdsPromise: Promise<Set<string>> | null = null;
 
 const MANGA_CARD_COVER_TRANSFORM = Object.freeze({
   width: 420,
@@ -89,19 +89,7 @@ const getLatestChapterLinks = (chapters: Manga['chapters']) => {
 };
 
 const getTopTenWeekIds = async () => {
-  if (topTenWeekIdsCache) return topTenWeekIdsCache;
-
-  if (!topTenWeekIdsPromise) {
-    topTenWeekIdsPromise = getTopTenMangas('week')
-      .then((mangas) => {
-        const ids = new Set(mangas.map((item) => item.id));
-        topTenWeekIdsCache = ids;
-        return ids;
-      })
-      .catch(() => new Set<string>());
-  }
-
-  return topTenWeekIdsPromise;
+  return getTopTenMangaIds('week');
 };
 
 const MangaCardComponent: React.FC<MangaCardProps> = ({
@@ -110,6 +98,9 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   topTenWeekIds,
   disableHeavyEffects = false,
   coverPriority,
+  coverRootMargin = '520px 0px',
+  enableEntryAnimation = true,
+  entryAnimationClassName = 'animate-fade-up',
   entryAnimationDelayStepMs = 50,
   entryAnimationDurationMs = 500,
 }) => {
@@ -219,8 +210,8 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           navigate(`/manga/${manga.id}`);
         }
       }}
-      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${disableHeavyEffects ? '' : 'transition-all duration-300 hover-lift animate-fade-up opacity-0'}`}
-      style={disableHeavyEffects ? undefined : {
+      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background [transform:translateZ(0)] ${disableHeavyEffects ? '' : 'transition-all duration-300 hover-lift'} ${disableHeavyEffects || !enableEntryAnimation ? '' : `${entryAnimationClassName} opacity-0`}`}
+      style={disableHeavyEffects || !enableEntryAnimation ? undefined : {
         animationDelay: `${index * entryAnimationDelayStepMs}ms`,
         animationDuration: `${entryAnimationDurationMs}ms`,
         animationFillMode: 'forwards',
@@ -235,7 +226,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           srcSet={coverSrcSet}
           sizes={MANGA_CARD_SIZES}
           priority={coverPriority ?? index < 6}
-          rootMargin="520px 0px"
+          rootMargin={coverRootMargin}
           transform={MANGA_CARD_COVER_TRANSFORM}
           containerClassName="h-full w-full"
           placeholderClassName="rounded-none"
@@ -249,7 +240,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(6,8,14,0.56)_0%,rgba(6,8,14,0.26)_55%,rgba(6,8,14,0)_100%)] sm:h-28"
         />
 
-        <div className={`absolute inset-0 bg-gradient-to-t from-background via-background/20 to-transparent ${disableHeavyEffects ? '' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100'}`} />
+        <div className={`absolute inset-x-0 -bottom-px top-0 bg-gradient-to-t from-background via-background/20 to-transparent ${disableHeavyEffects ? '' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100'}`} />
 
         <Badge
           variant="secondary"

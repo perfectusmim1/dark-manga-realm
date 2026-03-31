@@ -33,6 +33,7 @@ import {
 } from '@/lib/offline/offlineStorage';
 import {
   flushPendingReaderSync,
+  initializeOfflineReaderSync,
   queueReadingProgressSync,
 } from '@/lib/offline/offlineReaderSync';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -78,6 +79,10 @@ const Reader: React.FC = () => {
     [location.search],
   );
   const canUseNetworkReaderFeatures = isOnlineNow && !forceOfflineRead;
+
+  useEffect(() => {
+    initializeOfflineReaderSync();
+  }, []);
 
   const [manga, setManga] = useState<any>(null);
   const [chapter, setChapter] = useState<any>(null);

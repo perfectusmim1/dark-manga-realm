@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useDeferredValue, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import NotificationDropdown from '@/components/notifications/NotificationDropdown';
 import AnnouncementDropdown from '@/components/notifications/AnnouncementDropdown';
@@ -32,8 +32,8 @@ import {
   LifeBuoy,
   type LucideIcon,
 } from 'lucide-react';
-import { getCharacters, getMangaSummaries } from '@/lib/database';
-import { Manga, Character } from '@/lib/types';
+import { getArtists, getAuthors, getCharacters, getMangaSummaries } from '@/lib/database';
+import { Artist, Author, Character, Manga } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -66,6 +66,11 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
+import {
+  matchesCharacterSearch,
+  matchesMangaSearch,
+  matchesNamedEntitySearch,
+} from '@/lib/searchMatching';
 
 const CHARACTER_MENU_LONG_PRESS_MS = 320;
 
@@ -105,6 +110,10 @@ const Header: React.FC = () => {
   const showHeaderOfflineToggle = user?.preferences?.appearance?.show_header_offline_toggle ?? true;
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
+  const [allAuthors, setAllAuthors] = useState<Author[]>([]);
+  const [quickAuthorResults, setQuickAuthorResults] = useState<Author[]>([]);
+  const [allArtists, setAllArtists] = useState<Artist[]>([]);
+  const [quickArtistResults, setQuickArtistResults] = useState<Artist[]>([]);
   const { disableHeavyEffects } = useDeviceProfile();
   const [isRandomDialogOpen, setIsRandomDialogOpen] = useState(false);
   const [isRandomRolling, setIsRandomRolling] = useState(false);
@@ -119,6 +128,9 @@ const Header: React.FC = () => {
   const mobileCharactersMenuRef = useRef<HTMLDivElement | null>(null);
   const mangaSearchLoadPromiseRef = useRef<Promise<Manga[]> | null>(null);
   const characterSearchLoadPromiseRef = useRef<Promise<Character[]> | null>(null);
+  const authorSearchLoadPromiseRef = useRef<Promise<Author[]> | null>(null);
+  const artistSearchLoadPromiseRef = useRef<Promise<Artist[]> | null>(null);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const ensureMangasLoaded = async () => {
     if (!isOnline) {
@@ -174,53 +186,133 @@ const Header: React.FC = () => {
     return characterSearchLoadPromiseRef.current;
   };
 
+  const ensureAuthorsLoaded = async () => {
+    if (!isOnline) {
+      return allAuthors;
+    }
+
+    if (allAuthors.length > 0) {
+      return allAuthors;
+    }
+
+    if (!authorSearchLoadPromiseRef.current) {
+      authorSearchLoadPromiseRef.current = getAuthors()
+        .then((data) => {
+          setAllAuthors((current) => (current.length > 0 ? current : data));
+          return data;
+        })
+        .catch((err) => {
+          console.error('Quick search author load failed:', err);
+          return [];
+        })
+        .finally(() => {
+          authorSearchLoadPromiseRef.current = null;
+        });
+    }
+
+    return authorSearchLoadPromiseRef.current;
+  };
+
+  const ensureArtistsLoaded = async () => {
+    if (!isOnline) {
+      return allArtists;
+    }
+
+    if (allArtists.length > 0) {
+      return allArtists;
+    }
+
+    if (!artistSearchLoadPromiseRef.current) {
+      artistSearchLoadPromiseRef.current = getArtists()
+        .then((data) => {
+          setAllArtists((current) => (current.length > 0 ? current : data));
+          return data;
+        })
+        .catch((err) => {
+          console.error('Quick search artist load failed:', err);
+          return [];
+        })
+        .finally(() => {
+          artistSearchLoadPromiseRef.current = null;
+        });
+    }
+
+    return artistSearchLoadPromiseRef.current;
+  };
+
   const ensureQuickSearchData = async () => {
-    await Promise.all([ensureMangasLoaded(), ensureCharactersLoaded()]);
+    await Promise.all([
+      ensureMangasLoaded(),
+      ensureCharactersLoaded(),
+      ensureAuthorsLoaded(),
+      ensureArtistsLoaded(),
+    ]);
   };
 
   // Filter for quick results
   useEffect(() => {
-    if (searchQuery.trim().length > 1) {
-      if (allMangas.length === 0 || allCharacters.length === 0) {
+    if (deferredSearchQuery.trim().length > 1) {
+      if (
+        allMangas.length === 0
+        || allCharacters.length === 0
+        || allAuthors.length === 0
+        || allArtists.length === 0
+      ) {
         void ensureQuickSearchData();
       }
 
-      const query = searchQuery.toLocaleLowerCase('tr-TR');
       const filtered = allMangas
-        .filter(m =>
-          m.title.toLocaleLowerCase('tr-TR').includes(query) ||
-          m.author.toLocaleLowerCase('tr-TR').includes(query) ||
-          m.alternativeTitles?.some(t => t.toLocaleLowerCase('tr-TR').includes(query))
-        )
+        .filter((manga) => matchesMangaSearch(manga, deferredSearchQuery))
         .slice(0, 3);
       setQuickResults(filtered);
 
       const filteredChars = allCharacters
-        .filter(c => c.name.toLocaleLowerCase('tr-TR').includes(query))
+        .filter((character) => matchesCharacterSearch(character, deferredSearchQuery))
         .slice(0, 3);
       setQuickCharacterResults(filteredChars);
+
+      const filteredAuthors = allAuthors
+        .filter((author) => matchesNamedEntitySearch(author, deferredSearchQuery))
+        .slice(0, 3);
+      setQuickAuthorResults(filteredAuthors);
+
+      const filteredArtists = allArtists
+        .filter((artist) => matchesNamedEntitySearch(artist, deferredSearchQuery))
+        .slice(0, 3);
+      setQuickArtistResults(filteredArtists);
     } else {
       setQuickResults([]);
       setQuickCharacterResults([]);
+      setQuickAuthorResults([]);
+      setQuickArtistResults([]);
     }
-  }, [searchQuery, allMangas, allCharacters]);
+  }, [allArtists, allAuthors, allCharacters, allMangas, deferredSearchQuery]);
+
+  const clearQuickSearch = () => {
+    setSearchQuery('');
+    setQuickResults([]);
+    setQuickCharacterResults([]);
+    setQuickAuthorResults([]);
+    setQuickArtistResults([]);
+    setIsSearchFocused(false);
+  };
 
   const handleSearch = (e: React.FormEvent) => {
     e.preventDefault();
     if (searchQuery.trim()) {
       navigate(`/browse?search=${encodeURIComponent(searchQuery)}`);
-      setSearchQuery('');
-      setQuickResults([]);
-      setQuickCharacterResults([]);
-      setIsSearchFocused(false);
+      clearQuickSearch();
     }
   };
 
   const handleResultClick = (id: string) => {
     navigate(`/manga/${id}`);
-    setSearchQuery('');
-    setQuickResults([]);
-    setIsSearchFocused(false);
+    clearQuickSearch();
+  };
+
+  const handleEntityResultClick = (path: string) => {
+    navigate(path);
+    clearQuickSearch();
   };
 
   const isActive = (path: string) => location.pathname === path;
@@ -637,7 +729,7 @@ const Header: React.FC = () => {
               <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
               <Input
                 type="search"
-                placeholder="Manga, manhwa, webtoon veya yazar ara..."
+                placeholder="Manga, karakter, yazar veya çizer ara..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
                 onFocus={() => {
@@ -648,7 +740,12 @@ const Header: React.FC = () => {
                 className="w-full pl-10"
               />
               {/* Quick Search Dropdown */}
-              {isSearchFocused && (quickResults.length > 0 || quickCharacterResults.length > 0) && (
+              {isSearchFocused && (
+                quickResults.length > 0
+                || quickCharacterResults.length > 0
+                || quickAuthorResults.length > 0
+                || quickArtistResults.length > 0
+              ) && (
                 <div className="absolute top-full left-0 right-0 mt-2 overflow-hidden rounded-xl border border-border bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
                   <div className="p-2">
                     {quickResults.length > 0 && (
@@ -690,13 +787,7 @@ const Header: React.FC = () => {
                           {quickCharacterResults.map(char => (
                             <button
                               key={char.id}
-                              onClick={() => {
-                                navigate(`/character/${char.id}`);
-                                setSearchQuery('');
-                                setQuickCharacterResults([]);
-                                setQuickResults([]);
-                                setIsSearchFocused(false);
-                              }}
+                              onClick={() => handleEntityResultClick(`/character/${char.id}`)}
                               className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
                             >
                               <Avatar className="h-8 w-8">
@@ -707,6 +798,66 @@ const Header: React.FC = () => {
                                 <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{char.name}</h4>
                                 <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
                                   <Heart className="h-2 w-2 fill-primary text-primary" /> {char.likesCount} Beğeni
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {quickAuthorResults.length > 0 && (
+                      <div className="mt-3">
+                        <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Yazarlar</p>
+                        <div className="mt-1 space-y-1">
+                          {quickAuthorResults.map((author) => (
+                            <button
+                              key={author.id}
+                              onClick={() => handleEntityResultClick(`/author/${author.id}`)}
+                              className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
+                            >
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={author.imageUrl} />
+                                <AvatarFallback className="text-[10px]">{author.name[0]}</AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0 flex-1">
+                                <h4 className="truncate text-sm font-semibold transition-colors group-hover:text-primary">{author.name}</h4>
+                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                  <Book className="h-2.5 w-2.5 text-primary" />
+                                  <span>Yazar</span>
+                                  <span className="h-1 w-1 rounded-full bg-border" />
+                                  <Heart className="h-2 w-2 fill-primary text-primary" />
+                                  <span>{author.likesCount} beğeni</span>
+                                </div>
+                              </div>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+
+                    {quickArtistResults.length > 0 && (
+                      <div className="mt-3">
+                        <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Çizerler</p>
+                        <div className="mt-1 space-y-1">
+                          {quickArtistResults.map((artist) => (
+                            <button
+                              key={artist.id}
+                              onClick={() => handleEntityResultClick(`/artist/${artist.id}`)}
+                              className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
+                            >
+                              <Avatar className="h-8 w-8">
+                                <AvatarImage src={artist.imageUrl} />
+                                <AvatarFallback className="text-[10px]">{artist.name[0]}</AvatarFallback>
+                              </Avatar>
+                              <div className="min-w-0 flex-1">
+                                <h4 className="truncate text-sm font-semibold transition-colors group-hover:text-primary">{artist.name}</h4>
+                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                                  <Sparkles className="h-2.5 w-2.5 text-primary" />
+                                  <span>Çizer</span>
+                                  <span className="h-1 w-1 rounded-full bg-border" />
+                                  <Heart className="h-2 w-2 fill-primary text-primary" />
+                                  <span>{artist.likesCount} beğeni</span>
                                 </div>
                               </div>
                             </button>
