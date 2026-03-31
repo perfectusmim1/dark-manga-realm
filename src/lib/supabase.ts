@@ -500,31 +500,47 @@ export const invokeAuthenticatedFunction = async <TResponse>(
     const preferredAccessToken = options?.preferredAccessToken?.trim() || null;
 
     for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
-        const headers = (attempt === 0 && preferredAccessToken)
+        const authHeaders = (attempt === 0 && preferredAccessToken)
             ? { Authorization: `Bearer ${preferredAccessToken}` }
             : await getAuthenticatedFunctionHeaders({
                 forceRefresh: attempt > 0,
                 maxWaitMs: 5000 + (attempt * 1200),
             });
 
-        const { data, error } = await supabase.functions.invoke<TResponse>(functionName, {
-            body,
-            headers,
+        const response = await fetch(`${supabaseUrl}/functions/v1/${functionName}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                apikey: supabaseAnonKey,
+                ...authHeaders,
+            },
+            body: JSON.stringify(body ?? {}),
+        }).catch((error) => {
+            throw error instanceof Error ? error : new Error('Edge function request failed');
         });
 
-        if (!error) {
-            return data;
+        if (response.ok) {
+            return await parseFunctionResponse(response.clone()) as TResponse;
         }
 
-        const { status, message } = await getFunctionErrorMessage(error);
+        const parsedBody = await parseFunctionResponse(response.clone()).catch(() => null);
+        const status = response.status;
+        const message = typeof parsedBody === 'object'
+            && parsedBody
+            && 'message' in parsedBody
+            && typeof parsedBody.message === 'string'
+            ? parsedBody.message
+            : typeof parsedBody === 'string' && parsedBody
+                ? parsedBody
+                : `Edge function ${functionName} failed`;
         
-        if (attempt < maxAttempts - 1 && isRetryableSupabaseBootstrapError(error, status)) {
+        if (attempt < maxAttempts - 1 && isRetryableSupabaseBootstrapError(message, status)) {
             console.warn(`Retrying authenticated function ${functionName} (attempt ${attempt + 1}/${maxAttempts}) due to retryable error:`, { status, message });
             await waitFor(retryDelayMs * (attempt + 1));
             continue;
         }
 
-        console.error(`Authenticated function ${functionName} failed:`, { status, message, error });
+        console.error(`Authenticated function ${functionName} failed:`, { status, message, responseBody: parsedBody });
         throw new Error(message);
     }
 
