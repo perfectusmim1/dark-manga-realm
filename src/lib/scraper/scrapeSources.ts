@@ -224,9 +224,9 @@ const decodeHtmlValue = (value: string) => {
     return value;
   }
 
-  const textarea = document.createElement('textarea');
-  textarea.innerHTML = value;
-  return textarea.value;
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<textarea>${value}</textarea>`, 'text/html');
+  return doc.querySelector('textarea')?.value ?? value;
 };
 
 const stripHtmlTags = (value: string) => value.replace(/<[^>]+>/g, ' ');
