@@ -9,9 +9,10 @@ const DEFAULT_ACCESS: AdminAccessContext = {
     isPrimaryAdmin: false,
 };
 
-export const useAdminAccess = () => {
+export const useAdminAccess = (options?: { requireOnlineValidation?: boolean }) => {
     const { user, isLoading: authLoading } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
+    const requireOnlineValidation = options?.requireOnlineValidation ?? false;
     const [access, setAccess] = useState<AdminAccessContext>(
         () => getCachedAdminAccessContext(user?.id) || DEFAULT_ACCESS
     );
@@ -42,7 +43,7 @@ export const useAdminAccess = () => {
             const cachedAccess = getCachedAdminAccessContext(user.id);
             if (cachedAccess) {
                 setAccess(cachedAccess);
-                setIsLoading(false);
+                setIsLoading(requireOnlineValidation);
             } else {
                 setIsLoading(true);
             }
@@ -72,7 +73,7 @@ export const useAdminAccess = () => {
         return () => {
             isCancelled = true;
         };
-    }, [authLoading, isOnline, user?.id]);
+    }, [authLoading, isOnline, requireOnlineValidation, user?.id]);
 
     return {
         access,

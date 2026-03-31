@@ -36,6 +36,8 @@ export interface AdminMediaMetricsSnapshot {
   trend: AdminMediaMetricsTrendPoint[];
 }
 
-export const getAdminMediaMetrics = async () => (
-  invokeAuthenticatedFunction<AdminMediaMetricsSnapshot>('admin-media-metrics', {})
+export const getAdminMediaMetrics = async (preferredAccessToken?: string | null) => (
+  invokeAuthenticatedFunction<AdminMediaMetricsSnapshot>('admin-media-metrics', {}, {
+    preferredAccessToken,
+  })
 );

@@ -47,6 +47,8 @@ import {
   isStoredMediaUrl,
   materializeRemoteImages,
 } from '@/lib/mediaStorage';
+import { useAuth } from '@/contexts/AuthContext';
+import { waitForUsableSupabaseSession } from '@/lib/supabase';
 import type { EntityGalleryImage } from '@/lib/types';
 
 type ProcessingKey =
@@ -220,6 +222,7 @@ const MetricSummaryCard = ({
 );
 
 const AdminMediaMigration: React.FC = () => {
+  const { user, session, mfaState, isLoading: authLoading } = useAuth();
   const [batchSize, setBatchSize] = React.useState('20');
   const [isLoading, setIsLoading] = React.useState(true);
   const [metricsLoading, setMetricsLoading] = React.useState(true);
@@ -265,11 +268,23 @@ const AdminMediaMigration: React.FC = () => {
   }, []);
 
   const loadMetrics = React.useCallback(async () => {
+    if (authLoading || !user || !session?.access_token || mfaState.needsVerification) {
+      setMetrics(null);
+      setMetricsError(null);
+      setMetricsLoading(false);
+      return;
+    }
+
     setMetricsLoading(true);
     setMetricsError(null);
 
     try {
-      const nextMetrics = await getAdminMediaMetrics();
+      const stabilizedSession = await waitForUsableSupabaseSession({
+        preferredSession: session,
+        required: true,
+        maxWaitMs: 7000,
+      }).catch(() => session);
+      const nextMetrics = await getAdminMediaMetrics(stabilizedSession?.access_token || session.access_token);
       setMetrics(nextMetrics);
     } catch (error) {
       console.error(error);
@@ -278,18 +293,33 @@ const AdminMediaMigration: React.FC = () => {
     } finally {
       setMetricsLoading(false);
     }
-  }, []);
+  }, [authLoading, mfaState.needsVerification, session, user]);
 
   const refreshDashboard = React.useCallback(async () => {
+    if (authLoading || !user || !session?.access_token || mfaState.needsVerification) {
+      return;
+    }
+
     await Promise.all([
       loadCandidates(),
       loadMetrics(),
     ]);
-  }, [loadCandidates, loadMetrics]);
+  }, [authLoading, loadCandidates, loadMetrics, mfaState.needsVerification, session?.access_token, user]);
 
   React.useEffect(() => {
+    if (authLoading) {
+      return;
+    }
+
+    if (!user || !session?.access_token || mfaState.needsVerification) {
+      setMetrics(null);
+      setMetricsError(null);
+      setMetricsLoading(false);
+      return;
+    }
+
     void refreshDashboard();
-  }, [refreshDashboard]);
+  }, [authLoading, mfaState.needsVerification, refreshDashboard, session?.access_token, user]);
 
   const migrateMangaMediaBatch = async () => {
     if (!mediaEnabled) {

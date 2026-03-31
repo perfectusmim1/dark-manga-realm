@@ -30,7 +30,7 @@ const AdminLayout: React.FC = () => {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const { user, isLoading, logout } = useAuth();
-    const { access, isLoading: accessLoading } = useAdminAccess();
+    const { access, isLoading: accessLoading } = useAdminAccess({ requireOnlineValidation: true });
     const isAdmin = access.canAccessAdminPanel;
     const canUseScrapers = isAdmin && access.role === 'admin';
 
