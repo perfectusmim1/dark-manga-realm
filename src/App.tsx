@@ -12,6 +12,9 @@ import { useAuth } from "@/contexts/AuthContext";
 
 // Pages
 import ScrollToTop from "./components/layout/ScrollToTop";
+import Header from "./components/layout/Header";
+import { GlobalHeaderEnabledContext } from "./components/layout/Header";
+import { shouldRenderHeaderBootstrap } from "./components/layout/HeaderBootstrapShell";
 import { initializeOfflineUserSync } from "@/lib/offline/userSync";
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -302,13 +305,32 @@ const MfaGate = ({ children }: { children: React.ReactNode }) => {
   return <>{children}</>;
 };
 
-const RouteFallback = () => (
-  <div className="min-h-screen bg-background text-foreground">
-    <div className="container flex min-h-screen items-center justify-center py-12">
+const PersistentHeader = () => {
+  const location = useLocation();
+
+  if (!shouldRenderHeaderBootstrap(location.pathname)) {
+    return null;
+  }
+
+  return <Header persistent />;
+};
+
+const RouteFallback = () => {
+  const location = useLocation();
+  const showHeaderShell = shouldRenderHeaderBootstrap(location.pathname);
+
+  return (
+    <div className="min-h-screen bg-background text-foreground">
+      <div
+        className={`container flex items-center justify-center py-12 ${
+          showHeaderShell ? 'min-h-[calc(100vh-4rem)] pt-24' : 'min-h-screen'
+        }`}
+      >
       <div className="h-12 w-12 animate-pulse rounded-full border border-primary/20 bg-primary/10" />
+      </div>
     </div>
-  </div>
-);
+  );
+};
 
 const App = () => (
   <QueryClientProvider client={queryClient}>
@@ -319,16 +341,18 @@ const App = () => (
             <Toaster />
             <Sonner />
             <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <AccessGate>
-                <MfaGate>
-                  <UserWarningGate />
-                  <OfflineStartupRedirect />
-                  <ScrollToTop />
-                  <Suspense fallback={null}>
-                    <LazyAdBlockWarning />
-                  </Suspense>
-                  <Suspense fallback={<RouteFallback />}>
-                    <Routes>
+              <GlobalHeaderEnabledContext.Provider value>
+                <AccessGate>
+                  <MfaGate>
+                    <UserWarningGate />
+                    <OfflineStartupRedirect />
+                    <ScrollToTop />
+                    <PersistentHeader />
+                    <Suspense fallback={null}>
+                      <LazyAdBlockWarning />
+                    </Suspense>
+                    <Suspense fallback={<RouteFallback />}>
+                      <Routes>
                     {/* Public Routes */}
                     <Route path="/" element={<Index />} />
                     <Route path="/top-ten" element={<TopTen />} />
@@ -386,13 +410,14 @@ const App = () => (
                     </Route>
 
                     <Route path="*" element={<NotFound />} />
-                    </Routes>
-                  </Suspense>
-                  <Suspense fallback={null}>
-                    <LazyDownloadDock />
-                  </Suspense>
-                </MfaGate>
-              </AccessGate>
+                      </Routes>
+                    </Suspense>
+                    <Suspense fallback={null}>
+                      <LazyDownloadDock />
+                    </Suspense>
+                  </MfaGate>
+                </AccessGate>
+              </GlobalHeaderEnabledContext.Provider>
             </BrowserRouter>
           </AppInitializer>
         </SecurityWrapper>

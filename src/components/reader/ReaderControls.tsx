@@ -27,6 +27,7 @@ import {
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
+import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
 
 interface ReaderControlsProps {
   mangaId: string;
@@ -84,6 +85,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
   const [hoverPage, setHoverPage] = useState<number | null>(null);
   const [navigatingChapterId, setNavigatingChapterId] = useState<string | null>(null);
+  const seriesRouteKey = buildRouteKey(`/manga/${mangaId}`);
 
   const progressPercent = totalPages > 1 ? ((currentPage - 1) / (totalPages - 1)) * 100 : 0;
 
@@ -130,6 +132,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     }
   }, [forceOfflineRead, mangaId, navigate, navigatingChapterId, onBeforeChapterChange]);
 
+  const handleSeriesPageNavigation = useCallback(() => {
+    markRouteToForceTopOnNextVisit(seriesRouteKey);
+  }, [seriesRouteKey]);
+
   return (
     <>
       {/* Top Bar */}
@@ -148,7 +154,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               </Link>
             </Button>
             <Button asChild variant="ghost" size="icon" title="Seri Sayfası" aria-label="Seri sayfasına git">
-              <Link to={`/manga/${mangaId}`}>
+              <Link to={`/manga/${mangaId}`} onClick={handleSeriesPageNavigation}>
                 <BookOpen className="h-5 w-5" />
               </Link>
             </Button>

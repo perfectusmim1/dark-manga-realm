@@ -12,6 +12,7 @@ import {
   queuePreferencesUpdate,
   setCachedPreferencesForUser,
 } from '@/lib/offline/userSync';
+import { clearHeaderShellSnapshot, writeHeaderShellUser } from '@/lib/headerShellCache';
 import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
 import { isDocumentVisible } from '@/lib/documentVisibility';
 import { acknowledgeCurrentUserWarning, getCurrentUserAccessSnapshot, type CurrentUserAccessSnapshot } from '@/lib/userAccess';
@@ -331,6 +332,19 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [accessState, setAccessState] = useState<UserAccessState>(DEFAULT_ACCESS_STATE);
   const accessStateRefreshInFlightRef = useRef(false);
   const accessStateRefreshFailureUntilRef = useRef(0);
+
+  useEffect(() => {
+    if (isLoading) {
+      return;
+    }
+
+    if (user) {
+      writeHeaderShellUser(user);
+      return;
+    }
+
+    clearHeaderShellSnapshot();
+  }, [isLoading, user]);
 
   const fetchProfile = useCallback(async (id: string): Promise<UserProfileRow | null> => {
     // Add a 5s timeout to prevent infinite hangs on DB calls during initialization

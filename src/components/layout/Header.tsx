@@ -1,12 +1,11 @@
-import React, { useDeferredValue, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
-import NotificationDropdown from '@/components/notifications/NotificationDropdown';
-import AnnouncementDropdown from '@/components/notifications/AnnouncementDropdown';
-import SuperSearch from './SuperSearch';
 import InstallAppButton from '@/components/pwa/InstallAppButton';
 import {
   Search,
+  Bell,
   Menu,
+  Megaphone,
   X,
   Wifi,
   WifiOff,
@@ -32,8 +31,8 @@ import {
   LifeBuoy,
   type LucideIcon,
 } from 'lucide-react';
-import { getArtists, getAuthors, getCharacters, getMangaSummaries } from '@/lib/database';
 import { Artist, Author, Character, Manga } from '@/lib/types';
+import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -71,8 +70,78 @@ import {
   matchesMangaSearch,
   matchesNamedEntitySearch,
 } from '@/lib/searchMatching';
+import { useHeaderShellSnapshot } from '@/hooks/useHeaderShellSnapshot';
+import { shouldRenderHeaderBootstrap } from '@/components/layout/HeaderBootstrapShell';
 
 const CHARACTER_MENU_LONG_PRESS_MS = 320;
+const SuperSearch = lazy(() => import('./SuperSearch'));
+const NotificationDropdown = lazy(() => import('@/components/notifications/NotificationDropdown'));
+const AnnouncementDropdown = lazy(() => import('@/components/notifications/AnnouncementDropdown'));
+
+type SearchDataModule = {
+  getMangaSummaries: () => Promise<Manga[]>;
+  getCharacters: () => Promise<Character[]>;
+  getAuthors: () => Promise<Author[]>;
+  getArtists: () => Promise<Artist[]>;
+};
+
+let searchDataModulePromise: Promise<SearchDataModule> | null = null;
+
+const loadSearchDataModule = () => {
+  if (!searchDataModulePromise) {
+    searchDataModulePromise = import('@/lib/database').then((module) => ({
+      getMangaSummaries: module.getMangaSummaries,
+      getCharacters: module.getCharacters,
+      getAuthors: module.getAuthors,
+      getArtists: module.getArtists,
+    }));
+  }
+
+  return searchDataModulePromise;
+};
+
+const HeaderCounterShell = ({
+  icon: Icon,
+  iconClassName,
+  unreadCount,
+}: {
+  icon: LucideIcon;
+  iconClassName?: string;
+  unreadCount: number;
+}) => (
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon"
+    className="relative h-9 w-9 rounded-full text-muted-foreground hover:bg-secondary/80"
+    aria-hidden
+    tabIndex={-1}
+  >
+    <Icon className={`h-5 w-5 ${iconClassName || ''}`.trim()} />
+    {unreadCount > 0 ? (
+      <Badge
+        variant="destructive"
+        className="absolute -right-1 -top-1 flex h-5 min-w-5 items-center justify-center p-0 text-[10px] font-bold"
+      >
+        {unreadCount > 99 ? '99+' : unreadCount}
+      </Badge>
+    ) : null}
+  </Button>
+);
+
+const HeaderQuickSearchShell = () => (
+  <Button
+    type="button"
+    variant="ghost"
+    size="icon"
+    className="h-9 w-9 rounded-full hover:bg-secondary/80"
+    aria-label="Arama"
+  >
+    <Search className="h-5 w-5 text-muted-foreground" />
+  </Button>
+);
+
+export const GlobalHeaderEnabledContext = React.createContext(false);
 
 const characterMenuItems = [
   {
@@ -92,7 +161,11 @@ const characterMenuItems = [
   },
 ];
 
-const Header: React.FC = () => {
+interface HeaderProps {
+  persistent?: boolean;
+}
+
+const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [quickResults, setQuickResults] = useState<Manga[]>([]);
@@ -103,11 +176,19 @@ const Header: React.FC = () => {
   const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
   const { isOnline } = useEffectiveOnlineStatus();
   const { snapshot } = useOfflineLibrary();
+  const headerShellSnapshot = useHeaderShellSnapshot();
   const navigate = useNavigate();
   const location = useLocation();
-  const isAdmin = access.canAccessAdminPanel;
-  const showSecondaryHeaderSearch = user?.preferences?.appearance?.show_header_search_bar ?? true;
-  const showHeaderOfflineToggle = user?.preferences?.appearance?.show_header_offline_toggle ?? true;
+  const globalHeaderEnabled = React.useContext(GlobalHeaderEnabledContext);
+  const shouldHideEmbeddedHeader = !persistent && globalHeaderEnabled && shouldRenderHeaderBootstrap(location.pathname);
+  const shellUser = authLoading && !user ? headerShellSnapshot?.user ?? null : null;
+  const displayUser = user ?? shellUser;
+  const isAdmin = access.canAccessAdminPanel || displayUser?.role === 'admin';
+  const showSecondaryHeaderSearch = displayUser?.preferences?.appearance?.show_header_search_bar ?? true;
+  const showHeaderOfflineToggle = displayUser?.preferences?.appearance?.show_header_offline_toggle ?? true;
+  const canUseCachedHeaderCounts = Boolean(displayUser && headerShellSnapshot?.user?.id === displayUser.id);
+  const cachedAnnouncementCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadAnnouncementCount || 0 : 0;
+  const cachedNotificationCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadNotificationCount || 0 : 0;
   const [allCharacters, setAllCharacters] = useState<Character[]>([]);
   const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
   const [allAuthors, setAllAuthors] = useState<Author[]>([]);
@@ -132,6 +213,10 @@ const Header: React.FC = () => {
   const artistSearchLoadPromiseRef = useRef<Promise<Artist[]> | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
+  if (shouldHideEmbeddedHeader) {
+    return null;
+  }
+
   const ensureMangasLoaded = async () => {
     if (!isOnline) {
       return allMangas;
@@ -142,7 +227,8 @@ const Header: React.FC = () => {
     }
 
     if (!mangaSearchLoadPromiseRef.current) {
-      mangaSearchLoadPromiseRef.current = getMangaSummaries()
+      mangaSearchLoadPromiseRef.current = loadSearchDataModule()
+        .then((module) => module.getMangaSummaries())
         .then((data) => {
           setAllMangas((current) => (current.length > 0 ? current : data));
           return data;
@@ -169,7 +255,8 @@ const Header: React.FC = () => {
     }
 
     if (!characterSearchLoadPromiseRef.current) {
-      characterSearchLoadPromiseRef.current = getCharacters()
+      characterSearchLoadPromiseRef.current = loadSearchDataModule()
+        .then((module) => module.getCharacters())
         .then((data) => {
           setAllCharacters((current) => (current.length > 0 ? current : data));
           return data;
@@ -196,7 +283,8 @@ const Header: React.FC = () => {
     }
 
     if (!authorSearchLoadPromiseRef.current) {
-      authorSearchLoadPromiseRef.current = getAuthors()
+      authorSearchLoadPromiseRef.current = loadSearchDataModule()
+        .then((module) => module.getAuthors())
         .then((data) => {
           setAllAuthors((current) => (current.length > 0 ? current : data));
           return data;
@@ -223,7 +311,8 @@ const Header: React.FC = () => {
     }
 
     if (!artistSearchLoadPromiseRef.current) {
-      artistSearchLoadPromiseRef.current = getArtists()
+      artistSearchLoadPromiseRef.current = loadSearchDataModule()
+        .then((module) => module.getArtists())
         .then((data) => {
           setAllArtists((current) => (current.length > 0 ? current : data));
           return data;
@@ -331,7 +420,7 @@ const Header: React.FC = () => {
     { path: '/latest-chapters', label: 'Son Bölümler' },
     { path: '/characters', label: 'Karakterler' },
     { path: '/community', label: 'Topluluk', icon: Users },
-    ...(!authLoading && !user ? [{ path: '/support', label: 'Destek', icon: LifeBuoy }] : []),
+    ...(!authLoading && !displayUser ? [{ path: '/support', label: 'Destek', icon: LifeBuoy }] : []),
   ];
 
   const clearDesktopCharactersCloseTimeout = () => {
@@ -432,7 +521,11 @@ const Header: React.FC = () => {
 
   useEffect(() => {
     closeCharacterMenus();
-  }, [location.pathname]);
+    setIsMenuOpen(false);
+    setIsRandomDialogOpen(false);
+    setIsRandomRolling(false);
+    clearQuickSearch();
+  }, [location.pathname, location.search]);
 
   useEffect(() => {
     if (isMenuOpen) {
@@ -885,7 +978,7 @@ const Header: React.FC = () => {
         {/* User Actions */}
         <div className="flex items-center gap-2">
           {/* Admin Link */}
-          {isAdmin && (
+          {isAdmin && displayUser && (
             <Button asChild variant="ghost" size="sm" className="hidden md:flex">
               <Link to="/admin">
                 <Shield className="mr-2 h-4 w-4" />
@@ -898,7 +991,9 @@ const Header: React.FC = () => {
           <div className="flex items-center gap-1">
             {showSecondaryHeaderSearch && (
               <div className="hidden md:block">
-                <SuperSearch />
+                <Suspense fallback={<HeaderQuickSearchShell />}>
+                  <SuperSearch />
+                </Suspense>
               </div>
             )}
             <Button
@@ -921,27 +1016,36 @@ const Header: React.FC = () => {
               className="h-9 w-9 text-muted-foreground hover:text-foreground"
               title="Uygulamayı Yükle"
             />
-            {!authLoading && user && (
-              <>
-                <AnnouncementDropdown />
-                <NotificationDropdown />
-              </>
-            )}
+            {displayUser ? (
+              <Suspense
+                fallback={(
+                  <>
+                    <HeaderCounterShell
+                      icon={Megaphone}
+                      iconClassName="text-amber-500"
+                      unreadCount={cachedAnnouncementCount}
+                    />
+                    <HeaderCounterShell
+                      icon={Bell}
+                      unreadCount={cachedNotificationCount}
+                    />
+                  </>
+                )}
+              >
+                <AnnouncementDropdown userId={displayUser.id} />
+                <NotificationDropdown userId={displayUser.id} />
+              </Suspense>
+            ) : null}
           </div>
 
-          {authLoading ? (
-            <div className="flex items-center gap-2">
-              <Skeleton className="hidden h-9 w-20 rounded-md md:block" />
-              <Skeleton className="h-9 w-9 rounded-full" />
-            </div>
-          ) : user ? (
+          {displayUser ? (
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" size="icon" className="h-9 w-9 p-0 rounded-full hover:bg-secondary/80">
                   <Avatar className="h-8 w-8 border border-border/50">
-                    <AvatarImage src={user.avatar} />
+                    <AvatarImage src={displayUser.avatar} />
                     <AvatarFallback className="bg-primary/10 text-primary text-xs">
-                      {user.username[0].toUpperCase()}
+                      {displayUser.username[0]?.toUpperCase() || 'U'}
                     </AvatarFallback>
                   </Avatar>
                 </Button>
@@ -949,12 +1053,12 @@ const Header: React.FC = () => {
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-48">
                 <div className="px-2 py-1.5">
-                  <p className="text-sm font-medium">{user.username}</p>
-                  <p className="text-xs text-muted-foreground">{user.email}</p>
+                  <p className="text-sm font-medium">{displayUser.username}</p>
+                  <p className="text-xs text-muted-foreground">{displayUser.email}</p>
                 </div>
                 <DropdownMenuSeparator />
                 <DropdownMenuItem asChild>
-                  <Link to={`/profile/${user.id}`} className="flex items-center gap-2">
+                  <Link to={`/profile/${displayUser.id}`} className="flex items-center gap-2">
                     <UserIcon className="h-4 w-4" />
                     Profilim
                   </Link>
@@ -1035,12 +1139,24 @@ const Header: React.FC = () => {
                   </>
                 )}
                 <DropdownMenuSeparator />
-                <DropdownMenuItem onClick={logout} className="text-destructive">
-                  <LogOut className="mr-2 h-4 w-4" />
-                  Çıkış Yap
-                </DropdownMenuItem>
+                {user ? (
+                  <DropdownMenuItem onClick={logout} className="text-destructive">
+                    <LogOut className="mr-2 h-4 w-4" />
+                    Çıkış Yap
+                  </DropdownMenuItem>
+                ) : (
+                  <DropdownMenuItem disabled>
+                    <Clock3 className="mr-2 h-4 w-4" />
+                    Hesap hazırlanıyor
+                  </DropdownMenuItem>
+                )}
               </DropdownMenuContent>
             </DropdownMenu>
+          ) : authLoading ? (
+            <div className="flex items-center gap-2">
+              <Skeleton className="hidden h-9 w-20 rounded-md md:block" />
+              <Skeleton className="h-9 w-9 rounded-full" />
+            </div>
           ) : (
             <Button asChild variant="glow" size="sm">
               <Link to="/auth">Giriş Yap</Link>

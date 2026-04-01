@@ -7,7 +7,6 @@ import {
     BookOpen
 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { getMangaSummaries } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import {
     Dialog,
@@ -16,7 +15,6 @@ import {
     DialogTitle,
     DialogDescription,
 } from '@/components/ui/dialog';
-import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
@@ -25,6 +23,17 @@ import { useAuth } from '@/contexts/AuthContext';
 import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
 import { toast } from 'sonner';
 import { matchesMangaSearch } from '@/lib/searchMatching';
+
+let mangaSummariesLoaderPromise: Promise<(() => Promise<Manga[]>)> | null = null;
+
+const loadMangaSummaries = async () => {
+    if (!mangaSummariesLoaderPromise) {
+        mangaSummariesLoaderPromise = import('@/lib/database').then((module) => module.getMangaSummaries);
+    }
+
+    const getMangaSummaries = await mangaSummariesLoaderPromise;
+    return getMangaSummaries();
+};
 
 const SuperSearch: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
@@ -44,7 +53,7 @@ const SuperSearch: React.FC = () => {
             const loadData = async () => {
                 setIsLoading(true);
                 try {
-                    const data = await getMangaSummaries();
+                    const data = await loadMangaSummaries();
                     setAllMangas(data);
 
                     // Set popular mangas (top 5 by views or just first 5 if views are equal)

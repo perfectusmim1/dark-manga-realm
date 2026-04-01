@@ -1281,7 +1281,7 @@ const getInfoBoxText = (doc: Document, key: string) => {
   return normalizeText(element?.textContent);
 };
 
-const getInfoBoxTextByLabel = (doc: Document, label: string) => {
+const getInfoBoxContentByLabel = (doc: Document, label: string) => {
   const normalizedLabel = normalizeKey(label);
   const headers = Array.from(doc.querySelectorAll('[data-cy$="-header"]'));
 
@@ -1292,11 +1292,22 @@ const getInfoBoxTextByLabel = (doc: Document, label: string) => {
 
     const content = header.nextElementSibling;
     if (content && content.getAttribute('data-cy')?.startsWith('info-box-')) {
-      return normalizeText(content.textContent);
+      return content;
     }
   }
 
-  return '';
+  return null;
+};
+
+const getInfoBoxTextByLabel = (doc: Document, label: string) => {
+  const content = getInfoBoxContentByLabel(doc, label);
+  return normalizeText(content?.textContent);
+};
+
+const getInfoBoxHrefByLabel = (doc: Document, label: string) => {
+  const content = getInfoBoxContentByLabel(doc, label);
+  const href = normalizeText(content?.querySelector('a[href]')?.getAttribute('href'));
+  return href.startsWith('http') ? href : '';
 };
 
 const getInfoBoxLines = (doc: Document, key: string) => {
@@ -1377,6 +1388,8 @@ const buildMangaUpdatesPersonDraft = async (
   const html = await fetchScraperContent(sourceUrl);
   const doc = parseHtml(html);
   const title = getMangaUpdatesTitle(doc) || normalizeText(doc.title.replace(' - MangaUpdates', ''));
+  const website = getInfoBoxHrefByLabel(doc, 'Official Website') || undefined;
+  const twitter = getInfoBoxHrefByLabel(doc, 'Twitter') || undefined;
 
   return createImportedPersonDraft('mangaupdates', title, sourceUrl, {
     imageUrl: getMangaUpdatesImage(doc) || undefined,
@@ -1390,12 +1403,20 @@ const buildMangaUpdatesPersonDraft = async (
       zodiac: getInfoBoxTextByLabel(doc, 'Zodiac') || undefined,
       bloodType: getInfoBoxTextByLabel(doc, 'Blood Type') || undefined,
       gender: getInfoBoxTextByLabel(doc, 'Gender') || undefined,
-      website: getInfoBoxTextByLabel(doc, 'Official Website') || undefined,
-      twitter: getInfoBoxTextByLabel(doc, 'Twitter') || undefined,
+      website,
+      twitter,
       genres: uniqueStrings(getInfoBoxLinks(doc, 'genres').map((item) => item.title)),
       role: role === 'artist' ? 'Çizer' : 'Yazar',
     },
-    sourceLinks: [createSourceLink('mangaupdates', sourceUrl, 'person', title)],
+    sourceLinks: mergeSourceLinks(
+      [createSourceLink('mangaupdates', sourceUrl, 'person', title)],
+      website
+        ? [{ source: 'mangaupdates', url: website, kind: 'external', label: 'Official Website' }]
+        : undefined,
+      twitter
+        ? [{ source: 'mangaupdates', url: twitter, kind: 'external', label: 'Twitter' }]
+        : undefined,
+    ),
   });
 };
 

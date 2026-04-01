@@ -25,31 +25,41 @@ import {
 } from '@/lib/announcements';
 import { isDocumentVisible } from '@/lib/documentVisibility';
 import { isExpectedAccessControlError } from '@/lib/supabase';
+import { readHeaderShellSnapshot, updateHeaderShellCounts } from '@/lib/headerShellCache';
 
-const AnnouncementDropdown: React.FC = () => {
+interface AnnouncementDropdownProps {
+    userId?: string | null;
+}
+
+const AnnouncementDropdown: React.FC<AnnouncementDropdownProps> = ({ userId }) => {
     const { user } = useAuth();
+    const resolvedUserId = user?.id ?? userId ?? null;
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
-    const [unreadCount, setUnreadCount] = useState(0);
+    const [unreadCount, setUnreadCount] = useState(() => {
+        const snapshot = readHeaderShellSnapshot();
+        return snapshot?.unreadAnnouncementCount || 0;
+    });
     const [readIds, setReadIds] = useState<string[]>([]);
     const [isOpen, setIsOpen] = useState(false);
 
     const loadUnreadCount = useCallback(async () => {
-        if (!user || !isDocumentVisible()) return;
+        if (!resolvedUserId || !isDocumentVisible()) return;
         try {
-            const { count } = await getUnreadAnnouncementCount(user.id);
+            const { count } = await getUnreadAnnouncementCount(resolvedUserId);
             setUnreadCount(count || 0);
+            updateHeaderShellCounts(resolvedUserId, { unreadAnnouncementCount: count || 0 });
         } catch (error) {
             if (!isExpectedAccessControlError(error)) {
                 console.error('Error loading announcement unread count:', error);
             }
         }
-    }, [user]);
+    }, [resolvedUserId]);
 
     const loadAnnouncements = useCallback(async (markViewed = false) => {
-        if (!user || !isDocumentVisible()) return;
+        if (!resolvedUserId || !isDocumentVisible()) return;
         try {
             const { announcements: allAnnouncements } = await getAnnouncements();
-            const { reads } = await getReadList(user.id);
+            const { reads } = await getReadList(resolvedUserId);
 
             let nextReadIds = reads;
             if (markViewed) {
@@ -58,7 +68,7 @@ const AnnouncementDropdown: React.FC = () => {
                     .map((announcement) => announcement.id);
 
                 if (unreadIds.length > 0) {
-                    const { error } = await markAllAnnouncementsAsRead(unreadIds, user.id);
+                    const { error } = await markAllAnnouncementsAsRead(unreadIds, resolvedUserId);
                     if (!error) {
                         nextReadIds = [...new Set([...reads, ...unreadIds])];
                     }
@@ -70,15 +80,25 @@ const AnnouncementDropdown: React.FC = () => {
             setAnnouncements(allAnnouncements);
             setUnreadCount(unreadCount);
             setReadIds(nextReadIds);
+            updateHeaderShellCounts(resolvedUserId, { unreadAnnouncementCount: unreadCount });
         } catch (error) {
             if (!isExpectedAccessControlError(error)) {
                 console.error('Error loading announcements:', error);
             }
         }
-    }, [user]);
+    }, [resolvedUserId]);
 
     useEffect(() => {
-        if (!user) {
+        if (resolvedUserId) {
+            const snapshot = readHeaderShellSnapshot();
+            if (snapshot?.user?.id === resolvedUserId) {
+                setUnreadCount(snapshot.unreadAnnouncementCount || 0);
+            }
+        }
+    }, [resolvedUserId]);
+
+    useEffect(() => {
+        if (!resolvedUserId) {
             setAnnouncements([]);
             setUnreadCount(0);
             setReadIds([]);
@@ -96,15 +116,19 @@ const AnnouncementDropdown: React.FC = () => {
         return () => {
             window.clearInterval(interval);
         };
-    }, [isOpen, loadAnnouncements, loadUnreadCount, user]);
+    }, [isOpen, loadAnnouncements, loadUnreadCount, resolvedUserId]);
 
     const handleMarkAsRead = async (announcementId: string) => {
-        if (!user || readIds.includes(announcementId)) return;
+        if (!resolvedUserId || readIds.includes(announcementId)) return;
         
         try {
-            await markAsRead(announcementId, user.id);
+            await markAsRead(announcementId, resolvedUserId);
             setReadIds(prev => [...prev, announcementId]);
-            setUnreadCount(prev => Math.max(0, prev - 1));
+            setUnreadCount(prev => {
+                const nextCount = Math.max(0, prev - 1);
+                updateHeaderShellCounts(resolvedUserId, { unreadAnnouncementCount: nextCount });
+                return nextCount;
+            });
         } catch (error) {
             if (!isExpectedAccessControlError(error)) {
                 console.error('Error marking as read:', error);
@@ -112,7 +136,7 @@ const AnnouncementDropdown: React.FC = () => {
         }
     };
 
-    if (!user) return null;
+    if (!resolvedUserId) return null;
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>

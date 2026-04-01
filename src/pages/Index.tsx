@@ -6,14 +6,9 @@ import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import MangaCard from '@/components/manga/MangaCard';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
-import {
-  getHomePageMangaSections,
-  getTopTenMangaIds,
-  getTrendingTags,
-  type HomePageMangaSections,
-} from '@/lib/database';
+import type { HomePageMangaSections } from '@/lib/database';
 import TagBadge from '@/components/tags/TagBadge';
-import { getReadingHistoryEntries, type ReadingHistoryEntry } from '@/lib/storage';
+import type { ReadingHistoryEntry } from '@/lib/storage';
 import { supabaseUrl } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Manga, Tag } from '@/lib/types';
@@ -26,6 +21,16 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { getAlignedCarouselTarget } from '@/lib/carousel';
+import {
+  areContinueReadingEntriesEquivalent,
+  areContinueReadingMangaSnapshotsEquivalent,
+  buildContinueReadingMangaFromSnapshot,
+  clearPersistedContinueReadingCache,
+  extractContinueReadingMangaSnapshot,
+  readPersistedContinueReadingCache,
+  type ContinueReadingCacheEntry,
+  writePersistedContinueReadingCache,
+} from '@/lib/continueReadingCache';
 
 interface HorizontalMangaSectionProps {
   title: string;
@@ -53,7 +58,7 @@ interface ContinueReadingEntry {
   lastRead: string;
 }
 
-const buildContinueReadingFallbackManga = (entry: ReadingHistoryEntry): Manga | null => {
+const buildContinueReadingFallbackManga = (entry: ContinueReadingCacheEntry): Manga | null => {
   if (!entry.mangaId || !entry.mangaTitle || !entry.mangaCover) {
     return null;
   }
@@ -114,10 +119,45 @@ const EMPTY_HOME_PAGE_SECTIONS: HomePageMangaSections = {
   recentlyUpdated: [],
 };
 
+type HomeDataModule = {
+  getHomePageMangaSections: () => Promise<HomePageMangaSections>;
+  getTopTenMangaIds: (timeframe?: 'today' | 'week' | 'all') => Promise<Set<string>>;
+  getTrendingTags: (limit?: number, options?: { includePending?: boolean }) => Promise<Tag[]>;
+};
+
+type ReadingHistoryModule = {
+  getReadingHistoryEntries: (userId: string) => Promise<ReadingHistoryEntry[]>;
+};
+
+let homeDataModulePromise: Promise<HomeDataModule> | null = null;
+let readingHistoryModulePromise: Promise<ReadingHistoryModule> | null = null;
+
+const loadHomeDataModule = () => {
+  if (!homeDataModulePromise) {
+    homeDataModulePromise = import('@/lib/database').then((module) => ({
+      getHomePageMangaSections: module.getHomePageMangaSections,
+      getTopTenMangaIds: module.getTopTenMangaIds,
+      getTrendingTags: module.getTrendingTags,
+    }));
+  }
+
+  return homeDataModulePromise;
+};
+
+const loadReadingHistoryModule = () => {
+  if (!readingHistoryModulePromise) {
+    readingHistoryModulePromise = import('@/lib/storage').then((module) => ({
+      getReadingHistoryEntries: module.getReadingHistoryEntries,
+    }));
+  }
+
+  return readingHistoryModulePromise;
+};
+
 const HOME_PAGE_CACHE: {
   sections: HomePageMangaSections | null;
   trendingTags: Tag[] | null;
-  continueReadingByUser: Record<string, ReadingHistoryEntry[] | undefined>;
+  continueReadingByUser: Record<string, ContinueReadingCacheEntry[] | undefined>;
 } = {
   sections: null,
   trendingTags: null,
@@ -160,16 +200,7 @@ const HOME_CARD_ANIMATION_DURATION_MS = 180;
 const HOME_CAROUSEL_ARROW_STEP_ITEMS = 5;
 const HOME_CAROUSEL_SCROLL_SETTLE_DELAY_MS = 280;
 const HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX = 12;
-const HOME_SECTION_PROGRESSIVE_REVEAL_DELAY_MS = 12;
-const DISABLE_HOME_DEFERRED_MOUNTS = false;
-
-const CONTINUE_READING_SESSION_CACHE_KEY = 'toonparrot-home-continue-reading-v1';
-
-interface PersistedContinueReadingCache {
-  userId: string;
-  entries: ReadingHistoryEntry[];
-  updatedAt: string;
-}
+const DISABLE_HOME_DEFERRED_MOUNTS = true;
 
 const getSupabaseAuthStorageKey = () => {
   try {
@@ -191,50 +222,6 @@ const hasPersistedSupabaseSession = () => {
   }
 
   return Boolean(window.localStorage.getItem(authStorageKey));
-};
-
-const readPersistedContinueReadingCache = (): PersistedContinueReadingCache | null => {
-  if (typeof window === 'undefined') {
-    return null;
-  }
-
-  try {
-    const raw = window.sessionStorage.getItem(CONTINUE_READING_SESSION_CACHE_KEY);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw) as PersistedContinueReadingCache;
-    if (!parsed || typeof parsed.userId !== 'string' || !Array.isArray(parsed.entries)) {
-      return null;
-    }
-
-    return parsed;
-  } catch {
-    return null;
-  }
-};
-
-const writePersistedContinueReadingCache = (userId: string, entries: ReadingHistoryEntry[]) => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  const payload: PersistedContinueReadingCache = {
-    userId,
-    entries: entries.slice(0, 6),
-    updatedAt: new Date().toISOString(),
-  };
-
-  window.sessionStorage.setItem(CONTINUE_READING_SESSION_CACHE_KEY, JSON.stringify(payload));
-};
-
-const clearPersistedContinueReadingCache = () => {
-  if (typeof window === 'undefined') {
-    return;
-  }
-
-  window.sessionStorage.removeItem(CONTINUE_READING_SESSION_CACHE_KEY);
 };
 
 const getInitialVisibleHomeSectionCardCount = (viewportWidth: number, isCoarsePointer: boolean) => {
@@ -530,7 +517,6 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   const scrollRef = useRef<HTMLDivElement>(null);
   const probeRef = useRef<HTMLDivElement>(null);
   const layoutRafRef = useRef<number | null>(null);
-  const progressiveRevealTimerRef = useRef<number | null>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
   const [itemWidth, setItemWidth] = useState(0);
@@ -539,50 +525,11 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth,
   }));
   const showArrowControls = !isCoarsePointer && !disableHeavyEffects;
-  const initialVisibleCount = useMemo(
-    () => Math.min(
-      manga.length,
-      Math.max(priorityCount, getInitialVisibleHomeSectionCardCount(scrollMetrics.viewportWidth, isCoarsePointer)),
-    ),
-    [isCoarsePointer, manga.length, priorityCount, scrollMetrics.viewportWidth],
+  const visibleManga = manga;
+  const visibleCoverPriorityCount = Math.max(
+    priorityCount,
+    getInitialVisibleHomeSectionCardCount(scrollMetrics.viewportWidth, isCoarsePointer),
   );
-  const revealBatchSize = isCoarsePointer ? 2 : 3;
-  const [visibleCount, setVisibleCount] = useState(() => initialVisibleCount);
-
-  useEffect(() => {
-    setVisibleCount(initialVisibleCount);
-  }, [initialVisibleCount, manga]);
-
-  useEffect(() => {
-    if (visibleCount >= manga.length || typeof window === 'undefined') {
-      return;
-    }
-
-    progressiveRevealTimerRef.current = window.setTimeout(() => {
-      startTransition(() => {
-        setVisibleCount((current) => Math.min(manga.length, current + revealBatchSize));
-      });
-    }, HOME_SECTION_PROGRESSIVE_REVEAL_DELAY_MS);
-
-    return () => {
-      if (progressiveRevealTimerRef.current !== null) {
-        window.clearTimeout(progressiveRevealTimerRef.current);
-        progressiveRevealTimerRef.current = null;
-      }
-    };
-  }, [manga.length, revealBatchSize, visibleCount]);
-
-  useEffect(() => () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-
-    if (progressiveRevealTimerRef.current !== null) {
-      window.clearTimeout(progressiveRevealTimerRef.current);
-    }
-  }, []);
-
-  const visibleManga = useMemo(() => manga.slice(0, visibleCount), [manga, visibleCount]);
 
   const updateLayoutMetrics = useCallback(() => {
     if (!scrollRef.current) {
@@ -648,7 +595,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
   useEffect(() => {
     requestLayoutMetricsUpdate();
-  }, [requestLayoutMetricsUpdate, visibleCount]);
+  }, [manga.length, requestLayoutMetricsUpdate]);
 
   useEffect(() => () => {
     if (typeof window === 'undefined') {
@@ -794,17 +741,13 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
             <div
               key={item.id}
               className="w-[9.75rem] shrink-0 snap-start min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/6)] 2xl:w-[calc((100%-96px)/6)]"
-              style={{
-                contentVisibility: 'auto',
-                containIntrinsicSize: '252px 420px',
-              }}
             >
               <MangaCard
                 manga={item}
                 index={index}
                 topTenWeekIds={topTenWeekIds}
                 disableHeavyEffects={disableHeavyEffects}
-                coverPriority={index < priorityCount}
+                coverPriority={index < visibleCoverPriorityCount}
                 coverRootMargin={coverRootMargin}
                 enableEntryAnimation
                 entryAnimationClassName="animate-card-reveal-fast"
@@ -826,7 +769,7 @@ const Index: React.FC = () => {
   const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => HOME_PAGE_CACHE.sections ?? EMPTY_HOME_PAGE_SECTIONS);
   const [topTenWeekIds, setTopTenWeekIds] = useState<ReadonlySet<string> | null>(null);
   const [hasPersistedAuthSession, setHasPersistedAuthSession] = useState(() => hasPersistedSupabaseSession());
-  const [continueReadingSeed, setContinueReadingSeed] = useState<ReadingHistoryEntry[]>(() => (
+  const [continueReadingSeed, setContinueReadingSeed] = useState<ContinueReadingCacheEntry[]>(() => (
     readPersistedContinueReadingCache()?.entries ?? []
   ));
   const [continueReadingLoading, setContinueReadingLoading] = useState(() => hasPersistedSupabaseSession());
@@ -898,16 +841,20 @@ const Index: React.FC = () => {
     }
 
     let active = true;
+    const homeDataPromise = loadHomeDataModule();
 
     const loadMainContent = async () => {
       try {
+        const { getHomePageMangaSections } = await homeDataPromise;
         const sections = await getHomePageMangaSections();
         if (!active) {
           return;
         }
 
         HOME_PAGE_CACHE.sections = sections;
-        setHomeSections(sections);
+        startTransition(() => {
+          setHomeSections(sections);
+        });
       } catch (err) {
         console.error('Data loading error:', err);
       }
@@ -915,6 +862,7 @@ const Index: React.FC = () => {
 
     const loadTopTenWeekIds = async () => {
       try {
+        const { getTopTenMangaIds } = await homeDataPromise;
         const ids = await getTopTenMangaIds('week');
         if (active) {
           setTopTenWeekIds(ids);
@@ -937,6 +885,7 @@ const Index: React.FC = () => {
 
   useEffect(() => {
     let active = true;
+    const homeDataPromise = loadHomeDataModule();
 
     const loadTrendingTags = async () => {
       if (!isOnline) {
@@ -950,6 +899,7 @@ const Index: React.FC = () => {
       }
 
       try {
+        const { getTrendingTags } = await homeDataPromise;
         const tags = await getTrendingTags(20);
         if (!active) {
           return;
@@ -980,12 +930,14 @@ const Index: React.FC = () => {
     setHasPersistedAuthSession(Boolean(user));
 
     if (!user) {
+      HOME_PAGE_CACHE.continueReadingByUser = {};
       clearPersistedContinueReadingCache();
     }
   }, [authLoading, user]);
 
   useEffect(() => {
     let active = true;
+    const readingHistoryPromise = loadReadingHistoryModule();
 
     const loadContinueReading = async () => {
       if (authLoading) {
@@ -1005,6 +957,9 @@ const Index: React.FC = () => {
       const persistedCache = readPersistedContinueReadingCache();
       const cachedEntries = HOME_PAGE_CACHE.continueReadingByUser[user.id]
         ?? (persistedCache?.userId === user.id ? persistedCache.entries : undefined);
+      const cachedEntriesByMangaId = new Map(
+        (cachedEntries || []).map((entry) => [entry.mangaId, entry]),
+      );
 
       if (cachedEntries) {
         setContinueReadingSeed(cachedEntries);
@@ -1014,6 +969,7 @@ const Index: React.FC = () => {
       }
 
       try {
+        const { getReadingHistoryEntries } = await readingHistoryPromise;
         const historyEntries = await getReadingHistoryEntries(user.id);
         const uniqueEntries: ReadingHistoryEntry[] = [];
         const seenMangaIds = new Set<string>();
@@ -1035,9 +991,29 @@ const Index: React.FC = () => {
           return;
         }
 
-        HOME_PAGE_CACHE.continueReadingByUser[user.id] = uniqueEntries;
-        setContinueReadingSeed(uniqueEntries);
-        writePersistedContinueReadingCache(user.id, uniqueEntries);
+        const nextEntries: ContinueReadingCacheEntry[] = uniqueEntries.map((entry) => {
+          const liveManga = mangaById.get(entry.mangaId);
+          const mangaSnapshot = liveManga
+            ? extractContinueReadingMangaSnapshot(liveManga)
+            : cachedEntriesByMangaId.get(entry.mangaId)?.mangaSnapshot ?? null;
+
+          return {
+            ...entry,
+            mangaSnapshot,
+          };
+        });
+
+        const hasSnapshotDifferences = nextEntries.some((entry, index) => (
+          !areContinueReadingMangaSnapshotsEquivalent(entry.mangaSnapshot, cachedEntries?.[index]?.mangaSnapshot)
+        ));
+
+        HOME_PAGE_CACHE.continueReadingByUser[user.id] = nextEntries;
+        if (!areContinueReadingEntriesEquivalent(cachedEntries, nextEntries) || hasSnapshotDifferences) {
+          startTransition(() => {
+            setContinueReadingSeed(nextEntries);
+          });
+        }
+        writePersistedContinueReadingCache(user.id, nextEntries);
       } catch (err) {
         console.error('Continue reading loading error:', err);
         if (active) {
@@ -1055,12 +1031,47 @@ const Index: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [authLoading, continueReadingSeed.length, hasPersistedAuthSession, isOnline, user]);
+  }, [authLoading, continueReadingSeed.length, hasPersistedAuthSession, isOnline, mangaById, user]);
+
+  useEffect(() => {
+    if (!user?.id || continueReadingSeed.length === 0) {
+      return;
+    }
+
+    let hasSnapshotUpdate = false;
+    const nextEntries = continueReadingSeed.map((entry) => {
+      const liveManga = mangaById.get(entry.mangaId);
+      if (!liveManga) {
+        return entry;
+      }
+
+      const nextSnapshot = extractContinueReadingMangaSnapshot(liveManga);
+      if (areContinueReadingMangaSnapshotsEquivalent(entry.mangaSnapshot, nextSnapshot)) {
+        return entry;
+      }
+
+      hasSnapshotUpdate = true;
+      return {
+        ...entry,
+        mangaSnapshot: nextSnapshot,
+      };
+    });
+
+    if (!hasSnapshotUpdate) {
+      return;
+    }
+
+    HOME_PAGE_CACHE.continueReadingByUser[user.id] = nextEntries;
+    setContinueReadingSeed(nextEntries);
+    writePersistedContinueReadingCache(user.id, nextEntries);
+  }, [continueReadingSeed, mangaById, user?.id]);
 
   const continueReading = useMemo<ContinueReadingEntry[]>(() => (
     continueReadingSeed
       .map((entry) => {
-        const manga = mangaById.get(entry.mangaId) || buildContinueReadingFallbackManga(entry);
+        const manga = mangaById.get(entry.mangaId)
+          || (entry.mangaSnapshot ? buildContinueReadingMangaFromSnapshot(entry.mangaSnapshot) : null)
+          || buildContinueReadingFallbackManga(entry);
         if (!manga) {
           return null;
         }
@@ -1083,9 +1094,11 @@ const Index: React.FC = () => {
   } = homeSections;
 
   const canRenderContinueReadingSlot = isOnline && (Boolean(user) || (authLoading && hasPersistedAuthSession));
-  const shouldShowContinueReading = isOnline && Boolean(user) && continueReading.length > 0;
+  const shouldShowContinueReading = isOnline
+    && continueReading.length > 0
+    && (Boolean(user) || (authLoading && hasPersistedAuthSession));
   const showContinueReadingSkeleton = canRenderContinueReadingSlot
-    && !shouldShowContinueReading
+    && continueReading.length === 0
     && (continueReadingLoading || authLoading);
   const shouldRenderContinueReadingSlot = shouldShowContinueReading || showContinueReadingSkeleton;
 

@@ -32,45 +32,65 @@ import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import { isDocumentVisible } from '@/lib/documentVisibility';
 import { isExpectedAccessControlError } from '@/lib/supabase';
+import { readHeaderShellSnapshot, updateHeaderShellCounts } from '@/lib/headerShellCache';
 
-const NotificationDropdown: React.FC = () => {
+interface NotificationDropdownProps {
+    userId?: string | null;
+}
+
+const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ userId }) => {
     const { user } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
     const navigate = useNavigate();
+    const resolvedUserId = user?.id ?? userId ?? null;
     const [notifications, setNotifications] = useState<Notification[]>([]);
-    const [unreadCount, setUnreadCount] = useState(0);
+    const [unreadCount, setUnreadCount] = useState(() => {
+        const snapshot = readHeaderShellSnapshot();
+        return snapshot?.unreadNotificationCount || 0;
+    });
     const [isOpen, setIsOpen] = useState(false);
 
     const loadUnreadCount = useCallback(async () => {
-        if (!user || !isOnline || !isDocumentVisible()) return;
+        if (!resolvedUserId || !isOnline || !isDocumentVisible()) return;
         try {
-            const count = await getUnreadNotificationCount(user.id);
+            const count = await getUnreadNotificationCount(resolvedUserId);
             setUnreadCount(count);
+            updateHeaderShellCounts(resolvedUserId, { unreadNotificationCount: count });
         } catch (error) {
             if (!isExpectedAccessControlError(error)) {
                 console.error('Error loading unread notification count:', error);
             }
         }
-    }, [isOnline, user]);
+    }, [isOnline, resolvedUserId]);
 
     const loadNotifications = useCallback(async () => {
-        if (!user || !isOnline || !isDocumentVisible()) return;
+        if (!resolvedUserId || !isOnline || !isDocumentVisible()) return;
         try {
             const [allNotifications, count] = await Promise.all([
-                getNotifications(user.id),
-                getUnreadNotificationCount(user.id),
+                getNotifications(resolvedUserId),
+                getUnreadNotificationCount(resolvedUserId),
             ]);
             setNotifications(allNotifications.slice(0, 8)); // Show max 8 in dropdown
             setUnreadCount(count);
+            updateHeaderShellCounts(resolvedUserId, { unreadNotificationCount: count });
         } catch (error) {
             if (!isExpectedAccessControlError(error)) {
                 console.error('Error loading notifications:', error);
             }
         }
-    }, [isOnline, user]);
+    }, [isOnline, resolvedUserId]);
 
     useEffect(() => {
-        if (!user || !isOnline) {
+        if (resolvedUserId) {
+            const snapshot = readHeaderShellSnapshot();
+            if (snapshot?.user?.id === resolvedUserId) {
+                setUnreadCount(snapshot.unreadNotificationCount || 0);
+            }
+        }
+    }, [resolvedUserId]);
+
+    useEffect(() => {
+        if (!resolvedUserId || !isOnline) {
             setNotifications([]);
             setUnreadCount(0);
             return;
@@ -87,11 +107,11 @@ const NotificationDropdown: React.FC = () => {
         return () => {
             window.clearInterval(interval);
         };
-    }, [isOnline, isOpen, loadNotifications, loadUnreadCount, user]);
+    }, [isOnline, isOpen, loadNotifications, loadUnreadCount, resolvedUserId]);
 
     const handleNotificationClick = async (notification: Notification) => {
-        if (!notification.read && user) {
-            await markNotificationAsRead(user.id, notification.id);
+        if (!notification.read && resolvedUserId) {
+            await markNotificationAsRead(resolvedUserId, notification.id);
             void loadNotifications();
         }
         setIsOpen(false);
@@ -116,7 +136,7 @@ const NotificationDropdown: React.FC = () => {
         }
     };
 
-    if (!user) return null;
+    if (!resolvedUserId) return null;
 
     return (
         <Popover open={isOpen} onOpenChange={setIsOpen}>

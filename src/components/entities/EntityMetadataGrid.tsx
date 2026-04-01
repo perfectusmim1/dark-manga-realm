@@ -1,5 +1,5 @@
 import React from 'react';
-import { Languages } from 'lucide-react';
+import { ExternalLink, Languages } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { buildEntityMetadataEntries } from '@/lib/entityMetadata';
@@ -57,9 +57,21 @@ const EntityMetadataGrid: React.FC<EntityMetadataGridProps> = ({
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   {entry.label}
                 </p>
-                <p className="mt-2 text-sm leading-6 text-foreground/90">
-                  {entry.value}
-                </p>
+                {entry.href ? (
+                  <a
+                    href={entry.href}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="mt-2 inline-flex items-center gap-2 text-sm leading-6 text-primary transition-colors hover:text-primary/80 hover:underline break-all"
+                  >
+                    <span>{entry.value}</span>
+                    <ExternalLink className="h-3.5 w-3.5 shrink-0" />
+                  </a>
+                ) : (
+                  <p className="mt-2 text-sm leading-6 text-foreground/90">
+                    {entry.value}
+                  </p>
+                )}
               </div>
             ))}
           </div>

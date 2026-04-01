@@ -1,6 +1,12 @@
 import type { EntityMetadata } from '@/lib/types';
 import { getCharacterListingRoleLabel, normalizeCharacterListingRole } from '@/lib/characterRoles';
 
+export interface EntityMetadataEntry {
+  label: string;
+  value: string;
+  href?: string;
+}
+
 export interface EntityMetadataFormState {
   nativeName: string;
   englishName: string;
@@ -209,14 +215,29 @@ export const formStateToEntityMetadata = (formState: EntityMetadataFormState): E
   ) as EntityMetadata;
 };
 
+const isHttpUrl = (value?: string | null) => /^https?:\/\//i.test((value || '').trim());
+
+const formatMetadataLinkValue = (value: string) => {
+  try {
+    const url = new URL(value);
+    return `${url.host}${url.pathname === '/' ? '' : url.pathname}`.replace(/\/$/, '') || value;
+  } catch {
+    return value;
+  }
+};
+
 export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => {
   if (!metadata) {
     return [];
   }
 
-  const entries: Array<{ label: string; value: string }> = [];
+  const entries: EntityMetadataEntry[] = [];
 
-  const push = (label: string, value?: string | string[] | number | null) => {
+  const push = (
+    label: string,
+    value?: string | string[] | number | null,
+    options?: { href?: string },
+  ) => {
     if (Array.isArray(value)) {
       if (value.length > 0) {
         entries.push({ label, value: value.join(', ') });
@@ -225,7 +246,13 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
     }
 
     if (value !== undefined && value !== null && String(value).trim()) {
-      entries.push({ label, value: String(value).trim() });
+      const normalizedValue = String(value).trim();
+      const href = isHttpUrl(options?.href) ? options?.href?.trim() : undefined;
+      entries.push({
+        label,
+        value: href ? formatMetadataLinkValue(normalizedValue) : normalizedValue,
+        ...(href ? { href } : {}),
+      });
     }
   };
 
@@ -246,8 +273,8 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
   push('Unvan', metadata.rankTitle);
   push('Bağlılık', metadata.affiliation);
   push('Yakınlar', metadata.relatives);
-  push('Web Sitesi', metadata.website);
-  push('Twitter', metadata.twitter);
+  push('Web Sitesi', metadata.website, { href: metadata.website });
+  push('Twitter', metadata.twitter, { href: metadata.twitter });
   push('Kaynak Materyal', metadata.sourceMaterial);
   push('Başlangıç', metadata.startDate);
   push('Bitiş', metadata.endDate);

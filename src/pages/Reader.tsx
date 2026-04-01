@@ -40,6 +40,7 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { prefetchChapterAssets, prefetchImageAsset, retainPrefetchedChapters } from '@/lib/imagePrefetch';
 import { OPEN_PAGE_COMMENT_EVENT, OpenPageCommentDetail } from '@/lib/pageCommentEvents';
 import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
+import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
 
 let persistedAutoScrollIntent = false;
 const MIN_READING_SESSION_SECONDS = 1;
@@ -1032,7 +1033,10 @@ const Reader: React.FC = () => {
               </Link>
             </Button>
             <Button asChild variant="outline">
-              <Link to={`/manga/${manga.id}`}>
+              <Link
+                to={`/manga/${manga.id}`}
+                onClick={() => markRouteToForceTopOnNextVisit(buildRouteKey(`/manga/${manga.id}`))}
+              >
                 Seri Sayfasına Dön
               </Link>
             </Button>
