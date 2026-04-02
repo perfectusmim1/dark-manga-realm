@@ -2644,7 +2644,7 @@ const MangaDetail: React.FC = () => {
                     {/* Sidebar Info */}
                     <div className="space-y-4 sm:space-y-6">
                       <div 
-                        className="group cursor-pointer rounded-xl border border-border bg-card/50 p-3 transition-colors hover:bg-card/70 sm:p-6"
+                        className="group hidden cursor-pointer rounded-xl border border-border bg-card/50 p-3 transition-colors hover:bg-card/70 sm:block sm:p-6"
                         onClick={() => setActiveTab('reviews')}
                       >
                         <h2 className="mb-3 text-lg font-semibold text-center transition-colors group-hover:text-primary sm:mb-4">
