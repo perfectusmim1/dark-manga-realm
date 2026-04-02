@@ -17,6 +17,7 @@ import {
     Megaphone,
     Flag,
     LifeBuoy,
+    Bot,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -60,6 +61,7 @@ const AdminLayout: React.FC = () => {
         ...(canUseScrapers ? [{ icon: Download, label: 'İçerik Çek', path: '/admin/scraper' }] : []),
         ...(canUseScrapers ? [{ icon: Download, label: 'Metadata Import', path: '/admin/metadata-import' }] : []),
         ...(canUseScrapers ? [{ icon: RefreshCw, label: 'Bölüm Çekme', path: '/admin/chapter-scraper' }] : []),
+        ...(canUseScrapers ? [{ icon: Bot, label: 'Otomasyon', path: '/admin/automation' }] : []),
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
         { icon: Users, label: 'Karakter & Sanatçı', path: '/admin/entities' },
         { icon: Hash, label: 'Etiketler', path: '/admin/tags' },

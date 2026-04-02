@@ -45,8 +45,7 @@ import {
     type ScrapeSource,
     writePreferredScrapeSource,
 } from '@/lib/scraper/scrapeSources';
-import { useAdminAccess } from '@/hooks/useAdminAccess';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 
 interface ScrapedMangaCard {
     title: string;
@@ -76,9 +75,7 @@ const normalizeChapterTitle = (value?: string | null, number?: number) => (
 
 const AdminChapterScraper: React.FC = () => {
     const navigate = useNavigate();
-    const { user } = useAuth();
-    const { access, isLoading: accessLoading } = useAdminAccess();
-    const canUseScraper = access.canAccessAdminPanel && access.role === 'admin';
+    const { isAllowed: canUseScraper, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'admin' });
     const availableScraperProviders = getAvailableScraperProviders();
     const availableScrapeSources = getAvailableScrapeSources();
 
@@ -104,17 +101,6 @@ const AdminChapterScraper: React.FC = () => {
     const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
 
     useEffect(() => {
-        if (accessLoading || !user) {
-            return;
-        }
-
-        if (!canUseScraper) {
-            toast.error('Bu sayfa yalnızca admin hesabına açıktır');
-            navigate('/admin', { replace: true });
-        }
-    }, [accessLoading, canUseScraper, navigate, user]);
-
-    useEffect(() => {
         if (!canUseScraper) {
             return;
         }
@@ -138,7 +124,7 @@ const AdminChapterScraper: React.FC = () => {
         }
     }, [availableScrapeSources, availableScraperProviders, scrapeSource, scraperProvider]);
 
-    if (accessLoading || !user || !canUseScraper) {
+    if (accessLoading || !canUseScraper) {
         return null;
     }
 
@@ -319,6 +305,11 @@ const AdminChapterScraper: React.FC = () => {
                         || Number(chapter.number) === Number(sc.number)
                     ));
                     const existingChapter = existingChapterIndex >= 0 ? importedChapters[existingChapterIndex] : null;
+
+                    if (images.length === 0) {
+                        toast.error(`Bölüm ${sc.number} için görsel bulunamadı, atlanıyor.`);
+                        continue;
+                    }
 
                     const importedChapter: Chapter = {
                         id: existingChapter?.id || `chapter-${Date.now()}-${sc.number}`,

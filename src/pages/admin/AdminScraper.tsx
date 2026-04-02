@@ -42,8 +42,7 @@ import {
     type ScrapeSource,
     writePreferredScrapeSource,
 } from '@/lib/scraper/scrapeSources';
-import { useAdminAccess } from '@/hooks/useAdminAccess';
-import { useAuth } from '@/contexts/AuthContext';
+import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 
 interface ScrapedMangaCard {
     title: string;
@@ -154,9 +153,7 @@ const sanitizeAlternativeTitles = (rawText: string, mainTitle?: string) => {
 
 const AdminScraper: React.FC = () => {
     const navigate = useNavigate();
-    const { user } = useAuth();
-    const { access, isLoading: accessLoading } = useAdminAccess();
-    const canUseScraper = access.canAccessAdminPanel && access.role === 'admin';
+    const { isAllowed: canUseScraper, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'admin' });
     const availableScraperProviders = getAvailableScraperProviders();
     const availableScrapeSources = getAvailableScrapeSources();
     const [searchQuery, setSearchQuery] = useState('');
@@ -168,17 +165,6 @@ const AdminScraper: React.FC = () => {
     const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
     const [scrapeSource, setScrapeSource] = useState<ScrapeSource>(() => readPreferredScrapeSource());
     const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
-
-    useEffect(() => {
-        if (accessLoading || !user) {
-            return;
-        }
-
-        if (!canUseScraper) {
-            toast.error('Bu sayfa yalnızca admin hesabına açıktır');
-            navigate('/admin', { replace: true });
-        }
-    }, [accessLoading, canUseScraper, navigate, user]);
 
     useEffect(() => {
         if (availableScraperProviders.includes(scraperProvider)) {
@@ -196,7 +182,7 @@ const AdminScraper: React.FC = () => {
         }
     }, [availableScrapeSources, availableScraperProviders, scrapeSource, scraperProvider]);
 
-    if (accessLoading || !user || !canUseScraper) {
+    if (accessLoading || !canUseScraper) {
         return null;
     }
 

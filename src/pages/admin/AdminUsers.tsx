@@ -6,7 +6,6 @@ import {
     Plus,
     Shield,
     ShieldCheck,
-    ShieldAlert,
     Trash2,
     Users,
 } from 'lucide-react';
@@ -38,16 +37,14 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Skeleton } from '@/components/ui/skeleton';
 import { getAdminUsers, addAdminUser, deleteAdminUser, getAllUsers, AdminUser } from '@/lib/database';
-import { useAdminAccess } from '@/hooks/useAdminAccess';
 import { User } from '@/lib/types';
-import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
+import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 
 const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
 
 const AdminUsers: React.FC = () => {
-    const { user, isLoading: authLoading } = useAuth();
-    const { access, isLoading: accessLoading } = useAdminAccess();
+    const { user, isAllowed: isPrimaryAdmin, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'primary-admin' });
     const [admins, setAdmins] = useState<AdminUser[]>([]);
     const [allUsers, setAllUsers] = useState<User[]>([]);
     const [isLoading, setIsLoading] = useState(true);
@@ -58,7 +55,7 @@ const AdminUsers: React.FC = () => {
     const hasLoadedDataRef = useRef(false);
 
     useEffect(() => {
-        if (authLoading) {
+        if (accessLoading || !isPrimaryAdmin) {
             return;
         }
 
@@ -112,7 +109,7 @@ const AdminUsers: React.FC = () => {
         return () => {
             isCancelled = true;
         };
-    }, [authLoading, user?.id]);
+    }, [accessLoading, isPrimaryAdmin, user?.id]);
 
     const loadData = async () => {
         try {
@@ -190,26 +187,7 @@ const AdminUsers: React.FC = () => {
         }
     };
 
-    if (!access.isPrimaryAdmin) {
-        return (
-            <div className="space-y-6">
-                <div>
-                    <h1 className="text-3xl font-bold">Adminler</h1>
-                    <p className="text-muted-foreground">Bu alan sadece ana admin hesabına açıktır.</p>
-                </div>
-
-                <div className="rounded-2xl border border-border bg-card/50 p-10 text-center">
-                    <ShieldAlert className="mx-auto h-12 w-12 text-destructive" />
-                    <h2 className="mt-4 text-xl font-semibold">Erişim Engellendi</h2>
-                    <p className="mt-2 text-muted-foreground">
-                        Moderatörler staff yönetimi ekranını kullanamaz.
-                    </p>
-                </div>
-            </div>
-        );
-    }
-
-    if (authLoading || accessLoading || (isLoading && !hasLoadedDataRef.current)) {
+    if (accessLoading || (isLoading && !hasLoadedDataRef.current)) {
         return (
             <div className="space-y-6">
                 <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -235,6 +213,10 @@ const AdminUsers: React.FC = () => {
                 </div>
             </div>
         );
+    }
+
+    if (!isPrimaryAdmin) {
+        return null;
     }
 
     return (

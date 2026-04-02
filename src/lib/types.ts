@@ -506,6 +506,59 @@ export type UserBanKind = 'timed' | 'permanent' | 'hard';
 
 export type ScrapeSource = 'hayalistic' | 'webtoonhatti';
 
+export type ChapterAutomationSource = ScrapeSource;
+export type ChapterAutomationProxyProvider = 'cloudflare';
+export type ChapterAutomationRunStatus = 'idle' | 'running' | 'success' | 'no_changes' | 'error';
+
+export interface ChapterAutomationValidation {
+  source: ChapterAutomationSource;
+  sourceTitle: string;
+  normalizedUrl: string;
+  cover?: string | null;
+  chapterCount: number;
+  latestChapterNumber?: number | null;
+  checkedAt: string;
+}
+
+export interface ChapterAutomationRunSummary {
+  id: string;
+  automationId: string;
+  status: Exclude<ChapterAutomationRunStatus, 'idle'>;
+  startedAt: string;
+  finishedAt?: string | null;
+  chaptersAdded: number;
+  sourceChapterCount: number;
+  newChapterCount: number;
+  errorMessage?: string | null;
+  details?: Record<string, JsonValue>;
+}
+
+export interface ChapterAutomation {
+  id: string;
+  automationType: 'chapter';
+  mangaId: string;
+  mangaTitle: string;
+  mangaCover?: string | null;
+  source: ChapterAutomationSource;
+  sourceUrl: string;
+  proxyProvider: ChapterAutomationProxyProvider;
+  checkTimes: string[];
+  scheduleTimezone: string;
+  isActive: boolean;
+  validation: ChapterAutomationValidation;
+  nextRunAt?: string | null;
+  lastRunStatus: ChapterAutomationRunStatus;
+  lastRunStartedAt?: string | null;
+  lastRunFinishedAt?: string | null;
+  lastRunError?: string | null;
+  lastAddedChapterCount: number;
+  createdAt: string;
+  updatedAt: string;
+  createdBy?: string | null;
+  updatedBy?: string | null;
+  latestRun?: ChapterAutomationRunSummary | null;
+}
+
 export interface SupportTicketMessage {
   id: string;
   ticketId: string;

@@ -16,6 +16,7 @@ export const BACKUP_TABLES = [
   "character_tags",
   "author_tags",
   "artist_tags",
+  "chapter_automations",
   "announcements",
   "site_settings",
 ] as const;
@@ -31,6 +32,7 @@ export const UPSERT_ONLY_TABLES: BackupTableName[] = [
   "characters",
   "mangas",
   "chapters",
+  "chapter_automations",
 ];
 
 export const REPLACE_ONLY_TABLES: BackupTableName[] = [

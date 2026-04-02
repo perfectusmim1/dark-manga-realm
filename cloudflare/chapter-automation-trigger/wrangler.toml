@@ -1,0 +1,17 @@
+name = "toonparrot-chapter-automation-trigger"
+main = "worker.js"
+compatibility_date = "2026-04-02"
+workers_dev = true
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[vars]
+RUNNER_URL = "https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/chapter-automation-runner"
+
+[triggers]
+crons = ["*/5 * * * *"]
+
+# Optional:
+# wrangler secret put RUNNER_TOKEN

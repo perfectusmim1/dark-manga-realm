@@ -1,5 +1,4 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
 import { 
     Megaphone, 
     Plus, 
@@ -20,15 +19,12 @@ import {
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import { getAnnouncements, createAnnouncement, deleteAnnouncement, Announcement } from '@/lib/announcements';
-import { useAdminAccess } from '@/hooks/useAdminAccess';
-import { useAuth } from '@/contexts/AuthContext';
 import { format } from 'date-fns';
 import { tr } from 'date-fns/locale';
+import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 
 const AdminAnnouncements: React.FC = () => {
-    const { user } = useAuth();
-    const { access, isLoading: accessLoading } = useAdminAccess();
-    const navigate = useNavigate();
+    const { user, isAllowed, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'primary-admin' });
     const [announcements, setAnnouncements] = useState<Announcement[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -54,22 +50,16 @@ const AdminAnnouncements: React.FC = () => {
     }, []);
 
     useEffect(() => {
-        if (accessLoading || !user) {
-            return;
-        }
-
-        if (!access.isPrimaryAdmin) {
-            toast.error('Bu sayfa yalnızca admin hesabına açıktır');
-            navigate('/admin', { replace: true });
+        if (accessLoading || !user || !isAllowed) {
             return;
         }
 
         void loadData();
-    }, [access.isPrimaryAdmin, accessLoading, loadData, navigate, user]);
+    }, [accessLoading, isAllowed, loadData, user]);
 
     const handleCreate = async (e: React.FormEvent) => {
         e.preventDefault();
-        if (!user || !access.isPrimaryAdmin) return;
+        if (!user || !isAllowed) return;
         if (!title.trim() || !content.trim()) {
             toast.error('Lütfen tüm alanları doldurun');
             return;
@@ -93,7 +83,7 @@ const AdminAnnouncements: React.FC = () => {
     };
 
     const handleDelete = async () => {
-        if (!user || !access.isPrimaryAdmin) return;
+        if (!user || !isAllowed) return;
         const targetAnnouncement = announcementToDelete;
         if (!targetAnnouncement) return;
         setAnnouncementToDelete(null);
@@ -112,7 +102,7 @@ const AdminAnnouncements: React.FC = () => {
         return null;
     }
 
-    if (!user || !access.isPrimaryAdmin) {
+    if (!user || !isAllowed) {
         return null;
     }
 

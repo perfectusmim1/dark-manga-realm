@@ -54,6 +54,7 @@ import {
 import type { Character, EntityGalleryImage, Manga } from '@/lib/types';
 import { getCharacterListingRoleLabel } from '@/lib/characterRoles';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
+import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 
 const SOURCE_LABELS: Record<MetadataImportSource, string> = {
   anisearch: 'AniSearch',
@@ -382,6 +383,7 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
 };
 
 const AdminMetadataImport: React.FC = () => {
+  const { isAllowed, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'admin' });
   const [mangas, setMangas] = useState<Manga[]>([]);
   const [allLocalCharacters, setAllLocalCharacters] = useState<Character[]>([]);
   const [mangaFilter, setMangaFilter] = useState('');
@@ -404,6 +406,10 @@ const AdminMetadataImport: React.FC = () => {
   const [previewOverrides, setPreviewOverrides] = useState<Record<string, boolean>>({});
 
   useEffect(() => {
+    if (!isAllowed) {
+      return;
+    }
+
     void (async () => {
       const [mangaData, characterData] = await Promise.all([
         getMangaSummaries(),
@@ -415,7 +421,7 @@ const AdminMetadataImport: React.FC = () => {
         setSelectedMangaId(mangaData[0].id);
       }
     })();
-  }, []);
+  }, [isAllowed]);
 
   useEffect(() => {
     let cancelled = false;
@@ -875,6 +881,10 @@ const AdminMetadataImport: React.FC = () => {
       setImporting(false);
     }
   };
+
+  if (accessLoading || !isAllowed) {
+    return null;
+  }
 
   return (
     <div className="space-y-6">

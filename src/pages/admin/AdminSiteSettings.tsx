@@ -3,8 +3,6 @@ import { Download, FileJson, Loader2, Settings, Shield, ShieldOff, TriangleAlert
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { useAuth } from '@/contexts/AuthContext';
-import { useAdminAccess } from '@/hooks/useAdminAccess';
 import {
     getSiteSecuritySettings,
     setAdblockWarningEnabled,
@@ -14,6 +12,7 @@ import {
 import { exportSiteBackup, importSiteBackup } from '@/lib/siteBackup';
 import { SiteBackupManifest } from '@/lib/types';
 import { toast } from 'sonner';
+import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 
 const DEFAULT_SECURITY_SETTINGS: SiteSecuritySettings = {
     devtoolsProtectionEnabled: false,
@@ -24,6 +23,7 @@ const DEFAULT_SECURITY_SETTINGS: SiteSecuritySettings = {
 
 const CONTENT_BACKUP_INCLUDED_AREAS = [
     'Mangalar ve bölümler',
+    'Bölüm otomasyon kuralları',
     'Karakter, yazar, çizer kayıtları',
     'Galeri, metadata ve kaynak linkleri',
     'Seri bağlantıları',
@@ -36,6 +36,7 @@ const CONTENT_BACKUP_EXCLUDED_AREAS = [
     'Yorumlar, incelemeler ve puanlar',
     'Favoriler, yer imleri ve okuma listeleri',
     'Takip, bildirim ve aktivite kayıtları',
+    'Otomasyon çalışma logları',
     'Destek, rapor ve moderasyon geçmişi',
 ];
 
@@ -48,8 +49,7 @@ const getManifestRowCount = (manifest: SiteBackupManifest) =>
     ), 0);
 
 const AdminSiteSettings: React.FC = () => {
-    const { user } = useAuth();
-    const { access, isLoading: accessLoading } = useAdminAccess();
+    const { isAllowed: isPrimaryAdmin, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'primary-admin' });
     const [securitySettings, setSecuritySettings] = useState<SiteSecuritySettings>(DEFAULT_SECURITY_SETTINGS);
     const [isLoading, setIsLoading] = useState(true);
     const [isSaving, setIsSaving] = useState(false);
@@ -58,7 +58,6 @@ const AdminSiteSettings: React.FC = () => {
     const [pendingBackupFileName, setPendingBackupFileName] = useState('');
     const [pendingManifest, setPendingManifest] = useState<SiteBackupManifest | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
-    const isPrimaryAdmin = access.isPrimaryAdmin;
     const pendingManifestTableCount = pendingManifest ? getManifestTableCount(pendingManifest) : 0;
     const pendingManifestRowCount = pendingManifest ? getManifestRowCount(pendingManifest) : 0;
 
@@ -212,14 +211,7 @@ const AdminSiteSettings: React.FC = () => {
     }
 
     if (!isPrimaryAdmin) {
-        return (
-            <div className="rounded-2xl border border-destructive/30 bg-card/70 p-8 text-center">
-                <h1 className="text-2xl font-bold">Yetkisiz Erişim</h1>
-                <p className="mt-3 text-muted-foreground">
-                    Site ayarlarını sadece admin hesabı görüntüleyebilir ve değiştirebilir.
-                </p>
-            </div>
-        );
+        return null;
     }
 
     return (
@@ -309,12 +301,12 @@ const AdminSiteSettings: React.FC = () => {
                             <h2 className="text-xl font-semibold">Site verisi yedekleme</h2>
                             <p className="mt-2 text-sm leading-6 text-muted-foreground">
                                 Bu bölüm içerik ve katalog verilerini JSON manifest olarak dışa aktarır ve geri yükler.
-                                Manga, bölüm, karakter, yazar, çizer, galeri, metadata, kaynak linkleri, seri bağlantıları, etiket ilişkileri,
-                                duyurular ve site ayarları bu kapsama dahildir.
+                                Manga, bölüm, karakter, yazar, çizer, galeri, metadata, kaynak linkleri, seri bağlantıları,
+                                etiket ilişkileri, bölüm otomasyon kuralları, duyurular ve site ayarları bu kapsama dahildir.
                             </p>
                             <p className="text-sm leading-6 text-muted-foreground">
                                 Auth kullanıcıları ve tüm kullanıcı aksiyonları bu akıştan hariç tutulur; yorumlar, incelemeler, puanlar, favoriler,
-                                okuma listeleri, bildirimler ve destek kayıtları import/export dosyasına girmez.
+                                okuma listeleri, bildirimler, otomasyon çalışma logları ve destek kayıtları import/export dosyasına girmez.
                             </p>
                         </div>
                     </div>
