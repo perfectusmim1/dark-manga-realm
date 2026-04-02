@@ -119,6 +119,8 @@ const EMPTY_HOME_PAGE_SECTIONS: HomePageMangaSections = {
   recentlyUpdated: [],
 };
 
+const CONTINUE_READING_DESCRIPTION_LIMIT = 280;
+
 type HomeDataModule = {
   getHomePageMangaSections: () => Promise<HomePageMangaSections>;
   getTopTenMangaIds: (timeframe?: 'today' | 'week' | 'all') => Promise<Set<string>>;
@@ -260,6 +262,25 @@ const formatContinueReadingLastRead = (lastRead: string) => {
   return `Son okuma ${new Date(timestamp).toLocaleDateString('tr-TR')}`;
 };
 
+const truncateContinueReadingDescription = (value?: string | null) => {
+  const normalized = value?.replace(/\s+/g, ' ').trim() || '';
+  if (!normalized) {
+    return 'Kaldığın bölüme tek dokunuşla geri dön ve okumayı bıraktığın yerden devam et.';
+  }
+
+  if (normalized.length <= CONTINUE_READING_DESCRIPTION_LIMIT) {
+    return normalized;
+  }
+
+  const sliced = normalized.slice(0, CONTINUE_READING_DESCRIPTION_LIMIT);
+  const safeCutIndex = sliced.lastIndexOf(' ');
+  const shortened = safeCutIndex >= CONTINUE_READING_DESCRIPTION_LIMIT - 24
+    ? sliced.slice(0, safeCutIndex)
+    : sliced;
+
+  return `${shortened.trimEnd()}...`;
+};
+
 interface ContinueReadingSpotlightProps {
   entries: ContinueReadingEntry[];
   disableHeavyEffects: boolean;
@@ -336,6 +357,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
   const secondary = secondaryEntries.slice(0, 3);
   const continueHref = `/manga/${featured.manga.id}/chapter/${featured.chapterId}`;
   const detailsHref = `/manga/${featured.manga.id}`;
+  const featuredDescription = truncateContinueReadingDescription(featured.manga.description);
 
   return (
     <section
@@ -393,7 +415,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
             </h3>
 
             <p className="mt-4 hidden max-w-2xl text-sm leading-6 text-muted-foreground sm:block sm:text-[15px]">
-              {featured.manga.description || 'Kaldığın bölüme tek dokunuşla geri dön ve okumayı bıraktığın yerden devam et.'}
+              {featuredDescription}
             </p>
 
             <div className="mt-4 flex flex-wrap gap-2 sm:mt-5">

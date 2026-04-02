@@ -25,6 +25,7 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import {
     getNotifications,
     getUnreadNotificationCount,
+    markAllNotificationsAsRead,
     markNotificationAsRead,
 } from '@/lib/storage';
 import { Notification } from '@/lib/types';
@@ -49,6 +50,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ userId }) =
         return snapshot?.unreadNotificationCount || 0;
     });
     const [isOpen, setIsOpen] = useState(false);
+    const [isMarkingAllRead, setIsMarkingAllRead] = useState(false);
 
     const loadUnreadCount = useCallback(async () => {
         if (!resolvedUserId || !isOnline || !isDocumentVisible()) return;
@@ -120,6 +122,27 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ userId }) =
         }
     };
 
+    const handleMarkAllAsRead = async () => {
+        if (!resolvedUserId || unreadCount === 0 || isMarkingAllRead) return;
+
+        setIsMarkingAllRead(true);
+        try {
+            await markAllNotificationsAsRead(resolvedUserId);
+            setNotifications((current) => current.map((notification) => ({
+                ...notification,
+                read: true,
+            })));
+            setUnreadCount(0);
+            updateHeaderShellCounts(resolvedUserId, { unreadNotificationCount: 0 });
+        } catch (error) {
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Error marking all notifications as read:', error);
+            }
+        } finally {
+            setIsMarkingAllRead(false);
+        }
+    };
+
     const getNotificationIcon = (type: Notification['type']) => {
         switch (type) {
             case 'new_chapter':
@@ -168,12 +191,18 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ userId }) =
                     <div className="flex items-center gap-2">
                         <Bell className="h-4 w-4 text-primary" />
                         <h3 className="font-semibold">Bildirimler</h3>
-                        {unreadCount > 0 && (
-                            <Badge variant="secondary" className="text-xs">
-                                {unreadCount} yeni
-                            </Badge>
-                        )}
                     </div>
+                    {unreadCount > 0 ? (
+                        <Button
+                            variant="ghost"
+                            size="sm"
+                            className="h-8 px-2 text-xs"
+                            onClick={() => void handleMarkAllAsRead()}
+                            disabled={isMarkingAllRead}
+                        >
+                            {isMarkingAllRead ? 'İşleniyor...' : 'Tümünü okundu yap'}
+                        </Button>
+                    ) : null}
                 </div>
 
                 {/* Notifications List */}
