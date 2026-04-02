@@ -175,6 +175,8 @@ const getReviewAverageScore = (review?: Partial<Review> | null) => {
 };
 
 const REVIEW_EDIT_INDICATOR_THRESHOLD_MS = 1000;
+const REVIEW_CONTENT_MAX_LENGTH = 5000;
+const REVIEW_COLLAPSE_THRESHOLD = 700;
 
 const shouldShowEditedReviewLabel = (review: Review) => {
   const createdAt = new Date(review.createdAt).getTime();
@@ -186,6 +188,9 @@ const shouldShowEditedReviewLabel = (review: Review) => {
 
   return updatedAt - createdAt > REVIEW_EDIT_INDICATOR_THRESHOLD_MS;
 };
+
+const shouldCollapseReviewContent = (content?: string | null) =>
+  (content?.trim().length || 0) > REVIEW_COLLAPSE_THRESHOLD;
 
 const PREVIEW_CHAPTER_BATCH_SIZE = 3;
 const OVERVIEW_CHAPTER_BATCH_SIZE = 28;
@@ -471,6 +476,7 @@ const MangaDetail: React.FC = () => {
   const [isSeriesBookmarksLoading, setIsSeriesBookmarksLoading] = useState(false);
   const [hasLoadedBookmarks, setHasLoadedBookmarks] = useState(false);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [expandedReviewIds, setExpandedReviewIds] = useState<Record<string, boolean>>({});
   const [avgBreakdown, setAvgBreakdown] = useState<any>({
     story: 0,
     characters: 0,
@@ -1323,7 +1329,7 @@ const MangaDetail: React.FC = () => {
   }, [authLoading, isOnline, mangaId, resetUserScopedState, user?.id]);
 
   const triggerExternalSync = async (
-    trigger: 'manual' | 'reading' | 'category' | 'rating' | 'review',
+    trigger: 'manual' | 'reading' | 'category' | 'favorite' | 'rating' | 'review',
     providers?: ExternalSyncProvider[],
   ) => {
     if (!user?.id || !manga?.id || !isOnline) {
@@ -1412,6 +1418,11 @@ const MangaDetail: React.FC = () => {
         await removeFavorite(user.id, manga.id);
         setFavorite(false);
         setCategory(undefined);
+        if (isOnline) {
+          void triggerExternalSync('favorite').catch((error) => {
+            console.warn('External sync after favorite removal failed:', error);
+          });
+        }
         toast.success(isOnline ? 'Favorilerden kaldırıldı' : 'Tekrar çevrimiçi olduğunda favoriler eşitlenecek');
       } else {
         await addFavorite(user.id, manga.id, 'reading', {
@@ -1421,8 +1432,8 @@ const MangaDetail: React.FC = () => {
         setFavorite(true);
         setCategory('reading');
         if (isOnline) {
-          void triggerExternalSync('category').catch((error) => {
-            console.warn('External sync after favorite add failed:', error);
+          void triggerExternalSync('favorite').catch((error) => {
+            console.warn('External sync after favorite change failed:', error);
           });
         }
         toast.success(isOnline ? 'Favorilere eklendi' : 'Tekrar çevrimiçi olduğunda favoriler eşitlenecek');
@@ -1691,8 +1702,15 @@ const MangaDetail: React.FC = () => {
     }
 
     if (!user) return;
-    if (!userReview.content?.trim()) {
+    const normalizedReviewContent = userReview.content?.trim() || '';
+
+    if (!normalizedReviewContent) {
       toast.error('Lütfen bir inceleme metni yazın');
+      return;
+    }
+
+    if (normalizedReviewContent.length > REVIEW_CONTENT_MAX_LENGTH) {
+      toast.error(`İnceleme en fazla ${REVIEW_CONTENT_MAX_LENGTH.toLocaleString('tr-TR')} karakter olabilir`);
       return;
     }
 
@@ -1703,7 +1721,7 @@ const MangaDetail: React.FC = () => {
         userId: user.id,
         username: user.username,
         userAvatar: user.avatar,
-        content: userReview.content,
+        content: normalizedReviewContent,
         rating_story: userReview.rating_story || 10,
         rating_characters: userReview.rating_characters || 10,
         rating_art: userReview.rating_art || 10,
@@ -3132,12 +3150,23 @@ const MangaDetail: React.FC = () => {
                           </div>
 
                           <div className="space-y-2">
-                            <label className="text-sm font-medium">İncelemeniz</label>
+                            <div className="flex items-center justify-between gap-3">
+                              <label className="text-sm font-medium">İncelemeniz</label>
+                              <span className={cn(
+                                'text-xs',
+                                (userReview.content?.length || 0) > REVIEW_CONTENT_MAX_LENGTH * 0.9
+                                  ? 'text-primary'
+                                  : 'text-muted-foreground',
+                              )}>
+                                {(userReview.content?.length || 0).toLocaleString('tr-TR')} / {REVIEW_CONTENT_MAX_LENGTH.toLocaleString('tr-TR')}
+                              </span>
+                            </div>
                             <Textarea
                               placeholder="Manga hakkındaki düşünceleriniz..."
                               className="min-h-[120px] resize-none bg-secondary/30"
                               value={userReview.content}
                               onChange={(e) => setUserReview(prev => ({ ...prev, content: e.target.value }))}
+                              maxLength={REVIEW_CONTENT_MAX_LENGTH}
                             />
                           </div>
                         </div>
@@ -3181,6 +3210,8 @@ const MangaDetail: React.FC = () => {
                         {reviews.map((review) => {
                           const isBlocked = blockedUserIds.includes(review.userId);
                           const isRevealed = revealedBlockedReviews[review.id];
+                          const isReviewExpanded = Boolean(expandedReviewIds[review.id]);
+                          const isReviewExpandable = shouldCollapseReviewContent(review.content);
 
                           return (
                             <div key={review.id} className="relative rounded-xl border border-border bg-card/30 p-4 transition-all hover:bg-card/50 sm:p-6">
@@ -3226,7 +3257,37 @@ const MangaDetail: React.FC = () => {
                                   </div>
                                 </div>
 
-                                <p className="text-foreground/90 leading-relaxed mb-6 whitespace-pre-wrap">{review.content}</p>
+                                <div className="mb-6">
+                                  <div
+                                    className={cn(
+                                      'relative overflow-hidden transition-[max-height] duration-300 ease-out',
+                                      isReviewExpandable && !isReviewExpanded ? 'max-h-48' : 'max-h-[120rem]',
+                                    )}
+                                  >
+                                    <p className="whitespace-pre-wrap text-foreground/90 leading-relaxed">{review.content}</p>
+                                    {isReviewExpandable && !isReviewExpanded && (
+                                      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-card via-card/95 to-transparent" />
+                                    )}
+                                  </div>
+                                  {isReviewExpandable && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="mt-3 h-8 rounded-full px-3 text-primary hover:bg-primary/10 hover:text-primary"
+                                      onClick={() => setExpandedReviewIds((prev) => ({
+                                        ...prev,
+                                        [review.id]: !prev[review.id],
+                                      }))}
+                                    >
+                                      {isReviewExpanded ? 'Daha Az Göster' : 'Tümünü Gör'}
+                                      {isReviewExpanded ? (
+                                        <ChevronUp className="ml-2 h-4 w-4" />
+                                      ) : (
+                                        <ChevronDown className="ml-2 h-4 w-4" />
+                                      )}
+                                    </Button>
+                                  )}
+                                </div>
 
                                 <div className="flex flex-wrap gap-4 text-xs text-muted-foreground mb-6 bg-secondary/20 p-3 rounded-lg">
                                   <span>Hikaye: <strong className="text-foreground">{review.rating_story}/10</strong></span>

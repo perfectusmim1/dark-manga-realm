@@ -22,13 +22,12 @@ import {
   runAniListGraphQL,
   saveMyAnimeListMangaListStatus,
   setProviderAccountError,
-  sha256Hex,
   toAniListFuzzyDate,
   toDateOnly,
 } from "../_shared/external-sync.ts";
 
 type LocalLibraryStatus = "reading" | "plan_to_read" | "completed" | "on_hold" | "dropped";
-type SyncTrigger = "manual" | "reading" | "category" | "rating" | "review";
+type SyncTrigger = "manual" | "reading" | "category" | "favorite" | "rating" | "review";
 
 const DEFAULT_EXTERNAL_SYNC_PREFERENCES = {
   global: {
@@ -54,7 +53,7 @@ const DEFAULT_EXTERNAL_SYNC_PREFERENCES = {
         progress: true,
         score: true,
         dates: true,
-        review: true,
+        favorite: true,
       },
     },
   },
@@ -94,6 +93,45 @@ const toTimestamp = (value?: string | null) => {
 
   const timestamp = Date.parse(normalized);
   return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const toNullableBoolean = (value: unknown): boolean | null => {
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    if (value === 1) {
+      return true;
+    }
+
+    if (value === 0) {
+      return false;
+    }
+  }
+
+  if (typeof value === "string") {
+    const normalized = normalizeText(value).toLowerCase();
+    if (normalized === "true") {
+      return true;
+    }
+
+    if (normalized === "false") {
+      return false;
+    }
+  }
+
+  return null;
+};
+
+const getAniListGraphQLErrorMessage = (
+  response?: { errors?: Array<{ message?: string }> } | null,
+) => {
+  const messages = (response?.errors || [])
+    .map((item) => normalizeText(item?.message))
+    .filter(Boolean);
+
+  return messages.length > 0 ? messages.join(" | ") : "";
 };
 
 const getPreferredLocalScore = (params: {
@@ -207,54 +245,6 @@ const mapStatusToAniList = (status?: LocalLibraryStatus | null) => {
     default:
       return undefined;
   }
-};
-
-const buildAniListReviewPayload = async (review: any) => {
-  const content = normalizeText(review?.content);
-  if (!content) {
-    return {
-      enabled: false,
-      warning: null,
-      summary: null,
-      body: null,
-      hash: null,
-    };
-  }
-
-  const scoreLines = [
-    `Story: ${Number(review?.rating_story || 0)}/10`,
-    `Characters: ${Number(review?.rating_characters || 0)}/10`,
-    `Art: ${Number(review?.rating_art || 0)}/10`,
-    `Progression: ${Number(review?.rating_progression || 0)}/10`,
-    `Engagement: ${Number(review?.rating_engagement || 0)}/10`,
-  ];
-
-  const summary = content.slice(0, 120).trim();
-  const body = [
-    "ToonParrot incelemesi",
-    "",
-    ...scoreLines,
-    "",
-    content,
-  ].join("\n");
-
-  if (summary.length < 20 || body.length < 2200) {
-    return {
-      enabled: false,
-      warning: "AniList incelemeleri için en az 2200 karakterlik detaylı bir metin gerekiyor.",
-      summary: null,
-      body: null,
-      hash: null,
-    };
-  }
-
-  return {
-    enabled: true,
-    warning: null,
-    summary,
-    body,
-    hash: await sha256Hex(`${summary}\n${body}`),
-  };
 };
 
 const getLocalStartedAt = (params: {
@@ -394,34 +384,29 @@ const upsertSyncState = async (
   }
 };
 
-const findExistingAniListReviewId = async (
-  accessToken: string,
-  mediaId: number,
-  userId: number,
+const getEffectiveProviderPreferences = <
+  TProviderPreferences extends { fieldToggles: Record<string, boolean> },
+>(
+  providerPreferences: TProviderPreferences,
+  params: {
+    trigger: SyncTrigger;
+    hasLocalFavorite: boolean;
+  },
 ) => {
-  const response = await runAniListGraphQL<{
-    data?: {
-      Page?: {
-        reviews?: Array<{ id?: number | null }> | null;
-      };
-    };
-  }>(
-    accessToken,
-    `
-      query ExistingReview($mediaId: Int, $userId: Int) {
-        Page(page: 1, perPage: 1) {
-          reviews(mediaId: $mediaId, userId: $userId, sort: ID_DESC) {
-            id
-          }
-        }
-      }
-    `,
-    { mediaId, userId },
-  );
+  if (params.trigger !== "favorite" || params.hasLocalFavorite) {
+    return providerPreferences;
+  }
 
-  return response.data?.Page?.reviews?.[0]?.id
-    ? String(response.data.Page.reviews[0].id)
-    : null;
+  return {
+    ...providerPreferences,
+    fieldToggles: {
+      ...providerPreferences.fieldToggles,
+      status: false,
+      progress: false,
+      score: false,
+      dates: false,
+    },
+  } as TProviderPreferences;
 };
 
 const syncMyAnimeListEntry = async (params: {
@@ -487,18 +472,18 @@ const syncAniListEntry = async (params: {
   accessToken: string;
   mediaId: string;
   syncState?: any;
-  account: ExternalProviderAccountRow;
   providerPreferences: ReturnType<typeof getExternalSyncPreferences>["providers"]["anilist"];
   derivedStatus: LocalLibraryStatus | null;
   readCount: number;
   rating?: number | null;
   startedAt?: string | null;
   completedAt?: string | null;
-  review: Awaited<ReturnType<typeof buildAniListReviewPayload>>;
+  desiredFavorite?: boolean | null;
+  shouldSyncFavorite: boolean;
 }) => {
   const shouldCreateEntry = Boolean(
     !normalizeText(params.syncState?.remote_media_id)
-    && (params.readCount > 0 || typeof params.rating === "number" || params.derivedStatus || params.review.enabled),
+    && (params.readCount > 0 || typeof params.rating === "number" || params.derivedStatus),
   );
   const derivedStatus = mapStatusToAniList(params.derivedStatus);
   const status = params.providerPreferences.fieldToggles.status
@@ -566,56 +551,95 @@ const syncAniListEntry = async (params: {
       variables,
     );
 
+    const errorMessage = getAniListGraphQLErrorMessage(response);
+    if (errorMessage) {
+      throw new Error(errorMessage);
+    }
+
     didChange = Boolean(response?.data?.SaveMediaListEntry?.id);
   }
 
-  let remoteReviewId = normalizeText(params.syncState?.remote_review_id) || null;
-  let reviewWarning: string | null = params.review.warning;
+  let warning: string | null = null;
+  let favoriteSyncedValue = toNullableBoolean(params.syncState?.last_synced_favorite);
 
-  if (params.providerPreferences.fieldToggles.review && params.review.enabled) {
-    if (!remoteReviewId && normalizeText(params.account.provider_user_id)) {
-      remoteReviewId = await findExistingAniListReviewId(
-        params.accessToken,
-        Number(params.mediaId),
-        Number(params.account.provider_user_id),
-      );
-    }
-
-    const response = await runAniListGraphQL<{
+  if (params.shouldSyncFavorite && typeof params.desiredFavorite === "boolean") {
+    const favoriteStateResponse = await runAniListGraphQL<{
       data?: {
-        SaveReview?: {
-          id?: number | null;
-        };
+        Media?: {
+          isFavourite?: boolean | null;
+          isFavouriteBlocked?: boolean | null;
+        } | null;
       };
     }>(
       params.accessToken,
       `
-        mutation SaveReview($id: Int, $mediaId: Int, $summary: String, $body: String) {
-          SaveReview(id: $id, mediaId: $mediaId, summary: $summary, body: $body) {
-            id
+        query AniListFavoriteState($mediaId: Int, $type: MediaType) {
+          Media(id: $mediaId, type: $type) {
+            isFavourite
+            isFavouriteBlocked
           }
         }
       `,
       {
-        id: remoteReviewId ? Number(remoteReviewId) : undefined,
         mediaId: Number(params.mediaId),
-        summary: params.review.summary,
-        body: params.review.body,
+        type: "MANGA",
       },
     );
 
-    const savedReviewId = response?.data?.SaveReview?.id;
-    if (savedReviewId) {
-      remoteReviewId = String(savedReviewId);
+    const favoriteStateError = getAniListGraphQLErrorMessage(favoriteStateResponse);
+    if (favoriteStateError) {
+      throw new Error(favoriteStateError);
+    }
+
+    const remoteFavorite = Boolean(favoriteStateResponse?.data?.Media?.isFavourite);
+    const isFavoriteBlocked = Boolean(favoriteStateResponse?.data?.Media?.isFavouriteBlocked);
+
+    if (isFavoriteBlocked && params.desiredFavorite && !remoteFavorite) {
+      warning = "AniList bu seriyi favorilere eklemeye izin vermiyor";
+      favoriteSyncedValue = remoteFavorite;
+    } else if (remoteFavorite !== params.desiredFavorite) {
+      const toggleResponse = await runAniListGraphQL<{
+        data?: {
+          ToggleFavourite?: {
+            manga?: {
+              nodes?: Array<{ id?: number | null }> | null;
+            } | null;
+          } | null;
+        };
+      }>(
+        params.accessToken,
+        `
+          mutation ToggleAniListFavourite($mangaId: Int) {
+            ToggleFavourite(mangaId: $mangaId) {
+              manga {
+                nodes {
+                  id
+                }
+              }
+            }
+          }
+        `,
+        {
+          mangaId: Number(params.mediaId),
+        },
+      );
+
+      const toggleError = getAniListGraphQLErrorMessage(toggleResponse);
+      if (toggleError) {
+        throw new Error(toggleError);
+      }
+
       didChange = true;
-      reviewWarning = null;
+      favoriteSyncedValue = params.desiredFavorite;
+    } else {
+      favoriteSyncedValue = remoteFavorite;
     }
   }
 
   return {
     changed: didChange,
-    remoteReviewId,
-    reviewWarning,
+    warning,
+    favoriteSyncedValue,
   };
 };
 
@@ -782,7 +806,6 @@ const syncMangaRecord = async (params: {
     shouldBeCompleted: derivedStatus === "completed",
     latestReadAt,
   });
-  const reviewPayload = await buildAniListReviewPayload(reviewRow);
   const preferredLocalScore = getPreferredLocalScore({
     ratingRow,
     reviewRow,
@@ -791,10 +814,16 @@ const syncMangaRecord = async (params: {
 
   for (const provider of params.requestedProviders) {
     const providerPrefs = preferences.providers[provider];
+    const effectiveProviderPrefs = getEffectiveProviderPreferences(providerPrefs, {
+      trigger: params.trigger,
+      hasLocalFavorite: Boolean(favoriteRow),
+    });
+    const effectiveFieldToggles = effectiveProviderPrefs.fieldToggles as Record<string, boolean>;
     const account = accountMap.get(provider);
     const syncState = syncStateMap.get(provider);
     const mediaLink = getProviderLink(mangaRow.source_links, provider);
     const mediaId = getProviderMediaId(mediaLink);
+    const lastSyncedFavorite = toNullableBoolean(syncState?.last_synced_favorite);
 
     if (!account) {
       results.push({ provider, success: false, skipped: true, message: "Hesap bağlı değil" });
@@ -823,20 +852,46 @@ const syncMangaRecord = async (params: {
     const desiredProgress = readCount;
     const desiredStartedAt = startedAt;
     const desiredCompletedAt = completedAt;
+    const desiredFavorite = provider === "anilist" && effectiveFieldToggles.favorite
+      ? favoriteRow
+        ? true
+        : lastSyncedFavorite === true
+          ? false
+          : null
+      : null;
     const shouldForceRetry = params.trigger === "manual" && normalizeText(syncState?.last_error);
-    const fieldsChanged = Boolean(
-      (desiredStatus || "") !== normalizeText(syncState?.last_synced_status)
-      || desiredProgress !== Number(syncState?.last_synced_progress || 0)
-      || Number(desiredScore || 0) !== Number(syncState?.last_synced_score || 0)
-      || (desiredStartedAt || "") !== (toDateOnly(syncState?.last_synced_started_at) || "")
-      || (desiredCompletedAt || "") !== (toDateOnly(syncState?.last_synced_completed_at) || "")
-      || (
-        provider === "anilist"
-        && providerPrefs.fieldToggles.review
-        && reviewPayload.enabled
-        && reviewPayload.hash !== normalizeText(syncState?.last_review_hash)
-      )
+    const statusChanged = Boolean(
+      effectiveFieldToggles.status
+      && (desiredStatus || "") !== normalizeText(syncState?.last_synced_status)
     );
+    const progressChanged = Boolean(
+      effectiveFieldToggles.progress
+      && desiredProgress !== Number(syncState?.last_synced_progress || 0)
+    );
+    const scoreChanged = Boolean(
+      effectiveFieldToggles.score
+      && Number(desiredScore || 0) !== Number(syncState?.last_synced_score || 0)
+    );
+    const startedAtChanged = Boolean(
+      effectiveFieldToggles.dates
+      && (desiredStartedAt || "") !== (toDateOnly(syncState?.last_synced_started_at) || "")
+    );
+    const completedAtChanged = Boolean(
+      effectiveFieldToggles.dates
+      && (desiredCompletedAt || "") !== (toDateOnly(syncState?.last_synced_completed_at) || "")
+    );
+    const favoriteChanged = Boolean(
+      provider === "anilist"
+      && effectiveFieldToggles.favorite
+      && typeof desiredFavorite === "boolean"
+      && desiredFavorite !== lastSyncedFavorite
+    );
+    const fieldsChanged = statusChanged
+      || progressChanged
+      || scoreChanged
+      || startedAtChanged
+      || completedAtChanged
+      || favoriteChanged;
 
     if (!fieldsChanged && !shouldForceRetry) {
       results.push({ provider, success: true, skipped: true, message: "Değişiklik yok" });
@@ -848,13 +903,14 @@ const syncMangaRecord = async (params: {
 
       let warning: string | null = null;
       let remoteReviewId = normalizeText(syncState?.remote_review_id) || null;
+      let syncedFavoriteState = lastSyncedFavorite;
 
       if (provider === "myanimelist") {
         await syncMyAnimeListEntry({
           accessToken: activeAccount.access_token,
           mediaId,
           syncState,
-          providerPreferences: preferences.providers.myanimelist,
+          providerPreferences: effectiveProviderPrefs as ReturnType<typeof getExternalSyncPreferences>["providers"]["myanimelist"],
           derivedStatus,
           readCount,
           rating: desiredScore,
@@ -866,18 +922,21 @@ const syncMangaRecord = async (params: {
           accessToken: activeAccount.access_token,
           mediaId,
           syncState,
-          account: activeAccount,
-          providerPreferences: preferences.providers.anilist,
+          providerPreferences: effectiveProviderPrefs as ReturnType<typeof getExternalSyncPreferences>["providers"]["anilist"],
           derivedStatus,
           readCount,
           rating: desiredScore,
           startedAt: desiredStartedAt,
           completedAt: desiredCompletedAt,
-          review: reviewPayload,
+          desiredFavorite,
+          shouldSyncFavorite: Boolean(
+            effectiveFieldToggles.favorite
+            && typeof desiredFavorite === "boolean"
+            && (favoriteChanged || shouldForceRetry)
+          ),
         });
-
-        remoteReviewId = aniListResult.remoteReviewId;
-        warning = aniListResult.reviewWarning;
+        warning = aniListResult.warning || null;
+        syncedFavoriteState = toNullableBoolean(aniListResult.favoriteSyncedValue);
       }
 
       await upsertSyncState(params.requester.serviceClient, {
@@ -886,14 +945,25 @@ const syncMangaRecord = async (params: {
         provider,
         remote_media_id: mediaId,
         remote_review_id: remoteReviewId,
-        last_synced_status: desiredStatus || null,
-        last_synced_progress: providerPrefs.fieldToggles.progress ? desiredProgress : null,
-        last_synced_score: providerPrefs.fieldToggles.score ? desiredScore : null,
-        last_synced_started_at: providerPrefs.fieldToggles.dates ? desiredStartedAt : null,
-        last_synced_completed_at: providerPrefs.fieldToggles.dates ? desiredCompletedAt : null,
-        last_review_hash: provider === "anilist" && providerPrefs.fieldToggles.review && reviewPayload.enabled
-          ? reviewPayload.hash
-          : null,
+        last_synced_status: effectiveFieldToggles.status
+          ? desiredStatus || null
+          : syncState?.last_synced_status || null,
+        last_synced_progress: effectiveFieldToggles.progress
+          ? desiredProgress
+          : syncState?.last_synced_progress ?? null,
+        last_synced_score: effectiveFieldToggles.score
+          ? desiredScore
+          : syncState?.last_synced_score ?? null,
+        last_synced_started_at: effectiveFieldToggles.dates
+          ? desiredStartedAt
+          : syncState?.last_synced_started_at ?? null,
+        last_synced_completed_at: effectiveFieldToggles.dates
+          ? desiredCompletedAt
+          : syncState?.last_synced_completed_at ?? null,
+        last_synced_favorite: provider === "anilist"
+          ? syncedFavoriteState
+          : syncState?.last_synced_favorite ?? null,
+        last_review_hash: null,
         last_sync_at: new Date().toISOString(),
         last_error: warning,
         last_error_at: warning ? new Date().toISOString() : null,
@@ -915,12 +985,13 @@ const syncMangaRecord = async (params: {
         remote_media_id: mediaId,
         remote_review_id: normalizeText(syncState?.remote_review_id) || null,
         last_synced_status: syncState?.last_synced_status || null,
-        last_synced_progress: syncState?.last_synced_progress || null,
-        last_synced_score: syncState?.last_synced_score || null,
-        last_synced_started_at: syncState?.last_synced_started_at || null,
-        last_synced_completed_at: syncState?.last_synced_completed_at || null,
+        last_synced_progress: syncState?.last_synced_progress ?? null,
+        last_synced_score: syncState?.last_synced_score ?? null,
+        last_synced_started_at: syncState?.last_synced_started_at ?? null,
+        last_synced_completed_at: syncState?.last_synced_completed_at ?? null,
+        last_synced_favorite: toNullableBoolean(syncState?.last_synced_favorite),
         last_review_hash: syncState?.last_review_hash || null,
-        last_sync_at: syncState?.last_sync_at || null,
+        last_sync_at: syncState?.last_sync_at ?? null,
         last_error: message,
         last_error_at: new Date().toISOString(),
       });

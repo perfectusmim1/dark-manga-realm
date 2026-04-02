@@ -124,7 +124,7 @@ export interface ExternalSyncProviderFieldToggles {
 }
 
 export interface AniListExternalSyncFieldToggles extends ExternalSyncProviderFieldToggles {
-  review: boolean;
+  favorite: boolean;
 }
 
 export interface ExternalSyncGlobalPreferences {

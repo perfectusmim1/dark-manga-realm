@@ -580,7 +580,7 @@ const Settings: React.FC = () => {
 
     const handleToggleProviderField = async (
         provider: ExternalSyncProvider,
-        field: 'status' | 'progress' | 'score' | 'dates' | 'review',
+        field: 'status' | 'progress' | 'score' | 'dates' | 'favorite',
         checked: boolean,
     ) => {
         const currentProviderPrefs = prefs.externalSync.providers[provider];
@@ -811,7 +811,7 @@ const Settings: React.FC = () => {
                 ['progress', 'Okunan bölüm sayısı'],
                 ['score', 'Kullanıcı puanı'],
                 ['dates', 'Başlama / bitiş tarihi'],
-                ['review', 'İnceleme metni'],
+                ['favorite', 'Favori durumu'],
             ] as const
             : [
                 ['status', 'Liste durumu'],
@@ -915,6 +915,12 @@ const Settings: React.FC = () => {
                                 </div>
                             ))}
                         </div>
+
+                        {provider === 'myanimelist' && (
+                            <p className="text-sm text-muted-foreground">
+                                MyAnimeList resmi API&apos;si liste alanlarını yazabiliyor, fakat favori ekleme/çıkarma için resmi yazılabilir bir uç nokta sunmuyor.
+                            </p>
+                        )}
                     </div>
                 </CardContent>
             </Card>
@@ -1562,7 +1568,7 @@ const Settings: React.FC = () => {
                                     <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/30 p-4 sm:flex-row sm:items-center sm:justify-between">
                                         <div className="space-y-1">
                                             <Label htmlFor="external-auto-sync">Otomatik senkron</Label>
-                                            <p className="text-sm text-muted-foreground">Okuma, puan, kategori ve inceleme değişikliklerini desteklenen sağlayıcılara otomatik gönder.</p>
+                                            <p className="text-sm text-muted-foreground">Okuma, puan, kategori ve favori değişikliklerini desteklenen sağlayıcılara otomatik gönder.</p>
                                         </div>
                                         <Switch
                                             id="external-auto-sync"
@@ -1594,7 +1600,7 @@ const Settings: React.FC = () => {
                             ) : (
                                 <>
                                     {renderExternalProviderCard('myanimelist', 'MyAnimeList', 'Manga puanı, durum, bölüm ilerlemesi ve tarih alanlarını senkronlar.')}
-                                    {renderExternalProviderCard('anilist', 'AniList', 'Manga puanı, durum, bölüm ilerlemesi, tarih ve uygunsa inceleme metnini senkronlar.')}
+                                    {renderExternalProviderCard('anilist', 'AniList', 'Manga puanı, durum, bölüm ilerlemesi, tarih ve favori bilgisini senkronlar.')}
                                 </>
                             )}
                         </div>

@@ -37,7 +37,7 @@ export const DEFAULT_EXTERNAL_SYNC_PREFERENCES: ExternalSyncPreferences = {
         progress: true,
         score: true,
         dates: true,
-        review: true,
+        favorite: true,
       },
     },
   },
@@ -47,6 +47,7 @@ export type ExternalSyncTrigger =
   | 'manual'
   | 'reading'
   | 'category'
+  | 'favorite'
   | 'rating'
   | 'review';
 

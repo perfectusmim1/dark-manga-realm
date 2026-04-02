@@ -171,7 +171,7 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
           progress: true,
           score: true,
           dates: true,
-          review: true,
+          favorite: true,
         },
       },
     },

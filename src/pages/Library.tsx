@@ -31,6 +31,7 @@ import { Manga, LibraryCategory, Favorite, ReadingProgress } from '@/lib/types';
 import { toast } from 'sonner';
 import LibrarySkeleton from '@/components/skeletons/LibrarySkeleton';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import { syncMangaToExternalProviders } from '@/lib/externalSync';
 
 interface LibraryItem {
     favorite: Favorite;
@@ -101,10 +102,29 @@ const Library: React.FC = () => {
         }
     };
 
+    const triggerExternalSync = async (
+        mangaId: string,
+        trigger: 'category' | 'favorite',
+    ) => {
+        if (!isOnline) {
+            return;
+        }
+
+        try {
+            await syncMangaToExternalProviders({
+                mangaId,
+                trigger,
+            });
+        } catch (error) {
+            console.warn(`External sync after ${trigger} change failed:`, error);
+        }
+    };
+
     const handleCategoryChange = async (mangaId: string, category: LibraryCategory) => {
         if (!user) return;
         try {
             await updateFavoriteCategory(user.id, mangaId, category);
+            void triggerExternalSync(mangaId, 'category');
             toast.success(
                 isOnline
                     ? 'Kategori güncellendi'
@@ -121,6 +141,7 @@ const Library: React.FC = () => {
         if (!user) return;
         try {
             await removeFavorite(user.id, mangaId);
+            void triggerExternalSync(mangaId, 'favorite');
             await fetchLibrary();
             toast.success(
                 isOnline
