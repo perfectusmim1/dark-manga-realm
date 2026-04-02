@@ -21,7 +21,7 @@ import {
   updateAuthorMedia,
   updateCharacterMedia,
 } from '@/lib/database';
-import { fetchScraperContent } from '@/lib/scraperProxy';
+import { fetchScraperArrayBuffer, fetchScraperContent } from '@/lib/scraperProxy';
 import {
   buildMaterializedGalleryObjectKey,
   materializeRemoteImage,
@@ -46,7 +46,7 @@ import {
 import { sanitizeCharacterDescription } from '@/lib/descriptionSanitizers';
 import { sanitizeEntityImageUrl } from '@/lib/entityImages';
 
-export type MetadataImportSource = ExternalSourceName;
+export type MetadataImportSource = 'anisearch' | 'myanimelist' | 'mangaupdates' | 'animeplanet';
 
 export type ImportOptionKey =
   | 'manga_core'
@@ -128,7 +128,7 @@ export interface ImportSelectionOptions {
 type SupportMatrix = Record<ImportOptionKey, boolean>;
 
 export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> = {
-  anilist: {
+  anisearch: {
     manga_core: true,
     alternative_titles: true,
     tags: true,
@@ -170,19 +170,19 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
   },
 };
 
-export const SOURCE_RUNTIME_WARNINGS: Partial<Record<MetadataImportSource, string>> = {
-  anilist:
-    'AniList tarafında 30 Mart 2026 itibarıyla public GraphQL endpoint 403 dönüyor. Cloudflare proxy üzerinden de test edildi ve upstream hâlâ 403 verdi; bu kaynak geçici olarak kısıtlı çalışıyor.',
-};
+export const SOURCE_RUNTIME_WARNINGS: Partial<Record<MetadataImportSource, string>> = {};
 
 const MAL_HOST_PATTERN = /^https?:\/\/(?:www\.)?myanimelist\.net\//i;
 const MANGA_UPDATES_HOST_PATTERN = /^https?:\/\/(?:www\.)?mangaupdates\.com\//i;
-const ANILIST_HOST_PATTERN = /^https?:\/\/(?:www\.)?anilist\.co\//i;
+const ANISEARCH_HOST_PATTERN = /^https?:\/\/(?:www\.)?anisearch\.com\//i;
 const ANIME_PLANET_HOST_PATTERN = /^https?:\/\/(?:www\.)?anime-planet\.com\//i;
+const ANISEARCH_BASE_URL = 'https://www.anisearch.com';
+const ANISEARCH_SITEMAP_INDEX_URL = `${ANISEARCH_BASE_URL}/sitemap.xml`;
 const ANIME_PLANET_BASE_URL = 'https://www.anime-planet.com';
 
 const MAL_REQUEST_DELAY_MS = 650;
 const MAX_IMPORT_ENTITY_COUNT = 200;
+const ANISEARCH_SEARCH_RESULT_LIMIT = 8;
 
 const normalizeText = (value?: string | null) => value?.replace(/\s+/g, ' ').trim() || '';
 
@@ -649,7 +649,10 @@ const parseMyAnimeListId = (input: string) => parseUrlId(/\/manga\/(\d+)/i, inpu
 const parseMyAnimeListCharacterId = (input: string) => parseUrlId(/\/character\/(\d+)/i, input);
 const parseMyAnimeListPeopleId = (input: string) => parseUrlId(/\/people\/(\d+)/i, input);
 const parseMangaUpdatesSeriesPath = (input: string) => input.match(/\/series\/([^/?#]+)/i)?.[1];
-const parseAniListId = (input: string) => parseUrlId(/\/manga\/(\d+)/i, input);
+const parseAniSearchMangaId = (input: string) => normalizeText(input).match(/^\d+$/)?.[0] || parseUrlId(/\/manga\/(\d+)/i, input);
+const parseAniSearchMangaSlug = (input: string) => input.match(/\/manga\/\d+,([^/?#]+)/i)?.[1];
+const parseAniSearchCharacterId = (input: string) => parseUrlId(/\/character\/(\d+)/i, input);
+const parseAniSearchPeopleId = (input: string) => parseUrlId(/\/person\/(\d+)/i, input);
 const parseAnimePlanetMangaSlug = (input: string) => input.match(/\/manga\/([^/?#]+)/i)?.[1];
 const parseAnimePlanetCharacterSlug = (input: string) => input.match(/\/characters\/([^/?#]+)/i)?.[1];
 const parseAnimePlanetPeopleSlug = (input: string) => input.match(/\/people\/([^/?#]+)/i)?.[1];
@@ -676,11 +679,16 @@ const parseAboutLines = (about?: string | null) => {
 };
 
 const parseHtml = (html: string) => new DOMParser().parseFromString(html, 'text/html');
+const parseXml = (xml: string) => new DOMParser().parseFromString(xml, 'application/xml');
 
 const parseHtmlFragment = (html: string) => parseHtml(`<body>${html}</body>`);
 
 const fetchAnimePlanetHtml = (url: string) => (
   fetchScraperContent(url, { provider: 'supabase' })
+);
+
+const fetchAniSearchHtml = (url: string) => (
+  fetchScraperContent(url)
 );
 
 const getMetaContent = (doc: Document, attribute: 'property' | 'name', value: string) => (
@@ -1923,10 +1931,714 @@ const loadAnimePlanetPreview = async (
   return preview;
 };
 
-const searchAniListCandidates = async () => {
-  throw new Error(
-    'AniList public GraphQL endpoint 30 Mart 2026 itibarıyla geçici olarak devre dışı. Cloudflare proxy üzerinden de upstream 403 alındığı için bu kaynak için import daha sonra yeniden açılabilir.',
+interface AniSearchSitemapEntry {
+  id: string;
+  slug: string;
+  titleGuess: string;
+  url: string;
+  searchKey: string;
+}
+
+let aniSearchSitemapEntriesPromise: Promise<AniSearchSitemapEntry[]> | null = null;
+
+const toSearchComparable = (value?: string | null) => normalizeKey(value)
+  .normalize('NFKD')
+  .replace(/[\u0300-\u036f]/g, '')
+  .replace(/[^a-z0-9]+/g, ' ')
+  .trim();
+
+const tokenizeSearchComparable = (value?: string | null) => toSearchComparable(value)
+  .split(/\s+/)
+  .filter((token) => token.length > 1);
+
+const toAniSearchAbsoluteUrl = (value?: string | null) => {
+  const normalized = normalizeText(value);
+  return normalized ? toAbsoluteUrl(normalized, ANISEARCH_BASE_URL) : '';
+};
+
+const getAniSearchCanonicalMangaUrl = (value: string) => {
+  const normalized = normalizeText(value);
+
+  if (!normalized) {
+    return '';
+  }
+
+  if (/^\d+$/.test(normalized)) {
+    return `${ANISEARCH_BASE_URL}/manga/${normalized}`;
+  }
+
+  return toAniSearchAbsoluteUrl(normalized).replace(/\/+$/, '');
+};
+
+const parseAniSearchStructuredData = (doc: Document) => {
+  const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+
+  for (const script of scripts) {
+    try {
+      const parsed = JSON.parse(script.textContent || '{}');
+      const candidateList = Array.isArray(parsed)
+        ? parsed
+        : parsed?.['@graph'] && Array.isArray(parsed['@graph'])
+          ? parsed['@graph']
+          : [parsed];
+      const candidate = candidateList.find((item) => (
+        item
+        && typeof item === 'object'
+        && (
+          item['@type'] === 'BookSeries'
+          || item['@type'] === 'Book'
+          || item['@type'] === 'Person'
+        )
+      ));
+
+      if (candidate) {
+        return candidate as Record<string, any>;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+};
+
+const stripAniSearchSourceFooter = (value?: string | null) => (
+  normalizeText(value)
+    .replace(/\s*source:\s*www\.anisearch\.[^\s]+\/[^\s]+/i, '')
+    .replace(/\s*quelle:\s*www\.anisearch\.[^\s]+\/[^\s]+/i, '')
+    .trim()
+);
+
+const getAniSearchTitle = (doc: Document) => {
+  const heading = doc.querySelector('#htitle');
+  if (!(heading instanceof HTMLElement)) {
+    return '';
+  }
+
+  const clone = heading.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('.release_year').forEach((element) => element.remove());
+  return normalizeText(clone.textContent);
+};
+
+const getAniSearchSubheader = (doc: Document) => normalizeText(doc.querySelector('.subheader')?.textContent);
+
+const getAniSearchCover = (doc: Document) => sanitizeEntityImageUrl(
+  doc.querySelector<HTMLImageElement>('#details-cover')?.getAttribute('src')
+  || getMetaContent(doc, 'property', 'og:image'),
+);
+
+const getAniSearchInfoValue = (doc: Document, className: string) => {
+  const block = doc.querySelector(`#information .${className}`);
+  if (!(block instanceof HTMLElement)) {
+    return '';
+  }
+
+  const clone = block.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('.header, .flag, .cspoiler1, .cspoiler2, .show_cspoiler, .showallB, .addEpisode').forEach((element) => element.remove());
+  return normalizeText(clone.textContent);
+};
+
+const getAniSearchInfoLinks = (doc: Document, className: string) => (
+  Array.from(doc.querySelectorAll<HTMLAnchorElement>(`#information .${className} a[href]`))
+    .map((anchor) => ({
+      url: toAniSearchAbsoluteUrl(anchor.getAttribute('href')),
+      label: normalizeText(anchor.textContent) || undefined,
+    }))
+    .filter((item) => item.url)
+);
+
+const extractAniSearchTitleVariants = (doc: Document) => {
+  const values = new Set<string>();
+
+  const appendValue = (value?: string | null) => {
+    const normalized = normalizeText(value);
+    if (normalized) {
+      values.add(normalized);
+    }
+  };
+
+  const appendDelimitedValues = (value?: string | null) => {
+    for (const part of normalizeText(value).split(/\s*\/\s*|\s*,\s*/)) {
+      appendValue(part);
+    }
+  };
+
+  appendDelimitedValues(getAniSearchSubheader(doc));
+
+  for (const titleBlock of Array.from(doc.querySelectorAll<HTMLElement>('#information .title[lang]'))) {
+    appendValue(titleBlock.querySelector('strong')?.textContent);
+    appendValue(titleBlock.querySelector('.grey')?.textContent);
+
+    const clone = titleBlock.cloneNode(true) as HTMLElement;
+    clone.querySelectorAll('img, .flag, .cspoiler1, .cspoiler2').forEach((element) => element.remove());
+    appendDelimitedValues(
+      Array.from(clone.querySelectorAll('i, em'))
+        .map((element) => normalizeText(element.textContent))
+        .join(', '),
+    );
+  }
+
+  return Array.from(values);
+};
+
+const parseAniSearchDate = (value?: string | null) => {
+  const normalized = normalizeText(value);
+  const match = normalized.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (!match) {
+    return undefined;
+  }
+
+  return `${match[3]}-${match[2]}-${match[1]}`;
+};
+
+const parseAniSearchPublishedRange = (value?: string | null) => {
+  const normalized = normalizeText(value).replace(/[–—‑]/g, '-');
+  if (!normalized) {
+    return { startDate: undefined, endDate: undefined };
+  }
+
+  const parts = normalized.split(/\s*-\s*/);
+  return {
+    startDate: parseAniSearchDate(parts[0]),
+    endDate: parseAniSearchDate(parts[1]),
+  };
+};
+
+const toOptionalPositiveInteger = (value?: string | null) => {
+  const digits = normalizeText(value).replace(/[^\d]/g, '');
+  if (!digits) {
+    return undefined;
+  }
+
+  const parsed = Number(digits);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+};
+
+const parseAniSearchVolumesAndChapters = (value?: string | null) => {
+  const normalized = normalizeText(value);
+  const match = normalized.match(/^([\d?]+)\s*\/\s*([\d?+]+)$/);
+
+  if (!match) {
+    return { volumes: undefined, chapters: undefined };
+  }
+
+  return {
+    volumes: toOptionalPositiveInteger(match[1]),
+    chapters: toOptionalPositiveInteger(match[2]),
+  };
+};
+
+const getAniSearchSidebarStat = (doc: Document, label: string) => {
+  const rows = Array.from(doc.querySelectorAll('#status tr'));
+  const normalizedLabel = normalizeKey(label);
+
+  for (const row of rows) {
+    for (const cell of Array.from(row.querySelectorAll('td'))) {
+      const textLabel = normalizeKey(cell.querySelector('.afake')?.textContent || cell.textContent);
+      if (!textLabel.includes(normalizedLabel)) {
+        continue;
+      }
+
+      return toOptionalPositiveInteger(cell.querySelector('b')?.textContent || cell.textContent);
+    }
+  }
+
+  return undefined;
+};
+
+const classifyAniSearchStaffRole = (value?: string | null): 'author' | 'artist' => {
+  const normalized = normalizeKey(value);
+
+  if (
+    normalized.includes('illustrator')
+    || normalized.includes('artist')
+    || normalized.includes('art')
+  ) {
+    return 'artist';
+  }
+
+  return 'author';
+};
+
+const parseAniSearchStaffEntries = (doc: Document) => {
+  const block = doc.querySelector('#information .mangaka');
+  if (!(block instanceof HTMLElement)) {
+    return [] as Array<{ name: string; url: string; roleLabel: string; kind: 'author' | 'artist' }>;
+  }
+
+  const entries: Array<{ name: string; url: string; roleLabel: string; kind: 'author' | 'artist' }> = [];
+  let pending: Array<{ name: string; url: string }> = [];
+
+  const flushPending = (roleLabel?: string | null) => {
+    const normalizedRoleLabel = normalizeText(roleLabel) || 'Author';
+
+    for (const item of pending) {
+      entries.push({
+        ...item,
+        roleLabel: normalizedRoleLabel,
+        kind: classifyAniSearchStaffRole(normalizedRoleLabel),
+      });
+    }
+
+    pending = [];
+  };
+
+  for (const node of Array.from(block.childNodes)) {
+    if (node instanceof HTMLAnchorElement && /\/person\//i.test(node.getAttribute('href') || '')) {
+      const name = normalizeText(node.textContent);
+      const url = toAniSearchAbsoluteUrl(node.getAttribute('href'));
+
+      if (name && url) {
+        pending.push({ name, url });
+      }
+
+      continue;
+    }
+
+    if (node instanceof HTMLElement && node.matches('span.f10g')) {
+      flushPending(node.textContent);
+    }
+  }
+
+  flushPending();
+  return entries;
+};
+
+const parseAniSearchCharacterSection = (doc: Document) => {
+  const results: Array<{
+    name: string;
+    url: string;
+    imageUrl?: string;
+    roleLabel?: string;
+    roleType?: CharacterListingRole;
+  }> = [];
+  const seen = new Set<string>();
+
+  for (const section of Array.from(doc.querySelectorAll<HTMLElement>('section[id^="chara"]'))) {
+    const headingText = normalizeText(section.querySelector('h2')?.textContent);
+    const roleType = headingText.toLocaleLowerCase('tr-TR').includes('main')
+      ? 'main'
+      : headingText.toLocaleLowerCase('tr-TR').includes('secondary')
+        ? 'supporting'
+        : normalizeCharacterListingRole(headingText);
+    const roleLabel = getCharacterListingRoleLabel(roleType) || headingText || undefined;
+
+    for (const anchor of Array.from(section.querySelectorAll<HTMLAnchorElement>('a[href*="character/"]'))) {
+      const url = toAniSearchAbsoluteUrl(anchor.getAttribute('href'));
+      const name = normalizeText(anchor.querySelector('.title')?.textContent || anchor.getAttribute('title') || anchor.textContent);
+
+      if (!url || !name || seen.has(url)) {
+        continue;
+      }
+
+      seen.add(url);
+      results.push({
+        name,
+        url,
+        imageUrl: sanitizeEntityImageUrl(getImageUrlFromElement(anchor.querySelector('img'))),
+        roleLabel,
+        roleType,
+      });
+    }
+  }
+
+  return results;
+};
+
+const parseAniSearchRelatedSeries = (doc: Document, currentUrl: string) => uniqueByUrl(
+  Array.from(doc.querySelectorAll<HTMLTableRowElement>('#relations_manga tbody tr'))
+    .map((row) => {
+      const anchor = row.querySelector<HTMLAnchorElement>('th a[href*="manga/"]');
+      const title = normalizeText(anchor?.textContent);
+      const sourceUrl = toAniSearchAbsoluteUrl(anchor?.getAttribute('href'));
+      const relationText = normalizeText(row.querySelector('th span')?.textContent);
+      const tooltipHtml = row.querySelector('th')?.getAttribute('data-tooltip');
+      const tooltipDoc = tooltipHtml ? parseHtmlFragment(tooltipHtml) : null;
+      const cover = sanitizeEntityImageUrl(
+        tooltipDoc?.querySelector('img')?.getAttribute('src'),
+      );
+
+      if (!title || !sourceUrl || sourceUrl === currentUrl) {
+        return null;
+      }
+
+      return {
+        title,
+        relationType: normalizeRelationType(relationText),
+        sourceUrl,
+        cover,
+      };
+    })
+    .filter((item): item is ImportedRelatedSeriesDraft => item !== null),
+);
+
+const sanitizeAniSearchCharacterDescription = (value?: string | null) => {
+  const normalized = stripAniSearchSourceFooter(value);
+
+  if (
+    !normalized
+    || /^a short plot summary about the character/i.test(normalized)
+    || /would help many anime and manga fans/i.test(normalized)
+  ) {
+    return undefined;
+  }
+
+  return sanitizeCharacterDescription(normalized) || undefined;
+};
+
+const buildAniSearchPersonDraft = async (
+  sourceUrl: string,
+  role: 'author' | 'artist',
+): Promise<ImportedPersonDraft> => {
+  const html = await fetchAniSearchHtml(sourceUrl);
+  const doc = parseHtml(html);
+  const nameBlock = doc.querySelector('#information .name-type-1');
+  const title = getAniSearchTitle(doc) || normalizeText(nameBlock?.querySelector('strong')?.textContent);
+  const aliases = uniqueStrings(
+    normalizeText(nameBlock?.querySelector('i')?.textContent)
+      .split(/\s*,\s*/)
+      .filter(Boolean),
   );
+  const originalScript = normalizeText(
+    Array.from(nameBlock?.querySelectorAll('span') || [])
+      .map((element) => normalizeText(element.textContent))
+      .find((value) => value && !value.endsWith(':') && !value.toLocaleLowerCase('tr-TR').includes('screen name')),
+  );
+
+  return createImportedPersonDraft('anisearch', title || 'AniSearch person', sourceUrl, {
+    imageUrl: sanitizeEntityImageUrl(
+      doc.querySelector<HTMLImageElement>('#details-cover')?.getAttribute('src')
+      || getMetaContent(doc, 'property', 'og:image'),
+    ),
+    description: stripAniSearchSourceFooter(doc.querySelector('#description .details-text[lang="en"], #description .details-text')?.textContent) || undefined,
+    alternativeNames: mergeStringLists(aliases, originalScript ? [originalScript] : []),
+    details: {
+      nativeName: originalScript || undefined,
+      gender: getAniSearchInfoValue(doc, 'gender') || undefined,
+      occupation: getAniSearchInfoValue(doc, 'occupations') || undefined,
+      role: role === 'artist' ? 'Çizer' : 'Yazar',
+      extra: parseAniSearchPeopleId(sourceUrl)
+        ? { aniSearchPersonId: parseAniSearchPeopleId(sourceUrl) }
+        : undefined,
+    },
+    sourceLinks: [createSourceLink('anisearch', sourceUrl, 'person', title || 'AniSearch person')],
+  });
+};
+
+const buildAniSearchCharacterDraft = async (
+  sourceUrl: string,
+  roleLabel: string | undefined,
+  fallbackName: string,
+  fallbackImageUrl?: string,
+): Promise<ImportedCharacterDraft> => {
+  const html = await fetchAniSearchHtml(sourceUrl);
+  const doc = parseHtml(html);
+  const title = getAniSearchTitle(doc) || fallbackName;
+  const roleType = normalizeCharacterListingRole(roleLabel);
+  const localizedRoleLabel = getCharacterListingRoleLabel(roleType) || normalizeText(roleLabel) || undefined;
+  const occupation = uniqueStrings(
+    Array.from(doc.querySelectorAll<HTMLElement>('#information .occupation'))
+      .map((element) => {
+        const clone = element.cloneNode(true) as HTMLElement;
+        clone.querySelectorAll('.header').forEach((item) => item.remove());
+        return normalizeText(clone.textContent);
+      })
+      .filter(Boolean),
+  ).join(', ');
+  const tags = uniqueStrings(
+    Array.from(doc.querySelectorAll('#description .cloud a'))
+      .map((anchor) => normalizeText(anchor.textContent)),
+  );
+
+  return {
+    ...createImportedPersonDraft('anisearch', title, sourceUrl, {
+      imageUrl: getAniSearchCover(doc) || fallbackImageUrl,
+      description: sanitizeAniSearchCharacterDescription(
+        doc.querySelector('#description .details-text[lang="en"], #description .details-text')?.textContent,
+      ),
+      alternativeNames: extractAniSearchTitleVariants(doc),
+      details: {
+        gender: getAniSearchInfoValue(doc, 'gender') || undefined,
+        age: getAniSearchInfoValue(doc, 'age') || undefined,
+        nationality: getAniSearchInfoValue(doc, 'nationality') || undefined,
+        occupation: occupation || undefined,
+        tags,
+        extra: {
+          ...(getAniSearchInfoValue(doc, 'hair-color') ? { hairColor: getAniSearchInfoValue(doc, 'hair-color') } : {}),
+          ...(getAniSearchInfoValue(doc, 'eye-color') ? { eyeColor: getAniSearchInfoValue(doc, 'eye-color') } : {}),
+          ...(getAniSearchInfoValue(doc, 'height') ? { height: getAniSearchInfoValue(doc, 'height') } : {}),
+          ...(parseAniSearchCharacterId(sourceUrl) ? { aniSearchCharacterId: parseAniSearchCharacterId(sourceUrl) } : {}),
+        },
+      },
+      sourceLinks: [createSourceLink('anisearch', sourceUrl, 'character', title)],
+    }),
+    roleLabel: localizedRoleLabel,
+    roleType,
+  };
+};
+
+const readAniSearchGzipText = async (buffer: ArrayBuffer) => {
+  const GzipStream = globalThis.DecompressionStream;
+
+  if (!GzipStream) {
+    throw new Error('AniSearch sitemap gzip çözümü bu tarayıcıda desteklenmiyor.');
+  }
+
+  const response = new Response(
+    new Blob([buffer]).stream().pipeThrough(new GzipStream('gzip')),
+  );
+
+  return await response.text();
+};
+
+const loadAniSearchSitemapEntries = async (): Promise<AniSearchSitemapEntry[]> => {
+  const sitemapIndexXml = await fetchScraperContent(ANISEARCH_SITEMAP_INDEX_URL);
+  const sitemapIndexDoc = parseXml(sitemapIndexXml);
+  const sitemapUrls = Array.from(sitemapIndexDoc.querySelectorAll('sitemap > loc'))
+    .map((element) => normalizeText(element.textContent))
+    .filter((url) => /\/manga_\(\d+\)\.xml\.gz$/i.test(url));
+
+  const entryGroups = await mapWithConcurrency(sitemapUrls, 2, async (sitemapUrl) => {
+    const compressed = await fetchScraperArrayBuffer(sitemapUrl);
+    const xml = await readAniSearchGzipText(compressed);
+    const doc = parseXml(xml);
+
+    return Array.from(doc.querySelectorAll('url > loc'))
+      .map((element) => normalizeText(element.textContent))
+      .map((url) => {
+        const id = parseAniSearchMangaId(url);
+        const slug = parseAniSearchMangaSlug(url);
+
+        if (!id || !slug) {
+          return null;
+        }
+
+        const titleGuess = uniqueStrings(slug.split('-')).join(' ');
+
+        return {
+          id,
+          slug,
+          titleGuess: normalizeText(titleGuess) || slug,
+          url,
+          searchKey: toSearchComparable(`${slug} ${titleGuess}`),
+        } satisfies AniSearchSitemapEntry;
+      })
+      .filter((item): item is AniSearchSitemapEntry => item !== null);
+  });
+
+  return uniqueByUrl(entryGroups.flat());
+};
+
+const getAniSearchSitemapEntries = async () => {
+  if (!aniSearchSitemapEntriesPromise) {
+    aniSearchSitemapEntriesPromise = loadAniSearchSitemapEntries().catch((error) => {
+      aniSearchSitemapEntriesPromise = null;
+      throw error;
+    });
+  }
+
+  return aniSearchSitemapEntriesPromise;
+};
+
+const scoreAniSearchEntry = (query: string, entry: AniSearchSitemapEntry) => {
+  const comparableQuery = toSearchComparable(query);
+  const queryTokens = tokenizeSearchComparable(query);
+
+  if (!comparableQuery) {
+    return 0;
+  }
+
+  let score = 0;
+  if (entry.id === comparableQuery) score += 1000;
+  if (entry.searchKey === comparableQuery) score += 250;
+  if (entry.slug === comparableQuery.replace(/\s+/g, '-')) score += 180;
+  if (entry.searchKey.startsWith(comparableQuery)) score += 120;
+  if (entry.searchKey.includes(comparableQuery)) score += 80;
+
+  for (const token of queryTokens) {
+    if (entry.searchKey.includes(token)) {
+      score += 24;
+    }
+  }
+
+  return score;
+};
+
+const resolveAniSearchCandidate = async (inputUrl: string, fallbackId?: string): Promise<SourceSearchCandidate> => {
+  const html = await fetchAniSearchHtml(inputUrl);
+  const doc = parseHtml(html);
+  const canonicalUrl = normalizeText(doc.querySelector('link[rel="canonical"]')?.getAttribute('href')) || inputUrl;
+  const title = getAniSearchTitle(doc) || normalizeText(fallbackId) || 'AniSearch manga';
+  const subtitle = uniqueStrings(getAniSearchSubheader(doc).split(/\s*\/\s*/)).slice(0, 2).join(', ');
+
+  return {
+    id: parseAniSearchMangaId(canonicalUrl) || fallbackId || inputUrl,
+    source: 'anisearch',
+    title,
+    subtitle: subtitle || undefined,
+    url: canonicalUrl,
+    imageUrl: getAniSearchCover(doc),
+  };
+};
+
+const searchAniSearchCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
+  const directUrl = ANISEARCH_HOST_PATTERN.test(input) ? getAniSearchCanonicalMangaUrl(input) : '';
+  const directId = parseAniSearchMangaId(input);
+
+  if (directUrl || directId) {
+    const resolvedUrl = directUrl || getAniSearchCanonicalMangaUrl(directId!);
+
+    try {
+      return [await resolveAniSearchCandidate(resolvedUrl, directId || undefined)];
+    } catch {
+      return [{
+        id: directId || resolvedUrl,
+        source: 'anisearch',
+        title: directId ? `AniSearch manga #${directId}` : 'AniSearch manga',
+        url: resolvedUrl,
+      }];
+    }
+  }
+
+  const entries = await getAniSearchSitemapEntries();
+  const rankedEntries = entries
+    .map((entry) => ({ entry, score: scoreAniSearchEntry(input, entry) }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, ANISEARCH_SEARCH_RESULT_LIMIT);
+
+  const enriched = await mapWithConcurrency(rankedEntries, 4, async ({ entry }) => {
+    try {
+      return await resolveAniSearchCandidate(entry.url, entry.id);
+    } catch {
+      return {
+        id: entry.id,
+        source: 'anisearch' as const,
+        title: entry.titleGuess,
+        url: entry.url,
+      };
+    }
+  });
+
+  return uniqueByUrl(enriched);
+};
+
+const loadAniSearchPreview = async (
+  candidate: SourceSearchCandidate,
+  enabledOptions: Partial<Record<ImportOptionKey, boolean>>,
+): Promise<ImportedMangaPayload> => {
+  const mangaUrl = getAniSearchCanonicalMangaUrl(candidate.url || candidate.id);
+  const html = await fetchAniSearchHtml(mangaUrl);
+  const doc = parseHtml(html);
+  const canonicalUrl = normalizeText(doc.querySelector('link[rel="canonical"]')?.getAttribute('href')) || mangaUrl;
+  const structuredData = parseAniSearchStructuredData(doc);
+  const preview = createEmptyPreview('anisearch', canonicalUrl, getAniSearchTitle(doc) || candidate.title);
+  const publishedText = getAniSearchInfoValue(doc, 'released');
+  const publishedRange = parseAniSearchPublishedRange(publishedText);
+  const volumeChapterCounts = parseAniSearchVolumesAndChapters(getAniSearchInfoValue(doc, 'releases'));
+  const tags = uniqueStrings(
+    Array.isArray(structuredData?.genre)
+      ? structuredData.genre
+      : typeof structuredData?.genre === 'string'
+        ? structuredData.genre.split(/\s*,\s*/)
+        : [],
+  );
+  const websiteLinks = getAniSearchInfoLinks(doc, 'websites');
+  const ratingValue = Number(structuredData?.aggregateRating?.ratingValue || 0);
+  const ratingCount = toOptionalPositiveInteger(structuredData?.aggregateRating?.ratingCount);
+  const favorites = getAniSearchSidebarStat(doc, 'favourites');
+  const nativeName = extractAniSearchTitleVariants(doc).find((value) => /[^\u0000-\u007f]/.test(value));
+
+  preview.cover = getAniSearchCover(doc) || undefined;
+  preview.description = stripAniSearchSourceFooter(
+    doc.querySelector('#description .details-text[lang="en"], #description .details-text')?.textContent,
+  ) || normalizeText(structuredData?.description) || undefined;
+  preview.alternativeTitles = uniqueStrings([
+    preview.sourceTitle,
+    structuredData?.name,
+    ...extractAniSearchTitleVariants(doc),
+  ]);
+  preview.tags = tags;
+  preview.genres = tags.slice();
+  preview.details = {
+    englishName: preview.sourceTitle,
+    nativeName: nativeName || undefined,
+    status: getAniSearchInfoValue(doc, 'status') || undefined,
+    chapters: volumeChapterCounts.chapters,
+    volumes: volumeChapterCounts.volumes,
+    favorites,
+    averageScore: Number.isFinite(ratingValue) && ratingValue > 0 ? Math.round(ratingValue * 20) : undefined,
+    startDate: structuredData?.startDate || publishedRange.startDate,
+    endDate: structuredData?.endDate || publishedRange.endDate,
+    originalPublisher: uniqueStrings(getAniSearchInfoLinks(doc, 'company').map((item) => item.label)).join(', ') || undefined,
+    sourceMaterial: getAniSearchInfoValue(doc, 'type') || undefined,
+    genres: preview.genres,
+    tags: preview.tags,
+    comments: getAniSearchInfoValue(doc, 'adapted') || undefined,
+    extra: {
+      ...(ratingCount ? { aniSearchRatingCount: ratingCount } : {}),
+      ...(parseAniSearchMangaId(canonicalUrl) ? { aniSearchId: parseAniSearchMangaId(canonicalUrl) } : {}),
+      ...(parseAniSearchMangaSlug(canonicalUrl) ? { aniSearchSlug: parseAniSearchMangaSlug(canonicalUrl) } : {}),
+    },
+  };
+
+  preview.relatedSeries = enabledOptions.related_series
+    ? parseAniSearchRelatedSeries(
+      parseHtml(await fetchAniSearchHtml(`${canonicalUrl}/relations`)),
+      canonicalUrl,
+    )
+    : [];
+
+  if (websiteLinks.length > 0) {
+    preview.details.website = websiteLinks[0]?.url || undefined;
+  }
+
+  if (enabledOptions.authors || enabledOptions.artists) {
+    const personCache = new Map<string, ImportedPersonDraft>();
+    const staffEntries = parseAniSearchStaffEntries(doc)
+      .filter((item) => (
+        (item.kind === 'author' && enabledOptions.authors)
+        || (item.kind === 'artist' && enabledOptions.artists)
+      ))
+      .slice(0, MAX_IMPORT_ENTITY_COUNT);
+
+    const drafts = await mapWithConcurrency(staffEntries, 4, async (item) => {
+      const cached = personCache.get(item.url);
+      if (cached) {
+        return { kind: item.kind, draft: cached };
+      }
+
+      const draft = await buildAniSearchPersonDraft(item.url, item.kind);
+      personCache.set(item.url, draft);
+      return { kind: item.kind, draft };
+    });
+
+    for (const entry of drafts) {
+      if (entry.kind === 'artist') {
+        preview.artists.push(entry.draft);
+      } else {
+        preview.authors.push(entry.draft);
+      }
+    }
+  }
+
+  if (enabledOptions.characters) {
+    const characterHtml = await fetchAniSearchHtml(`${canonicalUrl}/characters`);
+    const characterDoc = parseHtml(characterHtml);
+    const characterRows = parseAniSearchCharacterSection(characterDoc).slice(0, MAX_IMPORT_ENTITY_COUNT);
+    const drafts = await mapWithConcurrency(characterRows, 4, async (item) => (
+      buildAniSearchCharacterDraft(
+        item.url,
+        item.roleLabel,
+        item.name,
+        item.imageUrl,
+      )
+    ));
+
+    preview.characters.push(...drafts);
+  }
+
+  return preview;
 };
 
 const mergeImportedPerson = <TEntity extends Character | Author | Artist>(
@@ -2332,6 +3044,10 @@ export const searchMetadataImportCandidates = async (
     return [];
   }
 
+  if (source === 'anisearch') {
+    return searchAniSearchCandidates(query);
+  }
+
   if (source === 'myanimelist') {
     return searchMyAnimeListCandidates(query);
   }
@@ -2344,7 +3060,7 @@ export const searchMetadataImportCandidates = async (
     return searchAnimePlanetCandidates(query);
   }
 
-  return searchAniListCandidates();
+  return [];
 };
 
 export const loadMetadataImportPreview = async (
@@ -2354,16 +3070,16 @@ export const loadMetadataImportPreview = async (
 ): Promise<ImportedMangaPayload> => {
   let preview: ImportedMangaPayload;
 
-  if (candidate.source === 'myanimelist') {
+  if (candidate.source === 'anisearch') {
+    preview = await loadAniSearchPreview(candidate, enabledOptions);
+  } else if (candidate.source === 'myanimelist') {
     preview = await loadMyAnimeListPreview(candidate, enabledOptions);
   } else if (candidate.source === 'mangaupdates') {
     preview = await loadMangaUpdatesPreview(candidate, enabledOptions);
   } else if (candidate.source === 'animeplanet') {
     preview = await loadAnimePlanetPreview(candidate, enabledOptions);
   } else {
-    throw new Error(
-      'AniList public endpointi 30 Mart 2026 itibarıyla kullanılamıyor. Cloudflare proxy üzerinden de upstream 403 alındığı için bu kaynak importta geçici olarak beklemede.',
-    );
+    throw new Error('Desteklenmeyen metadata import kaynağı.');
   }
 
   preview = filterImportedPreviewByOptions(preview, enabledOptions);

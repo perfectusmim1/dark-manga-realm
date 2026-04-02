@@ -13,6 +13,9 @@ const DEFAULT_ALLOWED_HOSTS = [
   'api.jikan.moe',
   'anime-planet.com',
   'www.anime-planet.com',
+  'anisearch.com',
+  'www.anisearch.com',
+  'cdn.anisearch.com',
 ];
 
 const DEFAULT_ALLOWED_ORIGINS = [
@@ -141,6 +144,7 @@ const detectSourceName = (hostname) => {
   if (normalizedHostname.endsWith('myanimelist.net')) return 'myanimelist';
   if (normalizedHostname.endsWith('anime-planet.com')) return 'animeplanet';
   if (normalizedHostname.endsWith('mangaupdates.com')) return 'mangaupdates';
+  if (normalizedHostname.endsWith('anisearch.com')) return 'anisearch';
   if (normalizedHostname === 'anilist.co' || normalizedHostname === 'graphql.anilist.co') return 'anilist';
   if (normalizedHostname === 'api.jikan.moe') return 'jikan';
 
@@ -175,6 +179,15 @@ const detectOperation = (url) => {
     if (pathname.includes('/site/search/result')) return 'search';
     if (/^\/series\/[^/]+\/?$/.test(pathname)) return 'manga_detail';
     if (/^\/author\/[^/]+\/?$/.test(pathname)) return 'person_detail';
+  }
+
+  if (hostname.endsWith('anisearch.com')) {
+    if (pathname === '/sitemap.xml' || /\/manga_\(\d+\)\.xml\.gz$/i.test(pathname)) return 'search';
+    if (/^\/manga\/\d+,?[^/]*\/characters\/?$/.test(pathname)) return 'characters';
+    if (/^\/manga\/\d+,?[^/]*\/relations\/?$/.test(pathname)) return 'relations';
+    if (/^\/manga\/\d+,?[^/]*\/?$/.test(pathname)) return 'manga_detail';
+    if (/^\/person\/\d+,?[^/]*\/?$/.test(pathname)) return 'person_detail';
+    if (/^\/character\/\d+,?[^/]*\/?$/.test(pathname)) return 'character_detail';
   }
 
   if (hostname === 'anilist.co' || hostname === 'graphql.anilist.co') {

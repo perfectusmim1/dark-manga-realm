@@ -148,6 +148,32 @@ const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
   };
 };
 
+const fetchScraperResponse = async (
+  targetUrl: string,
+  options?: { provider?: ScraperProvider; source?: ScrapeSource }
+) => {
+  const provider = options?.provider ?? getDefaultScraperProviderForSource(options?.source ?? getDefaultScrapeSource());
+  const errors: string[] = [];
+
+  for (const providerToTry of getProviderAttemptOrder(provider)) {
+    const attempt = createProxyAttempt(providerToTry);
+
+    try {
+      const response = await attempt.request(targetUrl);
+
+      if (!response.ok) {
+        throw new Error(`${attempt.label} failed (${response.status})`);
+      }
+
+      return response;
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : `${attempt.label} request failed`);
+    }
+  }
+
+  throw new Error(errors.join(' | ') || 'Scraper proxy request failed');
+};
+
 const getProviderAttemptOrder = (preferredProvider: ScraperProvider) => {
   const availableProviders = getAvailableScraperProviders();
   const orderedProviders: ScraperProvider[] = [];
@@ -169,24 +195,14 @@ export const fetchScraperContent = async (
   targetUrl: string,
   options?: { provider?: ScraperProvider; source?: ScrapeSource }
 ) => {
-  const provider = options?.provider ?? getDefaultScraperProviderForSource(options?.source ?? getDefaultScrapeSource());
-  const errors: string[] = [];
+  const response = await fetchScraperResponse(targetUrl, options);
+  return await readProxyResponse(response);
+};
 
-  for (const providerToTry of getProviderAttemptOrder(provider)) {
-    const attempt = createProxyAttempt(providerToTry);
-
-    try {
-      const response = await attempt.request(targetUrl);
-
-      if (!response.ok) {
-        throw new Error(`${attempt.label} failed (${response.status})`);
-      }
-
-      return await readProxyResponse(response);
-    } catch (error) {
-      errors.push(error instanceof Error ? error.message : `${attempt.label} request failed`);
-    }
-  }
-
-  throw new Error(errors.join(' | ') || 'Scraper proxy request failed');
+export const fetchScraperArrayBuffer = async (
+  targetUrl: string,
+  options?: { provider?: ScraperProvider; source?: ScrapeSource }
+) => {
+  const response = await fetchScraperResponse(targetUrl, options);
+  return await response.arrayBuffer();
 };

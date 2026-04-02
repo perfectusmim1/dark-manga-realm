@@ -56,7 +56,7 @@ import { getCharacterListingRoleLabel } from '@/lib/characterRoles';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 
 const SOURCE_LABELS: Record<MetadataImportSource, string> = {
-  anilist: 'AniList',
+  anisearch: 'AniSearch',
   myanimelist: 'MyAnimeList',
   mangaupdates: 'MangaUpdates',
   animeplanet: 'Anime-Planet',
