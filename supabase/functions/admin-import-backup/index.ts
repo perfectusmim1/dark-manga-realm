@@ -1,5 +1,5 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { createServiceClient, isPrimaryAdmin, json, requireRequester } from "../_shared/auth.ts";
+import { isPrimaryAdmin, json, requireRequester } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   BACKUP_TABLES,
@@ -22,78 +22,21 @@ type RestoreSiteBackupResult = {
   restoredTables?: string[];
 };
 
-const SENSITIVE_USER_FIELDS = new Set([
-  "password_hash",
-  "encrypted_password",
-  "password_salt",
-  "otp_secret",
-  "mfa_secret",
-  "recovery_token",
-  "reset_token",
-]);
+const normalizeManifestForImport = (manifest: BackupManifest): BackupManifest => {
+  const normalizedTables = Object.fromEntries(
+    BACKUP_TABLES.flatMap((tableName) => {
+      if (!manifest.tables || !(tableName in manifest.tables)) {
+        return [];
+      }
 
-const loadAllAuthUserIds = async (serviceClient: ReturnType<typeof createServiceClient>) => {
-  const userIds = new Set<string>();
-  let page = 1;
-
-  while (true) {
-    const { data, error } = await serviceClient.auth.admin.listUsers({
-      page,
-      perPage: 200,
-    });
-
-    if (error) {
-      throw error;
-    }
-
-    const batch = data.users || [];
-    for (const user of batch) {
-      userIds.add(user.id);
-    }
-
-    if (batch.length < 200) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  return userIds;
-};
-
-const sanitizeBackupRow = (tableName: BackupTableName, row: unknown) => {
-  if (!row || typeof row !== "object" || Array.isArray(row)) {
-    return row;
-  }
-
-  if (tableName !== "users") {
-    return row;
-  }
-
-  const sanitizedRow = { ...(row as Record<string, unknown>) };
-  for (const field of SENSITIVE_USER_FIELDS) {
-    delete sanitizedRow[field];
-  }
-
-  return sanitizedRow;
-};
-
-const sanitizeManifestForImport = (manifest: BackupManifest): BackupManifest => {
-  const sanitizedTables = Object.fromEntries(
-    BACKUP_TABLES.map((tableName) => {
-      const rows = manifest.tables?.[tableName] || [];
-      return [
-        tableName,
-        Array.isArray(rows)
-          ? rows.map((row) => sanitizeBackupRow(tableName, row))
-          : [],
-      ];
+      const rows = manifest.tables[tableName];
+      return [[tableName, Array.isArray(rows) ? rows : []] as const];
     }),
   ) as Partial<Record<BackupTableName, unknown[]>>;
 
   return {
     ...manifest,
-    tables: sanitizedTables,
+    tables: normalizedTables,
   };
 };
 
@@ -150,36 +93,11 @@ Deno.serve(async (req: Request) => {
     }
 
     validateManifest(manifest);
-
-    const authUserIds = await loadAllAuthUserIds(auth.serviceClient);
-    const requiredUserIds = new Set<string>();
-
-    for (const user of manifest.authManifest?.users || []) {
-      if (user?.id) {
-        requiredUserIds.add(user.id);
-      }
-    }
-
-    for (const userRow of (manifest.tables?.users || []) as Array<{ id?: string }>) {
-      if (userRow?.id) {
-        requiredUserIds.add(userRow.id);
-      }
-    }
-
-    const missingUserIds = [...requiredUserIds].filter((userId) => !authUserIds.has(userId));
-    if (missingUserIds.length > 0) {
-      return json({
-        success: false,
-        message: "Missing auth.users records for backup restore",
-        missingUserIds,
-      }, 400);
-    }
-
-    const sanitizedManifest = sanitizeManifestForImport(manifest);
+    const normalizedManifest = normalizeManifestForImport(manifest);
     const { data: restoreResult, error: restoreError } = await auth.serviceClient.rpc(
       "restore_site_backup",
       {
-        p_manifest: sanitizedManifest,
+        p_manifest: normalizedManifest,
       },
     );
 

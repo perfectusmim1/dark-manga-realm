@@ -3,41 +3,18 @@ import { createServiceClient, isPrimaryAdmin, json, requireRequester } from "../
 import { corsHeaders } from "../_shared/cors.ts";
 import { BACKUP_CHUNK_SIZE, BACKUP_TABLES, BACKUP_VERSION, type BackupTableName } from "../_shared/backup.ts";
 
-const USERS_BACKUP_SELECT = [
-  "id",
-  "username",
-  "email",
-  "avatar",
-  "role",
-  "created_at",
-  "preferences",
-  "two_factor_enabled",
-  "last_seen_at",
-  "is_banned",
-  "ban_reason",
-  "banned_at",
-  "banned_by",
-  "username_last_changed_at",
-  "warning_count",
-  "unread_warning_count",
-  "last_warning_at",
-  "active_ban_type",
-  "ban_expires_at",
-].join(", ");
-
 const loadAllRows = async (
   serviceClient: ReturnType<typeof createServiceClient>,
   tableName: BackupTableName,
 ) => {
   const rows: unknown[] = [];
   let from = 0;
-  const selectColumns = tableName === "users" ? USERS_BACKUP_SELECT : "*";
 
   while (true) {
     const to = from + BACKUP_CHUNK_SIZE - 1;
     const { data, error } = await serviceClient
       .from(tableName)
-      .select(selectColumns)
+      .select("*")
       .range(from, to);
 
     if (error) {
@@ -74,42 +51,6 @@ const loadBackupTables = async (
   return tables;
 };
 
-const loadAllAuthUsers = async (
-  serviceClient: ReturnType<typeof createServiceClient>,
-) => {
-  const users: Array<Record<string, unknown>> = [];
-  let page = 1;
-
-  while (true) {
-    const { data, error } = await serviceClient.auth.admin.listUsers({
-      page,
-      perPage: 200,
-    });
-
-    if (error) {
-      throw error;
-    }
-
-    const batch = data.users || [];
-    users.push(...batch.map((user) => ({
-      id: user.id,
-      email: user.email || null,
-      role: user.user_metadata?.role || user.app_metadata?.role || "user",
-      createdAt: user.created_at || null,
-      lastSignInAt: user.last_sign_in_at || null,
-      emailConfirmedAt: user.email_confirmed_at || null,
-    })));
-
-    if (batch.length < 200) {
-      break;
-    }
-
-    page += 1;
-  }
-
-  return users;
-};
-
 Deno.serve(async (req: Request) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -131,8 +72,6 @@ Deno.serve(async (req: Request) => {
 
     const tables = await loadBackupTables(auth.serviceClient);
 
-    const authUsers = await loadAllAuthUsers(auth.serviceClient);
-
     return json({
       success: true,
       manifest: {
@@ -143,8 +82,8 @@ Deno.serve(async (req: Request) => {
           email: auth.requesterProfile.email,
         },
         authManifest: {
-          totalUsers: authUsers.length,
-          users: authUsers,
+          totalUsers: 0,
+          users: [],
         },
         tables,
       },

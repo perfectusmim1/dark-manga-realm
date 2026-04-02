@@ -22,6 +22,31 @@ const DEFAULT_SECURITY_SETTINGS: SiteSecuritySettings = {
     updatedBy: null,
 };
 
+const CONTENT_BACKUP_INCLUDED_AREAS = [
+    'Mangalar ve bölümler',
+    'Karakter, yazar, çizer kayıtları',
+    'Galeri, metadata ve kaynak linkleri',
+    'Seri bağlantıları',
+    'Etiketler ve entity-tag ilişkileri',
+    'Duyurular ve site ayarları',
+];
+
+const CONTENT_BACKUP_EXCLUDED_AREAS = [
+    'Auth ve kullanıcı profili verileri',
+    'Yorumlar, incelemeler ve puanlar',
+    'Favoriler, yer imleri ve okuma listeleri',
+    'Takip, bildirim ve aktivite kayıtları',
+    'Destek, rapor ve moderasyon geçmişi',
+];
+
+const getManifestTableCount = (manifest: SiteBackupManifest) =>
+    Object.values(manifest.tables || {}).filter((rows) => Array.isArray(rows)).length;
+
+const getManifestRowCount = (manifest: SiteBackupManifest) =>
+    Object.values(manifest.tables || {}).reduce((total, rows) => (
+        total + (Array.isArray(rows) ? rows.length : 0)
+    ), 0);
+
 const AdminSiteSettings: React.FC = () => {
     const { user } = useAuth();
     const { access, isLoading: accessLoading } = useAdminAccess();
@@ -34,6 +59,8 @@ const AdminSiteSettings: React.FC = () => {
     const [pendingManifest, setPendingManifest] = useState<SiteBackupManifest | null>(null);
     const fileInputRef = useRef<HTMLInputElement | null>(null);
     const isPrimaryAdmin = access.isPrimaryAdmin;
+    const pendingManifestTableCount = pendingManifest ? getManifestTableCount(pendingManifest) : 0;
+    const pendingManifestRowCount = pendingManifest ? getManifestRowCount(pendingManifest) : 0;
 
     useEffect(() => {
         if (!isPrimaryAdmin) {
@@ -281,8 +308,13 @@ const AdminSiteSettings: React.FC = () => {
                         <div>
                             <h2 className="text-xl font-semibold">Site verisi yedekleme</h2>
                             <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                                Bu bölüm public uygulama verilerini JSON manifest olarak dışa aktarır ve transaction-safe şekilde geri yükler.
-                                Auth kullanıcıları doğrulanır; `password_hash`, oturumlar, login denemeleri ve cihaz/IP ban kayıtları bu panele dahil edilmez.
+                                Bu bölüm içerik ve katalog verilerini JSON manifest olarak dışa aktarır ve geri yükler.
+                                Manga, bölüm, karakter, yazar, çizer, galeri, metadata, kaynak linkleri, seri bağlantıları, etiket ilişkileri,
+                                duyurular ve site ayarları bu kapsama dahildir.
+                            </p>
+                            <p className="text-sm leading-6 text-muted-foreground">
+                                Auth kullanıcıları ve tüm kullanıcı aksiyonları bu akıştan hariç tutulur; yorumlar, incelemeler, puanlar, favoriler,
+                                okuma listeleri, bildirimler ve destek kayıtları import/export dosyasına girmez.
                             </p>
                         </div>
                     </div>
@@ -290,7 +322,7 @@ const AdminSiteSettings: React.FC = () => {
                     <div className="flex w-full flex-col gap-3 lg:w-auto lg:min-w-[280px]">
                         <Button onClick={() => void handleExportBackup()} disabled={isExportingBackup || isImportingBackup}>
                             {isExportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                            Export Backup
+                            İçerik Yedeğini Dışa Aktar
                         </Button>
 
                         <Button
@@ -315,7 +347,7 @@ const AdminSiteSettings: React.FC = () => {
                             disabled={!pendingManifest || isImportingBackup || isExportingBackup}
                         >
                             {isImportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                            Import Backup
+                            İçerik Yedeğini İçe Aktar
                         </Button>
                     </div>
                 </div>
@@ -330,15 +362,33 @@ const AdminSiteSettings: React.FC = () => {
                             <div className="mt-3 space-y-1 text-xs text-muted-foreground">
                                 <p>Versiyon: {pendingManifest.version}</p>
                                 <p>Dışa aktarım: {new Date(pendingManifest.exportedAt).toLocaleString('tr-TR')}</p>
-                                <p>Auth manifest kullanıcı sayısı: {pendingManifest.authManifest.totalUsers}</p>
+                                <p>İçerik tablosu: {pendingManifestTableCount}</p>
+                                <p>Toplam kayıt: {pendingManifestRowCount}</p>
                             </div>
                         ) : null}
                     </div>
 
                     <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                        <p className="font-semibold">Sınır</p>
+                        <p className="font-semibold">Davranış</p>
                         <p className="mt-2 leading-6">
-                            Bu panel tam auth/password felaket kurtarması yapmaz. Şifre korumalı Supabase auth geri yükleme için resmi backup/restore akışı kullanılmalıdır.
+                            Bu içe aktarma akışı kullanıcı verisini korumak için ana içerik tablolarında merge çalışır.
+                            Backup dosyasında olmayan manga, bölüm veya entity kayıtları güvenlik nedeniyle otomatik silinmez.
+                        </p>
+                    </div>
+                </div>
+
+                <div className="mt-4 grid gap-4 xl:grid-cols-2">
+                    <div className="rounded-2xl border border-border bg-background/60 p-4">
+                        <h3 className="text-sm font-semibold">Dahil edilen alanlar</h3>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                            {CONTENT_BACKUP_INCLUDED_AREAS.join(' • ')}
+                        </p>
+                    </div>
+
+                    <div className="rounded-2xl border border-border bg-background/60 p-4">
+                        <h3 className="text-sm font-semibold">Hariç tutulan alanlar</h3>
+                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+                            {CONTENT_BACKUP_EXCLUDED_AREAS.join(' • ')}
                         </p>
                     </div>
                 </div>

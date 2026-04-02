@@ -91,7 +91,6 @@ const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminUserManagement = lazy(() => import("./pages/admin/AdminUserManagement"));
 const AdminScraper = lazy(() => import("./pages/admin/AdminScraper"));
 const AdminMetadataImport = lazy(() => import("./pages/admin/AdminMetadataImport"));
-const AdminMediaMigration = lazy(() => import("./pages/admin/AdminMediaMigration"));
 const AdminChapterScraper = lazy(() => import("./pages/admin/AdminChapterScraper"));
 const AdminEntities = lazy(() => import("./pages/admin/AdminEntities"));
 const AdminTags = lazy(() => import("./pages/admin/AdminTags"));
@@ -397,7 +396,6 @@ const App = () => (
                       <Route path="comments" element={<AdminComments />} />
                       <Route path="scraper" element={<AdminScraper />} />
                       <Route path="metadata-import" element={<AdminMetadataImport />} />
-                      <Route path="media-migration" element={<AdminMediaMigration />} />
                       <Route path="chapter-scraper" element={<AdminChapterScraper />} />
                       <Route path="users" element={<AdminUsers />} />
                       <Route path="user-management" element={<AdminUserManagement />} />
