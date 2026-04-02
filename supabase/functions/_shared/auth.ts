@@ -44,6 +44,33 @@ export const createServiceClient = () => {
   });
 };
 
+export const createRequesterAuthClient = (req?: Request) => {
+  const supabaseUrl = Deno.env.get("SUPABASE_URL");
+  const authKey = Deno.env.get("SB_PUBLISHABLE_KEY")
+    || Deno.env.get("SUPABASE_ANON_KEY")
+    || Deno.env.get("SUPABASE_SERVICE_ROLE_KEY");
+
+  if (!supabaseUrl || !authKey) {
+    throw new Error("Missing Supabase auth environment variables");
+  }
+
+  const authorizationHeader = req?.headers.get("Authorization") || "";
+
+  return createClient(supabaseUrl, authKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+    global: authorizationHeader
+      ? {
+        headers: {
+          Authorization: authorizationHeader,
+        },
+      }
+      : undefined,
+  });
+};
+
 export const getAccessToken = (req: Request) => {
   const authHeader = req.headers.get("Authorization");
   return authHeader?.replace(/^Bearer\s+/i, "") || null;
@@ -53,18 +80,26 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const shouldRetryAuthResolution = (message?: string | null) => {
   const normalizedMessage = message?.toLowerCase() || "";
+  if (normalizedMessage.includes("expired")) {
+    return false;
+  }
+
   return normalizedMessage.includes("future")
     || normalizedMessage.includes("not yet valid")
     || normalizedMessage.includes("jwt")
     || normalizedMessage.includes("token")
-    || normalizedMessage.includes("iat");
+    || normalizedMessage.includes("iat")
+    || normalizedMessage.includes("unauthorized")
+    || normalizedMessage.includes("invalid claim");
 };
 
 const resolveRequesterUser = async (
-  serviceClient: ReturnType<typeof createServiceClient>,
+  authClient: ReturnType<typeof createRequesterAuthClient>,
   accessToken: string,
 ) => {
-  for (const retryDelay of [0, 1200]) {
+  const retryDelays = [0, 900, 2100, 3600];
+
+  for (const [attemptIndex, retryDelay] of retryDelays.entries()) {
     if (retryDelay > 0) {
       await sleep(retryDelay);
     }
@@ -73,7 +108,7 @@ const resolveRequesterUser = async (
       const {
         data: { user },
         error: authError,
-      } = await serviceClient.auth.getUser(accessToken);
+      } = await authClient.auth.getUser(accessToken);
 
       if (!authError && user) {
         return {
@@ -82,7 +117,18 @@ const resolveRequesterUser = async (
         };
       }
 
-      if (retryDelay === 0 && shouldRetryAuthResolution(authError?.message)) {
+      const canRetry = attemptIndex < retryDelays.length - 1 && (
+        attemptIndex === 0
+        || shouldRetryAuthResolution(authError?.message)
+        || !authError
+        || !user
+      );
+
+      if (canRetry) {
+        console.warn("resolveRequesterUser auth retry:", {
+          attempt: attemptIndex + 1,
+          message: authError?.message || null,
+        });
         continue;
       }
 
@@ -91,7 +137,11 @@ const resolveRequesterUser = async (
         error: authError,
       };
     } catch (error) {
-      if (retryDelay === 0) {
+      if (attemptIndex < retryDelays.length - 1) {
+        console.warn("resolveRequesterUser auth retry after exception:", {
+          attempt: attemptIndex + 1,
+          error: error instanceof Error ? error.message : String(error),
+        });
         continue;
       }
 
@@ -149,6 +199,7 @@ export const requireRequester = async (
   allowedRoles?: AppRole[],
 ) => {
   const serviceClient = createServiceClient();
+  const authClient = createRequesterAuthClient(req);
   const accessToken = getAccessToken(req);
 
   if (!accessToken) {
@@ -158,7 +209,7 @@ export const requireRequester = async (
     };
   }
 
-  const { user, error: authError } = await resolveRequesterUser(serviceClient, accessToken);
+  const { user, error: authError } = await resolveRequesterUser(authClient, accessToken);
 
   if (authError || !user) {
     return {

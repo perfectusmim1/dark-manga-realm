@@ -278,8 +278,28 @@ export const fetchScraperHtml = async (
   }
 
   if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(body || `Scraper proxy hatası (${response.status})`);
+    const rawBody = await response.text().catch(() => "");
+    const trimmedBody = rawBody.trim();
+    let upstreamMessage = trimmedBody;
+
+    if (trimmedBody.startsWith("{")) {
+      try {
+        const parsedBody = JSON.parse(trimmedBody) as { error?: string; message?: string };
+        upstreamMessage = parsedBody.message || parsedBody.error || trimmedBody;
+      } catch {
+        upstreamMessage = trimmedBody;
+      }
+    }
+
+    if (response.status === 401) {
+      throw new Error("Scraper proxy yetkilendirmesi reddedildi");
+    }
+
+    if (response.status === 403) {
+      throw new Error("Scraper proxy istegi engelledi");
+    }
+
+    throw new Error(upstreamMessage || `Scraper proxy hatası (${response.status})`);
   }
 
   return await response.text();
