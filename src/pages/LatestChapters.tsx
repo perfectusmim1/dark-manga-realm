@@ -6,11 +6,26 @@ import { BookOpen, Clock } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import { Badge } from '@/components/ui/badge';
-import { sortChapterBatchItems } from '@/lib/chapterBatchOrdering';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
 import { getLatestChapters, getLatestChaptersCountLast24Hours, LatestChapterFeedItem } from '@/lib/database';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+
+const PAGE_SIZE = 60;
+
+const mergeLatestChapterPages = (
+    current: LatestChapterFeedItem[],
+    incoming: LatestChapterFeedItem[],
+) => {
+    if (current.length === 0) {
+        return incoming;
+    }
+
+    const seenChapterIds = new Set(current.map((chapter) => chapter.chapterId));
+    const nextItems = incoming.filter((chapter) => !seenChapterIds.has(chapter.chapterId));
+
+    return nextItems.length > 0 ? [...current, ...nextItems] : current;
+};
 
 const LatestChapters: React.FC = () => {
     const { isOnline } = useEffectiveOnlineStatus();
@@ -20,8 +35,9 @@ const LatestChapters: React.FC = () => {
     const [hasMore, setHasMore] = React.useState(true);
     const [recentChapterCount, setRecentChapterCount] = React.useState(0);
     const loaderRef = React.useRef<HTMLDivElement | null>(null);
-
-    const PAGE_SIZE = 30;
+    const requestedOffsetsRef = React.useRef<Set<number>>(new Set());
+    const nextOffsetRef = React.useRef(0);
+    const isLoadingMoreRef = React.useRef(false);
 
     if (!isOnline) {
         return (
@@ -34,22 +50,25 @@ const LatestChapters: React.FC = () => {
     }
 
     const loadChapters = React.useCallback(async (offset: number, append: boolean) => {
-        try {
-            if (append) {
-                setIsLoadingMore(true);
-            } else {
-                setIsLoading(true);
+        if (append) {
+            if (isLoadingMoreRef.current || requestedOffsetsRef.current.has(offset)) {
+                return;
             }
 
+            isLoadingMoreRef.current = true;
+            setIsLoadingMore(true);
+        } else {
+            requestedOffsetsRef.current.clear();
+            nextOffsetRef.current = 0;
+            setIsLoading(true);
+        }
+
+        try {
             if (append) {
                 const data = await getLatestChapters(PAGE_SIZE, offset);
-                setChapters(prev =>
-                    sortChapterBatchItems(
-                        [...prev, ...data],
-                        (chapter) => chapter.addedAt,
-                        (chapter) => chapter.chapterId
-                    )
-                );
+                requestedOffsetsRef.current.add(offset);
+                nextOffsetRef.current = offset + data.length;
+                setChapters((prev) => mergeLatestChapterPages(prev, data));
                 setHasMore(data.length === PAGE_SIZE);
             } else {
                 const [data, countLast24Hours] = await Promise.all([
@@ -57,14 +76,22 @@ const LatestChapters: React.FC = () => {
                     getLatestChaptersCountLast24Hours(),
                 ]);
 
+                requestedOffsetsRef.current.add(offset);
+                nextOffsetRef.current = offset + data.length;
                 setChapters(data);
                 setRecentChapterCount(countLast24Hours);
                 setHasMore(data.length === PAGE_SIZE);
             }
         } catch (error) {
+            if (append) {
+                requestedOffsetsRef.current.delete(offset);
+            }
             console.error('Latest chapters page error:', error);
         } finally {
             setIsLoading(false);
+            if (append) {
+                isLoadingMoreRef.current = false;
+            }
             setIsLoadingMore(false);
         }
     }, []);
@@ -81,7 +108,7 @@ const LatestChapters: React.FC = () => {
         const observer = new IntersectionObserver(
             (entries) => {
                 if (entries[0]?.isIntersecting) {
-                    loadChapters(chapters.length, true);
+                    loadChapters(nextOffsetRef.current, true);
                 }
             },
             { rootMargin: '320px 0px' }
@@ -90,7 +117,7 @@ const LatestChapters: React.FC = () => {
         observer.observe(loaderRef.current);
 
         return () => observer.disconnect();
-    }, [chapters.length, hasMore, isLoading, isLoadingMore, loadChapters]);
+    }, [hasMore, isLoading, isLoadingMore, loadChapters]);
 
     if (isLoading) {
         return (
@@ -127,12 +154,11 @@ const LatestChapters: React.FC = () => {
 
                 {chapters.length > 0 ? (
                     <div className="grid gap-4 xl:grid-cols-3">
-                        {chapters.map((chapter, index) => (
+                        {chapters.map((chapter) => (
                             <Link
                                 key={chapter.chapterId}
                                 to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
-                                className="group animate-fade-up opacity-0 flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 transition-all duration-200 hover:border-primary/40 hover:bg-card sm:gap-5"
-                                style={{ animationDelay: `${0.08 + index * 0.015}s`, animationFillMode: 'forwards' }}
+                                className="group flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 transition-all duration-200 hover:border-primary/40 hover:bg-card sm:gap-5"
                             >
                                 <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-secondary/40 shadow-sm sm:h-28 sm:w-28 lg:h-32 lg:w-32">
                                     <img
@@ -201,7 +227,7 @@ const LatestChapters: React.FC = () => {
                 )}
 
                 {chapters.length > 0 && (
-                    <div ref={loaderRef} className="py-6">
+                    <div ref={loaderRef} className="py-6 [overflow-anchor:none]">
                         {isLoadingMore ? (
                             <div className="grid gap-4 xl:grid-cols-3">
                                 {Array.from({ length: 6 }).map((_, index) => (

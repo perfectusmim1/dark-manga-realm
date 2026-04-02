@@ -1231,7 +1231,7 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
         `)
         .order('created_at', { ascending: false })
         .order('manga_id', { ascending: true })
-        .order('number', { ascending: true })
+        .order('number', { ascending: false })
         .order('id', { ascending: true });
 
     if (typeof end === 'number') {

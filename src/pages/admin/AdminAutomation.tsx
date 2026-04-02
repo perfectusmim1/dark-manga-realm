@@ -82,6 +82,8 @@ const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> =
 
 const DEFAULT_TIME_SLOT = '13:00';
 const TURKEY_TIME_PLACEHOLDER = '13:00';
+const createCheckTimeKey = () => crypto.randomUUID();
+const createCheckTimeKeys = (times: string[]) => times.map(() => createCheckTimeKey());
 
 const createEmptyForm = (): ChapterAutomationUpsertInput => ({
   mangaId: '',
@@ -168,6 +170,7 @@ const AdminAutomation: React.FC = () => {
   const [isMangaPickerOpen, setIsMangaPickerOpen] = useState(false);
   const [editingAutomationId, setEditingAutomationId] = useState<string | null>(null);
   const [form, setForm] = useState<ChapterAutomationUpsertInput>(() => createEmptyForm());
+  const [checkTimeKeys, setCheckTimeKeys] = useState<string[]>(() => createCheckTimeKeys(createEmptyForm().checkTimes));
   const [validation, setValidation] = useState<ChapterAutomationValidation | null>(null);
   const [lastValidatedInputKey, setLastValidatedInputKey] = useState('');
   const [isBootstrapping, setIsBootstrapping] = useState(true);
@@ -249,8 +252,10 @@ const AdminAutomation: React.FC = () => {
   }, [accessLoading, isAllowed]);
 
   const resetForm = () => {
+    const nextForm = createEmptyForm();
     setEditingAutomationId(null);
-    setForm(createEmptyForm());
+    setForm(nextForm);
+    setCheckTimeKeys(createCheckTimeKeys(nextForm.checkTimes));
     setValidation(null);
     setLastValidatedInputKey('');
     setMangaQuery('');
@@ -258,14 +263,16 @@ const AdminAutomation: React.FC = () => {
   };
 
   const startEditing = (automation: ChapterAutomation) => {
+    const nextCheckTimes = automation.checkTimes.length > 0 ? [...automation.checkTimes] : [DEFAULT_TIME_SLOT];
     setEditingAutomationId(automation.id);
     setForm({
       mangaId: automation.mangaId,
       source: automation.source,
       sourceUrl: automation.sourceUrl,
-      checkTimes: automation.checkTimes.length > 0 ? [...automation.checkTimes] : [DEFAULT_TIME_SLOT],
+      checkTimes: nextCheckTimes,
       isActive: automation.isActive,
     });
+    setCheckTimeKeys(createCheckTimeKeys(nextCheckTimes));
     setValidation(automation.validation);
     setLastValidatedInputKey(buildValidationInputKey(automation.source, automation.sourceUrl));
     setMangaQuery('');
@@ -372,15 +379,49 @@ const AdminAutomation: React.FC = () => {
       ...current,
       checkTimes: [...current.checkTimes, DEFAULT_TIME_SLOT],
     }));
+    setCheckTimeKeys((current) => [...current, createCheckTimeKey()]);
   };
 
   const removeCheckTime = (index: number) => {
-    const nextTimes = form.checkTimes.filter((_, timeIndex) => timeIndex !== index);
     setForm((current) => ({
       ...current,
-      checkTimes: nextTimes.length > 0 ? nextTimes : [DEFAULT_TIME_SLOT],
+      checkTimes: current.checkTimes.filter((_, timeIndex) => timeIndex !== index),
     }));
+    setCheckTimeKeys((current) => current.filter((_, timeIndex) => timeIndex !== index));
   };
+
+  useEffect(() => {
+    setCheckTimeKeys((current) => {
+      if (current.length === form.checkTimes.length) {
+        return current;
+      }
+
+      if (current.length < form.checkTimes.length) {
+        return [
+          ...current,
+          ...Array.from(
+            { length: form.checkTimes.length - current.length },
+            () => createCheckTimeKey(),
+          ),
+        ];
+      }
+
+      return current.slice(0, form.checkTimes.length);
+    });
+  }, [form.checkTimes.length]);
+
+  useEffect(() => {
+    if (form.checkTimes.length > 0) {
+      return;
+    }
+
+    const nextCheckTimes = [DEFAULT_TIME_SLOT];
+    setForm((current) => ({
+      ...current,
+      checkTimes: nextCheckTimes,
+    }));
+    setCheckTimeKeys(createCheckTimeKeys(nextCheckTimes));
+  }, [form.checkTimes.length]);
 
   if (accessLoading || !isAllowed) {
     return null;
@@ -644,7 +685,7 @@ const AdminAutomation: React.FC = () => {
 
                 <div className="grid gap-3 sm:grid-cols-2">
                   {form.checkTimes.map((time, index) => (
-                    <div key={`${index}-${time}`} className="flex items-center gap-2">
+                    <div key={checkTimeKeys[index] || `check-time-${index}`} className="flex items-center gap-2">
                       <Input
                         type="text"
                         inputMode="numeric"
