@@ -193,6 +193,8 @@ const shouldCollapseReviewContent = (content?: string | null) =>
   (content?.trim().length || 0) > REVIEW_COLLAPSE_THRESHOLD;
 
 const PREVIEW_CHAPTER_BATCH_SIZE = 3;
+const MOBILE_OVERVIEW_PREVIEW_CHAPTER_COUNT = 3;
+const DESKTOP_OVERVIEW_PREVIEW_CHAPTER_COUNT = 8;
 const OVERVIEW_CHAPTER_BATCH_SIZE = 28;
 const MangaDetailGalleryPanel = lazy(() => import('@/components/manga/MangaDetailGalleryPanel'));
 const MangaDetailDiscoverPanel = lazy(() => import('@/components/manga/MangaDetailDiscoverPanel'));
@@ -429,7 +431,7 @@ const BookmarkPagePreview = React.memo(({
 const MangaDetail: React.FC = () => {
   const { mangaId } = useParams<{ mangaId: string }>();
   const location = useLocation();
-  const { disableHeavyEffects } = useDeviceProfile();
+  const { disableHeavyEffects, isMobile } = useDeviceProfile();
   const [manga, setManga] = useState<Manga | undefined>();
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
@@ -1866,7 +1868,14 @@ const MangaDetail: React.FC = () => {
       ));
   }, [deferredChapterSearch, manga?.chapters]);
 
-  const visibleChapters = useMemo(() => filteredChapters.slice(0, 8), [filteredChapters]);
+  const overviewPreviewChapterCount = isMobile
+    ? MOBILE_OVERVIEW_PREVIEW_CHAPTER_COUNT
+    : DESKTOP_OVERVIEW_PREVIEW_CHAPTER_COUNT;
+
+  const visibleChapters = useMemo(
+    () => filteredChapters.slice(0, overviewPreviewChapterCount),
+    [filteredChapters, overviewPreviewChapterCount],
+  );
   const visibleOverviewChapters = useMemo(() => (
     showAllChapters
       ? filteredChapters.slice(0, overviewVisibleCount)
@@ -2548,7 +2557,7 @@ const MangaDetail: React.FC = () => {
                               </div>
                             )}
 
-                            {filteredChapters.length > 8 && (
+                            {filteredChapters.length > overviewPreviewChapterCount && (
                               <div className="border-t border-border p-3 sm:p-4">
                                 <Button
                                   variant="ghost"
