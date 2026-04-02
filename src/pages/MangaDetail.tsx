@@ -45,6 +45,7 @@ import {
   incrementMangaViews,
   getReviewsForManga,
   addReview,
+  deleteReview,
   getUserReview,
   toggleReviewLike,
   getSimilarMangas,
@@ -147,6 +148,30 @@ const DEFAULT_USER_REVIEW: Partial<Review> = {
   rating_art: 10,
   rating_progression: 10,
   rating_engagement: 10,
+};
+
+const createDefaultUserReview = (): Partial<Review> => ({
+  ...DEFAULT_USER_REVIEW,
+});
+
+const getReviewAverageScore = (review?: Partial<Review> | null) => {
+  if (!review) {
+    return undefined;
+  }
+
+  const scores = [
+    review.rating_story,
+    review.rating_characters,
+    review.rating_art,
+    review.rating_progression,
+    review.rating_engagement,
+  ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+  if (scores.length === 0) {
+    return undefined;
+  }
+
+  return Math.round((scores.reduce((total, value) => total + value, 0) / scores.length) * 10) / 10;
 };
 
 const REVIEW_EDIT_INDICATOR_THRESHOLD_MS = 1000;
@@ -454,8 +479,9 @@ const MangaDetail: React.FC = () => {
     engagement: 0
   });
   const [isReviewModalOpen, setIsReviewModalOpen] = useState(false);
-  const [userReview, setUserReview] = useState<Partial<Review>>(DEFAULT_USER_REVIEW);
+  const [userReview, setUserReview] = useState<Partial<Review>>(createDefaultUserReview);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
+  const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
   const [similarMangas, setSimilarMangas] = useState<Manga[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [mangaCharacters, setMangaCharacters] = useState<any[]>([]);
@@ -1030,7 +1056,7 @@ const MangaDetail: React.FC = () => {
     setSeriesBookmarks([]);
     setIsSeriesBookmarksLoading(false);
     setHasLoadedBookmarks(false);
-    setUserReview(DEFAULT_USER_REVIEW);
+    setUserReview(createDefaultUserReview());
   }, []);
 
   useEffect(() => {
@@ -1269,7 +1295,7 @@ const MangaDetail: React.FC = () => {
         setIsFollowing(Boolean(following));
         setUserRating(rating as number | undefined);
         setLatestProgress(progress);
-        setUserReview((uReview as Review | null) ?? DEFAULT_USER_REVIEW);
+        setUserReview((uReview as Review | null) ? { ...(uReview as Review) } : createDefaultUserReview());
         setBlockedUserIds((blockedUsersResult as { ids?: string[] })?.ids || []);
         setChapterReadMap((chapterReadProgress as Record<string, { isRead?: boolean; readProgressPercent?: number }>) || {});
         setSeriesReadingSeconds(Number(mangaReadingTime) || 0);
@@ -1646,6 +1672,18 @@ const MangaDetail: React.FC = () => {
     }
   };
 
+  const canDeleteReview = (review: Review) => {
+    if (!user) {
+      return false;
+    }
+
+    if (review.userId === user.id) {
+      return true;
+    }
+
+    return user.role === 'admin';
+  };
+
   const handleReviewSubmit = async () => {
     if (!isOnline) {
       toast.error('Inceleme gondermek icin internet baglantisi gerekli');
@@ -1681,6 +1719,7 @@ const MangaDetail: React.FC = () => {
       setAverageRating(newAvg);
       setReviews(newReviews);
       setHasLoadedReviews(true);
+      setUserRating(getReviewAverageScore(userReview));
       setAvgBreakdown({
         story: (newAvg as any).story || 0,
         characters: (newAvg as any).characters || 0,
@@ -1698,6 +1737,63 @@ const MangaDetail: React.FC = () => {
       toast.error('İnceleme gönderilemedi');
     } finally {
       setIsSubmittingReview(false);
+    }
+  };
+
+  const handleDeleteReview = async (review: Review) => {
+    if (!isOnline) {
+      toast.error('İnceleme silmek için internet bağlantısı gerekli');
+      return;
+    }
+
+    if (!user || !manga || !canDeleteReview(review)) {
+      toast.error('Bu incelemeyi silme yetkiniz yok');
+      return;
+    }
+
+    const isOwnReview = review.userId === user.id;
+    const confirmed = window.confirm(
+      isOwnReview
+        ? 'İncelemenizi silmek istediğinize emin misiniz?'
+        : `${review.username} kullanıcısının incelemesini silmek istediğinize emin misiniz?`,
+    );
+
+    if (!confirmed) {
+      return;
+    }
+
+    try {
+      setDeletingReviewId(review.id);
+      await deleteReview(review.id);
+
+      const [newAvg, newReviews] = await Promise.all([
+        getAverageRating(manga.id),
+        getReviewsForManga(manga.id),
+      ]);
+
+      setAverageRating(newAvg);
+      setReviews(newReviews);
+      setHasLoadedReviews(true);
+      setAvgBreakdown({
+        story: (newAvg as any).story || 0,
+        characters: (newAvg as any).characters || 0,
+        art: (newAvg as any).art || 0,
+        progression: (newAvg as any).progression || 0,
+        engagement: (newAvg as any).engagement || 0,
+      });
+
+      if (isOwnReview) {
+        setUserReview(createDefaultUserReview());
+        setUserRating(undefined);
+        setIsReviewModalOpen(false);
+      }
+
+      toast.success(isOwnReview ? 'İncelemeniz silindi' : 'İnceleme silindi');
+    } catch (error) {
+      console.error('Review delete error:', error);
+      toast.error('İnceleme silinemedi');
+    } finally {
+      setDeletingReviewId(null);
     }
   };
 
@@ -3046,7 +3142,24 @@ const MangaDetail: React.FC = () => {
                           </div>
                         </div>
 
-                        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+                        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+                          {userReview.id ? (
+                            <Button
+                              className="w-full sm:w-auto sm:mr-auto"
+                              variant="destructive"
+                              onClick={() => handleDeleteReview({
+                                ...(userReview as Review),
+                                userId: (userReview.userId || user?.id || '') as string,
+                                username: (userReview.username || user?.username || '') as string,
+                              })}
+                              disabled={isSubmittingReview || deletingReviewId === userReview.id}
+                            >
+                              <Trash2 className="mr-2 h-4 w-4" />
+                              {deletingReviewId === userReview.id ? 'Siliniyor...' : 'İncelemeyi Sil'}
+                            </Button>
+                          ) : (
+                            <div className="hidden sm:block" />
+                          )}
                           <Button className="w-full sm:w-auto" variant="ghost" onClick={() => setIsReviewModalOpen(false)}>İptal</Button>
                           <Button className="w-full sm:w-auto" variant="glow" onClick={handleReviewSubmit} disabled={isSubmittingReview}>
                             {isSubmittingReview ? 'Kaydediliyor...' : (userReview.id ? 'Güncelle' : 'Yayınla')}
@@ -3123,7 +3236,7 @@ const MangaDetail: React.FC = () => {
                                   <span>Sürükleyicilik: <strong className="text-foreground">{review.rating_engagement}/10</strong></span>
                                 </div>
 
-                                <div className="flex items-center justify-between border-t border-border pt-4">
+                                <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
                                   <Button
                                     variant="ghost"
                                     size="sm"
@@ -3133,6 +3246,18 @@ const MangaDetail: React.FC = () => {
                                     <ThumbsUp className={`h-4 w-4 ${review.likedBy.includes(user?.id || '') ? 'fill-current' : ''}`} />
                                     <span>{review.likes}</span>
                                   </Button>
+                                  {canDeleteReview(review) && review.userId !== user?.id && (
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                      onClick={() => handleDeleteReview(review)}
+                                      disabled={deletingReviewId === review.id}
+                                    >
+                                      <Trash2 className="h-4 w-4" />
+                                      {deletingReviewId === review.id ? 'Siliniyor...' : 'Sil'}
+                                    </Button>
+                                  )}
                                 </div>
                               </div>
 

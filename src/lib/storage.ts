@@ -783,6 +783,8 @@ export const addFavorite = async (
         manga_id: mangaId,
         category,
         added_at: favorite.addedAt,
+    }, {
+        onConflict: 'user_id,manga_id',
     });
 
     if (error) {

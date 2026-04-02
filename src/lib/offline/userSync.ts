@@ -599,6 +599,8 @@ const syncFavoriteUpsert = async (operation: PendingUserSyncOperation) => {
     manga_id: favorite.mangaId,
     category: favorite.category,
     added_at: favorite.addedAt || new Date().toISOString(),
+  }, {
+    onConflict: 'user_id,manga_id',
   });
 };
 

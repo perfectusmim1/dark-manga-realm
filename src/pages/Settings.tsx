@@ -1581,27 +1581,6 @@ const Settings: React.FC = () => {
                                         />
                                     </div>
 
-                                    <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/30 p-4 sm:flex-row sm:items-center sm:justify-between">
-                                        <div className="space-y-1">
-                                            <Label htmlFor="external-incognito-block">Gizli modda senkronu durdur</Label>
-                                            <p className="text-sm text-muted-foreground">Reader içinde gizli mod aktifse okuma kaynaklı senkron tetiklerini engelle.</p>
-                                        </div>
-                                        <Switch
-                                            id="external-incognito-block"
-                                            checked={normalizedExternalPrefs.global.disableWhileIncognito}
-                                            onCheckedChange={(checked) => void handleUpdatePreferences({
-                                                ...prefs,
-                                                externalSync: {
-                                                    ...prefs.externalSync,
-                                                    global: {
-                                                        ...prefs.externalSync.global,
-                                                        disableWhileIncognito: checked,
-                                                    },
-                                                },
-                                            }, 'Gizli mod senkron davranışı güncellendi')}
-                                            disabled={isUpdatingPrefs}
-                                        />
-                                    </div>
                                 </CardContent>
                             </Card>
 

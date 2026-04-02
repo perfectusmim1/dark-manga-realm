@@ -1341,6 +1341,15 @@ export const addReview = async (review: Omit<Review, 'id' | 'createdAt' | 'updat
     if (error) throw error;
 };
 
+export const deleteReview = async (reviewId: string): Promise<void> => {
+    const { error } = await supabase
+        .from('reviews')
+        .delete()
+        .eq('id', reviewId);
+
+    if (error) throw error;
+};
+
 export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => {
     const { data, error } = await supabase
         .from('reviews')

@@ -61,6 +61,86 @@ const DEFAULT_EXTERNAL_SYNC_PREFERENCES = {
 } as const;
 
 const normalizeText = (value?: string | null) => value?.trim().replace(/\s+/g, " ") || "";
+const REVIEW_SCORE_FIELDS = [
+  "rating_story",
+  "rating_characters",
+  "rating_art",
+  "rating_progression",
+  "rating_engagement",
+] as const;
+
+const toFiniteScore = (value: unknown) => {
+  const numericValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numericValue) ? Math.round(numericValue * 10) / 10 : null;
+};
+
+const getReviewAverageScore = (review: any) => {
+  const scores = REVIEW_SCORE_FIELDS
+    .map((field) => toFiniteScore(review?.[field]))
+    .filter((value): value is number => typeof value === "number");
+
+  if (scores.length === 0) {
+    return null;
+  }
+
+  return Math.round((scores.reduce((total, value) => total + value, 0) / scores.length) * 10) / 10;
+};
+
+const toTimestamp = (value?: string | null) => {
+  const normalized = normalizeText(value);
+  if (!normalized) {
+    return null;
+  }
+
+  const timestamp = Date.parse(normalized);
+  return Number.isFinite(timestamp) ? timestamp : null;
+};
+
+const getPreferredLocalScore = (params: {
+  ratingRow?: { rating?: number | null; created_at?: string | null } | null;
+  reviewRow?: {
+    updated_at?: string | null;
+    created_at?: string | null;
+    rating_story?: number | null;
+    rating_characters?: number | null;
+    rating_art?: number | null;
+    rating_progression?: number | null;
+    rating_engagement?: number | null;
+  } | null;
+}) => {
+  const ratingScore = toFiniteScore(params.ratingRow?.rating);
+  const reviewScore = getReviewAverageScore(params.reviewRow);
+
+  if (typeof reviewScore !== "number") {
+    return ratingScore;
+  }
+
+  if (typeof ratingScore !== "number") {
+    return reviewScore;
+  }
+
+  const ratingUpdatedAt = toTimestamp(params.ratingRow?.created_at);
+  const reviewUpdatedAt = toTimestamp(params.reviewRow?.updated_at || params.reviewRow?.created_at);
+
+  if (ratingUpdatedAt !== null && reviewUpdatedAt !== null && ratingUpdatedAt > reviewUpdatedAt) {
+    return ratingScore;
+  }
+
+  return reviewScore;
+};
+
+const getProviderScore = (provider: ExternalSyncProvider, score?: number | null) => {
+  if (typeof score !== "number" || !Number.isFinite(score)) {
+    return null;
+  }
+
+  const boundedScore = Math.min(10, Math.max(0, score));
+  if (provider === "myanimelist") {
+    return Math.floor(boundedScore);
+  }
+
+  return Math.round(boundedScore * 10) / 10;
+};
 
 const redirect = (location: string) =>
   new Response(null, {
@@ -620,13 +700,13 @@ const syncMangaRecord = async (params: {
       .maybeSingle(),
     params.requester.serviceClient
       .from("ratings")
-      .select("rating")
+      .select("rating, created_at")
       .eq("user_id", params.requester.requesterProfile.id)
       .eq("manga_id", params.mangaId)
       .maybeSingle(),
     params.requester.serviceClient
       .from("reviews")
-      .select("content, rating_story, rating_characters, rating_art, rating_progression, rating_engagement, updated_at")
+      .select("content, rating_story, rating_characters, rating_art, rating_progression, rating_engagement, updated_at, created_at")
       .eq("user_id", params.requester.requesterProfile.id)
       .eq("manga_id", params.mangaId)
       .maybeSingle(),
@@ -703,6 +783,10 @@ const syncMangaRecord = async (params: {
     latestReadAt,
   });
   const reviewPayload = await buildAniListReviewPayload(reviewRow);
+  const preferredLocalScore = getPreferredLocalScore({
+    ratingRow,
+    reviewRow,
+  });
   const results: SyncProviderResult[] = [];
 
   for (const provider of params.requestedProviders) {
@@ -735,7 +819,7 @@ const syncMangaRecord = async (params: {
     const desiredStatus = provider === "myanimelist"
       ? mapStatusToMyAnimeList(derivedStatus)
       : mapStatusToAniList(derivedStatus);
-    const desiredScore = typeof ratingRow?.rating === "number" ? ratingRow.rating : null;
+    const desiredScore = getProviderScore(provider, preferredLocalScore);
     const desiredProgress = readCount;
     const desiredStartedAt = startedAt;
     const desiredCompletedAt = completedAt;
