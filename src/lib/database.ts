@@ -150,7 +150,21 @@ const normalizeEntityGallery = (gallery?: EntityGalleryImage[] | unknown) => (
 
 const normalizeEntitySourceLinks = (sourceLinks?: ExternalSourceLink[] | unknown) => (
     Array.isArray(sourceLinks)
-        ? sourceLinks.filter((item) => item && typeof item === 'object' && typeof (item as ExternalSourceLink).url === 'string')
+        ? sourceLinks
+            .filter((item) => item && typeof item === 'object' && typeof (item as ExternalSourceLink).url === 'string')
+            .map((item) => {
+                const link = item as ExternalSourceLink;
+                return {
+                    ...link,
+                    source: normalizeNamedEntityValue(link.source),
+                    url: normalizeNamedEntityValue(link.url),
+                    label: normalizeNamedEntityValue(link.label) || undefined,
+                    kind: normalizeNamedEntityValue(link.kind) || undefined,
+                    externalId: normalizeNamedEntityValue(link.externalId) || undefined,
+                    externalSlug: normalizeNamedEntityValue(link.externalSlug) || undefined,
+                } satisfies ExternalSourceLink;
+            })
+            .filter((item) => Boolean(item.url))
         : []
 ) as ExternalSourceLink[];
 

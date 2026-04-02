@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -30,6 +30,8 @@ import {
     Globe,
     LogOut,
     Clock,
+    Link2,
+    RefreshCcw,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -49,6 +51,15 @@ import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { PASSWORD_MIN_LENGTH, getPasswordRequirementError, getPasswordRequirementStatus } from '@/lib/auth/passwordPolicy';
 import type { User as AppUser } from '@/lib/types';
+import type { ExternalSyncProvider } from '@/lib/types';
+import {
+    beginExternalProviderAuth,
+    disconnectExternalProvider,
+    getExternalSyncStatuses,
+    normalizeExternalSyncPreferences,
+    syncLibraryToExternalProviders,
+} from '@/lib/externalSync';
+import { useLocation } from 'react-router-dom';
 
 type PreferenceState = {
     notifications: {
@@ -76,6 +87,7 @@ type PreferenceState = {
         tier_lists_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['tier_lists_visibility'];
         followed_manga_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['followed_manga_visibility'];
     };
+    externalSync: NonNullable<NonNullable<AppUser['preferences']>['externalSync']>;
 };
 
 type PrivacyVisibility = NonNullable<NonNullable<AppUser['preferences']>['privacy']>['visibility'];
@@ -91,6 +103,26 @@ type BlockedUser = {
     id: string;
     username: string;
     avatar?: string | null;
+};
+
+type ExternalProviderStatus = {
+    connected: boolean;
+    providerUserId?: string | null;
+    connectedAt?: string | null;
+    updatedAt?: string | null;
+    lastSyncAt?: string | null;
+    lastError?: string | null;
+    lastErrorAt?: string | null;
+};
+
+const EMPTY_EXTERNAL_PROVIDER_STATUS: ExternalProviderStatus = {
+    connected: false,
+    providerUserId: null,
+    connectedAt: null,
+    updatedAt: null,
+    lastSyncAt: null,
+    lastError: null,
+    lastErrorAt: null,
 };
 
 const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceState => ({
@@ -119,6 +151,7 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
         tier_lists_visibility: preferences?.privacy?.tier_lists_visibility ?? 'public',
         followed_manga_visibility: preferences?.privacy?.followed_manga_visibility ?? 'public',
     },
+    externalSync: normalizeExternalSyncPreferences(preferences),
 });
 
 const sanitizeTotpCode = (value: string) => value.replace(/\D/g, '').slice(0, 6);
@@ -156,6 +189,7 @@ const getNextUsernameChangeDate = (usernameChangedAt?: string) => {
 };
 
 const Settings: React.FC = () => {
+    const location = useLocation();
     const {
         user,
         supabaseUser,
@@ -210,6 +244,15 @@ const Settings: React.FC = () => {
     const [isSessionsLoading, setIsSessionsLoading] = useState(false);
     const [revokingSessionId, setRevokingSessionId] = useState<string | null>(null);
     const [isRevokingAll, setIsRevokingAll] = useState(false);
+    const [externalStatuses, setExternalStatuses] = useState<Record<ExternalSyncProvider, ExternalProviderStatus>>({
+        myanimelist: EMPTY_EXTERNAL_PROVIDER_STATUS,
+        anilist: EMPTY_EXTERNAL_PROVIDER_STATUS,
+    });
+    const [isExternalStatusesLoading, setIsExternalStatusesLoading] = useState(false);
+    const [providerBusyState, setProviderBusyState] = useState<Record<ExternalSyncProvider, 'idle' | 'connecting' | 'disconnecting' | 'syncing'>>({
+        myanimelist: 'idle',
+        anilist: 'idle',
+    });
     const onlineRequiredMessage = 'Bu işlem için internete bağlanın';
     const getPreferenceSuccessMessage = (message: string) =>
         isOnline ? message : `${message}, tekrar çevrimiçi olduğunda eşitlenecek`;
@@ -217,6 +260,13 @@ const Settings: React.FC = () => {
     const isUsernameCooldownActive = Boolean(
         nextUsernameChangeAt && nextUsernameChangeAt.getTime() > Date.now()
     );
+    const normalizedExternalPrefs = useMemo(() => normalizeExternalSyncPreferences(prefs), [prefs]);
+    const requestedTabFromQuery = useMemo(() => {
+        const tab = new URLSearchParams(location.search).get('tab');
+        const allowedTabs = new Set(['profile', 'security', 'notifications', 'privacy', 'sync', 'devices', 'preferences', 'blocked']);
+        return allowedTabs.has(tab || '') ? (tab as string) : 'profile';
+    }, [location.search]);
+    const [activeSettingsTab, setActiveSettingsTab] = useState(requestedTabFromQuery);
 
     useEffect(() => {
         if (!user?.id || !isOnline) {
@@ -240,6 +290,81 @@ const Settings: React.FC = () => {
     useEffect(() => {
         setPrefs(buildPreferenceState(user?.preferences));
     }, [user?.preferences]);
+
+    const loadExternalStatuses = async () => {
+        if (!user?.id || !isOnline) {
+            setExternalStatuses({
+                myanimelist: EMPTY_EXTERNAL_PROVIDER_STATUS,
+                anilist: EMPTY_EXTERNAL_PROVIDER_STATUS,
+            });
+            setIsExternalStatusesLoading(false);
+            return;
+        }
+
+        try {
+            setIsExternalStatusesLoading(true);
+            const response = await getExternalSyncStatuses();
+            const nextStatuses: Record<ExternalSyncProvider, ExternalProviderStatus> = {
+                myanimelist: EMPTY_EXTERNAL_PROVIDER_STATUS,
+                anilist: EMPTY_EXTERNAL_PROVIDER_STATUS,
+            };
+
+            for (const item of response?.providers || []) {
+                if (item.provider === 'myanimelist' || item.provider === 'anilist') {
+                    nextStatuses[item.provider] = {
+                        connected: Boolean(item.account?.connected),
+                        providerUserId: item.account?.providerUserId || null,
+                        connectedAt: item.account?.connectedAt || null,
+                        updatedAt: item.account?.updatedAt || null,
+                        lastSyncAt: item.account?.lastSyncAt || null,
+                        lastError: item.account?.lastError || null,
+                        lastErrorAt: item.account?.lastErrorAt || null,
+                    };
+                }
+            }
+
+            setExternalStatuses(nextStatuses);
+        } catch (error) {
+            console.error('External sync status load error:', error);
+        } finally {
+            setIsExternalStatusesLoading(false);
+        }
+    };
+
+    useEffect(() => {
+        void loadExternalStatuses();
+    }, [isOnline, user?.id]);
+
+    useEffect(() => {
+        const query = new URLSearchParams(location.search);
+        const provider = query.get('sync_provider');
+        const status = query.get('sync_status');
+        const message = query.get('sync_message');
+
+        if (!provider || !status) {
+            return;
+        }
+
+        if (status === 'connected') {
+            toast.success(provider === 'myanimelist' ? 'MyAnimeList hesabı bağlandı' : 'AniList hesabı bağlandı');
+            void loadExternalStatuses();
+        } else if (status === 'error') {
+            toast.error(message || 'Harici hesap bağlantısı tamamlanamadı');
+            void loadExternalStatuses();
+        }
+
+        const nextQuery = new URLSearchParams(location.search);
+        nextQuery.delete('sync_provider');
+        nextQuery.delete('sync_status');
+        nextQuery.delete('sync_message');
+        const queryString = nextQuery.toString();
+        const nextUrl = `${window.location.pathname}${queryString ? `?${queryString}` : ''}${window.location.hash || ''}`;
+        window.history.replaceState({}, document.title, nextUrl);
+    }, [location.search]);
+
+    useEffect(() => {
+        setActiveSettingsTab(requestedTabFromQuery);
+    }, [requestedTabFromQuery]);
 
     const handleUpdateProfile = async () => {
         if (!username.trim()) {
@@ -437,6 +562,120 @@ const Settings: React.FC = () => {
         }
     };
 
+    const handleToggleProviderEnabled = async (provider: ExternalSyncProvider, checked: boolean) => {
+        await handleUpdatePreferences({
+            ...prefs,
+            externalSync: {
+                ...prefs.externalSync,
+                providers: {
+                    ...prefs.externalSync.providers,
+                    [provider]: {
+                        ...prefs.externalSync.providers[provider],
+                        enabled: checked,
+                    },
+                },
+            },
+        }, checked ? 'Sağlayıcı senkronu açıldı' : 'Sağlayıcı senkronu kapatıldı');
+    };
+
+    const handleToggleProviderField = async (
+        provider: ExternalSyncProvider,
+        field: 'status' | 'progress' | 'score' | 'dates' | 'review',
+        checked: boolean,
+    ) => {
+        const currentProviderPrefs = prefs.externalSync.providers[provider];
+        const nextProviderPrefs = {
+            ...currentProviderPrefs,
+            fieldToggles: {
+                ...currentProviderPrefs.fieldToggles,
+                [field]: checked,
+            },
+        };
+
+        await handleUpdatePreferences({
+            ...prefs,
+            externalSync: {
+                ...prefs.externalSync,
+                providers: {
+                    ...prefs.externalSync.providers,
+                    [provider]: nextProviderPrefs,
+                },
+            },
+        }, 'Senkron alanları güncellendi');
+    };
+
+    const handleConnectProvider = async (provider: ExternalSyncProvider) => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
+
+        try {
+            setProviderBusyState((current) => ({ ...current, [provider]: 'connecting' }));
+            await beginExternalProviderAuth(provider);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Bağlantı başlatılamadı');
+            setProviderBusyState((current) => ({ ...current, [provider]: 'idle' }));
+        }
+    };
+
+    const handleDisconnectProvider = async (provider: ExternalSyncProvider) => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
+
+        try {
+            setProviderBusyState((current) => ({ ...current, [provider]: 'disconnecting' }));
+            await disconnectExternalProvider(provider);
+            setExternalStatuses((current) => ({
+                ...current,
+                [provider]: EMPTY_EXTERNAL_PROVIDER_STATUS,
+            }));
+            toast.success(provider === 'myanimelist' ? 'MyAnimeList bağlantısı kesildi' : 'AniList bağlantısı kesildi');
+            await loadExternalStatuses();
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Bağlantı kesilemedi');
+        } finally {
+            setProviderBusyState((current) => ({ ...current, [provider]: 'idle' }));
+        }
+    };
+
+    const handleSyncProviderLibrary = async (provider: ExternalSyncProvider) => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
+
+        try {
+            setProviderBusyState((current) => ({ ...current, [provider]: 'syncing' }));
+            const response = await syncLibraryToExternalProviders({ providers: [provider] });
+            const { synced, skipped, failed, warnings } = response.summary;
+
+            if (failed > 0) {
+                toast.warning(`${externalStatuses[provider].connected ? (provider === 'myanimelist' ? 'MyAnimeList' : 'AniList') : 'Sağlayıcı'} senkronu tamamlandı: ${synced} başarılı, ${failed} hatalı, ${skipped} atlandı.`);
+                return;
+            }
+
+            if (warnings > 0) {
+                toast.warning(`${provider === 'myanimelist' ? 'MyAnimeList' : 'AniList'} senkronu tamamlandı: ${synced} başarılı, ${warnings} uyarı var.`);
+                return;
+            }
+
+            if (synced === 0 && skipped > 0) {
+                toast.info(`${provider === 'myanimelist' ? 'MyAnimeList' : 'AniList'} için senkronlanacak yeni değişiklik bulunmadı.`);
+                return;
+            }
+
+            toast.success(`${provider === 'myanimelist' ? 'MyAnimeList' : 'AniList'} kütüphane senkronu tamamlandı. ${synced} kayıt güncellendi.`);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Kütüphane senkronu başarısız oldu');
+        } finally {
+            await loadExternalStatuses();
+            setProviderBusyState((current) => ({ ...current, [provider]: 'idle' }));
+        }
+    };
+
     const handleUnblockUser = async (blockedId: string) => {
         if (!user?.id) {
             return;
@@ -542,6 +781,146 @@ const Settings: React.FC = () => {
         }
     };
 
+    const formatSyncTimestamp = (value?: string | null) => {
+        if (!value) {
+            return 'Henüz yok';
+        }
+
+        const date = new Date(value);
+        if (Number.isNaN(date.getTime())) {
+            return 'Henüz yok';
+        }
+
+        return date.toLocaleString('tr-TR', {
+            dateStyle: 'medium',
+            timeStyle: 'short',
+        });
+    };
+
+    const renderExternalProviderCard = (
+        provider: ExternalSyncProvider,
+        label: string,
+        description: string,
+    ) => {
+        const providerPrefs = normalizedExternalPrefs.providers[provider];
+        const providerStatus = externalStatuses[provider];
+        const isBusy = providerBusyState[provider] !== 'idle';
+        const fieldEntries = provider === 'anilist'
+            ? [
+                ['status', 'Liste durumu'],
+                ['progress', 'Okunan bölüm sayısı'],
+                ['score', 'Kullanıcı puanı'],
+                ['dates', 'Başlama / bitiş tarihi'],
+                ['review', 'İnceleme metni'],
+            ] as const
+            : [
+                ['status', 'Liste durumu'],
+                ['progress', 'Okunan bölüm sayısı'],
+                ['score', 'Kullanıcı puanı'],
+                ['dates', 'Başlama / bitiş tarihi'],
+            ] as const;
+
+        return (
+            <Card key={provider} className="border-border/50 bg-card/50 backdrop-blur-sm">
+                <CardHeader className="gap-3">
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div className="space-y-1">
+                            <CardTitle className="flex items-center gap-2">
+                                <Link2 className="h-5 w-5" />
+                                {label}
+                                <Badge variant={providerStatus.connected ? 'default' : 'secondary'}>
+                                    {providerStatus.connected ? 'Bağlı' : 'Bağlı Değil'}
+                                </Badge>
+                            </CardTitle>
+                            <CardDescription>{description}</CardDescription>
+                        </div>
+
+                        <div className="flex flex-col gap-2 sm:items-end">
+                            {providerStatus.connected ? (
+                                <>
+                                    <Button
+                                        variant="secondary"
+                                        onClick={() => void handleSyncProviderLibrary(provider)}
+                                        disabled={isBusy || isUpdatingPrefs || !providerPrefs.enabled}
+                                    >
+                                        {providerBusyState[provider] === 'syncing' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        {!providerPrefs.enabled && providerBusyState[provider] !== 'syncing' && <RefreshCcw className="mr-2 h-4 w-4" />}
+                                        {providerBusyState[provider] !== 'syncing' ? 'Kütüphaneyi Senkronla' : 'Senkronlanıyor...'}
+                                    </Button>
+                                    <Button
+                                        variant="outline"
+                                        onClick={() => void handleDisconnectProvider(provider)}
+                                        disabled={isBusy || isUpdatingPrefs}
+                                    >
+                                        {providerBusyState[provider] === 'disconnecting' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                        Bağlantıyı Kes
+                                    </Button>
+                                </>
+                            ) : (
+                                <Button
+                                    variant="glow"
+                                    onClick={() => void handleConnectProvider(provider)}
+                                    disabled={isBusy || isUpdatingPrefs || !isOnline}
+                                >
+                                    {providerBusyState[provider] === 'connecting' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                    Bağla
+                                </Button>
+                            )}
+                        </div>
+                    </div>
+                </CardHeader>
+
+                <CardContent className="space-y-5">
+                    <div className="grid gap-3 sm:grid-cols-2">
+                        <div className="rounded-lg border border-border/60 bg-background/30 p-3">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Son başarılı senkron</p>
+                            <p className="mt-1 text-sm font-medium">{formatSyncTimestamp(providerStatus.lastSyncAt)}</p>
+                        </div>
+                        <div className="rounded-lg border border-border/60 bg-background/30 p-3">
+                            <p className="text-xs uppercase tracking-wide text-muted-foreground">Son hata</p>
+                            <p className="mt-1 text-sm font-medium">{providerStatus.lastError || 'Yok'}</p>
+                        </div>
+                    </div>
+
+                    <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="space-y-1">
+                            <Label htmlFor={`${provider}-enabled`}>Sağlayıcı senkronunu aç</Label>
+                            <p className="text-sm text-muted-foreground">
+                                Bu kapalıysa {label} için otomatik tetikler durur ve manuel toplu senkron butonu pasif olur.
+                            </p>
+                        </div>
+                        <Switch
+                            id={`${provider}-enabled`}
+                            checked={providerPrefs.enabled}
+                            onCheckedChange={(checked) => void handleToggleProviderEnabled(provider, checked)}
+                            disabled={isUpdatingPrefs}
+                        />
+                    </div>
+
+                    <div className="space-y-3 rounded-xl border border-border/60 bg-background/30 p-4">
+                        <div className="space-y-1">
+                            <Label>{label} Alanları</Label>
+                            <p className="text-sm text-muted-foreground">Hangi verilerin bu sağlayıcıya yazılacağını ayrı ayrı seçin.</p>
+                        </div>
+
+                        <div className="grid gap-3 md:grid-cols-2">
+                            {fieldEntries.map(([field, fieldLabel]) => (
+                                <div key={`${provider}-${field}`} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/40 px-3 py-2.5">
+                                    <span className="text-sm">{fieldLabel}</span>
+                                    <Switch
+                                        checked={Boolean((providerPrefs.fieldToggles as Record<string, boolean>)[field])}
+                                        onCheckedChange={(checked) => void handleToggleProviderField(provider, field, checked)}
+                                        disabled={isUpdatingPrefs}
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                </CardContent>
+            </Card>
+        );
+    };
+
     const renderPrivacySelector = (
         key: keyof PreferenceState['privacy'],
         label: string,
@@ -644,33 +1023,37 @@ const Settings: React.FC = () => {
                     <p className="text-sm text-muted-foreground sm:text-base">Profilinizi ve güvenlik tercihlerinizi yönetin</p>
                 </div>
 
-                <Tabs defaultValue="profile" className="space-y-6">
-                    <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-secondary/50 p-1 md:flex md:flex-nowrap">
-                        <TabsTrigger value="profile" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
+                <Tabs value={activeSettingsTab} onValueChange={setActiveSettingsTab} className="space-y-6">
+                    <TabsList className="grid h-auto w-full grid-cols-2 justify-start gap-2 rounded-2xl bg-secondary/50 p-1 md:flex md:flex-wrap md:justify-start">
+                        <TabsTrigger value="profile" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
                             <User className="h-4 w-4" />
                             Profil
                         </TabsTrigger>
-                        <TabsTrigger value="security" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
+                        <TabsTrigger value="security" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
                             <ShieldCheck className="h-4 w-4" />
                             Güvenlik
                         </TabsTrigger>
-                        <TabsTrigger value="notifications" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
+                        <TabsTrigger value="notifications" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
                             <Bell className="h-4 w-4" />
                             Bildirimler
                         </TabsTrigger>
-                        <TabsTrigger value="privacy" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
+                        <TabsTrigger value="privacy" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
                             <EyeOff className="h-4 w-4" />
                             Gizlilik
                         </TabsTrigger>
-                        <TabsTrigger value="devices" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm" onClick={() => { if (!isSessionsLoading) void loadSessions(); }}>
+                        <TabsTrigger value="sync" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
+                            <Link2 className="h-4 w-4" />
+                            Senkronizasyon
+                        </TabsTrigger>
+                        <TabsTrigger value="devices" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm" onClick={() => { if (!isSessionsLoading) void loadSessions(); }}>
                             <Monitor className="h-4 w-4" />
                             Cihazlar
                         </TabsTrigger>
-                        <TabsTrigger value="preferences" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
+                        <TabsTrigger value="preferences" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
                             <SlidersHorizontal className="h-4 w-4" />
                             Tercihler
                         </TabsTrigger>
-                        <TabsTrigger value="blocked" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:text-sm">
+                        <TabsTrigger value="blocked" className="w-full gap-2 px-3 py-2 text-xs md:w-auto md:shrink-0 md:text-sm">
                             <ShieldAlert className="h-4 w-4" />
                             Engellenenler
                         </TabsTrigger>
@@ -1164,6 +1547,78 @@ const Settings: React.FC = () => {
                                 )}
                             </CardContent>
                         </Card>
+                    </TabsContent>
+                    <TabsContent value="sync" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                        <div className="space-y-6">
+                            <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                                <CardHeader>
+                                    <CardTitle className="flex items-center gap-2">
+                                        <RefreshCcw className="h-5 w-5" />
+                                        Harici Senkron
+                                    </CardTitle>
+                                    <CardDescription>MyAnimeList ve AniList hesaplarınızı bağlayıp hangi verilerin dış listeye yazılacağını seçin.</CardDescription>
+                                </CardHeader>
+                                <CardContent className="space-y-4">
+                                    <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="space-y-1">
+                                            <Label htmlFor="external-auto-sync">Otomatik senkron</Label>
+                                            <p className="text-sm text-muted-foreground">Okuma, puan, kategori ve inceleme değişikliklerini desteklenen sağlayıcılara otomatik gönder.</p>
+                                        </div>
+                                        <Switch
+                                            id="external-auto-sync"
+                                            checked={normalizedExternalPrefs.global.autoSync}
+                                            onCheckedChange={(checked) => void handleUpdatePreferences({
+                                                ...prefs,
+                                                externalSync: {
+                                                    ...prefs.externalSync,
+                                                    global: {
+                                                        ...prefs.externalSync.global,
+                                                        autoSync: checked,
+                                                    },
+                                                },
+                                            }, checked ? 'Otomatik senkron açıldı' : 'Otomatik senkron kapatıldı')}
+                                            disabled={isUpdatingPrefs}
+                                        />
+                                    </div>
+
+                                    <div className="flex flex-col gap-3 rounded-xl border border-border/60 bg-background/30 p-4 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="space-y-1">
+                                            <Label htmlFor="external-incognito-block">Gizli modda senkronu durdur</Label>
+                                            <p className="text-sm text-muted-foreground">Reader içinde gizli mod aktifse okuma kaynaklı senkron tetiklerini engelle.</p>
+                                        </div>
+                                        <Switch
+                                            id="external-incognito-block"
+                                            checked={normalizedExternalPrefs.global.disableWhileIncognito}
+                                            onCheckedChange={(checked) => void handleUpdatePreferences({
+                                                ...prefs,
+                                                externalSync: {
+                                                    ...prefs.externalSync,
+                                                    global: {
+                                                        ...prefs.externalSync.global,
+                                                        disableWhileIncognito: checked,
+                                                    },
+                                                },
+                                            }, 'Gizli mod senkron davranışı güncellendi')}
+                                            disabled={isUpdatingPrefs}
+                                        />
+                                    </div>
+                                </CardContent>
+                            </Card>
+
+                            {isExternalStatusesLoading ? (
+                                <Card className="border-border/50 bg-card/50 backdrop-blur-sm">
+                                    <CardContent className="flex items-center justify-center py-10 text-sm text-muted-foreground">
+                                        <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                        Harici bağlantılar yükleniyor...
+                                    </CardContent>
+                                </Card>
+                            ) : (
+                                <>
+                                    {renderExternalProviderCard('myanimelist', 'MyAnimeList', 'Manga puanı, durum, bölüm ilerlemesi ve tarih alanlarını senkronlar.')}
+                                    {renderExternalProviderCard('anilist', 'AniList', 'Manga puanı, durum, bölüm ilerlemesi, tarih ve uygunsa inceleme metnini senkronlar.')}
+                                </>
+                            )}
+                        </div>
                     </TabsContent>
                     <TabsContent value="devices" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
                         <Card className="border-border/50 bg-card/50 backdrop-blur-sm">

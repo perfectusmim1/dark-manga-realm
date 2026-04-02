@@ -38,13 +38,19 @@ export interface Manga {
   };
 }
 
+export type JsonPrimitive = string | number | boolean | null;
+export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
+
 export type ExternalSourceName = 'anilist' | 'myanimelist' | 'mangaupdates' | 'animeplanet';
+export type ExternalSyncProvider = 'anilist' | 'myanimelist';
 
 export interface ExternalSourceLink {
   source: ExternalSourceName | string;
   url: string;
   label?: string;
   kind?: string;
+  externalId?: string;
+  externalSlug?: string;
 }
 
 export interface EntityGalleryImage {
@@ -92,7 +98,68 @@ export interface EntityMetadata {
   genres?: string[];
   tags?: string[];
   comments?: string;
-  extra?: Record<string, string | number | boolean | string[] | null>;
+  extra?: Record<string, JsonValue>;
+}
+
+export interface ExternalRatingCacheEntry {
+  score?: number | null;
+  url?: string;
+  updatedAt?: string;
+  members?: number | null;
+  favorites?: number | null;
+  popularity?: number | null;
+  rank?: number | null;
+}
+
+export interface ExternalRatingsCache {
+  myanimelist?: ExternalRatingCacheEntry | null;
+  anilist?: ExternalRatingCacheEntry | null;
+}
+
+export interface ExternalSyncProviderFieldToggles {
+  status: boolean;
+  progress: boolean;
+  score: boolean;
+  dates: boolean;
+}
+
+export interface AniListExternalSyncFieldToggles extends ExternalSyncProviderFieldToggles {
+  review: boolean;
+}
+
+export interface ExternalSyncGlobalPreferences {
+  autoSync: boolean;
+  disableWhileIncognito: boolean;
+}
+
+export interface ExternalProviderConnectionState {
+  connected: boolean;
+  providerUserId?: string | null;
+  connectedAt?: string | null;
+  updatedAt?: string | null;
+  lastSyncAt?: string | null;
+  lastError?: string | null;
+  lastErrorAt?: string | null;
+}
+
+export interface ExternalSyncProviderPreferences {
+  enabled: boolean;
+  connected: boolean;
+  fieldToggles: ExternalSyncProviderFieldToggles;
+}
+
+export interface AniListExternalSyncProviderPreferences {
+  enabled: boolean;
+  connected: boolean;
+  fieldToggles: AniListExternalSyncFieldToggles;
+}
+
+export interface ExternalSyncPreferences {
+  global: ExternalSyncGlobalPreferences;
+  providers: {
+    myanimelist: ExternalSyncProviderPreferences;
+    anilist: AniListExternalSyncProviderPreferences;
+  };
 }
 
 export interface BaseRichEntity {
@@ -229,6 +296,7 @@ export interface User {
       tier_lists_visibility?: 'public' | 'members' | 'mutuals' | 'private';
       followed_manga_visibility?: 'public' | 'members' | 'mutuals' | 'private';
     };
+    externalSync?: ExternalSyncPreferences;
   };
   twoFactorEnabled?: boolean;
 }

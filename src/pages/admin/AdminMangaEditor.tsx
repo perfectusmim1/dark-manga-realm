@@ -54,6 +54,11 @@ import { allGenres, normalizeGenres } from '@/lib/mockData';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { getCharacterListingRoleLabel, type CharacterListingRole } from '@/lib/characterRoles';
+import {
+    getExternalSourceLink,
+    normalizeExternalSourceLinkInput,
+    upsertExternalSourceLink,
+} from '@/lib/externalSync';
 import { toast } from 'sonner';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
@@ -266,6 +271,12 @@ const AdminMangaEditor: React.FC = () => {
                 seriesGallery: urls,
             },
         } as Manga['details']);
+    };
+
+    const handleExternalSourceLinkChange = (provider: 'myanimelist' | 'anilist', value: string) => {
+        const nextLink = normalizeExternalSourceLinkInput(provider, value);
+        const baseLinks = (manga.sourceLinks || []).filter((link) => link.source !== provider);
+        handleChange('sourceLinks', nextLink ? upsertExternalSourceLink(baseLinks, nextLink) : baseLinks);
     };
 
     const addSelectedAuthor = (author: Author) => {
@@ -649,6 +660,8 @@ const AdminMangaEditor: React.FC = () => {
     };
 
     const seriesGalleryUrls = getSeriesGalleryUrls(manga.details);
+    const malSourceLink = getExternalSourceLink(manga.sourceLinks, 'myanimelist');
+    const aniListSourceLink = getExternalSourceLink(manga.sourceLinks, 'anilist');
 
     return (
         <div className="space-y-6">
@@ -809,6 +822,45 @@ const AdminMangaEditor: React.FC = () => {
                                 placeholder="Manga açıklaması..."
                                 className="min-h-[120px]"
                             />
+                        </div>
+
+                        <div className="rounded-xl border border-border/70 bg-background/40 p-4 sm:p-5">
+                            <div className="space-y-1">
+                                <h3 className="text-base font-semibold">Harici Eşleştirme</h3>
+                                <p className="text-sm text-muted-foreground">
+                                    Senkron ve puan gösterimi için seri bağlantılarını buradan kaydedin. URL veya sadece ID girebilirsiniz.
+                                </p>
+                            </div>
+
+                            <div className="mt-4 grid gap-4 md:grid-cols-2">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">MyAnimeList URL / ID</label>
+                                    <Input
+                                        value={malSourceLink?.url || malSourceLink?.externalId || ''}
+                                        onChange={(e) => handleExternalSourceLinkChange('myanimelist', e.target.value)}
+                                        placeholder="https://myanimelist.net/manga/12345"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        {malSourceLink?.externalId
+                                            ? `Çözümlenen MAL ID: ${malSourceLink.externalId}`
+                                            : 'Kaydedildiğinde otomatik olarak MAL ID ayrıştırılır.'}
+                                    </p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">AniList URL / ID</label>
+                                    <Input
+                                        value={aniListSourceLink?.url || aniListSourceLink?.externalId || ''}
+                                        onChange={(e) => handleExternalSourceLinkChange('anilist', e.target.value)}
+                                        placeholder="https://anilist.co/manga/12345"
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        {aniListSourceLink?.externalId
+                                            ? `Çözümlenen AniList ID: ${aniListSourceLink.externalId}`
+                                            : 'Kaydedildiğinde otomatik olarak AniList ID ayrıştırılır.'}
+                                    </p>
+                                </div>
+                            </div>
                         </div>
 
                         <div className="grid gap-4 md:grid-cols-3">

@@ -3,6 +3,7 @@ import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
 import {
   getReaderSettings,
+  getLocalChapterReadProgressEntry,
   setReaderSettings,
   syncChapterReadProgress,
   updateReadingProgress,
@@ -41,6 +42,7 @@ import { prefetchChapterAssets, prefetchImageAsset, retainPrefetchedChapters } f
 import { OPEN_PAGE_COMMENT_EVENT, OpenPageCommentDetail } from '@/lib/pageCommentEvents';
 import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
 import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
+import { syncMangaToExternalProviders } from '@/lib/externalSync';
 
 let persistedAutoScrollIntent = false;
 const MIN_READING_SESSION_SECONDS = 1;
@@ -538,7 +540,8 @@ const Reader: React.FC = () => {
     const saveProgress = async () => {
       if (mangaId && chapterId && chapter && initialized && isTrackingReady && user && !isIncognito) {
         try {
-          await syncChapterReadProgress(user.id, {
+          const previousLocalEntry = getLocalChapterReadProgressEntry(user.id, chapterId);
+          const nextEntry = await syncChapterReadProgress(user.id, {
             mangaId,
             chapterId,
             chapterNumber: chapter.number,
@@ -558,6 +561,20 @@ const Reader: React.FC = () => {
               page: currentPage,
             });
             await flushPendingReaderSync();
+
+            const crossedReadThreshold = Boolean(
+              !previousLocalEntry?.isRead
+              && nextEntry?.isRead,
+            );
+
+            if (crossedReadThreshold) {
+              await syncMangaToExternalProviders({
+                mangaId,
+                trigger: 'reading',
+              }).catch((error) => {
+                console.warn('External sync after chapter read failed:', error);
+              });
+            }
             return;
           }
 

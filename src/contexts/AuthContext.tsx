@@ -147,6 +147,35 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
     tier_lists_visibility: 'public',
     followed_manga_visibility: 'public',
   },
+  externalSync: {
+    global: {
+      autoSync: true,
+      disableWhileIncognito: true,
+    },
+    providers: {
+      myanimelist: {
+        enabled: true,
+        connected: false,
+        fieldToggles: {
+          status: true,
+          progress: true,
+          score: true,
+          dates: true,
+        },
+      },
+      anilist: {
+        enabled: true,
+        connected: false,
+        fieldToggles: {
+          status: true,
+          progress: true,
+          score: true,
+          dates: true,
+          review: true,
+        },
+      },
+    },
+  },
 };
 
 const normalizeUserPreferences = (preferences?: User['preferences']): NonNullable<User['preferences']> => ({
@@ -165,6 +194,30 @@ const normalizeUserPreferences = (preferences?: User['preferences']): NonNullabl
   privacy: {
     ...DEFAULT_USER_PREFERENCES.privacy,
     ...preferences?.privacy,
+  },
+  externalSync: {
+    global: {
+      ...DEFAULT_USER_PREFERENCES.externalSync.global,
+      ...preferences?.externalSync?.global,
+    },
+    providers: {
+      myanimelist: {
+        ...DEFAULT_USER_PREFERENCES.externalSync.providers.myanimelist,
+        ...preferences?.externalSync?.providers?.myanimelist,
+        fieldToggles: {
+          ...DEFAULT_USER_PREFERENCES.externalSync.providers.myanimelist.fieldToggles,
+          ...preferences?.externalSync?.providers?.myanimelist?.fieldToggles,
+        },
+      },
+      anilist: {
+        ...DEFAULT_USER_PREFERENCES.externalSync.providers.anilist,
+        ...preferences?.externalSync?.providers?.anilist,
+        fieldToggles: {
+          ...DEFAULT_USER_PREFERENCES.externalSync.providers.anilist.fieldToggles,
+          ...preferences?.externalSync?.providers?.anilist?.fieldToggles,
+        },
+      },
+    },
   },
 });
 

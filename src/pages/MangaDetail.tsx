@@ -20,6 +20,8 @@ import {
   Download,
   Trash2,
   WifiOff,
+  Link2,
+  RefreshCcw,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
@@ -50,7 +52,7 @@ import {
   createMangaReport,
 } from '@/lib/database';
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
-import { Bookmark, Chapter, Character, LibraryCategory, Manga, Review, Favorite } from '@/lib/types';
+import { Bookmark, Chapter, Character, ExternalRatingsCache, ExternalSyncProvider, LibraryCategory, Manga, Review, Favorite } from '@/lib/types';
 import { Trophy, Group } from 'lucide-react';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -110,6 +112,14 @@ import {
   type CharacterListingRole,
 } from '@/lib/characterRoles';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
+import {
+  getExternalSyncStatuses,
+  getMangaExternalRatings,
+  isExternalProviderSupported,
+  normalizeExternalSyncPreferences,
+  refreshMangaExternalRatings,
+  syncMangaToExternalProviders,
+} from '@/lib/externalSync';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -118,6 +128,17 @@ const categoryLabels: Record<LibraryCategory, string> = {
   on_hold: 'Beklemede',
   dropped: 'Bıraktım',
 };
+
+const externalProviderLabels: Record<ExternalSyncProvider, string> = {
+  myanimelist: 'MyAnimeList',
+  anilist: 'AniList',
+};
+
+const formatExternalScore = (score?: number | null) => (
+  typeof score === 'number'
+    ? `${score.toFixed(score >= 10 ? 0 : 2).replace(/\.00$/, '').replace(/(\.\d)0$/, '$1')} / 10`
+    : 'Henüz yok'
+);
 
 const DEFAULT_USER_REVIEW: Partial<Review> = {
   content: '',
@@ -390,6 +411,13 @@ const MangaDetail: React.FC = () => {
   const [averageRating, setAverageRating] = useState({ average: 0, count: 0 });
   const [hoverRating, setHoverRating] = useState(0);
   const [latestProgress, setLatestProgress] = useState<any>(null);
+  const [externalRatings, setExternalRatings] = useState<ExternalRatingsCache>({});
+  const [externalProviderStatuses, setExternalProviderStatuses] = useState<Record<ExternalSyncProvider, { connected: boolean; lastError?: string | null }>>({
+    myanimelist: { connected: false, lastError: null },
+    anilist: { connected: false, lastError: null },
+  });
+  const [isRefreshingExternalRatings, setIsRefreshingExternalRatings] = useState(false);
+  const [syncingExternalProvider, setSyncingExternalProvider] = useState<ExternalSyncProvider | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState('');
@@ -449,6 +477,10 @@ const MangaDetail: React.FC = () => {
   const offlineSeriesEntry = useMemo<OfflineMangaGroup | undefined>(() => (
     offlineSnapshot.series.find((entry) => entry.manga.mangaId === (manga?.id || mangaId))
   ), [offlineSnapshot.series, manga?.id, mangaId]);
+  const userExternalSyncPreferences = useMemo(
+    () => normalizeExternalSyncPreferences(user?.preferences),
+    [user?.preferences],
+  );
 
   const offlineChapterMap = useMemo(() => (
     (offlineSeriesEntry?.chapters || []).reduce<Record<string, OfflineMangaGroup['chapters'][number]>>((map, chapter) => {
@@ -514,6 +546,16 @@ const MangaDetail: React.FC = () => {
         label: `Seri Galerisi ${index + 1}`,
       }));
   }, [manga?.details?.extra?.seriesGallery]);
+  const malLink = useMemo(() => (
+    manga?.sourceLinks?.find((link) => link.source === 'myanimelist')
+  ), [manga?.sourceLinks]);
+  const aniListLink = useMemo(() => (
+    manga?.sourceLinks?.find((link) => link.source === 'anilist')
+  ), [manga?.sourceLinks]);
+  const hasSupportedExternalProviders = useMemo(() => (
+    isExternalProviderSupported(manga?.sourceLinks, 'myanimelist')
+    || isExternalProviderSupported(manga?.sourceLinks, 'anilist')
+  ), [manga?.sourceLinks]);
   const groupedMangaCharacters = useMemo(() => {
     const groups = new Map<CharacterListingRole, Character[]>();
     groups.set('main', []);
@@ -778,6 +820,88 @@ const MangaDetail: React.FC = () => {
     setIsDescriptionExpanded(false);
     setIsAlternativeTitlesExpanded(false);
   }, [manga?.id]);
+
+  useEffect(() => {
+    setExternalRatings(getMangaExternalRatings(manga));
+  }, [manga?.details]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!manga?.id || !isOnline || !hasSupportedExternalProviders) {
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    setIsRefreshingExternalRatings(true);
+
+    void refreshMangaExternalRatings(manga.id)
+      .then((payload) => {
+        if (isCancelled || !payload?.details) {
+          return;
+        }
+
+        setExternalRatings(getMangaExternalRatings({ details: payload.details }));
+        setManga((current) => current ? { ...current, details: payload.details } : current);
+      })
+      .catch((error) => {
+        console.error('External ratings refresh error:', error);
+      })
+      .finally(() => {
+        if (!isCancelled) {
+          setIsRefreshingExternalRatings(false);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [hasSupportedExternalProviders, isOnline, manga?.id]);
+
+  useEffect(() => {
+    let isCancelled = false;
+
+    if (!user?.id || !isOnline) {
+      setExternalProviderStatuses({
+        myanimelist: { connected: false, lastError: null },
+        anilist: { connected: false, lastError: null },
+      });
+      return () => {
+        isCancelled = true;
+      };
+    }
+
+    void getExternalSyncStatuses()
+      .then((response) => {
+        if (isCancelled) {
+          return;
+        }
+
+        const nextStatuses: Record<ExternalSyncProvider, { connected: boolean; lastError?: string | null }> = {
+          myanimelist: { connected: false, lastError: null },
+          anilist: { connected: false, lastError: null },
+        };
+
+        for (const item of response?.providers || []) {
+          if (item.provider === 'myanimelist' || item.provider === 'anilist') {
+            nextStatuses[item.provider] = {
+              connected: Boolean(item.account?.connected),
+              lastError: item.account?.lastError || null,
+            };
+          }
+        }
+
+        setExternalProviderStatuses(nextStatuses);
+      })
+      .catch((error) => {
+        console.error('External sync status load error:', error);
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOnline, user?.id]);
 
   useEffect(() => {
     if (!alternativeTitlesText) {
@@ -1172,6 +1296,85 @@ const MangaDetail: React.FC = () => {
     };
   }, [authLoading, isOnline, mangaId, resetUserScopedState, user?.id]);
 
+  const triggerExternalSync = async (
+    trigger: 'manual' | 'reading' | 'category' | 'rating' | 'review',
+    providers?: ExternalSyncProvider[],
+  ) => {
+    if (!user?.id || !manga?.id || !isOnline) {
+      return;
+    }
+
+    const response = await syncMangaToExternalProviders({
+      mangaId: manga.id,
+      trigger,
+      providers,
+    });
+
+    const statusResponse = await getExternalSyncStatuses().catch(() => null);
+    if (statusResponse?.providers) {
+      const nextStatuses: Record<ExternalSyncProvider, { connected: boolean; lastError?: string | null }> = {
+        myanimelist: { connected: false, lastError: null },
+        anilist: { connected: false, lastError: null },
+      };
+
+      for (const item of statusResponse.providers) {
+        if (item.provider === 'myanimelist' || item.provider === 'anilist') {
+          nextStatuses[item.provider] = {
+            connected: Boolean(item.account?.connected),
+            lastError: item.account?.lastError || null,
+          };
+        }
+      }
+
+      setExternalProviderStatuses(nextStatuses);
+    }
+
+    return response;
+  };
+
+  const handleManualExternalSync = async (provider: ExternalSyncProvider) => {
+    if (!user) {
+      toast.error('Harici senkron için giriş yapmalısınız');
+      return;
+    }
+
+    if (!manga) {
+      return;
+    }
+
+    try {
+      setSyncingExternalProvider(provider);
+      const response = await triggerExternalSync('manual', [provider]);
+      const providerResult = response?.results?.find((item) => item.provider === provider);
+
+      if (!providerResult) {
+        toast.success(`${externalProviderLabels[provider]} senkronu tamamlandı`);
+        return;
+      }
+
+      if (!providerResult.success) {
+        toast.error(providerResult.message || `${externalProviderLabels[provider]} senkronu başarısız oldu`);
+        return;
+      }
+
+      if (providerResult.skipped) {
+        toast.info(providerResult.message || `${externalProviderLabels[provider]} için yeni değişiklik yok`);
+        return;
+      }
+
+      if (providerResult.warning) {
+        toast.warning(providerResult.warning);
+        return;
+      }
+
+      toast.success(`${externalProviderLabels[provider]} senkronu tamamlandı`);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Harici senkron başarısız oldu');
+    } finally {
+      setSyncingExternalProvider(null);
+    }
+  };
+
   const toggleFavorite = async () => {
     if (!user) {
       toast.error('Favorilere eklemek için giriş yapmalısınız');
@@ -1191,6 +1394,11 @@ const MangaDetail: React.FC = () => {
         });
         setFavorite(true);
         setCategory('reading');
+        if (isOnline) {
+          void triggerExternalSync('category').catch((error) => {
+            console.warn('External sync after favorite add failed:', error);
+          });
+        }
         toast.success(isOnline ? 'Favorilere eklendi' : 'Tekrar çevrimiçi olduğunda favoriler eşitlenecek');
       }
     } catch (err) {
@@ -1219,6 +1427,11 @@ const MangaDetail: React.FC = () => {
 
       setFavorite(true);
       setCategory((refreshedEntry?.category as LibraryCategory | undefined) || newCategory);
+      if (isOnline) {
+        void triggerExternalSync('category').catch((error) => {
+          console.warn('External sync after category change failed:', error);
+        });
+      }
       toast.success(
         isOnline
           ? `Kategori: ${categoryLabels[(refreshedEntry?.category as LibraryCategory | undefined) || newCategory]}`
@@ -1424,6 +1637,9 @@ const MangaDetail: React.FC = () => {
         engagement: (newAvg as any).engagement || 0
       });
 
+      await triggerExternalSync('rating').catch((error) => {
+        console.warn('External sync after rating failed:', error);
+      });
       toast.success(`${rating}/10 puan verildi!`);
     } catch (err) {
       toast.error('Puan kaydedilemedi');
@@ -1473,6 +1689,9 @@ const MangaDetail: React.FC = () => {
         engagement: (newAvg as any).engagement || 0
       });
 
+      await triggerExternalSync('review').catch((error) => {
+        console.warn('External sync after review failed:', error);
+      });
       setIsReviewModalOpen(false);
       toast.success('İncelemeniz başarıyla yayınlandı!');
     } catch (err) {
@@ -2332,6 +2551,91 @@ const MangaDetail: React.FC = () => {
                               <span>Puanlamak için tıklayın</span>
                             )}
                           </div>
+                        </div>
+                      </div>
+
+                      <div className="rounded-xl border border-border bg-card/50 p-3 sm:p-6">
+                        <div className="mb-4 flex items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-base font-semibold">Harici Takip</h3>
+                            <p className="text-sm text-muted-foreground">Desteklenen servisler ve cache'li puan bilgileri.</p>
+                          </div>
+                          {isRefreshingExternalRatings ? (
+                            <RefreshCcw className="h-4 w-4 animate-spin text-muted-foreground" />
+                          ) : null}
+                        </div>
+
+                        <div className="space-y-3">
+                          {([
+                            {
+                              provider: 'myanimelist' as const,
+                              link: malLink,
+                              rating: externalRatings.myanimelist,
+                            },
+                            {
+                              provider: 'anilist' as const,
+                              link: aniListLink,
+                              rating: externalRatings.anilist,
+                            },
+                          ]).map(({ provider, link, rating }) => {
+                            const isSupported = isExternalProviderSupported(manga.sourceLinks, provider);
+                            const isConnected = externalProviderStatuses[provider]?.connected;
+                            const hasSyncError = Boolean(externalProviderStatuses[provider]?.lastError);
+                            const isProviderEnabled = userExternalSyncPreferences.providers[provider].enabled;
+
+                            return (
+                              <div key={provider} className="rounded-xl border border-border/60 bg-background/30 p-3">
+                                <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                                  <div className="space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <span className="font-medium">{externalProviderLabels[provider]}</span>
+                                      <Badge className={isSupported ? 'bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/15' : 'bg-secondary text-muted-foreground hover:bg-secondary'}>
+                                        {isSupported ? 'Destekleniyor' : 'Desteklenmiyor'}
+                                      </Badge>
+                                      {isConnected ? (
+                                        <Badge variant="outline">Bağlı</Badge>
+                                      ) : null}
+                                      {user && !isProviderEnabled ? (
+                                        <Badge variant="secondary">Senkron Kapalı</Badge>
+                                      ) : null}
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                      Puan: <span className="font-medium text-foreground">{formatExternalScore(rating?.score)}</span>
+                                    </p>
+                                    {hasSyncError ? (
+                                      <p className="text-xs text-amber-300">{externalProviderStatuses[provider]?.lastError}</p>
+                                    ) : null}
+                                  </div>
+
+                                  <div className="flex flex-wrap gap-2">
+                                    {link?.url ? (
+                                      <Button asChild size="sm" variant="outline">
+                                        <a href={link.url} target="_blank" rel="noreferrer">
+                                          <Link2 className="h-4 w-4" />
+                                          Aç
+                                        </a>
+                                      </Button>
+                                    ) : null}
+                                    {user && isSupported && isConnected ? (
+                                      <Button
+                                        size="sm"
+                                        variant="glow"
+                                        onClick={() => void handleManualExternalSync(provider)}
+                                        disabled={syncingExternalProvider === provider || !isProviderEnabled}
+                                      >
+                                        {syncingExternalProvider === provider ? (
+                                          <RefreshCcw className="h-4 w-4 animate-spin" />
+                                        ) : (
+                                          <RefreshCcw className="h-4 w-4" />
+                                        )}
+                                        Şimdi Senkronla
+                                      </Button>
+                                    ) : null}
+                                  </div>
+                                </div>
+                              </div>
+                            );
+                          })}
                         </div>
                       </div>
 

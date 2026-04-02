@@ -305,6 +305,7 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
     const hiddenExtraFields = new Set([
       'characterRoleType',
       'animePlanetSlug',
+      'externalRatings',
       'raw',
       'seriesGallery',
     ]);

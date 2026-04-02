@@ -469,6 +469,18 @@ const getLocalChapterReadEntries = (userId: string): ChapterReadProgressEntry[] 
     return sortByLastReadDesc(Object.values(store[userId] || {}));
 };
 
+export const getLocalChapterReadProgressEntry = (
+    userId: string,
+    chapterId: string,
+): ChapterReadProgressEntry | undefined => {
+    if (!userId || !chapterId) {
+        return undefined;
+    }
+
+    const store = getLocalChapterReadStore();
+    return store[userId]?.[chapterId];
+};
+
 const upsertLocalChapterReadProgress = (
     userId: string,
     progress: {
