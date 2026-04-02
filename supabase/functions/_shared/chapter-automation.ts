@@ -1,3 +1,4 @@
+import { DOMParser } from "jsr:@b-fuze/deno-dom";
 import { createServiceClient } from "./auth.ts";
 
 export type ChapterAutomationSource = "hayalistic" | "webtoonhatti";
