@@ -28,6 +28,7 @@ import {
 } from './types';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import { normalizeGenres } from './mockData';
+import { slugifyCatalogTagName, type OfficialTagSeed } from './officialTagCatalog';
 import { sortChapterBatchItems } from './chapterBatchOrdering';
 import { cacheOfflineManga, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
@@ -4815,6 +4816,8 @@ export interface TagModerationSyncResult {
     localDown: number;
 }
 
+const slugifyTagName = (name: string) => slugifyCatalogTagName(name);
+
 const mapTagRow = (tag: any, relation?: { is_discoverable?: boolean; added_by?: string | null } | null): Tag => ({
     id: tag.id,
     name: tag.name,
@@ -4893,12 +4896,26 @@ export const createTag = async (
     description?: string,
     userId?: string
 ): Promise<Tag | null> => {
-    const slug = name
-        .toLowerCase()
-        .replace(/[^a-z0-9\s-]/g, '')
-        .replace(/\s+/g, '-')
-        .replace(/-+/g, '-')
-        .trim();
+    const slug = slugifyTagName(name);
+
+    if (!slug) {
+        return null;
+    }
+
+    const { data: existingTag, error: existingTagError } = await supabase
+        .from('tags')
+        .select('*')
+        .eq('slug', slug)
+        .maybeSingle();
+
+    if (existingTagError) {
+        console.error('Find existing tag error:', existingTagError);
+        return null;
+    }
+
+    if (existingTag) {
+        return mapTagRow(existingTag);
+    }
 
     const { data, error } = await supabase
         .from('tags')
@@ -4920,6 +4937,112 @@ export const createTag = async (
 
     return {
         ...mapTagRow(data),
+    };
+};
+
+export const upsertOfficialTags = async (
+    tags: OfficialTagSeed[],
+): Promise<{ created: number; updated: number; total: number }> => {
+    const normalizedTags = Array.from(
+        new Map(
+            tags
+                .map((tag) => ({
+                    ...tag,
+                    name: tag.name.trim(),
+                    slug: slugifyTagName(tag.name),
+                }))
+                .filter((tag) => tag.name.length > 0 && tag.slug.length > 0)
+                .map((tag) => [tag.slug, tag]),
+        ).values(),
+    );
+
+    if (normalizedTags.length === 0) {
+        return { created: 0, updated: 0, total: 0 };
+    }
+
+    const slugs = normalizedTags.map((tag) => tag.slug);
+
+    const { data: existingRows, error: existingError } = await supabase
+        .from('tags')
+        .select('id, slug, category, is_official, community_approved')
+        .in('slug', slugs);
+
+    if (existingError) {
+        throw existingError;
+    }
+
+    const existingBySlug = new Map(
+        ((existingRows || []) as Array<{
+            id: string;
+            slug: string;
+            category: TagCategory;
+            is_official: boolean;
+            community_approved: boolean;
+        }>).map((row) => [row.slug, row]),
+    );
+
+    const tagsToInsert = normalizedTags.filter((tag) => !existingBySlug.has(tag.slug));
+    const tagsToUpdate = normalizedTags.filter((tag) => existingBySlug.has(tag.slug));
+
+    if (tagsToInsert.length > 0) {
+        const { error: insertError } = await supabase
+            .from('tags')
+            .insert(
+                tagsToInsert.map((tag) => ({
+                    name: tag.name,
+                    slug: tag.slug,
+                    category: tag.category,
+                    is_official: true,
+                    community_approved: true,
+                })),
+            );
+
+        if (insertError) {
+            throw insertError;
+        }
+    }
+
+    if (tagsToUpdate.length > 0) {
+        const updateResults = await Promise.all(
+            tagsToUpdate.map(async (tag) => {
+                const existing = existingBySlug.get(tag.slug);
+
+                if (!existing) {
+                    return;
+                }
+
+                if (
+                    existing.category === tag.category
+                    && existing.is_official
+                    && existing.community_approved
+                ) {
+                    return;
+                }
+
+                const { error: updateError } = await supabase
+                    .from('tags')
+                    .update({
+                        category: tag.category,
+                        is_official: true,
+                        community_approved: true,
+                    })
+                    .eq('id', existing.id);
+
+                if (updateError) {
+                    throw updateError;
+                }
+            }),
+        );
+
+        void updateResults;
+    }
+
+    const created = tagsToInsert.length;
+
+    return {
+        created,
+        updated: normalizedTags.length - created,
+        total: normalizedTags.length,
     };
 };
 

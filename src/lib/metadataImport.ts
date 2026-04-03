@@ -375,19 +375,22 @@ const buildGenreAliasLookup = () => {
 
 const genreAliasLookup = buildGenreAliasLookup();
 
+const normalizeAggressiveKey = (value?: string | null) =>
+  normalizeKey(value).replace(/[\s-]/g, '');
+
+const normalizeLooseKey = (value?: string | null) =>
+  normalizeKey(value).replace(/[^a-z0-9]/g, '');
+
 const isBlockedGenreOrTag = (value?: string | null) =>
   !!value && BLOCKED_GENRE_OR_TAG_KEYS.has(normalizeKey(value));
 
 export const translateGenresWithAliases = (genres: string[]): string[] => {
-  const aggressiveNormalize = (str: string) => 
-    normalizeKey(str).replace(/[\s-]/g, '');
-
   return uniqueStrings(
     genres
       .filter((genre) => !isBlockedGenreOrTag(genre))
       .map((genre) => {
         const sourceKey = normalizeKey(genre);
-        const aggressiveSourceKey = aggressiveNormalize(genre);
+        const aggressiveSourceKey = normalizeAggressiveKey(genre);
 
         const aliasedTurkish = genreAliasLookup.get(sourceKey) || genreAliasLookup.get(aggressiveSourceKey);
         if (aliasedTurkish) {
@@ -405,56 +408,122 @@ export const matchGenresWithSiteTags = async (
 ): Promise<TagMatchResult[]> => {
   const siteTags = await getAllTags({ includePending: true });
   const siteTagLookup = new Map<string, { id: string; name: string }>();
-
-  for (const tag of siteTags) {
-    siteTagLookup.set(normalizeKey(tag.name), { id: tag.id, name: tag.name });
-  }
-
-  const aggressiveNormalize = (str: string) => 
-    normalizeKey(str).replace(/[\s-]/g, '');
-
   const aggressiveSiteTagLookup = new Map<string, { id: string; name: string }>();
+  const looseSiteTagLookup = new Map<string, { id: string; name: string }>();
+
   for (const tag of siteTags) {
-    aggressiveSiteTagLookup.set(aggressiveNormalize(tag.name), { id: tag.id, name: tag.name });
+    const mappedTag = { id: tag.id, name: tag.name };
+    siteTagLookup.set(normalizeKey(tag.name), mappedTag);
+    aggressiveSiteTagLookup.set(normalizeAggressiveKey(tag.name), mappedTag);
+    looseSiteTagLookup.set(normalizeLooseKey(tag.name), mappedTag);
   }
 
-  return importedTags
-    .filter((sourceTag) => !isBlockedGenreOrTag(sourceTag))
-    .map((sourceTag) => {
-    const sourceKey = normalizeKey(sourceTag);
-    const aggressiveSourceKey = aggressiveNormalize(sourceTag);
+  const resolveTagMatch = (value: string) => {
+    const sourceKey = normalizeKey(value);
+    const aggressiveSourceKey = normalizeAggressiveKey(value);
+    const looseSourceKey = normalizeLooseKey(value);
 
-    // 1. Önce "Tür" (Standard Genre) olup olmadığına bakalım
-    // GENRE_ALIAS_MAP içindeki anahtarlar veya aliaslar ile eşleşiyor mu?
-    const turkishGenreName = genreAliasLookup.get(sourceKey) || genreAliasLookup.get(aggressiveSourceKey);
-    if (turkishGenreName) {
-      const tagMatch = siteTagLookup.get(normalizeKey(turkishGenreName)) || 
-                       aggressiveSiteTagLookup.get(aggressiveNormalize(turkishGenreName));
-      
-      return { 
-        sourceTag, 
-        matchedTag: tagMatch, 
-        isMatched: true, 
-        isStandardGenre: true, 
-        genreMatchName: turkishGenreName 
-      };
-    }
+    return (
+      siteTagLookup.get(sourceKey)
+      || aggressiveSiteTagLookup.get(aggressiveSourceKey)
+      || looseSiteTagLookup.get(looseSourceKey)
+    );
+  };
 
-    // 2. Direkt Tag Eşleşmesi (Tür değilse normal etiketlerden ara)
-    const directMatch = siteTagLookup.get(sourceKey) || aggressiveSiteTagLookup.get(aggressiveSourceKey);
-    if (directMatch) {
-      return { sourceTag, matchedTag: directMatch, isMatched: true };
-    }
+  const resolvePartialTagMatch = (value: string) => {
+    const sourceKey = normalizeKey(value);
+    const looseSourceKey = normalizeLooseKey(value);
 
-    // 3. Kısmi Eşleşme (İçinde geçiyorsa)
     for (const [siteKey, siteTag] of siteTagLookup) {
-      if (siteKey.includes(sourceKey) || sourceKey.includes(siteKey)) {
-        return { sourceTag, matchedTag: siteTag, isMatched: true };
+      const looseSiteKey = normalizeLooseKey(siteKey);
+      if (
+        siteKey.includes(sourceKey)
+        || sourceKey.includes(siteKey)
+        || (looseSourceKey.length > 3 && looseSiteKey.includes(looseSourceKey))
+        || (looseSiteKey.length > 3 && looseSourceKey.includes(looseSiteKey))
+      ) {
+        return siteTag;
       }
     }
 
-      return { sourceTag, isMatched: false };
-    });
+    return undefined;
+  };
+
+  const tryMatchTag = async (sourceTag: string) => {
+    const sourceKey = normalizeKey(sourceTag);
+    const aggressiveSourceKey = normalizeAggressiveKey(sourceTag);
+
+    const turkishGenreName = genreAliasLookup.get(sourceKey) || genreAliasLookup.get(aggressiveSourceKey);
+    if (turkishGenreName) {
+      const genreTagMatch = resolveTagMatch(turkishGenreName);
+      return {
+        sourceTag,
+        matchedTag: genreTagMatch,
+        isMatched: true,
+        isStandardGenre: true,
+        genreMatchName: turkishGenreName,
+      } satisfies TagMatchResult;
+    }
+
+    const directMatch = resolveTagMatch(sourceTag);
+    if (directMatch) {
+      return { sourceTag, matchedTag: directMatch, isMatched: true } satisfies TagMatchResult;
+    }
+
+    const partialMatch = resolvePartialTagMatch(sourceTag);
+    if (partialMatch) {
+      return { sourceTag, matchedTag: partialMatch, isMatched: true } satisfies TagMatchResult;
+    }
+
+    const translatedToEnglish = await translateText(sourceTag, 'en');
+    const normalizedTranslation = normalizeText(translatedToEnglish);
+
+    if (
+      normalizedTranslation
+      && normalizeLooseKey(normalizedTranslation) !== normalizeLooseKey(sourceTag)
+    ) {
+      const translatedGenreName =
+        genreAliasLookup.get(normalizeKey(normalizedTranslation))
+        || genreAliasLookup.get(normalizeAggressiveKey(normalizedTranslation));
+
+      if (translatedGenreName) {
+        const genreTagMatch = resolveTagMatch(translatedGenreName);
+        return {
+          sourceTag,
+          matchedTag: genreTagMatch,
+          isMatched: true,
+          isStandardGenre: true,
+          genreMatchName: translatedGenreName,
+        } satisfies TagMatchResult;
+      }
+
+      const translatedDirectMatch = resolveTagMatch(normalizedTranslation);
+      if (translatedDirectMatch) {
+        return {
+          sourceTag,
+          matchedTag: translatedDirectMatch,
+          isMatched: true,
+        } satisfies TagMatchResult;
+      }
+
+      const translatedPartialMatch = resolvePartialTagMatch(normalizedTranslation);
+      if (translatedPartialMatch) {
+        return {
+          sourceTag,
+          matchedTag: translatedPartialMatch,
+          isMatched: true,
+        } satisfies TagMatchResult;
+      }
+    }
+
+    return { sourceTag, isMatched: false } satisfies TagMatchResult;
+  };
+
+  return Promise.all(
+    importedTags
+      .filter((sourceTag) => !isBlockedGenreOrTag(sourceTag))
+      .map((sourceTag) => tryMatchTag(sourceTag)),
+  );
 };
 
 const TRANSLATE_BATCH_SIZE = 5;

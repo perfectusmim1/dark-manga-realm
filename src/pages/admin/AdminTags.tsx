@@ -7,11 +7,13 @@ import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import TagBadge from '@/components/tags/TagBadge';
 import { Tag, TagCategory } from '@/lib/types';
+import { OFFICIAL_TAG_CATALOG, OFFICIAL_TAG_SLUGS, slugifyCatalogTagName } from '@/lib/officialTagCatalog';
 import {
   getAllTags,
   createTag,
   updateTag,
   deleteTag,
+  upsertOfficialTags,
 } from '@/lib/database';
 
 const categoryLabels: Record<TagCategory, string> = {
@@ -98,6 +100,21 @@ const AdminTags: React.FC = () => {
     }
   };
 
+  const handleSeedOfficialTags = async () => {
+    setSaving(true);
+    try {
+      const result = await upsertOfficialTags(OFFICIAL_TAG_CATALOG);
+      await loadTags();
+      toast.success(
+        `${result.total} resmi etiket işlendi. ${result.created} yeni, ${result.updated} güncellenen.`
+      );
+    } catch {
+      toast.error('Resmi etiket kataloğu yüklenemedi');
+    } finally {
+      setSaving(false);
+    }
+  };
+
   const toggleOfficial = async (tag: Tag) => {
     try {
       await updateTag(tag.id, { isOfficial: !tag.isOfficial });
@@ -138,6 +155,13 @@ const AdminTags: React.FC = () => {
     official: tags.filter(t => t.isOfficial).length,
     community: tags.filter(t => !t.isOfficial).length,
   };
+  const existingOfficialCatalogSlugs = new Set(
+    tags
+      .filter((tag) => tag.isOfficial)
+      .map((tag) => slugifyCatalogTagName(tag.name))
+      .filter((slug) => OFFICIAL_TAG_SLUGS.has(slug))
+  );
+  const missingOfficialCatalogCount = OFFICIAL_TAG_CATALOG.length - existingOfficialCatalogSlugs.size;
 
   return (
     <div className="space-y-6">
@@ -151,10 +175,39 @@ const AdminTags: React.FC = () => {
             Etiketleri, kategorileri ve resmi durumlarını yönetin
           </p>
         </div>
-        <Button onClick={() => setShowCreateForm(!showCreateForm)} className="w-full gap-1.5 sm:w-auto">
-          <Plus className="h-4 w-4" />
-          Yeni Etiket
-        </Button>
+        <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+          <Button
+            variant="outline"
+            onClick={handleSeedOfficialTags}
+            disabled={saving}
+            className="w-full gap-1.5 sm:w-auto"
+          >
+            {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Hash className="h-4 w-4" />}
+            Resmi Kataloğu Yükle
+          </Button>
+          <Button onClick={() => setShowCreateForm(!showCreateForm)} className="w-full gap-1.5 sm:w-auto">
+            <Plus className="h-4 w-4" />
+            Yeni Etiket
+          </Button>
+        </div>
+      </div>
+
+      <div className="rounded-xl border border-primary/20 bg-primary/5 p-4">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="space-y-1">
+            <p className="text-sm font-semibold">Resmi etiket kataloğu hazır</p>
+            <p className="text-sm text-muted-foreground">
+              Listelenen 355 etiketi tek işlemde resmi ve onaylı olarak sisteme ekler.
+            </p>
+          </div>
+          <div className="flex flex-wrap gap-2 text-xs">
+            <Badge variant="outline">Katalog: {OFFICIAL_TAG_CATALOG.length}</Badge>
+            <Badge variant="outline">Mevcut resmi: {tagStats.official}</Badge>
+            <Badge variant={missingOfficialCatalogCount > 0 ? 'secondary' : 'default'}>
+              Eksik: {missingOfficialCatalogCount}
+            </Badge>
+          </div>
+        </div>
       </div>
 
       <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 sm:gap-4">
