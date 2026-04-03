@@ -1660,7 +1660,7 @@ const importProviderLibrary = async (req: Request, body: any) => {
       const existingReading = readingMap.get(manga.id);
       const existingSyncState = syncStateByManga.get(manga.id);
 
-      const remoteCategory = entry.status || (entry.favorite ? "plan_to_read" : null);
+      const remoteCategory = entry.status || (entry.favorite ? "plan_to_read" as LocalLibraryStatus | null : null);
       const remoteScore = typeof entry.score === "number" && entry.score > 0
         ? entry.score
         : null;
@@ -1676,6 +1676,14 @@ const importProviderLibrary = async (req: Request, body: any) => {
           manga_id: manga.id,
           category: remoteCategory,
           added_at: entry.startedAt || entry.completedAt || nowIso,
+        });
+        response.summary.libraryImported += 1;
+      } else if (!existingFavorite && entry.favorite && !remoteCategory) {
+        favoriteUpserts.push({
+          user_id: requester.requesterProfile.id,
+          manga_id: manga.id,
+          category: "plan_to_read",
+          added_at: nowIso,
         });
         response.summary.libraryImported += 1;
       } else if (existingFavorite && remoteCategory) {
