@@ -2,6 +2,8 @@ import React from 'react';
 import { ThumbsUp, ThumbsDown, Shield, CheckCircle2 } from 'lucide-react';
 import { Tag, TagCategory } from '@/lib/types';
 import { cn } from '@/lib/utils';
+import { getTagDisplayName } from '@/lib/tagTranslations';
+
 
 const categoryConfig: Record<TagCategory, { bg: string; text: string; border: string; icon: string }> = {
   theme: { bg: 'bg-blue-500/10', text: 'text-blue-400', border: 'border-blue-500/20', icon: '🎭' },
@@ -59,7 +61,7 @@ const TagBadge: React.FC<TagBadgeProps> = ({
       onClick={onClick}
     >
       <span className="shrink-0 text-[10px]">{config.icon}</span>
-      <span className="truncate font-medium">{tag.name}</span>
+      <span className="truncate font-medium">{getTagDisplayName(tag.slug, tag.name)}</span>
       
       {tag.isOfficial && (
         <Shield className="h-3 w-3 shrink-0 opacity-50" />

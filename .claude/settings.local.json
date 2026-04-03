@@ -11,7 +11,8 @@
       "mcp__supabase__execute_sql",
       "Bash(node:*)",
       "mcp__cloudflare__worker_deploy",
-      "mcp__cloudflare__env_var_set"
+      "mcp__cloudflare__env_var_set",
+      "mcp__supabase__list_projects"
     ]
   }
 }

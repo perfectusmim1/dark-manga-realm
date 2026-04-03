@@ -4984,64 +4984,61 @@ export const upsertOfficialTags = async (
     const tagsToInsert = normalizedTags.filter((tag) => !existingBySlug.has(tag.slug));
     const tagsToUpdate = normalizedTags.filter((tag) => existingBySlug.has(tag.slug));
 
-    if (tagsToInsert.length > 0) {
+    // Insert new tags one by one to avoid 409 conflict on duplicate slug
+    let created = 0;
+    for (const tag of tagsToInsert) {
         const { error: insertError } = await supabase
             .from('tags')
-            .insert(
-                tagsToInsert.map((tag) => ({
-                    name: tag.name,
-                    slug: tag.slug,
-                    category: tag.category,
-                    is_official: true,
-                    community_approved: true,
-                })),
-            );
+            .insert({
+                name: tag.name,
+                slug: tag.slug,
+                category: tag.category,
+                is_official: true,
+                community_approved: true,
+            });
 
         if (insertError) {
-            throw insertError;
+            console.warn(`Tag insert skipped "${tag.slug}":`, insertError.message);
+        } else {
+            created++;
         }
     }
 
-    if (tagsToUpdate.length > 0) {
-        const updateResults = await Promise.all(
-            tagsToUpdate.map(async (tag) => {
-                const existing = existingBySlug.get(tag.slug);
+    let updated = 0;
+    for (const tag of tagsToUpdate) {
+        const existing = existingBySlug.get(tag.slug);
 
-                if (!existing) {
-                    return;
-                }
+        if (!existing) {
+            continue;
+        }
 
-                if (
-                    existing.category === tag.category
-                    && existing.is_official
-                    && existing.community_approved
-                ) {
-                    return;
-                }
+        if (
+            existing.category === tag.category
+            && existing.is_official
+            && existing.community_approved
+        ) {
+            continue;
+        }
 
-                const { error: updateError } = await supabase
-                    .from('tags')
-                    .update({
-                        category: tag.category,
-                        is_official: true,
-                        community_approved: true,
-                    })
-                    .eq('id', existing.id);
+        const { error: updateError } = await supabase
+            .from('tags')
+            .update({
+                category: tag.category,
+                is_official: true,
+                community_approved: true,
+            })
+            .eq('id', existing.id);
 
-                if (updateError) {
-                    throw updateError;
-                }
-            }),
-        );
-
-        void updateResults;
+        if (updateError) {
+            console.warn(`Tag update failed "${tag.slug}":`, updateError.message);
+        } else {
+            updated++;
+        }
     }
-
-    const created = tagsToInsert.length;
 
     return {
         created,
-        updated: normalizedTags.length - created,
+        updated,
         total: normalizedTags.length,
     };
 };

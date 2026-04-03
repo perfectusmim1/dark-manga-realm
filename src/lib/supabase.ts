@@ -45,28 +45,67 @@ const shouldAttachDeviceHeaders = (input: RequestInfo | URL) => {
 };
 
 const supabaseFetch: typeof fetch = async (input, init) => {
-    const headers = new Headers(input instanceof Request ? input.headers : undefined);
+    const requestUrl = typeof input === 'string'
+        ? input
+        : input instanceof URL
+            ? input.toString()
+            : input.url;
 
+    const isRestCall = requestUrl.startsWith(`${supabaseUrl}/rest/v1/`);
+
+    let resolvedUrl: string = requestUrl;
+
+    // Ensure apikey is present for REST calls
+    if (isRestCall) {
+        if (!requestUrl.includes('apikey=')) {
+            const sep = requestUrl.includes('?') ? '&' : '?';
+            resolvedUrl = `${requestUrl}${sep}apikey=${encodeURIComponent(supabaseAnonKey)}`;
+        }
+    }
+
+    let mergedHeaders: Headers = new Headers();
+
+    // Layer headers from init first (this is what Supabase SDK uses)
     if (init?.headers) {
-        new Headers(init.headers).forEach((value, key) => {
-            headers.set(key, value);
-        });
+        if (init.headers instanceof Headers) {
+            mergedHeaders = new Headers(init.headers);
+        } else if (Array.isArray(init.headers)) {
+            for (const [key, value] of init.headers) {
+                mergedHeaders.set(key, value);
+            }
+        } else if (typeof init.headers === 'object') {
+            for (const [key, value] of Object.entries(init.headers)) {
+                mergedHeaders.set(key, value);
+            }
+        }
+    }
+
+    // Also clone headers from Request if present
+    if (input instanceof Request) {
+        for (const [key, value] of input.headers) {
+            mergedHeaders.set(key, value);
+        }
+    }
+
+    // Guarantee apikey header for REST calls
+    if (isRestCall) {
+        mergedHeaders.set('apikey', supabaseAnonKey);
     }
 
     try {
-        if (shouldAttachDeviceHeaders(input)) {
+        if (isRestCall) {
             const identity = await getCachedDeviceIdentity();
             if (identity) {
-                headers.set('x-device-hash', identity.deviceHash);
+                mergedHeaders.set('x-device-hash', identity.deviceHash);
             }
         }
     } catch (error) {
         console.error('Supabase device header injection failed:', error);
     }
 
-    return globalThis.fetch(input, {
+    return globalThis.fetch(resolvedUrl, {
         ...init,
-        headers,
+        headers: mergedHeaders,
     });
 };
 
