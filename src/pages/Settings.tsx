@@ -891,11 +891,11 @@ const Settings: React.FC = () => {
                             <CardDescription>{description}</CardDescription>
                         </div>
 
-                        <div className="flex flex-col gap-2 sm:items-end">
+                        <div className="flex flex-wrap gap-2 sm:items-end">
                             {providerStatus.connected ? (
                                 <>
                                         <Button
-                                            variant="outline"
+                                            variant="default"
                                             onClick={() => void handleImportProviderLibrary(provider)}
                                             disabled={isBusy || isUpdatingPrefs}
                                         >
@@ -904,7 +904,7 @@ const Settings: React.FC = () => {
                                             {providerBusyState[provider] === 'importing' ? 'İçe Aktarılıyor...' : 'Siteye Aktar'}
                                         </Button>
                                         <Button
-                                            variant="secondary"
+                                            variant="outline"
                                             onClick={() => void handleSyncProviderLibrary(provider)}
                                             disabled={isBusy || isUpdatingPrefs || !providerPrefs.enabled}
                                         >
@@ -913,7 +913,7 @@ const Settings: React.FC = () => {
                                             {providerBusyState[provider] !== 'syncing' ? 'Siteden Gönder' : 'Gönderiliyor...'}
                                         </Button>
                                         <Button
-                                            variant="outline"
+                                            variant="destructive"
                                         onClick={() => void handleDisconnectProvider(provider)}
                                         disabled={isBusy || isUpdatingPrefs}
                                     >
