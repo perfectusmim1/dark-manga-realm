@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
-import { getFavorites } from '@/lib/storage';
+import { getFavorites, refreshFavoritesCache } from '@/lib/storage';
 import { getLikedReadingLists, getMangaById, LikedReadingListPreview } from '@/lib/database';
 import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import OfflineNotice from '@/components/offline/OfflineNotice';
@@ -68,7 +68,9 @@ const Favorites: React.FC = () => {
 
       try {
         setIsLoading(true);
-        const favorites = await getFavorites(user.id);
+        const favorites = isOnline
+          ? await refreshFavoritesCache(user.id)
+          : await getFavorites(user.id);
         const likedLists = isOnline ? await getLikedReadingLists(user.id) : [];
         const mangas = await Promise.all(
           favorites.map(async (favorite) => (

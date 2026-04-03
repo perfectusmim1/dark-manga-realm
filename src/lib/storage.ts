@@ -731,29 +731,49 @@ export const getFavorites = async (userId: string): Promise<Favorite[]> => {
     }
 
     if (!areFavoritesInitialized(userId) && isEffectivelyOnline()) {
-        const { data, error } = await supabase
-            .from('favorites')
-            .select(`
-                *,
-                manga:mangas (*)
-            `)
-            .eq('user_id', userId);
-
-        if (!error) {
-            const favorites = (data || []).map(f => ({
-                userId: f.user_id,
-                mangaId: f.manga_id,
-                category: f.category as LibraryCategory,
-                addedAt: f.added_at,
-                mangaTitle: f.manga?.title,
-                mangaCover: f.manga?.cover
-            }));
-            setCachedFavorites(userId, favorites);
-            return favorites;
+        try {
+            return await refreshFavoritesCache(userId);
+        } catch {
+            return getCachedFavoritesState(userId);
         }
     }
 
     return getCachedFavoritesState(userId);
+};
+
+export const refreshFavoritesCache = async (userId: string): Promise<Favorite[]> => {
+    if (!userId) {
+        return [];
+    }
+
+    if (!isEffectivelyOnline()) {
+        return getCachedFavoritesState(userId);
+    }
+
+    const { data, error } = await supabase
+        .from('favorites')
+        .select(`
+            *,
+            manga:mangas (*)
+        `)
+        .eq('user_id', userId)
+        .order('added_at', { ascending: false });
+
+    if (error) {
+        throw error;
+    }
+
+    const favorites = (data || []).map(f => ({
+        userId: f.user_id,
+        mangaId: f.manga_id,
+        category: f.category as LibraryCategory,
+        addedAt: f.added_at,
+        mangaTitle: f.manga?.title,
+        mangaCover: f.manga?.cover
+    }));
+
+    setCachedFavorites(userId, favorites);
+    return favorites;
 };
 
 export const addFavorite = async (

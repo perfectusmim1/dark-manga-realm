@@ -48,6 +48,7 @@ import {
 } from '@/components/ui/dialog';
 import { getBlockedUsers, unblockUser } from '@/lib/profile';
 import { getUserSessions, revokeUserSession, revokeAllOtherSessions, type UserSession } from '@/lib/database';
+import { refreshFavoritesCache } from '@/lib/storage';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { PASSWORD_MIN_LENGTH, getPasswordRequirementError, getPasswordRequirementStatus } from '@/lib/auth/passwordPolicy';
@@ -656,6 +657,13 @@ const Settings: React.FC = () => {
         try {
             setProviderBusyState((current) => ({ ...current, [provider]: 'importing' }));
             const response = await importLibraryFromExternalProvider(provider);
+            if (user?.id) {
+                try {
+                    await refreshFavoritesCache(user.id);
+                } catch (cacheError) {
+                    console.error('Favorite cache refresh error:', cacheError);
+                }
+            }
             const {
                 libraryImported,
                 ratingsImported,
