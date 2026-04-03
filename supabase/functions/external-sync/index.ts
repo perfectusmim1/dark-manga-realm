@@ -1678,12 +1678,12 @@ const importProviderLibrary = async (req: Request, body: any) => {
           added_at: entry.startedAt || entry.completedAt || nowIso,
         });
         response.summary.libraryImported += 1;
-      } else if (!existingFavorite && entry.favorite && !remoteCategory) {
+      } else if (!existingFavorite && entry.favorite) {
         favoriteUpserts.push({
           user_id: requester.requesterProfile.id,
           manga_id: manga.id,
-          category: "plan_to_read",
-          added_at: nowIso,
+          category: entry.status || "plan_to_read",
+          added_at: entry.startedAt || entry.completedAt || nowIso,
         });
         response.summary.libraryImported += 1;
       } else if (existingFavorite && remoteCategory) {
