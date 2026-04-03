@@ -1,5 +1,6 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
+import { getIpAddress, getJwtClaims, sha256Hex, upsertUserSessionMetadata } from "../_shared/session-tracking.ts";
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -17,14 +18,6 @@ const json = (body: unknown) =>
       "Content-Type": "application/json",
     },
   });
-
-const sha256 = async (value: string) => {
-  const encoded = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-};
 
 const hasActiveUserBan = (user?: {
   is_banned?: boolean | null;
@@ -92,11 +85,10 @@ Deno.serve(async (req: Request) => {
     });
   }
 
-  const forwardedFor = req.headers.get("x-forwarded-for") ?? "";
-  const ipAddress = forwardedFor.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
+  const ipAddress = getIpAddress(req);
   const [identifierHash, ipHash] = await Promise.all([
-    sha256(identifier),
-    sha256(ipAddress),
+    sha256Hex(identifier),
+    sha256Hex(ipAddress),
   ]);
 
   const serviceClient = createClient(supabaseUrl, serviceRoleKey, {
@@ -229,12 +221,27 @@ Deno.serve(async (req: Request) => {
       user_id: authResult.user.id,
       ip_hash: ipHash,
       device_hash: deviceHash,
-      installation_id_hash: payload.deviceInstallationId?.trim() ? await sha256(payload.deviceInstallationId.trim()) : null,
+      installation_id_hash: payload.deviceInstallationId?.trim() ? await sha256Hex(payload.deviceInstallationId.trim()) : null,
       user_agent: req.headers.get("user-agent"),
       last_seen_at: new Date().toISOString(),
     }, {
       onConflict: "user_id,ip_hash,device_hash",
       ignoreDuplicates: false,
+    });
+  }
+
+  const sessionId = typeof authResult.access_token === "string"
+    ? getJwtClaims(authResult.access_token)?.sessionId ?? null
+    : null;
+
+  if (authResult?.user?.id && sessionId) {
+    await upsertUserSessionMetadata(serviceClient, {
+      userId: authResult.user.id,
+      sessionId,
+      userAgent: req.headers.get("user-agent"),
+      request: req,
+    }).catch((error) => {
+      console.error("password-login session metadata upsert failed:", error);
     });
   }
 

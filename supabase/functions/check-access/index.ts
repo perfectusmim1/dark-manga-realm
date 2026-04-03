@@ -1,19 +1,7 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createServiceClient, getAccessToken, json } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
-
-const sha256 = async (value: string) => {
-  const encoded = new TextEncoder().encode(value);
-  const digest = await crypto.subtle.digest("SHA-256", encoded);
-  return Array.from(new Uint8Array(digest))
-    .map((byte) => byte.toString(16).padStart(2, "0"))
-    .join("");
-};
-
-const getIpAddress = (req: Request) => {
-  const forwardedFor = req.headers.get("x-forwarded-for") ?? "";
-  return forwardedFor.split(",")[0]?.trim() || req.headers.get("x-real-ip") || "unknown";
-};
+import { getJwtClaims, getIpAddress, sha256Hex, upsertUserSessionMetadata } from "../_shared/session-tracking.ts";
 
 const normalizePath = (path?: string | null) => {
   const trimmed = path?.trim() || "/";
@@ -95,15 +83,16 @@ Deno.serve(async (req: Request) => {
       payload = {};
     }
 
-    const ipHash = await sha256(getIpAddress(req));
+    const ipHash = await sha256Hex(getIpAddress(req));
     const deviceHash = payload.deviceHash?.trim() || null;
     const installationIdHash = payload.deviceInstallationId?.trim()
-      ? await sha256(payload.deviceInstallationId.trim())
+      ? await sha256Hex(payload.deviceInstallationId.trim())
       : null;
     const routePath = normalizePath(payload.path);
 
     const accessToken = getAccessToken(req);
     let authUserId: string | null = null;
+    const currentSessionId = accessToken ? getJwtClaims(accessToken)?.sessionId ?? null : null;
 
     if (accessToken) {
       authUserId = await resolveAuthUserId(serviceClient, accessToken);
@@ -167,6 +156,7 @@ Deno.serve(async (req: Request) => {
           userRecordResult,
           latestWarningResult,
           fingerprintResult,
+          sessionMetadataResult,
         ] = await Promise.all([
           serviceClient
             .from("users")
@@ -194,6 +184,14 @@ Deno.serve(async (req: Request) => {
               ignoreDuplicates: false,
             })
             : Promise.resolve({ error: null } as const),
+          currentSessionId
+            ? upsertUserSessionMetadata(serviceClient, {
+              userId: authUserId,
+              sessionId: currentSessionId,
+              userAgent: req.headers.get("user-agent"),
+              request: req,
+            }).then(() => ({ error: null } as const)).catch((error) => ({ error } as const))
+            : Promise.resolve({ error: null } as const),
         ]);
 
         if (userRecordResult.error) {
@@ -210,6 +208,10 @@ Deno.serve(async (req: Request) => {
 
         if (fingerprintResult.error) {
           console.error("check-access fingerprint upsert failed:", fingerprintResult.error);
+        }
+
+        if (sessionMetadataResult.error) {
+          console.error("check-access session metadata upsert failed:", sessionMetadataResult.error);
         }
       } catch (error) {
         console.error("Authenticated access evaluation failed:", error);

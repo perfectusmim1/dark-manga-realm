@@ -1,10 +1,12 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "jsr:@supabase/supabase-js@2";
 import { corsHeaders } from "../_shared/cors.ts";
+import { getJwtClaims, parseUserAgent, sha256Hex, upsertUserSessionMetadata } from "../_shared/session-tracking.ts";
 
 type StoredSessionMetadata = {
   id: string;
   user_id: string;
+  session_token_hash: string | null;
   browser: string | null;
   os: string | null;
   device_type: string | null;
@@ -24,12 +26,14 @@ type AuthSessionRecord = {
 
 type ParsedAuthSession = {
   sessionId: string;
+  sessionHash: string | null;
   browser: string;
   os: string;
   deviceType: string;
   country: string | null;
   city: string | null;
   region: string | null;
+  metadataId: string | null;
   createdAt: string;
   lastActiveAt: string;
   isCurrent: boolean;
@@ -111,76 +115,13 @@ const compareByActivity = (
   return toTimestamp(b.createdAt) - toTimestamp(a.createdAt);
 };
 
-const base64UrlDecode = (value: string) => {
-  const normalized = value.replace(/-/g, "+").replace(/_/g, "/");
-  const padding = normalized.length % 4;
-  const padded = padding === 0 ? normalized : normalized.padEnd(normalized.length + (4 - padding), "=");
-  return atob(padded);
-};
-
-const getJwtClaims = (accessToken: string) => {
-  try {
-    const [, payload] = accessToken.split(".");
-    if (!payload) {
-      return null;
-    }
-
-    const decoded = JSON.parse(base64UrlDecode(payload));
-    return {
-      userId: typeof decoded?.sub === "string" ? decoded.sub : null,
-      sessionId: typeof decoded?.session_id === "string" ? decoded.session_id : null,
-    };
-  } catch {
-    return null;
-  }
-};
-
-const parseUserAgent = (userAgent: string | null) => {
-  const ua = userAgent || "";
-
-  let browser = "Unknown";
-  if (/Firefox\//i.test(ua)) {
-    browser = "Firefox";
-  } else if (/Edg\//i.test(ua)) {
-    browser = "Edge";
-  } else if (/OPR\//i.test(ua)) {
-    browser = "Opera";
-  } else if (/Chrome\//i.test(ua)) {
-    browser = "Chrome";
-  } else if (/Safari\//i.test(ua)) {
-    browser = "Safari";
-  }
-
-  let os = "Unknown";
-  if (/Windows/i.test(ua)) {
-    os = "Windows";
-  } else if (/Android/i.test(ua)) {
-    os = "Android";
-  } else if (/iPhone|iPad|iPod/i.test(ua)) {
-    os = "iOS";
-  } else if (/Mac OS X|Macintosh/i.test(ua)) {
-    os = "macOS";
-  } else if (/Linux/i.test(ua)) {
-    os = "Linux";
-  }
-
-  let deviceType = "desktop";
-  if (/iPad|Tablet/i.test(ua)) {
-    deviceType = "tablet";
-  } else if (/Mobi|Mobile|Android/i.test(ua)) {
-    deviceType = "mobile";
-  }
-
-  return { browser, os, deviceType };
-};
-
 const loadStoredSessionMetadata = async (
   serviceClient: ReturnType<typeof createClient>,
   userId: string,
 ) => {
   const { data, error } = await serviceClient
     .from("user_sessions")
-    .select("id, user_id, browser, os, device_type, country, city, region, last_active_at, created_at")
+    .select("id, user_id, session_token_hash, browser, os, device_type, country, city, region, last_active_at, created_at")
     .eq("user_id", userId)
     .order("last_active_at", { ascending: false });
 
@@ -309,6 +250,21 @@ const findBestMetadataMatch = (
   session: ParsedAuthSession,
   metadataSessions: StoredSessionMetadata[],
 ) => {
+  if (session.sessionHash) {
+    const exactMatches = metadataSessions.filter((metadataSession) =>
+      metadataSession.session_token_hash === session.sessionHash
+    );
+
+    if (exactMatches.length > 0) {
+      return [...exactMatches].sort((a, b) =>
+        compareByActivity(
+          { lastActiveAt: a.last_active_at, createdAt: a.created_at },
+          { lastActiveAt: b.last_active_at, createdAt: b.created_at },
+        )
+      )[0];
+    }
+  }
+
   const sessionBrowserKey = getBrowserSessionKey(session);
   const candidates = metadataSessions.filter((metadataSession) =>
     getBrowserSessionKey(metadataSession) === sessionBrowserKey
@@ -345,16 +301,19 @@ const buildSessionContext = async (
     loadAuthSessions(serviceClient, userId),
   ]);
 
-  const parsedAuthSessions = authSessions.map((session) => {
+  const parsedAuthSessions = await Promise.all(authSessions.map(async (session) => {
     const parsed = parseUserAgent(session.user_agent);
+    const sessionHash = await sha256Hex(session.session_id);
     const parsedSession: ParsedAuthSession = {
       sessionId: session.session_id,
+      sessionHash,
       browser: parsed.browser,
       os: parsed.os,
       deviceType: parsed.deviceType,
       country: null,
       city: null,
       region: null,
+      metadataId: null,
       createdAt: session.created_at,
       lastActiveAt: session.last_active_at,
       isCurrent: session.session_id === currentSessionId,
@@ -365,10 +324,11 @@ const buildSessionContext = async (
       parsedSession.country = metadataMatch.country;
       parsedSession.city = metadataMatch.city;
       parsedSession.region = metadataMatch.region;
+      parsedSession.metadataId = metadataMatch.id;
     }
 
     return parsedSession;
-  });
+  }));
 
   const groupedSessions = new Map<string, ParsedAuthSession[]>();
 
@@ -404,7 +364,12 @@ const buildSessionContext = async (
       lastActiveAt: primary.lastActiveAt,
       isCurrent: sortedSessions.some((session) => session.isCurrent),
       authSessionIds: sortedSessions.map((session) => session.sessionId),
-      metadataIds,
+      metadataIds: Array.from(new Set([
+        ...sortedSessions
+          .map((session) => session.metadataId)
+          .filter((value): value is string => Boolean(value)),
+        ...metadataIds,
+      ])),
     } satisfies VisibleSessionGroup;
   }).sort(compareByActivity);
 
@@ -466,6 +431,17 @@ Deno.serve(async (req: Request) => {
     const userId = user.id;
     const currentSessionId = jwtClaims?.sessionId ?? null;
     const action = payload.action || "list";
+
+    if (currentSessionId) {
+      await upsertUserSessionMetadata(serviceClient, {
+        userId,
+        sessionId: currentSessionId,
+        userAgent: req.headers.get("user-agent"),
+        request: req,
+      }).catch((error) => {
+        console.error("user-sessions session metadata upsert failed:", error);
+      });
+    }
 
     if (action === "validate-current") {
       if (!currentSessionId) {
