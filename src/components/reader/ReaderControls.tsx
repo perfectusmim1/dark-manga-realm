@@ -1,4 +1,4 @@
-import React, { useState, useCallback } from 'react';
+import React, { useCallback, useDeferredValue, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -10,15 +10,15 @@ import {
   List,
   Home,
   BookOpen,
-  Eye,
-  EyeOff,
   Play,
   Pause,
-  Gauge
+  Gauge,
+  Search,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, Chapter } from '@/lib/types';
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
+import { Input } from '@/components/ui/input';
 import {
   Popover,
   PopoverContent,
@@ -28,6 +28,7 @@ import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
+import { cn } from '@/lib/utils';
 
 interface ReaderControlsProps {
   mangaId: string;
@@ -53,6 +54,10 @@ interface ReaderControlsProps {
   forceOfflineRead?: boolean;
   onBeforeChapterChange?: (chapter?: Chapter) => Promise<void> | void;
 }
+
+const normalizeChapterSearchValue = (value?: string | null) => (
+  value?.trim().toLocaleLowerCase('tr-TR') || ''
+);
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
   mangaId,
@@ -85,9 +90,24 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
   const [hoverPage, setHoverPage] = useState<number | null>(null);
   const [navigatingChapterId, setNavigatingChapterId] = useState<string | null>(null);
+  const [chapterSearch, setChapterSearch] = useState('');
   const seriesRouteKey = buildRouteKey(`/manga/${mangaId}`);
+  const deferredChapterSearch = useDeferredValue(normalizeChapterSearchValue(chapterSearch));
 
   const progressPercent = totalPages > 1 ? ((currentPage - 1) / (totalPages - 1)) * 100 : 0;
+  const chapterItems = useMemo(() => chapters.slice().reverse(), [chapters]);
+  const filteredChapters = useMemo(() => {
+    if (!deferredChapterSearch) {
+      return chapterItems;
+    }
+
+    return chapterItems.filter((chapterItem) => {
+      const searchTarget = normalizeChapterSearchValue(
+        `${chapterItem.number} ${chapterItem.title || ''} ${formatChapterDisplayTitle(chapterItem.number, chapterItem.title)}`
+      );
+      return searchTarget.includes(deferredChapterSearch);
+    });
+  }, [chapterItems, deferredChapterSearch]);
 
   const handleBarClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
@@ -145,95 +165,135 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div
-          className="container flex h-auto items-center justify-between gap-2 py-2 sm:h-14 sm:gap-4 sm:py-0"
+          className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-2 py-2 sm:h-14 sm:gap-4 sm:px-4 sm:py-0"
         >
-          <div className="flex items-center gap-2">
-            <Button asChild variant="ghost" size="icon" title="Ana Sayfa" aria-label="Ana sayfaya git">
+          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+            <Button asChild variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" title="Ana Sayfa" aria-label="Ana sayfaya git">
               <Link to="/">
-                <Home className="h-5 w-5" />
+                <Home className="h-4 w-4 sm:h-5 sm:w-5" />
               </Link>
             </Button>
-            <Button asChild variant="ghost" size="icon" title="Seri Sayfası" aria-label="Seri sayfasına git">
+            <Button asChild variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" title="Seri Sayfası" aria-label="Seri sayfasına git">
               <Link to={`/manga/${mangaId}`} onClick={handleSeriesPageNavigation}>
-                <BookOpen className="h-5 w-5" />
+                <BookOpen className="h-4 w-4 sm:h-5 sm:w-5" />
               </Link>
             </Button>
-            <div className="flex flex-col">
-              <span className="line-clamp-1 text-sm font-medium flex items-center gap-2">
+            <div className="min-w-0 flex-1">
+              <span className="line-clamp-1 block text-sm font-medium sm:text-sm">
                 {mangaTitle}
-                {isOfflineChapter && (
-                  <span className="rounded-full border border-blue-500/30 bg-blue-500/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-blue-300">
-                    Offline
-                  </span>
-                )}
               </span>
-              <span className="text-xs text-muted-foreground">
+              <span className="block truncate text-[11px] text-muted-foreground sm:text-xs">
                 {formatChapterDisplayTitle(currentChapter.number, currentChapter.title)}
               </span>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
-            {isOnline && (
-              <Button
-                variant="ghost"
-                size="icon"
-                title={isIncognito ? "Gizli Mod Açık (Geçmişe Kaydedilmiyor)" : "Gizli Modu Aç"}
-                onClick={() => {
-                  onIncognitoToggle(!isIncognito);
-                }}
-                className={isIncognito ? "text-purple-500 bg-purple-500/10 hover:text-purple-400 hover:bg-purple-500/20" : ""}
-              >
-                {isIncognito ? <EyeOff className="h-5 w-5" /> : <Eye className="h-5 w-5 opacity-50" />}
-              </Button>
-            )}
-
-            <Button variant="ghost" size="icon" onClick={onAddBookmark} title="Yer İmlerime Ekle">
-              <BookmarkPlus className="h-5 w-5" />
+          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" onClick={onAddBookmark} title="Yer İmlerime Ekle">
+              <BookmarkPlus className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
 
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <List className="h-5 w-5" />
+                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10">
+                  <List className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-64 max-h-80 overflow-auto">
-                <h4 className="mb-2 font-semibold">Bölümler</h4>
-                <div className="flex flex-col gap-1">
-                  {chapters.slice().reverse().map((ch) => (
-                    <button
-                      key={ch.id}
-                      type="button"
-                      onClick={() => void handleChapterNavigation(ch)}
-                      disabled={navigatingChapterId === ch.id}
-                      className={`rounded-lg px-3 py-2 text-sm transition-colors ${ch.id === currentChapter.id
-                        ? 'bg-primary text-primary-foreground hover:bg-primary/90'
-                        : 'hover:bg-secondary text-foreground'
-                        }`}
-                    >
-                      Bölüm {ch.number}
-                    </button>
-                  ))}
+              <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <h4 className="text-sm font-semibold sm:text-base">Bölümler</h4>
+                      <p className="text-[11px] text-muted-foreground sm:text-xs">
+                        {filteredChapters.length} bölüm
+                      </p>
+                    </div>
+                    {isOfflineChapter && (
+                      <span className="rounded-full border border-border bg-secondary/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                        Offline
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="relative">
+                    <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+                    <Input
+                      type="search"
+                      value={chapterSearch}
+                      onChange={(event) => setChapterSearch(event.target.value)}
+                      placeholder="Bölüm ara..."
+                      className="h-9 rounded-xl border-border/70 bg-background/70 pl-9 text-sm"
+                    />
+                  </div>
+
+                  <div className="max-h-[min(60vh,28rem)] space-y-2.5 overflow-y-auto pr-1">
+                    {filteredChapters.map((ch) => {
+                      const isCurrentChapter = ch.id === currentChapter.id;
+                      return (
+                        <button
+                          key={ch.id}
+                          type="button"
+                          onClick={() => void handleChapterNavigation(ch)}
+                          disabled={navigatingChapterId === ch.id}
+                          className={cn(
+                            'w-full rounded-2xl border px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-200',
+                            isCurrentChapter
+                              ? 'border-emerald-500/35 bg-emerald-500/[0.12] text-foreground shadow-[0_0_0_1px_rgba(16,185,129,0.12),0_10px_30px_rgba(6,95,70,0.16)]'
+                              : 'border-border/60 bg-card/60 text-foreground hover:border-border hover:bg-card/85',
+                            navigatingChapterId === ch.id && 'opacity-60'
+                          )}
+                        >
+                          <div className="flex items-center justify-between gap-3">
+                            <div className="min-w-0">
+                              <p className={cn(
+                                'truncate text-sm font-semibold',
+                                isCurrentChapter && 'text-emerald-50'
+                              )}>
+                                {formatChapterDisplayTitle(ch.number, ch.title)}
+                              </p>
+                              <p className={cn(
+                                'mt-1 text-[11px] text-muted-foreground',
+                                isCurrentChapter && 'text-emerald-100/75'
+                              )}>
+                                Bölüm {ch.number}
+                              </p>
+                            </div>
+                            {isCurrentChapter && (
+                              <span className="rounded-full border border-emerald-400/20 bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-100">
+                                Aktif
+                              </span>
+                            )}
+                          </div>
+                        </button>
+                      );
+                    })}
+
+                    {filteredChapters.length === 0 && (
+                      <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+                        Eşleşen bölüm bulunamadı.
+                      </div>
+                    )}
+                  </div>
                 </div>
               </PopoverContent>
             </Popover>
 
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon">
-                  <Settings className="h-5 w-5" />
+                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10">
+                  <Settings className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-64">
-                <h4 className="mb-4 font-semibold">Okuyucu Ayarları</h4>
-                <div className="flex flex-col gap-4">
+              <PopoverContent align="end" className="w-[min(20rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:w-72 sm:p-4">
+                <h4 className="mb-3 text-sm font-semibold sm:mb-4 sm:text-base">Okuyucu Ayarları</h4>
+                <div className="flex flex-col gap-3 sm:gap-4">
                   <div className="flex items-center justify-between">
-                    <Label>Okuma Modu</Label>
+                    <Label className="text-sm">Okuma Modu</Label>
                     <div className="flex gap-1">
                       <Button
                         variant={settings.mode === 'vertical' ? 'default' : 'ghost'}
                         size="icon"
+                        className="h-8 w-8"
                         onClick={() => onSettingsChange({ ...settings, mode: 'vertical' })}
                       >
                         <Rows className="h-4 w-4" />
@@ -241,6 +301,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       <Button
                         variant={settings.mode === 'horizontal' ? 'default' : 'ghost'}
                         size="icon"
+                        className="h-8 w-8"
                         onClick={() => onSettingsChange({ ...settings, mode: 'horizontal' })}
                       >
                         <Columns className="h-4 w-4" />
@@ -249,7 +310,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   </div>
                   <div className="flex flex-col gap-2">
                     <div className="flex items-center justify-between">
-                      <Label>Zoom (%{settings.zoom || 100})</Label>
+                      <Label className="text-sm">Zoom (%{settings.zoom || 100})</Label>
                       <Button
                         variant="ghost"
                         size="sm"
@@ -268,27 +329,41 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     />
                   </div>
                   <div className="flex items-center justify-between">
-                    <Label>Genişliğe Sığdır</Label>
+                    <Label className="text-sm">Genişliğe Sığdır</Label>
                     <Switch
                       checked={settings.fitWidth}
                       onCheckedChange={(checked) => onSettingsChange({ ...settings, fitWidth: checked })}
                     />
                   </div>
                   <div className="flex items-center justify-between">
-                    <Label>İlerleme Göster</Label>
+                    <Label className="text-sm">İlerleme Göster</Label>
                     <Switch
                       checked={settings.showProgress}
                       onCheckedChange={(checked) => onSettingsChange({ ...settings, showProgress: checked })}
                     />
                   </div>
+                  {isOnline && (
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm">Gizli Mod</Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Okuma verileri kaydedilmez.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={isIncognito}
+                        onCheckedChange={onIncognitoToggle}
+                      />
+                    </div>
+                  )}
                   <div className="flex items-center justify-between gap-4">
                     <div className="space-y-0.5">
-                      <Label>Sayfa Yorumlarını Göster</Label>
+                      <Label className="text-sm">Sayfa Yorumlarını Göster</Label>
                       <p className="text-[11px] text-muted-foreground">
                         Mevcut sayfanın yorumlarını kenar boşluklarında gösterir.
                       </p>
                       <p className="text-[11px] text-amber-300/80">
-                        Not: Mobil görünüm için uyumlu değildir, sıkışık görünebilir.
+                        Mobil görünüm için uygun değildir.
                       </p>
                     </div>
                     <Switch
@@ -297,12 +372,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     />
                   </div>
                   <div className="flex items-center justify-between gap-4">
-                    <div className="space-y-0.5">
-                      <Label>Sonraki Bölümü Önbelleğe Al</Label>
-                      <p className="text-[11px] text-muted-foreground">
-                        Sonraki bölüm arka planda hazırlanır. Geçiş daha hızlı olur.
-                      </p>
-                    </div>
+                    <Label className="text-sm">Sonraki Bölümü Önbelleğe Al</Label>
                     <Switch
                       checked={settings.prefetchNextChapter}
                       onCheckedChange={(checked) => onSettingsChange({ ...settings, prefetchNextChapter: checked })}
@@ -322,7 +392,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         onMouseDown={(e) => e.stopPropagation()}
       >
         <div
-          className="container flex h-14 items-center justify-between gap-4"
+          className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-2 sm:gap-4 sm:px-4"
         >
           <Button
             variant="ghost"

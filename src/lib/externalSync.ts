@@ -92,6 +92,24 @@ export interface ExternalLibrarySyncResponse {
   };
 }
 
+export interface ExternalLibraryImportResponse {
+  success: boolean;
+  provider: ExternalSyncProvider;
+  totalRemoteEntries: number;
+  matchedEntries: number;
+  unmatchedEntries: number;
+  summary: {
+    libraryImported: number;
+    ratingsImported: number;
+    progressImported: number;
+    syncStateUpdated: number;
+    skippedExistingLibrary: number;
+    skippedExistingRatings: number;
+    skippedExistingProgress: number;
+  };
+  unmatchedTitles: string[];
+}
+
 const MAL_MANGA_ID_PATTERN = /\/manga\/(\d+)/i;
 const ANILIST_MANGA_ID_PATTERN = /\/manga\/(\d+)/i;
 
@@ -291,6 +309,21 @@ export const syncLibraryToExternalProviders = async (params?: {
 
   if (!response?.success) {
     throw new Error(response?.message || 'Harici kütüphane senkronu başarısız oldu');
+  }
+
+  return response;
+};
+
+export const importLibraryFromExternalProvider = async (provider: ExternalSyncProvider) => {
+  const response = await invokeAuthenticatedFunction<ExternalLibraryImportResponse & {
+    message?: string;
+  }>('external-sync', {
+    action: 'import-library',
+    provider,
+  });
+
+  if (!response?.success) {
+    throw new Error(response?.message || 'Harici kütüphane içe aktarma başarısız oldu');
   }
 
   return response;

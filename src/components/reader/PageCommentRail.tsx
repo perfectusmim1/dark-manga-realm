@@ -1,14 +1,15 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { AlertTriangle, Eye, EyeOff, MessageCircle, Reply, ThumbsUp } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, MessageCircle, Reply, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import StaffBadge from '@/components/user/StaffBadge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getStaffTextClassName } from '@/lib/staffRoles';
 import { Comment } from '@/lib/types';
-import { getEntityCommentsV2, toggleCommentLike } from '@/lib/database';
+import { getEntityCommentsV2, toggleCommentDislike, toggleCommentLike } from '@/lib/database';
+import { applyOptimisticReaction, getReactionScore, hasReaction, type ReactionType } from '@/lib/reactions';
 import { createCommentNotification } from '@/lib/storage';
 import { PAGE_COMMENTS_UPDATED_EVENT, PageCommentsUpdatedDetail } from '@/lib/pageCommentEvents';
 import { toast } from 'sonner';
@@ -47,6 +48,25 @@ const getPreviewMedia = (comment: Comment) => comment.gifUrl || comment.mediaUrl
 
 const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+const sortCommentsForRail = (items: Comment[]) => items.slice().sort((a, b) => {
+    const pinDiff = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+    if (pinDiff !== 0) {
+        return pinDiff;
+    }
+
+    const scoreDiff = getReactionScore(b) - getReactionScore(a);
+    if (scoreDiff !== 0) {
+        return scoreDiff;
+    }
+
+    const likeDiff = b.likes - a.likes;
+    if (likeDiff !== 0) {
+        return likeDiff;
+    }
+
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+});
+
 const PageCommentRail: React.FC<PageCommentRailProps> = ({
     mangaId,
     mangaTitle,
@@ -59,6 +79,7 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
     const [refreshTick, setRefreshTick] = useState(0);
     const [layout, setLayout] = useState<RailLayout | null>(null);
     const [revealedSpoilers, setRevealedSpoilers] = useState<Record<string, boolean>>({});
+    const [pendingCommentReactions, setPendingCommentReactions] = useState<Record<string, boolean>>({});
 
     useEffect(() => {
         if (!enabled || !mangaId || !chapterId || currentPage < 1) {
@@ -245,11 +266,19 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
         }));
     };
 
-    const handleLike = async (commentId: string, event: React.MouseEvent<HTMLButtonElement>) => {
+    const handleReaction = async (
+        commentId: string,
+        reactionType: ReactionType,
+        event: React.MouseEvent<HTMLButtonElement>,
+    ) => {
         event.stopPropagation();
 
         if (!user) {
-            toast.error('Beğenmek için giriş yapmalısınız');
+            toast.error('Tepki bırakmak için giriş yapmalısınız');
+            return;
+        }
+
+        if (pendingCommentReactions[commentId]) {
             return;
         }
 
@@ -258,27 +287,27 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
             return;
         }
 
-        const wasLiked = targetComment.likedBy.includes(user.id);
-        const nextComments = comments.map((comment) => {
+        const wasLiked = hasReaction(targetComment, user.id, 'like');
+        const previousComments = comments;
+        const nextComments = sortCommentsForRail(comments.map((comment) => {
             if (comment.id !== commentId) {
                 return comment;
             }
 
-            return {
-                ...comment,
-                likes: Math.max(0, comment.likes + (wasLiked ? -1 : 1)),
-                likedBy: wasLiked
-                    ? comment.likedBy.filter((likedUserId) => likedUserId !== user.id)
-                    : [...comment.likedBy, user.id],
-            };
-        });
+            return applyOptimisticReaction(comment, user.id, reactionType);
+        }));
 
+        setPendingCommentReactions((previous) => ({ ...previous, [commentId]: true }));
         applyCommentsToCache(nextComments);
 
         try {
-            await toggleCommentLike(commentId, user.id, 'manga');
+            if (reactionType === 'like') {
+                await toggleCommentLike(commentId, user.id, 'manga');
+            } else {
+                await toggleCommentDislike(commentId, user.id, 'manga');
+            }
 
-            if (!wasLiked && targetComment.userId !== user.id) {
+            if (reactionType === 'like' && !wasLiked && targetComment.userId !== user.id) {
                 await createCommentNotification(
                     targetComment.userId,
                     'like',
@@ -293,9 +322,15 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
                 );
             }
         } catch (error) {
-            console.error('Page comment rail like error:', error);
-            applyCommentsToCache(comments);
-            toast.error('Beğeni güncellenemedi');
+            console.error('Page comment rail reaction error:', error);
+            applyCommentsToCache(previousComments);
+            toast.error('Tepki güncellenemedi');
+        } finally {
+            setPendingCommentReactions((previous) => {
+                const next = { ...previous };
+                delete next[commentId];
+                return next;
+            });
         }
     };
 
@@ -354,15 +389,29 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
 
                                 <button
                                     type="button"
-                                    onClick={(event) => handleLike(comment.id, event)}
+                                    onClick={(event) => void handleReaction(comment.id, 'like', event)}
+                                    disabled={Boolean(pendingCommentReactions[comment.id])}
                                     className={`flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors ${
-                                        comment.likedBy.includes(user?.id || '')
-                                            ? 'border-sky-400/40 bg-sky-400/15 text-sky-200'
-                                            : 'border-white/10 bg-white/5 text-sky-300 hover:border-sky-300/30 hover:bg-sky-400/10'
+                                        hasReaction(comment, user?.id, 'like')
+                                            ? 'border-emerald-400/40 bg-emerald-500/15 text-emerald-200'
+                                            : 'border-white/10 bg-white/5 text-emerald-300 hover:border-emerald-300/30 hover:bg-emerald-500/10'
                                     }`}
                                 >
                                     <ThumbsUp className="h-3 w-3" />
                                     <span className="font-semibold">{comment.likes}</span>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={(event) => void handleReaction(comment.id, 'dislike', event)}
+                                    disabled={Boolean(pendingCommentReactions[comment.id])}
+                                    className={`flex items-center gap-1 rounded-full border px-2 py-1 text-[10px] transition-colors ${
+                                        hasReaction(comment, user?.id, 'dislike')
+                                            ? 'border-red-400/40 bg-red-500/15 text-red-200'
+                                            : 'border-white/10 bg-white/5 text-red-300 hover:border-red-300/30 hover:bg-red-500/10'
+                                    }`}
+                                >
+                                    <ThumbsDown className="h-3 w-3" />
+                                    <span className="font-semibold">{comment.dislikes}</span>
                                 </button>
                             </div>
 

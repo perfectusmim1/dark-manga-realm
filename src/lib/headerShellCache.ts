@@ -8,7 +8,6 @@ export interface HeaderShellUser {
   username: string;
   email: string;
   avatar?: string;
-  role?: User['role'];
   preferences?: User['preferences'];
 }
 
@@ -34,7 +33,6 @@ const sanitizeHeaderUser = (user: User): HeaderShellUser => ({
   username: user.username,
   email: user.email,
   avatar: user.avatar,
-  role: user.role,
   preferences: user.preferences,
 });
 
@@ -75,7 +73,6 @@ export const readHeaderShellSnapshot = (): HeaderShellSnapshot | null => {
         username: parsed.user.username || 'user',
         email: parsed.user.email || '',
         avatar: parsed.user.avatar,
-        role: parsed.user.role,
         preferences: parsed.user.preferences,
       },
       unreadNotificationCount: Number(parsed.unreadNotificationCount) || 0,

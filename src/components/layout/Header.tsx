@@ -74,7 +74,6 @@ import { useHeaderShellSnapshot } from '@/hooks/useHeaderShellSnapshot';
 import { shouldRenderHeaderBootstrap } from '@/components/layout/HeaderBootstrapShell';
 
 const CHARACTER_MENU_LONG_PRESS_MS = 320;
-const SuperSearch = lazy(() => import('./SuperSearch'));
 const NotificationDropdown = lazy(() => import('@/components/notifications/NotificationDropdown'));
 const AnnouncementDropdown = lazy(() => import('@/components/notifications/AnnouncementDropdown'));
 
@@ -129,18 +128,6 @@ const HeaderCounterShell = ({
   </Button>
 );
 
-const HeaderQuickSearchShell = () => (
-  <Button
-    type="button"
-    variant="ghost"
-    size="icon"
-    className="h-9 w-9 rounded-full hover:bg-secondary/80"
-    aria-label="Arama"
-  >
-    <Search className="h-5 w-5 text-muted-foreground" />
-  </Button>
-);
-
 export const GlobalHeaderEnabledContext = React.createContext(false);
 
 const characterMenuItems = [
@@ -183,8 +170,7 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   const shouldHideEmbeddedHeader = !persistent && globalHeaderEnabled && shouldRenderHeaderBootstrap(location.pathname);
   const shellUser = authLoading && !user ? headerShellSnapshot?.user ?? null : null;
   const displayUser = user ?? shellUser;
-  const isAdmin = access.canAccessAdminPanel || displayUser?.role === 'admin';
-  const showSecondaryHeaderSearch = displayUser?.preferences?.appearance?.show_header_search_bar ?? true;
+  const isAdmin = Boolean(displayUser && access.canAccessAdminPanel);
   const showHeaderOfflineToggle = displayUser?.preferences?.appearance?.show_header_offline_toggle ?? true;
   const canUseCachedHeaderCounts = Boolean(displayUser && headerShellSnapshot?.user?.id === displayUser.id);
   const cachedAnnouncementCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadAnnouncementCount || 0 : 0;
@@ -212,10 +198,6 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   const authorSearchLoadPromiseRef = useRef<Promise<Author[]> | null>(null);
   const artistSearchLoadPromiseRef = useRef<Promise<Artist[]> | null>(null);
   const deferredSearchQuery = useDeferredValue(searchQuery);
-
-  if (shouldHideEmbeddedHeader) {
-    return null;
-  }
 
   const ensureMangasLoaded = async () => {
     if (!isOnline) {
@@ -721,6 +703,10 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
     </Tooltip>
   );
 
+  if (shouldHideEmbeddedHeader) {
+    return null;
+  }
+
   return (
     <TooltipProvider>
     <header className={`fixed top-0 left-0 right-0 z-50 border-b border-border/50 ${disableHeavyEffects ? 'bg-background/95' : 'bg-background/80 backdrop-blur-xl'}`}>
@@ -987,15 +973,8 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
             </Button>
           )}
 
-          {/* Notifications & Search */}
+          {/* Notifications */}
           <div className="flex items-center gap-1">
-            {showSecondaryHeaderSearch && (
-              <div className="hidden md:block">
-                <Suspense fallback={<HeaderQuickSearchShell />}>
-                  <SuperSearch />
-                </Suspense>
-              </div>
-            )}
             <Button
               variant="ghost"
               size="icon"

@@ -3,26 +3,10 @@ import { useAuth } from '@/contexts/AuthContext';
 import type { AdminAccessContext } from '@/lib/database';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { isExpectedAccessControlError } from '@/lib/supabase';
-import type { User } from '@/lib/types';
 
 const DEFAULT_ACCESS: AdminAccessContext = {
     canAccessAdminPanel: false,
     isPrimaryAdmin: false,
-};
-
-const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
-
-const getRoleBasedAccess = (user?: Pick<User, 'id' | 'role' | 'email'> | null) => {
-    if (user?.role === 'admin') {
-        return {
-            userId: user.id,
-            role: 'admin',
-            canAccessAdminPanel: true,
-            isPrimaryAdmin: user.email?.toLowerCase() === PRIMARY_ADMIN_EMAIL,
-        } satisfies AdminAccessContext;
-    }
-
-    return DEFAULT_ACCESS;
 };
 
 type AdminAccessModule = {
@@ -47,8 +31,8 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean }) 
     const { user, isLoading: authLoading } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
     const requireOnlineValidation = options?.requireOnlineValidation ?? false;
-    const [access, setAccess] = useState<AdminAccessContext>(() => getRoleBasedAccess(user));
-    const [isLoading, setIsLoading] = useState(() => Boolean(user?.id && user.role !== 'admin'));
+    const [access, setAccess] = useState<AdminAccessContext>(DEFAULT_ACCESS);
+    const [isLoading, setIsLoading] = useState(() => Boolean(user?.id));
 
     useEffect(() => {
         if (authLoading) {
@@ -62,11 +46,6 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean }) 
                 setAccess(DEFAULT_ACCESS);
                 setIsLoading(false);
                 return;
-            }
-
-            if (user.role === 'admin') {
-                setAccess(getRoleBasedAccess(user));
-                setIsLoading(requireOnlineValidation && isOnline);
             }
 
             const { getAdminAccessContext, getCachedAdminAccessContext } = await loadAdminAccessModule();
@@ -87,6 +66,7 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean }) 
                 setAccess(cachedAccess);
                 setIsLoading(requireOnlineValidation);
             } else {
+                setAccess(DEFAULT_ACCESS);
                 setIsLoading(true);
             }
 
@@ -115,7 +95,7 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean }) 
         return () => {
             isCancelled = true;
         };
-    }, [authLoading, isOnline, requireOnlineValidation, user?.email, user?.id, user?.role]);
+    }, [authLoading, isOnline, requireOnlineValidation, user?.id]);
 
     return {
         access,

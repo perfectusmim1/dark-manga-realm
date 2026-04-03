@@ -10,7 +10,7 @@ import { useAdminAccess } from '@/hooks/useAdminAccess';
 
 const AdminLogin: React.FC = () => {
     const { user, loginWithGoogle } = useAuth();
-    const { access, isLoading: accessLoading } = useAdminAccess();
+    const { access, isLoading: accessLoading } = useAdminAccess({ requireOnlineValidation: true });
     const navigate = useNavigate();
     const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');

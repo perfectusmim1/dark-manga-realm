@@ -1,4 +1,4 @@
-import { Bell, Megaphone, Menu, Search, Shield, Star, Users, type LucideIcon } from 'lucide-react';
+import { Bell, Megaphone, Menu, Search, Star, Users, type LucideIcon } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
@@ -43,8 +43,6 @@ const HeaderBootstrapShell = () => {
   const location = useLocation();
   const headerShellSnapshot = useHeaderShellSnapshot();
   const headerUser = headerShellSnapshot?.user || null;
-  const isAdmin = headerUser?.role === 'admin';
-  const showHeaderSearch = headerUser?.preferences?.appearance?.show_header_search_bar ?? true;
 
   if (!shouldRenderHeaderBootstrap(location.pathname)) {
     return null;
@@ -104,23 +102,7 @@ const HeaderBootstrapShell = () => {
         </div>
 
         <div className="flex items-center gap-2">
-          {isAdmin ? (
-            <div className="hidden items-center rounded-md px-3 py-2 text-sm font-medium text-foreground/80 md:flex">
-              <Shield className="mr-2 h-4 w-4" />
-              Admin
-            </div>
-          ) : null}
-
           <div className="flex items-center gap-1">
-            {showHeaderSearch ? (
-              <div className="hidden md:block">
-                <div className="flex h-9 items-center rounded-full border border-border/60 bg-background/70 px-3 text-sm text-muted-foreground">
-                  <Search className="mr-2 h-4 w-4" />
-                  <span className="max-w-[15rem] truncate">Manga, karakter, yazar veya çizer ara...</span>
-                </div>
-              </div>
-            ) : null}
-
             <Button variant="ghost" size="icon" className="h-9 w-9 md:hidden" aria-label="Gezinti menüsü">
               <Menu className="h-5 w-5" />
             </Button>

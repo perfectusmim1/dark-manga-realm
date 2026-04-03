@@ -32,6 +32,7 @@ import {
     Clock,
     Link2,
     RefreshCcw,
+    ArrowDownToLine,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -56,6 +57,7 @@ import {
     beginExternalProviderAuth,
     disconnectExternalProvider,
     getExternalSyncStatuses,
+    importLibraryFromExternalProvider,
     normalizeExternalSyncPreferences,
     syncLibraryToExternalProviders,
 } from '@/lib/externalSync';
@@ -76,7 +78,6 @@ type PreferenceState = {
     };
     appearance: {
         manga_hover_preview: boolean;
-        show_header_search_bar: boolean;
         show_header_offline_toggle: boolean;
     };
     privacy: {
@@ -125,6 +126,10 @@ const EMPTY_EXTERNAL_PROVIDER_STATUS: ExternalProviderStatus = {
     lastErrorAt: null,
 };
 
+const getExternalProviderLabel = (provider: ExternalSyncProvider) => (
+    provider === 'myanimelist' ? 'MyAnimeList' : 'AniList'
+);
+
 const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceState => ({
     notifications: {
         new_chapter: preferences?.notifications?.new_chapter ?? true,
@@ -140,7 +145,6 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
     },
     appearance: {
         manga_hover_preview: preferences?.appearance?.manga_hover_preview ?? false,
-        show_header_search_bar: preferences?.appearance?.show_header_search_bar ?? true,
         show_header_offline_toggle: preferences?.appearance?.show_header_offline_toggle ?? true,
     },
     privacy: {
@@ -249,7 +253,7 @@ const Settings: React.FC = () => {
         anilist: EMPTY_EXTERNAL_PROVIDER_STATUS,
     });
     const [isExternalStatusesLoading, setIsExternalStatusesLoading] = useState(false);
-    const [providerBusyState, setProviderBusyState] = useState<Record<ExternalSyncProvider, 'idle' | 'connecting' | 'disconnecting' | 'syncing'>>({
+    const [providerBusyState, setProviderBusyState] = useState<Record<ExternalSyncProvider, 'idle' | 'connecting' | 'disconnecting' | 'syncing' | 'importing'>>({
         myanimelist: 'idle',
         anilist: 'idle',
     });
@@ -641,6 +645,58 @@ const Settings: React.FC = () => {
         }
     };
 
+    const handleImportProviderLibrary = async (provider: ExternalSyncProvider) => {
+        if (!isOnline) {
+            toast.error(onlineRequiredMessage);
+            return;
+        }
+
+        const providerLabel = getExternalProviderLabel(provider);
+
+        try {
+            setProviderBusyState((current) => ({ ...current, [provider]: 'importing' }));
+            const response = await importLibraryFromExternalProvider(provider);
+            const {
+                libraryImported,
+                ratingsImported,
+                progressImported,
+                skippedExistingLibrary,
+                skippedExistingRatings,
+                skippedExistingProgress,
+            } = response.summary;
+            const importedPieces = [
+                libraryImported > 0 ? `${libraryImported} kütüphane kaydı` : null,
+                ratingsImported > 0 ? `${ratingsImported} puan` : null,
+                progressImported > 0 ? `${progressImported} ilerleme` : null,
+            ].filter(Boolean) as string[];
+            const skippedCount = skippedExistingLibrary + skippedExistingRatings + skippedExistingProgress;
+
+            if (response.matchedEntries === 0) {
+                toast.info(`${providerLabel} listesindeki kayıtlar için sitede eşleşen seri bulunamadı.`);
+                return;
+            }
+
+            if (importedPieces.length === 0) {
+                toast.info(`${providerLabel} içe aktarma tamamlandı. ${response.matchedEntries} seri eşleşti ama mevcut site kayıtları korunarak yeni veri yazılmadı.`);
+                return;
+            }
+
+            const summaryText = `${providerLabel} içe aktarma tamamlandı: ${importedPieces.join(', ')} aktarıldı.`;
+
+            if (response.unmatchedEntries > 0 || skippedCount > 0) {
+                toast.warning(`${summaryText} ${response.unmatchedEntries} seri eşleşmedi, ${skippedCount} alan mevcut yerel veri olduğu için atlandı.`);
+                return;
+            }
+
+            toast.success(summaryText);
+        } catch (error) {
+            toast.error(error instanceof Error ? error.message : 'Kütüphane içe aktarma başarısız oldu');
+        } finally {
+            await loadExternalStatuses();
+            setProviderBusyState((current) => ({ ...current, [provider]: 'idle' }));
+        }
+    };
+
     const handleSyncProviderLibrary = async (provider: ExternalSyncProvider) => {
         if (!isOnline) {
             toast.error(onlineRequiredMessage);
@@ -838,17 +894,26 @@ const Settings: React.FC = () => {
                         <div className="flex flex-col gap-2 sm:items-end">
                             {providerStatus.connected ? (
                                 <>
-                                    <Button
-                                        variant="secondary"
-                                        onClick={() => void handleSyncProviderLibrary(provider)}
-                                        disabled={isBusy || isUpdatingPrefs || !providerPrefs.enabled}
-                                    >
-                                        {providerBusyState[provider] === 'syncing' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-                                        {!providerPrefs.enabled && providerBusyState[provider] !== 'syncing' && <RefreshCcw className="mr-2 h-4 w-4" />}
-                                        {providerBusyState[provider] !== 'syncing' ? 'Kütüphaneyi Senkronla' : 'Senkronlanıyor...'}
-                                    </Button>
-                                    <Button
-                                        variant="outline"
+                                        <Button
+                                            variant="outline"
+                                            onClick={() => void handleImportProviderLibrary(provider)}
+                                            disabled={isBusy || isUpdatingPrefs}
+                                        >
+                                            {providerBusyState[provider] === 'importing' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            {providerBusyState[provider] !== 'importing' && <ArrowDownToLine className="mr-2 h-4 w-4" />}
+                                            {providerBusyState[provider] === 'importing' ? 'İçe Aktarılıyor...' : 'Siteye Aktar'}
+                                        </Button>
+                                        <Button
+                                            variant="secondary"
+                                            onClick={() => void handleSyncProviderLibrary(provider)}
+                                            disabled={isBusy || isUpdatingPrefs || !providerPrefs.enabled}
+                                        >
+                                            {providerBusyState[provider] === 'syncing' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                                            {!providerPrefs.enabled && providerBusyState[provider] !== 'syncing' && <RefreshCcw className="mr-2 h-4 w-4" />}
+                                            {providerBusyState[provider] !== 'syncing' ? 'Siteden Gönder' : 'Gönderiliyor...'}
+                                        </Button>
+                                        <Button
+                                            variant="outline"
                                         onClick={() => void handleDisconnectProvider(provider)}
                                         disabled={isBusy || isUpdatingPrefs}
                                     >
@@ -921,6 +986,10 @@ const Settings: React.FC = () => {
                                 MyAnimeList resmi API&apos;si liste alanlarını yazabiliyor, fakat favori ekleme/çıkarma için resmi yazılabilir bir uç nokta sunmuyor.
                             </p>
                         )}
+
+                        <p className="text-sm text-muted-foreground">
+                            İçe aktarma yalnızca sitede {label} bağlantısı bulunan serilerde çalışır ve mevcut yerel kütüphane, puan veya ilerleme verisini ezmeden eksik alanları doldurur.
+                        </p>
                     </div>
                 </CardContent>
             </Card>
@@ -1741,21 +1810,6 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             appearance: { ...prefs.appearance, manga_hover_preview: checked }
-                                        }, 'Tercihler güncellendi')}
-                                        disabled={isUpdatingPrefs}
-                                    />
-                                </div>
-                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                                    <div className="flex min-w-0 flex-col space-y-1">
-                                        <Label htmlFor="show-header-search-bar">2. Arama Çubuğunu Göster</Label>
-                                        <p className="text-sm text-muted-foreground">Sağ üstteki küçük arama düğmesini görünür tut.</p>
-                                    </div>
-                                    <Switch
-                                        id="show-header-search-bar"
-                                        checked={prefs.appearance?.show_header_search_bar ?? true}
-                                        onCheckedChange={(checked) => handleUpdatePreferences({
-                                            ...prefs,
-                                            appearance: { ...prefs.appearance, show_header_search_bar: checked }
                                         }, 'Tercihler güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />

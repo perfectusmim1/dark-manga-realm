@@ -31,6 +31,7 @@ import StaffBadge from '@/components/user/StaffBadge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
+import ConfirmDialog from '@/components/ui/confirm-dialog';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -48,6 +49,7 @@ import {
   deleteReview,
   getUserReview,
   toggleReviewLike,
+  toggleReviewDislike,
   getSimilarMangas,
   getMangaCharacters,
   createMangaReport,
@@ -71,6 +73,7 @@ import {
 } from '../lib/storage';
 import {
   MessageSquare,
+  ThumbsDown,
   ThumbsUp,
   Plus,
   Send,
@@ -121,6 +124,7 @@ import {
   refreshMangaExternalRatings,
   syncMangaToExternalProviders,
 } from '@/lib/externalSync';
+import { applyOptimisticReaction, hasReaction, type ReactionType } from '@/lib/reactions';
 
 const categoryLabels: Record<LibraryCategory, string> = {
   reading: 'Okuyorum',
@@ -490,6 +494,8 @@ const MangaDetail: React.FC = () => {
   const [userReview, setUserReview] = useState<Partial<Review>>(createDefaultUserReview);
   const [isSubmittingReview, setIsSubmittingReview] = useState(false);
   const [deletingReviewId, setDeletingReviewId] = useState<string | null>(null);
+  const [reviewPendingDelete, setReviewPendingDelete] = useState<Review | null>(null);
+  const [pendingReviewReactions, setPendingReviewReactions] = useState<Record<string, boolean>>({});
   const [similarMangas, setSimilarMangas] = useState<Manga[]>([]);
   const [loadingSimilar, setLoadingSimilar] = useState(false);
   const [mangaCharacters, setMangaCharacters] = useState<any[]>([]);
@@ -563,6 +569,9 @@ const MangaDetail: React.FC = () => {
   const reviewCount = useMemo(() => (
     Math.max(manga?.reviewCount || 0, averageRating.count || 0)
   ), [averageRating.count, manga?.reviewCount]);
+  const characterCount = useMemo(() => (
+    Math.max(manga?.characterCount || 0, mangaCharacters.length)
+  ), [manga?.characterCount, mangaCharacters.length]);
   const seriesGalleryImages = useMemo(() => {
     const rawGallery = manga?.details?.extra?.seriesGallery;
     if (!Array.isArray(rawGallery)) {
@@ -1735,11 +1744,19 @@ const MangaDetail: React.FC = () => {
         getAverageRating(manga.id),
         getReviewsForManga(manga.id)
       ]);
+      const ownReview = newReviews.find((review) => review.userId === user.id);
 
       setAverageRating(newAvg);
       setReviews(newReviews);
       setHasLoadedReviews(true);
-      setUserRating(getReviewAverageScore(userReview));
+      setUserReview(ownReview ? { ...ownReview } : {
+        ...userReview,
+        userId: user.id,
+        username: user.username,
+        userAvatar: user.avatar,
+        content: normalizedReviewContent,
+      });
+      setUserRating(getReviewAverageScore(ownReview || userReview));
       setAvgBreakdown({
         story: (newAvg as any).story || 0,
         characters: (newAvg as any).characters || 0,
@@ -1771,16 +1788,20 @@ const MangaDetail: React.FC = () => {
       return;
     }
 
-    const isOwnReview = review.userId === user.id;
-    const confirmed = window.confirm(
-      isOwnReview
-        ? 'İncelemenizi silmek istediğinize emin misiniz?'
-        : `${review.username} kullanıcısının incelemesini silmek istediğinize emin misiniz?`,
-    );
-
-    if (!confirmed) {
+    if (deletingReviewId) {
       return;
     }
+
+    setReviewPendingDelete(review);
+  };
+
+  const confirmDeleteReview = async () => {
+    if (!reviewPendingDelete || !user || !manga) {
+      return;
+    }
+
+    const review = reviewPendingDelete;
+    const isOwnReview = review.userId === user.id;
 
     try {
       setDeletingReviewId(review.id);
@@ -1813,29 +1834,65 @@ const MangaDetail: React.FC = () => {
       console.error('Review delete error:', error);
       toast.error('İnceleme silinemedi');
     } finally {
+      setReviewPendingDelete(null);
       setDeletingReviewId(null);
     }
   };
 
-  const toggleLikeReview = async (reviewId: string) => {
+  const handleReviewReaction = async (reviewId: string, reactionType: ReactionType) => {
     if (!isOnline) {
-      toast.error('Begeni islemi icin internet baglantisi gerekli');
+      toast.error('Tepki işlemi için internet bağlantısı gerekli');
       return;
     }
 
     if (!user) {
-      toast.error('Beğenmek için giriş yapmalısınız');
+      toast.error('Tepki bırakmak için giriş yapmalısınız');
       return;
     }
 
-    try {
-      await toggleReviewLike(reviewId, user.id);
-      const newReviews = await getReviewsForManga(manga.id);
-      setReviews(newReviews);
-      setHasLoadedReviews(true);
-    } catch (err) {
-      console.error('Like error:', err);
+    if (pendingReviewReactions[reviewId]) {
+      return;
     }
+
+    const previousReviews = reviews;
+    if (!reviews.some((review) => review.id === reviewId)) {
+      return;
+    }
+
+    const nextReviews = reviews.map((review) => (
+      review.id === reviewId
+        ? applyOptimisticReaction(review, user.id, reactionType)
+        : review
+    ));
+
+    setPendingReviewReactions((previous) => ({ ...previous, [reviewId]: true }));
+    setReviews(nextReviews);
+
+    try {
+      if (reactionType === 'like') {
+        await toggleReviewLike(reviewId, user.id);
+      } else {
+        await toggleReviewDislike(reviewId, user.id);
+      }
+    } catch (err) {
+      console.error('Review reaction error:', err);
+      setReviews(previousReviews);
+      toast.error('Tepki güncellenemedi');
+    } finally {
+      setPendingReviewReactions((previous) => {
+        const next = { ...previous };
+        delete next[reviewId];
+        return next;
+      });
+    }
+  };
+
+  const toggleLikeReview = async (reviewId: string) => {
+    await handleReviewReaction(reviewId, 'like');
+  };
+
+  const toggleDislikeReview = async (reviewId: string) => {
+    await handleReviewReaction(reviewId, 'dislike');
   };
 
   const formatDate = (dateString: string) => {
@@ -2492,9 +2549,9 @@ const MangaDetail: React.FC = () => {
                   className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
                 >
                   KARAKTERLER
-                  {mangaCharacters.length > 0 && (
+                  {characterCount > 0 && (
                     <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
-                      {mangaCharacters.length}
+                      {characterCount}
                     </Badge>
                   )}
                 </TabsTrigger>
@@ -3180,7 +3237,7 @@ const MangaDetail: React.FC = () => {
                           </div>
                         </div>
 
-                        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-between">
+                        <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:justify-end">
                           {userReview.id ? (
                             <Button
                               className="w-full sm:w-auto sm:mr-auto"
@@ -3195,9 +3252,7 @@ const MangaDetail: React.FC = () => {
                               <Trash2 className="mr-2 h-4 w-4" />
                               {deletingReviewId === userReview.id ? 'Siliniyor...' : 'İncelemeyi Sil'}
                             </Button>
-                          ) : (
-                            <div className="hidden sm:block" />
-                          )}
+                          ) : null}
                           <Button className="w-full sm:w-auto" variant="ghost" onClick={() => setIsReviewModalOpen(false)}>İptal</Button>
                           <Button className="w-full sm:w-auto" variant="glow" onClick={handleReviewSubmit} disabled={isSubmittingReview}>
                             {isSubmittingReview ? 'Kaydediliyor...' : (userReview.id ? 'Güncelle' : 'Yayınla')}
@@ -3307,15 +3362,34 @@ const MangaDetail: React.FC = () => {
                                 </div>
 
                                 <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
-                                  <Button
-                                    variant="ghost"
-                                    size="sm"
-                                    className={`gap-2 ${review.likedBy.includes(user?.id || '') ? 'text-primary bg-primary/10' : ''}`}
-                                    onClick={() => toggleLikeReview(review.id)}
-                                  >
-                                    <ThumbsUp className={`h-4 w-4 ${review.likedBy.includes(user?.id || '') ? 'fill-current' : ''}`} />
-                                    <span>{review.likes}</span>
-                                  </Button>
+                                  <div className="flex items-center gap-2">
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={Boolean(pendingReviewReactions[review.id])}
+                                      className={cn(
+                                        'gap-2 hover:bg-emerald-500/10 hover:text-emerald-500',
+                                        hasReaction(review, user?.id, 'like') && 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15 hover:text-emerald-500'
+                                      )}
+                                      onClick={() => void toggleLikeReview(review.id)}
+                                    >
+                                      <ThumbsUp className={`h-4 w-4 ${hasReaction(review, user?.id, 'like') ? 'fill-current' : ''}`} />
+                                      <span>{review.likes}</span>
+                                    </Button>
+                                    <Button
+                                      variant="ghost"
+                                      size="sm"
+                                      disabled={Boolean(pendingReviewReactions[review.id])}
+                                      className={cn(
+                                        'gap-2 hover:bg-red-500/10 hover:text-red-500',
+                                        hasReaction(review, user?.id, 'dislike') && 'bg-red-500/10 text-red-500 hover:bg-red-500/15 hover:text-red-500'
+                                      )}
+                                      onClick={() => void toggleDislikeReview(review.id)}
+                                    >
+                                      <ThumbsDown className={`h-4 w-4 ${hasReaction(review, user?.id, 'dislike') ? 'fill-current' : ''}`} />
+                                      <span>{review.dislikes}</span>
+                                    </Button>
+                                  </div>
                                   {canDeleteReview(review) && review.userId !== user?.id && (
                                     <Button
                                       variant="ghost"
@@ -3511,6 +3585,27 @@ const MangaDetail: React.FC = () => {
           userId={user.id}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(reviewPendingDelete)}
+        onOpenChange={(open) => {
+          if (!open && !deletingReviewId) {
+            setReviewPendingDelete(null);
+          }
+        }}
+        title="İnceleme silinsin mi?"
+        description={
+          reviewPendingDelete
+            ? reviewPendingDelete.userId === user?.id
+              ? 'İncelemeniz kalıcı olarak silinecek. Bu işlem geri alınamaz.'
+              : `${reviewPendingDelete.username} kullanıcısının incelemesi kalıcı olarak silinecek. Bu işlem geri alınamaz.`
+            : ''
+        }
+        confirmLabel={deletingReviewId ? 'Siliniyor...' : 'Sil'}
+        cancelLabel="Vazgeç"
+        onConfirm={() => void confirmDeleteReview()}
+        destructive
+      />
     </div>
   );
 };

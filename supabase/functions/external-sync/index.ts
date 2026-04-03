@@ -180,6 +180,436 @@ const getProviderScore = (provider: ExternalSyncProvider, score?: number | null)
   return Math.round(boundedScore * 10) / 10;
 };
 
+const MAL_API_BASE_URL = "https://api.myanimelist.net/v2";
+const IMPORT_UPSERT_BATCH_SIZE = 200;
+const IMPORT_CHAPTER_PROGRESS_BATCH_SIZE = 500;
+
+type AniListMediaListStatus =
+  | "CURRENT"
+  | "PLANNING"
+  | "COMPLETED"
+  | "PAUSED"
+  | "DROPPED"
+  | "REPEATING";
+
+type RemoteImportEntry = {
+  remoteMediaId: string;
+  fallbackMyAnimeListId?: string | null;
+  title: string;
+  status: LocalLibraryStatus | null;
+  progress: number;
+  score: number | null;
+  startedAt: string | null;
+  completedAt: string | null;
+  favorite: boolean | null;
+  totalChapters: number | null;
+};
+
+type ImportableMangaRow = {
+  id: string;
+  title?: string | null;
+  source_links?: unknown;
+};
+
+type ImportableChapterRow = {
+  id: string;
+  manga_id: string;
+  number: number;
+  pages?: string[] | null;
+};
+
+type ExternalLibraryImportResponse = {
+  success: boolean;
+  provider: ExternalSyncProvider;
+  totalRemoteEntries: number;
+  matchedEntries: number;
+  unmatchedEntries: number;
+  summary: {
+    libraryImported: number;
+    ratingsImported: number;
+    progressImported: number;
+    syncStateUpdated: number;
+    skippedExistingLibrary: number;
+    skippedExistingRatings: number;
+    skippedExistingProgress: number;
+  };
+  unmatchedTitles: string[];
+};
+
+const chunkArray = <T,>(items: T[], size: number) => {
+  if (items.length === 0) {
+    return [] as T[][];
+  }
+
+  const chunks: T[][] = [];
+  for (let index = 0; index < items.length; index += size) {
+    chunks.push(items.slice(index, index + size));
+  }
+
+  return chunks;
+};
+
+const toDateOnlyFromAniListFuzzy = (
+  value?: { year?: number | null; month?: number | null; day?: number | null } | null,
+) => {
+  const year = Number(value?.year || 0);
+  const month = Number(value?.month || 0);
+  const day = Number(value?.day || 0);
+
+  if (!year || !month || !day) {
+    return null;
+  }
+
+  return `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+};
+
+const mapMyAnimeListStatusToLocal = (status?: string | null): LocalLibraryStatus | null => {
+  const normalized = normalizeText(status).toLowerCase();
+  switch (normalized) {
+    case "reading":
+      return "reading";
+    case "plan_to_read":
+      return "plan_to_read";
+    case "completed":
+      return "completed";
+    case "on_hold":
+      return "on_hold";
+    case "dropped":
+      return "dropped";
+    default:
+      return null;
+  }
+};
+
+const mapAniListStatusToLocal = (status?: string | null): LocalLibraryStatus | null => {
+  const normalized = normalizeText(status).toUpperCase();
+  switch (normalized as AniListMediaListStatus) {
+    case "CURRENT":
+      return "reading";
+    case "PLANNING":
+      return "plan_to_read";
+    case "COMPLETED":
+      return "completed";
+    case "PAUSED":
+      return "on_hold";
+    case "DROPPED":
+      return "dropped";
+    case "REPEATING":
+      return "reading";
+    default:
+      return null;
+  }
+};
+
+const normalizeImportProgressCount = (value: unknown, totalChapters?: number | null) => {
+  const numericValue = typeof value === "number" ? value : Number(value);
+  if (!Number.isFinite(numericValue) || numericValue <= 0) {
+    return 0;
+  }
+
+  const clampedValue = Math.max(0, Math.floor(numericValue));
+  if (typeof totalChapters === "number" && Number.isFinite(totalChapters) && totalChapters > 0) {
+    return Math.min(clampedValue, Math.floor(totalChapters));
+  }
+
+  return clampedValue;
+};
+
+const getPageCountForImportedChapter = (chapter?: Pick<ImportableChapterRow, "pages"> | null) => {
+  if (!Array.isArray(chapter?.pages) || chapter.pages.length === 0) {
+    return 1;
+  }
+
+  return chapter.pages.length;
+};
+
+const getLocalSourceMaps = (mangaRows: ImportableMangaRow[]) => {
+  const byMyAnimeListId = new Map<string, ImportableMangaRow>();
+  const byAniListId = new Map<string, ImportableMangaRow>();
+
+  for (const mangaRow of mangaRows) {
+    const malId = getProviderMediaId(getProviderLink(mangaRow.source_links, "myanimelist"));
+    if (malId) {
+      byMyAnimeListId.set(malId, mangaRow);
+    }
+
+    const aniListId = getProviderMediaId(getProviderLink(mangaRow.source_links, "anilist"));
+    if (aniListId) {
+      byAniListId.set(aniListId, mangaRow);
+    }
+  }
+
+  return {
+    byMyAnimeListId,
+    byAniListId,
+  };
+};
+
+const fetchMyAnimeListImportEntries = async (accessToken: string): Promise<RemoteImportEntry[]> => {
+  const entries: RemoteImportEntry[] = [];
+  let nextUrl = `${MAL_API_BASE_URL}/users/@me/mangalist?limit=1000&nsfw=true&fields=list_status,num_chapters`;
+
+  while (nextUrl) {
+    const response = await fetch(nextUrl, {
+      headers: {
+        Authorization: `Bearer ${accessToken}`,
+        Accept: "application/json",
+      },
+    });
+
+    const payload = await response.json().catch(() => null) as {
+      data?: Array<{
+        node?: {
+          id?: number | null;
+          title?: string | null;
+          num_chapters?: number | null;
+        } | null;
+        list_status?: {
+          status?: string | null;
+          num_chapters_read?: number | null;
+          score?: number | null;
+          start_date?: string | null;
+          finish_date?: string | null;
+        } | null;
+      }> | null;
+      paging?: {
+        next?: string | null;
+      } | null;
+      message?: string;
+      error?: string;
+    } | null;
+
+    if (!response.ok) {
+      const message = normalizeText(payload?.message || payload?.error)
+        || `MyAnimeList liste verisi alinamadi (${response.status})`;
+      throw new Error(message);
+    }
+
+    for (const item of payload?.data || []) {
+      const mediaId = normalizeText(String(item?.node?.id || ""));
+      if (!mediaId) {
+        continue;
+      }
+
+      entries.push({
+        remoteMediaId: mediaId,
+        title: normalizeText(item?.node?.title) || `Manga #${mediaId}`,
+        status: mapMyAnimeListStatusToLocal(item?.list_status?.status),
+        progress: normalizeImportProgressCount(item?.list_status?.num_chapters_read, item?.node?.num_chapters ?? null),
+        score: toFiniteScore(item?.list_status?.score),
+        startedAt: toDateOnly(item?.list_status?.start_date) || null,
+        completedAt: toDateOnly(item?.list_status?.finish_date) || null,
+        favorite: null,
+        totalChapters: Number.isFinite(Number(item?.node?.num_chapters))
+          ? Math.max(0, Math.floor(Number(item?.node?.num_chapters)))
+          : null,
+      });
+    }
+
+    nextUrl = normalizeText(payload?.paging?.next);
+  }
+
+  return entries;
+};
+
+const fetchAniListImportEntries = async (
+  accessToken: string,
+  providerUserId?: string | null,
+): Promise<RemoteImportEntry[]> => {
+  const viewerId = Number(providerUserId || 0);
+  const response = await runAniListGraphQL<{
+    data?: {
+      MediaListCollection?: {
+        lists?: Array<{
+          entries?: Array<{
+            status?: AniListMediaListStatus | null;
+            progress?: number | null;
+            score?: number | null;
+            startedAt?: { year?: number | null; month?: number | null; day?: number | null } | null;
+            completedAt?: { year?: number | null; month?: number | null; day?: number | null } | null;
+            media?: {
+              id?: number | null;
+              idMal?: number | null;
+              chapters?: number | null;
+              isFavourite?: boolean | null;
+              title?: {
+                userPreferred?: string | null;
+                romaji?: string | null;
+                english?: string | null;
+                native?: string | null;
+              } | null;
+            } | null;
+          }> | null;
+        }> | null;
+      } | null;
+    };
+    errors?: Array<{ message?: string }>;
+  }>(
+    accessToken,
+    `
+      query ToonParrotImportAniListMangaLibrary($userId: Int) {
+        MediaListCollection(userId: $userId, type: MANGA) {
+          lists {
+            entries {
+              status
+              progress
+              score(format: POINT_10_DECIMAL)
+              startedAt {
+                year
+                month
+                day
+              }
+              completedAt {
+                year
+                month
+                day
+              }
+              media {
+                id
+                idMal
+                chapters
+                isFavourite
+                title {
+                  userPreferred
+                  romaji
+                  english
+                  native
+                }
+              }
+            }
+          }
+        }
+      }
+    `,
+    viewerId > 0 ? { userId: viewerId } : {},
+  );
+
+  const errorMessage = getAniListGraphQLErrorMessage(response);
+  if (errorMessage) {
+    throw new Error(errorMessage);
+  }
+
+  const entries: RemoteImportEntry[] = [];
+  for (const list of response?.data?.MediaListCollection?.lists || []) {
+    for (const entry of list?.entries || []) {
+      const mediaId = normalizeText(String(entry?.media?.id || ""));
+      if (!mediaId) {
+        continue;
+      }
+
+      const title = normalizeText(
+        entry?.media?.title?.userPreferred
+        || entry?.media?.title?.english
+        || entry?.media?.title?.romaji
+        || entry?.media?.title?.native,
+      ) || `Manga #${mediaId}`;
+      const totalChapters = Number.isFinite(Number(entry?.media?.chapters))
+        ? Math.max(0, Math.floor(Number(entry?.media?.chapters)))
+        : null;
+
+      entries.push({
+        remoteMediaId: mediaId,
+        fallbackMyAnimeListId: normalizeText(String(entry?.media?.idMal || "")) || null,
+        title,
+        status: mapAniListStatusToLocal(entry?.status),
+        progress: normalizeImportProgressCount(entry?.progress, totalChapters),
+        score: toFiniteScore(entry?.score),
+        startedAt: toDateOnlyFromAniListFuzzy(entry?.startedAt) || null,
+        completedAt: toDateOnlyFromAniListFuzzy(entry?.completedAt) || null,
+        favorite: toNullableBoolean(entry?.media?.isFavourite),
+        totalChapters,
+      });
+    }
+  }
+
+  return entries;
+};
+
+const upsertRowsInChunks = async (
+  serviceClient: ReturnType<typeof createServiceClient>,
+  tableName: string,
+  rows: Record<string, unknown>[],
+  onConflict: string,
+  chunkSize = IMPORT_UPSERT_BATCH_SIZE,
+) => {
+  for (const chunk of chunkArray(rows, chunkSize)) {
+    const { error } = await serviceClient
+      .from(tableName as any)
+      .upsert(chunk as any, { onConflict });
+
+    if (error) {
+      throw error;
+    }
+  }
+};
+
+const buildImportedChapterProgress = (params: {
+  userId: string;
+  mangaId: string;
+  remoteProgress: number;
+  remoteStatus: LocalLibraryStatus | null;
+  chapters: ImportableChapterRow[];
+  importedAt: string;
+}) => {
+  const sortedChapters = [...params.chapters].sort(
+    (left, right) => Number(left.number) - Number(right.number) || left.id.localeCompare(right.id),
+  );
+  const readCount = Math.min(Math.max(0, params.remoteProgress), sortedChapters.length);
+  if (readCount <= 0 || sortedChapters.length === 0) {
+    return {
+      chapterRows: [] as Record<string, unknown>[],
+      readingProgressRow: null as Record<string, unknown> | null,
+      importedReadCount: 0,
+    };
+  }
+
+  const readChapters = sortedChapters.slice(0, readCount);
+  const nextUnreadChapter = sortedChapters[readCount] || null;
+  const lastReadChapter = readChapters[readChapters.length - 1] || null;
+
+  const chapterRows = readChapters.map((chapter, index) => {
+    const pageCount = getPageCountForImportedChapter(chapter);
+    const readAt = new Date(Date.parse(params.importedAt) + (index * 1000)).toISOString();
+
+    return {
+      user_id: params.userId,
+      manga_id: params.mangaId,
+      chapter_id: chapter.id,
+      chapter_number: chapter.number,
+      page: pageCount,
+      page_count: pageCount,
+      max_page: pageCount,
+      read_progress_percent: 100,
+      is_read: true,
+      last_read: readAt,
+      created_at: readAt,
+      updated_at: readAt,
+    };
+  });
+
+  const resumeChapter = params.remoteStatus === "completed" || !nextUnreadChapter
+    ? lastReadChapter
+    : nextUnreadChapter;
+  const resumePage = params.remoteStatus === "completed" || !nextUnreadChapter
+    ? getPageCountForImportedChapter(lastReadChapter)
+    : 1;
+
+  return {
+    chapterRows,
+    readingProgressRow: resumeChapter
+      ? {
+        user_id: params.userId,
+        manga_id: params.mangaId,
+        chapter_id: resumeChapter.id,
+        chapter_number: resumeChapter.number,
+        page: resumePage,
+        last_read: params.importedAt,
+      }
+      : null,
+    importedReadCount: readCount,
+  };
+};
+
 const redirect = (location: string) =>
   new Response(null, {
     status: 302,
@@ -1007,6 +1437,364 @@ const syncMangaRecord = async (params: {
   };
 };
 
+const importProviderLibrary = async (req: Request, body: any) => {
+  const requester = await requireRequester(req);
+  if (!requester.ok) {
+    return requester.response;
+  }
+
+  const provider = normalizeProvider(body?.provider);
+  if (!provider) {
+    return json({ success: false, message: "Geçersiz sağlayıcı" }, 400);
+  }
+
+  const { data: accountRow, error: accountError } = await requester.serviceClient
+    .from("external_provider_accounts")
+    .select("*")
+    .eq("user_id", requester.requesterProfile.id)
+    .eq("provider", provider)
+    .maybeSingle();
+
+  if (accountError) {
+    return json({ success: false, message: "Sağlayıcı hesabı okunamadı" }, 500);
+  }
+
+  if (!accountRow) {
+    return json({ success: false, message: "Bu sağlayıcı önce bağlanmalı" }, 400);
+  }
+
+  try {
+    const activeAccount = await ensureProviderAccessToken(requester.serviceClient, accountRow as ExternalProviderAccountRow);
+    const effectiveProviderUserId = provider === "anilist" && !normalizeText(activeAccount.provider_user_id)
+      ? normalizeText(String((await getProviderViewer(provider, activeAccount.access_token) as any)?.data?.Viewer?.id || ""))
+      : normalizeText(activeAccount.provider_user_id);
+    const rawRemoteEntries = provider === "myanimelist"
+      ? await fetchMyAnimeListImportEntries(activeAccount.access_token)
+      : await fetchAniListImportEntries(activeAccount.access_token, effectiveProviderUserId);
+    const remoteEntries = [...new Map(
+      rawRemoteEntries.map((entry) => [`${entry.remoteMediaId}:${entry.fallbackMyAnimeListId || ""}`, entry]),
+    ).values()];
+
+    const response: ExternalLibraryImportResponse = {
+      success: true,
+      provider,
+      totalRemoteEntries: remoteEntries.length,
+      matchedEntries: 0,
+      unmatchedEntries: 0,
+      summary: {
+        libraryImported: 0,
+        ratingsImported: 0,
+        progressImported: 0,
+        syncStateUpdated: 0,
+        skippedExistingLibrary: 0,
+        skippedExistingRatings: 0,
+        skippedExistingProgress: 0,
+      },
+      unmatchedTitles: [],
+    };
+
+    if (remoteEntries.length === 0) {
+      await clearProviderAccountError(requester.serviceClient, requester.requesterProfile.id, provider);
+      return json(response);
+    }
+
+    const { data: mangaRows, error: mangaError } = await requester.serviceClient
+      .from("mangas")
+      .select("id, title, source_links");
+
+    if (mangaError) {
+      throw mangaError;
+    }
+
+    const sourceMaps = getLocalSourceMaps((mangaRows || []) as ImportableMangaRow[]);
+    const matchedEntries = remoteEntries.flatMap((entry) => {
+      const matchedManga = provider === "myanimelist"
+        ? sourceMaps.byMyAnimeListId.get(entry.remoteMediaId)
+        : sourceMaps.byAniListId.get(entry.remoteMediaId)
+          || (entry.fallbackMyAnimeListId ? sourceMaps.byMyAnimeListId.get(entry.fallbackMyAnimeListId) : undefined);
+
+      if (!matchedManga) {
+        response.unmatchedEntries += 1;
+        if (response.unmatchedTitles.length < 15) {
+          response.unmatchedTitles.push(entry.title);
+        }
+        return [];
+      }
+
+      return [{
+        entry,
+        manga: matchedManga,
+      }];
+    });
+
+    response.matchedEntries = matchedEntries.length;
+
+    if (matchedEntries.length === 0) {
+      await clearProviderAccountError(requester.serviceClient, requester.requesterProfile.id, provider);
+      return json(response);
+    }
+
+    const matchedMangaIds = [...new Set(matchedEntries.map((item) => item.manga.id))];
+    const [
+      { data: favoriteRows },
+      { data: ratingRows },
+      { data: reviewRows },
+      { data: readingRows },
+      { data: chapterProgressRows },
+      { data: syncRows },
+    ] = await Promise.all([
+      requester.serviceClient
+        .from("favorites")
+        .select("manga_id, category, added_at")
+        .eq("user_id", requester.requesterProfile.id)
+        .in("manga_id", matchedMangaIds),
+      requester.serviceClient
+        .from("ratings")
+        .select("manga_id, rating, created_at")
+        .eq("user_id", requester.requesterProfile.id)
+        .in("manga_id", matchedMangaIds),
+      requester.serviceClient
+        .from("reviews")
+        .select("manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement, updated_at, created_at")
+        .eq("user_id", requester.requesterProfile.id)
+        .in("manga_id", matchedMangaIds),
+      requester.serviceClient
+        .from("reading_progress")
+        .select("manga_id, chapter_id, chapter_number, page, last_read")
+        .eq("user_id", requester.requesterProfile.id)
+        .in("manga_id", matchedMangaIds),
+      requester.serviceClient
+        .from("chapter_read_progress")
+        .select("manga_id, chapter_id, is_read")
+        .eq("user_id", requester.requesterProfile.id)
+        .in("manga_id", matchedMangaIds),
+      requester.serviceClient
+        .from("external_sync_state")
+        .select("*")
+        .eq("user_id", requester.requesterProfile.id)
+        .eq("provider", provider)
+        .in("manga_id", matchedMangaIds),
+    ]);
+
+    const favoriteMap = new Map<string, any>();
+    for (const row of favoriteRows || []) {
+      favoriteMap.set(row.manga_id, row);
+    }
+
+    const ratingMap = new Map<string, any>();
+    for (const row of ratingRows || []) {
+      ratingMap.set(row.manga_id, row);
+    }
+
+    const reviewMap = new Map<string, any>();
+    for (const row of reviewRows || []) {
+      reviewMap.set(row.manga_id, row);
+    }
+
+    const readingMap = new Map<string, any>();
+    for (const row of readingRows || []) {
+      readingMap.set(row.manga_id, row);
+    }
+
+    const chapterProgressPresence = new Set<string>();
+    const chapterReadCountByManga = new Map<string, number>();
+    for (const row of chapterProgressRows || []) {
+      chapterProgressPresence.add(row.manga_id);
+      if (row.is_read) {
+        chapterReadCountByManga.set(
+          row.manga_id,
+          (chapterReadCountByManga.get(row.manga_id) || 0) + 1,
+        );
+      }
+    }
+
+    const syncStateByManga = new Map<string, any>();
+    for (const row of syncRows || []) {
+      syncStateByManga.set(row.manga_id, row);
+    }
+
+    const progressCandidateMangaIds = [...new Set(
+      matchedEntries
+        .filter(({ entry, manga }) => (
+          entry.progress > 0
+          && !readingMap.has(manga.id)
+          && !chapterProgressPresence.has(manga.id)
+        ))
+        .map(({ manga }) => manga.id),
+    )];
+
+    const chaptersByMangaId = new Map<string, ImportableChapterRow[]>();
+    if (progressCandidateMangaIds.length > 0) {
+      const { data: chapterRows, error: chapterError } = await requester.serviceClient
+        .from("chapters")
+        .select("id, manga_id, number, pages")
+        .in("manga_id", progressCandidateMangaIds);
+
+      if (chapterError) {
+        throw chapterError;
+      }
+
+      for (const row of chapterRows || []) {
+        const bucket = chaptersByMangaId.get(row.manga_id) || [];
+        bucket.push({
+          id: row.id,
+          manga_id: row.manga_id,
+          number: Number(row.number),
+          pages: Array.isArray(row.pages) ? row.pages : [],
+        });
+        chaptersByMangaId.set(row.manga_id, bucket);
+      }
+    }
+
+    const nowIso = new Date().toISOString();
+    const favoriteUpserts: Record<string, unknown>[] = [];
+    const ratingUpserts: Record<string, unknown>[] = [];
+    const readingProgressUpserts: Record<string, unknown>[] = [];
+    const chapterProgressUpserts: Record<string, unknown>[] = [];
+    const syncStateUpserts: Record<string, unknown>[] = [];
+
+    for (const { entry, manga } of matchedEntries) {
+      const existingFavorite = favoriteMap.get(manga.id);
+      const existingRating = ratingMap.get(manga.id);
+      const existingReview = reviewMap.get(manga.id);
+      const existingReading = readingMap.get(manga.id);
+      const existingSyncState = syncStateByManga.get(manga.id);
+
+      const remoteCategory = entry.status || (entry.favorite ? "plan_to_read" : null);
+      const remoteScore = typeof entry.score === "number" && entry.score > 0
+        ? entry.score
+        : null;
+      const importTimestamp = entry.completedAt
+        ? `${entry.completedAt}T23:59:59.000Z`
+        : entry.startedAt
+          ? `${entry.startedAt}T12:00:00.000Z`
+          : nowIso;
+
+      if (!existingFavorite && remoteCategory) {
+        favoriteUpserts.push({
+          user_id: requester.requesterProfile.id,
+          manga_id: manga.id,
+          category: remoteCategory,
+          added_at: entry.startedAt || entry.completedAt || nowIso,
+        });
+        response.summary.libraryImported += 1;
+      } else if (existingFavorite && remoteCategory) {
+        response.summary.skippedExistingLibrary += 1;
+      }
+
+      if (!existingRating && !existingReview && typeof remoteScore === "number") {
+        ratingUpserts.push({
+          user_id: requester.requesterProfile.id,
+          manga_id: manga.id,
+          rating: remoteScore,
+          created_at: importTimestamp,
+        });
+        response.summary.ratingsImported += 1;
+      } else if ((existingRating || existingReview) && typeof remoteScore === "number") {
+        response.summary.skippedExistingRatings += 1;
+      }
+
+      let importedReadCount: number | null = null;
+      if (entry.progress > 0) {
+        if (!existingReading && !chapterProgressPresence.has(manga.id)) {
+          const progressPlan = buildImportedChapterProgress({
+            userId: requester.requesterProfile.id,
+            mangaId: manga.id,
+            remoteProgress: entry.progress,
+            remoteStatus: remoteCategory,
+            chapters: chaptersByMangaId.get(manga.id) || [],
+            importedAt: importTimestamp,
+          });
+
+          if (progressPlan.chapterRows.length > 0) {
+            chapterProgressUpserts.push(...progressPlan.chapterRows);
+            if (progressPlan.readingProgressRow) {
+              readingProgressUpserts.push(progressPlan.readingProgressRow);
+            }
+            importedReadCount = progressPlan.importedReadCount;
+            response.summary.progressImported += 1;
+          }
+        } else {
+          response.summary.skippedExistingProgress += 1;
+        }
+      }
+
+      const localScore = getPreferredLocalScore({
+        ratingRow: existingRating,
+        reviewRow: existingReview,
+      });
+      const finalLocalStatus = (normalizeText(existingFavorite?.category) as LocalLibraryStatus | "") || remoteCategory;
+      const finalLocalScore = typeof localScore === "number"
+        ? localScore
+        : remoteScore;
+      const finalReadCount = importedReadCount
+        ?? Math.max(
+          Number(chapterReadCountByManga.get(manga.id) || 0),
+          Number(existingReading?.chapter_number || 0),
+        );
+      const finalStartedAt = entry.startedAt
+        || toDateOnly(existingSyncState?.last_synced_started_at)
+        || null;
+      const finalCompletedAt = finalLocalStatus === "completed"
+        ? (
+          entry.completedAt
+          || toDateOnly(existingSyncState?.last_synced_completed_at)
+          || null
+        )
+        : null;
+      const finalFavoriteState = provider === "anilist"
+        ? Boolean(existingFavorite || (!existingFavorite && remoteCategory) || entry.favorite)
+        : toNullableBoolean(existingSyncState?.last_synced_favorite);
+      const nextSyncedStatus = provider === "myanimelist"
+        ? mapStatusToMyAnimeList(finalLocalStatus)
+        : mapStatusToAniList(finalLocalStatus);
+      const nextSyncedScore = getProviderScore(provider, finalLocalScore);
+
+      syncStateUpserts.push({
+        user_id: requester.requesterProfile.id,
+        manga_id: manga.id,
+        provider,
+        remote_media_id: entry.remoteMediaId,
+        remote_review_id: normalizeText(existingSyncState?.remote_review_id) || null,
+        last_synced_status: nextSyncedStatus || existingSyncState?.last_synced_status || null,
+        last_synced_progress: finalReadCount > 0
+          ? finalReadCount
+          : existingSyncState?.last_synced_progress ?? null,
+        last_synced_score: typeof nextSyncedScore === "number"
+          ? nextSyncedScore
+          : existingSyncState?.last_synced_score ?? null,
+        last_synced_started_at: finalStartedAt,
+        last_synced_completed_at: finalCompletedAt,
+        last_synced_favorite: provider === "anilist" ? finalFavoriteState : null,
+        last_review_hash: normalizeText(existingSyncState?.last_review_hash) || null,
+        last_sync_at: nowIso,
+        last_error: null,
+        last_error_at: null,
+      });
+      response.summary.syncStateUpdated += 1;
+    }
+
+    await upsertRowsInChunks(requester.serviceClient, "favorites", favoriteUpserts, "user_id,manga_id");
+    await upsertRowsInChunks(requester.serviceClient, "ratings", ratingUpserts, "manga_id,user_id");
+    await upsertRowsInChunks(requester.serviceClient, "reading_progress", readingProgressUpserts, "user_id,manga_id");
+    await upsertRowsInChunks(
+      requester.serviceClient,
+      "chapter_read_progress",
+      chapterProgressUpserts,
+      "user_id,chapter_id",
+      IMPORT_CHAPTER_PROGRESS_BATCH_SIZE,
+    );
+    await upsertRowsInChunks(requester.serviceClient, "external_sync_state", syncStateUpserts, "user_id,manga_id,provider");
+
+    await clearProviderAccountError(requester.serviceClient, requester.requesterProfile.id, provider);
+    return json(response);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Kütüphane içe aktarma başarısız oldu";
+    await setProviderAccountError(requester.serviceClient, requester.requesterProfile.id, provider, message);
+    return json({ success: false, message }, 500);
+  }
+};
+
 const handleCallback = async (req: Request) => {
   const url = new URL(req.url);
   const provider = normalizeProvider(url.searchParams.get("provider"));
@@ -1374,6 +2162,8 @@ Deno.serve(async (req) => {
       return await syncSingleManga(req, body);
     case "sync-library":
       return await syncLibrary(req, body);
+    case "import-library":
+      return await importProviderLibrary(req, body);
     default:
       return json({ success: false, message: "Geçersiz action" }, 400);
   }

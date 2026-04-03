@@ -1,3 +1,4 @@
+import { isStoredMediaUrl } from '@/lib/mediaStorage';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
 const DATA_URL_IMAGE_PREFIX = 'data:image';
 const IMAGE_FAILURE_CACHE_KEY = 'toonparrot_offline_image_failures_v1';
@@ -106,11 +107,12 @@ const shouldUsePersistentRemoteFetch = () => {
 };
 
 export const shouldAttemptPersistentImageCache = (sourceUrl?: string | null) => {
-  if (!sourceUrl?.trim()) {
+  const normalizedSourceUrl = sourceUrl?.trim();
+  if (!normalizedSourceUrl || isStoredMediaUrl(normalizedSourceUrl)) {
     return false;
   }
 
-  const retryAt = readFailureCache()[getFailureCacheKey(sourceUrl.trim())];
+  const retryAt = readFailureCache()[getFailureCacheKey(normalizedSourceUrl)];
   return typeof retryAt !== 'number' || retryAt <= Date.now();
 };
 

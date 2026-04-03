@@ -59,6 +59,7 @@ import {
 } from '@/lib/characterRoles';
 import { sanitizeCharacterDescription } from '@/lib/descriptionSanitizers';
 import { sanitizeEntityImageUrl } from '@/lib/entityImages';
+import { getReactionScore, type ReactionType } from './reactions';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
     value?.trim().replace(/\s+/g, ' ') || '';
@@ -289,6 +290,95 @@ const toLegacyMangaPersonLabel = (value?: string | null) => {
 
 type RichEntityType = 'character' | 'author' | 'artist';
 type CommentEntityType = 'manga' | RichEntityType;
+type ReactionIdColumn = 'comment_id' | 'review_id';
+
+const getCommentReactionTableNames = (entityType: CommentEntityType) => ({
+    like: entityType === 'manga' ? 'comment_likes' : `${entityType}_comment_likes`,
+    dislike: entityType === 'manga' ? 'comment_dislikes' : `${entityType}_comment_dislikes`,
+});
+
+const getReviewReactionTableNames = () => ({
+    like: 'review_likes',
+    dislike: 'review_dislikes',
+});
+
+const getUserReactionIds = async (
+    tableName: string,
+    idColumn: ReactionIdColumn,
+    userId?: string,
+): Promise<string[]> => {
+    if (!userId) {
+        return [];
+    }
+
+    const { data, error } = await supabase
+        .from(tableName as any)
+        .select(idColumn as any)
+        .eq('user_id', userId);
+
+    if (error) {
+        console.error('Fetch user reactions error:', { tableName, idColumn, error });
+        return [];
+    }
+
+    return ((data as any[]) || [])
+        .map((row) => row?.[idColumn])
+        .filter((value): value is string => typeof value === 'string' && value.length > 0);
+};
+
+const toggleBinaryReaction = async (
+    tableName: string,
+    oppositeTableName: string,
+    idColumn: ReactionIdColumn,
+    itemId: string,
+    userId: string,
+): Promise<void> => {
+    const { data: existing, error: fetchError } = await supabase
+        .from(tableName as any)
+        .select(idColumn as any)
+        .eq(idColumn, itemId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (fetchError) {
+        throw fetchError;
+    }
+
+    if (existing) {
+        const { error: deleteError } = await supabase
+            .from(tableName as any)
+            .delete()
+            .eq(idColumn, itemId)
+            .eq('user_id', userId);
+
+        if (deleteError) {
+            throw deleteError;
+        }
+
+        return;
+    }
+
+    const { error: clearOppositeError } = await supabase
+        .from(oppositeTableName as any)
+        .delete()
+        .eq(idColumn, itemId)
+        .eq('user_id', userId);
+
+    if (clearOppositeError) {
+        throw clearOppositeError;
+    }
+
+    const { error: insertError } = await supabase
+        .from(tableName as any)
+        .insert({
+            [idColumn]: itemId,
+            user_id: userId,
+        } as any);
+
+    if (insertError) {
+        throw insertError;
+    }
+};
 
 export interface LatestChapterFeedItem {
     chapterId: string;
@@ -986,11 +1076,16 @@ export const getMangaById = async (
         authorsDetails,
         artistsDetails,
         relatedSeries,
+        { count: characterCount },
     ] = await Promise.all([
         supabase.from('reviews').select('*').eq('manga_id', mangaId),
         getMangaAuthors(mangaId, options),
         getMangaArtists(mangaId, options),
         getMangaRelatedSeries(mangaId),
+        supabase
+            .from('manga_characters')
+            .select('*', { count: 'exact', head: true })
+            .eq('manga_id', mangaId),
     ]);
 
     const reviews = reviewData || [];
@@ -1039,6 +1134,7 @@ export const getMangaById = async (
             rating: Math.round((r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5),
             createdAt: r.created_at
         })),
+        characterCount: characterCount || 0,
         averageRating: average,
         ratingBreakdown: breakdown,
         reviewCount: reviews.length,
@@ -1351,12 +1447,14 @@ export const deleteReview = async (reviewId: string): Promise<void> => {
 };
 
 export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => {
+    const reviewReactionTables = getReviewReactionTableNames();
     const { data, error } = await supabase
         .from('reviews')
         .select(`
             *,
             user:users!user_id(username, avatar, role),
-            likes_count:review_likes(count)
+            likes_count:${reviewReactionTables.like}(count),
+            dislikes_count:${reviewReactionTables.dislike}(count)
         `)
         .eq('manga_id', mangaId)
         .order('created_at', { ascending: false });
@@ -1366,18 +1464,15 @@ export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => 
         return [];
     }
 
-    // Get current user's likes if authenticated
     const { data: authData } = await supabase.auth.getUser();
     const userId = authData?.user?.id;
 
-    let userLikes: string[] = [];
-    if (userId) {
-        const { data: likes } = await supabase
-            .from('review_likes')
-            .select('review_id')
-            .eq('user_id', userId);
-        userLikes = likes?.map(l => l.review_id) || [];
-    }
+    const [userLikes, userDislikes] = userId
+        ? await Promise.all([
+            getUserReactionIds(reviewReactionTables.like, 'review_id', userId),
+            getUserReactionIds(reviewReactionTables.dislike, 'review_id', userId),
+        ])
+        : [[], []];
 
     return (data || []).map(r => ({
         id: r.id,
@@ -1395,38 +1490,57 @@ export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => 
         createdAt: r.created_at,
         updatedAt: r.updated_at,
         likes: (r as any).likes_count?.[0]?.count || 0,
-        likedBy: userLikes.includes(r.id) ? [userId] : []
+        dislikes: (r as any).dislikes_count?.[0]?.count || 0,
+        likedBy: userId && userLikes.includes(r.id) ? [userId] : [],
+        dislikedBy: userId && userDislikes.includes(r.id) ? [userId] : [],
     })) as Review[];
 };
 
-export const toggleReviewLike = async (reviewId: string, userId: string): Promise<void> => {
-    const { data: existing } = await supabase
-        .from('review_likes')
-        .select('*')
-        .eq('review_id', reviewId)
-        .eq('user_id', userId)
-        .maybeSingle();
+const toggleReviewReaction = async (
+    reviewId: string,
+    userId: string,
+    reactionType: ReactionType,
+): Promise<void> => {
+    const reactionTables = getReviewReactionTableNames();
+    const activeTable = reactionType === 'like' ? reactionTables.like : reactionTables.dislike;
+    const oppositeTable = reactionType === 'like' ? reactionTables.dislike : reactionTables.like;
 
-    if (existing) {
-        await supabase.from('review_likes').delete().eq('review_id', reviewId).eq('user_id', userId);
-    } else {
-        await supabase.from('review_likes').insert({ review_id: reviewId, user_id: userId });
-    }
+    await toggleBinaryReaction(activeTable, oppositeTable, 'review_id', reviewId, userId);
 };
 
+export const toggleReviewLike = async (reviewId: string, userId: string): Promise<void> => (
+    toggleReviewReaction(reviewId, userId, 'like')
+);
+
+export const toggleReviewDislike = async (reviewId: string, userId: string): Promise<void> => (
+    toggleReviewReaction(reviewId, userId, 'dislike')
+);
+
 export const getUserRating = async (mangaId: string, userId: string): Promise<number | undefined> => {
-    // Return average of the 5 categories for the user's review
-    const { data, error } = await supabase
+    const { data: reviewData, error: reviewError } = await supabase
         .from('reviews')
         .select('rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
         .eq('manga_id', mangaId)
         .eq('user_id', userId)
         .maybeSingle();
 
-    if (error || !data) return undefined;
+    if (!reviewError && reviewData) {
+        const avg = (reviewData.rating_story + reviewData.rating_characters + reviewData.rating_art + reviewData.rating_progression + reviewData.rating_engagement) / 5;
+        return Math.round(avg * 10) / 10;
+    }
 
-    const avg = (data.rating_story + data.rating_characters + data.rating_art + data.rating_progression + data.rating_engagement) / 5;
-    return Math.round(avg * 10) / 10;
+    const { data: ratingData, error: ratingError } = await supabase
+        .from('ratings')
+        .select('rating')
+        .eq('manga_id', mangaId)
+        .eq('user_id', userId)
+        .maybeSingle();
+
+    if (ratingError || typeof ratingData?.rating !== 'number') {
+        return undefined;
+    }
+
+    return Math.round(ratingData.rating * 10) / 10;
 };
 
 export const getUserReview = async (mangaId: string, userId: string): Promise<Review | undefined> => {
@@ -1452,7 +1566,9 @@ export const getUserReview = async (mangaId: string, userId: string): Promise<Re
         createdAt: data.created_at,
         updatedAt: data.updated_at,
         likes: 0,
-        likedBy: []
+        dislikes: 0,
+        likedBy: [],
+        dislikedBy: [],
     } as Review;
 };
 
@@ -2089,7 +2205,7 @@ export const getEntityCommentsV2 = async (
 ): Promise<Comment[]> => {
     const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
     const colName = entityType === 'manga' ? 'manga_id' : `${entityType}_id`;
-    const likesTableName = entityType === 'manga' ? 'comment_likes' : `${entityType}_comment_likes`;
+    const reactionTables = getCommentReactionTableNames(entityType);
 
     const createQuery = (includePageNumberFilter: boolean) => {
         let query = supabase
@@ -2097,7 +2213,8 @@ export const getEntityCommentsV2 = async (
             .select(`
                 *,
                 author:users!user_id(username, username_last_changed_at, avatar, role),
-                likes_count:${likesTableName}(count)
+                likes_count:${reactionTables.like}(count),
+                dislikes_count:${reactionTables.dislike}(count)
             ` as any)
             .eq(colName, entityId);
 
@@ -2140,18 +2257,15 @@ export const getEntityCommentsV2 = async (
         mangaCommentPageNumberFeatureState = 'available';
     }
 
-    // Get current user's likes if authenticated
     const { data: userData } = await supabase.auth.getUser();
     const userId = userData?.user?.id;
 
-    let userLikes: string[] = [];
-    if (userId) {
-        const { data: likes } = await supabase
-            .from(likesTableName as any)
-            .select('comment_id' as any)
-            .eq('user_id', userId);
-        userLikes = (likes as any[])?.map(l => l.comment_id) || [];
-    }
+    const [userLikes, userDislikes] = userId
+        ? await Promise.all([
+            getUserReactionIds(reactionTables.like, 'comment_id', userId),
+            getUserReactionIds(reactionTables.dislike, 'comment_id', userId),
+        ])
+        : [[], []];
 
     const mappedComments = (data as any[] || []).map(c => {
         const parsedContent = parseCommentContent(c.content || '');
@@ -2179,7 +2293,9 @@ export const getEntityCommentsV2 = async (
             updatedAt: c.updated_at,
             parentId: c.parent_id,
             likes: c.likes_count?.[0]?.count || 0,
-            likedBy: userLikes.includes(c.id) ? [userId || ''] : [],
+            dislikes: c.dislikes_count?.[0]?.count || 0,
+            likedBy: userId && userLikes.includes(c.id) ? [userId] : [],
+            dislikedBy: userId && userDislikes.includes(c.id) ? [userId] : [],
             isPinned: Boolean(c.is_pinned),
         };
     }) as Comment[];
@@ -2191,6 +2307,11 @@ export const getEntityCommentsV2 = async (
         }
 
         if (sortBy === 'popular') {
+            const scoreDiff = getReactionScore(b) - getReactionScore(a);
+            if (scoreDiff !== 0) {
+                return scoreDiff;
+            }
+
             const likeDiff = b.likes - a.likes;
             if (likeDiff !== 0) {
                 return likeDiff;
@@ -2288,7 +2409,9 @@ export const addCommentV2 = async (comment: Omit<Comment, 'id' | 'likes' | 'like
         updatedAt: data.updated_at,
         parentId: data.parent_id ?? comment.parentId,
         likes: 0,
-        likedBy: []
+        dislikes: 0,
+        likedBy: [],
+        dislikedBy: [],
     } as Comment;
 };
 
@@ -2347,7 +2470,8 @@ export const getAllComments = async (): Promise<Comment[]> => {
         .from('comments')
         .select(`
             *,
-            likes_count:comment_likes(count)
+            likes_count:comment_likes(count),
+            dislikes_count:comment_dislikes(count)
         `)
         .order('created_at', { ascending: false });
 
@@ -2375,7 +2499,9 @@ export const getAllComments = async (): Promise<Comment[]> => {
             updatedAt: c.updated_at,
             parentId: c.parent_id,
             likes: c.likes_count[0]?.count || 0,
+            dislikes: c.dislikes_count?.[0]?.count || 0,
             likedBy: [],
+            dislikedBy: [],
             isPinned: Boolean(c.is_pinned),
         };
     }).sort((a, b) => {
@@ -2401,7 +2527,8 @@ export const getAdminCommentsPage = async (
         .from('comments')
         .select(`
             *,
-            likes_count:comment_likes(count)
+            likes_count:comment_likes(count),
+            dislikes_count:comment_dislikes(count)
         `, { count: 'exact' })
         .order('created_at', { ascending: false })
         .range(from, to);
@@ -2439,7 +2566,9 @@ export const getAdminCommentsPage = async (
             updatedAt: c.updated_at,
             parentId: c.parent_id,
             likes: c.likes_count?.[0]?.count || 0,
+            dislikes: c.dislikes_count?.[0]?.count || 0,
             likedBy: [],
+            dislikedBy: [],
             isPinned: Boolean(c.is_pinned),
         };
     }) as Comment[];
@@ -2812,30 +2941,30 @@ export const updateProfileReportStatus = async (id: string, status: ReportStatus
     }
 };
 
-export const toggleCommentLike = async (commentId: string, userId: string, entityType: string = 'manga'): Promise<void> => {
-    const likesTableName = entityType === 'manga' ? 'comment_likes' : `${entityType}_comment_likes`;
-    const { data: existing } = await supabase
-        .from(likesTableName as any)
-        .select('*')
-        .eq('comment_id', commentId)
-        .eq('user_id', userId)
-        .maybeSingle();
+const toggleCommentReaction = async (
+    commentId: string,
+    userId: string,
+    entityType: CommentEntityType = 'manga',
+    reactionType: ReactionType,
+): Promise<void> => {
+    const reactionTables = getCommentReactionTableNames(entityType);
+    const activeTable = reactionType === 'like' ? reactionTables.like : reactionTables.dislike;
+    const oppositeTable = reactionType === 'like' ? reactionTables.dislike : reactionTables.like;
 
-    if (existing) {
-        await supabase
-            .from(likesTableName as any)
-            .delete()
-            .eq('comment_id', commentId)
-            .eq('user_id', userId);
-    } else {
-        await supabase
-            .from(likesTableName as any)
-            .insert({
-                comment_id: commentId,
-                user_id: userId
-            });
-    }
+    await toggleBinaryReaction(activeTable, oppositeTable, 'comment_id', commentId, userId);
 };
+
+export const toggleCommentLike = async (
+    commentId: string,
+    userId: string,
+    entityType: CommentEntityType = 'manga',
+): Promise<void> => toggleCommentReaction(commentId, userId, entityType, 'like');
+
+export const toggleCommentDislike = async (
+    commentId: string,
+    userId: string,
+    entityType: CommentEntityType = 'manga',
+): Promise<void> => toggleCommentReaction(commentId, userId, entityType, 'dislike');
 
 // ==================== READING LIST OPERATIONS ====================
 

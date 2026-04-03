@@ -15,6 +15,7 @@ export interface Manga {
   engagementScore?: number;
   chapters: Chapter[];
   chapterCount?: number;
+  characterCount?: number;
   lastUpdated: string;
   createdAt: string;
   type: 'manga' | 'manhwa' | 'manhua' | 'webtoon';
@@ -285,7 +286,6 @@ export interface User {
     };
     appearance?: {
       manga_hover_preview?: boolean;
-      show_header_search_bar?: boolean;
       show_header_offline_toggle?: boolean;
     };
     privacy?: {
@@ -414,7 +414,9 @@ export interface Comment {
   updatedAt?: string;
   parentId?: string;
   likes: number;
+  dislikes: number;
   likedBy: string[];
+  dislikedBy: string[];
   isPinned?: boolean;
 }
 
@@ -451,7 +453,9 @@ export interface Review {
   createdAt: string;
   updatedAt: string;
   likes: number;
+  dislikes: number;
   likedBy: string[];
+  dislikedBy: string[];
 }
 
 export interface MangaReaction {

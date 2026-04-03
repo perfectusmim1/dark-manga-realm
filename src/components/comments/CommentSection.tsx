@@ -6,6 +6,7 @@ import {
     AlertTriangle,
     MessageCircle,
     ThumbsUp,
+    ThumbsDown,
     Edit2,
     Trash2,
     Reply,
@@ -50,6 +51,7 @@ import {
     updateComment,
     deleteComment,
     toggleCommentLike,
+    toggleCommentDislike,
     getMangaById,
     getCharacterById,
     getAuthorById,
@@ -77,6 +79,7 @@ import {
     PageCommentsUpdatedDetail,
 } from '@/lib/pageCommentEvents';
 import { getStaffTextClassName } from '@/lib/staffRoles';
+import { applyOptimisticReaction, getReactionScore, hasReaction, type ReactionType } from '@/lib/reactions';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -567,8 +570,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const [expandedGifs, setExpandedGifs] = useState<Record<string, boolean>>({});
     const [revealedSpoilers, setRevealedSpoilers] = useState<Record<string, boolean>>({});
     const [mediaLoadErrors, setMediaLoadErrors] = useState<Record<string, boolean>>({});
-    const [pendingCommentLikes, setPendingCommentLikes] = useState<Record<string, boolean>>({});
-    const [animatedCommentLikes, setAnimatedCommentLikes] = useState<Record<string, boolean>>({});
+    const [pendingCommentReactions, setPendingCommentReactions] = useState<Record<string, boolean>>({});
+    const [animatedCommentReactions, setAnimatedCommentReactions] = useState<Record<string, boolean>>({});
     const [reportingComment, setReportingComment] = useState<Comment | null>(null);
     const [reportReason, setReportReason] = useState('Spam veya alakasız');
     const [reportDetails, setReportDetails] = useState('');
@@ -581,7 +584,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const paginationScrollFrameRef = useRef<number | null>(null);
     const detachPaginationInterruptsRef = useRef<(() => void) | null>(null);
     const reactionAnimationTimeoutRef = useRef<number | null>(null);
-    const commentLikeAnimationTimeoutsRef = useRef<Record<string, number>>({});
+    const commentReactionAnimationTimeoutsRef = useRef<Record<string, number>>({});
     const commentPreferences = {
         autoShowMedia: user?.preferences?.comments?.auto_show_media ?? false,
         autoShowGifs: user?.preferences?.comments?.auto_show_gifs ?? false,
@@ -656,7 +659,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             window.clearTimeout(reactionAnimationTimeoutRef.current);
         }
 
-        Object.values(commentLikeAnimationTimeoutsRef.current).forEach((timeoutId) => {
+        Object.values(commentReactionAnimationTimeoutsRef.current).forEach((timeoutId) => {
             window.clearTimeout(timeoutId);
         });
     }, []);
@@ -715,19 +718,19 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         }, 260);
     };
 
-    const triggerCommentLikeAnimation = (commentId: string) => {
-        if (commentLikeAnimationTimeoutsRef.current[commentId] !== undefined) {
-            window.clearTimeout(commentLikeAnimationTimeoutsRef.current[commentId]);
+    const triggerCommentReactionAnimation = (commentId: string) => {
+        if (commentReactionAnimationTimeoutsRef.current[commentId] !== undefined) {
+            window.clearTimeout(commentReactionAnimationTimeoutsRef.current[commentId]);
         }
 
-        setAnimatedCommentLikes((previous) => ({ ...previous, [commentId]: true }));
-        commentLikeAnimationTimeoutsRef.current[commentId] = window.setTimeout(() => {
-            setAnimatedCommentLikes((previous) => {
+        setAnimatedCommentReactions((previous) => ({ ...previous, [commentId]: true }));
+        commentReactionAnimationTimeoutsRef.current[commentId] = window.setTimeout(() => {
+            setAnimatedCommentReactions((previous) => {
                 const next = { ...previous };
                 delete next[commentId];
                 return next;
             });
-            delete commentLikeAnimationTimeoutsRef.current[commentId];
+            delete commentReactionAnimationTimeoutsRef.current[commentId];
         }, 260);
     };
 
@@ -761,6 +764,11 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         }
 
         if (sortBy === 'popular') {
+            const scoreDiff = getReactionScore(b) - getReactionScore(a);
+            if (scoreDiff !== 0) {
+                return scoreDiff;
+            }
+
             const likeDiff = b.likes - a.likes;
             if (likeDiff !== 0) {
                 return likeDiff;
@@ -1158,23 +1166,27 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         }
     };
 
-    const handleLike = async (commentId: string) => {
+    const handleCommentReaction = async (commentId: string, reactionType: ReactionType) => {
         if (!user) {
-            toast.error('Beğenmek için giriş yapmalısınız');
+            toast.error('Tepki bırakmak için giriş yapmalısınız');
             return;
         }
 
         if (!isOnline) {
-            showInternetRequiredToast('Beğeni bırakmak için internete bağlanın');
+            showInternetRequiredToast('Tepki bırakmak için internete bağlanın');
             return;
         }
 
-        if (pendingCommentLikes[commentId]) {
+        if (pendingCommentReactions[commentId]) {
             return;
         }
 
         const comment = comments.find(c => c.id === commentId);
-        const wasLiked = comment?.likedBy.includes(user.id);
+        if (!comment) {
+            return;
+        }
+
+        const wasLiked = hasReaction(comment, user.id, 'like');
         const previousComments = comments;
         const nextComments = sortCommentsForState(
             comments.map((currentComment) => {
@@ -1182,26 +1194,22 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                     return currentComment;
                 }
 
-                const likedBy = wasLiked
-                    ? currentComment.likedBy.filter((likedUserId) => likedUserId !== user.id)
-                    : [...currentComment.likedBy, user.id];
-
-                return {
-                    ...currentComment,
-                    likes: Math.max(currentComment.likes + (wasLiked ? -1 : 1), 0),
-                    likedBy,
-                };
+                return applyOptimisticReaction(currentComment, user.id, reactionType);
             })
         );
 
-        setPendingCommentLikes((previous) => ({ ...previous, [commentId]: true }));
+        setPendingCommentReactions((previous) => ({ ...previous, [commentId]: true }));
         setComments(nextComments);
-        triggerCommentLikeAnimation(commentId);
+        triggerCommentReactionAnimation(commentId);
 
         try {
-            await toggleCommentLike(commentId, user.id, entityType);
+            if (reactionType === 'like') {
+                await toggleCommentLike(commentId, user.id, entityType);
+            } else {
+                await toggleCommentDislike(commentId, user.id, entityType);
+            }
 
-            if (!wasLiked && comment && comment.userId !== user.id) {
+            if (reactionType === 'like' && !wasLiked && comment.userId !== user.id) {
                 const entityTitle = await getEntityTitle();
 
                 await createCommentNotification(
@@ -1218,16 +1226,24 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                 );
             }
         } catch (error) {
-            console.error('Comment like toggle error:', error);
+            console.error('Comment reaction toggle error:', error);
             setComments(previousComments);
-            showInternetRequiredToast('Beğeni işlemi başarısız oldu, internete bağlanın');
+            showInternetRequiredToast('Tepki işlemi başarısız oldu, internete bağlanın');
         } finally {
-            setPendingCommentLikes((previous) => {
+            setPendingCommentReactions((previous) => {
                 const next = { ...previous };
                 delete next[commentId];
                 return next;
             });
         }
+    };
+
+    const handleLike = async (commentId: string) => {
+        await handleCommentReaction(commentId, 'like');
+    };
+
+    const handleDislike = async (commentId: string) => {
+        await handleCommentReaction(commentId, 'dislike');
     };
 
     const selectGif = (gifUrl: string) => {
@@ -1985,15 +2001,29 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                             variant="ghost"
                                             size="sm"
                                             onClick={() => handleLike(reply.id)}
-                                            disabled={Boolean(pendingCommentLikes[reply.id])}
+                                            disabled={Boolean(pendingCommentReactions[reply.id])}
                                             className={cn(
-                                                'transition-all duration-200 ease-out',
-                                                reply.likedBy.includes(user?.id || '') && 'text-primary',
-                                                animatedCommentLikes[reply.id] && 'scale-[1.06] -translate-y-0.5 text-primary'
+                                                'transition-all duration-200 ease-out hover:bg-emerald-500/10 hover:text-emerald-500',
+                                                hasReaction(reply, user?.id, 'like') && 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15 hover:text-emerald-500',
+                                                animatedCommentReactions[reply.id] && 'scale-[1.06] -translate-y-0.5'
                                             )}
                                         >
                                             <ThumbsUp className="mr-1 h-4 w-4" />
                                             {reply.likes}
+                                        </Button>
+                                        <Button
+                                            variant="ghost"
+                                            size="sm"
+                                            onClick={() => handleDislike(reply.id)}
+                                            disabled={Boolean(pendingCommentReactions[reply.id])}
+                                            className={cn(
+                                                'transition-all duration-200 ease-out hover:bg-red-500/10 hover:text-red-500',
+                                                hasReaction(reply, user?.id, 'dislike') && 'bg-red-500/10 text-red-500 hover:bg-red-500/15 hover:text-red-500',
+                                                animatedCommentReactions[reply.id] && 'scale-[1.06] -translate-y-0.5'
+                                            )}
+                                        >
+                                            <ThumbsDown className="mr-1 h-4 w-4" />
+                                            {reply.dislikes}
                                         </Button>
                                         <Button variant="ghost" size="sm" onClick={() => openReplyComposer(reply)}>
                                             <Reply className="mr-1 h-4 w-4" />
@@ -2507,16 +2537,31 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         variant="ghost"
                                                         size="sm"
                                                         onClick={() => handleLike(comment.id)}
-                                                        data-liked={comment.likedBy.includes(user?.id || '')}
-                                                        disabled={Boolean(pendingCommentLikes[comment.id])}
+                                                        data-liked={hasReaction(comment, user?.id, 'like')}
+                                                        disabled={Boolean(pendingCommentReactions[comment.id])}
                                                         className={cn(
-                                                            'h-8 px-2.5 text-xs transition-all duration-200 ease-out sm:h-9 sm:px-3 sm:text-sm',
-                                                            comment.likedBy.includes(user?.id || '') && 'text-primary',
-                                                            animatedCommentLikes[comment.id] && 'scale-[1.06] -translate-y-0.5 text-primary'
+                                                            'h-8 px-2.5 text-xs transition-all duration-200 ease-out hover:bg-emerald-500/10 hover:text-emerald-500 sm:h-9 sm:px-3 sm:text-sm',
+                                                            hasReaction(comment, user?.id, 'like') && 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15 hover:text-emerald-500',
+                                                            animatedCommentReactions[comment.id] && 'scale-[1.06] -translate-y-0.5'
                                                         )}
                                                     >
                                                         <ThumbsUp className="mr-1 h-4 w-4" />
                                                         {comment.likes}
+                                                    </Button>
+                                                    <Button
+                                                        variant="ghost"
+                                                        size="sm"
+                                                        onClick={() => handleDislike(comment.id)}
+                                                        data-disliked={hasReaction(comment, user?.id, 'dislike')}
+                                                        disabled={Boolean(pendingCommentReactions[comment.id])}
+                                                        className={cn(
+                                                            'h-8 px-2.5 text-xs transition-all duration-200 ease-out hover:bg-red-500/10 hover:text-red-500 sm:h-9 sm:px-3 sm:text-sm',
+                                                            hasReaction(comment, user?.id, 'dislike') && 'bg-red-500/10 text-red-500 hover:bg-red-500/15 hover:text-red-500',
+                                                            animatedCommentReactions[comment.id] && 'scale-[1.06] -translate-y-0.5'
+                                                        )}
+                                                    >
+                                                        <ThumbsDown className="mr-1 h-4 w-4" />
+                                                        {comment.dislikes}
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
