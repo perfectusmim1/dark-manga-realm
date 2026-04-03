@@ -965,7 +965,7 @@ const Settings: React.FC = () => {
                     <div className="space-y-3 rounded-xl border border-border/60 bg-background/30 p-4">
                         <div className="space-y-1">
                             <Label>{label} Alanları</Label>
-                            <p className="text-sm text-muted-foreground">Hangi verilerin bu sağlayıcıya yazılacağını ayrı ayrı seçin.</p>
+                            <p className="text-sm text-muted-foreground">Hangi verilerin bu sağlayıcıyla içe ve dışa senkronlanacağını ayrı ayrı seçin.</p>
                         </div>
 
                         <div className="grid gap-3 md:grid-cols-2">
@@ -988,7 +988,7 @@ const Settings: React.FC = () => {
                         )}
 
                         <p className="text-sm text-muted-foreground">
-                            İçe aktarma yalnızca sitede {label} bağlantısı bulunan serilerde çalışır ve mevcut yerel kütüphane, puan veya ilerleme verisini ezmeden eksik alanları doldurur.
+                            İçe aktarma yalnızca sitede {label} bağlantısı bulunan serilerde çalışır; kapalı alanları atlar ve mevcut yerel veriyi ezmeden yalnızca izin verilen eksik alanları doldurur.
                         </p>
                     </div>
                 </CardContent>

@@ -417,6 +417,7 @@ const fetchAniListImportEntries = async (
   providerUserId?: string | null,
 ): Promise<RemoteImportEntry[]> => {
   const viewerId = Number(providerUserId || 0);
+  const entriesByMediaId = new Map<string, RemoteImportEntry>();
   const response = await runAniListGraphQL<{
     data?: {
       MediaListCollection?: {
@@ -489,7 +490,6 @@ const fetchAniListImportEntries = async (
     throw new Error(errorMessage);
   }
 
-  const entries: RemoteImportEntry[] = [];
   for (const list of response?.data?.MediaListCollection?.lists || []) {
     for (const entry of list?.entries || []) {
       const mediaId = normalizeText(String(entry?.media?.id || ""));
@@ -507,7 +507,7 @@ const fetchAniListImportEntries = async (
         ? Math.max(0, Math.floor(Number(entry?.media?.chapters)))
         : null;
 
-      entries.push({
+      entriesByMediaId.set(mediaId, {
         remoteMediaId: mediaId,
         fallbackMyAnimeListId: normalizeText(String(entry?.media?.idMal || "")) || null,
         title,
@@ -522,7 +522,125 @@ const fetchAniListImportEntries = async (
     }
   }
 
-  return entries;
+  let page = 1;
+  const perPage = 50;
+
+  while (true) {
+    const favoriteResponse = await runAniListGraphQL<{
+      data?: {
+        Viewer?: {
+          favourites?: {
+            manga?: {
+              pageInfo?: {
+                currentPage?: number | null;
+                hasNextPage?: boolean | null;
+              } | null;
+              nodes?: Array<{
+                id?: number | null;
+                idMal?: number | null;
+                chapters?: number | null;
+                isFavourite?: boolean | null;
+                title?: {
+                  userPreferred?: string | null;
+                  romaji?: string | null;
+                  english?: string | null;
+                  native?: string | null;
+                } | null;
+              } | null> | null;
+            } | null;
+          } | null;
+        } | null;
+      };
+      errors?: Array<{ message?: string }>;
+    }>(
+      accessToken,
+      `
+        query ToonParrotImportAniListFavouriteManga($page: Int, $perPage: Int) {
+          Viewer {
+            favourites {
+              manga(page: $page, perPage: $perPage) {
+                pageInfo {
+                  currentPage
+                  hasNextPage
+                }
+                nodes {
+                  id
+                  idMal
+                  chapters
+                  isFavourite
+                  title {
+                    userPreferred
+                    romaji
+                    english
+                    native
+                  }
+                }
+              }
+            }
+          }
+        }
+      `,
+      { page, perPage },
+    );
+
+    const favoriteErrorMessage = getAniListGraphQLErrorMessage(favoriteResponse);
+    if (favoriteErrorMessage) {
+      throw new Error(favoriteErrorMessage);
+    }
+
+    const favoriteConnection = favoriteResponse?.data?.Viewer?.favourites?.manga;
+
+    for (const favoriteNode of favoriteConnection?.nodes || []) {
+      const mediaId = normalizeText(String(favoriteNode?.id || ""));
+      if (!mediaId) {
+        continue;
+      }
+
+      const title = normalizeText(
+        favoriteNode?.title?.userPreferred
+        || favoriteNode?.title?.english
+        || favoriteNode?.title?.romaji
+        || favoriteNode?.title?.native,
+      ) || `Manga #${mediaId}`;
+      const totalChapters = Number.isFinite(Number(favoriteNode?.chapters))
+        ? Math.max(0, Math.floor(Number(favoriteNode?.chapters)))
+        : null;
+      const existingEntry = entriesByMediaId.get(mediaId);
+
+      if (existingEntry) {
+        entriesByMediaId.set(mediaId, {
+          ...existingEntry,
+          fallbackMyAnimeListId: existingEntry.fallbackMyAnimeListId
+            || normalizeText(String(favoriteNode?.idMal || "")) || null,
+          title: existingEntry.title || title,
+          favorite: true,
+          totalChapters: existingEntry.totalChapters ?? totalChapters,
+        });
+        continue;
+      }
+
+      entriesByMediaId.set(mediaId, {
+        remoteMediaId: mediaId,
+        fallbackMyAnimeListId: normalizeText(String(favoriteNode?.idMal || "")) || null,
+        title,
+        status: null,
+        progress: 0,
+        score: null,
+        startedAt: null,
+        completedAt: null,
+        favorite: toNullableBoolean(favoriteNode?.isFavourite) ?? true,
+        totalChapters,
+      });
+    }
+
+    if (!favoriteConnection?.pageInfo?.hasNextPage) {
+      break;
+    }
+
+    page += 1;
+  }
+
+  return [...entriesByMediaId.values()];
 };
 
 const upsertRowsInChunks = async (
@@ -1465,6 +1583,24 @@ const importProviderLibrary = async (req: Request, body: any) => {
 
   try {
     const activeAccount = await ensureProviderAccessToken(requester.serviceClient, accountRow as ExternalProviderAccountRow);
+    const { data: userRow, error: userError } = await requester.serviceClient
+      .from("users")
+      .select("preferences")
+      .eq("id", requester.requesterProfile.id)
+      .maybeSingle();
+
+    if (userError) {
+      throw userError;
+    }
+
+    const providerPreferences = getExternalSyncPreferences(userRow?.preferences).providers[provider];
+    const shouldImportStatus = Boolean(providerPreferences.fieldToggles.status);
+    const shouldImportProgress = Boolean(providerPreferences.fieldToggles.progress);
+    const shouldImportScore = Boolean(providerPreferences.fieldToggles.score);
+    const shouldImportDates = Boolean(providerPreferences.fieldToggles.dates);
+    const shouldImportFavorite = provider === "anilist"
+      ? Boolean((providerPreferences.fieldToggles as Record<string, boolean>).favorite)
+      : false;
     const effectiveProviderUserId = provider === "anilist" && !normalizeText(activeAccount.provider_user_id)
       ? normalizeText(String((await getProviderViewer(provider, activeAccount.access_token) as any)?.data?.Viewer?.id || ""))
       : normalizeText(activeAccount.provider_user_id);
@@ -1472,7 +1608,7 @@ const importProviderLibrary = async (req: Request, body: any) => {
       ? await fetchMyAnimeListImportEntries(activeAccount.access_token)
       : await fetchAniListImportEntries(activeAccount.access_token, effectiveProviderUserId);
     const remoteEntries = [...new Map(
-      rawRemoteEntries.map((entry) => [`${entry.remoteMediaId}:${entry.fallbackMyAnimeListId || ""}`, entry]),
+      rawRemoteEntries.map((entry) => [entry.remoteMediaId, entry]),
     ).values()];
 
     const response: ExternalLibraryImportResponse = {
@@ -1614,13 +1750,15 @@ const importProviderLibrary = async (req: Request, body: any) => {
     }
 
     const progressCandidateMangaIds = [...new Set(
-      matchedEntries
-        .filter(({ entry, manga }) => (
-          entry.progress > 0
-          && !readingMap.has(manga.id)
-          && !chapterProgressPresence.has(manga.id)
-        ))
-        .map(({ manga }) => manga.id),
+      shouldImportProgress
+        ? matchedEntries
+          .filter(({ entry, manga }) => (
+            entry.progress > 0
+            && !readingMap.has(manga.id)
+            && !chapterProgressPresence.has(manga.id)
+          ))
+          .map(({ manga }) => manga.id)
+        : [],
     )];
 
     const chaptersByMangaId = new Map<string, ImportableChapterRow[]>();
@@ -1660,33 +1798,31 @@ const importProviderLibrary = async (req: Request, body: any) => {
       const existingReading = readingMap.get(manga.id);
       const existingSyncState = syncStateByManga.get(manga.id);
 
-      const remoteCategory = entry.status || (entry.favorite ? "plan_to_read" as LocalLibraryStatus | null : null);
-      const remoteScore = typeof entry.score === "number" && entry.score > 0
+      const remoteCategory = shouldImportStatus
+        ? entry.status
+        : null;
+      const shouldImportLibraryEntry = Boolean(remoteCategory || (shouldImportFavorite && entry.favorite));
+      const importedLibraryCategory = remoteCategory || (shouldImportFavorite && entry.favorite
+        ? "plan_to_read" as LocalLibraryStatus
+        : null);
+      const remoteScore = shouldImportScore && typeof entry.score === "number" && entry.score > 0
         ? entry.score
         : null;
-      const importTimestamp = entry.completedAt
+      const importTimestamp = shouldImportDates && entry.completedAt
         ? `${entry.completedAt}T23:59:59.000Z`
-        : entry.startedAt
+        : shouldImportDates && entry.startedAt
           ? `${entry.startedAt}T12:00:00.000Z`
           : nowIso;
 
-      if (!existingFavorite && remoteCategory) {
+      if (!existingFavorite && importedLibraryCategory) {
         favoriteUpserts.push({
           user_id: requester.requesterProfile.id,
           manga_id: manga.id,
-          category: remoteCategory,
-          added_at: entry.startedAt || entry.completedAt || nowIso,
+          category: importedLibraryCategory,
+          added_at: shouldImportDates ? (entry.startedAt || entry.completedAt || nowIso) : nowIso,
         });
         response.summary.libraryImported += 1;
-      } else if (!existingFavorite && entry.favorite) {
-        favoriteUpserts.push({
-          user_id: requester.requesterProfile.id,
-          manga_id: manga.id,
-          category: entry.status || "plan_to_read",
-          added_at: entry.startedAt || entry.completedAt || nowIso,
-        });
-        response.summary.libraryImported += 1;
-      } else if (existingFavorite && remoteCategory) {
+      } else if (existingFavorite && shouldImportLibraryEntry) {
         response.summary.skippedExistingLibrary += 1;
       }
 
@@ -1703,13 +1839,13 @@ const importProviderLibrary = async (req: Request, body: any) => {
       }
 
       let importedReadCount: number | null = null;
-      if (entry.progress > 0) {
+      if (shouldImportProgress && entry.progress > 0) {
         if (!existingReading && !chapterProgressPresence.has(manga.id)) {
           const progressPlan = buildImportedChapterProgress({
             userId: requester.requesterProfile.id,
             mangaId: manga.id,
             remoteProgress: entry.progress,
-            remoteStatus: remoteCategory,
+            remoteStatus: importedLibraryCategory,
             chapters: chaptersByMangaId.get(manga.id) || [],
             importedAt: importTimestamp,
           });
@@ -1731,7 +1867,7 @@ const importProviderLibrary = async (req: Request, body: any) => {
         ratingRow: existingRating,
         reviewRow: existingReview,
       });
-      const finalLocalStatus = (normalizeText(existingFavorite?.category) as LocalLibraryStatus | "") || remoteCategory;
+      const finalLocalStatus = (normalizeText(existingFavorite?.category) as LocalLibraryStatus | "") || importedLibraryCategory;
       const finalLocalScore = typeof localScore === "number"
         ? localScore
         : remoteScore;
@@ -1740,18 +1876,24 @@ const importProviderLibrary = async (req: Request, body: any) => {
           Number(chapterReadCountByManga.get(manga.id) || 0),
           Number(existingReading?.chapter_number || 0),
         );
-      const finalStartedAt = entry.startedAt
-        || toDateOnly(existingSyncState?.last_synced_started_at)
-        || null;
-      const finalCompletedAt = finalLocalStatus === "completed"
+      const finalStartedAt = shouldImportDates
+        ? (
+          entry.startedAt
+          || toDateOnly(existingSyncState?.last_synced_started_at)
+          || null
+        )
+        : toDateOnly(existingSyncState?.last_synced_started_at) || null;
+      const finalCompletedAt = shouldImportDates && finalLocalStatus === "completed"
         ? (
           entry.completedAt
           || toDateOnly(existingSyncState?.last_synced_completed_at)
           || null
         )
-        : null;
-      const finalFavoriteState = provider === "anilist"
-        ? Boolean(existingFavorite || (!existingFavorite && remoteCategory) || entry.favorite)
+        : shouldImportDates
+          ? null
+          : toDateOnly(existingSyncState?.last_synced_completed_at) || null;
+      const finalFavoriteState = provider === "anilist" && shouldImportFavorite
+        ? Boolean(existingFavorite || importedLibraryCategory || entry.favorite)
         : toNullableBoolean(existingSyncState?.last_synced_favorite);
       const nextSyncedStatus = provider === "myanimelist"
         ? mapStatusToMyAnimeList(finalLocalStatus)
@@ -1764,16 +1906,32 @@ const importProviderLibrary = async (req: Request, body: any) => {
         provider,
         remote_media_id: entry.remoteMediaId,
         remote_review_id: normalizeText(existingSyncState?.remote_review_id) || null,
-        last_synced_status: nextSyncedStatus || existingSyncState?.last_synced_status || null,
-        last_synced_progress: finalReadCount > 0
-          ? finalReadCount
+        last_synced_status: shouldImportStatus
+          ? nextSyncedStatus || existingSyncState?.last_synced_status || null
+          : existingSyncState?.last_synced_status || null,
+        last_synced_progress: shouldImportProgress
+          ? (
+            finalReadCount > 0
+              ? finalReadCount
+              : existingSyncState?.last_synced_progress ?? null
+          )
           : existingSyncState?.last_synced_progress ?? null,
-        last_synced_score: typeof nextSyncedScore === "number"
-          ? nextSyncedScore
+        last_synced_score: shouldImportScore
+          ? (
+            typeof nextSyncedScore === "number"
+              ? nextSyncedScore
+              : existingSyncState?.last_synced_score ?? null
+          )
           : existingSyncState?.last_synced_score ?? null,
-        last_synced_started_at: finalStartedAt,
-        last_synced_completed_at: finalCompletedAt,
-        last_synced_favorite: provider === "anilist" ? finalFavoriteState : null,
+        last_synced_started_at: shouldImportDates ? finalStartedAt : existingSyncState?.last_synced_started_at ?? null,
+        last_synced_completed_at: shouldImportDates ? finalCompletedAt : existingSyncState?.last_synced_completed_at ?? null,
+        last_synced_favorite: provider === "anilist"
+          ? (
+            shouldImportFavorite
+              ? finalFavoriteState
+              : existingSyncState?.last_synced_favorite ?? null
+          )
+          : null,
         last_review_hash: normalizeText(existingSyncState?.last_review_hash) || null,
         last_sync_at: nowIso,
         last_error: null,
