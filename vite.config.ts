@@ -89,6 +89,31 @@ export default defineConfig(({ mode }) => ({
             return "motion";
           }
 
+          if (normalizedId.includes("@tanstack/react-query")) {
+            return "query";
+          }
+
+          if (normalizedId.includes("react-router") || normalizedId.includes("@remix-run/router")) {
+            return "router";
+          }
+
+          if (normalizedId.includes("@radix-ui") || normalizedId.includes("vaul") || normalizedId.includes("cmdk")) {
+            return "radix";
+          }
+
+          if (
+            normalizedId.includes("react-hook-form")
+            || normalizedId.includes("@hookform/resolvers")
+            || normalizedId.includes("zod")
+            || normalizedId.includes("input-otp")
+          ) {
+            return "forms";
+          }
+
+          if (normalizedId.includes("lucide-react")) {
+            return "icons";
+          }
+
           if (normalizedId.includes("recharts")) {
             return "charts";
           }

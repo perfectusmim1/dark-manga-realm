@@ -30,6 +30,7 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
+import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
 
 const getSixColumnDesktopCount = (width: number) => {
     if (width >= 1024) return 6;
@@ -50,6 +51,8 @@ const ReadingListDetail: React.FC = () => {
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedMangaIds, setSelectedMangaIds] = useState<string[]>([]);
     const [isRemovingSelected, setIsRemovingSelected] = useState(false);
+    const topTenWeekIds = useTopTenWeekIds(Boolean(list?.mangas?.length));
+    const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
     
     // Likes State
     const [likesCount, setLikesCount] = useState(0);
@@ -480,7 +483,12 @@ const ReadingListDetail: React.FC = () => {
                                         className="relative w-full"
                                     >
                                         <div className={cn(isSelectionMode && 'pointer-events-none')}>
-                                            <MangaCard manga={manga} index={index} />
+                                            <MangaCard
+                                                manga={manga}
+                                                index={index}
+                                                topTenWeekIds={topTenWeekIds}
+                                                hoverPreviewEnabled={hoverPreviewEnabled}
+                                            />
                                         </div>
 
                                         {isSelectionMode && (

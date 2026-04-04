@@ -1,6 +1,8 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Manga } from '@/lib/types';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
+import { useAuth } from '@/contexts/AuthContext';
+import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
 import MangaCard from './MangaCard';
 
 interface VirtualMangaGridProps {
@@ -46,11 +48,37 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
   getColumnCount = getDefaultColumnCount,
 }) => {
   const { disableHeavyEffects } = useDeviceProfile();
+  const { user } = useAuth();
   const containerRef = useRef<HTMLDivElement | null>(null);
   const probeRef = useRef<HTMLDivElement | null>(null);
   const [containerWidth, setContainerWidth] = useState(getInitialContainerWidth);
   const [windowMetrics, setWindowMetrics] = useState(getWindowMetrics);
+  const [containerTop, setContainerTop] = useState(0);
   const [cardHeight, setCardHeight] = useState<number | null>(null);
+  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
+  const columns = useMemo(
+    () => getColumnCount(windowMetrics.width),
+    [getColumnCount, windowMetrics.width],
+  );
+  const cardWidth = useMemo(() => {
+    if (containerWidth <= 0) {
+      return 0;
+    }
+
+    return Math.max(0, (containerWidth - GRID_GAP_PX * (columns - 1)) / columns);
+  }, [columns, containerWidth]);
+  const estimatedCardHeight = useMemo(() => {
+    if (cardWidth <= 0) {
+      return DEFAULT_CARD_HEIGHT;
+    }
+
+    return Math.round(cardWidth * 1.5 + 92);
+  }, [cardWidth]);
+  const resolvedCardHeight = cardHeight ?? estimatedCardHeight;
+  const rowStride = resolvedCardHeight + GRID_GAP_PX;
+  const totalRows = Math.ceil(manga.length / columns);
+  const shouldVirtualize = manga.length > columns * 6 && containerWidth > 0;
+  const topTenWeekIds = useTopTenWeekIds(manga.length > 0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -59,7 +87,10 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
     }
 
     const updateWidth = () => {
-      setContainerWidth(container.clientWidth);
+      const nextWidth = container.clientWidth;
+      setContainerWidth((current) => (
+        current === nextWidth ? current : nextWidth
+      ));
     };
 
     updateWidth();
@@ -88,7 +119,14 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
 
     const updateMetrics = () => {
       ticking = false;
-      setWindowMetrics(getWindowMetrics());
+      const nextMetrics = getWindowMetrics();
+      setWindowMetrics((current) => (
+        current.width === nextMetrics.width
+          && current.height === nextMetrics.height
+          && current.scrollY === nextMetrics.scrollY
+          ? current
+          : nextMetrics
+      ));
     };
 
     const requestMetricsUpdate = () => {
@@ -101,14 +139,18 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
     };
 
     requestMetricsUpdate();
-    window.addEventListener('scroll', requestMetricsUpdate, { passive: true });
     window.addEventListener('resize', requestMetricsUpdate);
+    if (shouldVirtualize) {
+      window.addEventListener('scroll', requestMetricsUpdate, { passive: true });
+    }
 
     return () => {
-      window.removeEventListener('scroll', requestMetricsUpdate);
       window.removeEventListener('resize', requestMetricsUpdate);
+      if (shouldVirtualize) {
+        window.removeEventListener('scroll', requestMetricsUpdate);
+      }
     };
-  }, []);
+  }, [shouldVirtualize]);
 
   useEffect(() => {
     const probe = probeRef.current;
@@ -119,7 +161,9 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
     const updateHeight = () => {
       const nextHeight = probe.getBoundingClientRect().height;
       if (nextHeight > 0) {
-        setCardHeight(nextHeight);
+        setCardHeight((current) => (
+          current === nextHeight ? current : nextHeight
+        ));
       }
     };
 
@@ -138,42 +182,34 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
 
     observer.observe(probe);
     return () => observer.disconnect();
-  }, [containerWidth, disableHeavyEffects, manga]);
+  }, [containerWidth, disableHeavyEffects, manga.length]);
 
-  const columns = useMemo(
-    () => getColumnCount(windowMetrics.width),
-    [getColumnCount, windowMetrics.width],
-  );
-
-  const cardWidth = useMemo(() => {
-    if (containerWidth <= 0) {
-      return 0;
+  useEffect(() => {
+    if (typeof window === 'undefined' || !shouldVirtualize) {
+      setContainerTop(0);
+      return;
     }
 
-    return Math.max(0, (containerWidth - GRID_GAP_PX * (columns - 1)) / columns);
-  }, [columns, containerWidth]);
+    const updateContainerTop = () => {
+      const container = containerRef.current;
+      if (!container) {
+        setContainerTop(0);
+        return;
+      }
 
-  const estimatedCardHeight = useMemo(() => {
-    if (cardWidth <= 0) {
-      return DEFAULT_CARD_HEIGHT;
-    }
+      const nextTop = container.getBoundingClientRect().top + window.scrollY;
+      setContainerTop((current) => (
+        Math.abs(current - nextTop) < 1 ? current : nextTop
+      ));
+    };
 
-    return Math.round(cardWidth * 1.5 + 92);
-  }, [cardWidth]);
+    updateContainerTop();
+    window.addEventListener('resize', updateContainerTop);
 
-  const resolvedCardHeight = cardHeight ?? estimatedCardHeight;
-  const rowStride = resolvedCardHeight + GRID_GAP_PX;
-  const totalRows = Math.ceil(manga.length / columns);
-  const shouldVirtualize = manga.length > columns * 6 && containerWidth > 0;
-
-  const containerTop = useMemo(() => {
-    const container = containerRef.current;
-    if (!container) {
-      return 0;
-    }
-
-    return container.getBoundingClientRect().top + windowMetrics.scrollY;
-  }, [containerWidth, windowMetrics.scrollY]);
+    return () => {
+      window.removeEventListener('resize', updateContainerTop);
+    };
+  }, [containerWidth, manga.length, shouldVirtualize]);
 
   const visibleRange = useMemo(() => {
     if (!shouldVirtualize || rowStride <= 0) {
@@ -229,6 +265,8 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
               <MangaCard
                 manga={manga[0]}
                 index={0}
+                topTenWeekIds={null}
+                hoverPreviewEnabled={false}
                 disableHeavyEffects
               />
             </div>
@@ -246,6 +284,8 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
               key={item.id}
               manga={item}
               index={startIndex + index}
+              topTenWeekIds={topTenWeekIds}
+              hoverPreviewEnabled={hoverPreviewEnabled}
               disableHeavyEffects={disableHeavyEffects}
             />
           ))}

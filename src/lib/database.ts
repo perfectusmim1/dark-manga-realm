@@ -53,6 +53,7 @@ import {
     upsertCachedReadingList,
 } from '@/lib/offline/userSync';
 import { warmPersistentImageUrls } from '@/lib/offline/persistentImageWarmup';
+import { clearHomeFeedCache } from '@/lib/homeFeedCache';
 import {
     getCharacterListingRolePriority,
     normalizeCharacterListingRole,
@@ -507,6 +508,13 @@ const invalidateAllMangasCache = () => {
     mangaSummariesPromise = null;
     homePageMangaSectionsCache = null;
     homePageMangaSectionsPromise = null;
+    topTenMangaIdsCache.today = null;
+    topTenMangaIdsCache.week = null;
+    topTenMangaIdsCache.all = null;
+    topTenMangaIdsPromises.today = null;
+    topTenMangaIdsPromises.week = null;
+    topTenMangaIdsPromises.all = null;
+    clearHomeFeedCache();
 };
 
 export const getCachedAdminAccessContext = (authUserId?: string | null): AdminAccessContext | null => {

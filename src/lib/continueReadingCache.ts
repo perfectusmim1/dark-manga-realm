@@ -1,7 +1,9 @@
 import type { ReadingHistoryEntry } from '@/lib/storage';
 import type { Manga } from '@/lib/types';
 
-const CONTINUE_READING_SESSION_CACHE_KEY = 'toonparrot-home-continue-reading-v2';
+const CONTINUE_READING_SESSION_CACHE_KEY = 'toonparrot-home-continue-reading-session-v3';
+const CONTINUE_READING_LOCAL_CACHE_KEY = 'toonparrot-home-continue-reading-local-v3';
+const CONTINUE_READING_MAX_CACHE_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 export interface ContinueReadingMangaSnapshot {
     id: string;
@@ -28,6 +30,32 @@ interface PersistedContinueReadingCache {
     entries: ContinueReadingCacheEntry[];
     updatedAt: string;
 }
+
+const parsePersistedContinueReadingCache = (raw: string | null): PersistedContinueReadingCache | null => {
+    if (!raw) {
+        return null;
+    }
+
+    try {
+        const parsed = JSON.parse(raw) as PersistedContinueReadingCache;
+        if (!parsed || typeof parsed.userId !== 'string' || !Array.isArray(parsed.entries)) {
+            return null;
+        }
+
+        const updatedAt = new Date(parsed.updatedAt || '').getTime();
+        if (Number.isNaN(updatedAt) || Date.now() - updatedAt > CONTINUE_READING_MAX_CACHE_AGE_MS) {
+            return null;
+        }
+
+        return {
+            userId: parsed.userId,
+            entries: parsed.entries,
+            updatedAt: parsed.updatedAt,
+        };
+    } catch {
+        return null;
+    }
+};
 
 export const buildContinueReadingEntrySignature = (
     entry: Pick<ContinueReadingCacheEntry, 'mangaId' | 'chapterId' | 'chapterNumber' | 'page' | 'lastRead'>,
@@ -117,26 +145,30 @@ export const buildContinueReadingMangaFromSnapshot = (
     reviewCount: 0,
 });
 
-export const readPersistedContinueReadingCache = (): PersistedContinueReadingCache | null => {
+export const readPersistedContinueReadingCache = (expectedUserId?: string | null): PersistedContinueReadingCache | null => {
     if (typeof window === 'undefined') {
         return null;
     }
 
-    try {
-        const raw = window.sessionStorage.getItem(CONTINUE_READING_SESSION_CACHE_KEY);
-        if (!raw) {
-            return null;
-        }
+    const sessionCache = parsePersistedContinueReadingCache(
+        window.sessionStorage.getItem(CONTINUE_READING_SESSION_CACHE_KEY),
+    );
+    const localCache = parsePersistedContinueReadingCache(
+        window.localStorage.getItem(CONTINUE_READING_LOCAL_CACHE_KEY),
+    );
 
-        const parsed = JSON.parse(raw) as PersistedContinueReadingCache;
-        if (!parsed || typeof parsed.userId !== 'string' || !Array.isArray(parsed.entries)) {
-            return null;
-        }
+    const candidates = [sessionCache, localCache]
+        .filter((cache): cache is PersistedContinueReadingCache => Boolean(cache))
+        .filter((cache) => !expectedUserId || cache.userId === expectedUserId)
+        .sort((left, right) => (
+            new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime()
+        ));
 
-        return parsed;
-    } catch {
+    if (candidates.length === 0) {
         return null;
     }
+
+    return candidates[0];
 };
 
 export const writePersistedContinueReadingCache = (userId: string, entries: ContinueReadingCacheEntry[]) => {
@@ -150,7 +182,9 @@ export const writePersistedContinueReadingCache = (userId: string, entries: Cont
         updatedAt: new Date().toISOString(),
     };
 
-    window.sessionStorage.setItem(CONTINUE_READING_SESSION_CACHE_KEY, JSON.stringify(payload));
+    const serialized = JSON.stringify(payload);
+    window.sessionStorage.setItem(CONTINUE_READING_SESSION_CACHE_KEY, serialized);
+    window.localStorage.setItem(CONTINUE_READING_LOCAL_CACHE_KEY, serialized);
 };
 
 export const clearPersistedContinueReadingCache = () => {
@@ -159,4 +193,5 @@ export const clearPersistedContinueReadingCache = () => {
     }
 
     window.sessionStorage.removeItem(CONTINUE_READING_SESSION_CACHE_KEY);
+    window.localStorage.removeItem(CONTINUE_READING_LOCAL_CACHE_KEY);
 };

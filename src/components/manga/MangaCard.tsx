@@ -14,7 +14,6 @@ import { cn } from '@/lib/utils';
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { formatChapterNumberLabel } from '@/lib/chapterTitle';
-import { useAuth } from '@/contexts/AuthContext';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
 
@@ -22,6 +21,7 @@ interface MangaCardProps {
   manga: Manga;
   index?: number;
   topTenWeekIds?: ReadonlySet<string> | null;
+  hoverPreviewEnabled?: boolean;
   disableHeavyEffects?: boolean;
   coverPriority?: boolean;
   coverRootMargin?: string;
@@ -96,6 +96,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   manga,
   index = 0,
   topTenWeekIds,
+  hoverPreviewEnabled = false,
   disableHeavyEffects = false,
   coverPriority,
   coverRootMargin = '520px 0px',
@@ -105,14 +106,12 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   entryAnimationDurationMs = 500,
 }) => {
   const navigate = useNavigate();
-  const { user } = useAuth();
   const [isTopTenWeek, setIsTopTenWeek] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
   const chapters = manga.chapters || [];
   const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : chapters.length;
-  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
   const coverSrcSet = useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
   const latestChapterLinks = useMemo(() => getLatestChapterLinks(chapters), [chapters]);
 

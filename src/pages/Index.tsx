@@ -31,6 +31,17 @@ import {
   type ContinueReadingCacheEntry,
   writePersistedContinueReadingCache,
 } from '@/lib/continueReadingCache';
+import { readHeaderShellSnapshot } from '@/lib/headerShellCache';
+import {
+  HOME_SECTIONS_CACHE_TTL_MS,
+  TOP_TEN_WEEK_CACHE_TTL_MS,
+  TRENDING_TAGS_CACHE_TTL_MS,
+  isHomeFeedEntryFresh,
+  readHomeFeedSeed,
+  writeHomeSectionsCache,
+  writeTopTenWeekIdsCache,
+  writeTrendingTagsCache,
+} from '@/lib/homeFeedCache';
 
 interface HorizontalMangaSectionProps {
   title: string;
@@ -39,6 +50,7 @@ interface HorizontalMangaSectionProps {
   linkTo: string;
   manga: Manga[];
   topTenWeekIds?: ReadonlySet<string> | null;
+  hoverPreviewEnabled?: boolean;
   delay: string;
   disableHeavyEffects: boolean;
   isCoarsePointer: boolean;
@@ -133,7 +145,6 @@ type ReadingHistoryModule = {
 
 let homeDataModulePromise: Promise<HomeDataModule> | null = null;
 let readingHistoryModulePromise: Promise<ReadingHistoryModule> | null = null;
-
 const loadHomeDataModule = () => {
   if (!homeDataModulePromise) {
     homeDataModulePromise = import('@/lib/database').then((module) => ({
@@ -158,11 +169,19 @@ const loadReadingHistoryModule = () => {
 
 const HOME_PAGE_CACHE: {
   sections: HomePageMangaSections | null;
+  sectionsFetchedAt: number;
   trendingTags: Tag[] | null;
+  trendingTagsFetchedAt: number;
+  topTenWeekIds: ReadonlySet<string> | null;
+  topTenWeekIdsFetchedAt: number;
   continueReadingByUser: Record<string, ContinueReadingCacheEntry[] | undefined>;
 } = {
   sections: null,
+  sectionsFetchedAt: 0,
   trendingTags: null,
+  trendingTagsFetchedAt: 0,
+  topTenWeekIds: null,
+  topTenWeekIdsFetchedAt: 0,
   continueReadingByUser: {},
 };
 
@@ -202,8 +221,6 @@ const HOME_CARD_ANIMATION_DURATION_MS = 180;
 const HOME_CAROUSEL_ARROW_STEP_ITEMS = 5;
 const HOME_CAROUSEL_SCROLL_SETTLE_DELAY_MS = 280;
 const HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX = 12;
-const DISABLE_HOME_DEFERRED_MOUNTS = true;
-
 const getSupabaseAuthStorageKey = () => {
   try {
     const projectRef = new URL(supabaseUrl).hostname.split('.')[0];
@@ -225,6 +242,77 @@ const hasPersistedSupabaseSession = () => {
 
   return Boolean(window.localStorage.getItem(authStorageKey));
 };
+
+const extractPersistedSessionUserId = (value: unknown, depth = 0): string | null => {
+  if (depth > 5 || value === null || value === undefined) {
+    return null;
+  }
+
+  if (Array.isArray(value)) {
+    for (const entry of value) {
+      const result = extractPersistedSessionUserId(entry, depth + 1);
+      if (result) {
+        return result;
+      }
+    }
+
+    return null;
+  }
+
+  if (typeof value !== 'object') {
+    return null;
+  }
+
+  const candidate = value as Record<string, unknown>;
+  const directUser = candidate.user;
+
+  if (
+    directUser
+    && typeof directUser === 'object'
+    && !Array.isArray(directUser)
+    && typeof (directUser as Record<string, unknown>).id === 'string'
+  ) {
+    return (directUser as Record<string, string>).id;
+  }
+
+  for (const nested of Object.values(candidate)) {
+    const result = extractPersistedSessionUserId(nested, depth + 1);
+    if (result) {
+      return result;
+    }
+  }
+
+  return null;
+};
+
+const getPersistedSupabaseSessionUserId = () => {
+  if (typeof window === 'undefined') {
+    return null;
+  }
+
+  const authStorageKey = getSupabaseAuthStorageKey();
+  if (!authStorageKey) {
+    return null;
+  }
+
+  try {
+    const raw = window.localStorage.getItem(authStorageKey);
+    if (!raw) {
+      return null;
+    }
+
+    return extractPersistedSessionUserId(JSON.parse(raw));
+  } catch {
+    return null;
+  }
+};
+
+const getInitialContinueReadingUserId = () => (
+  readHeaderShellSnapshot()?.user?.id || getPersistedSupabaseSessionUserId()
+);
+
+const initialContinueReadingUserId = getInitialContinueReadingUserId();
+const initialPersistedContinueReadingCache = readPersistedContinueReadingCache(initialContinueReadingUserId);
 
 const getInitialVisibleHomeSectionCardCount = (viewportWidth: number, isCoarsePointer: boolean) => {
   if (viewportWidth >= 1280) {
@@ -526,6 +614,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   linkTo,
   manga,
   topTenWeekIds,
+  hoverPreviewEnabled = false,
   delay,
   disableHeavyEffects,
   isCoarsePointer,
@@ -768,6 +857,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
                 manga={item}
                 index={index}
                 topTenWeekIds={topTenWeekIds}
+                hoverPreviewEnabled={hoverPreviewEnabled}
                 disableHeavyEffects={disableHeavyEffects}
                 coverPriority={index < visibleCoverPriorityCount}
                 coverRootMargin={coverRootMargin}
@@ -788,15 +878,24 @@ const Index: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
-  const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => HOME_PAGE_CACHE.sections ?? EMPTY_HOME_PAGE_SECTIONS);
-  const [topTenWeekIds, setTopTenWeekIds] = useState<ReadonlySet<string> | null>(null);
+  const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => (
+    readHomeFeedSeed().sections?.value ?? EMPTY_HOME_PAGE_SECTIONS
+  ));
+  const [topTenWeekIds, setTopTenWeekIds] = useState<ReadonlySet<string> | null>(() => (
+    readHomeFeedSeed().topTenWeekIds?.value ?? null
+  ));
   const [hasPersistedAuthSession, setHasPersistedAuthSession] = useState(() => hasPersistedSupabaseSession());
   const [continueReadingSeed, setContinueReadingSeed] = useState<ContinueReadingCacheEntry[]>(() => (
-    readPersistedContinueReadingCache()?.entries ?? []
+    initialPersistedContinueReadingCache?.entries ?? []
   ));
-  const [continueReadingLoading, setContinueReadingLoading] = useState(() => hasPersistedSupabaseSession());
-  const [trendingTags, setTrendingTags] = useState<Tag[]>(() => HOME_PAGE_CACHE.trendingTags ?? []);
-  const [tagsLoading, setTagsLoading] = useState(() => HOME_PAGE_CACHE.trendingTags === null);
+  const [continueReadingLoading, setContinueReadingLoading] = useState(() => (
+    hasPersistedSupabaseSession() && !initialPersistedContinueReadingCache
+  ));
+  const [trendingTags, setTrendingTags] = useState<Tag[]>(() => (
+    readHomeFeedSeed().trendingTags?.value ?? []
+  ));
+  const [tagsLoading, setTagsLoading] = useState(() => readHomeFeedSeed().trendingTags === null);
+  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
   const mangas = useMemo(() => {
     const uniqueMangaById = new Map<string, Manga>();
 
@@ -857,6 +956,25 @@ const Index: React.FC = () => {
   ), [offlineSnapshot.series]);
 
   useEffect(() => {
+    const latestHomeFeedSeed = readHomeFeedSeed();
+
+    HOME_PAGE_CACHE.sections = latestHomeFeedSeed.sections?.value ?? null;
+    HOME_PAGE_CACHE.sectionsFetchedAt = latestHomeFeedSeed.sections?.fetchedAt ?? 0;
+    HOME_PAGE_CACHE.trendingTags = latestHomeFeedSeed.trendingTags?.value ?? null;
+    HOME_PAGE_CACHE.trendingTagsFetchedAt = latestHomeFeedSeed.trendingTags?.fetchedAt ?? 0;
+    HOME_PAGE_CACHE.topTenWeekIds = latestHomeFeedSeed.topTenWeekIds?.value ?? null;
+    HOME_PAGE_CACHE.topTenWeekIdsFetchedAt = latestHomeFeedSeed.topTenWeekIds?.fetchedAt ?? 0;
+  }, []);
+
+  useEffect(() => {
+    if (!initialContinueReadingUserId || !initialPersistedContinueReadingCache) {
+      return;
+    }
+
+    HOME_PAGE_CACHE.continueReadingByUser[initialContinueReadingUserId] = initialPersistedContinueReadingCache.entries;
+  }, []);
+
+  useEffect(() => {
     if (!isOnline) {
       setTopTenWeekIds(null);
       return;
@@ -864,8 +982,24 @@ const Index: React.FC = () => {
 
     let active = true;
     const homeDataPromise = loadHomeDataModule();
+    const sectionsAreFresh = HOME_PAGE_CACHE.sections !== null
+      && isHomeFeedEntryFresh(HOME_PAGE_CACHE.sectionsFetchedAt, HOME_SECTIONS_CACHE_TTL_MS);
+    const topTenIdsAreFresh = HOME_PAGE_CACHE.topTenWeekIds !== null
+      && isHomeFeedEntryFresh(HOME_PAGE_CACHE.topTenWeekIdsFetchedAt, TOP_TEN_WEEK_CACHE_TTL_MS);
+
+    if (HOME_PAGE_CACHE.sections) {
+      setHomeSections(HOME_PAGE_CACHE.sections);
+    }
+
+    if (HOME_PAGE_CACHE.topTenWeekIds) {
+      setTopTenWeekIds(HOME_PAGE_CACHE.topTenWeekIds);
+    }
 
     const loadMainContent = async () => {
+      if (sectionsAreFresh) {
+        return;
+      }
+
       try {
         const { getHomePageMangaSections } = await homeDataPromise;
         const sections = await getHomePageMangaSections();
@@ -873,7 +1007,10 @@ const Index: React.FC = () => {
           return;
         }
 
+        const fetchedAt = Date.now();
         HOME_PAGE_CACHE.sections = sections;
+        HOME_PAGE_CACHE.sectionsFetchedAt = fetchedAt;
+        writeHomeSectionsCache(sections, fetchedAt);
         startTransition(() => {
           setHomeSections(sections);
         });
@@ -883,10 +1020,18 @@ const Index: React.FC = () => {
     };
 
     const loadTopTenWeekIds = async () => {
+      if (topTenIdsAreFresh) {
+        return;
+      }
+
       try {
         const { getTopTenMangaIds } = await homeDataPromise;
         const ids = await getTopTenMangaIds('week');
         if (active) {
+          const fetchedAt = Date.now();
+          HOME_PAGE_CACHE.topTenWeekIds = ids;
+          HOME_PAGE_CACHE.topTenWeekIdsFetchedAt = fetchedAt;
+          writeTopTenWeekIdsCache(ids, fetchedAt);
           setTopTenWeekIds(ids);
         }
       } catch (err) {
@@ -908,6 +1053,8 @@ const Index: React.FC = () => {
   useEffect(() => {
     let active = true;
     const homeDataPromise = loadHomeDataModule();
+    const tagsAreFresh = HOME_PAGE_CACHE.trendingTags !== null
+      && isHomeFeedEntryFresh(HOME_PAGE_CACHE.trendingTagsFetchedAt, TRENDING_TAGS_CACHE_TTL_MS);
 
     const loadTrendingTags = async () => {
       if (!isOnline) {
@@ -916,8 +1063,17 @@ const Index: React.FC = () => {
         return;
       }
 
+      if (HOME_PAGE_CACHE.trendingTags) {
+        setTrendingTags(HOME_PAGE_CACHE.trendingTags);
+      }
+
       if (HOME_PAGE_CACHE.trendingTags === null) {
         setTagsLoading(true);
+      }
+
+      if (tagsAreFresh) {
+        setTagsLoading(false);
+        return;
       }
 
       try {
@@ -927,8 +1083,13 @@ const Index: React.FC = () => {
           return;
         }
 
+        const fetchedAt = Date.now();
         HOME_PAGE_CACHE.trendingTags = tags;
+        HOME_PAGE_CACHE.trendingTagsFetchedAt = fetchedAt;
+        writeTrendingTagsCache(tags, fetchedAt);
         setTrendingTags(tags);
+      } catch (err) {
+        console.error('Trending tag loading error:', err);
       } finally {
         if (active) {
           setTagsLoading(false);
@@ -1173,7 +1334,7 @@ const Index: React.FC = () => {
 
         {isOnline ? (
           <>
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled>
               <HorizontalMangaSection
                 title="Yeni Çıkan Seriler"
                 icon={Sparkles}
@@ -1181,6 +1342,7 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=created"
                 manga={newlyAddedSeries}
                 topTenWeekIds={topTenWeekIds}
+                hoverPreviewEnabled={hoverPreviewEnabled}
                 delay="0s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
@@ -1190,7 +1352,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Son Güncellenenler"
                 icon={Clock}
@@ -1198,6 +1360,7 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=updated"
                 manga={recentlyUpdated}
                 topTenWeekIds={topTenWeekIds}
+                hoverPreviewEnabled={hoverPreviewEnabled}
                 delay="0.02s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
@@ -1207,7 +1370,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
+            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Trend Olanlar"
                 icon={TrendingUp}
@@ -1215,6 +1378,7 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=trending"
                 manga={trendingManga}
                 topTenWeekIds={topTenWeekIds}
+                hoverPreviewEnabled={hoverPreviewEnabled}
                 delay="0.04s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
@@ -1224,7 +1388,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin={blockDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
+            <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin={blockDeferredRootMargin}>
               <section
                 className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
                 style={disableHeavyEffects ? undefined : { animationDelay: '0.45s', animationFillMode: 'forwards' }}
@@ -1257,7 +1421,7 @@ const Index: React.FC = () => {
             </DeferredMount>
           </>
         ) : (
-          <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin} disabled={DISABLE_HOME_DEFERRED_MOUNTS}>
+          <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin} disabled>
             <section
               className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
               style={disableHeavyEffects ? undefined : { animationDelay: '0.16s', animationFillMode: 'forwards' }}
@@ -1279,6 +1443,8 @@ const Index: React.FC = () => {
                       key={manga.id}
                       manga={manga}
                       index={index}
+                      topTenWeekIds={null}
+                      hoverPreviewEnabled={hoverPreviewEnabled}
                       disableHeavyEffects={disableHeavyEffects}
                       coverPriority={index < 4}
                     />
