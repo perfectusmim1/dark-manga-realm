@@ -43,6 +43,7 @@ import { OPEN_PAGE_COMMENT_EVENT, OpenPageCommentDetail } from '@/lib/pageCommen
 import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
 import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
 import { syncMangaToExternalProviders } from '@/lib/externalSync';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 
 let persistedAutoScrollIntent = false;
 const MIN_READING_SESSION_SECONDS = 1;
@@ -76,6 +77,7 @@ const Reader: React.FC = () => {
   const location = useLocation();
   const { user, isLoading: authLoading } = useAuth();
   const { isOnline: isOnlineNow } = useEffectiveOnlineStatus();
+  const { isMobile } = useDeviceProfile();
   const viewTracked = useRef(false);
   const forceOfflineRead = useMemo(
     () => new URLSearchParams(location.search).get('offline') === '1',
@@ -1089,7 +1091,7 @@ const Reader: React.FC = () => {
   };
 
   const isReaderTransitionActive = isLoading || !isInitialViewportReady;
-  const showPageCommentRail = settings.showPageComments;
+  const showPageCommentRail = settings.showPageComments && !isMobile;
   const totalPageCount = resolvedPages.length || chapter.pages.length || 0;
   const commentPagePreviewUrls = resolvedPages.length > 0
     ? resolvedPages.map((page) => page.src)
@@ -1182,7 +1184,10 @@ const Reader: React.FC = () => {
       </div>
 
       {/* Scroll controls */}
-      <div className={`fixed bottom-24 right-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
+      <div
+        className={`fixed right-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 6rem)' }}
+      >
         <Button 
           variant="secondary" 
           size="icon" 
@@ -1194,7 +1199,10 @@ const Reader: React.FC = () => {
         </Button>
       </div>
 
-      <div className={`fixed bottom-24 left-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}>
+      <div
+        className={`fixed left-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
+        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 6rem)' }}
+      >
         <Button 
           variant="secondary" 
           size="icon" 
@@ -1209,6 +1217,7 @@ const Reader: React.FC = () => {
       {/* Yorum Bölümü */}
       <div
         className="mx-auto mt-6 max-w-4xl border-t border-border px-3 pt-6 pb-28 sm:mt-8 sm:px-4 sm:pt-8 md:pb-32"
+        style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 7rem)' }}
         onClick={(e) => e.stopPropagation()}
       >
         {canUseNetworkReaderFeatures ? (

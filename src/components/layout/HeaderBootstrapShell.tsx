@@ -49,7 +49,10 @@ const HeaderBootstrapShell = () => {
   }
 
   return (
-    <header className="fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/90 backdrop-blur-xl">
+    <header
+      className="fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/90 backdrop-blur-xl"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       <div className="container flex h-16 items-center justify-between gap-4">
         <Link to="/" className="-ml-2 flex items-center gap-2 md:-ml-3">
           <img src="/logo.webp" alt="Logo" className="h-12 w-auto object-contain" decoding="async" />

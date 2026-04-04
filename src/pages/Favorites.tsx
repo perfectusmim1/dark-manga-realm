@@ -6,11 +6,13 @@ import MangaGrid from '@/components/manga/MangaGrid';
 import ReadingListCover from '@/components/manga/ReadingListCover';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useAuth } from '@/contexts/AuthContext';
 import { getFavorites, refreshFavoritesCache } from '@/lib/storage';
-import { getLikedReadingLists, getMangaById, LikedReadingListPreview } from '@/lib/database';
+import { getLikedReadingLists, getMangaSummariesByIds, LikedReadingListPreview } from '@/lib/database';
 import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
+import { areFavoritesInitialized, getCachedFavoritesState } from '@/lib/offline/userSync';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import { Manga, Favorite } from '@/lib/types';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -51,47 +53,174 @@ const buildFavoriteFallbackManga = (favorite: Favorite): Manga => ({
   reviewCount: 0,
 });
 
+const createMangaMap = (mangas: Manga[]) =>
+  new Map(mangas.map((manga) => [manga.id, manga] as const));
+
+const resolveFavoriteManga = (
+  favorites: Favorite[],
+  primaryMap?: Map<string, Manga>,
+  secondaryMap?: Map<string, Manga>,
+) => favorites.map((favorite) => (
+  primaryMap?.get(favorite.mangaId)
+  || secondaryMap?.get(favorite.mangaId)
+  || buildFavoriteFallbackManga(favorite)
+));
+
+const hydrateFavoriteMangaFromOffline = async (favorites: Favorite[]) => {
+  const offlineEntries = await Promise.all(
+    favorites.map((favorite) => getOfflineMangaDetail(favorite.mangaId)),
+  );
+
+  return resolveFavoriteManga(
+    favorites,
+    createMangaMap(offlineEntries.filter(Boolean) as Manga[]),
+  );
+};
+
 const Favorites: React.FC = () => {
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
-  const [favoriteManga, setFavoriteManga] = React.useState<Manga[]>([]);
+  const initialFavoriteCache = user?.id && areFavoritesInitialized(user.id)
+    ? getCachedFavoritesState(user.id)
+    : [];
+  const [favoriteManga, setFavoriteManga] = React.useState<Manga[]>(() => (
+    resolveFavoriteManga(initialFavoriteCache)
+  ));
   const [favoriteLists, setFavoriteLists] = React.useState<LikedReadingListPreview[]>([]);
-  const [isLoading, setIsLoading] = React.useState(true);
+  const [isLoading, setIsLoading] = React.useState(() => !user?.id || !areFavoritesInitialized(user.id));
+  const [isListsLoading, setIsListsLoading] = React.useState(false);
+  const [hasLoadedLists, setHasLoadedLists] = React.useState(false);
   const [activeTab, setActiveTab] = React.useState<'manga' | 'lists'>('manga');
 
   React.useEffect(() => {
+    let isCancelled = false;
+
     const loadFavorites = async () => {
-      if (!user) {
+      if (!user?.id) {
+        setFavoriteManga([]);
         setIsLoading(false);
         return;
       }
 
-      try {
-        setIsLoading(true);
-        const favorites = isOnline
-          ? await refreshFavoritesCache(user.id)
-          : await getFavorites(user.id);
-        const likedLists = isOnline ? await getLikedReadingLists(user.id) : [];
-        const mangas = await Promise.all(
-          favorites.map(async (favorite) => (
-            (isOnline ? await getMangaById(favorite.mangaId) : undefined)
-            || await getOfflineMangaDetail(favorite.mangaId)
-            || buildFavoriteFallbackManga(favorite)
-          )),
-        );
+      const hasCachedFavorites = areFavoritesInitialized(user.id);
+      let resolvedFavorites: Favorite[] = [];
+      let offlineMangaMap = new Map<string, Manga>();
 
-        setFavoriteManga(mangas);
-        setFavoriteLists(likedLists);
+      try {
+        if (!hasCachedFavorites) {
+          setIsLoading(true);
+        }
+
+        resolvedFavorites = hasCachedFavorites
+          ? getCachedFavoritesState(user.id)
+          : await getFavorites(user.id);
+
+        if (isCancelled) {
+          return;
+        }
+
+        React.startTransition(() => {
+          setFavoriteManga(resolveFavoriteManga(resolvedFavorites));
+        });
+        setIsLoading(false);
+
+        const offlineHydratedManga = await hydrateFavoriteMangaFromOffline(resolvedFavorites);
+
+        if (isCancelled) {
+          return;
+        }
+
+        offlineMangaMap = createMangaMap(offlineHydratedManga);
+
+        React.startTransition(() => {
+          setFavoriteManga(offlineHydratedManga);
+        });
       } catch (err) {
         console.error('Favorites load error:', err);
         toast.error('Favoriler yüklenemedi');
+        setFavoriteManga([]);
+        setIsLoading(false);
+        return;
       } finally {
         setIsLoading(false);
+      }
+
+      if (!isOnline) {
+        return;
+      }
+
+      try {
+        const refreshedFavorites = hasCachedFavorites
+          ? await refreshFavoritesCache(user.id)
+          : resolvedFavorites;
+        if (isCancelled) {
+          return;
+        }
+        const summaryManga = await getMangaSummariesByIds(
+          refreshedFavorites.map((favorite) => favorite.mangaId),
+        );
+        if (isCancelled) {
+          return;
+        }
+        const summaryMangaMap = createMangaMap(summaryManga);
+
+        React.startTransition(() => {
+          setFavoriteManga(resolveFavoriteManga(refreshedFavorites, summaryMangaMap, offlineMangaMap));
+        });
+      } catch (error) {
+        console.warn('Favorites background refresh failed:', error);
       }
     };
 
     void loadFavorites();
-  }, [isOnline, user]);
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOnline, user?.id]);
+
+  React.useEffect(() => {
+    setFavoriteLists([]);
+    setHasLoadedLists(false);
+    setIsListsLoading(false);
+  }, [user?.id]);
+
+  React.useEffect(() => {
+    if (!user?.id || activeTab !== 'lists' || !isOnline || hasLoadedLists) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    const loadLikedLists = async () => {
+      try {
+        setIsListsLoading(true);
+        const likedLists = await getLikedReadingLists(user.id);
+
+        if (isCancelled) {
+          return;
+        }
+
+        React.startTransition(() => {
+          setFavoriteLists(likedLists);
+        });
+        setHasLoadedLists(true);
+      } catch (error) {
+        console.error('Liked reading lists load error:', error);
+        toast.error('Beğenilen okuma listeleri yüklenemedi');
+      } finally {
+        if (!isCancelled) {
+          setIsListsLoading(false);
+        }
+      }
+    };
+
+    void loadLikedLists();
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [activeTab, hasLoadedLists, isOnline, user?.id]);
 
   if (isLoading && user) {
     return (
@@ -130,7 +259,8 @@ const Favorites: React.FC = () => {
         <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Favorilerim</h1>
           <p className="mt-2 text-muted-foreground">
-            {favoriteManga.length} manga ve {favoriteLists.length} beğenilen okuma listesi
+            {favoriteManga.length} manga
+            {hasLoadedLists ? ` ve ${favoriteLists.length} beğenilen okuma listesi` : ''}
           </p>
         </div>
 
@@ -179,6 +309,23 @@ const Favorites: React.FC = () => {
                   compact
                   description="Beğendiğiniz okuma listelerini görmek için internete bağlanın."
                 />
+              ) : isListsLoading ? (
+                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                  {Array.from({ length: 6 }).map((_, index) => (
+                    <div key={index} className="overflow-hidden rounded-2xl border border-border bg-card/40">
+                      <Skeleton className="h-40 w-full" />
+                      <div className="space-y-3 p-4">
+                        <Skeleton className="h-5 w-2/3" />
+                        <Skeleton className="h-4 w-full" />
+                        <Skeleton className="h-4 w-5/6" />
+                        <div className="flex gap-2">
+                          <Skeleton className="h-5 w-16" />
+                          <Skeleton className="h-5 w-20" />
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
               ) : favoriteLists.length > 0 ? (
                 <VirtualCardGrid
                   items={favoriteLists}

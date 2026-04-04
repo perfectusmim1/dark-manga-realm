@@ -30,6 +30,9 @@ import { Slider } from '@/components/ui/slider';
 import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
 import { cn } from '@/lib/utils';
 
+const READER_TOP_SAFE_AREA = 'calc(env(safe-area-inset-top) + 0px)';
+const READER_BOTTOM_SAFE_AREA = 'calc(env(safe-area-inset-bottom) + 0px)';
+
 interface ReaderControlsProps {
   mangaId: string;
   mangaTitle: string;
@@ -161,6 +164,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
       {/* Top Bar */}
       <div
         className={`fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : '-translate-y-full'}`}
+        style={{ paddingTop: READER_TOP_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
@@ -388,6 +392,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
       {/* Bottom Bar */}
       <div
         className={`fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : 'translate-y-full'}`}
+        style={{ paddingBottom: READER_BOTTOM_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >

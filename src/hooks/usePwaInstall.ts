@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import { getAppRuntime } from '@/lib/appRuntime';
 
 interface BeforeInstallPromptEvent extends Event {
   prompt: () => Promise<void>;
@@ -32,6 +33,10 @@ const setInstalledMarker = (value: boolean) => {
 };
 
 const getStandaloneState = () => {
+  if (getAppRuntime().isNativeApp) {
+    return true;
+  }
+
   if (typeof window === 'undefined') {
     return false;
   }
@@ -45,6 +50,10 @@ const getStandaloneState = () => {
 };
 
 const getIsIos = () => {
+  if (getAppRuntime().isNativeApp) {
+    return false;
+  }
+
   if (typeof window === 'undefined') {
     return false;
   }
@@ -58,6 +67,13 @@ export const usePwaInstall = () => {
   const [isIos, setIsIos] = useState(getIsIos);
 
   useEffect(() => {
+    if (getAppRuntime().isNativeApp) {
+      setDeferredPrompt(null);
+      setIsInstalled(true);
+      setIsIos(false);
+      return;
+    }
+
     if (getStandaloneState()) {
       setInstalledMarker(true);
       setIsInstalled(true);

@@ -2,6 +2,7 @@ import { createRoot } from "react-dom/client";
 import App from "./App.tsx";
 import "./index.css";
 import { registerSW } from "virtual:pwa-register";
+import { isNativeApp } from "@/lib/appRuntime";
 
 const registerServiceWorkerWhenIdle = () => {
   const run = () => {
@@ -16,7 +17,7 @@ const registerServiceWorkerWhenIdle = () => {
   window.setTimeout(run, 1200);
 };
 
-if (typeof window !== "undefined") {
+if (typeof window !== "undefined" && !isNativeApp()) {
   if (document.readyState === "complete") {
     registerServiceWorkerWhenIdle();
   } else {

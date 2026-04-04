@@ -206,7 +206,10 @@ const DownloadDock: React.FC = () => {
   };
 
   return (
-    <div className="pointer-events-none fixed bottom-5 right-5 z-[90]">
+    <div
+      className="pointer-events-none fixed right-5 z-[90]"
+      style={{ bottom: 'calc(var(--mobile-app-bottom-offset, 0px) + 1.25rem)' }}
+    >
       <button
         ref={minimizedTriggerRef}
         type="button"

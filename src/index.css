@@ -43,6 +43,7 @@
     --gradient-manga: linear-gradient(135deg, hsl(210 100% 58%) 0%, hsl(200 100% 50%) 100%);
     --shadow-glow: 0 0 40px hsl(210 100% 58% / 0.15);
     --shadow-card: 0 4px 24px hsl(0 0% 0% / 0.4);
+    --mobile-app-bottom-offset: 0px;
 
     --sidebar-background: 240 10% 6%;
     --sidebar-foreground: 0 0% 98%;
@@ -79,6 +80,22 @@
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
     overflow-y: scroll;
+  }
+
+  html.toonparrot-native-app,
+  body.toonparrot-native-app {
+    min-height: 100%;
+    overscroll-behavior-y: none;
+  }
+
+  body.toonparrot-native-app {
+    min-height: 100dvh;
+    padding-top: env(safe-area-inset-top);
+    padding-bottom: var(--mobile-app-bottom-offset);
+  }
+
+  body.toonparrot-native-app #root {
+    min-height: 100dvh;
   }
 
   body.reader-active {

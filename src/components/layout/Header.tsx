@@ -709,7 +709,10 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
 
   return (
     <TooltipProvider>
-    <header className={`fixed top-0 left-0 right-0 z-50 border-b border-border/50 ${disableHeavyEffects ? 'bg-background/95' : 'bg-background/80 backdrop-blur-xl'}`}>
+    <header
+      className={`fixed top-0 left-0 right-0 z-50 border-b border-border/50 ${disableHeavyEffects ? 'bg-background/95' : 'bg-background/80 backdrop-blur-xl'}`}
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       <div className="container flex h-16 items-center justify-between gap-4">
         {/* Logo */}
         <Link

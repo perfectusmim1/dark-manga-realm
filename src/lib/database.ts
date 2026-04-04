@@ -920,6 +920,60 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
     }
 };
 
+export const getMangaSummariesByIds = async (mangaIds: string[]): Promise<Manga[]> => {
+    const uniqueMangaIds = [...new Set(mangaIds.filter(Boolean))];
+    if (uniqueMangaIds.length === 0) {
+        return [];
+    }
+
+    const requestedIdSet = new Set(uniqueMangaIds);
+    const summaryMap = new Map<string, Manga>();
+    const now = Date.now();
+
+    if (mangaSummariesCache && now - mangaSummariesCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+        mangaSummariesCache.value.forEach((manga) => {
+            if (requestedIdSet.has(manga.id)) {
+                summaryMap.set(manga.id, manga);
+            }
+        });
+    }
+
+    if (allMangasCache && now - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+        allMangasCache.value.forEach((manga) => {
+            if (requestedIdSet.has(manga.id) && !summaryMap.has(manga.id)) {
+                summaryMap.set(manga.id, manga);
+            }
+        });
+    }
+
+    const missingIds = uniqueMangaIds.filter((mangaId) => !summaryMap.has(mangaId));
+    if (missingIds.length > 0) {
+        const { data: mangaRows, error: mangaError } = await supabase
+            .from('mangas')
+            .select(MANGA_SUMMARY_SELECT_COLUMNS)
+            .in('id', missingIds);
+
+        if (mangaError) {
+            if (!isExpectedAccessControlError(mangaError)) {
+                console.error('Manga summary by ids fetch error:', mangaError);
+            }
+        } else {
+            const fetchedSummaries = await buildMangaSummariesForRows(
+                mangaRows || [],
+                { logContext: 'Manga summary by ids' },
+            );
+
+            fetchedSummaries.forEach((manga) => {
+                summaryMap.set(manga.id, manga);
+            });
+        }
+    }
+
+    return uniqueMangaIds
+        .map((mangaId) => summaryMap.get(mangaId))
+        .filter(Boolean) as Manga[];
+};
+
 export const getHomePageMangaSections = async (): Promise<HomePageMangaSections> => {
     if (
         homePageMangaSectionsCache

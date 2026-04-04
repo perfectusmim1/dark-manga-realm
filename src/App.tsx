@@ -15,6 +15,7 @@ import ScrollToTop from "./components/layout/ScrollToTop";
 import Header from "./components/layout/Header";
 import { GlobalHeaderEnabledContext } from "./components/layout/Header";
 import { shouldRenderHeaderBootstrap } from "./components/layout/HeaderBootstrapShell";
+import NativeAppChrome from "./components/layout/NativeAppChrome";
 import { initializeOfflineUserSync } from "@/lib/offline/userSync";
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -412,6 +413,7 @@ const App = () => (
                     <Route path="*" element={<NotFound />} />
                       </Routes>
                     </Suspense>
+                    <NativeAppChrome />
                     <Suspense fallback={null}>
                       <LazyDownloadDock />
                     </Suspense>
