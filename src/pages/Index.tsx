@@ -541,7 +541,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
               <Button asChild variant="outline" className={`w-full rounded-full px-5 sm:w-auto ${continueReadingGlassButtonClass}`}>
                 <Link to={detailsHref}>Seri Sayfası</Link>
               </Button>
-              <p className={`${continueReadingGlassMetaClass} sm:ml-1`}>{formatContinueReadingLastRead(featured.lastRead)}</p>
+              <p className={`${continueReadingGlassMetaClass} hidden sm:inline-flex sm:ml-1`}>{formatContinueReadingLastRead(featured.lastRead)}</p>
             </div>
           </div>
 
