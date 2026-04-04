@@ -78,7 +78,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
         <img
           src={resolvedSrc}
           alt={alt}
-          className={className}
+          className={cn('image-downscale-quality', className)}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
           onError={handleError}

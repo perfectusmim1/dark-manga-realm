@@ -47,15 +47,15 @@ const configuredScraperProxyUrl = import.meta.env.VITE_SCRAPER_PROXY_URL?.trim()
 const MEDIA_HOST_PATTERNS = ['.r2.dev', 'toonparrot-media'];
 
 const PRESETS: Record<`${MediaEntityType}:${MediaVariant}`, MediaTransformPreset> = {
-  'manga:cover': { width: 720, quality: 80, fit: 'cover', format: 'webp' },
-  'manga:banner': { width: 1600, quality: 78, fit: 'cover', format: 'webp' },
-  'manga:gallery': { width: 1600, quality: 78, fit: 'scale-down', format: 'webp' },
-  'character:profile': { width: 640, quality: 78, fit: 'cover', format: 'webp' },
-  'character:gallery': { width: 1200, quality: 78, fit: 'scale-down', format: 'webp' },
-  'author:profile': { width: 560, quality: 78, fit: 'cover', format: 'webp' },
-  'author:gallery': { width: 1200, quality: 78, fit: 'scale-down', format: 'webp' },
-  'artist:profile': { width: 560, quality: 78, fit: 'cover', format: 'webp' },
-  'artist:gallery': { width: 1200, quality: 78, fit: 'scale-down', format: 'webp' },
+  'manga:cover': { width: 720, quality: 86, fit: 'cover', format: 'webp' },
+  'manga:banner': { width: 1600, quality: 84, fit: 'cover', format: 'webp' },
+  'manga:gallery': { width: 1600, quality: 84, fit: 'scale-down', format: 'webp' },
+  'character:profile': { width: 640, quality: 84, fit: 'cover', format: 'webp' },
+  'character:gallery': { width: 1200, quality: 84, fit: 'scale-down', format: 'webp' },
+  'author:profile': { width: 560, quality: 84, fit: 'cover', format: 'webp' },
+  'author:gallery': { width: 1200, quality: 84, fit: 'scale-down', format: 'webp' },
+  'artist:profile': { width: 560, quality: 84, fit: 'cover', format: 'webp' },
+  'artist:gallery': { width: 1200, quality: 84, fit: 'scale-down', format: 'webp' },
 };
 
 const normalizeText = (value?: string | null) => value?.trim() || '';

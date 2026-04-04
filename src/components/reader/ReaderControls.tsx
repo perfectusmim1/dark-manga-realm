@@ -24,11 +24,20 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
+import {
+  Drawer,
+  DrawerContent,
+  DrawerDescription,
+  DrawerHeader,
+  DrawerTitle,
+  DrawerTrigger,
+} from '@/components/ui/drawer';
 import { Switch } from '@/components/ui/switch';
 import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
 import { cn } from '@/lib/utils';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 
 const READER_TOP_SAFE_AREA = 'calc(env(safe-area-inset-top) + 0px)';
 const READER_BOTTOM_SAFE_AREA = 'calc(env(safe-area-inset-bottom) + 0px)';
@@ -87,6 +96,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   onBeforeChapterChange,
 }) => {
   const navigate = useNavigate();
+  const { isMobile } = useDeviceProfile();
   const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
   const nextChapter = chapters[currentIndex - 1];
@@ -94,6 +104,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const [hoverPage, setHoverPage] = useState<number | null>(null);
   const [navigatingChapterId, setNavigatingChapterId] = useState<string | null>(null);
   const [chapterSearch, setChapterSearch] = useState('');
+  const [chapterPanelOpen, setChapterPanelOpen] = useState(false);
   const seriesRouteKey = buildRouteKey(`/manga/${mangaId}`);
   const deferredChapterSearch = useDeferredValue(normalizeChapterSearchValue(chapterSearch));
 
@@ -144,6 +155,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
     try {
       await onBeforeChapterChange?.(chapter);
+      setChapterPanelOpen(false);
       const nextParams = new URLSearchParams();
       nextParams.set('page', '1');
       if (forceOfflineRead) {
@@ -158,6 +170,91 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const handleSeriesPageNavigation = useCallback(() => {
     markRouteToForceTopOnNextVisit(seriesRouteKey);
   }, [seriesRouteKey]);
+
+  const chapterPanelContent = (
+    <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <div className="min-w-0">
+          <h4 className="text-sm font-semibold sm:text-base">Bölümler</h4>
+          <p className="text-[11px] text-muted-foreground sm:text-xs">
+            {filteredChapters.length} bölüm
+          </p>
+        </div>
+        {isOfflineChapter && (
+          <span className="rounded-full border border-border bg-secondary/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+            Offline
+          </span>
+        )}
+      </div>
+
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          value={chapterSearch}
+          onChange={(event) => setChapterSearch(event.target.value)}
+          placeholder="Bölüm ara..."
+          className="h-9 rounded-xl border-border/70 bg-background/70 pl-9 text-sm"
+        />
+      </div>
+
+      <div
+        className={cn(
+          'overflow-y-auto pr-1',
+          isMobile ? 'max-h-[min(58svh,25rem)] space-y-2' : 'max-h-[min(60vh,28rem)] space-y-2.5'
+        )}
+      >
+        {filteredChapters.map((ch) => {
+          const isCurrentChapter = ch.id === currentChapter.id;
+          return (
+            <button
+              key={ch.id}
+              type="button"
+              onClick={() => void handleChapterNavigation(ch)}
+              disabled={navigatingChapterId === ch.id}
+              className={cn(
+                'w-full rounded-2xl border px-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-200',
+                isMobile ? 'py-2.5' : 'py-3',
+                isCurrentChapter
+                  ? 'border-emerald-500/35 bg-emerald-500/[0.12] text-foreground shadow-[0_0_0_1px_rgba(16,185,129,0.12),0_10px_30px_rgba(6,95,70,0.16)]'
+                  : 'border-border/60 bg-card/60 text-foreground hover:border-border hover:bg-card/85',
+                navigatingChapterId === ch.id && 'opacity-60'
+              )}
+            >
+              <div className="flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <p className={cn(
+                    'truncate font-semibold',
+                    isMobile ? 'text-[0.95rem]' : 'text-sm',
+                    isCurrentChapter && 'text-emerald-50'
+                  )}>
+                    {formatChapterDisplayTitle(ch.number, ch.title)}
+                  </p>
+                  <p className={cn(
+                    'mt-1 text-[11px] text-muted-foreground',
+                    isCurrentChapter && 'text-emerald-100/75'
+                  )}>
+                    Bölüm {ch.number}
+                  </p>
+                </div>
+                {isCurrentChapter && (
+                  <span className="rounded-full border border-emerald-400/20 bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-100">
+                    Aktif
+                  </span>
+                )}
+              </div>
+            </button>
+          );
+        })}
+
+        {filteredChapters.length === 0 && (
+          <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+            Eşleşen bölüm bulunamadı.
+          </div>
+        )}
+      </div>
+    </div>
+  );
 
   return (
     <>
@@ -197,90 +294,55 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               <BookmarkPlus className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
 
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10">
-                  <List className="h-4 w-4 sm:h-5 sm:w-5" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
-                <div className="space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <h4 className="text-sm font-semibold sm:text-base">Bölümler</h4>
-                      <p className="text-[11px] text-muted-foreground sm:text-xs">
-                        {filteredChapters.length} bölüm
-                      </p>
-                    </div>
-                    {isOfflineChapter && (
-                      <span className="rounded-full border border-border bg-secondary/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                        Offline
-                      </span>
-                    )}
+            {isMobile ? (
+              <Drawer
+                open={chapterPanelOpen}
+                onOpenChange={setChapterPanelOpen}
+                modal
+                dismissible
+                shouldScaleBackground={false}
+                autoFocus={false}
+              >
+                <DrawerTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" aria-label="Bölüm listesini aç">
+                    <List className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </Button>
+                </DrawerTrigger>
+                <DrawerContent
+                  onOpenAutoFocus={(event) => {
+                    event.preventDefault();
+                  }}
+                  onPointerDownOutside={() => {
+                    setChapterPanelOpen(false);
+                  }}
+                  onInteractOutside={() => {
+                    setChapterPanelOpen(false);
+                  }}
+                  className="max-h-[min(74svh,33rem)] rounded-t-[1.75rem] border-border/70 bg-background px-0 shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                >
+                  <DrawerHeader className="px-4 pb-2 pt-2 text-left">
+                    <DrawerTitle className="sr-only">Bölümler</DrawerTitle>
+                    <DrawerDescription className="sr-only">
+                      Okumak istediğiniz bölümü seçin.
+                    </DrawerDescription>
+                  </DrawerHeader>
+                  <div className="px-4 pb-2">
+                    {chapterPanelContent}
                   </div>
-
-                  <div className="relative">
-                    <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-                    <Input
-                      type="search"
-                      value={chapterSearch}
-                      onChange={(event) => setChapterSearch(event.target.value)}
-                      placeholder="Bölüm ara..."
-                      className="h-9 rounded-xl border-border/70 bg-background/70 pl-9 text-sm"
-                    />
-                  </div>
-
-                  <div className="max-h-[min(60vh,28rem)] space-y-2.5 overflow-y-auto pr-1">
-                    {filteredChapters.map((ch) => {
-                      const isCurrentChapter = ch.id === currentChapter.id;
-                      return (
-                        <button
-                          key={ch.id}
-                          type="button"
-                          onClick={() => void handleChapterNavigation(ch)}
-                          disabled={navigatingChapterId === ch.id}
-                          className={cn(
-                            'w-full rounded-2xl border px-3 py-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-200',
-                            isCurrentChapter
-                              ? 'border-emerald-500/35 bg-emerald-500/[0.12] text-foreground shadow-[0_0_0_1px_rgba(16,185,129,0.12),0_10px_30px_rgba(6,95,70,0.16)]'
-                              : 'border-border/60 bg-card/60 text-foreground hover:border-border hover:bg-card/85',
-                            navigatingChapterId === ch.id && 'opacity-60'
-                          )}
-                        >
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className={cn(
-                                'truncate text-sm font-semibold',
-                                isCurrentChapter && 'text-emerald-50'
-                              )}>
-                                {formatChapterDisplayTitle(ch.number, ch.title)}
-                              </p>
-                              <p className={cn(
-                                'mt-1 text-[11px] text-muted-foreground',
-                                isCurrentChapter && 'text-emerald-100/75'
-                              )}>
-                                Bölüm {ch.number}
-                              </p>
-                            </div>
-                            {isCurrentChapter && (
-                              <span className="rounded-full border border-emerald-400/20 bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-100">
-                                Aktif
-                              </span>
-                            )}
-                          </div>
-                        </button>
-                      );
-                    })}
-
-                    {filteredChapters.length === 0 && (
-                      <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
-                        Eşleşen bölüm bulunamadı.
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </PopoverContent>
-            </Popover>
+                </DrawerContent>
+              </Drawer>
+            ) : (
+              <Popover open={chapterPanelOpen} onOpenChange={setChapterPanelOpen}>
+                <PopoverTrigger asChild>
+                  <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" aria-label="Bölüm listesini aç">
+                    <List className="h-4 w-4 sm:h-5 sm:w-5" />
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
+                  {chapterPanelContent}
+                </PopoverContent>
+              </Popover>
+            )}
 
             <Popover>
               <PopoverTrigger asChild>

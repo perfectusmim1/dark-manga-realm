@@ -151,6 +151,14 @@
   .reading-progress-bar {
     background: var(--gradient-manga);
   }
+
+  .image-downscale-quality {
+    image-rendering: auto;
+    image-rendering: smooth;
+    image-rendering: -webkit-optimize-contrast;
+    backface-visibility: hidden;
+    transform: translateZ(0);
+  }
 }
 
 @layer utilities {
