@@ -1890,6 +1890,18 @@ const buildMangaUpdatesPersonDraft = async (
   });
 };
 
+const tryBuildMangaUpdatesPersonDraft = async (
+  sourceUrl: string,
+  role: 'author' | 'artist',
+): Promise<ImportedPersonDraft | null> => {
+  try {
+    return await buildMangaUpdatesPersonDraft(sourceUrl, role);
+  } catch (error) {
+    console.warn(`MangaUpdates ${role} import skipped`, { sourceUrl, error });
+    return null;
+  }
+};
+
 const searchMangaUpdatesCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
   if (MANGA_UPDATES_HOST_PATTERN.test(input) && input.includes('/series/')) {
     return [{
@@ -1903,7 +1915,18 @@ const searchMangaUpdatesCandidates = async (input: string): Promise<SourceSearch
   const searchUrl = MANGA_UPDATES_HOST_PATTERN.test(input)
     ? input
     : `https://www.mangaupdates.com/site/search/result?search=${encodeURIComponent(input)}`;
-  const html = await fetchScraperContent(searchUrl);
+  let html: string;
+
+  try {
+    html = await fetchScraperContent(searchUrl);
+  } catch (error) {
+    if (!MANGA_UPDATES_HOST_PATTERN.test(input)) {
+      throw new Error('MangaUpdates aramasi reddedildi. Mumkunse direkt seri linki ile tekrar dene.');
+    }
+
+    throw error;
+  }
+
   const doc = parseHtml(html);
   const anchors = Array.from(doc.querySelectorAll('a[href*="/series/"]'));
   const seen = new Set<string>();
@@ -1983,13 +2006,19 @@ const loadMangaUpdatesPreview = async (
 
   if (enabledOptions.authors) {
     for (const link of getInfoBoxLinks(doc, 'authors')) {
-      preview.authors.push(await buildMangaUpdatesPersonDraft(link.url, 'author'));
+      const authorDraft = await tryBuildMangaUpdatesPersonDraft(link.url, 'author');
+      if (authorDraft) {
+        preview.authors.push(authorDraft);
+      }
     }
   }
 
   if (enabledOptions.artists) {
     for (const link of getInfoBoxLinks(doc, 'artists')) {
-      preview.artists.push(await buildMangaUpdatesPersonDraft(link.url, 'artist'));
+      const artistDraft = await tryBuildMangaUpdatesPersonDraft(link.url, 'artist');
+      if (artistDraft) {
+        preview.artists.push(artistDraft);
+      }
     }
   }
 

@@ -527,8 +527,11 @@ export default {
       'Accept-Language': 'tr-TR,tr;q=0.9,en-US;q=0.8,en;q=0.7',
       'User-Agent': BROWSER_LIKE_USER_AGENT,
       Referer: `${parsedUrl.origin}/`,
-      Origin: parsedUrl.origin,
     });
+
+    if (resolvedMethod !== 'GET') {
+      resolvedUpstreamHeaders.set('Origin', parsedUrl.origin);
+    }
 
     const forwardedHeaders = sanitizeUpstreamHeaders(upstreamHeaders);
     forwardedHeaders.forEach((value, key) => {
@@ -536,10 +539,9 @@ export default {
     });
 
     const shouldSendBody = resolvedMethod === 'POST' && typeof upstreamBody === 'string';
-
-    const upstreamResponse = await fetch(parsedUrl.toString(), {
+    const performUpstreamFetch = async (headers, attempt = 1) => fetch(parsedUrl.toString(), {
       method: resolvedMethod,
-      headers: resolvedUpstreamHeaders,
+      headers,
       body: shouldSendBody ? upstreamBody : undefined,
       redirect: 'follow',
       cf: {
@@ -554,11 +556,43 @@ export default {
         sourceHost: parsedUrl.hostname,
         sourceUrl: parsedUrl.toString(),
         method: resolvedMethod,
+        attempt,
         refererPath: getRefererPath(request),
         durationMs: Date.now() - startedAt,
       });
       return null;
     });
+
+    let upstreamResponse = await performUpstreamFetch(resolvedUpstreamHeaders);
+
+    if (
+      upstreamResponse?.status === 403
+      && sourceName === 'mangaupdates'
+      && resolvedMethod === 'GET'
+    ) {
+      const retryHeaders = new Headers(resolvedUpstreamHeaders);
+      retryHeaders.delete('Referer');
+      retryHeaders.delete('Origin');
+      retryHeaders.set('Accept-Language', 'en-US,en;q=0.9');
+      retryHeaders.set('Cache-Control', 'no-cache');
+
+      reportProxyEvent(env, ctx, 'upstream_retry', {
+        requestId,
+        sourceName,
+        operation,
+        sourceHost: parsedUrl.hostname,
+        sourceUrl: parsedUrl.toString(),
+        method: resolvedMethod,
+        retryReason: 'mangaupdates_403_relaxed_headers',
+        refererPath: getRefererPath(request),
+        durationMs: Date.now() - startedAt,
+      });
+
+      const retriedResponse = await performUpstreamFetch(retryHeaders, 2);
+      if (retriedResponse) {
+        upstreamResponse = retriedResponse;
+      }
+    }
 
     if (!upstreamResponse) {
       return jsonResponse({ error: 'Upstream request failed' }, 502, corsHeaders);

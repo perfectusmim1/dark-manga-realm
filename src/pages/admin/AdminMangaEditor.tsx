@@ -522,11 +522,6 @@ const AdminMangaEditor: React.FC = () => {
             toast.error('Kapak resmi URL\'si gerekli');
             return;
         }
-        if (authorNames.length === 0) {
-            toast.error('Yazar adı gerekli');
-            return;
-        }
-
         setLoading(true);
 
         try {
@@ -724,7 +719,7 @@ const AdminMangaEditor: React.FC = () => {
                         <div className="grid gap-4 md:grid-cols-2">
                             <div className="space-y-4">
                                 <div className="space-y-2">
-                                    <label className="text-sm font-medium">Yazar *</label>
+                                    <label className="text-sm font-medium">Yazar</label>
                                     <div className="flex flex-col gap-2 sm:flex-row">
                                         <Select
                                             onValueChange={(val) => {
