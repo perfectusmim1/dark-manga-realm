@@ -436,7 +436,7 @@ const AdminMetadataImport: React.FC = () => {
     void (async () => {
       try {
         const [mangaDetail, characters, tags] = await Promise.all([
-          getMangaById(selectedMangaId, { includePrivate: true }),
+          getMangaById(selectedMangaId, { includePrivate: true, includePages: true }),
           getMangaCharacters(selectedMangaId, { includePrivate: true }),
           getTagsForEntity('manga', selectedMangaId),
         ]);

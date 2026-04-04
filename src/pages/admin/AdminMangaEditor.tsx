@@ -200,7 +200,7 @@ const AdminMangaEditor: React.FC = () => {
             if (isEditing) {
                 try {
                     setLoading(true);
-                    const existingManga = await getMangaById(mangaId);
+                    const existingManga = await getMangaById(mangaId, { includePages: true });
                     if (existingManga) {
                         const linkedAuthorNames = existingManga.authorsDetails?.map((author) => author.name) || [];
                         const linkedArtistNames = existingManga.artistsDetails?.map((artist) => artist.name) || [];
@@ -429,7 +429,7 @@ const AdminMangaEditor: React.FC = () => {
                     await saveManga(updatedManga);
                 }
 
-                const refreshedManga = await getMangaById(manga.id);
+                const refreshedManga = await getMangaById(manga.id, { includePages: true });
                 if (refreshedManga) {
                     setManga(refreshedManga);
                     if (!editingChapterId) {
@@ -482,7 +482,7 @@ const AdminMangaEditor: React.FC = () => {
             setLoading(true);
             try {
                 await deleteChapter(manga.id, chapterId);
-                const updatedManga = await getMangaById(manga.id);
+                const updatedManga = await getMangaById(manga.id, { includePages: true });
                 if (updatedManga) {
                     setManga(updatedManga);
                 }

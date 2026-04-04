@@ -160,7 +160,7 @@ const AdminChapterScraper: React.FC = () => {
         setSelectedLocalMangaId(mangaId);
         setLoadingLocal(true);
         try {
-            const details = await getMangaById(mangaId);
+            const details = await getMangaById(mangaId, { includePages: true });
             setLocalMangaDetails(details);
             // Pre-fill search query with title for convenience
             if (details) setSearchQuery(details.title);

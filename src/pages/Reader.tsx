@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
-import { getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
+import { getChapterPagesByIds, getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
 import {
   getReaderSettings,
   getLocalChapterReadProgressEntry,
@@ -362,7 +362,7 @@ const Reader: React.FC = () => {
         const existingManga = currentMangaRef.current && currentMangaRef.current.id === mangaId
           ? currentMangaRef.current
           : null;
-        const [offlineChapter, mData, offlineManga] = await Promise.all([
+        const [offlineChapter, mData, chapterPagesById, offlineManga] = await Promise.all([
           getOfflineChapter(chapterId),
           canUseNetworkReaderFeatures
             ? getMangaById(mangaId).catch((error) => {
@@ -370,6 +370,12 @@ const Reader: React.FC = () => {
                 return existingManga;
               })
             : Promise.resolve(undefined),
+          canUseNetworkReaderFeatures
+            ? getChapterPagesByIds([chapterId]).catch((error) => {
+                console.error('Reader chapter page fetch error:', error);
+                return {};
+              })
+            : Promise.resolve({}),
           getOfflineMangaDetail(mangaId),
         ]);
         const fallbackManga = mData || existingManga || offlineManga;
@@ -384,13 +390,19 @@ const Reader: React.FC = () => {
         }
         setManga(fallbackManga);
 
+        const baseChapter = fallbackManga.chapters.find(c => c.id === chapterId);
         const resolvedChapter = sanitizeReaderChapter(
-          fallbackManga.chapters.find(c => c.id === chapterId)
+          (baseChapter ? {
+            ...baseChapter,
+            pages: chapterPagesById[chapterId] || baseChapter.pages || [],
+            pageCount: (chapterPagesById[chapterId] || baseChapter.pages || []).length || baseChapter.pageCount,
+          } : null)
           || (offlineChapter ? {
             id: offlineChapter.chapterId,
             number: offlineChapter.chapterNumber,
             title: offlineChapter.title,
             pages: offlineChapter.sourcePageUrls,
+            pageCount: offlineChapter.pageCount,
             releaseDate: offlineChapter.releaseDate,
             views: 0,
           } : null),

@@ -39,7 +39,9 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  getChapterPagesByIds,
   getMangaById,
+  getMangaChapters,
   getAverageRating,
   rateManga,
   getUserRating,
@@ -291,13 +293,15 @@ const PreviewPageThumbnail = React.memo(({
 
 const PreviewChapter = React.memo(({ 
   chapter, 
+  pages,
   index, 
   mangaId, 
   isImageMounted, 
   onInView,
-  onNearBottom 
+  onNearBottom,
 }: { 
   chapter: any; 
+  pages: string[];
   index: number; 
   mangaId: string; 
   isImageMounted: boolean;
@@ -340,9 +344,11 @@ const PreviewChapter = React.memo(({
       <div className="flex flex-col gap-3 border-b border-border pb-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h3 className="text-lg font-bold sm:text-xl">{formatChapterDisplayTitle(chapter.number, chapter.title)}</h3>
-          <p className="mt-1 text-sm text-muted-foreground">
-            {chapter.pages.length} sayfa
-          </p>
+          {pages.length > 0 && (
+            <p className="mt-1 text-sm text-muted-foreground">
+              {pages.length} sayfa
+            </p>
+          )}
         </div>
         <Button asChild variant="secondary" size="sm" className="w-full sm:w-auto">
           <Link to={`/manga/${mangaId}/chapter/${chapter.id}`}>
@@ -353,17 +359,23 @@ const PreviewChapter = React.memo(({
       </div>
       
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
-        {chapter.pages.map((page: string, pageIndex: number) => (
-          <PreviewPageThumbnail
-            key={pageIndex}
-            page={page}
-            pageIndex={pageIndex}
-            chapterNumber={chapter.number}
-            chapterId={chapter.id}
-            mangaId={mangaId}
-            isChapterMounted={isImageMounted}
-          />
-        ))}
+        {pages.length > 0 ? (
+          pages.map((page: string, pageIndex: number) => (
+            <PreviewPageThumbnail
+              key={pageIndex}
+              page={page}
+              pageIndex={pageIndex}
+              chapterNumber={chapter.number}
+              chapterId={chapter.id}
+              mangaId={mangaId}
+              isChapterMounted={isImageMounted}
+            />
+          ))
+        ) : (
+          <div className="col-span-full rounded-xl border border-dashed border-border/70 bg-secondary/20 p-6 text-sm text-muted-foreground">
+            Önizleme sayfaları yükleniyor...
+          </div>
+        )}
       </div>
     </div>
   );
@@ -463,6 +475,7 @@ const MangaDetail: React.FC = () => {
   const [maxLoadedIndex, setMaxLoadedIndex] = useState(0);
   const [currentViewedIndex, setCurrentViewedIndex] = useState(0);
   const [previewStartIndex, setPreviewStartIndex] = useState(0);
+  const [previewChapterPagesById, setPreviewChapterPagesById] = useState<Record<string, string[]>>({});
   const [overviewVisibleCount, setOverviewVisibleCount] = useState(OVERVIEW_CHAPTER_BATCH_SIZE);
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [revealedBlockedReviews, setRevealedBlockedReviews] = useState<Record<string, boolean>>({});
@@ -549,6 +562,31 @@ const MangaDetail: React.FC = () => {
 
     return merged;
   }, [chapterReadMap, offlineChapterMap]);
+  const getKnownChapterPageCount = React.useCallback((chapter?: Chapter | null) => {
+    if (!chapter) {
+      return undefined;
+    }
+
+    const cachedPreviewCount = previewChapterPagesById[chapter.id]?.length;
+    if (cachedPreviewCount && cachedPreviewCount > 0) {
+      return cachedPreviewCount;
+    }
+
+    const offlinePageCount = offlineChapterMap[chapter.id]?.pageCount;
+    if (typeof offlinePageCount === 'number' && offlinePageCount > 0) {
+      return offlinePageCount;
+    }
+
+    if (typeof chapter.pageCount === 'number' && chapter.pageCount > 0) {
+      return chapter.pageCount;
+    }
+
+    if (Array.isArray(chapter.pages) && chapter.pages.length > 0) {
+      return chapter.pages.length;
+    }
+
+    return undefined;
+  }, [offlineChapterMap, previewChapterPagesById]);
 
   const primaryOfflineJob = useMemo(() => {
     if (!offlineSeriesEntry) {
@@ -762,6 +800,10 @@ const MangaDetail: React.FC = () => {
     setMaxLoadedIndex(Math.min(sortedChaptersAsc.length - 1, targetIndex + 1));
   }, [latestProgress?.chapterId, manga?.chapters]);
 
+  useEffect(() => {
+    setPreviewChapterPagesById({});
+  }, [manga?.id]);
+
   const handleLoadPreviousPreviewChapters = React.useCallback(() => {
     setMinLoadedPreviewIndex((previous) => Math.max(0, previous - PREVIEW_CHAPTER_BATCH_SIZE));
   }, []);
@@ -805,9 +847,10 @@ const MangaDetail: React.FC = () => {
 
     return seriesBookmarks.map((bookmark) => {
       const chapter = chapterMap.get(bookmark.chapterId);
+      const previewPages = chapter ? previewChapterPagesById[chapter.id] : undefined;
       const previewImage = isOnline
-        ? (Array.isArray(chapter?.pages) && bookmark.page > 0 && bookmark.page <= chapter.pages.length
-            ? chapter.pages[bookmark.page - 1]
+        ? (Array.isArray(previewPages) && bookmark.page > 0 && bookmark.page <= previewPages.length
+            ? previewPages[bookmark.page - 1]
             : manga?.cover || null)
         : (manga?.cover || (Array.isArray(chapter?.pages) ? chapter.pages[0] : null));
 
@@ -829,7 +872,7 @@ const MangaDetail: React.FC = () => {
           : 'Az önce',
       };
     });
-  }, [hasLoadedBookmarks, isOnline, manga?.chapters, manga?.cover, seriesBookmarks]);
+  }, [hasLoadedBookmarks, isOnline, manga?.chapters, manga?.cover, previewChapterPagesById, seriesBookmarks]);
 
   const handleActiveTabChange = React.useCallback((nextTab: string) => {
     setActiveTab(nextTab);
@@ -1548,9 +1591,13 @@ const MangaDetail: React.FC = () => {
     try {
       setIsQueueingSeriesDownload(true);
       setIsSeriesDownloadDialogOpen(false);
+      const downloadableChapters = await getMangaChapters(manga.id, { includePages: true });
       const job = await offlineDownloadManager.queueSeriesDownload(
-        manga,
-        [...manga.chapters].sort((a, b) => a.number - b.number),
+        {
+          ...manga,
+          chapters: downloadableChapters,
+        },
+        [...downloadableChapters].sort((a, b) => a.number - b.number),
       );
 
       if (!job) {
@@ -1581,7 +1628,20 @@ const MangaDetail: React.FC = () => {
     }
 
     try {
-      const job = await offlineDownloadManager.queueChapterDownload(manga, chapter);
+      const chapterPages = chapter.pages.length > 0
+        ? chapter.pages
+        : (await getChapterPagesByIds([chapter.id]))[chapter.id] || [];
+
+      if (chapterPages.length === 0) {
+        toast.error('Bölüm sayfaları alınamadı');
+        return;
+      }
+
+      const job = await offlineDownloadManager.queueChapterDownload(manga, {
+        ...chapter,
+        pages: chapterPages,
+        pageCount: chapterPages.length,
+      });
 
       if (!job) {
         toast.info(`Bölüm ${chapter.number} zaten çevrimdışı hazır`);
@@ -1939,6 +1999,67 @@ const MangaDetail: React.FC = () => {
       : visibleChapters
   ), [filteredChapters, overviewVisibleCount, showAllChapters, visibleChapters]);
   const remainingOverviewChapterCount = Math.max(0, filteredChapters.length - visibleOverviewChapters.length);
+  const sortedPreviewChapters = useMemo(() => (
+    manga?.chapters ? [...manga.chapters].sort((a, b) => a.number - b.number) : []
+  ), [manga?.chapters]);
+  const previewWindow = useMemo(() => {
+    if (sortedPreviewChapters.length === 0) {
+      return {
+        safeStartIndex: 0,
+        safeMinLoadedIndex: 0,
+        safeLoadedUntilIndex: 0,
+        displayedPreviewChapters: [] as Chapter[],
+      };
+    }
+
+    const safeStartIndex = Math.max(0, Math.min(previewStartIndex, sortedPreviewChapters.length - 1));
+    const safeMinLoadedIndex = Math.max(0, Math.min(minLoadedPreviewIndex, safeStartIndex));
+    const safeLoadedUntilIndex = Math.max(safeStartIndex, Math.min(maxLoadedIndex, sortedPreviewChapters.length - 1));
+
+    return {
+      safeStartIndex,
+      safeMinLoadedIndex,
+      safeLoadedUntilIndex,
+      displayedPreviewChapters: sortedPreviewChapters.slice(safeMinLoadedIndex, safeLoadedUntilIndex + 1),
+    };
+  }, [maxLoadedIndex, minLoadedPreviewIndex, previewStartIndex, sortedPreviewChapters]);
+
+  useEffect(() => {
+    if (!isPreviewTabActive || !isOnline || previewWindow.displayedPreviewChapters.length === 0) {
+      return;
+    }
+
+    const missingChapterIds = previewWindow.displayedPreviewChapters
+      .map((chapter) => chapter.id)
+      .filter((chapterId) => !previewChapterPagesById[chapterId]);
+
+    if (missingChapterIds.length === 0) {
+      return;
+    }
+
+    let isCancelled = false;
+
+    void getChapterPagesByIds(missingChapterIds)
+      .then((pagesById) => {
+        if (isCancelled || Object.keys(pagesById).length === 0) {
+          return;
+        }
+
+        setPreviewChapterPagesById((current) => ({
+          ...current,
+          ...pagesById,
+        }));
+      })
+      .catch((error) => {
+        if (!isCancelled) {
+          console.error('Preview chapter page fetch error:', error);
+        }
+      });
+
+    return () => {
+      isCancelled = true;
+    };
+  }, [isOnline, isPreviewTabActive, previewChapterPagesById, previewWindow.displayedPreviewChapters]);
 
   useEffect(() => {
     setOverviewVisibleCount(OVERVIEW_CHAPTER_BATCH_SIZE);
@@ -2020,133 +2141,132 @@ const MangaDetail: React.FC = () => {
     );
   }
 
-  const renderChapterRow = (chapter: Chapter) => (
-    <div
-      className="flex flex-col gap-3 p-3 transition-colors hover:bg-secondary/50 sm:p-4 md:flex-row md:items-center md:justify-between"
-    >
-      <div className="min-w-0 flex-1">
-        <Link
-          to={`/manga/${manga.id}/chapter/${chapter.id}`}
-          className={cn(
-            "line-clamp-1 text-base font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-base",
-            mergedChapterReadMap[chapter.id]?.isRead
-              ? "text-emerald-400 hover:text-emerald-300"
-              : "hover:text-primary",
-          )}
-        >
-          {formatChapterDisplayTitle(chapter.number, chapter.title)}
-        </Link>
-        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground sm:text-xs">
-          <span className="flex items-center gap-1">
-            <Calendar className="h-3 w-3" />
-            {formatDate(chapter.releaseDate)}
-          </span>
-          <span className="flex items-center gap-1">
-            <Eye className="h-3 w-3" />
-            {formatViews(chapter.views || 0)}
-          </span>
-          {mergedChapterReadMap[chapter.id]?.isRead && (
-            <Badge variant="secondary" className="text-[10px] border-emerald-500/20 bg-emerald-500/15 text-emerald-300">
-              Okundu
-            </Badge>
-          )}
-          {offlineChapterMap[chapter.id] && (
-            <Badge variant="outline" className="text-[10px] capitalize">
-              {offlineChapterMap[chapter.id].downloadStatus}
-            </Badge>
+  const renderChapterRow = (chapter: Chapter) => {
+    const chapterPageCount = getKnownChapterPageCount(chapter);
+    const pageCountBadge = chapterPageCount ? (
+      <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
+        {chapterPageCount} sayfa
+      </Badge>
+    ) : null;
+
+    return (
+      <div
+        className="flex flex-col gap-3 p-3 transition-colors hover:bg-secondary/50 sm:p-4 md:flex-row md:items-center md:justify-between"
+      >
+        <div className="min-w-0 flex-1">
+          <Link
+            to={`/manga/${manga.id}/chapter/${chapter.id}`}
+            className={cn(
+              "line-clamp-1 text-base font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-base",
+              mergedChapterReadMap[chapter.id]?.isRead
+                ? "text-emerald-400 hover:text-emerald-300"
+                : "hover:text-primary",
+            )}
+          >
+            {formatChapterDisplayTitle(chapter.number, chapter.title)}
+          </Link>
+          <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground sm:text-xs">
+            <span className="flex items-center gap-1">
+              <Calendar className="h-3 w-3" />
+              {formatDate(chapter.releaseDate)}
+            </span>
+            <span className="flex items-center gap-1">
+              <Eye className="h-3 w-3" />
+              {formatViews(chapter.views || 0)}
+            </span>
+            {mergedChapterReadMap[chapter.id]?.isRead && (
+              <Badge variant="secondary" className="text-[10px] border-emerald-500/20 bg-emerald-500/15 text-emerald-300">
+                Okundu
+              </Badge>
+            )}
+            {offlineChapterMap[chapter.id] && (
+              <Badge variant="outline" className="text-[10px] capitalize">
+                {offlineChapterMap[chapter.id].downloadStatus}
+              </Badge>
+            )}
+          </div>
+        </div>
+
+        <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0 md:justify-end">
+          {offlineChapterMap[chapter.id]?.downloadStatus === 'completed' ? (
+            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+              {pageCountBadge}
+              <Button asChild size="sm" className="h-9 px-3 text-xs sm:text-sm">
+                <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
+                  Oku
+                </Link>
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-9 px-0 text-xs sm:w-auto sm:px-3 sm:text-sm"
+                onClick={() => void handleDeleteOfflineChapter(chapter.id)}
+              >
+                <Trash2 className="h-4 w-4 sm:mr-2" />
+                <span className="sr-only sm:not-sr-only">Sil</span>
+              </Button>
+            </div>
+          ) : offlineChapterMap[chapter.id] && ['running', 'queued'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
+            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+              {pageCountBadge}
+              <Button variant="outline" size="sm" className="h-9 px-3 text-xs sm:text-sm" disabled>
+                <Download className="mr-2 h-4 w-4" />
+                İndiriliyor
+              </Button>
+            </div>
+          ) : offlineChapterMap[chapter.id]?.downloadStatus === 'paused' ? (
+            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+              {pageCountBadge}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 px-3 text-xs sm:text-sm"
+                onClick={() => void handleQueueChapterDownload(chapter)}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Devam Et
+              </Button>
+            </div>
+          ) : offlineChapterMap[chapter.id] && ['failed', 'partial'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
+            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+              {pageCountBadge}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 px-3 text-xs sm:text-sm"
+                onClick={() => void handleQueueChapterDownload(chapter)}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                Yeniden Dene
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 w-9 px-0 text-xs sm:w-auto sm:px-3 sm:text-sm"
+                onClick={() => void handleDeleteOfflineChapter(chapter.id)}
+              >
+                <Trash2 className="h-4 w-4 sm:mr-2" />
+                <span className="sr-only sm:not-sr-only">Sil</span>
+              </Button>
+            </div>
+          ) : (
+            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+              {pageCountBadge}
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9 px-3 text-xs sm:text-sm"
+                onClick={() => void handleQueueChapterDownload(chapter)}
+              >
+                <Download className="mr-2 h-4 w-4" />
+                İndir
+              </Button>
+            </div>
           )}
         </div>
       </div>
-
-      <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0 md:justify-end">
-        {offlineChapterMap[chapter.id]?.downloadStatus === 'completed' ? (
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
-            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
-              {chapter.pages.length} sayfa
-            </Badge>
-            <Button asChild size="sm" className="h-9 px-3 text-xs sm:text-sm">
-              <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
-                Oku
-              </Link>
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 w-9 px-0 text-xs sm:w-auto sm:px-3 sm:text-sm"
-              onClick={() => void handleDeleteOfflineChapter(chapter.id)}
-            >
-              <Trash2 className="h-4 w-4 sm:mr-2" />
-              <span className="sr-only sm:not-sr-only">Sil</span>
-            </Button>
-          </div>
-        ) : offlineChapterMap[chapter.id] && ['running', 'queued'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
-            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
-              {chapter.pages.length} sayfa
-            </Badge>
-            <Button variant="outline" size="sm" className="h-9 px-3 text-xs sm:text-sm" disabled>
-              <Download className="mr-2 h-4 w-4" />
-              İndiriliyor
-            </Button>
-          </div>
-        ) : offlineChapterMap[chapter.id]?.downloadStatus === 'paused' ? (
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
-            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
-              {chapter.pages.length} sayfa
-            </Badge>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 px-3 text-xs sm:text-sm"
-              onClick={() => void handleQueueChapterDownload(chapter)}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Devam Et
-            </Button>
-          </div>
-        ) : offlineChapterMap[chapter.id] && ['failed', 'partial'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
-            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
-              {chapter.pages.length} sayfa
-            </Badge>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 px-3 text-xs sm:text-sm"
-              onClick={() => void handleQueueChapterDownload(chapter)}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              Yeniden Dene
-            </Button>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 w-9 px-0 text-xs sm:w-auto sm:px-3 sm:text-sm"
-              onClick={() => void handleDeleteOfflineChapter(chapter.id)}
-            >
-              <Trash2 className="h-4 w-4 sm:mr-2" />
-              <span className="sr-only sm:not-sr-only">Sil</span>
-            </Button>
-          </div>
-        ) : (
-          <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
-            <Badge variant="outline" className="h-8 shrink-0 text-[11px]">
-              {chapter.pages.length} sayfa
-            </Badge>
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 px-3 text-xs sm:text-sm"
-              onClick={() => void handleQueueChapterDownload(chapter)}
-            >
-              <Download className="mr-2 h-4 w-4" />
-              İndir
-            </Button>
-          </div>
-        )}
-      </div>
-    </div>
-  );
+    );
+  };
 
   const continueChapter = latestProgress
     ? manga.chapters.find(ch => ch.id === latestProgress.chapterId)
@@ -2863,61 +2983,51 @@ const MangaDetail: React.FC = () => {
                 />
               ) : (
                 <div className="mx-auto max-w-4xl space-y-6 sm:space-y-8">
-                  {(() => {
-                    const sortedChaptersAsc = [...manga.chapters].sort((a, b) => a.number - b.number);
-                    const safeStartIndex = Math.max(0, Math.min(previewStartIndex, sortedChaptersAsc.length - 1));
-                    const safeMinLoadedIndex = Math.max(0, Math.min(minLoadedPreviewIndex, safeStartIndex));
-                    const safeLoadedUntilIndex = Math.max(safeStartIndex, Math.min(maxLoadedIndex, sortedChaptersAsc.length - 1));
-                    const displayedPreviewChapters = sortedChaptersAsc.slice(safeMinLoadedIndex, safeLoadedUntilIndex + 1);
-                    
-                    if (sortedChaptersAsc.length === 0) {
-                      return <div className="text-center rounded-xl border border-border bg-card/50 text-muted-foreground p-8">Henüz bölüm eklenmemiş</div>;
-                    }
+                  {sortedPreviewChapters.length === 0 ? (
+                    <div className="text-center rounded-xl border border-border bg-card/50 text-muted-foreground p-8">Henüz bölüm eklenmemiş</div>
+                  ) : (
+                    <>
+                      {previewWindow.safeMinLoadedIndex > 0 && (
+                        <div className="flex justify-center">
+                          <Button
+                            variant="outline"
+                            className="rounded-full"
+                            onClick={handleLoadPreviousPreviewChapters}
+                          >
+                            <ChevronUp className="mr-2 h-4 w-4" />
+                            Önceki Bölümleri Yükle
+                          </Button>
+                        </div>
+                      )}
 
-                    return (
-                      <>
-                        {safeMinLoadedIndex > 0 && (
-                          <div className="flex justify-center">
-                            <Button
-                              variant="outline"
-                              className="rounded-full"
-                              onClick={handleLoadPreviousPreviewChapters}
-                            >
-                              <ChevronUp className="mr-2 h-4 w-4" />
-                              Önceki Bölümleri Yükle
-                            </Button>
-                          </div>
-                        )}
+                      {previewWindow.displayedPreviewChapters.map((chapter, localIndex) => {
+                        const index = previewWindow.safeMinLoadedIndex + localIndex;
+                        const isImageMounted = Math.abs(index - currentViewedIndex) <= 1;
 
-                        {displayedPreviewChapters.map((chapter, localIndex) => {
-                          const index = safeMinLoadedIndex + localIndex;
-                          // Only mount images for current, previous, and next chapters (max 3 loaded in memory)
-                          const isImageMounted = Math.abs(index - currentViewedIndex) <= 1;
-                          
-                          return (
-                            <PreviewChapter 
-                              key={chapter.id}
-                              chapter={chapter}
-                              index={index}
-                              mangaId={manga.id}
-                              isImageMounted={isImageMounted}
-                              onInView={handlePreviewInView}
-                              onNearBottom={handlePreviewNearBottom}
-                            />
-                          );
-                        })}
-                        
-                        {safeLoadedUntilIndex < sortedChaptersAsc.length - 1 && (
-                          <div className="flex justify-center p-8 bg-card/20 rounded-xl" style={{ minHeight: '100px' }}>
-                            <span className="text-muted-foreground flex items-center gap-2">
-                               <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
-                               Sonraki bölüm yükleniyor...
-                            </span>
-                          </div>
-                        )}
-                      </>
-                    );
-                  })()}
+                        return (
+                          <PreviewChapter
+                            key={chapter.id}
+                            chapter={chapter}
+                            pages={previewChapterPagesById[chapter.id] || []}
+                            index={index}
+                            mangaId={manga.id}
+                            isImageMounted={isImageMounted}
+                            onInView={handlePreviewInView}
+                            onNearBottom={handlePreviewNearBottom}
+                          />
+                        );
+                      })}
+
+                      {previewWindow.safeLoadedUntilIndex < sortedPreviewChapters.length - 1 && (
+                        <div className="flex justify-center p-8 bg-card/20 rounded-xl" style={{ minHeight: '100px' }}>
+                          <span className="text-muted-foreground flex items-center gap-2">
+                             <div className="animate-spin w-4 h-4 border-2 border-primary border-t-transparent rounded-full" />
+                             Sonraki bölüm yükleniyor...
+                          </span>
+                        </div>
+                      )}
+                    </>
+                  )}
                 </div>
               )
               ) : null}
@@ -2995,7 +3105,13 @@ const MangaDetail: React.FC = () => {
                             </h3>
 
                             <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
-                              <span>{chapter ? `${chapter.pages.length} sayfa` : `Bölüm ${bookmark.chapterNumber}`}</span>
+                              <span>
+                                {chapter
+                                  ? (getKnownChapterPageCount(chapter)
+                                      ? `${getKnownChapterPageCount(chapter)} sayfa`
+                                      : `Bölüm ${chapter.number}`)
+                                  : `Bölüm ${bookmark.chapterNumber}`}
+                              </span>
                             </div>
 
                             {bookmark.note && (
@@ -3488,7 +3604,7 @@ const MangaDetail: React.FC = () => {
               <div className="rounded-xl border border-border/60 bg-card/60 p-3 sm:p-4">
                 <p className="text-base font-semibold">{manga.title}</p>
                 <p className="mt-1 text-sm text-muted-foreground">
-                  {manga.chapters.length} bölüm • {manga.chapters.reduce((sum, chapter) => sum + chapter.pages.length, 0)} sayfa
+                  {manga.chapters.length} bölüm
                 </p>
               </div>
 

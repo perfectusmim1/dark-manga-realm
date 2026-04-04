@@ -111,6 +111,12 @@ const emitOfflineLibraryChange = () => {
   window.dispatchEvent(new Event(OFFLINE_EVENT_NAME));
 };
 
+const getChapterPageCount = (chapter: Chapter) => (
+  typeof chapter.pageCount === 'number' && chapter.pageCount > 0
+    ? chapter.pageCount
+    : chapter.pages.length
+);
+
 const mapChapterToOffline = (
   mangaId: string,
   chapter: Chapter,
@@ -121,7 +127,7 @@ const mapChapterToOffline = (
   chapterNumber: chapter.number,
   title: chapter.title,
   releaseDate: chapter.releaseDate,
-  pageCount: chapter.pages.length,
+  pageCount: getChapterPageCount(chapter),
   sourcePageUrls: chapter.pages,
   downloadStatus,
   downloadedPages: 0,
@@ -145,7 +151,7 @@ const mapMangaToOffline = (manga: Manga): OfflineManga => ({
   description: manga.description,
   genres: manga.genres,
   chapterCount: manga.chapters.length,
-  totalPages: manga.chapters.reduce((sum, chapter) => sum + chapter.pages.length, 0),
+  totalPages: manga.chapters.reduce((sum, chapter) => sum + getChapterPageCount(chapter), 0),
   lastUpdated: manga.lastUpdated,
   createdAt: manga.createdAt,
   downloadedAt: new Date().toISOString(),
@@ -272,12 +278,14 @@ export const subscribeOfflineLibrary = (listener: () => void) => {
 export const cacheOfflineManga = async (manga: Manga) => {
   const db = await getDb();
   const current = await db.get('mangas', manga.id);
+  const nextTotalPages = manga.chapters.reduce((sum, chapter) => sum + getChapterPageCount(chapter), 0);
   const nextValue: OfflineManga = {
     ...mapMangaToOffline(manga),
     downloadedAt: current?.downloadedAt || new Date().toISOString(),
     characters: current?.characters || [],
     cover: isPersistentImageDataUrl(current?.cover) ? current.cover : manga.cover,
     banner: isPersistentImageDataUrl(current?.banner) ? current.banner : manga.banner,
+    totalPages: nextTotalPages > 0 ? nextTotalPages : current?.totalPages || 0,
   };
 
   await db.put('mangas', nextValue);
@@ -336,8 +344,9 @@ export const cacheOfflineChapterMetadata = async (
 ) => {
   const db = await getDb();
   const existing = await db.get('chapters', chapter.id);
+  const nextPageCount = getChapterPageCount(chapter);
   const sourcePageUrlsChanged = existing
-    ? existing.pageCount !== chapter.pages.length
+    ? existing.pageCount !== nextPageCount
       || existing.sourcePageUrls.length !== chapter.pages.length
       || existing.sourcePageUrls.some((url, index) => url !== chapter.pages[index])
     : false;
@@ -354,7 +363,7 @@ export const cacheOfflineChapterMetadata = async (
         chapterNumber: chapter.number,
         title: chapter.title,
         releaseDate: chapter.releaseDate,
-        pageCount: chapter.pages.length,
+        pageCount: nextPageCount,
         sourcePageUrls: chapter.pages,
         downloadStatus: nextDownloadStatus,
         error: sourcePageUrlsChanged && existing.downloadStatus === 'completed'

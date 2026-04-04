@@ -371,6 +371,11 @@ const truncateContinueReadingDescription = (value?: string | null) => {
   return `${shortened.trimEnd()}...`;
 };
 
+const continueReadingGlassLabelClass = 'border border-white/10 bg-black/34 shadow-[0_8px_24px_rgba(0,0,0,0.18)] backdrop-blur-md';
+const continueReadingGlassBadgeClass = 'h-8 rounded-full border-white/10 bg-black/32 px-3 text-xs text-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-sm';
+const continueReadingGlassButtonClass = 'border-white/12 bg-black/42 text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)] backdrop-blur-md hover:bg-black/52 hover:text-white';
+const continueReadingGlassMetaClass = 'inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-white/80 shadow-[0_8px_20px_rgba(0,0,0,0.16)] backdrop-blur-sm';
+
 interface ContinueReadingSpotlightProps {
   entries: ContinueReadingEntry[];
   disableHeavyEffects: boolean;
@@ -493,49 +498,50 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
 
         <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(244,114,182,0.12),transparent_34%)]" />
         <div className="absolute inset-0 bg-gradient-to-br from-background via-background/92 to-background/78" />
+        <div className="absolute inset-y-0 left-0 w-[76%] bg-gradient-to-r from-background/94 via-background/76 to-transparent sm:w-[68%] lg:w-[58%]" />
 
         <div className="relative z-10 grid grid-cols-[minmax(0,1fr)_8.75rem] items-start gap-3 px-3 py-3 min-[430px]:grid-cols-[minmax(0,1fr)_10rem] min-[430px]:gap-4 sm:gap-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1.15fr)_240px] lg:items-end lg:gap-10 lg:px-10 lg:py-10">
           <div className="order-1 min-w-0">
-            <div className="inline-flex items-center gap-2 rounded-full border border-primary/15 bg-primary/10 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary">
+            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary ${continueReadingGlassLabelClass}`}>
               Son kaldığın seri
             </div>
 
-            <h3 className="mt-3 max-w-3xl pb-[0.08em] pr-1 text-[1.85rem] font-black leading-[1.02] tracking-tight min-[430px]:text-[2.05rem] sm:mt-4 sm:text-4xl sm:leading-[1.06] lg:text-[2.75rem] lg:leading-[1.04]">
+            <h3 className="mt-3 max-w-3xl pb-[0.08em] pr-1 text-[1.85rem] font-black leading-[1.02] tracking-tight text-white [text-shadow:0_8px_30px_rgba(0,0,0,0.38)] min-[430px]:text-[2.05rem] sm:mt-4 sm:text-4xl sm:leading-[1.06] lg:text-[2.75rem] lg:leading-[1.04]">
               {featured.manga.title}
             </h3>
 
-            <p className="mt-4 hidden max-w-2xl text-sm leading-6 text-muted-foreground sm:block sm:text-[15px]">
+            <p className="mt-3 hidden max-w-2xl text-sm leading-6 text-white/80 [text-shadow:0_2px_18px_rgba(0,0,0,0.32)] sm:line-clamp-2 sm:block sm:text-[15px]">
               {featuredDescription}
             </p>
 
             <div className="mt-4 flex flex-wrap gap-2 sm:mt-5">
-              <Badge variant="secondary" className="h-8 rounded-full px-3 text-xs">
+              <Badge variant="secondary" className={continueReadingGlassBadgeClass}>
                 Bölüm {featured.chapterNumber}
               </Badge>
-              <Badge variant="outline" className="h-8 rounded-full px-3 text-xs">
+              <Badge variant="outline" className={continueReadingGlassBadgeClass}>
                 Sayfa {Math.max(1, featured.page)}
               </Badge>
-              <Badge variant="outline" className="h-8 rounded-full px-3 text-xs">
+              <Badge variant="outline" className={continueReadingGlassBadgeClass}>
                 {featured.manga.type.toUpperCase()}
               </Badge>
               {featured.manga.genres[0] && (
-                <Badge variant="outline" className="h-8 rounded-full px-3 text-xs">
+                <Badge variant="outline" className={continueReadingGlassBadgeClass}>
                   {featured.manga.genres[0]}
                 </Badge>
               )}
             </div>
 
             <div className="mt-5 flex flex-col gap-2.5 sm:mt-6 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-              <Button asChild variant="glow" className="w-full rounded-full px-5 sm:w-auto">
+              <Button asChild variant="glow" className="w-full rounded-full border border-primary/35 px-5 shadow-[0_18px_36px_rgba(37,99,235,0.38)] sm:w-auto">
                 <Link to={continueHref}>
                   <Play className="mr-2 h-4 w-4" />
                   Devam Et
                 </Link>
               </Button>
-              <Button asChild variant="outline" className="w-full rounded-full px-5 sm:w-auto">
+              <Button asChild variant="outline" className={`w-full rounded-full px-5 sm:w-auto ${continueReadingGlassButtonClass}`}>
                 <Link to={detailsHref}>Seri Sayfası</Link>
               </Button>
-              <p className="text-xs text-muted-foreground sm:ml-1">{formatContinueReadingLastRead(featured.lastRead)}</p>
+              <p className={`${continueReadingGlassMetaClass} sm:ml-1`}>{formatContinueReadingLastRead(featured.lastRead)}</p>
             </div>
           </div>
 
@@ -1155,7 +1161,7 @@ const Index: React.FC = () => {
 
       try {
         const { getContinueReadingEntries } = await readingHistoryPromise;
-        const uniqueEntries = await getContinueReadingEntries(user.id, 6);
+        const uniqueEntries = await getContinueReadingEntries(user.id, 1);
 
         if (!active) {
           return;

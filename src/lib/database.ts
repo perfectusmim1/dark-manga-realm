@@ -1113,19 +1113,80 @@ export const getMangaMediaRecords = async (): Promise<MangaMediaRecord[]> => {
     }));
 };
 
+interface GetMangaByIdOptions {
+    includePrivate?: boolean;
+    includePages?: boolean;
+}
+
+const mapChapterRowToChapter = (row: any, options?: { includePages?: boolean }): Chapter => {
+    const includePages = options?.includePages === true;
+    const pages = includePages ? sanitizeChapterPageUrls(row.pages || []) : [];
+
+    return {
+        id: row.id,
+        number: Number(row.number) || 0,
+        title: row.title || '',
+        pages,
+        pageCount: includePages ? pages.length : undefined,
+        releaseDate: row.release_date || '',
+        views: row.views || 0,
+    };
+};
+
+export const getMangaChapters = async (
+    mangaId: string,
+    options?: { includePages?: boolean }
+): Promise<Chapter[]> => {
+    const includePages = options?.includePages === true;
+    const selectColumns = includePages
+        ? 'id, manga_id, number, title, pages, release_date, views'
+        : 'id, manga_id, number, title, release_date, views';
+
+    const { data, error } = await supabase
+        .from('chapters')
+        .select(selectColumns)
+        .eq('manga_id', mangaId)
+        .order('number', { ascending: false });
+
+    if (error) {
+        throw error;
+    }
+
+    return (data || []).map((row: any) => mapChapterRowToChapter(row, { includePages }));
+};
+
+export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record<string, string[]>> => {
+    const uniqueIds = [...new Set(chapterIds.filter(Boolean))];
+
+    if (uniqueIds.length === 0) {
+        return {};
+    }
+
+    const { data, error } = await supabase
+        .from('chapters')
+        .select('id, pages')
+        .in('id', uniqueIds);
+
+    if (error) {
+        throw error;
+    }
+
+    return (data || []).reduce<Record<string, string[]>>((map, row: any) => {
+        map[row.id] = sanitizeChapterPageUrls(row.pages || []);
+        return map;
+    }, {});
+};
+
 /**
  * Get a single manga by ID with all its chapters
  */
 export const getMangaById = async (
     mangaId: string,
-    options?: { includePrivate?: boolean }
+    options?: GetMangaByIdOptions
 ): Promise<Manga | undefined> => {
     const { data, error } = await supabase
         .from('mangas')
-        .select(`
-            *,
-            chapters (*)
-        `)
+        .select('*')
         .eq('id', mangaId)
         .maybeSingle();
 
@@ -1136,12 +1197,14 @@ export const getMangaById = async (
 
     const [
         { data: reviewData },
+        chapterRows,
         authorsDetails,
         artistsDetails,
         relatedSeries,
         { count: characterCount },
     ] = await Promise.all([
         supabase.from('reviews').select('*').eq('manga_id', mangaId),
+        getMangaChapters(mangaId, { includePages: options?.includePages === true }),
         getMangaAuthors(mangaId, options),
         getMangaArtists(mangaId, options),
         getMangaRelatedSeries(mangaId),
@@ -1188,10 +1251,7 @@ export const getMangaById = async (
         details: data.details || {},
         sourceLinks: data.source_links || [],
         relatedSeries,
-        chapters: (data.chapters || []).sort((a: any, b: any) => b.number - a.number).map((c: any) => ({
-            ...c,
-            releaseDate: c.release_date
-        })),
+        chapters: chapterRows,
         ratings: reviews.map(r => ({
             userId: r.user_id,
             rating: Math.round((r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5),
@@ -2004,67 +2064,19 @@ export const getMangasByIds = async (mangaIds: string[]): Promise<Manga[]> => {
     }
 
     try {
-        const [
-            { data: mangaData, error: mangaError },
-            { data: chapterData },
-            { data: reviewData },
-        ] = await Promise.all([
-            supabase
-                .from('mangas')
-                .select('*')
-                .in('id', uniqueIds),
-            supabase
-                .from('chapters')
-                .select('id, manga_id, number, title, pages, release_date, views')
-                .in('manga_id', uniqueIds),
-            supabase
-                .from('reviews')
-                .select('manga_id, user_id, created_at, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
-                .in('manga_id', uniqueIds),
-        ]);
+        const { data: mangaData, error: mangaError } = await supabase
+            .from('mangas')
+            .select('*')
+            .in('id', uniqueIds);
 
         if (mangaError) {
             throw mangaError;
         }
 
-        const allChapters = chapterData || [];
-        const allReviews = reviewData || [];
-
-        const mangaMap = new Map(
-            (mangaData || []).map((m) => {
-                const mangaChapters = allChapters.filter((chapter: any) => chapter.manga_id === m.id);
-                const mangaReviews = allReviews.filter((review: any) => review.manga_id === m.id);
-                const normalizedRatings = mangaReviews.map((review: any) => ({
-                    userId: review.user_id,
-                    rating: Math.round((((review.rating_story + review.rating_characters + review.rating_art + review.rating_progression + review.rating_engagement) / 5) * 10)) / 10,
-                    createdAt: review.created_at,
-                }));
-                const averageRating = normalizedRatings.length > 0
-                    ? Math.round(((normalizedRatings.reduce((sum, rating) => sum + rating.rating, 0) / normalizedRatings.length) * 10)) / 10
-                    : 0;
-
-                return [m.id, {
-                    ...m,
-                    alternativeTitles: m.alternative_titles || [],
-                    releaseYear: m.release_year,
-                    lastUpdated: m.last_updated,
-                    createdAt: m.created_at,
-                    details: m.details || {},
-                    sourceLinks: m.source_links || [],
-                    chapters: mangaChapters.map((chapter: any) => ({
-                        id: chapter.id,
-                        number: chapter.number,
-                        title: chapter.title || '',
-                        pages: chapter.pages || [],
-                        releaseDate: chapter.release_date || '',
-                        views: chapter.views || 0,
-                    })),
-                    ratings: normalizedRatings,
-                    averageRating,
-                    reviewCount: normalizedRatings.length,
-                } as Manga];
-            }),
-        );
+        const mangaSummaries = await buildMangaSummariesForRows(mangaData || [], {
+            logContext: 'Manga by ids',
+        });
+        const mangaMap = new Map(mangaSummaries.map((manga) => [manga.id, manga]));
 
         return uniqueIds
             .map((id) => mangaMap.get(id))

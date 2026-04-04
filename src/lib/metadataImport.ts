@@ -3572,7 +3572,7 @@ export const importPreviewIntoManga = async (
   preview: ImportedMangaPayload,
   selection: ImportSelectionOptions,
 ) => {
-  const manga = await getMangaById(mangaId, { includePrivate: true });
+  const manga = await getMangaById(mangaId, { includePrivate: true, includePages: true });
   if (!manga) {
     throw new Error('MANGA_NOT_FOUND');
   }

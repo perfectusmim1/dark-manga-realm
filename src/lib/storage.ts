@@ -39,6 +39,7 @@ import {
 const STORAGE_KEYS = {
     READER_SETTINGS: 'manga_reader_settings',
     CHAPTER_READ_FALLBACK: 'toonparrot_chapter_read_progress_fallback',
+    CHAPTER_READ_FALLBACK_SYNC: 'toonparrot_chapter_read_progress_fallback_sync',
     // We still keep local reader settings because they are device-specific and often don't need to be in DB
 };
 
@@ -393,6 +394,7 @@ const normalizeChapterReadProgress = (row: any): ChapterReadProgressEntry => ({
 });
 
 type LocalChapterReadStore = Record<string, Record<string, ChapterReadProgressEntry>>;
+type LocalChapterReadSyncStore = Record<string, string>;
 
 const getLocalChapterReadStore = (): LocalChapterReadStore => {
     if (typeof window === 'undefined') {
@@ -467,6 +469,90 @@ const setLocalChapterReadStore = (store: LocalChapterReadStore) => {
 const getLocalChapterReadEntries = (userId: string): ChapterReadProgressEntry[] => {
     const store = getLocalChapterReadStore();
     return sortByLastReadDesc(Object.values(store[userId] || {}));
+};
+
+const getLocalChapterReadSyncStore = (): LocalChapterReadSyncStore => {
+    if (typeof window === 'undefined') {
+        return {};
+    }
+
+    const raw = window.localStorage.getItem(STORAGE_KEYS.CHAPTER_READ_FALLBACK_SYNC);
+    if (!raw) {
+        return {};
+    }
+
+    try {
+        const parsed = JSON.parse(raw);
+        return typeof parsed === 'object' && parsed ? parsed : {};
+    } catch {
+        return {};
+    }
+};
+
+const setLocalChapterReadSyncStore = (store: LocalChapterReadSyncStore) => {
+    if (typeof window === 'undefined') {
+        return;
+    }
+
+    window.localStorage.setItem(STORAGE_KEYS.CHAPTER_READ_FALLBACK_SYNC, JSON.stringify(store));
+};
+
+const getLocalChapterReadSyncCursor = (userId: string) =>
+    getLocalChapterReadSyncStore()[userId];
+
+const parseTimestamp = (value?: string | null) => {
+    if (!value) {
+        return Number.NaN;
+    }
+
+    return new Date(value).getTime();
+};
+
+const markLocalChapterReadSyncCursor = (
+    userId: string,
+    entries: Array<Partial<Pick<ChapterReadProgressEntry, 'lastRead'>>>,
+) => {
+    if (!userId || entries.length === 0) {
+        return;
+    }
+
+    let latestTimestamp = Number.NaN;
+    entries.forEach((entry) => {
+        const candidate = parseTimestamp(entry.lastRead);
+        if (Number.isNaN(candidate)) {
+            return;
+        }
+
+        latestTimestamp = Number.isNaN(latestTimestamp)
+            ? candidate
+            : Math.max(latestTimestamp, candidate);
+    });
+
+    if (Number.isNaN(latestTimestamp)) {
+        return;
+    }
+
+    const store = getLocalChapterReadSyncStore();
+    store[userId] = new Date(latestTimestamp).toISOString();
+    setLocalChapterReadSyncStore(store);
+};
+
+const hasUnsyncedLocalChapterReadEntry = (
+    entry: ChapterReadProgressEntry,
+    syncCursor?: string,
+) => {
+    if (!syncCursor) {
+        return true;
+    }
+
+    const entryTimestamp = parseTimestamp(entry.lastRead);
+    const syncTimestamp = parseTimestamp(syncCursor);
+
+    if (Number.isNaN(entryTimestamp) || Number.isNaN(syncTimestamp)) {
+        return true;
+    }
+
+    return entryTimestamp > syncTimestamp + 1000;
 };
 
 export const getLocalChapterReadProgressEntry = (
@@ -576,6 +662,7 @@ const hydrateLocalChapterReadMetadata = (
 
     store[userId] = userEntries;
     setLocalChapterReadStore(store);
+    markLocalChapterReadSyncCursor(userId, entries);
 };
 
 const mergeChapterReadEntries = (
@@ -635,9 +722,15 @@ export const syncLocalChapterReadFallbackToRemote = async (userId: string): Prom
         return;
     }
 
+    const syncCursor = getLocalChapterReadSyncCursor(userId);
+    const pendingLocalEntries = localEntries.filter((entry) => hasUnsyncedLocalChapterReadEntry(entry, syncCursor));
+    if (pendingLocalEntries.length === 0) {
+        return;
+    }
+
     const syncPromise = (async () => {
-        const existingChapterIds = await getExistingChapterIds(localEntries.map((entry) => entry.chapterId));
-        const syncableLocalEntries = localEntries.filter((entry) => existingChapterIds.has(entry.chapterId));
+        const existingChapterIds = await getExistingChapterIds(pendingLocalEntries.map((entry) => entry.chapterId));
+        const syncableLocalEntries = pendingLocalEntries.filter((entry) => existingChapterIds.has(entry.chapterId));
 
         if (syncableLocalEntries.length === 0) {
             return;
@@ -713,6 +806,7 @@ export const syncLocalChapterReadFallbackToRemote = async (userId: string): Prom
             }
         }
 
+        markLocalChapterReadSyncCursor(userId, syncableLocalEntries);
         chapterReadTableFeatureState = 'available';
         chapterReadPublicFeatureState = 'available';
     })().finally(() => {
@@ -1015,11 +1109,15 @@ const fetchRemoteReadingHistoryRows = async (
     options?: {
         limit?: number;
         offset?: number;
+        includeAlternativeTitles?: boolean;
     },
 ): Promise<{ data: RemoteReadingHistoryRow[] | null; error: unknown }> => {
     try {
         const response = await runWithSupabaseBootstrapRetry({
             run: async () => {
+                const mangaSelect = options?.includeAlternativeTitles
+                    ? 'manga:mangas(id, title, cover, alternative_titles)'
+                    : 'manga:mangas(id, title, cover)';
                 const query = supabase
                     .from('reading_progress')
                     .select(`
@@ -1029,7 +1127,7 @@ const fetchRemoteReadingHistoryRows = async (
                         chapter_number,
                         page,
                         last_read,
-                        manga:mangas(id, title, cover, alternative_titles)
+                        ${mangaSelect}
                     `)
                     .eq('user_id', userId)
                     .order('last_read', { ascending: false });
@@ -1116,8 +1214,8 @@ export const getContinueReadingEntries = async (
         maxWaitMs: 5000,
     }).catch(() => null);
 
-    const batchSize = Math.max(24, uniqueMangaLimit * 4);
-    const maxScanRows = Math.max(120, uniqueMangaLimit * 20);
+    const batchSize = uniqueMangaLimit;
+    const maxScanRows = uniqueMangaLimit;
     const collectedRows: RemoteReadingHistoryRow[] = [];
     let offset = 0;
 
@@ -1127,6 +1225,7 @@ export const getContinueReadingEntries = async (
         const { data, error } = await fetchRemoteReadingHistoryRows(userId, {
             limit: currentBatchSize,
             offset,
+            includeAlternativeTitles: false,
         });
 
         if (error) {

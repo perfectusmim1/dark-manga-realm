@@ -251,6 +251,7 @@ export interface Chapter {
   number: number;
   title: string;
   pages: string[];
+  pageCount?: number;
   releaseDate: string;
   views: number;
 }
