@@ -164,11 +164,44 @@ interface PreviewCollections {
   characterGallery: CharacterGalleryToggleItem[];
 }
 
-const normalizePreviewKey = (value?: string | null) => value?.replace(/\s+/g, ' ').trim().toLocaleLowerCase('tr-TR') || '';
+const toPreviewText = (value: unknown): string => {
+  if (typeof value === 'string') {
+    return value;
+  }
 
-const buildPreviewItemKey = (category: PreviewSelectionCategory, value: string) => (
-  `${category}:${normalizePreviewKey(value) || value}`
+  if (typeof value === 'number' || typeof value === 'boolean') {
+    return `${value}`;
+  }
+
+  if (value && typeof value === 'object') {
+    if ('name' in value && typeof value.name === 'string') {
+      return value.name;
+    }
+
+    if ('sourceTag' in value && typeof value.sourceTag === 'string') {
+      return value.sourceTag;
+    }
+
+    if ('title' in value && typeof value.title === 'string') {
+      return value.title;
+    }
+
+    if ('url' in value && typeof value.url === 'string') {
+      return value.url;
+    }
+  }
+
+  return '';
+};
+
+const normalizePreviewKey = (value?: unknown) => (
+  toPreviewText(value).replace(/\s+/g, ' ').trim().toLocaleLowerCase('tr-TR')
 );
+
+const buildPreviewItemKey = (category: PreviewSelectionCategory, value: unknown) => {
+  const normalizedValue = toPreviewText(value);
+  return `${category}:${normalizePreviewKey(normalizedValue) || normalizedValue}`;
+};
 
 const getPreviewItemChecked = (
   overrides: Record<string, boolean>,

@@ -4971,6 +4971,7 @@ export const createTag = async (
     userId?: string
 ): Promise<Tag | null> => {
     const slug = slugifyTagName(name);
+    const resolvedUserId = userId || (await supabase.auth.getSession()).data.session?.user?.id;
 
     if (!slug) {
         return null;
@@ -4998,7 +4999,7 @@ export const createTag = async (
             slug,
             category,
             description,
-            created_by: userId,
+            created_by: resolvedUserId,
             is_official: false
         }, { onConflict: 'slug' })
         .select()
@@ -5168,15 +5169,21 @@ export const addTagToEntity = async (
 ): Promise<boolean> => {
     const tableName = `${entityType}_tags`;
     const colName = `${entityType}_id`;
+    const resolvedUserId = userId || (await supabase.auth.getSession()).data.session?.user?.id;
 
     const discoverable = options?.discoverable ?? false;
+
+    if (!resolvedUserId) {
+        console.error('Add tag to entity error: authenticated user required');
+        return false;
+    }
 
     const { error } = await supabase
         .from(tableName as any)
         .upsert({
             [colName]: entityId,
             tag_id: tagId,
-            added_by: userId,
+            added_by: resolvedUserId,
             is_discoverable: discoverable ?? false,
         });
 
