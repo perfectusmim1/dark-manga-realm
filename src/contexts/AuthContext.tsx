@@ -1167,10 +1167,6 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       const usernameChanged = Boolean(nextUsername) && nextUsername !== user.username;
       const avatarChanged = updates.avatar !== undefined && updates.avatar !== user.avatar;
 
-      if (!usernameChanged && !avatarChanged) {
-        return { success: true };
-      }
-
       if (usernameChanged && user.usernameChangedAt) {
         const nextAllowedAt = new Date(user.usernameChangedAt);
         nextAllowedAt.setDate(nextAllowedAt.getDate() + 7);
@@ -1188,9 +1184,37 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         return { success: false, error: 'Oturum bulunamadı' };
       }
 
+      const normalizedAvatar = avatarChanged
+        ? (updates.avatar?.trim() || null)
+        : (user.avatar?.trim() || null);
+      const targetUsername = nextUsername || user.username;
+      const usernameMetadataNeedsSync = (currentAuthUser.user_metadata?.username ?? null) !== (targetUsername || null);
+      const avatarMetadataNeedsSync = (currentAuthUser.user_metadata?.avatar_url ?? null) !== normalizedAvatar;
+
+      if (!usernameChanged && !avatarChanged && !usernameMetadataNeedsSync && !avatarMetadataNeedsSync) {
+        return { success: true };
+      }
+
       await ensureProfile(currentAuthUser, user.username);
 
+      let nextAuthUser = currentAuthUser;
       let updatedUsername = user.username;
+      let updatedProfile: UserProfileRow | null = null;
+
+      if (avatarChanged || avatarMetadataNeedsSync) {
+        const { data: avatarAuthUpdateData, error: avatarAuthError } = await supabase.auth.updateUser({
+          data: {
+            avatar_url: normalizedAvatar,
+          },
+        });
+
+        if (avatarAuthError) throw avatarAuthError;
+
+        if (avatarAuthUpdateData?.user) {
+          nextAuthUser = avatarAuthUpdateData.user;
+          setSupabaseUser(avatarAuthUpdateData.user);
+        }
+      }
 
       if (usernameChanged && nextUsername) {
         const { data, error } = await supabase.rpc('update_current_user_username', {
@@ -1203,43 +1227,43 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         if (profile?.username) {
           updatedUsername = profile.username;
         }
+        updatedProfile = profile ?? null;
       }
 
-      if (avatarChanged) {
-        const { error: dbError } = await supabase
-          .from('users')
-          .update({ avatar: updates.avatar })
-          .select(PROFILE_SELECT_COLUMNS)
-          .eq('id', user.id);
+      if (usernameChanged || usernameMetadataNeedsSync) {
+        const { data: authUpdateData, error: authError } = await supabase.auth.updateUser({
+          data: {
+            username: updatedUsername,
+          },
+        });
 
-        if (dbError) throw dbError;
+        if (authError) {
+          console.warn('Auth username metadata update failed:', authError);
+        }
+
+        if (authUpdateData?.user) {
+          nextAuthUser = authUpdateData.user;
+          setSupabaseUser(authUpdateData.user);
+        }
       }
 
       if (usernameChanged || avatarChanged) {
-        const authMetadata: Record<string, string | null> = {};
+        const { data: syncData, error: syncError } = await supabase.rpc('sync_current_auth_profile', {
+          p_avatar: normalizedAvatar,
+          p_base_username: updatedUsername,
+        });
 
-        if (usernameChanged) {
-          authMetadata.username = updatedUsername;
-        }
+        if (syncError) throw syncError;
 
-        if (avatarChanged) {
-          authMetadata.avatar_url = updates.avatar || null;
-        }
-
-        if (Object.keys(authMetadata).length > 0) {
-          const { data: authUpdateData, error: authError } = await supabase.auth.updateUser({
-            data: authMetadata,
-          });
-          if (authError) console.warn('Auth metadata update failed:', authError);
-          if (authUpdateData?.user) {
-            setSupabaseUser(authUpdateData.user);
-          }
+        const syncedProfile = Array.isArray(syncData) ? syncData[0] : syncData;
+        if (syncedProfile) {
+          updatedProfile = syncedProfile;
         }
       }
 
       // Refresh local state
-      const refreshedAuthUser = (await supabase.auth.getUser()).data.user || currentAuthUser;
-      const profile = await fetchProfile(user.id) || await ensureProfile(refreshedAuthUser, updatedUsername);
+      const refreshedAuthUser = (await supabase.auth.getUser()).data.user || nextAuthUser;
+      const profile = updatedProfile || await ensureProfile(refreshedAuthUser, updatedUsername);
       setSupabaseUser(refreshedAuthUser);
       setUser(mapSupabaseUserToUser(refreshedAuthUser, profile));
 

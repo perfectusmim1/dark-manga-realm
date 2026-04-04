@@ -894,92 +894,176 @@ export const getReadingHistory = async (userId: string): Promise<ReadingProgress
     }));
 };
 
-export const getReadingHistoryEntries = async (userId: string): Promise<ReadingHistoryEntry[]> => {
-    const buildLocalReadingHistoryEntries = async (): Promise<ReadingHistoryEntry[]> => {
-        const latestEntriesByManga = getLocalChapterReadEntries(userId)
-            .reduce<Record<string, ChapterReadProgressEntry>>((map, entry) => {
-                const current = map[entry.mangaId];
-                if (!current || compareLastReadDesc(entry.lastRead, current.lastRead) < 0) {
-                    map[entry.mangaId] = entry;
-                }
-                return map;
-            }, {});
+type RemoteReadingHistoryRow = {
+    user_id: string;
+    manga_id: string;
+    chapter_id: string;
+    chapter_number: number | string;
+    page: number;
+    last_read: string;
+    manga?: {
+        id?: string;
+        title?: string;
+        cover?: string;
+        alternative_titles?: string[];
+    } | null;
+};
 
-        const localEntries = await Promise.all(
-            Object.values(latestEntriesByManga).map(async (entry) => {
-                const offlineManga = await getOfflineMangaDetail(entry.mangaId);
-                const offlineChapter = offlineManga?.chapters.find((chapter) => chapter.id === entry.chapterId);
+const buildLocalReadingHistoryEntries = async (userId: string): Promise<ReadingHistoryEntry[]> => {
+    const latestEntriesByManga = getLocalChapterReadEntries(userId)
+        .reduce<Record<string, ChapterReadProgressEntry>>((map, entry) => {
+            const current = map[entry.mangaId];
+            if (!current || compareLastReadDesc(entry.lastRead, current.lastRead) < 0) {
+                map[entry.mangaId] = entry;
+            }
+            return map;
+        }, {});
 
-                return {
-                    userId: entry.userId,
-                    mangaId: entry.mangaId,
-                    chapterId: entry.chapterId,
-                    chapterNumber: entry.chapterNumber,
-                    page: entry.page,
-                    lastRead: entry.lastRead,
-                    mangaTitle: offlineManga?.title || entry.mangaTitle,
-                    mangaCover: offlineManga?.cover || entry.mangaCover,
-                    mangaAlternativeTitles: offlineManga?.alternativeTitles || entry.mangaAlternativeTitles || [],
-                    chapterTitle: offlineChapter?.title || entry.chapterTitle,
-                } satisfies ReadingHistoryEntry;
-            }),
-        );
+    const localEntries = await Promise.all(
+        Object.values(latestEntriesByManga).map(async (entry) => {
+            const offlineManga = await getOfflineMangaDetail(entry.mangaId);
+            const offlineChapter = offlineManga?.chapters.find((chapter) => chapter.id === entry.chapterId);
 
-        return sortByLastReadDesc(localEntries);
-    };
+            return {
+                userId: entry.userId,
+                mangaId: entry.mangaId,
+                chapterId: entry.chapterId,
+                chapterNumber: entry.chapterNumber,
+                page: entry.page,
+                lastRead: entry.lastRead,
+                mangaTitle: offlineManga?.title || entry.mangaTitle,
+                mangaCover: offlineManga?.cover || entry.mangaCover,
+                mangaAlternativeTitles: offlineManga?.alternativeTitles || entry.mangaAlternativeTitles || [],
+                chapterTitle: offlineChapter?.title || entry.chapterTitle,
+            } satisfies ReadingHistoryEntry;
+        }),
+    );
 
-    await waitForUsableSupabaseSession({
-        required: true,
-        maxWaitMs: 5000,
-    }).catch(() => null);
+    return sortByLastReadDesc(localEntries);
+};
 
-    let data: any[] | null = null;
-    let error: unknown = null;
+const buildFallbackReadingHistoryEntries = async (userId: string): Promise<ReadingHistoryEntry[]> => {
+    const localEntries = await buildLocalReadingHistoryEntries(userId);
+    if (localEntries.length > 0) {
+        return localEntries;
+    }
 
+    const fallbackHistory = await getReadingHistory(userId);
+    return sortByLastReadDesc(fallbackHistory.map((entry) => ({
+        ...entry,
+        mangaAlternativeTitles: [],
+        chapterTitle: undefined,
+    })));
+};
+
+const pickLatestReadingHistoryRowsByManga = (
+    rows: RemoteReadingHistoryRow[],
+    limit: number,
+): RemoteReadingHistoryRow[] => {
+    if (limit <= 0) {
+        return [];
+    }
+
+    const selectedRows: RemoteReadingHistoryRow[] = [];
+    const seenMangaIds = new Set<string>();
+
+    for (const row of rows) {
+        if (!row?.manga_id || seenMangaIds.has(row.manga_id)) {
+            continue;
+        }
+
+        seenMangaIds.add(row.manga_id);
+        selectedRows.push(row);
+
+        if (selectedRows.length >= limit) {
+            break;
+        }
+    }
+
+    return selectedRows;
+};
+
+const pickLatestReadingHistoryEntriesByManga = (
+    entries: ReadingHistoryEntry[],
+    limit: number,
+): ReadingHistoryEntry[] => {
+    if (limit <= 0) {
+        return [];
+    }
+
+    const selectedEntries: ReadingHistoryEntry[] = [];
+    const seenMangaIds = new Set<string>();
+
+    for (const entry of sortByLastReadDesc(entries)) {
+        if (!entry?.mangaId || seenMangaIds.has(entry.mangaId)) {
+            continue;
+        }
+
+        seenMangaIds.add(entry.mangaId);
+        selectedEntries.push(entry);
+
+        if (selectedEntries.length >= limit) {
+            break;
+        }
+    }
+
+    return selectedEntries;
+};
+
+const fetchRemoteReadingHistoryRows = async (
+    userId: string,
+    options?: {
+        limit?: number;
+        offset?: number;
+    },
+): Promise<{ data: RemoteReadingHistoryRow[] | null; error: unknown }> => {
     try {
         const response = await runWithSupabaseBootstrapRetry({
-            run: async () => await supabase
-                .from('reading_progress')
-                .select(`
-                    user_id,
-                    manga_id,
-                    chapter_id,
-                    chapter_number,
-                    page,
-                    last_read,
-                    manga:mangas(id, title, cover, alternative_titles)
-                `)
-                .eq('user_id', userId)
-                .order('last_read', { ascending: false }),
+            run: async () => {
+                const query = supabase
+                    .from('reading_progress')
+                    .select(`
+                        user_id,
+                        manga_id,
+                        chapter_id,
+                        chapter_number,
+                        page,
+                        last_read,
+                        manga:mangas(id, title, cover, alternative_titles)
+                    `)
+                    .eq('user_id', userId)
+                    .order('last_read', { ascending: false });
+
+                if (options?.limit && options.limit > 0) {
+                    const start = Math.max(0, options.offset || 0);
+                    const end = start + options.limit - 1;
+                    return query.range(start, end);
+                }
+
+                return query;
+            },
             timeoutMs: 6000,
             timeoutMessage: 'Reading history entries fetch timeout',
             shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
         });
 
-        data = response.data as any[] | null;
-        error = response.error;
-    } catch (requestError) {
-        error = requestError;
+        return {
+            data: response.data as RemoteReadingHistoryRow[] | null,
+            error: response.error,
+        };
+    } catch (error) {
+        return {
+            data: null,
+            error,
+        };
     }
+};
 
-    if (error) {
-        if (!isExpectedAccessControlError(error)) {
-            console.error('Reading history entries fetch error:', error);
-        }
-        const localEntries = await buildLocalReadingHistoryEntries();
-        if (localEntries.length > 0) {
-            return localEntries;
-        }
-
-        const fallbackHistory = await getReadingHistory(userId);
-        return sortByLastReadDesc(fallbackHistory.map((entry) => ({
-            ...entry,
-            mangaAlternativeTitles: [],
-            chapterTitle: undefined,
-        })));
-    }
-
-    const chapterIds = [...new Set((data || []).map((entry: any) => entry.chapter_id).filter(Boolean))];
+const buildReadingHistoryEntriesFromRows = async (
+    userId: string,
+    rows: RemoteReadingHistoryRow[],
+): Promise<ReadingHistoryEntry[]> => {
+    const chapterIds = [...new Set(rows.map((entry) => entry.chapter_id).filter(Boolean))];
     const chapterTitleMap = new Map<string, string>();
 
     if (chapterIds.length > 0) {
@@ -1002,9 +1086,7 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
         }
     }
 
-    void cacheOfflineMangaMetadata((data || []).map((entry: any) => entry.manga_id));
-
-    const remoteEntries = (data || []).map((entry: any) => ({
+    const remoteEntries = rows.map((entry) => ({
         userId: entry.user_id,
         mangaId: entry.manga_id,
         chapterId: entry.chapter_id,
@@ -1018,8 +1100,88 @@ export const getReadingHistoryEntries = async (userId: string): Promise<ReadingH
     }));
 
     hydrateLocalChapterReadMetadata(userId, remoteEntries);
-
     return sortByLastReadDesc(remoteEntries);
+};
+
+export const getContinueReadingEntries = async (
+    userId: string,
+    uniqueMangaLimit: number = 6,
+): Promise<ReadingHistoryEntry[]> => {
+    if (!userId || uniqueMangaLimit <= 0) {
+        return [];
+    }
+
+    await waitForUsableSupabaseSession({
+        required: true,
+        maxWaitMs: 5000,
+    }).catch(() => null);
+
+    const batchSize = Math.max(24, uniqueMangaLimit * 4);
+    const maxScanRows = Math.max(120, uniqueMangaLimit * 20);
+    const collectedRows: RemoteReadingHistoryRow[] = [];
+    let offset = 0;
+
+    while (offset < maxScanRows) {
+        const remainingRowBudget = maxScanRows - offset;
+        const currentBatchSize = Math.min(batchSize, remainingRowBudget);
+        const { data, error } = await fetchRemoteReadingHistoryRows(userId, {
+            limit: currentBatchSize,
+            offset,
+        });
+
+        if (error) {
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Continue reading fetch error:', error);
+            }
+            return pickLatestReadingHistoryEntriesByManga(
+                await buildFallbackReadingHistoryEntries(userId),
+                uniqueMangaLimit,
+            );
+        }
+
+        const batch = data || [];
+        if (batch.length === 0) {
+            break;
+        }
+
+        collectedRows.push(...batch);
+        offset += batch.length;
+
+        if (
+            pickLatestReadingHistoryRowsByManga(collectedRows, uniqueMangaLimit).length >= uniqueMangaLimit
+            || batch.length < currentBatchSize
+        ) {
+            break;
+        }
+    }
+
+    if (collectedRows.length === 0) {
+        return pickLatestReadingHistoryEntriesByManga(
+            await buildFallbackReadingHistoryEntries(userId),
+            uniqueMangaLimit,
+        );
+    }
+
+    const selectedRows = pickLatestReadingHistoryRowsByManga(collectedRows, uniqueMangaLimit);
+    return buildReadingHistoryEntriesFromRows(userId, selectedRows);
+};
+
+export const getReadingHistoryEntries = async (userId: string): Promise<ReadingHistoryEntry[]> => {
+    await waitForUsableSupabaseSession({
+        required: true,
+        maxWaitMs: 5000,
+    }).catch(() => null);
+
+    const { data, error } = await fetchRemoteReadingHistoryRows(userId);
+
+    if (error) {
+        if (!isExpectedAccessControlError(error)) {
+            console.error('Reading history entries fetch error:', error);
+        }
+        return buildFallbackReadingHistoryEntries(userId);
+    }
+
+    return buildReadingHistoryEntriesFromRows(userId, data || []);
 };
 
 export const syncChapterReadProgress = async (
@@ -1283,7 +1445,6 @@ export const getChapterHistoryEntries = async (userId: string): Promise<ChapterH
         chapterTitle: entry.chapter?.title,
     }));
 
-    void cacheOfflineMangaMetadata(remoteEntries.map((entry) => entry.mangaId));
     hydrateLocalChapterReadMetadata(userId, remoteEntries);
 
     const mergedEntries = mergeChapterReadEntries(
@@ -1517,7 +1678,6 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
                     } satisfies Bookmark;
                 });
 
-                void cacheOfflineMangaMetadata(mangaIds);
                 return mergedBookmarks;
             })(), 6000, 'Bookmark fetch timeout');
 

@@ -141,6 +141,7 @@ type HomeDataModule = {
 
 type ReadingHistoryModule = {
   getReadingHistoryEntries: (userId: string) => Promise<ReadingHistoryEntry[]>;
+  getContinueReadingEntries: (userId: string, uniqueMangaLimit?: number) => Promise<ReadingHistoryEntry[]>;
 };
 
 let homeDataModulePromise: Promise<HomeDataModule> | null = null;
@@ -161,6 +162,7 @@ const loadReadingHistoryModule = () => {
   if (!readingHistoryModulePromise) {
     readingHistoryModulePromise = import('@/lib/storage').then((module) => ({
       getReadingHistoryEntries: module.getReadingHistoryEntries,
+      getContinueReadingEntries: module.getContinueReadingEntries,
     }));
   }
 
@@ -1152,23 +1154,8 @@ const Index: React.FC = () => {
       }
 
       try {
-        const { getReadingHistoryEntries } = await readingHistoryPromise;
-        const historyEntries = await getReadingHistoryEntries(user.id);
-        const uniqueEntries: ReadingHistoryEntry[] = [];
-        const seenMangaIds = new Set<string>();
-
-        for (const entry of historyEntries) {
-          if (seenMangaIds.has(entry.mangaId)) {
-            continue;
-          }
-
-          seenMangaIds.add(entry.mangaId);
-          uniqueEntries.push(entry);
-
-          if (uniqueEntries.length === 6) {
-            break;
-          }
-        }
+        const { getContinueReadingEntries } = await readingHistoryPromise;
+        const uniqueEntries = await getContinueReadingEntries(user.id, 6);
 
         if (!active) {
           return;
