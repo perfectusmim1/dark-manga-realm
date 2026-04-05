@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import {
   Users,
   UserPen,
@@ -122,6 +122,8 @@ const ENTITY_LABELS: Record<EntityType, string> = {
   artist: 'Çizer',
 };
 
+const ADMIN_ENTITY_PREVIEW_LIMIT = 20;
+
 const AdminEntities: React.FC = () => {
   const [loading, setLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<EntityType>('character');
@@ -137,6 +139,8 @@ const AdminEntities: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [formData, setFormData] = useState<EntityDialogFormState>(createEmptyFormState());
+  const [showAllResults, setShowAllResults] = useState(false);
+  const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const loadData = async () => {
     setLoading(true);
@@ -165,6 +169,10 @@ const AdminEntities: React.FC = () => {
   useEffect(() => {
     setSelectedIds([]);
   }, [activeTab]);
+
+  useEffect(() => {
+    setShowAllResults(false);
+  }, [activeTab, deferredSearchQuery]);
 
   const handleOpenDialog = (entity?: EditableEntity) => {
     if (entity) {
@@ -315,7 +323,7 @@ const AdminEntities: React.FC = () => {
   }, [activeTab, authors, artists, characters]);
 
   const filteredItems = useMemo(() => {
-    const normalizedQuery = searchQuery.trim().toLocaleLowerCase('tr-TR');
+    const normalizedQuery = deferredSearchQuery.trim().toLocaleLowerCase('tr-TR');
 
     if (!normalizedQuery) {
       return currentItems;
@@ -325,23 +333,35 @@ const AdminEntities: React.FC = () => {
       item.name.toLocaleLowerCase('tr-TR').includes(normalizedQuery)
       || (item.alternativeNames || []).some((name) => name.toLocaleLowerCase('tr-TR').includes(normalizedQuery))
     ));
-  }, [currentItems, searchQuery]);
+  }, [currentItems, deferredSearchQuery]);
+
+  const isSearchActive = deferredSearchQuery.trim().length > 0;
+
+  const visibleItems = useMemo(() => {
+    if (isSearchActive || showAllResults) {
+      return filteredItems;
+    }
+
+    return filteredItems.slice(0, ADMIN_ENTITY_PREVIEW_LIMIT);
+  }, [filteredItems, isSearchActive, showAllResults]);
+
+  const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
   const visibleSelectedIds = useMemo(
-    () => filteredItems.map((item) => item.id).filter((id) => selectedIds.includes(id)),
-    [filteredItems, selectedIds],
+    () => visibleItems.map((item) => item.id).filter((id) => selectedIdSet.has(id)),
+    [selectedIdSet, visibleItems],
   );
 
-  const allFilteredSelected = filteredItems.length > 0 && visibleSelectedIds.length === filteredItems.length;
+  const allVisibleSelected = visibleItems.length > 0 && visibleSelectedIds.length === visibleItems.length;
 
-  const toggleSelectAllFiltered = (checked: boolean) => {
-    const filteredIds = filteredItems.map((item) => item.id);
+  const toggleSelectAllVisible = (checked: boolean) => {
+    const visibleIds = visibleItems.map((item) => item.id);
     setSelectedIds((current) => {
       if (checked) {
-        return Array.from(new Set([...current, ...filteredIds]));
+        return Array.from(new Set([...current, ...visibleIds]));
       }
 
-      return current.filter((id) => !filteredIds.includes(id));
+      return current.filter((id) => !visibleIds.includes(id));
     });
   };
 
@@ -429,13 +449,13 @@ const AdminEntities: React.FC = () => {
             <div className="flex items-center gap-3">
               <Checkbox
                 id="select-all-entities"
-                checked={allFilteredSelected}
-                onCheckedChange={(checked) => toggleSelectAllFiltered(checked === true)}
-                disabled={filteredItems.length === 0}
+                checked={allVisibleSelected}
+                onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+                disabled={visibleItems.length === 0}
               />
               <label htmlFor="select-all-entities" className="text-sm text-muted-foreground">
-                {filteredItems.length > 0
-                  ? `${filteredItems.length} sonuç içinden tümünü seç`
+                {visibleItems.length > 0
+                  ? `${visibleItems.length} görünen kayıt içinden tümünü seç`
                   : 'Seçilecek kayıt yok'}
               </label>
             </div>
@@ -462,6 +482,28 @@ const AdminEntities: React.FC = () => {
             </div>
           </div>
 
+          {!loading ? (
+            <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border/70 bg-background/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                {isSearchActive
+                  ? `${filteredItems.length} arama sonucu gösteriliyor.`
+                  : filteredItems.length > visibleItems.length
+                    ? `${filteredItems.length} kaydın ilk ${visibleItems.length} tanesi gösteriliyor.`
+                    : `${filteredItems.length} kayıt gösteriliyor.`}
+              </p>
+              {!isSearchActive && filteredItems.length > visibleItems.length ? (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="w-full sm:w-auto"
+                  onClick={() => setShowAllResults(true)}
+                >
+                  Tümünü Göster ({filteredItems.length})
+                </Button>
+              ) : null}
+            </div>
+          ) : null}
+
           {loading ? (
             <div className="flex h-64 items-center justify-center">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -469,12 +511,12 @@ const AdminEntities: React.FC = () => {
           ) : (
             <div className="rounded-md border border-border">
               <div className="divide-y divide-border md:hidden">
-                {filteredItems.length > 0 ? (
-                  filteredItems.map((item) => (
+                {visibleItems.length > 0 ? (
+                  visibleItems.map((item) => (
                     <div key={item.id} className="space-y-4 p-4">
                       <div className="flex items-start gap-3">
                         <Checkbox
-                          checked={selectedIds.includes(item.id)}
+                          checked={selectedIdSet.has(item.id)}
                           onCheckedChange={(checked) => toggleItemSelection(item.id, checked === true)}
                           aria-label={`${item.name} seç`}
                           className="mt-4"
@@ -540,9 +582,9 @@ const AdminEntities: React.FC = () => {
                     <TableRow className="hover:bg-transparent border-border">
                       <TableHead className="w-12">
                         <Checkbox
-                          checked={allFilteredSelected}
-                          onCheckedChange={(checked) => toggleSelectAllFiltered(checked === true)}
-                          disabled={filteredItems.length === 0}
+                          checked={allVisibleSelected}
+                          onCheckedChange={(checked) => toggleSelectAllVisible(checked === true)}
+                          disabled={visibleItems.length === 0}
                           aria-label="Tümünü seç"
                         />
                       </TableHead>
@@ -555,12 +597,12 @@ const AdminEntities: React.FC = () => {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {filteredItems.length > 0 ? (
-                      filteredItems.map((item) => (
+                    {visibleItems.length > 0 ? (
+                      visibleItems.map((item) => (
                         <TableRow key={item.id} className="border-border hover:bg-white/5 transition-colors">
                           <TableCell>
                             <Checkbox
-                              checked={selectedIds.includes(item.id)}
+                              checked={selectedIdSet.has(item.id)}
                               onCheckedChange={(checked) => toggleItemSelection(item.id, checked === true)}
                               aria-label={`${item.name} seç`}
                             />

@@ -26,7 +26,7 @@ const AdminDashboard: React.FC = () => {
                 setIsLoading(true);
                 const [statistics, allMangas] = await Promise.all([
                     getStatistics(),
-                    getAllMangas()
+                    getAllMangas({ includePrivate: true })
                 ]);
 
                 setStats(statistics);

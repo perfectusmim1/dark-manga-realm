@@ -8,6 +8,8 @@ import {
     Eye,
     Filter,
     ChevronDown,
+    Globe2,
+    Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -37,6 +39,7 @@ const AdminMangaList: React.FC = () => {
     const [searchQuery, setSearchQuery] = useState('');
     const [typeFilter, setTypeFilter] = useState<string>('all');
     const [statusFilter, setStatusFilter] = useState<string>('all');
+    const [visibilityFilter, setVisibilityFilter] = useState<string>('all');
     const [deleteId, setDeleteId] = useState<string | null>(null);
 
     const [isLoading, setIsLoading] = useState(true);
@@ -48,7 +51,7 @@ const AdminMangaList: React.FC = () => {
     const loadMangas = async () => {
         try {
             setIsLoading(true);
-            const data = await getAllMangas();
+            const data = await getAllMangas({ includePrivate: true });
             setMangas(data);
         } catch (err) {
             toast.error('Mangalar yüklenemedi');
@@ -77,7 +80,10 @@ const AdminMangaList: React.FC = () => {
             manga.author.toLocaleLowerCase('tr-TR').includes(query);
         const matchesType = typeFilter === 'all' || manga.type === typeFilter;
         const matchesStatus = statusFilter === 'all' || manga.status === statusFilter;
-        return matchesSearch && matchesType && matchesStatus;
+        const matchesVisibility = visibilityFilter === 'all'
+            || (visibilityFilter === 'public' && manga.isPublic !== false)
+            || (visibilityFilter === 'private' && manga.isPublic === false);
+        return matchesSearch && matchesType && matchesStatus && matchesVisibility;
     });
 
     const getStatusBadge = (status: string) => {
@@ -107,6 +113,20 @@ const AdminMangaList: React.FC = () => {
                 return null;
         }
     };
+
+    const getVisibilityBadge = (isPublic?: boolean) => (
+        isPublic !== false ? (
+            <Badge variant="outline" className="border-emerald-500/20 bg-emerald-500/10 text-emerald-600 hover:bg-emerald-500/20">
+                <Globe2 className="mr-1 h-3.5 w-3.5" />
+                Public
+            </Badge>
+        ) : (
+            <Badge variant="outline" className="border-amber-500/20 bg-amber-500/10 text-amber-600 hover:bg-amber-500/20">
+                <Lock className="mr-1 h-3.5 w-3.5" />
+                Private
+            </Badge>
+        )
+    );
 
     return (
         <div className="space-y-6">
@@ -167,6 +187,21 @@ const AdminMangaList: React.FC = () => {
                         <DropdownMenuItem onClick={() => setStatusFilter('hiatus')}>Ara Verildi</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
+
+                <DropdownMenu>
+                    <DropdownMenuTrigger asChild>
+                        <Button variant="outline" className="w-full justify-between sm:w-auto">
+                            <Filter className="mr-2 h-4 w-4" />
+                            Görünürlük: {visibilityFilter === 'all' ? 'Tümü' : visibilityFilter === 'public' ? 'Public' : 'Private'}
+                            <ChevronDown className="ml-2 h-4 w-4" />
+                        </Button>
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent>
+                        <DropdownMenuItem onClick={() => setVisibilityFilter('all')}>Tümü</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setVisibilityFilter('public')}>Public</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setVisibilityFilter('private')}>Private</DropdownMenuItem>
+                    </DropdownMenuContent>
+                </DropdownMenu>
             </div>
 
             {/* Manga List */}
@@ -188,6 +223,7 @@ const AdminMangaList: React.FC = () => {
                                     <div className="flex flex-wrap gap-2">
                                         {getTypeBadge(manga.type)}
                                         {getStatusBadge(manga.status)}
+                                        {getVisibilityBadge(manga.isPublic)}
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
                                         <span>{manga.chapters.length} bölüm</span>
@@ -229,6 +265,7 @@ const AdminMangaList: React.FC = () => {
                                 <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Manga</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Tür</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Durum</th>
+                                <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Görünürlük</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Bölümler</th>
                                 <th className="px-4 py-3 text-left text-sm font-medium text-muted-foreground">Görüntülenme</th>
                                 <th className="px-4 py-3 text-right text-sm font-medium text-muted-foreground">İşlemler</th>
@@ -252,6 +289,7 @@ const AdminMangaList: React.FC = () => {
                                     </td>
                                     <td className="px-4 py-3">{getTypeBadge(manga.type)}</td>
                                     <td className="px-4 py-3">{getStatusBadge(manga.status)}</td>
+                                    <td className="px-4 py-3">{getVisibilityBadge(manga.isPublic)}</td>
                                     <td className="px-4 py-3">{manga.chapters.length}</td>
                                     <td className="px-4 py-3">{manga.views.toLocaleString('tr-TR')}</td>
                                     <td className="px-4 py-3">

@@ -211,6 +211,10 @@ interface FandomInternalLink {
   url: string;
 }
 
+interface FandomCategoryLink extends FandomInternalLink {
+  pageTitle: string;
+}
+
 interface FandomInfoboxField {
   key: string;
   label: string;
@@ -2257,6 +2261,33 @@ const extractFandomInternalLinks = (scope: ParentNode, baseUrl: string): FandomI
     .filter((item): item is FandomInternalLink => item !== null),
 );
 
+const extractFandomCategoryLinks = (scope: ParentNode, baseUrl: string): FandomCategoryLink[] => uniqueByUrl(
+  Array.from(scope.querySelectorAll<HTMLAnchorElement>('a[href]'))
+    .map((anchor) => {
+      const href = normalizeText(anchor.getAttribute('href'));
+      if (!href || href.startsWith('#')) {
+        return null;
+      }
+
+      const url = toAbsoluteUrl(href, baseUrl);
+      if (!url.includes('/wiki/')) {
+        return null;
+      }
+
+      const page = parseFandomWikiInput(url);
+      if (!page || !/^Category:/i.test(page.pageTitle)) {
+        return null;
+      }
+
+      return {
+        title: normalizeText(anchor.textContent) || page.pageTitle.replace(/^Category:/i, ''),
+        url: page.pageUrl,
+        pageTitle: page.pageTitle,
+      } satisfies FandomCategoryLink;
+    })
+    .filter((item): item is FandomCategoryLink => item !== null),
+);
+
 const buildFandomSections = (doc: Document): FandomSection[] => {
   const root = doc.querySelector('.mw-parser-output');
   if (!root) {
@@ -2332,15 +2363,42 @@ const extractFandomParseHtml = (parsePayload: any) => (
     : parsePayload?.text?.['*']
 );
 
-const searchFandomPageTitle = async (origin: string, query: string) => {
+const searchFandomPageTitles = async (origin: string, query: string, limit = 5) => {
   const normalizedQuery = normalizeText(query).replace(/_/g, ' ');
   if (!normalizedQuery) {
-    return '';
+    return [];
   }
 
-  const url = `${origin}/api.php?action=query&list=search&srsearch=${encodeURIComponent(normalizedQuery)}&srlimit=1&format=json&formatversion=2&origin=*`;
+  const safeLimit = Math.min(Math.max(limit, 1), 10);
+  const url = `${origin}/api.php?action=query&list=search&srsearch=${encodeURIComponent(normalizedQuery)}&srlimit=${safeLimit}&format=json&formatversion=2&origin=*`;
   const payload = await getJson<any>(url, undefined, 1).catch(() => null);
-  return normalizeText(payload?.query?.search?.[0]?.title);
+  return uniqueStrings((payload?.query?.search || []).map((item: any) => normalizeText(item?.title)));
+};
+
+const searchFandomPageTitle = async (origin: string, query: string) => {
+  const [firstMatch = ''] = await searchFandomPageTitles(origin, query, 1);
+  return firstMatch;
+};
+
+const buildFandomSeriesSearchQueries = (page: FandomParsedPage) => {
+  const queries = [
+    page.displayTitle,
+    page.title,
+    normalizeText(page.displayTitle).replace(/\s*\([^)]*\)\s*/g, ' '),
+    normalizeText(page.title).replace(/\s*\([^)]*\)\s*/g, ' '),
+  ];
+
+  try {
+    const hostname = new URL(page.origin).hostname;
+    const subdomain = normalizeText(hostname.split('.')[0]?.replace(/[-_]+/g, ' '));
+    if (subdomain) {
+      queries.push(subdomain, subdomain.replace(/\bwiki\b/gi, ' '));
+    }
+  } catch {
+    // noop
+  }
+
+  return uniqueStrings(queries.map((value) => normalizeText(value).replace(/\bwiki\b/gi, ' ')));
 };
 
 const fetchFandomParsedPage = async (origin: string, pageTitle: string): Promise<FandomParsedPage> => {
@@ -2470,6 +2528,41 @@ const getFandomSectionParagraphs = (
   return [];
 };
 
+const getFandomSectionListItems = (
+  page: FandomParsedPage,
+  labels: string[],
+  limit = 8,
+) => {
+  const labelKeys = labels.map((label) => normalizeKey(label)).filter(Boolean);
+
+  for (const section of page.sections) {
+    const sectionKey = normalizeKey(section.title);
+    if (!sectionKey || !labelKeys.some((label) => sectionKey.includes(label) || label.includes(sectionKey))) {
+      continue;
+    }
+
+    const collected: string[] = [];
+    for (const node of section.nodes) {
+      if (!['UL', 'OL', 'DIV'].includes(node.tagName.toUpperCase())) {
+        continue;
+      }
+
+      const items = Array.from(node.querySelectorAll('li'))
+        .map((item) => normalizeText(item.textContent))
+        .filter(Boolean);
+
+      collected.push(...items);
+      if (collected.length >= limit) {
+        break;
+      }
+    }
+
+    return uniqueStrings(collected).slice(0, limit);
+  }
+
+  return [];
+};
+
 const buildFandomGallery = (
   page: FandomParsedPage,
   labelPrefix: string,
@@ -2554,6 +2647,20 @@ const getFandomExternalLinkLabels = (page: FandomParsedPage, labels: string[]) =
   return uniqueStrings(links);
 };
 
+const FANDOM_SERIES_CATEGORY_BLACKLIST = new Set([
+  'books',
+  'series',
+  'items',
+  'articles',
+  'characters',
+]);
+
+const getFandomCategoryNames = (page: FandomParsedPage) => uniqueStrings(
+  extractFandomCategoryLinks(page.doc, page.pageUrl)
+    .map((link) => normalizeText(link.title) || normalizeText(link.pageTitle.replace(/^Category:/i, '')))
+    .filter((name) => !FANDOM_SERIES_CATEGORY_BLACKLIST.has(normalizeKey(name))),
+);
+
 const inferFandomSeriesType = (page: FandomParsedPage) => {
   const titleKey = normalizeKey(page.title);
   const leadKey = normalizeKey(getFandomLeadParagraphs(page, 1).join(' '));
@@ -2629,6 +2736,31 @@ const resolveFandomSeriesPage = async (entryPage: FandomParsedPage) => {
     }
   }
 
+  const visitedSearchTitles = new Set<string>();
+  const searchQueries = buildFandomSeriesSearchQueries(entryPage);
+
+  for (const query of searchQueries) {
+    const candidateTitles = await searchFandomPageTitles(entryPage.origin, query, 6).catch(() => []);
+
+    for (const title of candidateTitles) {
+      const titleKey = normalizeKey(title);
+      if (!titleKey || visitedSearchTitles.has(titleKey) || titleKey === normalizeKey(entryPage.title)) {
+        continue;
+      }
+
+      visitedSearchTitles.add(titleKey);
+
+      try {
+        const page = await fetchFandomParsedPage(entryPage.origin, title);
+        if (isLikelyFandomSeriesPage(page)) {
+          return page;
+        }
+      } catch {
+        continue;
+      }
+    }
+  }
+
   throw new Error('Fandom üzerinde uygun seri sayfası bulunamadı.');
 };
 
@@ -2666,6 +2798,77 @@ const resolveFandomCharactersPage = async (entryPage: FandomParsedPage, seriesPa
   }
 
   return null;
+};
+
+const buildFandomCharacterCategoryTitles = (entryPage: FandomParsedPage, seriesPage: FandomParsedPage) => uniqueStrings([
+  ...extractFandomCategoryLinks(seriesPage.doc, seriesPage.pageUrl)
+    .map((link) => /^Category:Characters/i.test(link.pageTitle) ? link.pageTitle : '')
+    .filter(Boolean),
+  ...extractFandomCategoryLinks(entryPage.doc, entryPage.pageUrl)
+    .map((link) => /^Category:Characters/i.test(link.pageTitle) ? link.pageTitle : '')
+    .filter(Boolean),
+  `Category:Characters: ${entryPage.displayTitle || entryPage.title}`,
+  `Category:Characters: ${seriesPage.displayTitle || seriesPage.title}`,
+  'Category:Characters',
+]);
+
+const fetchFandomCategoryMembers = async (
+  origin: string,
+  categoryTitle: string,
+  limit = MAX_IMPORT_ENTITY_COUNT,
+): Promise<FandomInternalLink[]> => {
+  const safeLimit = Math.min(Math.max(limit, 1), MAX_IMPORT_ENTITY_COUNT);
+  const normalizedTitle = normalizeText(categoryTitle);
+  if (!normalizedTitle) {
+    return [];
+  }
+
+  const url = `${origin}/api.php?action=query&list=categorymembers&cmtitle=${encodeURIComponent(normalizedTitle)}&cmtype=page&cmlimit=${safeLimit}&format=json&formatversion=2&origin=*`;
+  const payload = await getJson<any>(url, undefined, 1).catch(() => null);
+
+  return uniqueByUrl(
+    (payload?.query?.categorymembers || [])
+      .map((item: any) => {
+        const title = normalizeText(item?.title);
+        if (!title || /^Category:/i.test(title)) {
+          return null;
+        }
+
+        return {
+          title,
+          url: buildFandomPageUrl(origin, title),
+        } satisfies FandomInternalLink;
+      })
+      .filter((item: FandomInternalLink | null): item is FandomInternalLink => item !== null),
+  );
+};
+
+const fetchFandomCharacterCategoryEntries = async (
+  entryPage: FandomParsedPage,
+  seriesPage: FandomParsedPage,
+) => {
+  const categoryTitles = buildFandomCharacterCategoryTitles(entryPage, seriesPage);
+  const collected: Array<{ title: string; url: string; roleLabel?: string; roleType?: CharacterListingRole }> = [];
+
+  for (const categoryTitle of categoryTitles) {
+    const members = await fetchFandomCategoryMembers(seriesPage.origin, categoryTitle, MAX_IMPORT_ENTITY_COUNT).catch(() => []);
+    if (members.length === 0) {
+      continue;
+    }
+
+    collected.push(...members.map((member) => ({
+      title: member.title,
+      url: member.url,
+      roleLabel: 'Characters',
+      roleType: undefined,
+    })));
+
+    if (collected.length >= MAX_IMPORT_ENTITY_COUNT) {
+      break;
+    }
+  }
+
+  return uniqueByUrl(collected).slice(0, MAX_IMPORT_ENTITY_COUNT);
 };
 
 const FANDOM_CHARACTER_BLACKLIST = new Set([
@@ -2766,6 +2969,44 @@ const extractFandomCharacterEntries = (page: FandomParsedPage) => {
   }
 
   return entries;
+};
+
+const dedupeFandomCharacterEntries = (
+  entries: Array<{ title: string; url: string; roleLabel?: string; roleType?: CharacterListingRole }>,
+) => {
+  const seen = new Set<string>();
+
+  return entries.filter((entry) => {
+    const key = normalizeComparableText(entry.title) || normalizeComparableText(entry.url);
+    if (!key) {
+      return true;
+    }
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+};
+
+const dedupeImportedCharacterDrafts = (drafts: ImportedCharacterDraft[]) => {
+  const seen = new Set<string>();
+
+  return drafts.filter((draft) => {
+    const key = normalizeComparableText(draft.sourceUrl || draft.name);
+    if (!key) {
+      return true;
+    }
+
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
 };
 
 const isLikelyFandomCharacterPage = (page: FandomParsedPage) => (
@@ -2935,6 +3176,12 @@ const loadFandomPreview = async (
   const seriesGallery = buildFandomGallery(seriesPage, 'Seri Görseli');
   const seriesType = inferFandomSeriesType(seriesPage);
   const genreValues = splitFandomValues(getFandomFieldText(seriesPage, 'genre', 'genres'));
+  const seriesFormatValues = getFandomSectionListItems(
+    seriesPage,
+    [seriesPage.title, seriesPage.displayTitle],
+    4,
+  );
+  const seriesCategoryTags = getFandomCategoryNames(seriesPage);
   const externalLinkLabels = getFandomExternalLinkLabels(seriesPage, ['external links', 'links']);
 
   preview.cover = seriesGallery[0]?.url;
@@ -2947,6 +3194,8 @@ const loadFandomPreview = async (
   preview.genres = genreValues;
   preview.tags = uniqueStrings([
     ...genreValues,
+    ...seriesFormatValues,
+    ...seriesCategoryTags,
     seriesType === 'webtoon' ? 'Webtoon' : undefined,
   ]);
   preview.details = {
@@ -2992,8 +3241,12 @@ const loadFandomPreview = async (
 
   if (enabledOptions.characters) {
     const charactersPage = await resolveFandomCharactersPage(entryPage, seriesPage);
-    if (charactersPage) {
-      const characterEntries = extractFandomCharacterEntries(charactersPage).slice(0, MAX_IMPORT_ENTITY_COUNT);
+    const characterEntries = dedupeFandomCharacterEntries(uniqueByUrl([
+      ...(charactersPage ? extractFandomCharacterEntries(charactersPage) : []),
+      ...(await fetchFandomCharacterCategoryEntries(entryPage, seriesPage)),
+    ])).slice(0, MAX_IMPORT_ENTITY_COUNT);
+
+    if (characterEntries.length > 0) {
       const skippedCharacterTitles: string[] = [];
       const characterDrafts = await mapWithConcurrency(characterEntries, 4, async (entry) => {
         const draft = await tryBuildFandomCharacterDraft(entry, !!enabledOptions.gallery);
@@ -3002,7 +3255,9 @@ const loadFandomPreview = async (
         }
         return draft;
       });
-      preview.characters = characterDrafts.filter((item): item is ImportedCharacterDraft => item !== null);
+      preview.characters = dedupeImportedCharacterDrafts(
+        characterDrafts.filter((item): item is ImportedCharacterDraft => item !== null),
+      );
 
       if (skippedCharacterTitles.length > 0) {
         const listedTitles = uniqueStrings(skippedCharacterTitles).slice(0, 8).join(', ');

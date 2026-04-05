@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import {
     Save,
@@ -8,11 +8,15 @@ import {
     Upload,
     Image as ImageIcon,
     X,
+    ChevronsUpDown,
+    Globe2,
+    Lock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
 import {
     Select,
     SelectContent,
@@ -28,6 +32,16 @@ import {
     DialogDescription,
     DialogFooter,
 } from '@/components/ui/dialog';
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+    CommandSeparator,
+} from '@/components/ui/command';
 import {
     getMangaById,
     saveManga,
@@ -98,6 +112,17 @@ const getSeriesGalleryUrls = (details?: Manga['details']) => {
     );
 };
 
+const parseSeriesGalleryInput = (value: string) => (
+    Array.from(
+        new Set(
+            value
+                .split(/\r?\n/g)
+                .map((item) => item.trim())
+                .filter(Boolean),
+        ),
+    )
+);
+
 const joinEntityNames = (values: Array<string | null | undefined>) => (
     Array.from(
         new Set(
@@ -129,37 +154,197 @@ const upsertNamedEntity = <T extends { id: string }>(items: T[], entity: T) => {
 };
 
 const DEFAULT_CHARACTER_LISTING_ROLE: CharacterListingRole = 'minor';
+const DEFAULT_ENTITY_PICKER_LIMIT = 10;
+
+const createEmptyMangaDraft = (): Partial<Manga> => ({
+    title: '',
+    alternativeTitles: [],
+    cover: '',
+    banner: '',
+    isPublic: true,
+    author: '',
+    artist: '',
+    status: 'ongoing',
+    type: 'manga',
+    genres: [],
+    description: '',
+    ratings: [],
+    views: 0,
+    chapters: [],
+    releaseYear: new Date().getFullYear(),
+    averageRating: 0,
+    reviewCount: 0,
+    details: {},
+    sourceLinks: [],
+});
+
+const createEmptyChapterDraft = (number: number = 1) => ({
+    number,
+    title: '',
+    pages: [] as string[],
+});
+
+const createEmptyEntityDraft = () => ({
+    name: '',
+    imageUrl: '',
+    description: '',
+});
+
+const normalizeSearchValue = (value: string) => value.trim().toLocaleLowerCase('tr-TR');
+
+interface SearchableOptionPickerProps<T extends { id: string }> {
+    options: T[];
+    onSelect: (item: T) => void;
+    placeholder: string;
+    searchPlaceholder: string;
+    emptyMessage: string;
+    limit?: number;
+    getLabel: (item: T) => string;
+    getSearchValues?: (item: T) => string[];
+    getSecondaryText?: (item: T) => string | undefined;
+}
+
+function SearchableOptionPicker<T extends { id: string }>({
+    options,
+    onSelect,
+    placeholder,
+    searchPlaceholder,
+    emptyMessage,
+    limit = DEFAULT_ENTITY_PICKER_LIMIT,
+    getLabel,
+    getSearchValues,
+    getSecondaryText,
+}: SearchableOptionPickerProps<T>) {
+    const [open, setOpen] = useState(false);
+    const [query, setQuery] = useState('');
+    const [showAll, setShowAll] = useState(false);
+    const deferredQuery = useDeferredValue(query);
+    const normalizedQuery = useMemo(() => normalizeSearchValue(deferredQuery), [deferredQuery]);
+
+    const filteredOptions = useMemo(() => {
+        if (!normalizedQuery) {
+            return options;
+        }
+
+        return options.filter((option) => {
+            const searchableValues = [
+                getLabel(option),
+                ...(getSearchValues?.(option) || []),
+            ]
+                .map((value) => value?.trim() || '')
+                .filter(Boolean);
+
+            return searchableValues.some((value) => value.toLocaleLowerCase('tr-TR').includes(normalizedQuery));
+        });
+    }, [getLabel, getSearchValues, normalizedQuery, options]);
+
+    const visibleOptions = useMemo(() => {
+        if (normalizedQuery || showAll) {
+            return filteredOptions;
+        }
+
+        return filteredOptions.slice(0, limit);
+    }, [filteredOptions, limit, normalizedQuery, showAll]);
+
+    useEffect(() => {
+        if (!open) {
+            setQuery('');
+            setShowAll(false);
+        }
+    }, [open]);
+
+    return (
+        <div className="flex-1 space-y-2">
+            <Popover open={open} onOpenChange={setOpen}>
+                <PopoverTrigger asChild>
+                    <Button
+                        type="button"
+                        variant="outline"
+                        role="combobox"
+                        aria-expanded={open}
+                        className="h-auto min-h-10 w-full justify-between px-3 py-2 text-left font-normal"
+                    >
+                        <span className="truncate text-sm text-muted-foreground">{placeholder}</span>
+                        <ChevronsUpDown className="ml-3 h-4 w-4 shrink-0 opacity-60" />
+                    </Button>
+                </PopoverTrigger>
+                <PopoverContent className="w-[min(92vw,420px)] p-0" align="start">
+                    <Command shouldFilter={false}>
+                        <CommandInput
+                            value={query}
+                            onValueChange={setQuery}
+                            placeholder={searchPlaceholder}
+                        />
+                        <CommandList>
+                            <CommandEmpty>{emptyMessage}</CommandEmpty>
+                            {visibleOptions.length > 0 ? (
+                                <CommandGroup>
+                                    {visibleOptions.map((option) => {
+                                        const secondaryText = getSecondaryText?.(option);
+                                        return (
+                                            <CommandItem
+                                                key={option.id}
+                                                value={`${getLabel(option)} ${(getSearchValues?.(option) || []).join(' ')}`}
+                                                className="items-start py-3"
+                                                onSelect={() => {
+                                                    onSelect(option);
+                                                    setOpen(false);
+                                                }}
+                                            >
+                                                <div className="min-w-0 space-y-1">
+                                                    <p className="truncate text-sm font-medium">{getLabel(option)}</p>
+                                                    {secondaryText ? (
+                                                        <p className="line-clamp-2 text-xs text-muted-foreground">
+                                                            {secondaryText}
+                                                        </p>
+                                                    ) : null}
+                                                </div>
+                                            </CommandItem>
+                                        );
+                                    })}
+                                </CommandGroup>
+                            ) : null}
+                            {!normalizedQuery && !showAll && filteredOptions.length > visibleOptions.length ? (
+                                <>
+                                    <CommandSeparator />
+                                    <div className="p-2">
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="w-full justify-center"
+                                            onClick={() => setShowAll(true)}
+                                        >
+                                            Tümünü Göster ({filteredOptions.length})
+                                        </Button>
+                                    </div>
+                                </>
+                            ) : null}
+                        </CommandList>
+                    </Command>
+                </PopoverContent>
+            </Popover>
+            {!normalizedQuery && filteredOptions.length > limit ? (
+                <p className="text-xs text-muted-foreground">
+                    Varsayılan olarak ilk {limit} kayıt gösterilir. Diğerlerini arama veya tümünü göster ile açabilirsin.
+                </p>
+            ) : null}
+        </div>
+    );
+}
 
 const AdminMangaEditor: React.FC = () => {
     const navigate = useNavigate();
     const { mangaId } = useParams<{ mangaId: string }>();
     const isEditing = mangaId && mangaId !== 'new';
 
-    const [manga, setManga] = useState<Partial<Manga>>({
-        title: '',
-        alternativeTitles: [],
-        cover: '',
-        banner: '',
-        author: '',
-        artist: '',
-        status: 'ongoing',
-        type: 'manga',
-        genres: [],
-        description: '',
-        ratings: [],
-        views: 0,
-        chapters: [],
-        releaseYear: new Date().getFullYear(),
-    });
+    const [manga, setManga] = useState<Partial<Manga>>(() => createEmptyMangaDraft());
 
     const [altTitleInput, setAltTitleInput] = useState('');
     const [showChapterDialog, setShowChapterDialog] = useState(false);
-    const [newChapter, setNewChapter] = useState({
-        number: 1,
-        title: '',
-        pages: [] as string[],
-    });
+    const [newChapter, setNewChapter] = useState(() => createEmptyChapterDraft());
     const [pageUrlInput, setPageUrlInput] = useState('');
+    const [seriesGalleryInput, setSeriesGalleryInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
 
@@ -174,10 +359,12 @@ const AdminMangaEditor: React.FC = () => {
     const [relatedSeries, setRelatedSeries] = useState<MangaRelation[]>([]);
     const [selectedRelatedMangaId, setSelectedRelatedMangaId] = useState<string>('');
     const [selectedRelationType, setSelectedRelationType] = useState<string>('related');
+    const [selectedCharacterQuery, setSelectedCharacterQuery] = useState('');
+    const [showAllSelectedCharacters, setShowAllSelectedCharacters] = useState(false);
 
     // Dialog States for creating new entities
     const [showEntityDialog, setShowEntityDialog] = useState<{ type: 'character' | 'author' | 'artist' | null }>({ type: null });
-    const [newEntity, setNewEntity] = useState({ name: '', imageUrl: '', description: '' });
+    const [newEntity, setNewEntity] = useState(() => createEmptyEntityDraft());
 
     useEffect(() => {
         const loadInitialData = async () => {
@@ -185,7 +372,7 @@ const AdminMangaEditor: React.FC = () => {
                 getCharacters({ includePrivate: true }),
                 getAuthors({ includePrivate: true }),
                 getArtists({ includePrivate: true }),
-                getMangaSummaries(),
+                getMangaSummaries({ includePrivate: true }),
             ]);
             setAllCharacters(chars);
             setAllAuthors(auths);
@@ -196,58 +383,90 @@ const AdminMangaEditor: React.FC = () => {
     }, []);
 
     useEffect(() => {
+        let cancelled = false;
+
         const loadManga = async () => {
-            if (isEditing) {
-                try {
-                    setLoading(true);
-                    const existingManga = await getMangaById(mangaId, { includePages: true });
-                    if (existingManga) {
-                        const linkedAuthorNames = existingManga.authorsDetails?.map((author) => author.name) || [];
-                        const linkedArtistNames = existingManga.artistsDetails?.map((artist) => artist.name) || [];
-                        const manualAuthorNames = splitManualEntityNames(existingManga.author).filter(
-                            (name) => !linkedAuthorNames.some((linkedName) => normalizeNamedEntityKey(linkedName) === normalizeNamedEntityKey(name)),
-                        );
-                        const manualArtistNames = splitManualEntityNames(existingManga.artist).filter(
-                            (name) => !linkedArtistNames.some((linkedName) => normalizeNamedEntityKey(linkedName) === normalizeNamedEntityKey(name)),
-                        );
+            if (!isEditing) {
+                setManga(createEmptyMangaDraft());
+                setAltTitleInput('');
+                setShowChapterDialog(false);
+                setNewChapter(createEmptyChapterDraft());
+                setPageUrlInput('');
+                setSeriesGalleryInput('');
+                setLoading(false);
+                setEditingChapterId(null);
+                setMangaCharacters([]);
+                setSelectedAuthors([]);
+                setSelectedArtists([]);
+                setRelatedSeries([]);
+                setSelectedRelatedMangaId('');
+                setSelectedRelationType('related');
+                setSelectedCharacterQuery('');
+                setShowAllSelectedCharacters(false);
+                setShowEntityDialog({ type: null });
+                setNewEntity(createEmptyEntityDraft());
+                return;
+            }
 
-                        setManga({
-                            ...existingManga,
-                            author: joinEntityNames(manualAuthorNames),
-                            artist: joinEntityNames(manualArtistNames),
-                            genres: normalizeGenres(existingManga.genres || []),
-                        });
-                        setNewChapter(prev => ({
-                            ...prev,
-                            number: existingManga.chapters.length + 1,
-                        }));
-
-                        // Load related entities
-                        const chars = await getMangaCharacters(mangaId, { includePrivate: true });
-                        setMangaCharacters(chars.map((character) => ({
-                            ...character,
-                            listingRole: character.listingRole || DEFAULT_CHARACTER_LISTING_ROLE,
-                        })));
-                        setRelatedSeries(existingManga.relatedSeries || []);
-                        setSelectedAuthors(existingManga.authorsDetails || []);
-                        setSelectedArtists(existingManga.artistsDetails || []);
-
-                        // Find matching author/artist from all lists
-                        // Note: If they aren't in the DB as objects yet, we might need to handle strings
-                        // But we want to encourage using the objects
-                    }
-                    else {
+            try {
+                setLoading(true);
+                const existingManga = await getMangaById(mangaId, { includePrivate: true, includePages: true });
+                if (!existingManga) {
+                    if (!cancelled) {
                         toast.error('Manga bulunamadı');
                         navigate('/admin/mangas');
                     }
-                } catch (err) {
+                    return;
+                }
+
+                const linkedAuthorNames = existingManga.authorsDetails?.map((author) => author.name) || [];
+                const linkedArtistNames = existingManga.artistsDetails?.map((artist) => artist.name) || [];
+                const manualAuthorNames = splitManualEntityNames(existingManga.author).filter(
+                    (name) => !linkedAuthorNames.some((linkedName) => normalizeNamedEntityKey(linkedName) === normalizeNamedEntityKey(name)),
+                );
+                const manualArtistNames = splitManualEntityNames(existingManga.artist).filter(
+                    (name) => !linkedArtistNames.some((linkedName) => normalizeNamedEntityKey(linkedName) === normalizeNamedEntityKey(name)),
+                );
+                const chars = await getMangaCharacters(mangaId, { includePrivate: true });
+
+                if (cancelled) {
+                    return;
+                }
+
+                setManga({
+                    ...existingManga,
+                    author: joinEntityNames(manualAuthorNames),
+                    artist: joinEntityNames(manualArtistNames),
+                    genres: normalizeGenres(existingManga.genres || []),
+                });
+                setNewChapter(createEmptyChapterDraft(existingManga.chapters.length + 1));
+                setPageUrlInput('');
+                setSeriesGalleryInput(getSeriesGalleryUrls(existingManga.details).join('\n'));
+                setEditingChapterId(null);
+                setSelectedCharacterQuery('');
+                setShowAllSelectedCharacters(false);
+                setMangaCharacters(chars.map((character) => ({
+                    ...character,
+                    listingRole: character.listingRole || DEFAULT_CHARACTER_LISTING_ROLE,
+                })));
+                setRelatedSeries(existingManga.relatedSeries || []);
+                setSelectedAuthors(existingManga.authorsDetails || []);
+                setSelectedArtists(existingManga.artistsDetails || []);
+            } catch (err) {
+                if (!cancelled) {
                     toast.error('Veri yüklenemedi');
-                } finally {
+                }
+            } finally {
+                if (!cancelled) {
                     setLoading(false);
                 }
             }
         };
-        loadManga();
+        void loadManga();
+
+        return () => {
+            cancelled = true;
+        };
     }, [mangaId, isEditing, navigate]);
 
     const handleChange = <K extends keyof Manga>(field: K, value: Partial<Manga>[K]) => {
@@ -255,22 +474,18 @@ const AdminMangaEditor: React.FC = () => {
     };
 
     const updateSeriesGalleryUrls = (value: string) => {
-        const urls = Array.from(
-            new Set(
-                value
-                    .split(/\r?\n/g)
-                    .map((item) => item.trim())
-                    .filter(Boolean),
-            ),
-        );
-
-        handleChange('details', {
-            ...(manga.details || {}),
-            extra: {
-                ...(manga.details?.extra || {}),
-                seriesGallery: urls,
+        const urls = parseSeriesGalleryInput(value);
+        setSeriesGalleryInput(value);
+        setManga((prev) => ({
+            ...prev,
+            details: {
+                ...(prev.details || {}),
+                extra: {
+                    ...(prev.details?.extra || {}),
+                    seriesGallery: urls,
+                },
             },
-        } as Manga['details']);
+        }));
     };
 
     const handleExternalSourceLinkChange = (provider: 'myanimelist' | 'anilist', value: string) => {
@@ -317,6 +532,24 @@ const AdminMangaEditor: React.FC = () => {
         }
     };
 
+    const addSelectedCharacter = (character: Character) => {
+        setMangaCharacters((current) => {
+            if (current.some((item) => item.id === character.id)) {
+                return current;
+            }
+
+            return [
+                ...current,
+                {
+                    ...character,
+                    listingRole: character.listingRole || DEFAULT_CHARACTER_LISTING_ROLE,
+                },
+            ];
+        });
+        setSelectedCharacterQuery('');
+        setShowAllSelectedCharacters(false);
+    };
+
     const updateCharacterListingRole = (characterId: string, listingRole: CharacterListingRole) => {
         setMangaCharacters((current) => current.map((character) => (
             character.id === characterId
@@ -324,6 +557,51 @@ const AdminMangaEditor: React.FC = () => {
                 : character
         )));
     };
+
+    const selectedAuthorIds = useMemo(() => new Set(selectedAuthors.map((author) => author.id)), [selectedAuthors]);
+    const selectedArtistIds = useMemo(() => new Set(selectedArtists.map((artist) => artist.id)), [selectedArtists]);
+    const selectedCharacterIds = useMemo(() => new Set(mangaCharacters.map((character) => character.id)), [mangaCharacters]);
+    const deferredSelectedCharacterQuery = useDeferredValue(selectedCharacterQuery);
+    const normalizedSelectedCharacterQuery = useMemo(
+        () => normalizeSearchValue(deferredSelectedCharacterQuery),
+        [deferredSelectedCharacterQuery],
+    );
+
+    const availableAuthors = useMemo(
+        () => allAuthors.filter((author) => !selectedAuthorIds.has(author.id)),
+        [allAuthors, selectedAuthorIds],
+    );
+    const availableArtists = useMemo(
+        () => allArtists.filter((artist) => !selectedArtistIds.has(artist.id)),
+        [allArtists, selectedArtistIds],
+    );
+    const availableCharacters = useMemo(
+        () => allCharacters.filter((character) => !selectedCharacterIds.has(character.id)),
+        [allCharacters, selectedCharacterIds],
+    );
+    const filteredSelectedCharacters = useMemo(() => {
+        if (!normalizedSelectedCharacterQuery) {
+            return mangaCharacters;
+        }
+
+        return mangaCharacters.filter((character) => {
+            const searchableValues = [
+                character.name,
+                ...(character.alternativeNames || []),
+            ]
+                .map((value) => value?.trim() || '')
+                .filter(Boolean);
+
+            return searchableValues.some((value) => value.toLocaleLowerCase('tr-TR').includes(normalizedSelectedCharacterQuery));
+        });
+    }, [mangaCharacters, normalizedSelectedCharacterQuery]);
+    const visibleSelectedCharacters = useMemo(() => {
+        if (normalizedSelectedCharacterQuery || showAllSelectedCharacters) {
+            return filteredSelectedCharacters;
+        }
+
+        return filteredSelectedCharacters.slice(0, DEFAULT_ENTITY_PICKER_LIMIT);
+    }, [filteredSelectedCharacters, normalizedSelectedCharacterQuery, showAllSelectedCharacters]);
 
     const addAlternativeTitle = () => {
         if (altTitleInput.trim()) {
@@ -429,7 +707,7 @@ const AdminMangaEditor: React.FC = () => {
                     await saveManga(updatedManga);
                 }
 
-                const refreshedManga = await getMangaById(manga.id, { includePages: true });
+                const refreshedManga = await getMangaById(manga.id, { includePrivate: true, includePages: true });
                 if (refreshedManga) {
                     setManga(refreshedManga);
                     if (!editingChapterId) {
@@ -482,7 +760,7 @@ const AdminMangaEditor: React.FC = () => {
             setLoading(true);
             try {
                 await deleteChapter(manga.id, chapterId);
-                const updatedManga = await getMangaById(manga.id, { includePages: true });
+                const updatedManga = await getMangaById(manga.id, { includePrivate: true, includePages: true });
                 if (updatedManga) {
                     setManga(updatedManga);
                 }
@@ -558,6 +836,7 @@ const AdminMangaEditor: React.FC = () => {
                 alternativeTitles: manga.alternativeTitles || [],
                 cover: normalizedCover,
                 banner: manga.banner?.trim() || normalizedCover,
+                isPublic: manga.isPublic ?? true,
                 author: normalizedAuthorLabel,
                 artist: normalizedArtistLabel || undefined,
                 status: manga.status as 'ongoing' | 'completed' | 'hiatus',
@@ -624,10 +903,7 @@ const AdminMangaEditor: React.FC = () => {
                 setAllCharacters(chars);
                 const created = chars.find(c => c.id === id);
                 if (created) {
-                    setMangaCharacters((prev) => [...prev, {
-                        ...created,
-                        listingRole: DEFAULT_CHARACTER_LISTING_ROLE,
-                    }]);
+                    addSelectedCharacter(created);
                 }
             } else if (showEntityDialog.type === 'author') {
                 id = await saveAuthor(entity);
@@ -721,23 +997,16 @@ const AdminMangaEditor: React.FC = () => {
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Yazar</label>
                                     <div className="flex flex-col gap-2 sm:flex-row">
-                                        <Select
-                                            onValueChange={(val) => {
-                                                const a = allAuthors.find(x => x.id === val);
-                                                if (a) {
-                                                    addSelectedAuthor(a);
-                                                }
-                                            }}
-                                        >
-                                            <SelectTrigger className="flex-1">
-                                                <SelectValue placeholder="Yazar ekleyin..." />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {allAuthors.filter((author) => !selectedAuthors.some((item) => item.id === author.id)).map(a => (
-                                                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <SearchableOptionPicker
+                                            options={availableAuthors}
+                                            onSelect={addSelectedAuthor}
+                                            placeholder="Yazar ara ve ekle..."
+                                            searchPlaceholder="Yazar adı yaz..."
+                                            emptyMessage="Eşleşen yazar bulunamadı."
+                                            getLabel={(author) => author.name}
+                                            getSearchValues={(author) => author.alternativeNames || []}
+                                            getSecondaryText={(author) => author.alternativeNames?.slice(0, 2).join(' • ')}
+                                        />
                                         <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'author' })} className="sm:w-10">
                                             <Plus className="h-4 w-4" />
                                         </Button>
@@ -766,23 +1035,16 @@ const AdminMangaEditor: React.FC = () => {
                                 <div className="space-y-2">
                                     <label className="text-sm font-medium">Çizer</label>
                                     <div className="flex flex-col gap-2 sm:flex-row">
-                                        <Select
-                                            onValueChange={(val) => {
-                                                const a = allArtists.find(x => x.id === val);
-                                                if (a) {
-                                                    addSelectedArtist(a);
-                                                }
-                                            }}
-                                        >
-                                            <SelectTrigger className="flex-1">
-                                                <SelectValue placeholder="Çizer ekleyin..." />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                {allArtists.filter((artist) => !selectedArtists.some((item) => item.id === artist.id)).map(a => (
-                                                    <SelectItem key={a.id} value={a.id}>{a.name}</SelectItem>
-                                                ))}
-                                            </SelectContent>
-                                        </Select>
+                                        <SearchableOptionPicker
+                                            options={availableArtists}
+                                            onSelect={addSelectedArtist}
+                                            placeholder="Çizer ara ve ekle..."
+                                            searchPlaceholder="Çizer adı yaz..."
+                                            emptyMessage="Eşleşen çizer bulunamadı."
+                                            getLabel={(artist) => artist.name}
+                                            getSearchValues={(artist) => artist.alternativeNames || []}
+                                            getSecondaryText={(artist) => artist.alternativeNames?.slice(0, 2).join(' • ')}
+                                        />
                                         <Button variant="outline" size="icon" onClick={() => setShowEntityDialog({ type: 'artist' })} className="sm:w-10">
                                             <Plus className="h-4 w-4" />
                                         </Button>
@@ -931,30 +1193,38 @@ const AdminMangaEditor: React.FC = () => {
                             </div>
                             <div className="grid gap-2">
                                 <div className="flex flex-col gap-2 sm:flex-row">
-                                    <Select onValueChange={(val) => {
-                                        const char = allCharacters.find(c => c.id === val);
-                                        if (char && !mangaCharacters.find(mc => mc.id === char.id)) {
-                                            setMangaCharacters([
-                                                ...mangaCharacters,
-                                                {
-                                                    ...char,
-                                                    listingRole: DEFAULT_CHARACTER_LISTING_ROLE,
-                                                },
-                                            ]);
-                                        }
-                                    }}>
-                                        <SelectTrigger className="flex-1">
-                                            <SelectValue placeholder="Karakter seçin..." />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {allCharacters.filter(c => !mangaCharacters.find(mc => mc.id === c.id)).map(c => (
-                                                <SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
+                                    <SearchableOptionPicker
+                                        options={availableCharacters}
+                                        onSelect={addSelectedCharacter}
+                                        placeholder="Karakter ara ve ekle..."
+                                        searchPlaceholder="Karakter adı yaz..."
+                                        emptyMessage="Eşleşen karakter bulunamadı."
+                                        getLabel={(character) => character.name}
+                                        getSearchValues={(character) => character.alternativeNames || []}
+                                        getSecondaryText={(character) => character.alternativeNames?.slice(0, 2).join(' • ')}
+                                    />
                                 </div>
+                                {mangaCharacters.length > 0 ? (
+                                    <div className="grid gap-2">
+                                        <Input
+                                            value={selectedCharacterQuery}
+                                            onChange={(e) => {
+                                                setSelectedCharacterQuery(e.target.value);
+                                                if (!e.target.value.trim()) {
+                                                    setShowAllSelectedCharacters(false);
+                                                }
+                                            }}
+                                            placeholder="Eklenmiş karakterlerde ara..."
+                                        />
+                                        {!normalizedSelectedCharacterQuery && mangaCharacters.length > DEFAULT_ENTITY_PICKER_LIMIT ? (
+                                            <p className="text-xs text-muted-foreground">
+                                                Eklenmiş karakterler varsayılan olarak ilk {DEFAULT_ENTITY_PICKER_LIMIT} kayıtla gösterilir.
+                                            </p>
+                                        ) : null}
+                                    </div>
+                                ) : null}
                                 <div className="grid gap-3">
-                                    {mangaCharacters.map(char => (
+                                    {visibleSelectedCharacters.map(char => (
                                         <div
                                             key={char.id}
                                             className="flex flex-col gap-3 rounded-xl border border-border bg-secondary/20 p-3 sm:flex-row sm:items-center"
@@ -1002,7 +1272,7 @@ const AdminMangaEditor: React.FC = () => {
                                                     size="icon"
                                                     className="shrink-0 hover:text-destructive"
                                                     onClick={() => {
-                                                        setMangaCharacters(mangaCharacters.filter(c => c.id !== char.id));
+                                                        setMangaCharacters((current) => current.filter((item) => item.id !== char.id));
                                                     }}
                                                 >
                                                     <X className="h-4 w-4" />
@@ -1010,7 +1280,22 @@ const AdminMangaEditor: React.FC = () => {
                                             </div>
                                         </div>
                                     ))}
+                                    {normalizedSelectedCharacterQuery && visibleSelectedCharacters.length === 0 ? (
+                                        <p className="rounded-xl border border-dashed border-border px-4 py-6 text-sm text-muted-foreground">
+                                            Aramaya uyan eklenmiş karakter bulunamadı.
+                                        </p>
+                                    ) : null}
                                 </div>
+                                {!normalizedSelectedCharacterQuery && !showAllSelectedCharacters && filteredSelectedCharacters.length > visibleSelectedCharacters.length ? (
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="w-full"
+                                        onClick={() => setShowAllSelectedCharacters(true)}
+                                    >
+                                        Tüm Karakterleri Göster ({filteredSelectedCharacters.length})
+                                    </Button>
+                                ) : null}
                             </div>
                         </div>
 
@@ -1156,6 +1441,34 @@ const AdminMangaEditor: React.FC = () => {
                 {/* Sidebar */}
                 <div className="space-y-6">
                     <div className="rounded-xl border border-border bg-card p-4 space-y-4 sm:p-6">
+                        <div className="rounded-xl border border-border/60 bg-secondary/20 p-4">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        {manga.isPublic !== false ? (
+                                            <Globe2 className="h-4 w-4 text-emerald-500" />
+                                        ) : (
+                                            <Lock className="h-4 w-4 text-amber-500" />
+                                        )}
+                                        <h2 className="text-sm font-semibold">Görünürlük</h2>
+                                        <Badge variant="outline" className={manga.isPublic !== false
+                                            ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-600'
+                                            : 'border-amber-500/30 bg-amber-500/10 text-amber-600'}>
+                                            {manga.isPublic !== false ? 'Public' : 'Private'}
+                                        </Badge>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                        Private seriler admin panelde kalır, ziyaretçilerde ve listelemelerde gizlenir.
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={manga.isPublic !== false}
+                                    onCheckedChange={(checked) => handleChange('isPublic', checked)}
+                                    aria-label="Seri görünürlüğünü değiştir"
+                                />
+                            </div>
+                        </div>
+
                         <h2 className="text-lg font-semibold">Görseller</h2>
 
                         <div className="space-y-2">
@@ -1204,7 +1517,7 @@ const AdminMangaEditor: React.FC = () => {
                                 </p>
                             </div>
                             <Textarea
-                                value={seriesGalleryUrls.join('\n')}
+                                value={seriesGalleryInput}
                                 onChange={(e) => updateSeriesGalleryUrls(e.target.value)}
                                 placeholder={'https://example.com/gallery-1.jpg\nhttps://example.com/gallery-2.jpg'}
                                 className="min-h-[120px]"

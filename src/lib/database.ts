@@ -266,6 +266,39 @@ const applyPublicEntityFilter = <TQuery extends { eq: (column: string, value: an
     includePrivate ? query : query.eq('is_public', true)
 );
 
+const MANGA_VISIBILITY_COLUMN_NAME = 'is_public';
+
+const isMissingSchemaColumnError = (error: any, tableName: string, columnName: string) => {
+    const normalizedCode = String(error?.code || '').toUpperCase();
+    const normalizedMessage = String(error?.message || '').toLowerCase();
+    const normalizedDetails = String(error?.details || '').toLowerCase();
+    const normalizedHint = String(error?.hint || '').toLowerCase();
+    const normalizedColumnName = columnName.toLowerCase();
+    const normalizedTarget = `${tableName}.${columnName}`.toLowerCase();
+
+    if (!['42703', 'PGRST204'].includes(normalizedCode)) {
+        return false;
+    }
+
+    return normalizedMessage.includes(normalizedTarget)
+        || normalizedMessage.includes(normalizedColumnName)
+        || normalizedDetails.includes(normalizedColumnName)
+        || normalizedHint.includes(normalizedColumnName);
+};
+
+const isMissingMangaVisibilityColumnError = (error: any) => (
+    isMissingSchemaColumnError(error, 'mangas', MANGA_VISIBILITY_COLUMN_NAME)
+);
+
+const applyPublicMangaFilter = <TQuery extends { eq: (column: string, value: any) => TQuery }>(
+    query: TQuery,
+    options?: { includePrivate?: boolean; visibilityColumnAvailable?: boolean },
+) => (
+    options?.includePrivate || options?.visibilityColumnAvailable === false
+        ? query
+        : query.eq(MANGA_VISIBILITY_COLUMN_NAME, true)
+);
+
 const joinNamedEntityValues = (values: Array<string | null | undefined>) => (
     Array.from(
         new Set(
@@ -522,7 +555,9 @@ let adminAccessContextCache:
 let adminAccessContextPromise: Promise<AdminAccessContext> | null = null;
 const ALL_MANGAS_CACHE_TTL_MS = 60_000;
 const TOP_TEN_IDS_CACHE_TTL_MS = 60_000;
-const MANGA_SUMMARY_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, description, views, last_updated, created_at, type, release_year';
+const STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS = 60_000;
+const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, description, views, last_updated, created_at, type, release_year';
+const MANGA_SUMMARY_SELECT_COLUMNS = `${MANGA_SUMMARY_BASE_SELECT_COLUMNS}, ${MANGA_VISIBILITY_COLUMN_NAME}`;
 const HOME_PAGE_SECTION_LIMITS = Object.freeze({
     trending: 8,
     newlyAdded: 8,
@@ -534,6 +569,12 @@ let mangaSummariesCache: { fetchedAt: number; value: Manga[] } | null = null;
 let mangaSummariesPromise: Promise<Manga[]> | null = null;
 let homePageMangaSectionsCache: { fetchedAt: number; value: HomePageMangaSections } | null = null;
 let homePageMangaSectionsPromise: Promise<HomePageMangaSections> | null = null;
+let mangaVisibilityColumnAvailableCache: boolean | null = null;
+let mangaVisibilityColumnAvailablePromise: Promise<boolean> | null = null;
+let currentViewerRoleCache:
+    | { authUserId: string | null; fetchedAt: number; role?: User['role'] }
+    | null = null;
+let currentViewerRolePromise: Promise<User['role'] | undefined> | null = null;
 const CHAPTER_META_BATCH_SIZE = 1000;
 const topTenMangaIdsCache: Record<TopTenTimeframe, { fetchedAt: number; value: Set<string> } | null> = {
     today: null,
@@ -560,6 +601,131 @@ const invalidateAllMangasCache = () => {
     topTenMangaIdsPromises.week = null;
     topTenMangaIdsPromises.all = null;
     clearHomeFeedCache();
+};
+
+const getMangaSummarySelectColumns = (visibilityColumnAvailable: boolean) => (
+    visibilityColumnAvailable ? MANGA_SUMMARY_SELECT_COLUMNS : MANGA_SUMMARY_BASE_SELECT_COLUMNS
+);
+
+const getMangaVisibilityColumnAvailability = async (): Promise<boolean> => {
+    if (mangaVisibilityColumnAvailableCache !== null) {
+        return mangaVisibilityColumnAvailableCache;
+    }
+
+    if (!mangaVisibilityColumnAvailablePromise) {
+        mangaVisibilityColumnAvailablePromise = (async () => {
+            const { error } = await supabase
+                .from('mangas')
+                .select(`id, ${MANGA_VISIBILITY_COLUMN_NAME}`)
+                .limit(1);
+
+            if (error) {
+                if (isMissingMangaVisibilityColumnError(error)) {
+                    return false;
+                }
+
+                if (!isExpectedAccessControlError(error)) {
+                    console.error('Manga visibility column check error:', error);
+                }
+
+                return true;
+            }
+
+            return true;
+        })()
+            .then((result) => {
+                mangaVisibilityColumnAvailableCache = result;
+                return result;
+            })
+            .finally(() => {
+                mangaVisibilityColumnAvailablePromise = null;
+            });
+    }
+
+    return mangaVisibilityColumnAvailablePromise;
+};
+
+const getCurrentViewerRole = async (): Promise<User['role'] | undefined> => {
+    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
+    if (sessionError) {
+        if (!isExpectedAccessControlError(sessionError)) {
+            console.error('Current viewer session fetch error:', sessionError);
+        }
+        return undefined;
+    }
+
+    const authUserId = sessionData.session?.user?.id || null;
+    const sessionRole = sessionData.session?.user?.user_metadata?.role as User['role'] | undefined;
+
+    if (!authUserId) {
+        currentViewerRoleCache = {
+            authUserId: null,
+            fetchedAt: Date.now(),
+            role: undefined,
+        };
+        return undefined;
+    }
+
+    if (
+        currentViewerRoleCache?.authUserId === authUserId
+        && Date.now() - currentViewerRoleCache.fetchedAt < STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS
+    ) {
+        return currentViewerRoleCache.role || sessionRole;
+    }
+
+    if (currentViewerRolePromise && currentViewerRoleCache?.authUserId === authUserId) {
+        return currentViewerRolePromise;
+    }
+
+    currentViewerRolePromise = (async () => {
+        const { data: profile, error } = await supabase
+            .from('users')
+            .select('role')
+            .eq('id', authUserId)
+            .maybeSingle();
+
+        if (error) {
+            if (!isExpectedAccessControlError(error)) {
+                console.error('Current viewer role fetch error:', error);
+            }
+            return sessionRole;
+        }
+
+        return (profile?.role as User['role'] | undefined) || sessionRole;
+    })()
+        .then((role) => {
+            currentViewerRoleCache = {
+                authUserId,
+                fetchedAt: Date.now(),
+                role,
+            };
+            return role;
+        })
+        .finally(() => {
+            currentViewerRolePromise = null;
+        });
+
+    return currentViewerRolePromise;
+};
+
+const canCurrentViewerSeePrivateMangas = async () => {
+    const role = await getCurrentViewerRole();
+    return role === 'admin' || role === 'moderator';
+};
+
+const resolveMangaVisibilityAccess = async (includePrivateOverride?: boolean) => {
+    const visibilityColumnAvailable = await getMangaVisibilityColumnAvailability();
+    const includePrivate = includePrivateOverride === true
+        ? true
+        : includePrivateOverride === false
+            ? false
+            : await canCurrentViewerSeePrivateMangas();
+
+    return {
+        includePrivate,
+        visibilityColumnAvailable,
+        summarySelectColumns: getMangaSummarySelectColumns(visibilityColumnAvailable),
+    };
 };
 
 export const getCachedAdminAccessContext = (authUserId?: string | null): AdminAccessContext | null => {
@@ -746,12 +912,16 @@ const fetchAllChapterMetaRows = async (
 /**
  * Fetch all mangas from Supabase
  */
-export const getAllMangas = async (): Promise<Manga[]> => {
-    if (allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+export const getAllMangas = async (
+    options?: { includePrivate?: boolean }
+): Promise<Manga[]> => {
+    const { includePrivate, visibilityColumnAvailable } = await resolveMangaVisibilityAccess(options?.includePrivate);
+
+    if (!includePrivate && allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         return allMangasCache.value;
     }
 
-    if (allMangasPromise) {
+    if (!includePrivate && allMangasPromise) {
         return allMangasPromise;
     }
 
@@ -762,10 +932,13 @@ export const getAllMangas = async (): Promise<Manga[]> => {
                 { data: revData, error: reviewsError },
                 chapterRows,
             ] = await Promise.all([
-                supabase
-                    .from('mangas')
-                    .select('*')
-                    .order('last_updated', { ascending: false }),
+                applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select('*')
+                        .order('last_updated', { ascending: false }),
+                    { includePrivate, visibilityColumnAvailable },
+                ),
                 supabase
                     .from('reviews')
                     .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
@@ -818,6 +991,7 @@ export const getAllMangas = async (): Promise<Manga[]> => {
                 return {
                     ...m,
                     alternativeTitles: m.alternative_titles || [],
+                    isPublic: m.is_public ?? true,
                     lastUpdated: m.last_updated,
                     createdAt: m.created_at,
                     releaseYear: m.release_year,
@@ -829,15 +1003,18 @@ export const getAllMangas = async (): Promise<Manga[]> => {
             });
         };
 
-        allMangasPromise = runWithSupabaseBootstrapRetry({
+        const pendingRequest = runWithSupabaseBootstrapRetry({
             run: fetchManga,
             timeoutMs: 9000,
             timeoutMessage: 'Manga fetch timeout',
             shouldRetryResult: (result) => Array.isArray(result) && result.length === 0,
         });
-        const mangas = await allMangasPromise;
+        if (!includePrivate) {
+            allMangasPromise = pendingRequest;
+        }
+        const mangas = await pendingRequest;
 
-        if (mangas.length > 0) {
+        if (!includePrivate && mangas.length > 0) {
             allMangasCache = {
                 fetchedAt: Date.now(),
                 value: mangas,
@@ -846,20 +1023,28 @@ export const getAllMangas = async (): Promise<Manga[]> => {
 
         return mangas;
     } catch (error) {
-        invalidateAllMangasCache();
+        if (!includePrivate) {
+            invalidateAllMangasCache();
+        }
         console.error('Manga fetch global error:', error);
         return [];
     } finally {
-        allMangasPromise = null;
+        if (!includePrivate) {
+            allMangasPromise = null;
+        }
     }
 };
 
-export const getMangaSummaries = async (): Promise<Manga[]> => {
-    if (mangaSummariesCache && Date.now() - mangaSummariesCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+export const getMangaSummaries = async (
+    options?: { includePrivate?: boolean }
+): Promise<Manga[]> => {
+    const { includePrivate, visibilityColumnAvailable, summarySelectColumns } = await resolveMangaVisibilityAccess(options?.includePrivate);
+
+    if (!includePrivate && mangaSummariesCache && Date.now() - mangaSummariesCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         return mangaSummariesCache.value;
     }
 
-    if (allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (!includePrivate && allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const summarized = allMangasCache.value.map((manga) => ({
             ...manga,
             chapters: manga.chapters.length > 1
@@ -875,7 +1060,7 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
         return summarized;
     }
 
-    if (mangaSummariesPromise) {
+    if (!includePrivate && mangaSummariesPromise) {
         return mangaSummariesPromise;
     }
 
@@ -886,10 +1071,13 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
                 { data: reviewRows, error: reviewError },
                 chapterRows,
             ] = await Promise.all([
-                supabase
-                    .from('mangas')
-                    .select(MANGA_SUMMARY_SELECT_COLUMNS)
-                    .order('last_updated', { ascending: false }),
+                applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select(summarySelectColumns)
+                        .order('last_updated', { ascending: false }),
+                    { includePrivate, visibilityColumnAvailable },
+                ),
                 supabase
                     .from('reviews')
                     .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement'),
@@ -915,8 +1103,8 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
             const latestChapterPreviewsByMangaId = buildLatestChapterPreviewsByMangaId(chapterRows);
             const mangaIds = (mangaRows || []).map((manga: any) => manga.id).filter(Boolean);
             const [nextAuthorsByMangaId, nextArtistsByMangaId] = await Promise.all([
-                getMangaAuthorsByIds(mangaIds),
-                getMangaArtistsByIds(mangaIds),
+                getMangaAuthorsByIds(mangaIds, { includePrivate }),
+                getMangaArtistsByIds(mangaIds, { includePrivate }),
             ]);
 
             return (mangaRows || []).map((manga: any) => {
@@ -929,6 +1117,7 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
                     author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || manga.author,
                     artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || manga.artist,
                     alternativeTitles: manga.alternative_titles || [],
+                    isPublic: manga.is_public ?? true,
                     lastUpdated: manga.last_updated,
                     createdAt: manga.created_at,
                     releaseYear: manga.release_year,
@@ -945,15 +1134,18 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
             });
         };
 
-        mangaSummariesPromise = runWithSupabaseBootstrapRetry({
+        const pendingRequest = runWithSupabaseBootstrapRetry({
             run: fetchSummaries,
             timeoutMs: 9000,
             timeoutMessage: 'Manga summary fetch timeout',
             shouldRetryResult: (result) => Array.isArray(result) && result.length === 0,
         });
-        const summaries = await mangaSummariesPromise;
+        if (!includePrivate) {
+            mangaSummariesPromise = pendingRequest;
+        }
+        const summaries = await pendingRequest;
 
-        if (summaries.length > 0) {
+        if (!includePrivate && summaries.length > 0) {
             mangaSummariesCache = {
                 fetchedAt: Date.now(),
                 value: summaries,
@@ -962,21 +1154,56 @@ export const getMangaSummaries = async (): Promise<Manga[]> => {
 
         return summaries;
     } catch (error) {
-        mangaSummariesCache = null;
-        mangaSummariesPromise = null;
+        if (!includePrivate) {
+            mangaSummariesCache = null;
+            mangaSummariesPromise = null;
+        }
         if (!isExpectedAccessControlError(error)) {
             console.error('Manga summary fetch global error:', error);
         }
         return [];
     } finally {
-        mangaSummariesPromise = null;
+        if (!includePrivate) {
+            mangaSummariesPromise = null;
+        }
     }
 };
 
-export const getMangaSummariesByIds = async (mangaIds: string[]): Promise<Manga[]> => {
+export const getMangaSummariesByIds = async (
+    mangaIds: string[],
+    options?: { includePrivate?: boolean }
+): Promise<Manga[]> => {
     const uniqueMangaIds = [...new Set(mangaIds.filter(Boolean))];
     if (uniqueMangaIds.length === 0) {
         return [];
+    }
+
+    const { includePrivate, visibilityColumnAvailable, summarySelectColumns } = await resolveMangaVisibilityAccess(options?.includePrivate);
+    if (includePrivate) {
+        const { data: mangaRows, error: mangaError } = await applyPublicMangaFilter(
+            supabase
+                .from('mangas')
+                .select(summarySelectColumns)
+                .in('id', uniqueMangaIds),
+            { includePrivate: true, visibilityColumnAvailable },
+        );
+
+        if (mangaError) {
+            if (!isExpectedAccessControlError(mangaError)) {
+                console.error('Manga summary by ids fetch error:', mangaError);
+            }
+            return [];
+        }
+
+        const fetchedSummaries = await buildMangaSummariesForRows(
+            mangaRows || [],
+            { logContext: 'Manga summary by ids', includePrivate: true },
+        );
+        const summaryMap = new Map(fetchedSummaries.map((manga) => [manga.id, manga]));
+
+        return uniqueMangaIds
+            .map((mangaId) => summaryMap.get(mangaId))
+            .filter(Boolean) as Manga[];
     }
 
     const requestedIdSet = new Set(uniqueMangaIds);
@@ -1001,10 +1228,13 @@ export const getMangaSummariesByIds = async (mangaIds: string[]): Promise<Manga[
 
     const missingIds = uniqueMangaIds.filter((mangaId) => !summaryMap.has(mangaId));
     if (missingIds.length > 0) {
-        const { data: mangaRows, error: mangaError } = await supabase
-            .from('mangas')
-            .select(MANGA_SUMMARY_SELECT_COLUMNS)
-            .in('id', missingIds);
+        const { data: mangaRows, error: mangaError } = await applyPublicMangaFilter(
+            supabase
+                .from('mangas')
+                .select(summarySelectColumns)
+                .in('id', missingIds),
+            { includePrivate: false, visibilityColumnAvailable },
+        );
 
         if (mangaError) {
             if (!isExpectedAccessControlError(mangaError)) {
@@ -1013,7 +1243,7 @@ export const getMangaSummariesByIds = async (mangaIds: string[]): Promise<Manga[
         } else {
             const fetchedSummaries = await buildMangaSummariesForRows(
                 mangaRows || [],
-                { logContext: 'Manga summary by ids' },
+                { logContext: 'Manga summary by ids', includePrivate: false },
             );
 
             fetchedSummaries.forEach((manga) => {
@@ -1028,14 +1258,17 @@ export const getMangaSummariesByIds = async (mangaIds: string[]): Promise<Manga[
 };
 
 export const getHomePageMangaSections = async (): Promise<HomePageMangaSections> => {
+    const { includePrivate, visibilityColumnAvailable, summarySelectColumns } = await resolveMangaVisibilityAccess();
+
     if (
+        !includePrivate &&
         homePageMangaSectionsCache
         && Date.now() - homePageMangaSectionsCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS
     ) {
         return homePageMangaSectionsCache.value;
     }
 
-    if (allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (!includePrivate && allMangasCache && Date.now() - allMangasCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const sections = buildHomePageSectionsFromCollection(allMangasCache.value);
         homePageMangaSectionsCache = {
             fetchedAt: allMangasCache.fetchedAt,
@@ -1044,7 +1277,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return sections;
     }
 
-    if (mangaSummariesCache && Date.now() - mangaSummariesCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (!includePrivate && mangaSummariesCache && Date.now() - mangaSummariesCache.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const sections = buildHomePageSectionsFromCollection(mangaSummariesCache.value);
         homePageMangaSectionsCache = {
             fetchedAt: mangaSummariesCache.fetchedAt,
@@ -1053,7 +1286,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return sections;
     }
 
-    if (homePageMangaSectionsPromise) {
+    if (!includePrivate && homePageMangaSectionsPromise) {
         return homePageMangaSectionsPromise;
     }
 
@@ -1070,21 +1303,30 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
                 { data: recentlyUpdatedRows, error: recentlyUpdatedError },
                 { data: trendingRows, error: trendingError },
             ] = await Promise.all([
-                supabase
-                    .from('mangas')
-                    .select(MANGA_SUMMARY_SELECT_COLUMNS)
-                    .order('created_at', { ascending: false })
-                    .limit(HOME_PAGE_SECTION_LIMITS.newlyAdded),
-                supabase
-                    .from('mangas')
-                    .select(MANGA_SUMMARY_SELECT_COLUMNS)
-                    .order('last_updated', { ascending: false })
-                    .limit(HOME_PAGE_SECTION_LIMITS.recentlyUpdated),
-                supabase
-                    .from('mangas')
-                    .select(MANGA_SUMMARY_SELECT_COLUMNS)
-                    .order('views', { ascending: false })
-                    .limit(HOME_PAGE_SECTION_LIMITS.trending),
+                applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select(summarySelectColumns)
+                        .order('created_at', { ascending: false })
+                        .limit(HOME_PAGE_SECTION_LIMITS.newlyAdded),
+                    { includePrivate, visibilityColumnAvailable },
+                ),
+                applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select(summarySelectColumns)
+                        .order('last_updated', { ascending: false })
+                        .limit(HOME_PAGE_SECTION_LIMITS.recentlyUpdated),
+                    { includePrivate, visibilityColumnAvailable },
+                ),
+                applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select(summarySelectColumns)
+                        .order('views', { ascending: false })
+                        .limit(HOME_PAGE_SECTION_LIMITS.trending),
+                    { includePrivate, visibilityColumnAvailable },
+                ),
             ]);
 
             if (newlyAddedError || recentlyUpdatedError || trendingError) {
@@ -1100,7 +1342,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
 
             const summaries = await buildMangaSummariesForRows(
                 [...uniqueRowsById.values()],
-                { logContext: 'Homepage manga' }
+                { logContext: 'Homepage manga', includePrivate }
             );
             const summaryMap = new Map(summaries.map((manga) => [manga.id, manga]));
 
@@ -1111,15 +1353,18 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
             } satisfies HomePageMangaSections;
         };
 
-        homePageMangaSectionsPromise = runWithSupabaseBootstrapRetry({
+        const pendingRequest = runWithSupabaseBootstrapRetry({
             run: fetchSections,
             timeoutMs: 9000,
             timeoutMessage: 'Homepage manga fetch timeout',
             shouldRetryResult: (result) => !hasHomePageSectionData(result),
         });
+        if (!includePrivate) {
+            homePageMangaSectionsPromise = pendingRequest;
+        }
 
-        const sections = await homePageMangaSectionsPromise;
-        if (hasHomePageSectionData(sections)) {
+        const sections = await pendingRequest;
+        if (!includePrivate && hasHomePageSectionData(sections)) {
             homePageMangaSectionsCache = {
                 fetchedAt: Date.now(),
                 value: sections,
@@ -1135,7 +1380,9 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         }
         return createEmptyHomePageMangaSections();
     } finally {
-        homePageMangaSectionsPromise = null;
+        if (!includePrivate) {
+            homePageMangaSectionsPromise = null;
+        }
     }
 };
 
@@ -1229,6 +1476,8 @@ export const getMangaById = async (
     mangaId: string,
     options?: GetMangaByIdOptions
 ): Promise<Manga | undefined> => {
+    const { includePrivate } = await resolveMangaVisibilityAccess(options?.includePrivate);
+
     const { data, error } = await supabase
         .from('mangas')
         .select('*')
@@ -1237,6 +1486,10 @@ export const getMangaById = async (
 
     if (error || !data) {
         if (error && error.code !== 'PGRST116') console.error('Manga detail fetch error:', error);
+        return undefined;
+    }
+
+    if (!includePrivate && data.is_public === false) {
         return undefined;
     }
 
@@ -1252,7 +1505,7 @@ export const getMangaById = async (
         getMangaChapters(mangaId, { includePages: options?.includePages === true }),
         getMangaAuthors(mangaId, options),
         getMangaArtists(mangaId, options),
-        getMangaRelatedSeries(mangaId),
+        getMangaRelatedSeries(mangaId, { includePrivate }),
         supabase
             .from('manga_characters')
             .select('*', { count: 'exact', head: true })
@@ -1290,6 +1543,7 @@ export const getMangaById = async (
         author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || data.author,
         artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || data.artist,
         alternativeTitles: data.alternative_titles || [],
+        isPublic: data.is_public ?? true,
         lastUpdated: data.last_updated,
         createdAt: data.created_at,
         releaseYear: data.release_year,
@@ -1322,6 +1576,7 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         title: manga.title,
         author: toLegacyMangaPersonLabel(manga.author),
         artist: toLegacyMangaPersonLabel(manga.artist),
+        is_public: manga.isPublic ?? true,
         description: manga.description,
         cover: manga.cover,
         banner: manga.banner,
@@ -1337,9 +1592,21 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         created_at: manga.createdAt || new Date().toISOString(),
     };
 
-    const { error } = await supabase
+    let { error } = await supabase
         .from('mangas')
         .upsert(mangaData);
+
+    if (error && isMissingMangaVisibilityColumnError(error)) {
+        mangaVisibilityColumnAvailableCache = false;
+        mangaVisibilityColumnAvailablePromise = null;
+
+        const { is_public: _ignoredVisibility, ...legacyMangaData } = mangaData;
+        const retryResult = await supabase
+            .from('mangas')
+            .upsert(legacyMangaData);
+
+        error = retryResult.error;
+    }
 
     if (error) throw error;
     invalidateAllMangasCache();
@@ -1481,22 +1748,38 @@ export const deleteChapter = async (mangaId: string, chapterId: string): Promise
 
 export const getLatestChapters = async (limit?: number, offset: number = 0): Promise<LatestChapterFeedItem[]> => {
     const end = typeof limit === 'number' ? offset + limit - 1 : undefined;
+    const { includePrivate, visibilityColumnAvailable } = await resolveMangaVisibilityAccess();
 
     let query = supabase
         .from('chapters')
-        .select(`
-            id,
-            manga_id,
-            number,
-            title,
-            created_at,
-            release_date,
-            mangas:manga_id(id, title, cover, type)
-        `)
+        .select(visibilityColumnAvailable && !includePrivate
+            ? `
+                id,
+                manga_id,
+                number,
+                title,
+                created_at,
+                release_date,
+                mangas:manga_id!inner(id, title, cover, type, is_public)
+            `
+            : `
+                id,
+                manga_id,
+                number,
+                title,
+                created_at,
+                release_date,
+                mangas:manga_id(id, title, cover, type)
+            `
+        )
         .order('created_at', { ascending: false })
         .order('manga_id', { ascending: true })
         .order('number', { ascending: false })
         .order('id', { ascending: true });
+
+    if (visibilityColumnAvailable && !includePrivate) {
+        query = query.eq('mangas.is_public', true);
+    }
 
     if (typeof end === 'number') {
         query = query.range(offset, end);
@@ -1538,11 +1821,23 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
 
 export const getLatestChaptersCountLast24Hours = async (): Promise<number> => {
     const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
+    const { includePrivate, visibilityColumnAvailable } = await resolveMangaVisibilityAccess();
 
-    const { count, error } = await supabase
+    let query = supabase
         .from('chapters')
-        .select('id', { count: 'exact', head: true })
+        .select(
+            visibilityColumnAvailable && !includePrivate
+                ? 'id, mangas:manga_id!inner(id, is_public)'
+                : 'id',
+            { count: 'exact', head: true },
+        )
         .gte('created_at', since);
+
+    if (visibilityColumnAvailable && !includePrivate) {
+        query = query.eq('mangas.is_public', true);
+    }
+
+    const { count, error } = await query;
 
     if (error) {
         console.error('Latest chapters 24h count error:', error);
@@ -1803,16 +2098,25 @@ export const incrementChapterViews = async (mangaId: string, chapterId: string):
 
 // ==================== SEARCH OPERATIONS ====================
 
-export const searchMangas = async (query: string): Promise<Manga[]> => {
-    const { data, error } = await supabase
-        .from('mangas')
-        .select('*')
-        .or(`title.ilike.%${query}%,author.ilike.%${query}%`);
+export const searchMangas = async (
+    query: string,
+    options?: { includePrivate?: boolean }
+): Promise<Manga[]> => {
+    const { includePrivate, visibilityColumnAvailable } = await resolveMangaVisibilityAccess(options?.includePrivate);
+
+    const { data, error } = await applyPublicMangaFilter(
+        supabase
+            .from('mangas')
+            .select('*')
+            .or(`title.ilike.%${query}%,author.ilike.%${query}%`),
+        { includePrivate, visibilityColumnAvailable },
+    );
 
     if (error) return [];
     return data.map(m => ({
         ...m,
         alternativeTitles: m.alternative_titles || [],
+        isPublic: m.is_public ?? true,
         releaseYear: m.release_year,
         lastUpdated: m.last_updated,
         createdAt: m.created_at
@@ -2101,7 +2405,10 @@ export const addAdminUser = async (admin: any): Promise<void> => {
     }
 };
 
-export const getMangasByIds = async (mangaIds: string[]): Promise<Manga[]> => {
+export const getMangasByIds = async (
+    mangaIds: string[],
+    options?: { includePrivate?: boolean }
+): Promise<Manga[]> => {
     const uniqueIds = [...new Set(mangaIds.filter(Boolean))];
 
     if (uniqueIds.length === 0) {
@@ -2109,10 +2416,14 @@ export const getMangasByIds = async (mangaIds: string[]): Promise<Manga[]> => {
     }
 
     try {
-        const { data: mangaData, error: mangaError } = await supabase
-            .from('mangas')
-            .select('*')
-            .in('id', uniqueIds);
+        const { includePrivate, visibilityColumnAvailable, summarySelectColumns } = await resolveMangaVisibilityAccess(options?.includePrivate);
+        const { data: mangaData, error: mangaError } = await applyPublicMangaFilter(
+            supabase
+                .from('mangas')
+                .select(summarySelectColumns)
+                .in('id', uniqueIds),
+            { includePrivate, visibilityColumnAvailable },
+        );
 
         if (mangaError) {
             throw mangaError;
@@ -2120,6 +2431,7 @@ export const getMangasByIds = async (mangaIds: string[]): Promise<Manga[]> => {
 
         const mangaSummaries = await buildMangaSummariesForRows(mangaData || [], {
             logContext: 'Manga by ids',
+            includePrivate,
         });
         const mangaMap = new Map(mangaSummaries.map((manga) => [manga.id, manga]));
 
@@ -3973,7 +4285,7 @@ export const getCharacterById = async (
         .filter(Boolean);
 
     const [series, rank] = await Promise.all([
-        getMangasByIds(seriesIds),
+        getMangasByIds(seriesIds, { includePrivate: options?.includePrivate }),
         getOrderedEntityRank('characters', id),
     ]);
 
@@ -4278,7 +4590,7 @@ export const getAuthorById = async (
         .map((item: any) => item.manga?.id)
         .filter(Boolean);
     const [series, rank] = await Promise.all([
-        getMangasByIds(seriesIds),
+        getMangasByIds(seriesIds, { includePrivate: options?.includePrivate }),
         getOrderedEntityRank('authors', id),
     ]);
 
@@ -4302,7 +4614,7 @@ export const getArtistById = async (
         .map((item: any) => item.manga?.id)
         .filter(Boolean);
     const [series, rank] = await Promise.all([
-        getMangasByIds(seriesIds),
+        getMangasByIds(seriesIds, { includePrivate: options?.includePrivate }),
         getOrderedEntityRank('artists', id),
     ]);
 
@@ -4637,14 +4949,22 @@ const buildHomePageSectionsFromCollection = (mangas: Manga[]): HomePageMangaSect
 
 const buildMangaSummariesForRows = async (
     mangaRows: any[],
-    options?: { logContext?: string }
+    options?: { logContext?: string; includePrivate?: boolean }
 ): Promise<Manga[]> => {
     if (!Array.isArray(mangaRows) || mangaRows.length === 0) {
         return [];
     }
 
     const logContext = options?.logContext || 'Manga summary';
-    const mangaIds = mangaRows.map((manga: any) => manga.id).filter(Boolean);
+    const visibleRows = options?.includePrivate
+        ? mangaRows
+        : mangaRows.filter((manga: any) => manga?.is_public !== false);
+
+    if (visibleRows.length === 0) {
+        return [];
+    }
+
+    const mangaIds = visibleRows.map((manga: any) => manga.id).filter(Boolean);
     const [
         { data: reviewRows, error: reviewError },
         chapterRows,
@@ -4664,8 +4984,8 @@ const buildMangaSummariesForRows = async (
             }
             return [];
         }),
-        getMangaAuthorsByIds(mangaIds),
-        getMangaArtistsByIds(mangaIds),
+        getMangaAuthorsByIds(mangaIds, { includePrivate: options?.includePrivate }),
+        getMangaArtistsByIds(mangaIds, { includePrivate: options?.includePrivate }),
     ]);
 
     if (reviewError) {
@@ -4676,7 +4996,7 @@ const buildMangaSummariesForRows = async (
     const chapterCountByMangaId = buildChapterCountByMangaId(chapterRows);
     const latestChapterPreviewsByMangaId = buildLatestChapterPreviewsByMangaId(chapterRows);
 
-    return mangaRows.map((manga: any) => {
+    return visibleRows.map((manga: any) => {
         const reviewStats = reviewStatsByMangaId.get(manga.id);
         const authorsDetails = nextAuthorsByMangaId.get(manga.id) || [];
         const artistsDetails = nextArtistsByMangaId.get(manga.id) || [];
@@ -4686,6 +5006,7 @@ const buildMangaSummariesForRows = async (
             author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || manga.author,
             artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || manga.artist,
             alternativeTitles: manga.alternative_titles || [],
+            isPublic: manga.is_public ?? true,
             lastUpdated: manga.last_updated,
             createdAt: manga.created_at,
             releaseYear: manga.release_year,
@@ -4758,7 +5079,10 @@ export const replaceMangaArtists = async (mangaId: string, artistIds: string[]) 
     }
 };
 
-export const getMangaRelatedSeries = async (mangaId: string): Promise<MangaRelation[]> => {
+export const getMangaRelatedSeries = async (
+    mangaId: string,
+    options?: { includePrivate?: boolean }
+): Promise<MangaRelation[]> => {
     const { data, error } = await supabase
         .from('manga_relations')
         .select('*')
@@ -4772,7 +5096,7 @@ export const getMangaRelatedSeries = async (mangaId: string): Promise<MangaRelat
     }
 
     const relatedMangaIds = [...new Set((data || []).map((row: any) => row.related_manga_id).filter(Boolean))];
-    const relatedManga = await getMangasByIds(relatedMangaIds);
+    const relatedManga = await getMangasByIds(relatedMangaIds, options);
     const mangaMap = new Map(relatedManga.map((manga) => [manga.id, manga]));
 
     return (data || []).map((row: any) => ({
@@ -4784,7 +5108,7 @@ export const getMangaRelatedSeries = async (mangaId: string): Promise<MangaRelat
         sourceUrl: row.source_url || undefined,
         sortOrder: row.sort_order ?? 0,
         relatedManga: mangaMap.get(row.related_manga_id),
-    }));
+    })).filter((relation) => options?.includePrivate || Boolean(relation.relatedManga));
 };
 
 export const replaceMangaRelatedSeries = async (
@@ -5349,22 +5673,7 @@ export const getMangasByTag = async (tagSlug: string): Promise<Manga[]> => {
 
     const mangaIds = data.map(d => d.manga_id);
 
-    const { data: mangaData } = await supabase
-        .from('mangas')
-        .select('*')
-        .in('id', mangaIds);
-
-    if (!mangaData) return [];
-
-    return mangaData.map(m => ({
-        ...m,
-        alternativeTitles: m.alternative_titles || [],
-        lastUpdated: m.last_updated,
-        createdAt: m.created_at,
-        releaseYear: m.release_year,
-        chapters: [],
-        ratings: [],
-    })) as Manga[];
+    return getMangaSummariesByIds(mangaIds);
 };
 
 export const getMangasByMultipleTags = async (tagSlugs: string[]): Promise<Manga[]> => {
@@ -5405,22 +5714,7 @@ export const getMangasByMultipleTags = async (tagSlugs: string[]): Promise<Manga
 
     if (matchingMangaIds.length === 0) return [];
 
-    const { data: mangaData } = await supabase
-        .from('mangas')
-        .select('*')
-        .in('id', matchingMangaIds);
-
-    if (!mangaData) return [];
-
-    return mangaData.map(m => ({
-        ...m,
-        alternativeTitles: m.alternative_titles || [],
-        lastUpdated: m.last_updated,
-        createdAt: m.created_at,
-        releaseYear: m.release_year,
-        chapters: [],
-        ratings: [],
-    })) as Manga[];
+    return getMangaSummariesByIds(matchingMangaIds);
 };
 
 

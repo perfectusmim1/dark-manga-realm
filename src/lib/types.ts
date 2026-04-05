@@ -4,6 +4,7 @@ export interface Manga {
   alternativeTitles?: string[];
   cover: string;
   banner?: string;
+  isPublic?: boolean;
   author: string;
   artist?: string;
   status: 'ongoing' | 'completed' | 'hiatus';

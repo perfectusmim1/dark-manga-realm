@@ -214,7 +214,7 @@ const AdminAutomation: React.FC = () => {
 
   const loadPageData = async () => {
     const [nextMangas, automationData] = await Promise.all([
-      getMangaSummaries(),
+      getMangaSummaries({ includePrivate: true }),
       listChapterAutomations(),
     ]);
 

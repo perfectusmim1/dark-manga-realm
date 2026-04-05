@@ -147,6 +147,7 @@ interface PreviewToggleItem<TItem> {
   skipped: boolean;
   skipReason?: string;
   imageUrl?: string;
+  matchState: 'matched' | 'new';
   matchableType?: MatchableEntityType;
   matchedEntity?: ManualEntityMatchSelection;
   item: TItem;
@@ -190,6 +191,8 @@ interface MatchDialogState {
   entityType: MatchableEntityType;
 }
 
+type PreviewMatchFilter = 'all' | 'matched' | 'new';
+
 const toPreviewText = (value: unknown): string => {
   if (typeof value === 'string') {
     return value;
@@ -224,9 +227,17 @@ const normalizePreviewKey = (value?: unknown) => (
   normalizeComparableText(toPreviewText(value))
 );
 
-const buildPreviewItemKey = (category: PreviewSelectionCategory, value: unknown) => {
-  const normalizedValue = toPreviewText(value);
-  return `${category}:${normalizePreviewKey(normalizedValue) || normalizedValue}`;
+const buildPreviewItemKey = (
+  category: PreviewSelectionCategory,
+  value: unknown,
+  disambiguator?: unknown,
+) => {
+  const normalizedValue = normalizePreviewKey(value) || toPreviewText(value) || 'item';
+  const normalizedDisambiguator = normalizePreviewKey(disambiguator) || toPreviewText(disambiguator);
+
+  return normalizedDisambiguator
+    ? `${category}:${normalizedValue}:${normalizedDisambiguator}`
+    : `${category}:${normalizedValue}`;
 };
 
 const getPreviewItemChecked = (
@@ -238,6 +249,44 @@ const getPreviewItemChecked = (
 );
 
 const getInitial = (value?: string | null) => (value?.trim().charAt(0) || '?').toLocaleUpperCase('tr-TR');
+
+const buildEntityMatchLookup = <
+  T extends {
+    id: string;
+    name?: string;
+    title?: string;
+    alternativeNames?: string[];
+    alternativeTitles?: string[];
+  },
+>(items: T[]) => {
+  const lookup = new Map<string, T>();
+
+  items.forEach((item) => {
+    [
+      item.name || item.title || '',
+      ...(item.alternativeNames || []),
+      ...(item.alternativeTitles || []),
+    ].forEach((value) => {
+      const key = normalizePreviewKey(value);
+      if (key && !lookup.has(key)) {
+        lookup.set(key, item);
+      }
+    });
+  });
+
+  return lookup;
+};
+
+const getPreviewMatchCounts = (items: PreviewToggleItem<unknown>[]) => ({
+  matched: items.filter((item) => item.matchState === 'matched').length,
+  new: items.filter((item) => item.matchState === 'new').length,
+});
+
+const applyPreviewMatchFilter = <TItem,>(items: PreviewToggleItem<TItem>[], filter: PreviewMatchFilter) => (
+  filter === 'all'
+    ? items
+    : items.filter((item) => item.matchState === filter)
+);
 
 interface PreviewDetailDialogProps {
   detailKey: PreviewDetailKey | null;
@@ -283,6 +332,9 @@ const PreviewSelectionRow = ({
         <div className="flex min-w-0 flex-wrap items-center gap-2">
           <p className="truncate text-sm font-medium">{item.label}</p>
           {item.badgeLabel ? <Badge variant="secondary">{item.badgeLabel}</Badge> : null}
+          <Badge variant={item.matchState === 'matched' ? 'secondary' : 'outline'}>
+            {item.matchState === 'matched' ? 'Eşleşen' : 'Yeni'}
+          </Badge>
           <Badge variant={item.checked ? 'default' : 'secondary'}>
             {item.checked ? 'İçe Aktar' : 'Atla'}
           </Badge>
@@ -313,27 +365,54 @@ const PreviewSelectionRow = ({
 
 const PreviewSelectionToolbar = ({
   items,
+  visibleItems,
   onToggleItems,
+  filter,
+  onFilterChange,
 }: {
   items: PreviewToggleItem<unknown>[];
+  visibleItems: PreviewToggleItem<unknown>[];
   onToggleItems: (keys: string[], checked: boolean) => void;
+  filter: PreviewMatchFilter;
+  onFilterChange: (filter: PreviewMatchFilter) => void;
 }) => {
   if (items.length === 0) {
     return null;
   }
 
-  const keys = items.map((item) => item.key);
-  const allSelected = items.every((item) => item.checked);
-  const noneSelected = items.every((item) => !item.checked);
+  const targetItems = visibleItems.length > 0 ? visibleItems : items;
+  const keys = targetItems.map((item) => item.key);
+  const allSelected = targetItems.every((item) => item.checked);
+  const noneSelected = targetItems.every((item) => !item.checked);
+  const counts = getPreviewMatchCounts(items);
 
   return (
-    <div className="flex flex-wrap items-center justify-end gap-2">
-      <Button type="button" size="sm" variant="outline" disabled={allSelected} onClick={() => onToggleItems(keys, true)}>
-        Tümünü Seç
-      </Button>
-      <Button type="button" size="sm" variant="ghost" disabled={noneSelected} onClick={() => onToggleItems(keys, false)}>
-        Tümünü Kaldır
-      </Button>
+    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/60 px-3 py-2">
+      <div className="flex flex-wrap items-center gap-2">
+        <Badge variant="secondary">Eşleşen {counts.matched}</Badge>
+        <Badge variant="outline">Yeni {counts.new}</Badge>
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-1 rounded-lg border border-border p-1">
+          <Button type="button" size="sm" variant={filter === 'all' ? 'secondary' : 'ghost'} onClick={() => onFilterChange('all')}>
+            Tümü
+          </Button>
+          <Button type="button" size="sm" variant={filter === 'matched' ? 'secondary' : 'ghost'} onClick={() => onFilterChange('matched')}>
+            Eşleşen
+          </Button>
+          <Button type="button" size="sm" variant={filter === 'new' ? 'secondary' : 'ghost'} onClick={() => onFilterChange('new')}>
+            Yeni
+          </Button>
+        </div>
+
+        <Button type="button" size="sm" variant="outline" disabled={allSelected || keys.length === 0} onClick={() => onToggleItems(keys, true)}>
+          Tümünü Seç
+        </Button>
+        <Button type="button" size="sm" variant="ghost" disabled={noneSelected || keys.length === 0} onClick={() => onToggleItems(keys, false)}>
+          Tümünü Kaldır
+        </Button>
+      </div>
     </div>
   );
 };
@@ -463,7 +542,15 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
   onClearMatch,
   onClose,
 }) => {
+  const [filter, setFilter] = useState<PreviewMatchFilter>('all');
+
+  useEffect(() => {
+    setFilter('all');
+  }, [detailKey]);
+
   if (!detailKey) return null;
+
+  const getFilteredItems = <TItem,>(items: PreviewToggleItem<TItem>[]) => applyPreviewMatchFilter(items, filter);
 
   const renderContent = () => {
     if (!collections) {
@@ -472,30 +559,34 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
 
     switch (detailKey) {
       case 'alternative_titles':
+        {
+          const visibleItems = getFilteredItems(collections.alternativeTitles);
         return (
           <div className="space-y-3">
-            <PreviewSelectionToolbar items={collections.alternativeTitles} onToggleItems={onToggleItems} />
+            <PreviewSelectionToolbar items={collections.alternativeTitles} visibleItems={visibleItems} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
             <div className="space-y-1">
-              {collections.alternativeTitles.length === 0 ? (
+              {visibleItems.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Veri bulunamadı.</p>
               ) : (
-                collections.alternativeTitles.map((item) => (
+                visibleItems.map((item) => (
                   <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
                 ))
               )}
             </div>
           </div>
         );
+        }
 
       case 'tags': {
+        const visibleItems = getFilteredItems(collections.tags);
         return (
           <div className="space-y-3">
-            <PreviewSelectionToolbar items={collections.tags} onToggleItems={onToggleItems} />
+            <PreviewSelectionToolbar items={collections.tags} visibleItems={visibleItems} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
             <div className="space-y-2">
-              {collections.tags.length === 0 ? (
+              {visibleItems.length === 0 ? (
                 <p className="text-sm text-muted-foreground text-center py-4">Gösterilecek etiket veya tür bulunamadı.</p>
               ) : (
-                collections.tags.map((item) => (
+                visibleItems.map((item) => (
                   <PreviewSelectionRow
                     key={item.key}
                     item={item}
@@ -511,17 +602,20 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
       }
 
       case 'authors_artists':
+        {
+          const visibleAuthors = getFilteredItems(collections.authors);
+          const visibleArtists = getFilteredItems(collections.artists);
         return (
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Yazarlar</p>
-                <PreviewSelectionToolbar items={collections.authors} onToggleItems={onToggleItems} />
+                <PreviewSelectionToolbar items={collections.authors} visibleItems={visibleAuthors} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
               </div>
-              {collections.authors.length === 0 ? (
+              {visibleAuthors.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Yazar verisi bulunamadı.</p>
               ) : (
-                collections.authors.map((item) => (
+                visibleAuthors.map((item) => (
                   <PreviewSelectionRow
                     key={item.key}
                     item={item}
@@ -536,12 +630,12 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Çizerler</p>
-                <PreviewSelectionToolbar items={collections.artists} onToggleItems={onToggleItems} />
+                <PreviewSelectionToolbar items={collections.artists} visibleItems={visibleArtists} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
               </div>
-              {collections.artists.length === 0 ? (
+              {visibleArtists.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Çizer verisi bulunamadı.</p>
               ) : (
-                collections.artists.map((item) => (
+                visibleArtists.map((item) => (
                   <PreviewSelectionRow
                     key={item.key}
                     item={item}
@@ -554,16 +648,19 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
             </div>
           </div>
         );
+        }
 
       case 'characters':
+        {
+          const visibleItems = getFilteredItems(collections.characters);
         return (
           <div className="space-y-3">
-            <PreviewSelectionToolbar items={collections.characters} onToggleItems={onToggleItems} />
+            <PreviewSelectionToolbar items={collections.characters} visibleItems={visibleItems} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
             <div className="space-y-2">
-              {collections.characters.length === 0 ? (
+              {visibleItems.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Veri bulunamadı.</p>
               ) : (
-                collections.characters.map((item) => (
+                visibleItems.map((item) => (
                   <PreviewSelectionRow
                     key={item.key}
                     item={item}
@@ -576,35 +673,42 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
             </div>
           </div>
         );
+        }
 
       case 'related_series':
+        {
+          const visibleItems = getFilteredItems(collections.relatedSeries);
         return (
           <div className="space-y-3">
-            <PreviewSelectionToolbar items={collections.relatedSeries} onToggleItems={onToggleItems} />
+            <PreviewSelectionToolbar items={collections.relatedSeries} visibleItems={visibleItems} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
             <div className="space-y-2">
-              {collections.relatedSeries.length === 0 ? (
+              {visibleItems.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Veri bulunamadı.</p>
               ) : (
-                collections.relatedSeries.map((item) => (
+                visibleItems.map((item) => (
                   <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
                 ))
               )}
             </div>
           </div>
         );
+        }
 
       case 'gallery':
+        {
+          const visibleSeriesGallery = getFilteredItems(collections.seriesGallery);
+          const visibleCharacterGallery = getFilteredItems(collections.characterGallery);
         return (
           <div className="space-y-4">
             <div className="space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Seri Galerisi</p>
-                <PreviewSelectionToolbar items={collections.seriesGallery} onToggleItems={onToggleItems} />
+                <PreviewSelectionToolbar items={collections.seriesGallery} visibleItems={visibleSeriesGallery} onToggleItems={onToggleItems} filter={filter} onFilterChange={setFilter} />
               </div>
-              {collections.seriesGallery.length === 0 ? (
+              {visibleSeriesGallery.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Seriye ait galeri bulunamadı.</p>
               ) : (
-                collections.seriesGallery.map((item) => (
+                visibleSeriesGallery.map((item) => (
                   <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
                 ))
               )}
@@ -615,19 +719,23 @@ const PreviewDetailDialog: React.FC<PreviewDetailDialogProps> = ({
                 <p className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Karakter Galerileri</p>
                 <PreviewSelectionToolbar
                   items={collections.characterGallery.map((item) => item as PreviewToggleItem<unknown>)}
+                  visibleItems={visibleCharacterGallery.map((item) => item as PreviewToggleItem<unknown>)}
                   onToggleItems={onToggleItems}
+                  filter={filter}
+                  onFilterChange={setFilter}
                 />
               </div>
-              {collections.characterGallery.length === 0 ? (
+              {visibleCharacterGallery.length === 0 ? (
                 <p className="text-sm text-muted-foreground">Karakter galerisi bulunamadı.</p>
               ) : (
-                collections.characterGallery.map((item) => (
+                visibleCharacterGallery.map((item) => (
                   <PreviewSelectionRow key={item.key} item={item} onToggle={onToggleItem} />
                 ))
               )}
             </div>
           </div>
         );
+        }
 
       default:
         return (
@@ -695,7 +803,7 @@ const AdminMetadataImport: React.FC = () => {
 
     void (async () => {
       const [mangaData, authorData, artistData, characterData, tagData] = await Promise.all([
-        getMangaSummaries(),
+        getMangaSummaries({ includePrivate: true }),
         getAuthors({ includePrivate: true }),
         getArtists({ includePrivate: true }),
         getCharacters({ includePrivate: true }),
@@ -809,12 +917,31 @@ const AdminMetadataImport: React.FC = () => {
     const allLocalAuthorMap = new Map(allLocalAuthors.map((author) => [author.id, author] as const));
     const allLocalArtistMap = new Map(allLocalArtists.map((artist) => [artist.id, artist] as const));
     const allLocalTagMap = new Map(allLocalTags.map((tag) => [tag.id, tag] as const));
-    const existingGlobalCharacterMap = new Map(
-      allLocalCharacters
-        .map((character) => [normalizePreviewKey(character.name), character] as const)
-        .filter(([key]) => Boolean(key)),
-    );
+    const existingGlobalAuthorMap = buildEntityMatchLookup(allLocalAuthors);
+    const existingGlobalArtistMap = buildEntityMatchLookup(allLocalArtists);
+    const existingGlobalCharacterMap = buildEntityMatchLookup(allLocalCharacters);
     const allLocalCharacterMap = new Map(allLocalCharacters.map((character) => [character.id, character] as const));
+    const existingCharacterGalleryMap = new Map<string, Set<string>>();
+    allLocalCharacters.forEach((character) => {
+      const galleryKeys = new Set(
+        (character.gallery || [])
+          .flatMap((image) => [image.sourceUrl, image.url])
+          .map((value) => normalizePreviewKey(value))
+          .filter(Boolean),
+      );
+
+      if (galleryKeys.size === 0) {
+        return;
+      }
+
+      [character.name, ...(character.alternativeNames || [])].forEach((value) => {
+        const key = normalizePreviewKey(value);
+        if (key && !existingCharacterGalleryMap.has(key)) {
+          existingCharacterGalleryMap.set(key, galleryKeys);
+        }
+      });
+    });
+    const relatedSeriesMatchMap = buildEntityMatchLookup(mangas);
     const existingRelatedKeys = new Set(
       (selectedLocalManga?.relatedSeries || [])
         .flatMap((relation) => [
@@ -830,8 +957,8 @@ const AdminMetadataImport: React.FC = () => {
         .filter(Boolean),
     );
 
-    const alternativeTitles = effectivePreview.alternativeTitles.map((title) => {
-      const key = buildPreviewItemKey('alternative_title', title);
+    const alternativeTitles = effectivePreview.alternativeTitles.map((title, index) => {
+      const key = buildPreviewItemKey('alternative_title', title, index);
       const skipped = existingTitleKeys.has(normalizePreviewKey(title));
       return {
         key,
@@ -839,14 +966,19 @@ const AdminMetadataImport: React.FC = () => {
         checked: getPreviewItemChecked(previewOverrides, key, !skipped),
         skipped,
         skipReason: skipped ? 'Bu alternatif isim zaten mangada var' : undefined,
+        matchState: skipped ? 'matched' : 'new',
         item: title,
       } satisfies PreviewToggleItem<string>;
     });
 
-    const tags = (effectivePreview.tagMatches?.length ? effectivePreview.tagMatches : effectivePreview.tags).map((tagEntry) => {
+    const tags = (effectivePreview.tagMatches?.length ? effectivePreview.tagMatches : effectivePreview.tags).map((tagEntry, index) => {
       const isObjectEntry = typeof tagEntry !== 'string';
       const sourceTag = isObjectEntry ? tagEntry.sourceTag : tagEntry;
-      const key = buildPreviewItemKey('tag', sourceTag);
+      const key = buildPreviewItemKey(
+        'tag',
+        sourceTag,
+        isObjectEntry ? (tagEntry.matchedTag?.id || tagEntry.genreMatchName || index) : index,
+      );
       const matchedEntity = manualEntityMatches[key];
       const matchedTag = matchedEntity?.type === 'tag' ? allLocalTagMap.get(matchedEntity.id) : undefined;
       const matchedName = matchedTag?.name || (isObjectEntry ? (tagEntry.genreMatchName || tagEntry.matchedTag?.name || tagEntry.sourceTag) : sourceTag);
@@ -880,18 +1012,20 @@ const AdminMetadataImport: React.FC = () => {
         skipReason: alreadyLinked
           ? (isGenre ? 'Bu tür zaten mangada var' : 'Bu etiket zaten mangaya bağlı')
           : undefined,
+        matchState: matchedTag || (isObjectEntry && (tagEntry.isMatched || tagEntry.isStandardGenre)) ? 'matched' : 'new',
         matchableType: 'tag',
         matchedEntity,
         item: tagEntry,
       } satisfies PreviewToggleItem<TagMatchResult | string>;
     });
 
-    const authors = effectivePreview.authors.map((author) => {
-      const key = buildPreviewItemKey('author', author.name);
+    const authors = effectivePreview.authors.map((author, index) => {
+      const key = buildPreviewItemKey('author', author.name, author.sourceUrl || author.imageUrl || index);
       const matchedEntity = manualEntityMatches[key];
       const matchedAuthor = matchedEntity?.type === 'author' ? allLocalAuthorMap.get(matchedEntity.id) : undefined;
-      const alreadyLinked = matchedAuthor
-        ? existingAuthorIds.has(matchedAuthor.id)
+      const existingGlobalAuthor = matchedAuthor || existingGlobalAuthorMap.get(normalizePreviewKey(author.name));
+      const alreadyLinked = existingGlobalAuthor
+        ? existingAuthorIds.has(existingGlobalAuthor.id)
         : existingAuthorKeys.has(normalizePreviewKey(author.name));
       const manualMatchSummary = matchedAuthor
         ? `Elle eşleşti: ${matchedAuthor.name}${alreadyLinked ? ' • zaten bağlı' : ''}`
@@ -901,24 +1035,28 @@ const AdminMetadataImport: React.FC = () => {
         label: author.name,
         subtitle: manualMatchSummary || (alreadyLinked
           ? 'Zaten bağlı, seçili kalırsa metadata güncellenecek'
-          : (author.description || author.details?.nativeName)),
+          : existingGlobalAuthor
+            ? 'Sistemde mevcut, seçili kalırsa bu yazar güncellenecek'
+            : (author.description || author.details?.nativeName)),
         badgeLabel: 'Yazar',
         imageUrl: author.imageUrl,
         checked: getPreviewItemChecked(previewOverrides, key, true),
         skipped: false,
         skipReason: undefined,
+        matchState: existingGlobalAuthor ? 'matched' : 'new',
         matchableType: 'author' as const,
         matchedEntity,
         item: author,
       } satisfies PreviewToggleItem<ImportedPersonDraft>;
     });
 
-    const artists = effectivePreview.artists.map((artist) => {
-      const key = buildPreviewItemKey('artist', artist.name);
+    const artists = effectivePreview.artists.map((artist, index) => {
+      const key = buildPreviewItemKey('artist', artist.name, artist.sourceUrl || artist.imageUrl || index);
       const matchedEntity = manualEntityMatches[key];
       const matchedArtist = matchedEntity?.type === 'artist' ? allLocalArtistMap.get(matchedEntity.id) : undefined;
-      const alreadyLinked = matchedArtist
-        ? existingArtistIds.has(matchedArtist.id)
+      const existingGlobalArtist = matchedArtist || existingGlobalArtistMap.get(normalizePreviewKey(artist.name));
+      const alreadyLinked = existingGlobalArtist
+        ? existingArtistIds.has(existingGlobalArtist.id)
         : existingArtistKeys.has(normalizePreviewKey(artist.name));
       const manualMatchSummary = matchedArtist
         ? `Elle eşleşti: ${matchedArtist.name}${alreadyLinked ? ' • zaten bağlı' : ''}`
@@ -928,26 +1066,35 @@ const AdminMetadataImport: React.FC = () => {
         label: artist.name,
         subtitle: manualMatchSummary || (alreadyLinked
           ? 'Zaten bağlı, seçili kalırsa metadata güncellenecek'
-          : (artist.description || artist.details?.nativeName)),
+          : existingGlobalArtist
+            ? 'Sistemde mevcut, seçili kalırsa bu çizer güncellenecek'
+            : (artist.description || artist.details?.nativeName)),
         badgeLabel: 'Çizer',
         imageUrl: artist.imageUrl,
         checked: getPreviewItemChecked(previewOverrides, key, true),
         skipped: false,
         skipReason: undefined,
+        matchState: existingGlobalArtist ? 'matched' : 'new',
         matchableType: 'artist' as const,
         matchedEntity,
         item: artist,
       } satisfies PreviewToggleItem<ImportedPersonDraft>;
     });
 
-    const characters = effectivePreview.characters.map((character) => {
-      const key = buildPreviewItemKey('character', character.name);
+    const characterExistingMatchMap = new Map<string, Character | undefined>();
+    const characters = effectivePreview.characters.map((character, index) => {
+      const key = buildPreviewItemKey(
+        'character',
+        character.name,
+        character.sourceUrl || character.imageUrl || character.roleType || character.roleLabel || index,
+      );
       const matchedEntity = manualEntityMatches[key];
       const matchedCharacter = matchedEntity?.type === 'character' ? allLocalCharacterMap.get(matchedEntity.id) : undefined;
       const alreadyLinked = matchedCharacter
         ? existingCharacterIds.has(matchedCharacter.id)
         : existingCharacterKeys.has(normalizePreviewKey(character.name));
       const existingGlobalCharacter = matchedCharacter || existingGlobalCharacterMap.get(normalizePreviewKey(character.name));
+      characterExistingMatchMap.set(key, existingGlobalCharacter);
       const manualMatchSummary = matchedCharacter
         ? `Elle eşleşti: ${matchedCharacter.name}${alreadyLinked ? ' • zaten bağlı' : ''}`
         : undefined;
@@ -958,12 +1105,13 @@ const AdminMetadataImport: React.FC = () => {
           ? 'Zaten bağlı, seçili kalırsa rol ve metadata güncellenecek'
           : existingGlobalCharacter
             ? 'Sistemde mevcut, seçili kalırsa bu mangaya bağlanıp rol ve metadata güncellenecek'
-          : (character.description || character.details?.nativeName)),
+            : (character.description || character.details?.nativeName)),
         badgeLabel: character.roleType ? getCharacterListingRoleLabel(character.roleType) : (character.roleLabel || 'Karakter'),
         imageUrl: character.imageUrl,
         checked: getPreviewItemChecked(previewOverrides, key, true),
         skipped: false,
         skipReason: undefined,
+        matchState: existingGlobalCharacter ? 'matched' : 'new',
         matchableType: 'character' as const,
         matchedEntity,
         item: character,
@@ -972,23 +1120,29 @@ const AdminMetadataImport: React.FC = () => {
 
     const characterCheckedMap = new Map(characters.map((character) => [character.key, character.checked]));
 
-    const relatedSeries = effectivePreview.relatedSeries.map((series) => {
-      const key = buildPreviewItemKey('related_series', series.title);
+    const relatedSeries = effectivePreview.relatedSeries.map((series, index) => {
+      const key = buildPreviewItemKey('related_series', series.title, series.sourceUrl || series.relationType || index);
+      const matchedSeries = relatedSeriesMatchMap.get(normalizePreviewKey(series.title));
       const skipped = existingRelatedKeys.has(normalizePreviewKey(series.title));
       return {
         key,
         label: series.title,
-        subtitle: series.sourceUrl || undefined,
+        subtitle: skipped
+          ? 'Bu ilişki zaten mangada var'
+          : matchedSeries
+            ? 'Sistemde mevcut, seçili kalırsa ilişki bağlanacak'
+            : (series.sourceUrl || undefined),
         badgeLabel: getMangaRelationTypeLabel(series.relationType),
         checked: getPreviewItemChecked(previewOverrides, key, !skipped),
         skipped,
         skipReason: skipped ? 'Bu ilişki zaten mangada var' : undefined,
+        matchState: skipped || matchedSeries ? 'matched' : 'new',
         item: series,
       } satisfies PreviewToggleItem<ImportedRelatedSeriesDraft>;
     });
 
     const seriesGallery = effectivePreview.gallery.map((image, index) => {
-      const key = buildPreviewItemKey('series_gallery', image.url);
+      const key = buildPreviewItemKey('series_gallery', image.url, image.sourceUrl || index);
       const skipped = existingSeriesGalleryKeys.has(normalizePreviewKey(image.url));
       return {
         key,
@@ -999,25 +1153,44 @@ const AdminMetadataImport: React.FC = () => {
         checked: getPreviewItemChecked(previewOverrides, key, !skipped),
         skipped,
         skipReason: skipped ? 'Bu görsel seri galerisinde zaten var' : undefined,
+        matchState: skipped ? 'matched' : 'new',
         item: image,
       } satisfies PreviewToggleItem<EntityGalleryImage>;
     });
 
-    const characterGallery = effectivePreview.characters.flatMap((character) => {
-      const characterKey = buildPreviewItemKey('character', character.name);
+    const characterGallery = effectivePreview.characters.flatMap((character, characterIndex) => {
+      const characterKey = buildPreviewItemKey(
+        'character',
+        character.name,
+        character.sourceUrl || character.imageUrl || character.roleType || character.roleLabel || characterIndex,
+      );
       const parentChecked = characterCheckedMap.get(characterKey) ?? true;
 
       return character.gallery.map((image, index) => {
-        const key = buildPreviewItemKey('character_gallery', `${character.name}:${image.url}`);
+        const key = buildPreviewItemKey(
+          'character_gallery',
+          `${character.name}:${image.url}`,
+          `${characterKey}:${image.sourceUrl || image.url || index}`,
+        );
+        const existingCharacter = characterExistingMatchMap.get(characterKey);
+        const existingGalleryKeys = existingCharacter
+          ? existingCharacterGalleryMap.get(normalizePreviewKey(existingCharacter.name))
+          : undefined;
+        const alreadyExists = Boolean(
+          existingGalleryKeys?.has(normalizePreviewKey(image.sourceUrl || image.url)),
+        );
         return {
           key,
           label: image.label || `${character.name} Görseli ${index + 1}`,
           subtitle: character.name,
           badgeLabel: character.roleType ? getCharacterListingRoleLabel(character.roleType) : (character.roleLabel || 'Karakter'),
           imageUrl: image.thumbUrl || image.url,
-          checked: getPreviewItemChecked(previewOverrides, key, parentChecked),
-          skipped: !parentChecked,
-          skipReason: !parentChecked ? 'Karakter importtan çıkarıldığı için bu galeri de atlanacak' : undefined,
+          checked: getPreviewItemChecked(previewOverrides, key, parentChecked && !alreadyExists),
+          skipped: alreadyExists || !parentChecked,
+          skipReason: alreadyExists
+            ? 'Bu görsel karakter galerisinde zaten var'
+            : (!parentChecked ? 'Karakter importtan çıkarıldığı için bu galeri de atlanacak' : undefined),
+          matchState: alreadyExists ? 'matched' : 'new',
           item: image,
           characterKey,
           characterName: character.name,
@@ -1047,6 +1220,7 @@ const AdminMetadataImport: React.FC = () => {
     selectedLocalManga,
     selectedLocalTagIds,
     selectedLocalTags,
+    mangas,
   ]);
 
   const filteredPreview = useMemo<ImportedMangaPayload | null>(() => {

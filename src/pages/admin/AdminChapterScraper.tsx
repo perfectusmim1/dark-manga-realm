@@ -147,7 +147,7 @@ const AdminChapterScraper: React.FC = () => {
     const loadLocalMangas = async () => {
         setLoadingLocal(true);
         try {
-            const data = await getAllMangas();
+            const data = await getAllMangas({ includePrivate: true });
             setLocalMangas(data);
         } catch (err) {
             toast.error('Mangalar yüklenemedi');
@@ -160,7 +160,7 @@ const AdminChapterScraper: React.FC = () => {
         setSelectedLocalMangaId(mangaId);
         setLoadingLocal(true);
         try {
-            const details = await getMangaById(mangaId, { includePages: true });
+            const details = await getMangaById(mangaId, { includePrivate: true, includePages: true });
             setLocalMangaDetails(details);
             // Pre-fill search query with title for convenience
             if (details) setSearchQuery(details.title);
