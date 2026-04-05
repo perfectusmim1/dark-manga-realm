@@ -5,6 +5,9 @@ import {
   findAuthorByName,
   findCharacterByName,
   getAllTags,
+  getArtistById,
+  getAuthorById,
+  getCharacterById,
   getMangaById,
   getMangaCharacters,
   getMangaSummaries,
@@ -22,8 +25,11 @@ import {
   updateCharacterMedia,
 } from '@/lib/database';
 import { OFFICIAL_TAG_CATALOG } from '@/lib/officialTagCatalog';
-import { slugifyCatalogTagName, OFFICIAL_TAG_CATALOG } from '@/lib/officialTagCatalog';
-import { fetchScraperArrayBuffer, fetchScraperContent } from '@/lib/scraperProxy';
+import {
+  fetchScraperArrayBuffer,
+  fetchScraperContent,
+  fetchScraperJson,
+} from '@/lib/scraperProxy';
 import {
   buildMaterializedGalleryObjectKey,
   materializeRemoteImage,
@@ -47,8 +53,9 @@ import {
 } from '@/lib/characterRoles';
 import { sanitizeCharacterDescription } from '@/lib/descriptionSanitizers';
 import { sanitizeEntityImageUrl } from '@/lib/entityImages';
+import { normalizeComparableText } from '@/lib/textMatching';
 
-export type MetadataImportSource = 'anisearch' | 'myanimelist' | 'mangaupdates' | 'animeplanet';
+export type MetadataImportSource = 'anisearch' | 'myanimelist' | 'mangaupdates' | 'animeplanet' | 'fandom';
 
 export type ImportOptionKey =
   | 'manga_core'
@@ -78,6 +85,9 @@ export interface ImportedPersonDraft {
   gallery: EntityGalleryImage[];
   sourceLinks: ExternalSourceLink[];
   sourceUrl?: string;
+  matchedEntityId?: string;
+  matchedEntityName?: string;
+  matchedEntityType?: 'author' | 'artist' | 'character';
 }
 
 export interface ImportedCharacterDraft extends ImportedPersonDraft {
@@ -129,6 +139,102 @@ export interface ImportSelectionOptions {
 
 type SupportMatrix = Record<ImportOptionKey, boolean>;
 
+interface MangaUpdatesSeriesSearchItem {
+  record?: {
+    series_id?: number | string;
+    title?: string;
+    url?: string;
+    image?: {
+      url?: {
+        thumb?: string;
+        original?: string;
+      };
+    };
+    type?: string;
+    year?: string | number;
+  };
+  hit_title?: string;
+}
+
+interface MangaUpdatesAuthorReference {
+  type?: string;
+  name?: string;
+  author_id?: number | string;
+}
+
+interface MangaUpdatesSeriesDetails {
+  series_id?: number | string;
+  title?: string;
+  url?: string;
+  description?: string;
+  image?: {
+    url?: {
+      thumb?: string;
+      original?: string;
+    };
+  };
+  type?: string;
+  year?: string | number;
+  associated?: Array<{ title?: string }>;
+  genres?: Array<{ genre?: string }>;
+  categories?: Array<{ name?: string }>;
+  status?: { status?: string };
+  related_series?: Array<{
+    related_series_name?: string;
+    relation_type?: string;
+    url?: string;
+  }>;
+  authors?: MangaUpdatesAuthorReference[];
+  publishers?: Array<{ publisher_name?: string }>;
+}
+
+interface MangaUpdatesAuthorDetails {
+  name?: string;
+  actualname?: string;
+  comments?: string;
+  birthday?: {
+    as_string?: string;
+  };
+  birthplace?: string;
+  bloodtype?: string;
+  gender?: string;
+  status?: string;
+  genres?: Array<{ genre?: string }>;
+  social?: {
+    officialsite?: string;
+    twitter?: string;
+  };
+}
+
+interface FandomInternalLink {
+  title: string;
+  url: string;
+}
+
+interface FandomInfoboxField {
+  key: string;
+  label: string;
+  text: string;
+  html: string;
+  links: FandomInternalLink[];
+}
+
+interface FandomSection {
+  title: string;
+  level: number;
+  nodes: Element[];
+}
+
+interface FandomParsedPage {
+  origin: string;
+  title: string;
+  displayTitle: string;
+  pageUrl: string;
+  doc: Document;
+  sections: FandomSection[];
+  infoboxFields: FandomInfoboxField[];
+}
+
 export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> = {
   anisearch: {
     manga_core: true,
@@ -170,14 +276,27 @@ export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> 
     characters: true,
     gallery: false,
   },
+  fandom: {
+    manga_core: true,
+    alternative_titles: true,
+    tags: true,
+    related_series: false,
+    authors: true,
+    artists: true,
+    characters: true,
+    gallery: true,
+  },
 };
 
-export const SOURCE_RUNTIME_WARNINGS: Partial<Record<MetadataImportSource, string>> = {};
+export const SOURCE_RUNTIME_WARNINGS: Partial<Record<MetadataImportSource, string>> = {
+  fandom: 'Fandom / wiki importi şimdilik direkt wiki linki ile çalışır. Ana wiki, seri veya Characters sayfası linkini yapıştırabilirsin.',
+};
 
 const MAL_HOST_PATTERN = /^https?:\/\/(?:www\.)?myanimelist\.net\//i;
 const MANGA_UPDATES_HOST_PATTERN = /^https?:\/\/(?:www\.)?mangaupdates\.com\//i;
 const ANISEARCH_HOST_PATTERN = /^https?:\/\/(?:www\.)?anisearch\.com\//i;
 const ANIME_PLANET_HOST_PATTERN = /^https?:\/\/(?:www\.)?anime-planet\.com\//i;
+const FANDOM_HOST_PATTERN = /^https?:\/\/(?:[^/]+\.)?(?:fandom\.com|wikia\.(?:com|org))\/wiki\//i;
 const ANISEARCH_BASE_URL = 'https://www.anisearch.com';
 const ANISEARCH_SITEMAP_INDEX_URL = `${ANISEARCH_BASE_URL}/sitemap.xml`;
 const ANIME_PLANET_BASE_URL = 'https://www.anime-planet.com';
@@ -188,7 +307,7 @@ const ANISEARCH_SEARCH_RESULT_LIMIT = 8;
 
 const normalizeText = (value?: string | null) => value?.replace(/\s+/g, ' ').trim() || '';
 
-const normalizeKey = (value?: string | null) => normalizeText(value).toLocaleLowerCase('tr-TR');
+const normalizeKey = (value?: string | null) => normalizeComparableText(normalizeText(value));
 
 const uniqueStrings = (values: Array<string | null | undefined>) => {
   const seen = new Set<string>();
@@ -1119,6 +1238,31 @@ const parseAnimePlanetMangaSlug = (input: string) => input.match(/\/manga\/([^/?
 const parseAnimePlanetCharacterSlug = (input: string) => input.match(/\/characters\/([^/?#]+)/i)?.[1];
 const parseAnimePlanetPeopleSlug = (input: string) => input.match(/\/people\/([^/?#]+)/i)?.[1];
 
+const isFandomWikiUrl = (input: string) => FANDOM_HOST_PATTERN.test(normalizeText(input));
+
+const parseFandomWikiInput = (input: string) => {
+  try {
+    const parsed = new URL(normalizeText(input));
+    const match = parsed.pathname.match(/^\/wiki\/([^?#]+)/i);
+    if (!match || !isFandomWikiUrl(parsed.toString())) {
+      return null;
+    }
+
+    const pageTitle = decodeURIComponent(match[1]).replace(/_/g, ' ');
+    return {
+      origin: parsed.origin,
+      pageTitle: normalizeText(pageTitle),
+      pageUrl: parsed.toString(),
+    };
+  } catch {
+    return null;
+  }
+};
+
+const buildFandomPageUrl = (origin: string, pageTitle: string) => (
+  `${origin}/wiki/${encodeURIComponent(pageTitle.replace(/\s+/g, '_')).replace(/%2F/gi, '/')}`
+);
+
 const parseAboutLines = (about?: string | null) => {
   const lines = (about || '')
     .split(/\r?\n/)
@@ -1395,7 +1539,7 @@ const parseMalAuthorRoles = (html: string) => {
 
   const extractRoleText = (name: string) => {
     const normalizedName = normalizeText(name);
-    const startIndex = rowText.toLocaleLowerCase('tr-TR').indexOf(normalizedName.toLocaleLowerCase('tr-TR'));
+    const startIndex = normalizeComparableText(rowText).indexOf(normalizeComparableText(normalizedName));
 
     if (startIndex === -1) {
       return '';
@@ -1780,56 +1924,72 @@ const getInfoBoxHrefByLabel = (doc: Document, label: string) => {
   return href.startsWith('http') ? href : '';
 };
 
-const getInfoBoxLines = (doc: Document, key: string) => {
-  const element = doc.querySelector(`[data-cy="info-box-${key}"]`);
-  if (!element) {
-    return [];
+const MANGA_UPDATES_API_BASE_URL = 'https://api.mangaupdates.com/v1';
+
+const fetchMangaUpdatesApi = async <T>(
+  path: string,
+  options?: { method?: 'GET' | 'POST'; body?: Record<string, unknown> }
+): Promise<T> => (
+  fetchScraperJson<T>({
+    url: `${MANGA_UPDATES_API_BASE_URL}${path}`,
+    method: options?.method || 'GET',
+    headers: {
+      Accept: 'application/json',
+      ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
+    },
+    body: options?.body,
+  })
+);
+
+const unwrapMangaUpdatesSearchResults = (payload: unknown): MangaUpdatesSeriesSearchItem[] => {
+  if (Array.isArray(payload)) {
+    return payload as MangaUpdatesSeriesSearchItem[];
   }
 
-  return Array.from(element.querySelectorAll('div'))
-    .map((line) => normalizeText(line.textContent))
-    .filter(Boolean);
-};
+  if (payload && typeof payload === 'object') {
+    const record = payload as Record<string, unknown>;
+    if (Array.isArray(record.results)) {
+      return record.results as MangaUpdatesSeriesSearchItem[];
+    }
 
-const getInfoBoxLinks = (doc: Document, key: string) => {
-  const element = doc.querySelector(`[data-cy="info-box-${key}"]`);
-  if (!element) {
-    return [] as Array<{ title: string; url: string; meta?: string }>;
-  }
-
-  return Array.from(element.querySelectorAll('a[href]'))
-    .map((anchor) => ({
-      title: normalizeText(anchor.textContent),
-      url: normalizeText(anchor.getAttribute('href')),
-      meta: normalizeText(anchor.parentElement?.textContent?.replace(anchor.textContent || '', '')) || undefined,
-    }))
-    .filter((item) => item.title && item.url.startsWith('http'));
-};
-
-const getMangaUpdatesTitle = (doc: Document) =>
-  normalizeText(doc.querySelector('.releasestitle.tabletitle')?.textContent);
-
-const getMangaUpdatesImage = (doc: Document) => {
-  const image = doc.querySelector('[data-cy="info-box-image"] img');
-  return normalizeText(image?.getAttribute('src') || image?.getAttribute('data-src'));
-};
-
-const getMangaUpdatesStructuredData = (doc: Document) => {
-  const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
-
-  for (const script of scripts) {
-    try {
-      const parsed = JSON.parse(script.textContent || '{}');
-      if (parsed && typeof parsed === 'object' && parsed.url) {
-        return parsed as Record<string, any>;
-      }
-    } catch {
-      continue;
+    if (Array.isArray(record.items)) {
+      return record.items as MangaUpdatesSeriesSearchItem[];
     }
   }
 
-  return null;
+  return [];
 };
+
+const getMangaUpdatesSearchRecords = async (search: string) => (
+  unwrapMangaUpdatesSearchResults(
+    await fetchMangaUpdatesApi<unknown>('/series/search', {
+      method: 'POST',
+      body: { search },
+    }),
+  )
+);
+
+const normalizeComparableUrl = (value?: string | null) => {
+  const raw = normalizeText(value);
+  if (!raw) {
+    return '';
+  }
+
+  try {
+    const parsed = new URL(raw);
+    return normalizeKey(`${parsed.origin}${parsed.pathname}`);
+  } catch {
+    return normalizeKey(raw);
+  }
+};
+
+const getMangaUpdatesSeriesTitle = (series?: Partial<MangaUpdatesSeriesDetails | MangaUpdatesSeriesSearchItem['record']>) => (
+  normalizeText(series?.title)
+);
+
+const getMangaUpdatesSeriesImage = (series?: Partial<MangaUpdatesSeriesDetails | MangaUpdatesSeriesSearchItem['record']>) => (
+  sanitizeEntityImageUrl(series?.image?.url?.original || series?.image?.url?.thumb)
+);
 
 const parseMangaUpdatesDescriptionBlock = (value?: string | null) => {
   const raw = normalizeText(value);
@@ -1851,35 +2011,99 @@ const parseMangaUpdatesDescriptionBlock = (value?: string | null) => {
   };
 };
 
+const mapMangaUpdatesSearchCandidate = (item: MangaUpdatesSeriesSearchItem): SourceSearchCandidate | null => {
+  const record = item.record || {};
+  const title = getMangaUpdatesSeriesTitle(record) || normalizeText(item.hit_title);
+  const url = normalizeText(record.url);
+  const id = normalizeText(`${record.series_id || ''}`);
+
+  if (!title || !url) {
+    return null;
+  }
+
+  return {
+    id: id || url,
+    source: 'mangaupdates',
+    title,
+    subtitle: mergeStringLists([
+      normalizeText(record.type),
+      normalizeText(`${record.year || ''}`),
+    ]).join(' • ') || undefined,
+    url,
+    imageUrl: getMangaUpdatesSeriesImage(record) || undefined,
+  };
+};
+
+const resolveMangaUpdatesSeriesDetails = async (candidate: SourceSearchCandidate): Promise<MangaUpdatesSeriesDetails> => {
+  const seriesId = normalizeText(candidate.id);
+  if (/^\d+$/.test(seriesId)) {
+    return await fetchMangaUpdatesApi<MangaUpdatesSeriesDetails>(`/series/${seriesId}`);
+  }
+
+  const directUrlKey = normalizeComparableUrl(candidate.url);
+  const searchSeed = normalizeText(candidate.title || candidate.url.split('/').pop()?.replace(/-/g, ' '));
+  const results = await getMangaUpdatesSearchRecords(searchSeed);
+  const matched = results.find((item) => normalizeComparableUrl(item.record?.url) === directUrlKey) || results[0];
+  const matchedId = normalizeText(`${matched?.record?.series_id || ''}`);
+
+  if (!matchedId) {
+    throw new Error('MangaUpdates serisi bulunamadı.');
+  }
+
+  return await fetchMangaUpdatesApi<MangaUpdatesSeriesDetails>(`/series/${matchedId}`);
+};
+
+const classifyMangaUpdatesAuthorRole = (value?: string | null): 'author' | 'artist' | 'both' => {
+  const normalized = normalizeKey(value);
+  if (normalized.includes('artist') && normalized.includes('author')) {
+    return 'both';
+  }
+
+  if (normalized.includes('art')) {
+    return 'artist';
+  }
+
+  return 'author';
+};
+
 const buildMangaUpdatesPersonDraft = async (
-  sourceUrl: string,
+  reference: MangaUpdatesAuthorReference,
   role: 'author' | 'artist',
 ): Promise<ImportedPersonDraft> => {
-  const html = await fetchScraperContent(sourceUrl);
-  const doc = parseHtml(html);
-  const title = getMangaUpdatesTitle(doc) || normalizeText(doc.title.replace(' - MangaUpdates', ''));
-  const website = getInfoBoxHrefByLabel(doc, 'Official Website') || undefined;
-  const twitter = getInfoBoxHrefByLabel(doc, 'Twitter') || undefined;
+  const sourceUrl = reference.author_id
+    ? `${MANGA_UPDATES_API_BASE_URL}/authors/${reference.author_id}`
+    : undefined;
+  const title = normalizeText(reference.name) || 'MangaUpdates person';
+
+  if (!reference.author_id) {
+    return createImportedPersonDraft('mangaupdates', title, sourceUrl, {
+      details: {
+        role: role === 'artist' ? 'Çizer' : 'Yazar',
+      },
+    });
+  }
+
+  const details = await fetchMangaUpdatesApi<MangaUpdatesAuthorDetails>(`/authors/${reference.author_id}`);
+  const website = normalizeText(details.social?.officialsite) || undefined;
+  const twitter = normalizeText(details.social?.twitter) || undefined;
 
   return createImportedPersonDraft('mangaupdates', title, sourceUrl, {
-    imageUrl: getMangaUpdatesImage(doc) || undefined,
-    description: getInfoBoxTextByLabel(doc, 'Comments') || undefined,
-    alternativeNames: getInfoBoxLines(doc, 'associated'),
+    description: normalizeText(details.comments) || undefined,
+    alternativeNames: uniqueStrings([details.actualname]),
     details: {
-      nativeName: getInfoBoxTextByLabel(doc, 'Name (in native language)') || undefined,
-      status: getInfoBoxTextByLabel(doc, 'Status') || undefined,
-      birthDate: getInfoBoxTextByLabel(doc, 'Birth Date') || undefined,
-      birthPlace: getInfoBoxTextByLabel(doc, 'Birth Place') || undefined,
-      zodiac: getInfoBoxTextByLabel(doc, 'Zodiac') || undefined,
-      bloodType: getInfoBoxTextByLabel(doc, 'Blood Type') || undefined,
-      gender: getInfoBoxTextByLabel(doc, 'Gender') || undefined,
+      nativeName: normalizeText(details.actualname) || undefined,
+      status: normalizeText(details.status) || undefined,
+      birthday: normalizeText(details.birthday?.as_string) || undefined,
+      birthPlace: normalizeText(details.birthplace) || undefined,
+      bloodType: normalizeText(details.bloodtype) || undefined,
+      gender: normalizeText(details.gender) || undefined,
       website,
       twitter,
-      genres: uniqueStrings(getInfoBoxLinks(doc, 'genres').map((item) => item.title)),
+      genres: uniqueStrings((details.genres || []).map((item) => item.genre)),
       role: role === 'artist' ? 'Çizer' : 'Yazar',
     },
     sourceLinks: mergeSourceLinks(
-      [createSourceLink('mangaupdates', sourceUrl, 'person', title)],
+      sourceUrl ? [createSourceLink('mangaupdates', sourceUrl, 'person', title)] : undefined,
       website
         ? [{ source: 'mangaupdates', url: website, kind: 'external', label: 'Official Website' }]
         : undefined,
@@ -1891,138 +2115,905 @@ const buildMangaUpdatesPersonDraft = async (
 };
 
 const tryBuildMangaUpdatesPersonDraft = async (
-  sourceUrl: string,
+  reference: MangaUpdatesAuthorReference,
   role: 'author' | 'artist',
 ): Promise<ImportedPersonDraft | null> => {
   try {
-    return await buildMangaUpdatesPersonDraft(sourceUrl, role);
+    return await buildMangaUpdatesPersonDraft(reference, role);
   } catch (error) {
-    console.warn(`MangaUpdates ${role} import skipped`, { sourceUrl, error });
+    console.warn(`MangaUpdates ${role} import skipped`, { reference, error });
     return null;
   }
 };
 
 const searchMangaUpdatesCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
   if (MANGA_UPDATES_HOST_PATTERN.test(input) && input.includes('/series/')) {
-    return [{
+    const slugTitle = normalizeText(input.split('/').pop()?.replace(/-/g, ' ')) || 'MangaUpdates series';
+    const exactMatch = (await getMangaUpdatesSearchRecords(slugTitle))
+      .map((item) => mapMangaUpdatesSearchCandidate(item))
+      .filter((item): item is SourceSearchCandidate => item !== null)
+      .find((item) => normalizeComparableUrl(item.url) === normalizeComparableUrl(input));
+
+    return [exactMatch || {
       id: parseMangaUpdatesSeriesPath(input) || input,
       source: 'mangaupdates',
-      title: normalizeText(input.split('/').pop()?.replace(/-/g, ' ')) || 'MangaUpdates series',
+      title: slugTitle,
       url: input,
     }];
   }
 
-  const searchUrl = MANGA_UPDATES_HOST_PATTERN.test(input)
-    ? input
-    : `https://www.mangaupdates.com/site/search/result?search=${encodeURIComponent(input)}`;
-  let html: string;
-
-  try {
-    html = await fetchScraperContent(searchUrl);
-  } catch (error) {
-    if (!MANGA_UPDATES_HOST_PATTERN.test(input)) {
-      throw new Error('MangaUpdates aramasi reddedildi. Mumkunse direkt seri linki ile tekrar dene.');
-    }
-
-    throw error;
-  }
-
-  const doc = parseHtml(html);
-  const anchors = Array.from(doc.querySelectorAll('a[href*="/series/"]'));
-  const seen = new Set<string>();
-  const results: SourceSearchCandidate[] = [];
-
-  for (const anchor of anchors) {
-    const title = normalizeText(anchor.textContent);
-    const url = normalizeText(anchor.getAttribute('href'));
-    if (!title || !url || seen.has(url)) {
-      continue;
-    }
-
-    seen.add(url);
-    results.push({
-      id: parseMangaUpdatesSeriesPath(url) || url,
-      source: 'mangaupdates',
-      title,
-      url,
-    });
-
-    if (results.length >= 8) {
-      break;
-    }
-  }
-
-  return results;
+  return (await getMangaUpdatesSearchRecords(input))
+    .map((item) => mapMangaUpdatesSearchCandidate(item))
+    .filter((item): item is SourceSearchCandidate => item !== null)
+    .slice(0, 8);
 };
 
 const loadMangaUpdatesPreview = async (
   candidate: SourceSearchCandidate,
   enabledOptions: Partial<Record<ImportOptionKey, boolean>>,
 ): Promise<ImportedMangaPayload> => {
-  const html = await fetchScraperContent(candidate.url);
-  const doc = parseHtml(html);
-  const structuredData = getMangaUpdatesStructuredData(doc);
-  const parsedDescription = parseMangaUpdatesDescriptionBlock(
-    structuredData?.description || getInfoBoxText(doc, 'description'),
+  const series = await resolveMangaUpdatesSeriesDetails(candidate);
+  const parsedDescription = parseMangaUpdatesDescriptionBlock(series.description);
+  const preview = createEmptyPreview(
+    'mangaupdates',
+    normalizeText(series.url) || candidate.url,
+    getMangaUpdatesSeriesTitle(series) || candidate.title,
   );
-  const preview = createEmptyPreview('mangaupdates', candidate.url, getMangaUpdatesTitle(doc) || candidate.title);
 
-  preview.cover = normalizeText(structuredData?.image) || getMangaUpdatesImage(doc) || undefined;
+  preview.sourceId = normalizeText(`${series.series_id || candidate.id}`);
+  preview.cover = getMangaUpdatesSeriesImage(series) || undefined;
   preview.description = parsedDescription.description || undefined;
-  preview.alternativeTitles = uniqueStrings([
-    ...(structuredData?.alternateName || []),
-    ...getInfoBoxLines(doc, 'associated'),
+  preview.alternativeTitles = uniqueStrings((series.associated || []).map((item) => item.title));
+  preview.genres = uniqueStrings((series.genres || []).map((item) => item.genre));
+  preview.tags = uniqueStrings([
+    ...preview.genres,
+    ...(series.categories || []).map((item) => item.name),
   ]);
-  preview.genres = uniqueStrings([
-    ...(structuredData?.genre || []),
-    ...getInfoBoxLinks(doc, 'genres').map((item) => item.title),
-  ]);
-  preview.tags = preview.genres.slice();
-  preview.relatedSeries = getInfoBoxLines(doc, 'related_series').map((line) => {
-    const match = line.match(/^(.*?)\s*\(([^)]+)\)\s*$/);
-    return {
-      title: normalizeText(match?.[1] || line),
-      relationType: normalizeRelationType(match?.[2]),
-    };
-  });
+  preview.relatedSeries = (series.related_series || [])
+    .map((item) => ({
+      title: normalizeText(item.related_series_name),
+      relationType: normalizeRelationType(item.relation_type),
+      sourceUrl: normalizeText(item.url) || undefined,
+    }))
+    .filter((item) => item.title);
   preview.details = {
-    originalPublisher: uniqueStrings([
-      ...getInfoBoxLinks(doc, 'original_publisher').map((item) => item.title),
-      ...((structuredData?.publisher || []) as Array<{ name?: string }>).map((item) => item.name || ''),
-    ]).join(', ') || undefined,
+    originalPublisher: uniqueStrings((series.publishers || []).map((item) => item.publisher_name)).join(', ') || undefined,
     officialTranslations: parsedDescription.officialTranslations,
     originalWebtoon: parsedDescription.originalWebtoon,
     genres: preview.genres,
-    status: getInfoBoxText(doc, 'status') || undefined,
-    startDate: undefined,
-    endDate: undefined,
-    sourceMaterial: getInfoBoxText(doc, 'type') || undefined,
+    status: normalizeText(series.status?.status) || undefined,
+    sourceMaterial: normalizeText(series.type) || undefined,
+    comments: normalizeText(series.status?.status) || undefined,
     extra: {
-      typeLabel: getInfoBoxText(doc, 'type') || undefined,
-      year: toYear(getInfoBoxText(doc, 'year') || structuredData?.datePublished),
-      statusInOrigin: getInfoBoxText(doc, 'status') || undefined,
+      typeLabel: normalizeText(series.type) || undefined,
+      year: toYear(`${series.year || ''}`),
+      statusInOrigin: normalizeText(series.status?.status) || undefined,
+      categories: uniqueStrings((series.categories || []).map((item) => item.name)),
+    },
+  };
+
+  if (enabledOptions.authors || enabledOptions.artists) {
+    for (const reference of series.authors || []) {
+      const resolvedRole = classifyMangaUpdatesAuthorRole(reference.type);
+      const draft = await tryBuildMangaUpdatesPersonDraft(
+        reference,
+        resolvedRole === 'artist' ? 'artist' : 'author',
+      );
+      if (!draft) {
+        continue;
+      }
+
+      if (resolvedRole === 'artist') {
+        if (enabledOptions.artists) {
+          preview.artists.push(draft);
+        }
+      } else if (resolvedRole === 'both') {
+        if (enabledOptions.authors) {
+          preview.authors.push(draft);
+        }
+        if (enabledOptions.artists) {
+          preview.artists.push({ ...draft, details: { ...draft.details, role: 'Çizer' } });
+        }
+      } else if (enabledOptions.authors) {
+        preview.authors.push(draft);
+      }
+    }
+  }
+
+  return preview;
+};
+
+const stripHtmlText = (value?: string | null) => (
+  normalizeText(value ? parseHtmlFragment(value).body.textContent : '')
+);
+
+const extractFandomInternalLinks = (scope: ParentNode, baseUrl: string): FandomInternalLink[] => uniqueByUrl(
+  Array.from(scope.querySelectorAll<HTMLAnchorElement>('a[href]'))
+    .map((anchor) => {
+      const href = normalizeText(anchor.getAttribute('href'));
+      if (!href || href.startsWith('#')) {
+        return null;
+      }
+
+      const url = toAbsoluteUrl(href, baseUrl);
+      if (!url.includes('/wiki/')) {
+        return null;
+      }
+
+      const page = parseFandomWikiInput(url);
+      if (!page) {
+        return null;
+      }
+
+      if (/^(?:File|Category|Special|Template|User|Help|Thread):/i.test(page.pageTitle)) {
+        return null;
+      }
+
+      return {
+        title: normalizeText(anchor.textContent) || page.pageTitle,
+        url: page.pageUrl,
+      };
+    })
+    .filter((item): item is FandomInternalLink => item !== null),
+);
+
+const buildFandomSections = (doc: Document): FandomSection[] => {
+  const root = doc.querySelector('.mw-parser-output');
+  if (!root) {
+    return [];
+  }
+
+  const sections: FandomSection[] = [];
+  let current: FandomSection = {
+    title: '',
+    level: 1,
+    nodes: [],
+  };
+
+  for (const child of Array.from(root.children)) {
+    const tagName = child.tagName.toUpperCase();
+    if (/^H[2-4]$/.test(tagName)) {
+      sections.push(current);
+      current = {
+        title: normalizeText(child.textContent).replace(/\[.*?\]$/g, ''),
+        level: Number(tagName.slice(1)),
+        nodes: [],
+      };
+      continue;
+    }
+
+    if (
+      child.classList.contains('toc')
+      || child.classList.contains('navbox')
+      || child.classList.contains('mw-references-wrap')
+    ) {
+      continue;
+    }
+
+    current.nodes.push(child);
+  }
+
+  sections.push(current);
+  return sections;
+};
+
+const buildFandomInfoboxFields = (doc: Document, pageUrl: string): FandomInfoboxField[] => (
+  Array.from(doc.querySelectorAll<HTMLElement>('.portable-infobox [data-source]'))
+    .map((item) => {
+      const key = normalizeText(item.getAttribute('data-source'));
+      const label = normalizeText(item.querySelector('.pi-data-label')?.textContent) || key;
+      const valueNode = item.querySelector('.pi-data-value') as HTMLElement | null;
+      const text = normalizeText(valueNode?.textContent || item.textContent);
+      const html = valueNode?.innerHTML || item.innerHTML;
+      const links = valueNode ? extractFandomInternalLinks(valueNode, pageUrl) : [];
+
+      if (!key && !label) {
+        return null;
+      }
+
+      return {
+        key,
+        label,
+        text,
+        html,
+        links,
+      } satisfies FandomInfoboxField;
+    })
+    .filter((item): item is FandomInfoboxField => item !== null),
+);
+
+const buildFandomParseUrl = (origin: string, pageTitle: string) => (
+  `${origin}/api.php?action=parse&page=${encodeURIComponent(pageTitle)}&prop=text|links|sections|displaytitle&format=json&formatversion=2&redirects=1&origin=*`
+);
+
+const extractFandomParseHtml = (parsePayload: any) => (
+  typeof parsePayload?.text === 'string'
+    ? parsePayload.text
+    : parsePayload?.text?.['*']
+);
+
+const searchFandomPageTitle = async (origin: string, query: string) => {
+  const normalizedQuery = normalizeText(query).replace(/_/g, ' ');
+  if (!normalizedQuery) {
+    return '';
+  }
+
+  const url = `${origin}/api.php?action=query&list=search&srsearch=${encodeURIComponent(normalizedQuery)}&srlimit=1&format=json&formatversion=2&origin=*`;
+  const payload = await getJson<any>(url, undefined, 1).catch(() => null);
+  return normalizeText(payload?.query?.search?.[0]?.title);
+};
+
+const fetchFandomParsedPage = async (origin: string, pageTitle: string): Promise<FandomParsedPage> => {
+  let resolvedRequestTitle = normalizeText(pageTitle);
+  let parsePayload = await getJson<any>(buildFandomParseUrl(origin, resolvedRequestTitle))
+    .then((payload) => payload?.parse)
+    .catch(() => null);
+  let html = extractFandomParseHtml(parsePayload);
+
+  if (!html) {
+    const fallbackTitle = await searchFandomPageTitle(origin, resolvedRequestTitle);
+    if (fallbackTitle && normalizeKey(fallbackTitle) !== normalizeKey(resolvedRequestTitle)) {
+      resolvedRequestTitle = fallbackTitle;
+      parsePayload = await getJson<any>(buildFandomParseUrl(origin, resolvedRequestTitle))
+        .then((payload) => payload?.parse)
+        .catch(() => null);
+      html = extractFandomParseHtml(parsePayload);
+    }
+  }
+
+  if (!html) {
+    throw new Error(`Fandom sayfası okunamadı: ${normalizeText(pageTitle) || 'unknown page'}`);
+  }
+
+  const doc = parseHtml(`<body>${html}</body>`);
+  const resolvedTitle = normalizeText(parsePayload?.title) || resolvedRequestTitle || normalizeText(pageTitle);
+  const displayTitle = stripHtmlText(parsePayload?.displaytitle) || resolvedTitle;
+  const pageUrl = buildFandomPageUrl(origin, resolvedTitle);
+
+  return {
+    origin,
+    title: resolvedTitle,
+    displayTitle,
+    pageUrl,
+    doc,
+    sections: buildFandomSections(doc),
+    infoboxFields: buildFandomInfoboxFields(doc, pageUrl),
+  };
+};
+
+const getFandomField = (page: FandomParsedPage, ...keys: string[]) => {
+  const normalizedKeys = keys.map((key) => normalizeKey(key)).filter(Boolean);
+  return page.infoboxFields.find((field) => (
+    normalizedKeys.includes(normalizeKey(field.key))
+    || normalizedKeys.includes(normalizeKey(field.label))
+  ));
+};
+
+const getFandomFieldText = (page: FandomParsedPage, ...keys: string[]) => (
+  getFandomField(page, ...keys)?.text || ''
+);
+
+const getFandomFieldLinks = (page: FandomParsedPage, ...keys: string[]) => (
+  getFandomField(page, ...keys)?.links || []
+);
+
+const splitFandomValues = (value?: string | null) => uniqueStrings(
+  normalizeText(value)
+    .replace(/\s*[|/]\s*/g, ', ')
+    .split(/(?:\r?\n|,|;|\u2022)+/)
+    .map((item) => normalizeText(item)),
+);
+
+const getFandomLeadParagraphs = (page: FandomParsedPage, limit = 2) => {
+  const root = page.doc.querySelector('.mw-parser-output');
+  if (!root) {
+    return [];
+  }
+
+  const paragraphs: string[] = [];
+  for (const child of Array.from(root.children)) {
+    if (/^H[2-4]$/i.test(child.tagName)) {
+      break;
+    }
+
+    if (child.tagName.toUpperCase() !== 'P') {
+      continue;
+    }
+
+    const text = normalizeText(child.textContent);
+    if (!text) {
+      continue;
+    }
+
+    paragraphs.push(text);
+    if (paragraphs.length >= limit) {
+      break;
+    }
+  }
+
+  return paragraphs;
+};
+
+const getFandomSectionParagraphs = (
+  page: FandomParsedPage,
+  labels: string[],
+  limit = 4,
+) => {
+  const labelKeys = labels.map((label) => normalizeKey(label)).filter(Boolean);
+
+  for (const section of page.sections) {
+    const sectionKey = normalizeKey(section.title);
+    if (!sectionKey || !labelKeys.some((label) => sectionKey.includes(label) || label.includes(sectionKey))) {
+      continue;
+    }
+
+    const collected: string[] = [];
+    for (const node of section.nodes) {
+      if (!['P', 'UL', 'OL', 'DIV'].includes(node.tagName.toUpperCase())) {
+        continue;
+      }
+
+      const text = normalizeText(node.textContent);
+      if (!text) {
+        continue;
+      }
+
+      collected.push(text);
+      if (collected.length >= limit) {
+        break;
+      }
+    }
+
+    return collected;
+  }
+
+  return [];
+};
+
+const buildFandomGallery = (
+  page: FandomParsedPage,
+  labelPrefix: string,
+): EntityGalleryImage[] => uniqueByUrl(
+  [
+    ...Array.from(page.doc.querySelectorAll('.portable-infobox img')),
+    ...page.sections
+      .filter((section) => normalizeKey(section.title).includes('gallery'))
+      .flatMap((section) => section.nodes.flatMap((node) => Array.from(node.querySelectorAll('img')))),
+  ]
+    .map((image, index) => {
+      const url = sanitizeEntityImageUrl(getImageUrlFromElement(image));
+      if (!url) {
+        return null;
+      }
+
+      return {
+        url,
+        thumbUrl: url,
+        source: 'fandom' as const,
+        sourceUrl: page.pageUrl,
+        label: `${labelPrefix} ${index + 1}`,
+      };
+    })
+    .filter((item): item is EntityGalleryImage => item !== null),
+);
+
+const extractFandomAltTitles = (text: string) => {
+  const titles: string[] = [];
+
+  for (const match of text.matchAll(/\(([^()]+)\)/g)) {
+    for (const pair of match[1].split(/[;|]/)) {
+      const titleMatch = pair.match(/(?:english|korean|japanese|mandarin|chinese|romanized|romaji)\s*:\s*([^,)]+)/i);
+      if (titleMatch?.[1]) {
+        titles.push(titleMatch[1]);
+      }
+    }
+  }
+
+  const akaMatch = text.match(/(?:also known as|aka)\s+(.+?)(?:[.。]|$)/i);
+  if (akaMatch?.[1]) {
+    titles.push(...akaMatch[1].split(/[,;]/));
+  }
+
+  return uniqueStrings(titles);
+};
+
+const getFandomExternalLinkLabels = (page: FandomParsedPage, labels: string[]) => {
+  const labelKeys = labels.map((label) => normalizeKey(label)).filter(Boolean);
+  const links: string[] = [];
+
+  for (const section of page.sections) {
+    const sectionKey = normalizeKey(section.title);
+    if (!sectionKey || !labelKeys.some((label) => sectionKey.includes(label) || label.includes(sectionKey))) {
+      continue;
+    }
+
+    for (const node of section.nodes) {
+      for (const anchor of Array.from(node.querySelectorAll<HTMLAnchorElement>('a[href]'))) {
+        const href = normalizeText(anchor.getAttribute('href'));
+        if (!href || href.startsWith('#')) {
+          continue;
+        }
+
+        const absolute = toAbsoluteUrl(href, page.pageUrl);
+        try {
+          if (new URL(absolute).origin === page.origin) {
+            continue;
+          }
+        } catch {
+          continue;
+        }
+
+        const label = normalizeText(anchor.textContent);
+        if (label) {
+          links.push(label);
+        }
+      }
+    }
+  }
+
+  return uniqueStrings(links);
+};
+
+const inferFandomSeriesType = (page: FandomParsedPage) => {
+  const titleKey = normalizeKey(page.title);
+  const leadKey = normalizeKey(getFandomLeadParagraphs(page, 1).join(' '));
+  const combinedKey = `${titleKey} ${leadKey}`.trim();
+
+  if (combinedKey.includes('webtoon') || combinedKey.includes('webcomic')) {
+    return 'webtoon';
+  }
+
+  if (combinedKey.includes('manhwa')) {
+    return 'manhwa';
+  }
+
+  if (combinedKey.includes('manhua')) {
+    return 'manhua';
+  }
+
+  return 'manga';
+};
+
+const isLikelyFandomSeriesPage = (page: FandomParsedPage) => {
+  const pageKey = normalizeKey(page.title);
+  if (pageKey === 'characters' || pageKey.endsWith(' wiki')) {
+    return false;
+  }
+
+  return Boolean(
+    getFandomField(page, 'author', 'artist', 'genre', 'publisher', 'status', 'chapters', 'volumes', 'seasons', 'ogrun', 'original run'),
+  );
+};
+
+const scoreFandomSeriesLink = (link: FandomInternalLink) => {
+  const key = normalizeKey(link.title);
+  let score = 0;
+
+  if (key.includes('webcomic')) score += 120;
+  if (key.includes('webtoon')) score += 115;
+  if (key.includes('manhwa')) score += 100;
+  if (key.includes('manga')) score += 95;
+  if (key.includes('comic')) score += 90;
+  if (key.includes('characters')) score -= 120;
+  if (key.includes('wiki')) score -= 90;
+  if (key.includes('anime')) score -= 40;
+  if (key.includes('novel')) score -= 25;
+
+  return score;
+};
+
+const resolveFandomSeriesPage = async (entryPage: FandomParsedPage) => {
+  if (isLikelyFandomSeriesPage(entryPage)) {
+    return entryPage;
+  }
+
+  const rankedLinks = extractFandomInternalLinks(entryPage.doc, entryPage.pageUrl)
+    .map((link) => ({ link, score: scoreFandomSeriesLink(link) }))
+    .filter((item) => item.score > 0)
+    .sort((left, right) => right.score - left.score)
+    .slice(0, 6);
+
+  for (const item of rankedLinks) {
+    const target = parseFandomWikiInput(item.link.url);
+    if (!target) {
+      continue;
+    }
+
+    try {
+      const page = await fetchFandomParsedPage(entryPage.origin, target.pageTitle);
+      if (isLikelyFandomSeriesPage(page)) {
+        return page;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  throw new Error('Fandom üzerinde uygun seri sayfası bulunamadı.');
+};
+
+const resolveFandomCharactersPage = async (entryPage: FandomParsedPage, seriesPage: FandomParsedPage) => {
+  if (normalizeKey(entryPage.title) === 'characters') {
+    return entryPage;
+  }
+
+  const candidates = uniqueByUrl(
+    [
+      ...extractFandomInternalLinks(entryPage.doc, entryPage.pageUrl),
+      ...extractFandomInternalLinks(seriesPage.doc, seriesPage.pageUrl),
+      {
+        title: 'Characters',
+        url: buildFandomPageUrl(seriesPage.origin, 'Characters'),
+      },
+    ],
+  );
+
+  for (const link of candidates) {
+    const target = parseFandomWikiInput(link.url);
+    if (!target) {
+      continue;
+    }
+
+    if (normalizeKey(link.title) !== 'characters' && normalizeKey(target.pageTitle) !== 'characters') {
+      continue;
+    }
+
+    try {
+      return await fetchFandomParsedPage(seriesPage.origin, target.pageTitle);
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+};
+
+const FANDOM_CHARACTER_BLACKLIST = new Set([
+  'characters',
+  'the beginning after the end',
+  'the beginning after the end wiki',
+  'novel',
+  'webcomic',
+  'anime',
+  'chapters',
+  'volumes and chapters',
+  'main page',
+  'turtleme',
+  'locations',
+  'magic and objects',
+  'timeline',
+  'humans',
+  'elves',
+  'dwarves',
+  'djinn',
+]);
+
+const normalizeFandomCharacterRole = (label?: string | null): CharacterListingRole | undefined => {
+  const normalized = normalizeKey(label);
+  if (normalized.includes('main')) {
+    return 'main';
+  }
+
+  if (normalized.includes('support')) {
+    return 'supporting';
+  }
+
+  if (normalized.includes('minor')) {
+    return 'minor';
+  }
+
+  return undefined;
+};
+
+const extractFandomCharacterEntries = (page: FandomParsedPage) => {
+  const root = page.doc.querySelector('.mw-parser-output');
+  if (!root) {
+    return [] as Array<{ title: string; url: string; roleLabel?: string; roleType?: CharacterListingRole }>;
+  }
+
+  const entries: Array<{ title: string; url: string; roleLabel?: string; roleType?: CharacterListingRole }> = [];
+  const seenUrls = new Set<string>();
+  const seenTitles = new Set<string>();
+  let currentHeading = 'Characters';
+
+  for (const child of Array.from(root.children)) {
+    if (/^H[2-4]$/i.test(child.tagName)) {
+      currentHeading = normalizeText(child.textContent).replace(/\[.*?\]$/g, '') || currentHeading;
+      continue;
+    }
+
+    const blockLinks = extractFandomInternalLinks(child, page.pageUrl);
+    for (const link of blockLinks) {
+      const linkKey = normalizeKey(link.title);
+      const parsedLink = parseFandomWikiInput(link.url);
+      const canonicalUrl = parsedLink
+        ? buildFandomPageUrl(parsedLink.origin, parsedLink.pageTitle)
+        : normalizeText(link.url);
+      const isRedLink = (() => {
+        try {
+          const parsed = new URL(link.url);
+          return parsed.searchParams.get('redlink') === '1' || parsed.searchParams.get('action') === 'edit';
+        } catch {
+          return false;
+        }
+      })();
+
+      if (
+        !linkKey
+        || FANDOM_CHARACTER_BLACKLIST.has(linkKey)
+        || linkKey === normalizeKey(currentHeading)
+        || linkKey.includes('family')
+        || isRedLink
+      ) {
+        continue;
+      }
+
+      if ((canonicalUrl && seenUrls.has(canonicalUrl)) || seenTitles.has(linkKey)) {
+        continue;
+      }
+
+      if (canonicalUrl) {
+        seenUrls.add(canonicalUrl);
+      }
+      seenTitles.add(linkKey);
+      entries.push({
+        title: link.title,
+        url: canonicalUrl || link.url,
+        roleLabel: currentHeading,
+        roleType: normalizeFandomCharacterRole(currentHeading),
+      });
+    }
+  }
+
+  return entries;
+};
+
+const isLikelyFandomCharacterPage = (page: FandomParsedPage) => (
+  Boolean(
+    getFandomField(page, 'gender', 'race', 'status', 'age', 'aliases', 'occupation', 'relatives', 'affiliation')
+    || getFandomSectionParagraphs(page, ['appearance', 'personality', 'background'], 1).length > 0
+  )
+);
+
+const buildFandomStaffDraft = async (
+  link: FandomInternalLink,
+  role: 'author' | 'artist',
+  includeGallery: boolean,
+): Promise<ImportedPersonDraft> => {
+  const target = parseFandomWikiInput(link.url);
+  if (!target) {
+    return createImportedPersonDraft('fandom', link.title, link.url, {
+      details: {
+        role: role === 'artist' ? 'Çizer' : 'Yazar',
+      },
+    });
+  }
+
+  const page = await fetchFandomParsedPage(target.origin, target.pageTitle);
+  const leadParagraphs = getFandomLeadParagraphs(page);
+  const backgroundParagraphs = getFandomSectionParagraphs(page, ['background', 'biography', 'history'], 2);
+  const actualNameMatch = leadParagraphs
+    .join(' ')
+    .match(/^([^,]+),\s*(?:better known as|best known as|pen name)\s+([^.,]+)(?:[.,]|$)/i);
+
+  return createImportedPersonDraft('fandom', page.displayTitle || link.title, page.pageUrl, {
+    description: uniqueStrings([...leadParagraphs, ...backgroundParagraphs]).join('\n\n') || undefined,
+    alternativeNames: uniqueStrings([
+      actualNameMatch
+        ? (
+            normalizeKey(actualNameMatch[1]) === normalizeKey(page.displayTitle)
+              ? actualNameMatch[2]
+              : actualNameMatch[1]
+          )
+        : undefined,
+      ...splitFandomValues(getFandomFieldText(page, 'alias', 'aliases')),
+    ]),
+    imageUrl: buildFandomGallery(page, `${page.displayTitle} Image`)[0]?.url,
+    details: {
+      age: normalizeText(getFandomFieldText(page, 'age')) || undefined,
+      birthday: normalizeText(getFandomFieldText(page, 'birthday')) || undefined,
+      birthPlace: normalizeText(getFandomFieldText(page, 'birthplace')) || undefined,
+      occupation: normalizeText(getFandomFieldText(page, 'occupation')) || undefined,
+      status: normalizeText(getFandomFieldText(page, 'status')) || undefined,
+      role: role === 'artist' ? 'Çizer' : 'Yazar',
+      comments: backgroundParagraphs[0] || undefined,
+    },
+    gallery: includeGallery ? buildFandomGallery(page, `${page.displayTitle} Gallery`) : [],
+  });
+};
+
+const buildFandomCharacterDraft = async (
+  link: { title: string; url: string; roleLabel?: string; roleType?: CharacterListingRole },
+  includeGallery: boolean,
+): Promise<ImportedCharacterDraft> => {
+  const target = parseFandomWikiInput(link.url);
+  if (!target) {
+    return {
+      ...createImportedPersonDraft('fandom', link.title, link.url),
+      roleLabel: link.roleLabel,
+      roleType: link.roleType,
+    };
+  }
+
+  const page = await fetchFandomParsedPage(target.origin, target.pageTitle);
+  if (!isLikelyFandomCharacterPage(page)) {
+    throw new Error(`Fandom character page not recognized: ${page.title}`);
+  }
+  const leadParagraphs = getFandomLeadParagraphs(page);
+  const detailParagraphs = uniqueStrings([
+    ...getFandomSectionParagraphs(page, ['appearance'], 1),
+    ...getFandomSectionParagraphs(page, ['personality'], 1),
+    ...getFandomSectionParagraphs(page, ['background'], 2),
+  ]);
+
+  return {
+    ...createImportedPersonDraft('fandom', page.displayTitle || link.title, page.pageUrl, {
+      imageUrl: buildFandomGallery(page, 'Image')[0]?.url,
+      description: sanitizeCharacterDescription(uniqueStrings([...leadParagraphs, ...detailParagraphs]).join('\n\n')) || undefined,
+      alternativeNames: uniqueStrings([
+        ...splitFandomValues(getFandomFieldText(page, 'aliases', 'alias')),
+      ]),
+      details: {
+        age: normalizeText(getFandomFieldText(page, 'age')) || undefined,
+        birthday: normalizeText(getFandomFieldText(page, 'birthday')) || undefined,
+        birthPlace: normalizeText(getFandomFieldText(page, 'birthplace')) || undefined,
+        gender: normalizeText(getFandomFieldText(page, 'gender')) || undefined,
+        occupation: normalizeText(getFandomFieldText(page, 'occupation')) || undefined,
+        className: normalizeText(getFandomFieldText(page, 'race')) || undefined,
+        rankTitle: normalizeText(getFandomFieldText(page, 'adventurer_rank', 'division', 'mana_core')) || undefined,
+        affiliation: mergeStringLists(
+          splitFandomValues(getFandomFieldText(page, 'affiliation')),
+          splitFandomValues(getFandomFieldText(page, 'division')),
+        ),
+        relatives: splitFandomValues(getFandomFieldText(page, 'relatives')),
+        status: normalizeText(getFandomFieldText(page, 'status')) || undefined,
+        comments: getFandomSectionParagraphs(page, ['notes', 'trivia'], 1)[0] || undefined,
+        extra: {
+          mentor: normalizeText(getFandomFieldText(page, 'mentor')) || undefined,
+          weapon: normalizeText(getFandomFieldText(page, 'weapon')) || undefined,
+          beastBond: normalizeText(getFandomFieldText(page, 'beast_bond')) || undefined,
+          beastWill: normalizeText(getFandomFieldText(page, 'beast_will')) || undefined,
+          deviant: normalizeText(getFandomFieldText(page, 'deviant')) || undefined,
+          aetherAffinity: normalizeText(getFandomFieldText(page, 'aether_affinity')) || undefined,
+          novelAppearance: normalizeText(getFandomFieldText(page, 'novel_appearance')) || undefined,
+          webcomicAppearance: normalizeText(getFandomFieldText(page, 'webcomic_appearance')) || undefined,
+        },
+      },
+      gallery: includeGallery ? buildFandomGallery(page, `${page.displayTitle} Gallery`) : [],
+    }),
+    roleLabel: normalizeText(link.roleLabel) || undefined,
+    roleType: link.roleType,
+  };
+};
+
+const tryBuildFandomCharacterDraft = async (
+  link: { title: string; url: string; roleLabel?: string; roleType?: CharacterListingRole },
+  includeGallery: boolean,
+): Promise<ImportedCharacterDraft | null> => {
+  try {
+    return await buildFandomCharacterDraft(link, includeGallery);
+  } catch (error) {
+    console.warn('Fandom character import skipped', { link, error });
+    return null;
+  }
+};
+
+const searchFandomCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
+  const target = parseFandomWikiInput(input);
+  if (!target) {
+    throw new Error('Fandom import şimdilik direkt wiki linki ile çalışır.');
+  }
+
+  const page = await fetchFandomParsedPage(target.origin, target.pageTitle).catch(() => null);
+  return [{
+    id: page?.pageUrl || target.pageUrl,
+    source: 'fandom',
+    title: page?.displayTitle || target.pageTitle,
+    subtitle: target.origin.replace(/^https?:\/\//i, ''),
+    url: target.pageUrl,
+  }];
+};
+
+const loadFandomPreview = async (
+  candidate: SourceSearchCandidate,
+  enabledOptions: Partial<Record<ImportOptionKey, boolean>>,
+): Promise<ImportedMangaPayload> => {
+  const target = parseFandomWikiInput(candidate.url);
+  if (!target) {
+    throw new Error('Geçerli bir Fandom / wiki linki gir.');
+  }
+
+  const entryPage = await fetchFandomParsedPage(target.origin, target.pageTitle);
+  const seriesPage = await resolveFandomSeriesPage(entryPage);
+  const preview = createEmptyPreview('fandom', seriesPage.pageUrl, seriesPage.displayTitle || candidate.title);
+  const leadParagraphs = getFandomLeadParagraphs(seriesPage, 2);
+  const synopsisParagraphs = uniqueStrings([
+    ...getFandomSectionParagraphs(seriesPage, ['synopsis'], 2),
+    ...getFandomSectionParagraphs(seriesPage, ['summary'], 2),
+    ...getFandomSectionParagraphs(seriesPage, ['plot'], 2),
+  ]);
+  const seriesGallery = buildFandomGallery(seriesPage, 'Seri Görseli');
+  const seriesType = inferFandomSeriesType(seriesPage);
+  const genreValues = splitFandomValues(getFandomFieldText(seriesPage, 'genre', 'genres'));
+  const externalLinkLabels = getFandomExternalLinkLabels(seriesPage, ['external links', 'links']);
+
+  preview.cover = seriesGallery[0]?.url;
+  preview.gallery = enabledOptions.gallery ? seriesGallery : [];
+  preview.description = uniqueStrings([...leadParagraphs, ...synopsisParagraphs]).join('\n\n') || undefined;
+  preview.alternativeTitles = uniqueStrings([
+    ...leadParagraphs.flatMap((text) => extractFandomAltTitles(text)),
+    ...splitFandomValues(getFandomFieldText(seriesPage, 'alternative titles', 'alt titles')),
+  ]);
+  preview.genres = genreValues;
+  preview.tags = uniqueStrings([
+    ...genreValues,
+    seriesType === 'webtoon' ? 'Webtoon' : undefined,
+  ]);
+  preview.details = {
+    status: normalizeText(getFandomFieldText(seriesPage, 'status')) || undefined,
+    originalPublisher: normalizeText(getFandomFieldText(seriesPage, 'publisher')) || undefined,
+    chapters: Number(normalizeText(getFandomFieldText(seriesPage, 'chapters')).replace(/[^\d]/g, '')) || undefined,
+    volumes: Number(normalizeText(getFandomFieldText(seriesPage, 'volumes')).replace(/[^\d]/g, '')) || undefined,
+    officialTranslations: externalLinkLabels,
+    genres: preview.genres,
+    sourceMaterial: seriesType,
+    extra: {
+      seasons: Number(normalizeText(getFandomFieldText(seriesPage, 'seasons')).replace(/[^\d]/g, '')) || undefined,
+      originalRunText: normalizeText(getFandomFieldText(seriesPage, 'ogrun', 'original run')) || undefined,
+      fandomEntryUrl: entryPage.pageUrl,
     },
   };
 
   if (enabledOptions.authors) {
-    for (const link of getInfoBoxLinks(doc, 'authors')) {
-      const authorDraft = await tryBuildMangaUpdatesPersonDraft(link.url, 'author');
-      if (authorDraft) {
-        preview.authors.push(authorDraft);
-      }
-    }
+    const authorLinks = getFandomFieldLinks(seriesPage, 'author', 'authors');
+    const authorNames = splitFandomValues(getFandomFieldText(seriesPage, 'author', 'authors'));
+
+    preview.authors = authorLinks.length > 0
+      ? await mapWithConcurrency(authorLinks, 3, async (link) => (
+        buildFandomStaffDraft(link, 'author', !!enabledOptions.gallery)
+      ))
+      : authorNames.map((name) => createImportedPersonDraft('fandom', name, undefined, {
+        details: { role: 'Yazar' },
+      }));
   }
 
   if (enabledOptions.artists) {
-    for (const link of getInfoBoxLinks(doc, 'artists')) {
-      const artistDraft = await tryBuildMangaUpdatesPersonDraft(link.url, 'artist');
-      if (artistDraft) {
-        preview.artists.push(artistDraft);
-      }
-    }
+    const artistLinks = getFandomFieldLinks(seriesPage, 'artist', 'artists');
+    const artistNames = splitFandomValues(getFandomFieldText(seriesPage, 'artist', 'artists'));
+
+    preview.artists = artistLinks.length > 0
+      ? await mapWithConcurrency(artistLinks, 3, async (link) => (
+        buildFandomStaffDraft(link, 'artist', !!enabledOptions.gallery)
+      ))
+      : artistNames.map((name) => createImportedPersonDraft('fandom', name, undefined, {
+        details: { role: 'Çizer' },
+      }));
   }
 
-  preview.details.comments = getInfoBoxText(doc, 'status') || undefined;
+  if (enabledOptions.characters) {
+    const charactersPage = await resolveFandomCharactersPage(entryPage, seriesPage);
+    if (charactersPage) {
+      const characterEntries = extractFandomCharacterEntries(charactersPage).slice(0, MAX_IMPORT_ENTITY_COUNT);
+      const skippedCharacterTitles: string[] = [];
+      const characterDrafts = await mapWithConcurrency(characterEntries, 4, async (entry) => {
+        const draft = await tryBuildFandomCharacterDraft(entry, !!enabledOptions.gallery);
+        if (!draft) {
+          skippedCharacterTitles.push(entry.title);
+        }
+        return draft;
+      });
+      preview.characters = characterDrafts.filter((item): item is ImportedCharacterDraft => item !== null);
+
+      if (skippedCharacterTitles.length > 0) {
+        const listedTitles = uniqueStrings(skippedCharacterTitles).slice(0, 8).join(', ');
+        preview.warnings.push(
+          `Bazi Fandom karakter sayfalari atlandi: ${listedTitles}${skippedCharacterTitles.length > 8 ? '...' : ''}`,
+        );
+      }
+    } else {
+      preview.warnings.push('Wiki üzerinde ayrı bir Characters sayfası bulunamadı.');
+    }
+  }
 
   return preview;
 };
@@ -2707,9 +3698,9 @@ const parseAniSearchCharacterSection = (doc: Document) => {
 
   for (const section of Array.from(doc.querySelectorAll<HTMLElement>('section[id^="chara"]'))) {
     const headingText = normalizeText(section.querySelector('h2')?.textContent);
-    const roleType = headingText.toLocaleLowerCase('tr-TR').includes('main')
+    const roleType = normalizeComparableText(headingText).includes('main')
       ? 'main'
-      : headingText.toLocaleLowerCase('tr-TR').includes('secondary')
+      : normalizeComparableText(headingText).includes('secondary')
         ? 'supporting'
         : normalizeCharacterListingRole(headingText);
     const roleLabel = getCharacterListingRoleLabel(roleType) || headingText || undefined;
@@ -2793,7 +3784,7 @@ const buildAniSearchPersonDraft = async (
   const originalScript = normalizeText(
     Array.from(nameBlock?.querySelectorAll('span') || [])
       .map((element) => normalizeText(element.textContent))
-      .find((value) => value && !value.endsWith(':') && !value.toLocaleLowerCase('tr-TR').includes('screen name')),
+      .find((value) => value && !value.endsWith(':') && !normalizeComparableText(value).includes('screen name')),
   );
 
   return createImportedPersonDraft('anisearch', title || 'AniSearch person', sourceUrl, {
@@ -3148,6 +4139,21 @@ const mergeImportedPerson = <TEntity extends Character | Author | Artist>(
   sourceLinks: mergeSourceLinks(existing?.sourceLinks, draft.sourceLinks),
 }) as Partial<TEntity>;
 
+const applyMatchedEntitySelectionToDraft = <TDraft extends ImportedPersonDraft>(
+  draft: TDraft,
+  existing: Character | Author | Artist | null,
+): TDraft => {
+  if (!existing?.name || normalizeKey(existing.name) === normalizeKey(draft.name)) {
+    return draft;
+  }
+
+  return {
+    ...draft,
+    name: existing.name,
+    alternativeNames: mergeStringLists([draft.name], draft.alternativeNames),
+  };
+};
+
 const stripCharacterListingRoleMetadata = (details?: EntityMetadata): EntityMetadata | undefined => {
   if (!details) {
     return undefined;
@@ -3262,8 +4268,12 @@ const materializeImportedGallery = async ({
 };
 
 const resolveAuthor = async (draft: ImportedPersonDraft, importAsPublic: boolean) => {
-  const existing = await findAuthorByName(draft.name);
-  const payload = mergeImportedPerson(existing, draft, importAsPublic) as Partial<Author>;
+  const matchedExisting = draft.matchedEntityId && draft.matchedEntityType === 'author'
+    ? await getAuthorById(draft.matchedEntityId, { includePrivate: true }).then((item) => item || null)
+    : null;
+  const existing = matchedExisting || await findAuthorByName(draft.name);
+  const resolvedDraft = applyMatchedEntitySelectionToDraft(draft, existing);
+  const payload = mergeImportedPerson(existing, resolvedDraft, importAsPublic) as Partial<Author>;
 
   if (existing?.id) {
     const imageUrl = await materializeImportedImage({
@@ -3272,13 +4282,13 @@ const resolveAuthor = async (draft: ImportedPersonDraft, importAsPublic: boolean
       entityType: 'author',
       entityId: existing.id,
       variant: 'profile',
-      sourceName: draft.sourceLinks?.[0]?.source,
+      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
     });
     const gallery = await materializeImportedGallery({
       images: payload.gallery,
       entityType: 'author',
       entityId: existing.id,
-      sourceName: draft.sourceLinks?.[0]?.source,
+      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
     });
 
     const id = await saveAuthor({
@@ -3297,13 +4307,13 @@ const resolveAuthor = async (draft: ImportedPersonDraft, importAsPublic: boolean
     entityType: 'author',
     entityId: id,
     variant: 'profile',
-    sourceName: draft.sourceLinks?.[0]?.source,
+    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
   });
   const gallery = await materializeImportedGallery({
     images: payload.gallery,
     entityType: 'author',
     entityId: id,
-    sourceName: draft.sourceLinks?.[0]?.source,
+    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
   });
 
   if (imageUrl && imageUrl !== payload.imageUrl) {
@@ -3316,8 +4326,12 @@ const resolveAuthor = async (draft: ImportedPersonDraft, importAsPublic: boolean
 };
 
 const resolveArtist = async (draft: ImportedPersonDraft, importAsPublic: boolean) => {
-  const existing = await findArtistByName(draft.name);
-  const payload = mergeImportedPerson(existing, draft, importAsPublic) as Partial<Artist>;
+  const matchedExisting = draft.matchedEntityId && draft.matchedEntityType === 'artist'
+    ? await getArtistById(draft.matchedEntityId, { includePrivate: true }).then((item) => item || null)
+    : null;
+  const existing = matchedExisting || await findArtistByName(draft.name);
+  const resolvedDraft = applyMatchedEntitySelectionToDraft(draft, existing);
+  const payload = mergeImportedPerson(existing, resolvedDraft, importAsPublic) as Partial<Artist>;
 
   if (existing?.id) {
     const imageUrl = await materializeImportedImage({
@@ -3326,13 +4340,13 @@ const resolveArtist = async (draft: ImportedPersonDraft, importAsPublic: boolean
       entityType: 'artist',
       entityId: existing.id,
       variant: 'profile',
-      sourceName: draft.sourceLinks?.[0]?.source,
+      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
     });
     const gallery = await materializeImportedGallery({
       images: payload.gallery,
       entityType: 'artist',
       entityId: existing.id,
-      sourceName: draft.sourceLinks?.[0]?.source,
+      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
     });
 
     const id = await saveArtist({
@@ -3351,13 +4365,13 @@ const resolveArtist = async (draft: ImportedPersonDraft, importAsPublic: boolean
     entityType: 'artist',
     entityId: id,
     variant: 'profile',
-    sourceName: draft.sourceLinks?.[0]?.source,
+    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
   });
   const gallery = await materializeImportedGallery({
     images: payload.gallery,
     entityType: 'artist',
     entityId: id,
-    sourceName: draft.sourceLinks?.[0]?.source,
+    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
   });
 
   if (imageUrl && imageUrl !== payload.imageUrl) {
@@ -3370,10 +4384,14 @@ const resolveArtist = async (draft: ImportedPersonDraft, importAsPublic: boolean
 };
 
 const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: boolean) => {
-  const existing = await findCharacterByName(draft.name);
+  const matchedExisting = draft.matchedEntityId && draft.matchedEntityType === 'character'
+    ? await getCharacterById(draft.matchedEntityId, { includePrivate: true }).then((item) => item || null)
+    : null;
+  const existing = matchedExisting || await findCharacterByName(draft.name);
+  const resolvedDraft = applyMatchedEntitySelectionToDraft(draft, existing);
   const payload = mergeImportedPerson(existing, {
-    ...draft,
-    details: stripCharacterListingRoleMetadata(draft.details) || {},
+    ...resolvedDraft,
+    details: stripCharacterListingRoleMetadata(resolvedDraft.details) || {},
   }, importAsPublic) as Partial<Character>;
 
   if (existing?.id) {
@@ -3383,13 +4401,13 @@ const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: b
       entityType: 'character',
       entityId: existing.id,
       variant: 'profile',
-      sourceName: draft.sourceLinks?.[0]?.source,
+      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
     });
     const gallery = await materializeImportedGallery({
       images: payload.gallery,
       entityType: 'character',
       entityId: existing.id,
-      sourceName: draft.sourceLinks?.[0]?.source,
+      sourceName: resolvedDraft.sourceLinks?.[0]?.source,
     });
 
     const id = await saveCharacter({
@@ -3413,13 +4431,13 @@ const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: b
     entityType: 'character',
     entityId: id,
     variant: 'profile',
-    sourceName: draft.sourceLinks?.[0]?.source,
+    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
   });
   const gallery = await materializeImportedGallery({
     images: payload.gallery,
     entityType: 'character',
     entityId: id,
-    sourceName: draft.sourceLinks?.[0]?.source,
+    sourceName: resolvedDraft.sourceLinks?.[0]?.source,
   });
 
   if (imageUrl && imageUrl !== payload.imageUrl) {
@@ -3551,6 +4569,10 @@ export const searchMetadataImportCandidates = async (
     return searchAnimePlanetCandidates(query);
   }
 
+  if (source === 'fandom') {
+    return searchFandomCandidates(query);
+  }
+
   return [];
 };
 
@@ -3569,6 +4591,8 @@ export const loadMetadataImportPreview = async (
     preview = await loadMangaUpdatesPreview(candidate, enabledOptions);
   } else if (candidate.source === 'animeplanet') {
     preview = await loadAnimePlanetPreview(candidate, enabledOptions);
+  } else if (candidate.source === 'fandom') {
+    preview = await loadFandomPreview(candidate, enabledOptions);
   } else {
     throw new Error('Desteklenmeyen metadata import kaynağı.');
   }

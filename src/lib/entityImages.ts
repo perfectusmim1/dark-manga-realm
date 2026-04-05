@@ -13,10 +13,32 @@ const MAL_PLACEHOLDER_PATTERNS = [
   /cdn\.myanimelist\.net\/images\/qm_/i,
   /cdn\.anime-planet\.com\/images\/people\/default\/default-staff\.svg/i,
   /anime-planet\.com\/images\/people\/default\/default-staff\.svg/i,
+  /\/No_image\.(?:png|jpe?g|gif|webp|svg)(?:$|[/?])/i,
 ];
 
+const FANDOM_IMAGE_HOST_PATTERN = /(?:^|\.)wikia\.nocookie\.net$/i;
+const FANDOM_CANONICAL_IMAGE_PATH_PATTERN = /^(.*?\.(?:avif|png|jpe?g|gif|webp|svg))(?:\/.*)?$/i;
+
+const normalizeFandomEntityImageUrl = (value: string) => {
+  try {
+    const parsed = new URL(value);
+    if (!FANDOM_IMAGE_HOST_PATTERN.test(parsed.hostname)) {
+      return value;
+    }
+
+    const canonicalPath = parsed.pathname.match(FANDOM_CANONICAL_IMAGE_PATH_PATTERN)?.[1];
+    if (!canonicalPath) {
+      return value;
+    }
+
+    return `${parsed.origin}${canonicalPath}`;
+  } catch {
+    return value;
+  }
+};
+
 export const isPlaceholderEntityImageUrl = (value?: string | null) => {
-  const normalized = normalizeText(value);
+  const normalized = normalizeFandomEntityImageUrl(normalizeText(value));
   if (!normalized) {
     return true;
   }
@@ -25,7 +47,7 @@ export const isPlaceholderEntityImageUrl = (value?: string | null) => {
 };
 
 export const sanitizeEntityImageUrl = (value?: string | null) => {
-  const normalized = normalizeText(value);
+  const normalized = normalizeFandomEntityImageUrl(normalizeText(value));
   if (!normalized || isPlaceholderEntityImageUrl(normalized)) {
     return undefined;
   }

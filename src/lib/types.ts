@@ -42,7 +42,7 @@ export interface Manga {
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue = JsonPrimitive | JsonValue[] | { [key: string]: JsonValue };
 
-export type ExternalSourceName = 'anilist' | 'anisearch' | 'myanimelist' | 'mangaupdates' | 'animeplanet';
+export type ExternalSourceName = 'anilist' | 'anisearch' | 'myanimelist' | 'mangaupdates' | 'animeplanet' | 'fandom';
 export type ExternalSyncProvider = 'anilist' | 'myanimelist';
 
 export interface ExternalSourceLink {

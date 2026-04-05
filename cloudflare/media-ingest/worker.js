@@ -20,6 +20,8 @@ const DEFAULT_ALLOWED_HOSTS = [
   'preview.redd.it',
   'i.redd.it',
   'i.namu.wiki',
+  'wikia.nocookie.net',
+  'images.wikia.com',
   'nabimanga.com',
   'gg.asuracomic.net',
   'us-a.tapas.io',

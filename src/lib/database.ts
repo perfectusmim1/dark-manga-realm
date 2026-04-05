@@ -61,18 +61,63 @@ import {
 } from '@/lib/characterRoles';
 import { sanitizeCharacterDescription } from '@/lib/descriptionSanitizers';
 import { sanitizeEntityImageUrl } from '@/lib/entityImages';
+import { normalizeComparableText } from '@/lib/textMatching';
 import { getReactionScore, type ReactionType } from './reactions';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
     value?.trim().replace(/\s+/g, ' ') || '';
 
 const normalizeNamedEntityKey = (value?: string | null) =>
-    normalizeNamedEntityValue(value).toLocaleLowerCase('tr-TR');
+    normalizeComparableText(normalizeNamedEntityValue(value));
+
+const buildNamedEntityLookupVariants = (value: string) => {
+    const normalized = normalizeNamedEntityValue(value);
+
+    return Array.from(
+        new Set(
+            [
+                normalized,
+                normalized.replace(/[İIıi]/g, 'i'),
+                normalized.replace(/[İIıi]/g, 'I'),
+                normalized.replace(/[İIıi]/g, 'İ'),
+                normalized.replace(/[İIıi]/g, 'ı'),
+            ].map((item) => normalizeNamedEntityValue(item)).filter(Boolean),
+        ),
+    );
+};
 
 const PERSON_PLACEHOLDER_KEYS = new Set(['', 'bilinmiyor', 'unknown', 'n/a', '-']);
 
 const isMeaningfulNamedEntity = (value?: string | null) =>
     !PERSON_PLACEHOLDER_KEYS.has(normalizeNamedEntityKey(value));
+
+const findNamedEntityRowByName = async <TRow extends { name: string }>(
+    table: 'characters' | 'authors' | 'artists',
+    name: string,
+): Promise<TRow | null> => {
+    const normalizedName = normalizeNamedEntityValue(name);
+    if (!isMeaningfulNamedEntity(normalizedName)) {
+        return null;
+    }
+
+    for (const lookupName of buildNamedEntityLookupVariants(normalizedName)) {
+        const { data, error } = await supabase
+            .from(table)
+            .select('*')
+            .ilike('name', lookupName)
+            .limit(1);
+
+        if (error) {
+            throw error;
+        }
+
+        if (data?.[0]) {
+            return data[0] as TRow;
+        }
+    }
+
+    return null;
+};
 
 const mapAuthorRow = (row: any): Author => ({
     ...row,
@@ -3902,19 +3947,8 @@ export const getCharactersList = async (
 };
 
 export const findCharacterByName = async (name: string): Promise<Character | null> => {
-    const normalizedName = normalizeNamedEntityValue(name);
-    if (!isMeaningfulNamedEntity(normalizedName)) {
-        return null;
-    }
-
-    const { data, error } = await supabase
-        .from('characters')
-        .select('*')
-        .ilike('name', normalizedName)
-        .limit(1);
-
-    if (error) throw error;
-    return data?.[0] ? mapCharacterRow(data[0]) : null;
+    const row = await findNamedEntityRowByName<any>('characters', name);
+    return row ? mapCharacterRow(row) : null;
 };
 
 export const getCharacterById = async (
@@ -4276,35 +4310,13 @@ export const getArtistById = async (
 };
 
 export const findAuthorByName = async (name: string): Promise<Author | null> => {
-    const normalizedName = normalizeNamedEntityValue(name);
-    if (!isMeaningfulNamedEntity(normalizedName)) {
-        return null;
-    }
-
-    const { data, error } = await supabase
-        .from('authors')
-        .select('*')
-        .ilike('name', normalizedName)
-        .limit(1);
-
-    if (error) throw error;
-    return data?.[0] ? mapAuthorRow(data[0]) : null;
+    const row = await findNamedEntityRowByName<any>('authors', name);
+    return row ? mapAuthorRow(row) : null;
 };
 
 export const findArtistByName = async (name: string): Promise<Artist | null> => {
-    const normalizedName = normalizeNamedEntityValue(name);
-    if (!isMeaningfulNamedEntity(normalizedName)) {
-        return null;
-    }
-
-    const { data, error } = await supabase
-        .from('artists')
-        .select('*')
-        .ilike('name', normalizedName)
-        .limit(1);
-
-    if (error) throw error;
-    return data?.[0] ? mapArtistRow(data[0]) : null;
+    const row = await findNamedEntityRowByName<any>('artists', name);
+    return row ? mapArtistRow(row) : null;
 };
 
 export const saveAuthor = async (author: Partial<Author>) => {

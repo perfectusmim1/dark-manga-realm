@@ -20,6 +20,18 @@ interface ProxyAttempt {
   request: (targetUrl: string) => Promise<Response>;
 }
 
+interface StructuredProxyAttempt {
+  label: string;
+  request: (payload: ScraperProxyRequestPayload) => Promise<Response>;
+}
+
+export interface ScraperProxyRequestPayload {
+  url: string;
+  method?: 'GET' | 'POST';
+  headers?: Record<string, string>;
+  body?: string | Record<string, unknown> | unknown[];
+}
+
 export const isScraperProvider = (value: string): value is ScraperProvider => (
   value === 'cloudflare' || value === 'supabase'
 );
@@ -148,6 +160,40 @@ const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
   };
 };
 
+const createStructuredProxyAttempt = (provider: ScraperProvider): StructuredProxyAttempt => {
+  if (provider === 'cloudflare') {
+    if (!configuredCloudflareScraperUrl) {
+      throw new Error('Cloudflare scraper proxy URL is not configured');
+    }
+
+    return {
+      label: 'Cloudflare scraper proxy',
+      request: (payload) =>
+        fetch(configuredCloudflareScraperUrl, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+          credentials: 'omit',
+        }),
+    };
+  }
+
+  if (!configuredSupabaseScraperUrl) {
+    throw new Error('Supabase scraper proxy URL is not configured');
+  }
+
+  return {
+    label: 'Supabase scraper proxy',
+    request: (payload) =>
+      fetch(configuredSupabaseScraperUrl, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        credentials: 'omit',
+      }),
+  };
+};
+
 const fetchScraperResponse = async (
   targetUrl: string,
   options?: { provider?: ScraperProvider; source?: ScrapeSource }
@@ -160,6 +206,32 @@ const fetchScraperResponse = async (
 
     try {
       const response = await attempt.request(targetUrl);
+
+      if (!response.ok) {
+        throw new Error(`${attempt.label} failed (${response.status})`);
+      }
+
+      return response;
+    } catch (error) {
+      errors.push(error instanceof Error ? error.message : `${attempt.label} request failed`);
+    }
+  }
+
+  throw new Error(errors.join(' | ') || 'Scraper proxy request failed');
+};
+
+const fetchStructuredScraperResponse = async (
+  payload: ScraperProxyRequestPayload,
+  options?: { provider?: ScraperProvider; source?: ScrapeSource }
+) => {
+  const provider = options?.provider ?? getDefaultScraperProviderForSource(options?.source ?? getDefaultScrapeSource());
+  const errors: string[] = [];
+
+  for (const providerToTry of getProviderAttemptOrder(provider)) {
+    const attempt = createStructuredProxyAttempt(providerToTry);
+
+    try {
+      const response = await attempt.request(payload);
 
       if (!response.ok) {
         throw new Error(`${attempt.label} failed (${response.status})`);
@@ -205,4 +277,12 @@ export const fetchScraperArrayBuffer = async (
 ) => {
   const response = await fetchScraperResponse(targetUrl, options);
   return await response.arrayBuffer();
+};
+
+export const fetchScraperJson = async <T>(
+  payload: ScraperProxyRequestPayload,
+  options?: { provider?: ScraperProvider; source?: ScrapeSource }
+): Promise<T> => {
+  const response = await fetchStructuredScraperResponse(payload, options);
+  return await response.json() as T;
 };
