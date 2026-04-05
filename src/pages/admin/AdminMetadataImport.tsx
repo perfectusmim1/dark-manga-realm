@@ -919,6 +919,7 @@ const AdminMetadataImport: React.FC = () => {
     const allLocalTagMap = new Map(allLocalTags.map((tag) => [tag.id, tag] as const));
     const existingGlobalAuthorMap = buildEntityMatchLookup(allLocalAuthors);
     const existingGlobalArtistMap = buildEntityMatchLookup(allLocalArtists);
+    const selectedLocalCharacterMap = buildEntityMatchLookup(selectedLocalCharacters);
     const existingGlobalCharacterMap = buildEntityMatchLookup(allLocalCharacters);
     const allLocalCharacterMap = new Map(allLocalCharacters.map((character) => [character.id, character] as const));
     const existingCharacterGalleryMap = new Map<string, Set<string>>();
@@ -951,8 +952,12 @@ const AdminMetadataImport: React.FC = () => {
         .map((value) => normalizePreviewKey(value))
         .filter(Boolean),
     );
+    const selectedSeriesGalleryRaw = selectedLocalManga?.details?.extra?.seriesGallery;
+    const selectedSeriesGallery = Array.isArray(selectedSeriesGalleryRaw)
+      ? selectedSeriesGalleryRaw
+      : [];
     const existingSeriesGalleryKeys = new Set(
-      (Array.isArray(selectedLocalManga?.details?.extra?.seriesGallery) ? selectedLocalManga?.details?.extra?.seriesGallery : [])
+      selectedSeriesGallery
         .map((value) => normalizePreviewKey(typeof value === 'string' ? value : ''))
         .filter(Boolean),
     );
@@ -1090,11 +1095,16 @@ const AdminMetadataImport: React.FC = () => {
       );
       const matchedEntity = manualEntityMatches[key];
       const matchedCharacter = matchedEntity?.type === 'character' ? allLocalCharacterMap.get(matchedEntity.id) : undefined;
+      const autoMatchedCharacter = matchedCharacter || selectedLocalCharacterMap.get(normalizePreviewKey(character.name));
+      const conflictingGlobalCharacter = !autoMatchedCharacter
+        ? existingGlobalCharacterMap.get(normalizePreviewKey(character.name))
+        : undefined;
       const alreadyLinked = matchedCharacter
         ? existingCharacterIds.has(matchedCharacter.id)
-        : existingCharacterKeys.has(normalizePreviewKey(character.name));
-      const existingGlobalCharacter = matchedCharacter || existingGlobalCharacterMap.get(normalizePreviewKey(character.name));
-      characterExistingMatchMap.set(key, existingGlobalCharacter);
+        : autoMatchedCharacter
+          ? existingCharacterIds.has(autoMatchedCharacter.id)
+          : existingCharacterKeys.has(normalizePreviewKey(character.name));
+      characterExistingMatchMap.set(key, autoMatchedCharacter);
       const manualMatchSummary = matchedCharacter
         ? `Elle eşleşti: ${matchedCharacter.name}${alreadyLinked ? ' • zaten bağlı' : ''}`
         : undefined;
@@ -1103,15 +1113,17 @@ const AdminMetadataImport: React.FC = () => {
         label: character.name,
         subtitle: manualMatchSummary || (alreadyLinked
           ? 'Zaten bağlı, seçili kalırsa rol ve metadata güncellenecek'
-          : existingGlobalCharacter
+          : autoMatchedCharacter
             ? 'Sistemde mevcut, seçili kalırsa bu mangaya bağlanıp rol ve metadata güncellenecek'
+            : conflictingGlobalCharacter
+              ? 'Aynı isimli karakter başka bir seride bulundu; otomatik eşleştirme yapılmadı.'
             : (character.description || character.details?.nativeName)),
         badgeLabel: character.roleType ? getCharacterListingRoleLabel(character.roleType) : (character.roleLabel || 'Karakter'),
         imageUrl: character.imageUrl,
         checked: getPreviewItemChecked(previewOverrides, key, true),
         skipped: false,
         skipReason: undefined,
-        matchState: existingGlobalCharacter ? 'matched' : 'new',
+        matchState: autoMatchedCharacter ? 'matched' : 'new',
         matchableType: 'character' as const,
         matchedEntity,
         item: character,

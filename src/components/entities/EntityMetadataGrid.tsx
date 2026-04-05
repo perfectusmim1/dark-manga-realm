@@ -2,7 +2,7 @@ import React from 'react';
 import { ExternalLink, Languages } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { buildEntityMetadataEntries } from '@/lib/entityMetadata';
+import { buildEntityMetadataEntries, normalizeEntityDisplayText } from '@/lib/entityMetadata';
 import { EntityMetadata, ExternalSourceLink } from '@/lib/types';
 
 interface EntityMetadataGridProps {
@@ -10,6 +10,7 @@ interface EntityMetadataGridProps {
   alternativeNames?: string[];
   sourceLinks?: ExternalSourceLink[];
   title?: string;
+  metadataOverrides?: Partial<Record<string, React.ReactNode>>;
 }
 
 const EntityMetadataGrid: React.FC<EntityMetadataGridProps> = ({
@@ -17,9 +18,14 @@ const EntityMetadataGrid: React.FC<EntityMetadataGridProps> = ({
   alternativeNames,
   sourceLinks,
   title = 'Detaylar',
+  metadataOverrides,
 }) => {
   const entries = buildEntityMetadataEntries(metadata);
-  const visibleAlternativeNames = (alternativeNames || []).filter(Boolean);
+  const visibleAlternativeNames = Array.from(new Set(
+    (alternativeNames || [])
+      .map((name) => normalizeEntityDisplayText(name))
+      .filter(Boolean),
+  ));
 
   if (entries.length === 0 && visibleAlternativeNames.length === 0) {
     return null;
@@ -39,7 +45,11 @@ const EntityMetadataGrid: React.FC<EntityMetadataGridProps> = ({
             </div>
             <div className="flex flex-wrap gap-2">
               {visibleAlternativeNames.map((name) => (
-                <Badge key={name} variant="secondary" className="rounded-full px-3 py-1">
+                <Badge
+                  key={name}
+                  variant="secondary"
+                  className="max-w-full rounded-full px-3 py-1 text-center whitespace-normal break-words"
+                >
                   {name}
                 </Badge>
               ))}
@@ -57,7 +67,11 @@ const EntityMetadataGrid: React.FC<EntityMetadataGridProps> = ({
                 <p className="text-xs font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   {entry.label}
                 </p>
-                {entry.href ? (
+                {metadataOverrides?.[entry.label] ? (
+                  <div className="mt-2 text-sm leading-6 text-foreground/90">
+                    {metadataOverrides[entry.label]}
+                  </div>
+                ) : entry.href ? (
                   <a
                     href={entry.href}
                     target="_blank"
@@ -68,7 +82,7 @@ const EntityMetadataGrid: React.FC<EntityMetadataGridProps> = ({
                     <ExternalLink className="h-3.5 w-3.5 shrink-0" />
                   </a>
                 ) : (
-                  <p className="mt-2 text-sm leading-6 text-foreground/90">
+                  <p className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-foreground/90">
                     {entry.value}
                   </p>
                 )}

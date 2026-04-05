@@ -202,6 +202,7 @@ const PREVIEW_CHAPTER_BATCH_SIZE = 3;
 const MOBILE_OVERVIEW_PREVIEW_CHAPTER_COUNT = 3;
 const DESKTOP_OVERVIEW_PREVIEW_CHAPTER_COUNT = 8;
 const OVERVIEW_CHAPTER_BATCH_SIZE = 28;
+const CHARACTER_BATCH_SIZE = 20;
 const MangaDetailGalleryPanel = lazy(() => import('@/components/manga/MangaDetailGalleryPanel'));
 const MangaDetailDiscoverPanel = lazy(() => import('@/components/manga/MangaDetailDiscoverPanel'));
 
@@ -517,6 +518,8 @@ const MangaDetail: React.FC = () => {
   const [hasLoadedSimilar, setHasLoadedSimilar] = useState(false);
   const [isReviewsLoading, setIsReviewsLoading] = useState(true);
   const [isCharsLoading, setIsCharsLoading] = useState(true);
+  const [visibleCharacterCount, setVisibleCharacterCount] = useState(CHARACTER_BATCH_SIZE);
+  const charactersLoadMoreRef = React.useRef<HTMLDivElement | null>(null);
   const overviewLoadMoreRef = React.useRef<HTMLDivElement | null>(null);
   const backgroundFetchVersionRef = React.useRef(0);
   const charactersLoadPromiseRef = React.useRef<Promise<Character[]> | null>(null);
@@ -610,6 +613,7 @@ const MangaDetail: React.FC = () => {
   const characterCount = useMemo(() => (
     Math.max(manga?.characterCount || 0, mangaCharacters.length)
   ), [manga?.characterCount, mangaCharacters.length]);
+  const hasMoreCharacters = visibleCharacterCount < mangaCharacters.length;
   const seriesGalleryImages = useMemo(() => {
     const rawGallery = manga?.details?.extra?.seriesGallery;
     if (!Array.isArray(rawGallery)) {
@@ -648,14 +652,60 @@ const MangaDetail: React.FC = () => {
       groups.get(role)?.push(character);
     });
 
-    return (['main', 'supporting', 'minor'] as CharacterListingRole[])
+    const fullGroups = (['main', 'supporting', 'minor'] as CharacterListingRole[])
       .map((role) => ({
         role,
         title: getCharacterListingRoleSectionTitle(role),
+        totalItems: (groups.get(role) || []).length,
         items: [...(groups.get(role) || [])].sort((left, right) => left.name.localeCompare(right.name, 'tr')),
       }))
       .filter((group) => group.items.length > 0);
-  }, [mangaCharacters]);
+
+    let currentCount = 0;
+    return fullGroups.map((group) => {
+      if (currentCount >= visibleCharacterCount) return { ...group, items: [] };
+      const itemsToTake = Math.min(group.items.length, visibleCharacterCount - currentCount);
+      currentCount += itemsToTake;
+      return {
+        ...group,
+        items: group.items.slice(0, itemsToTake),
+      };
+    }).filter((group) => group.items.length > 0);
+  }, [mangaCharacters, visibleCharacterCount]);
+
+  useEffect(() => {
+    if (!charactersLoadMoreRef.current || !hasLoadedCharacters || activeTab !== 'characters' || !hasMoreCharacters) {
+      return;
+    }
+
+    const observer = new IntersectionObserver((entries) => {
+      if (entries[0].isIntersecting) {
+        setVisibleCharacterCount((prev) => Math.min(mangaCharacters.length, prev + CHARACTER_BATCH_SIZE));
+      }
+    }, {
+      rootMargin: '320px 0px',
+    });
+
+    observer.observe(charactersLoadMoreRef.current);
+    return () => observer.disconnect();
+  }, [activeTab, hasLoadedCharacters, hasMoreCharacters, mangaCharacters.length]);
+
+  useEffect(() => {
+    setVisibleCharacterCount(CHARACTER_BATCH_SIZE);
+  }, [mangaId]);
+
+  useEffect(() => {
+    if (mangaCharacters.length === 0) {
+      setVisibleCharacterCount(CHARACTER_BATCH_SIZE);
+      return;
+    }
+
+    setVisibleCharacterCount((current) => (
+      current > mangaCharacters.length
+        ? Math.min(CHARACTER_BATCH_SIZE, mangaCharacters.length)
+        : current
+    ));
+  }, [mangaCharacters.length]);
 
   const handlePreviewInView = React.useCallback((idx: number) => {
     setCurrentViewedIndex(idx);
@@ -1134,6 +1184,7 @@ const MangaDetail: React.FC = () => {
         setHasLoadedReviews(false);
         setHasLoadedCharacters(false);
         setHasLoadedSimilar(false);
+        setVisibleCharacterCount(CHARACTER_BATCH_SIZE);
         setSimilarMangas([]);
         setMangaCharacters([]);
         setReviews([]);
@@ -3167,7 +3218,11 @@ const MangaDetail: React.FC = () => {
                         <div className="flex items-center justify-between gap-3">
                           <div>
                             <h2 className="text-xl font-bold sm:text-2xl">{group.title}</h2>
-                            <p className="text-sm text-muted-foreground">{group.items.length} karakter</p>
+                            <p className="text-sm text-muted-foreground">
+                              {group.items.length === group.totalItems
+                                ? `${group.totalItems} karakter`
+                                : `${group.items.length} / ${group.totalItems} karakter`}
+                            </p>
                           </div>
                         </div>
 
@@ -3219,6 +3274,12 @@ const MangaDetail: React.FC = () => {
                       {isOnline
                         ? 'Bu seri için henüz karakter eklenmemiş.'
                         : 'Çevrimdışıyken sadece daha önce önbelleğe alınan karakter kartları gösterilebilir.'}
+                    </div>
+                  )}
+
+                  {hasMoreCharacters && (
+                    <div ref={charactersLoadMoreRef} className="py-8 text-center text-sm text-muted-foreground">
+                      Daha fazla karakter yükleniyor...
                     </div>
                   )}
                 </div>

@@ -94,6 +94,28 @@ const translateMetadataStatus = (value?: string | null) => {
   }
 };
 
+const applyDenseTextSpacing = (value: string) => (
+  value
+    .replace(/([^\s([])([\[(])/g, '$1 $2')
+    .replace(/([)\]])([A-ZÇĞİÖŞÜ0-9])/g, '$1 $2')
+    .replace(/([a-zçğıöşü])([A-ZÇĞİÖŞÜ])/g, '$1 $2')
+    .replace(/([A-Za-zÇĞİÖŞÜçğıöşü])(\d)/g, '$1 $2')
+    .replace(/(\d)([A-Za-zÇĞİÖŞÜçğıöşü])/g, '$1 $2')
+    .replace(/(\d)\s+(st|nd|rd|th)\b/gi, '$1$2')
+    .replace(/\s+/g, ' ')
+    .trim()
+);
+
+export const normalizeEntityDisplayText = (value?: string | null) => (
+  (value || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => applyDenseTextSpacing(line.trim()))
+    .filter(Boolean)
+    .join('\n')
+);
+
 export const parseDelimitedList = (value?: string | null) => (
   (value || '')
     .split(LIST_SEPARATOR_PATTERN)
@@ -239,15 +261,20 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
     options?: { href?: string },
   ) => {
     if (Array.isArray(value)) {
-      if (value.length > 0) {
-        entries.push({ label, value: value.join(', ') });
+      const formattedValues = value
+        .map((item) => normalizeEntityDisplayText(String(item)))
+        .filter(Boolean);
+
+      if (formattedValues.length > 0) {
+        entries.push({ label, value: formattedValues.join(', ') });
       }
       return;
     }
 
     if (value !== undefined && value !== null && String(value).trim()) {
-      const normalizedValue = String(value).trim();
       const href = isHttpUrl(options?.href) ? options?.href?.trim() : undefined;
+      const rawValue = String(value).trim();
+      const normalizedValue = href ? rawValue : normalizeEntityDisplayText(rawValue);
       entries.push({
         label,
         value: href ? formatMetadataLinkValue(normalizedValue) : normalizedValue,

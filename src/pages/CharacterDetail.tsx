@@ -4,7 +4,7 @@ import { Heart, Trophy, BookOpen, ArrowLeft, Calendar } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { getCharacterById, toggleEntityLike } from '@/lib/database';
+import { getCharacterById, getMangaCharacters, toggleEntityLike } from '@/lib/database';
 import { Character } from '@/lib/types';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
@@ -20,12 +20,73 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import DeferredMount from '@/components/performance/DeferredMount';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { normalizeEntityDisplayText } from '@/lib/entityMetadata';
+
+interface RelativeLinkEntry {
+    text: string;
+    characterId?: string;
+}
+
+const normalizeRelativeLookupKey = (value?: string | null) => (
+    (value || '')
+        .toLocaleLowerCase('tr-TR')
+        .replace(/[\u{1F300}-\u{1FAFF}\u2600-\u27BF]/gu, ' ')
+        .replace(/[^\p{L}\p{N}\s'-]/gu, ' ')
+        .replace(/\s+/g, ' ')
+        .trim()
+);
+
+const parseRelativeNameCandidate = (value: string) => {
+    const normalizedValue = normalizeEntityDisplayText(value);
+    const withoutLeadingSymbols = normalizedValue.replace(/^[^\p{L}\p{N}]+/gu, '').trim();
+    const match = withoutLeadingSymbols.match(/^[^(,\n]+/u);
+    return normalizeRelativeLookupKey(match?.[0] || withoutLeadingSymbols);
+};
+
+const buildRelativeLinkEntries = (
+    relatives: string[] | undefined,
+    relatedCharacters: Character[],
+    currentCharacterId?: string,
+): RelativeLinkEntry[] => {
+    if (!Array.isArray(relatives) || relatives.length === 0) {
+        return [];
+    }
+
+    const lookup = new Map<string, string>();
+
+    relatedCharacters.forEach((relatedCharacter) => {
+        if (!relatedCharacter.id || relatedCharacter.id === currentCharacterId) {
+            return;
+        }
+
+        const names = [
+            relatedCharacter.name,
+            ...(relatedCharacter.alternativeNames || []),
+        ];
+
+        names.forEach((name) => {
+            const key = normalizeRelativeLookupKey(name);
+            if (key && !lookup.has(key)) {
+                lookup.set(key, relatedCharacter.id);
+            }
+        });
+    });
+
+    return relatives
+        .map((relative) => normalizeEntityDisplayText(relative))
+        .filter(Boolean)
+        .map((relative) => ({
+            text: relative,
+            characterId: lookup.get(parseRelativeNameCandidate(relative)),
+        }));
+};
 
 const CharacterDetail: React.FC = () => {
     const { id } = useParams<{ id: string }>();
     const { user } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
     const [character, setCharacter] = useState<Character | null>(null);
+    const [relatedSeriesCharacters, setRelatedSeriesCharacters] = useState<Character[]>([]);
     const [loading, setLoading] = useState(true);
     const [isLiked, setIsLiked] = useState(false);
     const [activeDetailTab, setActiveDetailTab] = useState<'general' | 'series' | 'gallery'>('general');
@@ -47,6 +108,23 @@ const CharacterDetail: React.FC = () => {
                 const data = await getCharacterById(id);
                 if (data) {
                     setCharacter(data);
+
+                    const seriesIds = Array.from(new Set((data.series || []).map((series) => series.id).filter(Boolean)));
+                    if (seriesIds.length > 0) {
+                        const relatedCharacters = await Promise.all(seriesIds.map((seriesId) => getMangaCharacters(seriesId)));
+                        const uniqueCharacters = Array.from(
+                            new Map(
+                                relatedCharacters
+                                    .flat()
+                                    .filter((relatedCharacter) => relatedCharacter?.id)
+                                    .map((relatedCharacter) => [relatedCharacter.id, relatedCharacter]),
+                            ).values(),
+                        );
+                        setRelatedSeriesCharacters(uniqueCharacters);
+                    } else {
+                        setRelatedSeriesCharacters([]);
+                    }
+
                     // Check if liked
                     if (user) {
                         const { data: liked } = await supabase
@@ -111,6 +189,35 @@ const CharacterDetail: React.FC = () => {
     }
 
     const hasDescription = Boolean(character.description?.trim());
+    const relativeLinkEntries = buildRelativeLinkEntries(
+        character.details?.relatives,
+        relatedSeriesCharacters,
+        character.id,
+    );
+    const relativesOverride = relativeLinkEntries.length > 0 ? (
+        <div className="space-y-2">
+            {relativeLinkEntries.map((entry) => {
+                const namePart = entry.text.match(/^[^(,\n]+/u)?.[0]?.trim() || entry.text;
+                const trailingPart = entry.text.slice(namePart.length);
+
+                return (
+                    <div key={entry.text}>
+                        {entry.characterId ? (
+                            <Link
+                                to={`/character/${entry.characterId}`}
+                                className="font-medium text-primary transition-colors hover:text-primary/80 hover:underline"
+                            >
+                                {namePart}
+                            </Link>
+                        ) : (
+                            <span>{namePart}</span>
+                        )}
+                        <span className="text-foreground/80">{trailingPart}</span>
+                    </div>
+                );
+            })}
+        </div>
+    ) : undefined;
     const descriptionSection = hasDescription ? (
         <div className="space-y-4">
             <h2 className="text-2xl font-bold">Hikayesi / Tanımı</h2>
@@ -227,6 +334,7 @@ const CharacterDetail: React.FC = () => {
                                         alternativeNames={character.alternativeNames}
                                         sourceLinks={character.sourceLinks}
                                         title="Karakter Profili"
+                                        metadataOverrides={relativesOverride ? { Yakınlar: relativesOverride } : undefined}
                                     />
 
                                     {descriptionSection}

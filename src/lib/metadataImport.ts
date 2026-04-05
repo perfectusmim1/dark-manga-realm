@@ -1044,6 +1044,8 @@ export const matchGenresWithSiteTags = async (
 
 const TRANSLATE_BATCH_SIZE = 5;
 const TRANSLATE_DELAY_MS = 300;
+type TranslatablePreviewCollectionKey = 'authors' | 'artists' | 'characters';
+type TranslatablePersonDraft = ImportedPersonDraft | ImportedCharacterDraft;
 
 export const translateText = async (text: string, targetLang = 'tr'): Promise<string> => {
   if (!text.trim()) return text;
@@ -1090,12 +1092,55 @@ const translatePreviewDescriptions = async (preview: ImportedMangaPayload): Prom
     }
   }
 
-  if (textsToTranslate.length === 0) return preview;
-
   const translated = { ...preview };
   translated.authors = [...preview.authors];
   translated.artists = [...preview.artists];
   translated.characters = [...preview.characters];
+
+  const addIfPresent = (
+    obj: TranslatablePersonDraft,
+    collection: TranslatablePreviewCollectionKey,
+    index: number,
+    field: keyof EntityMetadata,
+  ) => {
+    const value = obj.details?.[field];
+    if (typeof value === 'string' && value) {
+      textsToTranslate.push({ path: `${collection}.${index}.details.${field}`, text: value });
+    }
+  };
+
+  const addListIfPresent = (
+    obj: TranslatablePersonDraft,
+    collection: TranslatablePreviewCollectionKey,
+    index: number,
+    field: keyof EntityMetadata,
+  ) => {
+    const value = obj.details?.[field];
+    if (!Array.isArray(value)) {
+      return;
+    }
+
+    value.forEach((item: string, itemIndex: number) => {
+      if (normalizeText(item)) {
+        textsToTranslate.push({
+          path: `${collection}.${index}.details.${field}.${itemIndex}`,
+          text: item,
+        });
+      }
+    });
+  };
+
+  for (let i = 0; i < preview.characters.length; i++) {
+    addIfPresent(preview.characters[i], 'characters', i, 'comments');
+    addIfPresent(preview.characters[i], 'characters', i, 'occupation');
+    addIfPresent(preview.characters[i], 'characters', i, 'role');
+    addIfPresent(preview.characters[i], 'characters', i, 'className');
+    addIfPresent(preview.characters[i], 'characters', i, 'rankTitle');
+    addListIfPresent(preview.characters[i], 'characters', i, 'affiliation');
+    addListIfPresent(preview.characters[i], 'characters', i, 'relatives');
+  }
+
+  if (textsToTranslate.length === 0) return preview;
 
   for (let batchStart = 0; batchStart < textsToTranslate.length; batchStart += TRANSLATE_BATCH_SIZE) {
     const batch = textsToTranslate.slice(batchStart, batchStart + TRANSLATE_BATCH_SIZE);
@@ -1112,12 +1157,51 @@ const translatePreviewDescriptions = async (preview: ImportedMangaPayload): Prom
         translated.description = translatedText;
       } else {
         const parts = path.split('.');
-        const collection = parts[0] as 'authors' | 'artists' | 'characters';
+        const collection = parts[0] as TranslatablePreviewCollectionKey;
         const index = Number(parts[1]);
-        (translated[collection] as any)[index] = {
-          ...(translated[collection] as any)[index],
-          description: translatedText,
-        };
+        const fieldName = parts.length > 3 ? parts[3] : parts[2];
+        const isDetails = parts[2] === 'details';
+        const detailItemIndex = isDetails && parts.length > 4 ? Number(parts[4]) : undefined;
+        const metadataField = fieldName as keyof EntityMetadata;
+        const collectionItems = translated[collection] as TranslatablePersonDraft[];
+        const currentItem = collectionItems[index];
+
+        if (!currentItem) {
+          continue;
+        }
+
+        if (isDetails) {
+          const currentDetails = currentItem.details || {};
+
+          if (Number.isInteger(detailItemIndex) && detailItemIndex! >= 0) {
+            const currentItems = Array.isArray(currentDetails[metadataField])
+              ? [...currentDetails[metadataField]]
+              : [];
+            currentItems[detailItemIndex!] = translatedText;
+
+            collectionItems[index] = {
+              ...currentItem,
+              details: {
+                ...currentDetails,
+                [metadataField]: currentItems,
+              },
+            };
+            continue;
+          }
+
+          collectionItems[index] = {
+            ...currentItem,
+            details: {
+              ...currentDetails,
+              [metadataField]: translatedText,
+            },
+          };
+        } else {
+          collectionItems[index] = {
+            ...currentItem,
+            [fieldName]: translatedText,
+          };
+        }
       }
     }
 
@@ -1292,6 +1376,32 @@ const parseHtml = (html: string) => new DOMParser().parseFromString(html, 'text/
 const parseXml = (xml: string) => new DOMParser().parseFromString(xml, 'application/xml');
 
 const parseHtmlFragment = (html: string) => parseHtml(`<body>${html}</body>`);
+
+const normalizeMultilineText = (value?: string | null) => (
+  (value || '')
+    .replace(/\u00A0/g, ' ')
+    .replace(/\r/g, '')
+    .split('\n')
+    .map((line) => normalizeText(line.replace(/\s*\[\d+\]\s*/g, ' ')))
+    .filter(Boolean)
+    .join('\n')
+);
+
+const extractTextWithBreaks = (el: Element | null) => {
+  if (!el) return '';
+  const clone = el.cloneNode(true) as HTMLElement;
+  clone.querySelectorAll('sup.reference, .reference').forEach((node) => node.remove());
+
+  const directInnerText = normalizeMultilineText(clone.innerText);
+  if (directInnerText) {
+    return directInnerText;
+  }
+
+  const html = clone.innerHTML;
+  const withNewlines = html.replace(/<br[^>]*>|<\/li>|<\/p>|<\/div>/gi, '\n');
+  const temp = parseHtmlFragment(withNewlines);
+  return normalizeMultilineText(temp.body.textContent || '');
+};
 
 const fetchAnimePlanetHtml = (url: string) => (
   fetchScraperContent(url, { provider: 'supabase' })
@@ -2334,9 +2444,10 @@ const buildFandomInfoboxFields = (doc: Document, pageUrl: string): FandomInfobox
       const key = normalizeText(item.getAttribute('data-source'));
       const label = normalizeText(item.querySelector('.pi-data-label')?.textContent) || key;
       const valueNode = item.querySelector('.pi-data-value') as HTMLElement | null;
-      const text = normalizeText(valueNode?.textContent || item.textContent);
+      const text = extractTextWithBreaks(valueNode || item).trim().replace(/[ \t]+/g, ' ');
       const html = valueNode?.innerHTML || item.innerHTML;
       const links = valueNode ? extractFandomInternalLinks(valueNode, pageUrl) : [];
+
 
       if (!key && !label) {
         return null;
@@ -2350,7 +2461,7 @@ const buildFandomInfoboxFields = (doc: Document, pageUrl: string): FandomInfobox
         links,
       } satisfies FandomInfoboxField;
     })
-    .filter((item): item is FandomInfoboxField => item !== null),
+    .filter((item): item is FandomInfoboxField => item !== null)
 );
 
 const buildFandomParseUrl = (origin: string, pageTitle: string) => (
@@ -2456,10 +2567,34 @@ const getFandomFieldLinks = (page: FandomParsedPage, ...keys: string[]) => (
 );
 
 const splitFandomValues = (value?: string | null) => uniqueStrings(
-  normalizeText(value)
+  normalizeMultilineText(value)
     .replace(/\s*[|/]\s*/g, ', ')
     .split(/(?:\r?\n|,|;|\u2022)+/)
-    .map((item) => normalizeText(item)),
+    .map((item) => normalizeText(item))
+    .filter(Boolean)
+);
+
+const getFandomFieldValues = (page: FandomParsedPage, ...keys: string[]) => {
+  const field = getFandomField(page, ...keys);
+  if (!field) {
+    return [];
+  }
+
+  const textValues = splitFandomValues(field.text);
+  if (textValues.length > 1) {
+    return textValues;
+  }
+
+  const linkValues = uniqueStrings(field.links.map((link) => link.title));
+  if (linkValues.length > 1) {
+    return linkValues;
+  }
+
+  return textValues;
+};
+
+const getFandomFieldJoinedText = (page: FandomParsedPage, ...keys: string[]) => (
+  getFandomFieldValues(page, ...keys).join(', ')
 );
 
 const getFandomLeadParagraphs = (page: FandomParsedPage, limit = 2) => {
@@ -3047,15 +3182,15 @@ const buildFandomStaffDraft = async (
               : actualNameMatch[1]
           )
         : undefined,
-      ...splitFandomValues(getFandomFieldText(page, 'alias', 'aliases')),
+      ...getFandomFieldValues(page, 'alias', 'aliases'),
     ]),
     imageUrl: buildFandomGallery(page, `${page.displayTitle} Image`)[0]?.url,
     details: {
-      age: normalizeText(getFandomFieldText(page, 'age')) || undefined,
-      birthday: normalizeText(getFandomFieldText(page, 'birthday')) || undefined,
-      birthPlace: normalizeText(getFandomFieldText(page, 'birthplace')) || undefined,
-      occupation: normalizeText(getFandomFieldText(page, 'occupation')) || undefined,
-      status: normalizeText(getFandomFieldText(page, 'status')) || undefined,
+      age: normalizeText(getFandomFieldJoinedText(page, 'age')) || undefined,
+      birthday: normalizeText(getFandomFieldJoinedText(page, 'birthday')) || undefined,
+      birthPlace: normalizeText(getFandomFieldJoinedText(page, 'birthplace')) || undefined,
+      occupation: normalizeText(getFandomFieldJoinedText(page, 'occupation')) || undefined,
+      status: normalizeText(getFandomFieldJoinedText(page, 'status')) || undefined,
       role: role === 'artist' ? 'Çizer' : 'Yazar',
       comments: backgroundParagraphs[0] || undefined,
     },
@@ -3092,32 +3227,32 @@ const buildFandomCharacterDraft = async (
       imageUrl: buildFandomGallery(page, 'Image')[0]?.url,
       description: sanitizeCharacterDescription(uniqueStrings([...leadParagraphs, ...detailParagraphs]).join('\n\n')) || undefined,
       alternativeNames: uniqueStrings([
-        ...splitFandomValues(getFandomFieldText(page, 'aliases', 'alias')),
+        ...getFandomFieldValues(page, 'aliases', 'alias'),
       ]),
       details: {
-        age: normalizeText(getFandomFieldText(page, 'age')) || undefined,
-        birthday: normalizeText(getFandomFieldText(page, 'birthday')) || undefined,
-        birthPlace: normalizeText(getFandomFieldText(page, 'birthplace')) || undefined,
-        gender: normalizeText(getFandomFieldText(page, 'gender')) || undefined,
-        occupation: normalizeText(getFandomFieldText(page, 'occupation')) || undefined,
-        className: normalizeText(getFandomFieldText(page, 'race')) || undefined,
-        rankTitle: normalizeText(getFandomFieldText(page, 'adventurer_rank', 'division', 'mana_core')) || undefined,
+        age: normalizeText(getFandomFieldJoinedText(page, 'age')) || undefined,
+        birthday: normalizeText(getFandomFieldJoinedText(page, 'birthday')) || undefined,
+        birthPlace: normalizeText(getFandomFieldJoinedText(page, 'birthplace')) || undefined,
+        gender: normalizeText(getFandomFieldJoinedText(page, 'gender')) || undefined,
+        occupation: normalizeText(getFandomFieldJoinedText(page, 'occupation')) || undefined,
+        className: normalizeText(getFandomFieldJoinedText(page, 'race')) || undefined,
+        rankTitle: normalizeText(getFandomFieldJoinedText(page, 'adventurer_rank', 'division', 'mana_core')) || undefined,
         affiliation: mergeStringLists(
-          splitFandomValues(getFandomFieldText(page, 'affiliation')),
-          splitFandomValues(getFandomFieldText(page, 'division')),
+          getFandomFieldValues(page, 'affiliation'),
+          getFandomFieldValues(page, 'division'),
         ),
-        relatives: splitFandomValues(getFandomFieldText(page, 'relatives')),
-        status: normalizeText(getFandomFieldText(page, 'status')) || undefined,
+        relatives: getFandomFieldValues(page, 'relatives'),
+        status: normalizeText(getFandomFieldJoinedText(page, 'status')) || undefined,
         comments: getFandomSectionParagraphs(page, ['notes', 'trivia'], 1)[0] || undefined,
         extra: {
-          mentor: normalizeText(getFandomFieldText(page, 'mentor')) || undefined,
-          weapon: normalizeText(getFandomFieldText(page, 'weapon')) || undefined,
-          beastBond: normalizeText(getFandomFieldText(page, 'beast_bond')) || undefined,
-          beastWill: normalizeText(getFandomFieldText(page, 'beast_will')) || undefined,
-          deviant: normalizeText(getFandomFieldText(page, 'deviant')) || undefined,
-          aetherAffinity: normalizeText(getFandomFieldText(page, 'aether_affinity')) || undefined,
-          novelAppearance: normalizeText(getFandomFieldText(page, 'novel_appearance')) || undefined,
-          webcomicAppearance: normalizeText(getFandomFieldText(page, 'webcomic_appearance')) || undefined,
+          mentor: normalizeText(getFandomFieldJoinedText(page, 'mentor')) || undefined,
+          weapon: normalizeText(getFandomFieldJoinedText(page, 'weapon')) || undefined,
+          beastBond: normalizeText(getFandomFieldJoinedText(page, 'beast_bond')) || undefined,
+          beastWill: normalizeText(getFandomFieldJoinedText(page, 'beast_will')) || undefined,
+          deviant: normalizeText(getFandomFieldJoinedText(page, 'deviant')) || undefined,
+          aetherAffinity: normalizeText(getFandomFieldJoinedText(page, 'aether_affinity')) || undefined,
+          novelAppearance: normalizeText(getFandomFieldJoinedText(page, 'novel_appearance')) || undefined,
+          webcomicAppearance: normalizeText(getFandomFieldJoinedText(page, 'webcomic_appearance')) || undefined,
         },
       },
       gallery: includeGallery ? buildFandomGallery(page, `${page.displayTitle} Gallery`) : [],
@@ -4432,6 +4567,18 @@ const stripCharacterListingRoleMetadata = (details?: EntityMetadata): EntityMeta
   return nextDetails;
 };
 
+const isCharacterCompatibleWithManga = (character?: Character | null, mangaId?: string) => {
+  if (!character || !mangaId) {
+    return true;
+  }
+
+  const seriesIds = (character.series || [])
+    .map((series) => series.id)
+    .filter(Boolean);
+
+  return seriesIds.length === 0 || seriesIds.includes(mangaId);
+};
+
 const materializeImportedImage = async ({
   id,
   sourceUrl,
@@ -4638,11 +4785,26 @@ const resolveArtist = async (draft: ImportedPersonDraft, importAsPublic: boolean
   return id;
 };
 
-const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: boolean) => {
+const resolveCharacter = async (draft: ImportedCharacterDraft, importAsPublic: boolean, mangaId?: string) => {
   const matchedExisting = draft.matchedEntityId && draft.matchedEntityType === 'character'
     ? await getCharacterById(draft.matchedEntityId, { includePrivate: true }).then((item) => item || null)
     : null;
-  const existing = matchedExisting || await findCharacterByName(draft.name);
+
+  let existing = isCharacterCompatibleWithManga(matchedExisting, mangaId) ? matchedExisting : null;
+
+  if (!existing && draft.name) {
+    const exactNameExisting = await findCharacterByName(draft.name);
+    if (exactNameExisting) {
+      if (mangaId) {
+        const fullExisting = await getCharacterById(exactNameExisting.id, { includePrivate: true });
+        existing = isCharacterCompatibleWithManga(fullExisting, mangaId)
+          ? (fullExisting || exactNameExisting)
+          : null;
+      } else {
+        existing = exactNameExisting;
+      }
+    }
+  }
   const resolvedDraft = applyMatchedEntitySelectionToDraft(draft, existing);
   const payload = mergeImportedPerson(existing, {
     ...resolvedDraft,
@@ -5022,7 +5184,7 @@ export const importPreviewIntoManga = async (
   if (selection.enabledOptions.characters) {
     for (const character of preview.characters) {
       const characterKey = normalizeKey(character.name);
-      const characterId = await resolveCharacter(character, selection.importAsPublic);
+      const characterId = await resolveCharacter(character, selection.importAsPublic, mangaId);
       await linkMangaToCharacter(mangaId, characterId, {
         listingRole: character.roleType,
       });
