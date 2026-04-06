@@ -1,6 +1,6 @@
 const normalizeText = (value?: string | null) => value?.replace(/\s+/g, ' ').trim() || '';
 
-const MAL_PLACEHOLDER_PATTERNS = [
+const PLACEHOLDER_IMAGE_PATTERNS = [
   /myanimelist\.net\/images\/questionmark/i,
   /myanimelist\.net\/images\/qm_/i,
   /myanimelist\.net\/images\/apple-touch-icon/i,
@@ -13,6 +13,9 @@ const MAL_PLACEHOLDER_PATTERNS = [
   /cdn\.myanimelist\.net\/images\/qm_/i,
   /cdn\.anime-planet\.com\/images\/people\/default\/default-staff\.svg/i,
   /anime-planet\.com\/images\/people\/default\/default-staff\.svg/i,
+  /(?:^|\/)images\/(?:characters|people)\/default(?:[\/_-]|$)/i,
+  /(?:cdn\.)?anime-planet\.com\/images\/(?:characters|people)\/default(?:[\/_-]|$)/i,
+  /(?:cdn\.)?anime-planet\.com\/images\/(?:logo|site-logo|favicon|apple-touch-icon|android-chrome)/i,
   /\/No_image\.(?:png|jpe?g|gif|webp|svg)(?:$|[/?])/i,
 ];
 
@@ -43,7 +46,7 @@ export const isPlaceholderEntityImageUrl = (value?: string | null) => {
     return true;
   }
 
-  return MAL_PLACEHOLDER_PATTERNS.some((pattern) => pattern.test(normalized));
+  return PLACEHOLDER_IMAGE_PATTERNS.some((pattern) => pattern.test(normalized));
 };
 
 export const sanitizeEntityImageUrl = (value?: string | null) => {

@@ -38,6 +38,24 @@ export interface EntityMetadataFormState {
 
 const LIST_SEPARATOR_PATTERN = /[\n,;]+/;
 
+const HIDDEN_EXTRA_FIELD_KEYS = new Set([
+  'characterRoleType',
+  'animePlanetSlug',
+  'animePlanetLovedRank',
+  'externalRatings',
+  'raw',
+  'seriesGallery',
+]);
+
+const stripHiddenExtraFields = (extra?: EntityMetadata['extra']) => {
+  if (!extra) {
+    return undefined;
+  }
+
+  const visibleEntries = Object.entries(extra).filter(([key]) => !HIDDEN_EXTRA_FIELD_KEYS.has(key));
+  return visibleEntries.length > 0 ? Object.fromEntries(visibleEntries) as EntityMetadata['extra'] : undefined;
+};
+
 const translateMetadataRole = (value?: string | null) => {
   const normalized = (value || '').trim().toLocaleLowerCase('tr-TR');
 
@@ -180,7 +198,7 @@ export const entityMetadataToFormState = (metadata?: EntityMetadata | null): Ent
   genres: joinDelimitedList(metadata?.genres),
   tags: joinDelimitedList(metadata?.tags),
   comments: metadata?.comments || '',
-  extraJson: metadata?.extra ? JSON.stringify(metadata.extra, null, 2) : '',
+  extraJson: stripHiddenExtraFields(metadata?.extra) ? JSON.stringify(stripHiddenExtraFields(metadata?.extra), null, 2) : '',
 });
 
 export const formStateToEntityMetadata = (formState: EntityMetadataFormState): EntityMetadata => {
@@ -190,7 +208,7 @@ export const formStateToEntityMetadata = (formState: EntityMetadataFormState): E
     try {
       const parsed = JSON.parse(formState.extraJson);
       if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) {
-        extra = parsed as EntityMetadata['extra'];
+        extra = stripHiddenExtraFields(parsed as EntityMetadata['extra']);
       }
     } catch {
       extra = { raw: formState.extraJson.trim() };
@@ -223,7 +241,7 @@ export const formStateToEntityMetadata = (formState: EntityMetadataFormState): E
     genres: parseDelimitedList(formState.genres),
     tags: parseDelimitedList(formState.tags),
     comments: formState.comments.trim() || undefined,
-    extra,
+    extra: stripHiddenExtraFields(extra),
   };
 
   return Object.fromEntries(
@@ -319,7 +337,6 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
     const extraFieldLabels: Record<string, string> = {
       hairColor: 'Saç Rengi',
       eyeColor: 'Göz Rengi',
-      animePlanetLovedRank: 'Anime-Planet Beğeni Sırası',
       malMembers: 'MAL Üye Sayısı',
       malRank: 'MAL Sırası',
       serializations: 'Yayıncı / Dergi',
@@ -329,16 +346,8 @@ export const buildEntityMetadataEntries = (metadata?: EntityMetadata | null) => 
       source: 'Kaynak',
     };
 
-    const hiddenExtraFields = new Set([
-      'characterRoleType',
-      'animePlanetSlug',
-      'externalRatings',
-      'raw',
-      'seriesGallery',
-    ]);
-
     Object.entries(metadata.extra).forEach(([key, value]) => {
-      if (hiddenExtraFields.has(key)) {
+      if (HIDDEN_EXTRA_FIELD_KEYS.has(key)) {
         return;
       }
 

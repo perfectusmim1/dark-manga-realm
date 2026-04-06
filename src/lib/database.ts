@@ -91,8 +91,12 @@ const PERSON_PLACEHOLDER_KEYS = new Set(['', 'bilinmiyor', 'unknown', 'n/a', '-'
 const isMeaningfulNamedEntity = (value?: string | null) =>
     !PERSON_PLACEHOLDER_KEYS.has(normalizeNamedEntityKey(value));
 
+type NamedEntityTableName = 'characters' | 'authors' | 'artists';
+
+const NAMED_ENTITY_LIST_PAGE_SIZE = 1000;
+
 const findNamedEntityRowByName = async <TRow extends { name: string }>(
-    table: 'characters' | 'authors' | 'artists',
+    table: NamedEntityTableName,
     name: string,
 ): Promise<TRow | null> => {
     const normalizedName = normalizeNamedEntityValue(name);
@@ -245,18 +249,32 @@ const getOrderedEntityRank = async (
     tableName: 'characters' | 'authors' | 'artists',
     entityId: string,
 ): Promise<number | undefined> => {
-    const { data, error } = await (supabase as any)
-        .from(tableName)
-        .select('id')
-        .order('likes_count', { ascending: false })
-        .order('name', { ascending: true });
+    let from = 0;
 
-    if (error || !Array.isArray(data)) {
-        return undefined;
+    while (true) {
+        const to = from + NAMED_ENTITY_LIST_PAGE_SIZE - 1;
+        const { data, error } = await (supabase as any)
+            .from(tableName)
+            .select('id')
+            .order('likes_count', { ascending: false })
+            .order('name', { ascending: true })
+            .range(from, to);
+
+        if (error || !Array.isArray(data)) {
+            return undefined;
+        }
+
+        const rankIndex = data.findIndex((row: { id: string }) => row.id === entityId);
+        if (rankIndex >= 0) {
+            return from + rankIndex + 1;
+        }
+
+        if (data.length < NAMED_ENTITY_LIST_PAGE_SIZE) {
+            return undefined;
+        }
+
+        from += NAMED_ENTITY_LIST_PAGE_SIZE;
     }
-
-    const rankIndex = data.findIndex((row: { id: string }) => row.id === entityId);
-    return rankIndex >= 0 ? rankIndex + 1 : undefined;
 };
 
 const applyPublicEntityFilter = <TQuery extends { eq: (column: string, value: any) => TQuery }>(
@@ -265,6 +283,41 @@ const applyPublicEntityFilter = <TQuery extends { eq: (column: string, value: an
 ) => (
     includePrivate ? query : query.eq('is_public', true)
 );
+
+const fetchNamedEntityRows = async (
+    table: NamedEntityTableName,
+    includePrivate?: boolean,
+) => {
+    const rows: any[] = [];
+    let from = 0;
+
+    while (true) {
+        const to = from + NAMED_ENTITY_LIST_PAGE_SIZE - 1;
+        const query = applyPublicEntityFilter(
+            (supabase.from(table) as any)
+                .select('*')
+                .order('likes_count', { ascending: false })
+                .order('name', { ascending: true }),
+            includePrivate,
+        );
+        const { data, error } = await query.range(from, to);
+
+        if (error) {
+            throw error;
+        }
+
+        const pageRows = data || [];
+        rows.push(...pageRows);
+
+        if (pageRows.length < NAMED_ENTITY_LIST_PAGE_SIZE) {
+            break;
+        }
+
+        from += NAMED_ENTITY_LIST_PAGE_SIZE;
+    }
+
+    return rows;
+};
 
 const MANGA_VISIBILITY_COLUMN_NAME = 'is_public';
 
@@ -4242,20 +4295,16 @@ export const getCharacterMediaRecords = async (): Promise<NamedEntityMediaRecord
 export const getCharactersList = async (
     options?: { includePrivate?: boolean }
 ): Promise<Character[]> => {
-    const { data, error } = await applyPublicEntityFilter(
-        supabase
-            .from('characters')
-            .select('*')
-            .order('likes_count', { ascending: false })
-            .order('name', { ascending: true }),
-        options?.includePrivate,
-    );
-
-    if (error) return [];
-    return (data || []).map((character, index) => ({
-        ...mapCharacterRow(character),
-        rank: index + 1,
-    }));
+    try {
+        const rows = await fetchNamedEntityRows('characters', options?.includePrivate);
+        return rows.map((character, index) => ({
+            ...mapCharacterRow(character),
+            rank: index + 1,
+        }));
+    } catch (error) {
+        console.error('getCharactersList error:', error);
+        return [];
+    }
 };
 
 export const findCharacterByName = async (name: string): Promise<Character | null> => {
@@ -4502,21 +4551,16 @@ export const replaceMangaCharacters = async (
 
 // Same for Authors/Artists (shorter versions)
 export const getAuthors = async (options?: { includePrivate?: boolean }): Promise<Author[]> => {
-    const { data, error } = await applyPublicEntityFilter(
-        supabase
-            .from('authors')
-            .select('*')
-            .order('likes_count', { ascending: false })
-            .order('name', { ascending: true }),
-        options?.includePrivate,
-    );
-
-    if (error) return [];
-
-    return (data || []).map((author, index) => ({
-        ...mapAuthorRow(author),
-        rank: index + 1,
-    }));
+    try {
+        const rows = await fetchNamedEntityRows('authors', options?.includePrivate);
+        return rows.map((author, index) => ({
+            ...mapAuthorRow(author),
+            rank: index + 1,
+        }));
+    } catch (error) {
+        console.error('getAuthors error:', error);
+        return [];
+    }
 };
 
 export const getAuthorMediaRecords = async (): Promise<NamedEntityMediaRecord[]> => {
@@ -4538,21 +4582,16 @@ export const getAuthorMediaRecords = async (): Promise<NamedEntityMediaRecord[]>
 };
 
 export const getArtists = async (options?: { includePrivate?: boolean }): Promise<Artist[]> => {
-    const { data, error } = await applyPublicEntityFilter(
-        supabase
-            .from('artists')
-            .select('*')
-            .order('likes_count', { ascending: false })
-            .order('name', { ascending: true }),
-        options?.includePrivate,
-    );
-
-    if (error) return [];
-
-    return (data || []).map((artist, index) => ({
-        ...mapArtistRow(artist),
-        rank: index + 1,
-    }));
+    try {
+        const rows = await fetchNamedEntityRows('artists', options?.includePrivate);
+        return rows.map((artist, index) => ({
+            ...mapArtistRow(artist),
+            rank: index + 1,
+        }));
+    } catch (error) {
+        console.error('getArtists error:', error);
+        return [];
+    }
 };
 
 export const getArtistMediaRecords = async (): Promise<NamedEntityMediaRecord[]> => {

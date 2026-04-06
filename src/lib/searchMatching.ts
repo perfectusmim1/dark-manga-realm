@@ -1,10 +1,11 @@
 import type { Artist, Author, Character, Manga } from '@/lib/types';
+import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/textMatching';
 
 type SearchableNamedEntity = Pick<Character, 'name' | 'alternativeNames' | 'details'>
   | Pick<Author, 'name' | 'alternativeNames' | 'details'>
   | Pick<Artist, 'name' | 'alternativeNames' | 'details'>;
 
-const normalizeSearchValue = (value?: string | null) => value?.trim().toLocaleLowerCase('tr-TR') || '';
+const normalizeSearchValue = (value?: string | null) => normalizeComparableText(value);
 
 const tokenizeSearchValue = (value?: string | null) => normalizeSearchValue(value)
   .replace(/[^\p{L}\p{N}]+/gu, ' ')
@@ -22,6 +23,11 @@ const matchesValue = (value: string | null | undefined, query: string) => {
     return true;
   }
 
+  const looseQuery = normalizeLooseComparableText(query);
+  if (looseQuery && normalizeLooseComparableText(value).includes(looseQuery)) {
+    return true;
+  }
+
   const queryTokens = tokenizeSearchValue(query);
   if (queryTokens.length === 0) {
     return false;
@@ -35,12 +41,27 @@ const matchesAnyValue = (values: Array<string | null | undefined> | undefined, q
   Boolean(values?.some((value) => matchesValue(value, query)))
 );
 
+const getEntityExtraSearchTerms = (entity: SearchableNamedEntity) => (
+  Object.values(entity.details?.extra || {})
+    .flatMap((value) => (Array.isArray(value) ? value : [value]))
+    .map((value) => (typeof value === 'string' || typeof value === 'number' ? String(value) : undefined))
+);
+
 const getEntitySearchTerms = (entity: SearchableNamedEntity) => ([
   entity.name,
   ...(entity.alternativeNames || []),
   entity.details?.nativeName,
   entity.details?.englishName,
   entity.details?.romajiName,
+  entity.details?.gender,
+  entity.details?.role,
+  entity.details?.className,
+  entity.details?.rankTitle,
+  ...(entity.details?.affiliation || []),
+  ...(entity.details?.relatives || []),
+  ...(entity.details?.genres || []),
+  ...(entity.details?.tags || []),
+  ...getEntityExtraSearchTerms(entity),
 ]);
 
 export const normalizeSearchQuery = (query: string) => normalizeSearchValue(query);

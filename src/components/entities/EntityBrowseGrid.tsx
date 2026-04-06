@@ -4,6 +4,7 @@ import { Heart, Search, Trophy } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import OptimizedImage from '@/components/media/OptimizedImage';
+import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/textMatching';
 
 interface EntityBrowseGridItem {
   id: string;
@@ -27,7 +28,12 @@ interface EntityBrowseGridProps {
 
 const PAGE_SIZE = 20;
 
-const normalizeSearchValue = (value: string) => value.trim().toLocaleLowerCase('tr-TR');
+const normalizeSearchValue = (value: string) => normalizeComparableText(value);
+
+const matchesGridSearch = (value: string, query: string) => (
+  normalizeSearchValue(value).includes(query)
+  || normalizeLooseComparableText(value).includes(normalizeLooseComparableText(query))
+);
 
 const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
   title,
@@ -50,7 +56,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
       return items;
     }
 
-    return items.filter((item) => normalizeSearchValue(item.name).includes(deferredSearchQuery));
+    return items.filter((item) => matchesGridSearch(item.name, deferredSearchQuery));
   }, [deferredSearchQuery, items]);
 
   const visibleItems = React.useMemo(

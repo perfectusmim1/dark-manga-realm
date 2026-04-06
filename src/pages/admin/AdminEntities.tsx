@@ -5,7 +5,6 @@ import {
   Trash2,
   Plus,
   Search,
-  Image as ImageIcon,
   Loader2,
   Globe2,
   Lock,
@@ -67,6 +66,8 @@ import {
   getCharacterListingRoleLabel,
   type CharacterListingRole,
 } from '@/lib/characterRoles';
+import { matchesNamedEntitySearch } from '@/lib/searchMatching';
+import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 
 type EntityType = 'character' | 'author' | 'artist';
 type EditableEntity = Character | Author | Artist;
@@ -123,6 +124,44 @@ const ENTITY_LABELS: Record<EntityType, string> = {
 };
 
 const ADMIN_ENTITY_PREVIEW_LIMIT = 20;
+
+interface AdminEntityThumbnailProps {
+  item: EditableEntity;
+  className: string;
+  initialClassName: string;
+}
+
+const AdminEntityThumbnail: React.FC<AdminEntityThumbnailProps> = ({
+  item,
+  className,
+  initialClassName,
+}) => {
+  const [imageLoadFailed, setImageLoadFailed] = useState(false);
+  const imageUrl = item.imageUrl && !imageLoadFailed ? item.imageUrl : undefined;
+
+  useEffect(() => {
+    setImageLoadFailed(false);
+  }, [item.imageUrl]);
+
+  return (
+    <div className={className}>
+      {imageUrl ? (
+        <img
+          src={imageUrl}
+          alt={item.name}
+          className="h-full w-full object-cover"
+          onError={() => setImageLoadFailed(true)}
+        />
+      ) : (
+        <EntityPlaceholderArt
+          name={item.name}
+          className="rounded-[inherit]"
+          initialClassName={initialClassName}
+        />
+      )}
+    </div>
+  );
+};
 
 const AdminEntities: React.FC = () => {
   const [loading, setLoading] = useState(true);
@@ -323,16 +362,11 @@ const AdminEntities: React.FC = () => {
   }, [activeTab, authors, artists, characters]);
 
   const filteredItems = useMemo(() => {
-    const normalizedQuery = deferredSearchQuery.trim().toLocaleLowerCase('tr-TR');
-
-    if (!normalizedQuery) {
+    if (!deferredSearchQuery.trim()) {
       return currentItems;
     }
 
-    return currentItems.filter((item) => (
-      item.name.toLocaleLowerCase('tr-TR').includes(normalizedQuery)
-      || (item.alternativeNames || []).some((name) => name.toLocaleLowerCase('tr-TR').includes(normalizedQuery))
-    ));
+    return currentItems.filter((item) => matchesNamedEntitySearch(item, deferredSearchQuery));
   }, [currentItems, deferredSearchQuery]);
 
   const isSearchActive = deferredSearchQuery.trim().length > 0;
@@ -521,20 +555,11 @@ const AdminEntities: React.FC = () => {
                           aria-label={`${item.name} seç`}
                           className="mt-4"
                         />
-                        <div className="h-14 w-14 overflow-hidden rounded-2xl border border-border bg-muted">
-                          {item.imageUrl ? (
-                            <img
-                              src={item.imageUrl}
-                              alt={item.name}
-                              className="h-full w-full object-cover"
-                              onError={(event) => (event.currentTarget.src = 'https://via.placeholder.com/56')}
-                            />
-                          ) : (
-                            <div className="flex h-full w-full items-center justify-center">
-                              <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                            </div>
-                          )}
-                        </div>
+                        <AdminEntityThumbnail
+                          item={item}
+                          className="h-14 w-14 overflow-hidden rounded-2xl border border-border bg-muted"
+                          initialClassName="text-2xl"
+                        />
                         <div className="min-w-0 flex-1 space-y-2">
                           <div className="flex items-center gap-2">
                             <p className="font-medium">{item.name}</p>
@@ -608,20 +633,11 @@ const AdminEntities: React.FC = () => {
                             />
                           </TableCell>
                           <TableCell>
-                            <div className="h-11 w-11 overflow-hidden rounded-2xl border border-border bg-muted">
-                              {item.imageUrl ? (
-                                <img
-                                  src={item.imageUrl}
-                                  alt={item.name}
-                                  className="h-full w-full object-cover"
-                                  onError={(event) => (event.currentTarget.src = 'https://via.placeholder.com/44')}
-                                />
-                              ) : (
-                                <div className="flex h-full w-full items-center justify-center">
-                                  <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                                </div>
-                              )}
-                            </div>
+                            <AdminEntityThumbnail
+                              item={item}
+                              className="h-11 w-11 overflow-hidden rounded-2xl border border-border bg-muted"
+                              initialClassName="text-xl"
+                            />
                           </TableCell>
                           <TableCell className="font-medium">{item.name}</TableCell>
                           <TableCell>

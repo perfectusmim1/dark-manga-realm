@@ -3708,8 +3708,6 @@ const buildAnimePlanetCharacterDraft = async (
     }
   }
 
-  const lovedRankMatch = statValues.find((item) => /rank\s*#\d+/i.test(item));
-  const rankValue = lovedRankMatch?.match(/#([\d,]+)/)?.[1];
   const tags = uniqueStrings([...fallbackTags, ...getAnimePlanetTags(doc)]);
   const title = getAnimePlanetTitle(doc) || fallbackName;
 
@@ -3727,7 +3725,6 @@ const buildAnimePlanetCharacterDraft = async (
         extra: {
           ...(detailMap.get('hair color') ? { hairColor: detailMap.get('hair color') } : {}),
           ...(detailMap.get('eye color') ? { eyeColor: detailMap.get('eye color') } : {}),
-          ...(rankValue ? { animePlanetLovedRank: Number(rankValue.replace(/,/g, '')) } : {}),
           ...(parseAnimePlanetCharacterSlug(sourceUrl) ? { animePlanetSlug: parseAnimePlanetCharacterSlug(sourceUrl) } : {}),
         },
       },
