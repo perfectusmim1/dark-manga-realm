@@ -9,6 +9,14 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: {
+      "/mangaupdates-proxy": {
+        target: "https://www.mangaupdates.com",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/mangaupdates-proxy/, ""),
+      },
+    },
   },
   plugins: [
     react(),

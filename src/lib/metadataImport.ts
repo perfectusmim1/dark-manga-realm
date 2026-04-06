@@ -139,71 +139,35 @@ export interface ImportSelectionOptions {
 
 type SupportMatrix = Record<ImportOptionKey, boolean>;
 
-interface MangaUpdatesSeriesSearchItem {
-  record?: {
-    series_id?: number | string;
-    title?: string;
-    url?: string;
-    image?: {
-      url?: {
-        thumb?: string;
-        original?: string;
-      };
-    };
-    type?: string;
-    year?: string | number;
-  };
-  hit_title?: string;
-}
-
 interface MangaUpdatesAuthorReference {
   type?: string;
   name?: string;
   author_id?: number | string;
-}
-
-interface MangaUpdatesSeriesDetails {
-  series_id?: number | string;
-  title?: string;
   url?: string;
-  description?: string;
-  image?: {
-    url?: {
-      thumb?: string;
-      original?: string;
-    };
-  };
-  type?: string;
-  year?: string | number;
-  associated?: Array<{ title?: string }>;
-  genres?: Array<{ genre?: string }>;
-  categories?: Array<{ name?: string }>;
-  status?: { status?: string };
-  related_series?: Array<{
-    related_series_name?: string;
-    relation_type?: string;
-    url?: string;
-  }>;
-  authors?: MangaUpdatesAuthorReference[];
-  publishers?: Array<{ publisher_name?: string }>;
 }
 
-interface MangaUpdatesAuthorDetails {
-  name?: string;
-  actualname?: string;
-  comments?: string;
-  birthday?: {
-    as_string?: string;
-  };
-  birthplace?: string;
-  bloodtype?: string;
-  gender?: string;
+interface MangaUpdatesSeriesParsedDetails {
+  sourceId?: string;
+  title: string;
+  url: string;
+  cover?: string;
+  description?: string;
+  alternativeTitles: string[];
+  genres: string[];
+  categories: string[];
+  relatedSeries: ImportedRelatedSeriesDraft[];
+  authors: MangaUpdatesAuthorReference[];
+  artists: MangaUpdatesAuthorReference[];
+  originalPublishers: string[];
+  englishPublishers: string[];
+  serializations: string[];
+  officialTranslations: string[];
+  originalWebtoon: string[];
+  originalNovel: string[];
   status?: string;
-  genres?: Array<{ genre?: string }>;
-  social?: {
-    officialsite?: string;
-    twitter?: string;
-  };
+  type?: string;
+  year?: number;
+  averageScore?: number;
 }
 
 interface FandomInternalLink {
@@ -2038,158 +2002,387 @@ const getInfoBoxHrefByLabel = (doc: Document, label: string) => {
   return href.startsWith('http') ? href : '';
 };
 
-const MANGA_UPDATES_API_BASE_URL = 'https://api.mangaupdates.com/v1';
-
-const fetchMangaUpdatesApi = async <T>(
-  path: string,
-  options?: { method?: 'GET' | 'POST'; body?: Record<string, unknown> }
-): Promise<T> => (
-  fetchScraperJson<T>({
-    url: `${MANGA_UPDATES_API_BASE_URL}${path}`,
-    method: options?.method || 'GET',
-    headers: {
-      Accept: 'application/json',
-      ...(options?.body ? { 'Content-Type': 'application/json' } : {}),
-    },
-    body: options?.body,
-  })
-);
-
-const unwrapMangaUpdatesSearchResults = (payload: unknown): MangaUpdatesSeriesSearchItem[] => {
-  if (Array.isArray(payload)) {
-    return payload as MangaUpdatesSeriesSearchItem[];
-  }
-
-  if (payload && typeof payload === 'object') {
-    const record = payload as Record<string, unknown>;
-    if (Array.isArray(record.results)) {
-      return record.results as MangaUpdatesSeriesSearchItem[];
-    }
-
-    if (Array.isArray(record.items)) {
-      return record.items as MangaUpdatesSeriesSearchItem[];
-    }
-  }
-
-  return [];
-};
-
-const getMangaUpdatesSearchRecords = async (search: string) => (
-  unwrapMangaUpdatesSearchResults(
-    await fetchMangaUpdatesApi<unknown>('/series/search', {
-      method: 'POST',
-      body: { search },
-    }),
-  )
-);
-
-const normalizeComparableUrl = (value?: string | null) => {
-  const raw = normalizeText(value);
-  if (!raw) {
-    return '';
-  }
-
-  try {
-    const parsed = new URL(raw);
-    return normalizeKey(`${parsed.origin}${parsed.pathname}`);
-  } catch {
-    return normalizeKey(raw);
-  }
-};
-
-const getMangaUpdatesSeriesTitle = (series?: Partial<MangaUpdatesSeriesDetails | MangaUpdatesSeriesSearchItem['record']>) => (
-  normalizeText(series?.title)
-);
-
-const getMangaUpdatesSeriesImage = (series?: Partial<MangaUpdatesSeriesDetails | MangaUpdatesSeriesSearchItem['record']>) => (
-  sanitizeEntityImageUrl(series?.image?.url?.original || series?.image?.url?.thumb)
-);
-
 const parseMangaUpdatesDescriptionBlock = (value?: string | null) => {
   const raw = normalizeText(value);
   if (!raw) {
-    return { description: undefined, originalWebtoon: [] as string[], officialTranslations: [] as string[] };
+    return {
+      description: undefined,
+      originalNovel: [] as string[],
+      originalWebtoon: [] as string[],
+      officialTranslations: [] as string[],
+    };
   }
 
+  const originalNovelMatch = raw.match(/Original Novel:\s*(.+?)(?=Original Webtoon:|Official Translations:|$)/i);
   const originalMatch = raw.match(/Original Webtoon:\s*(.+?)(?=Official Translations:|$)/i);
   const translationsMatch = raw.match(/Official Translations:\s*(.+)$/i);
   const description = raw
+    .replace(/Original Novel:\s*.+?(?=Original Webtoon:|Official Translations:|$)/i, '')
     .replace(/Original Webtoon:\s*.+?(?=Official Translations:|$)/i, '')
     .replace(/Official Translations:\s*.+$/i, '')
     .trim();
 
   return {
     description: description || undefined,
+    originalNovel: uniqueStrings((originalNovelMatch?.[1] || '').split(/[,;]+/)),
     originalWebtoon: uniqueStrings((originalMatch?.[1] || '').split(/[,;]+/)),
     officialTranslations: uniqueStrings((translationsMatch?.[1] || '').split(/[,;]+/)),
   };
 };
 
-const mapMangaUpdatesSearchCandidate = (item: MangaUpdatesSeriesSearchItem): SourceSearchCandidate | null => {
-  const record = item.record || {};
-  const title = getMangaUpdatesSeriesTitle(record) || normalizeText(item.hit_title);
-  const url = normalizeText(record.url);
-  const id = normalizeText(`${record.series_id || ''}`);
+const MANGA_UPDATES_BASE_URL = 'https://www.mangaupdates.com';
+const MANGA_UPDATES_SEARCH_URL = `${MANGA_UPDATES_BASE_URL}/site/search/result`;
+const MANGA_UPDATES_PROXY_PREFIX = '/mangaupdates-proxy';
 
-  if (!title || !url) {
-    return null;
+const buildMangaUpdatesProxyUrl = (url: string) => {
+  const parsedUrl = new URL(url);
+  if (!/(\.|^)mangaupdates\.com$/i.test(parsedUrl.hostname)) {
+    throw new Error('Geçersiz MangaUpdates adresi.');
   }
 
+  return `${MANGA_UPDATES_PROXY_PREFIX}${parsedUrl.pathname}${parsedUrl.search}`;
+};
+
+const fetchMangaUpdatesHtml = async (url: string) => {
+  let lastError: Error | null = null;
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await fetch(buildMangaUpdatesProxyUrl(url), {
+        method: 'GET',
+        credentials: 'omit',
+        cache: 'no-store',
+      });
+
+      if (!response.ok) {
+        if (response.status === 429 && attempt === 0) {
+          await sleep(900);
+          continue;
+        }
+
+        throw new Error(`MangaUpdates sayfası yüklenemedi (${response.status})`);
+      }
+
+      const html = await response.text();
+      if (!html.trim()) {
+        throw new Error('MangaUpdates boş cevap döndürdü.');
+      }
+
+      if (/<title>\s*429 Too Many Requests\s*<\/title>/i.test(html)) {
+        if (attempt === 0) {
+          await sleep(900);
+          continue;
+        }
+
+        throw new Error('MangaUpdates şu anda çok fazla istek algılıyor. Kısa süre sonra tekrar dene.');
+      }
+
+      return html;
+    } catch (error) {
+      lastError = error instanceof Error ? error : new Error('MangaUpdates isteği başarısız oldu.');
+    }
+  }
+
+  throw lastError || new Error('MangaUpdates isteği başarısız oldu.');
+};
+
+const getMangaUpdatesStructuredData = (doc: Document) => {
+  const scripts = Array.from(doc.querySelectorAll('script[type="application/ld+json"]'));
+
+  for (const script of scripts) {
+    try {
+      const parsed = JSON.parse(script.textContent || '{}');
+      const candidateList = Array.isArray(parsed)
+        ? parsed
+        : parsed?.['@graph'] && Array.isArray(parsed['@graph'])
+          ? parsed['@graph']
+          : [parsed];
+      const candidate = candidateList.find((item) => (
+        item
+        && typeof item === 'object'
+        && typeof item.name === 'string'
+        && (
+          typeof item.description === 'string'
+          || Array.isArray(item.genre)
+          || !!item.author
+          || !!item.publisher
+        )
+      ));
+
+      if (candidate) {
+        return candidate as Record<string, any>;
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  return null;
+};
+
+const isMangaUpdatesEmptyValue = (value?: string | null) => {
+  const normalized = normalizeKey(value);
+  return !normalized || normalized === 'n/a' || normalized === 'na' || normalized === 'none';
+};
+
+const filterMangaUpdatesValues = (values: Array<string | null | undefined>) => (
+  uniqueStrings(values).filter((value) => !isMangaUpdatesEmptyValue(value))
+);
+
+const getMangaUpdatesInfoBoxLines = (doc: Document, label: string) => {
+  const content = getInfoBoxContentByLabel(doc, label);
+  if (!content) {
+    return [] as string[];
+  }
+
+  const directChildren = Array.from(content.children);
+  const directLines = filterMangaUpdatesValues(
+    directChildren.map((child) => extractTextWithBreaks(child)),
+  );
+  if (directLines.length > 0) {
+    return directLines;
+  }
+
+  return filterMangaUpdatesValues(
+    extractTextWithBreaks(content)
+      .split('\n')
+      .map((line) => normalizeText(line)),
+  );
+};
+
+const getMangaUpdatesInfoBoxLinks = (doc: Document, label: string, baseUrl: string) => uniqueByUrl(
+  Array.from(getInfoBoxContentByLabel(doc, label)?.querySelectorAll<HTMLAnchorElement>('a[href]') || [])
+    .map((anchor) => {
+      const href = normalizeText(anchor.getAttribute('href'));
+      const title = normalizeText(anchor.textContent);
+      if (!href || href === '#' || !title) {
+        return null;
+      }
+
+      const url = toAbsoluteUrl(href, baseUrl);
+      if (url.includes('/cp/') || /(?:show all|log in to vote|more\.\.\.)/i.test(title)) {
+        return null;
+      }
+
+      return {
+        title,
+        url,
+      };
+    })
+    .filter((item): item is { title: string; url: string } => item !== null),
+);
+
+const getMangaUpdatesPersonReferences = (
+  doc: Document,
+  label: string,
+  baseUrl: string,
+): MangaUpdatesAuthorReference[] => {
+  const content = getInfoBoxContentByLabel(doc, label);
+  if (!content) {
+    return [];
+  }
+
+  const entries = Array.from(content.children);
+  const references = entries
+    .map((entry) => {
+      const authorLink = Array.from(entry.querySelectorAll<HTMLAnchorElement>('a[href]')).find((anchor) => {
+        const href = normalizeText(anchor.getAttribute('href'));
+        return /\/author\//i.test(href);
+      });
+      const title = normalizeText(
+        authorLink?.textContent
+        || entry.querySelector('span')?.textContent
+        || extractTextWithBreaks(entry).replace(/\[\s*add\s*\]/gi, ''),
+      );
+
+      if (!title || isMangaUpdatesEmptyValue(title)) {
+        return null;
+      }
+
+      const href = normalizeText(authorLink?.getAttribute('href'));
+      return {
+        name: title,
+        url: href ? toAbsoluteUrl(href, baseUrl) : undefined,
+      } satisfies MangaUpdatesAuthorReference;
+    })
+    .filter((item): item is MangaUpdatesAuthorReference => item !== null);
+
+  if (references.length > 0) {
+    return references;
+  }
+
+  return getMangaUpdatesInfoBoxLines(doc, label).map((name) => ({ name }));
+};
+
+const getMangaUpdatesAverageScore = (doc: Document) => {
+  const ratingText = getInfoBoxTextByLabel(doc, 'User Rating');
+  const match = ratingText.match(/Bayesian Average:\s*([0-9]+(?:\.[0-9]+)?)/i)
+    || ratingText.match(/Average:\s*([0-9]+(?:\.[0-9]+)?)/i);
+
+  return match ? Math.round(Number(match[1]) * 10) : undefined;
+};
+
+const getMangaUpdatesSeriesSourceId = (doc: Document, pageUrl: string) => {
+  const rssUrl = Array.from(doc.querySelectorAll<HTMLAnchorElement>('a[href]'))
+    .map((anchor) => normalizeText(anchor.getAttribute('href')))
+    .find((href) => /api\.mangaupdates\.com\/v1\/series\/\d+\/rss/i.test(href));
+  const rssMatch = rssUrl?.match(/\/series\/(\d+)\/rss/i);
+
+  return rssMatch?.[1] || parseMangaUpdatesSeriesPath(pageUrl) || undefined;
+};
+
+const buildMangaUpdatesCandidateFromSeriesPage = (doc: Document, inputUrl: string): SourceSearchCandidate => {
+  const url = getMetaContent(doc, 'property', 'og:url') || inputUrl;
+  const title = getMetaContent(doc, 'property', 'og:title')
+    || normalizeText(doc.querySelector('.tabletitle, h1')?.textContent)
+    || normalizeText(inputUrl.split('/').pop()?.replace(/-/g, ' '))
+    || 'MangaUpdates series';
+  const type = getInfoBoxTextByLabel(doc, 'Type');
+  const year = getInfoBoxTextByLabel(doc, 'Year');
+
   return {
-    id: id || url,
+    id: getMangaUpdatesSeriesSourceId(doc, url) || inputUrl,
     source: 'mangaupdates',
     title,
-    subtitle: mergeStringLists([
-      normalizeText(record.type),
-      normalizeText(`${record.year || ''}`),
-    ]).join(' • ') || undefined,
+    subtitle: mergeStringLists([type], [year]).join(' • ') || undefined,
     url,
-    imageUrl: getMangaUpdatesSeriesImage(record) || undefined,
+    imageUrl: sanitizeEntityImageUrl(
+      getMetaContent(doc, 'property', 'og:image')
+      || getImageUrlFromElement(getInfoBoxContentByLabel(doc, 'Image')?.querySelector('img')),
+    ) || undefined,
   };
 };
 
-const resolveMangaUpdatesSeriesDetails = async (candidate: SourceSearchCandidate): Promise<MangaUpdatesSeriesDetails> => {
-  const seriesId = normalizeText(candidate.id);
-  if (/^\d+$/.test(seriesId)) {
-    return await fetchMangaUpdatesApi<MangaUpdatesSeriesDetails>(`/series/${seriesId}`);
+const parseMangaUpdatesSearchCandidates = (html: string, searchUrl: string): SourceSearchCandidate[] => {
+  const doc = parseHtml(html);
+  const seriesHeading = Array.from(doc.querySelectorAll('h2, h3')).find((heading) => normalizeKey(heading.textContent) === 'series');
+  const seriesSection = seriesHeading?.nextElementSibling;
+  if (!seriesSection) {
+    return [];
   }
 
-  const directUrlKey = normalizeComparableUrl(candidate.url);
-  const searchSeed = normalizeText(candidate.title || candidate.url.split('/').pop()?.replace(/-/g, ' '));
-  const results = await getMangaUpdatesSearchRecords(searchSeed);
-  const matched = results.find((item) => normalizeComparableUrl(item.record?.url) === directUrlKey) || results[0];
-  const matchedId = normalizeText(`${matched?.record?.series_id || ''}`);
+  return uniqueByUrl(
+    Array.from(seriesSection.querySelectorAll<HTMLAnchorElement>('a[href*="/series/"]'))
+      .map((anchor) => {
+        const title = normalizeText(anchor.textContent);
+        const href = normalizeText(anchor.getAttribute('href'));
+        if (!title || !href) {
+          return null;
+        }
 
-  if (!matchedId) {
-    throw new Error('MangaUpdates serisi bulunamadı.');
-  }
+        const url = toAbsoluteUrl(href, searchUrl);
+        const row = anchor.closest('div.row.g-0.col-12');
+        const cells = row ? Array.from(row.children) : [];
+        const genre = normalizeText(cells[1]?.textContent);
+        const year = normalizeText(cells[2]?.textContent);
+        const rating = normalizeText(cells[3]?.textContent);
 
-  return await fetchMangaUpdatesApi<MangaUpdatesSeriesDetails>(`/series/${matchedId}`);
+        return {
+          id: parseMangaUpdatesSeriesPath(url) || url,
+          source: 'mangaupdates' as const,
+          title,
+          subtitle: mergeStringLists(
+            [genre],
+            [year],
+            [rating ? `★ ${rating}` : undefined],
+          ).join(' • ') || undefined,
+          url,
+        };
+      })
+      .filter((item): item is SourceSearchCandidate => item !== null),
+  ).slice(0, 8);
 };
 
-const classifyMangaUpdatesAuthorRole = (value?: string | null): 'author' | 'artist' | 'both' => {
-  const normalized = normalizeKey(value);
-  if (normalized.includes('artist') && normalized.includes('author')) {
-    return 'both';
-  }
+const resolveMangaUpdatesSeriesDetails = async (
+  candidate: SourceSearchCandidate,
+): Promise<MangaUpdatesSeriesParsedDetails> => {
+  const pageUrl = normalizeText(candidate.url) || `${MANGA_UPDATES_BASE_URL}/series/${candidate.id}`;
+  const html = await fetchMangaUpdatesHtml(pageUrl);
+  const doc = parseHtml(html);
+  const structuredData = getMangaUpdatesStructuredData(doc);
+  const canonicalUrl = getMetaContent(doc, 'property', 'og:url') || pageUrl;
+  const title = getMetaContent(doc, 'property', 'og:title')
+    || normalizeText(structuredData?.name)
+    || normalizeText(doc.querySelector('.tabletitle, h1')?.textContent)
+    || candidate.title;
+  const structuredGenres = Array.isArray(structuredData?.genre)
+    ? structuredData.genre.map((item: unknown) => normalizeText(`${item || ''}`))
+    : typeof structuredData?.genre === 'string'
+      ? structuredData.genre.split(',').map((item: string) => normalizeText(item))
+      : [];
+  const descriptionBlock = parseMangaUpdatesDescriptionBlock(
+    normalizeText(structuredData?.description) || getMetaContent(doc, 'name', 'description'),
+  );
+  const originalPublishers = getMangaUpdatesInfoBoxLinks(doc, 'Original Publisher', canonicalUrl)
+    .map((item) => item.title);
+  const englishPublishers = getMangaUpdatesInfoBoxLinks(doc, 'English Publisher', canonicalUrl)
+    .map((item) => item.title);
+  const serializations = getMangaUpdatesInfoBoxLines(doc, 'Serialized In (magazine)');
 
-  if (normalized.includes('art')) {
-    return 'artist';
-  }
+  return {
+    sourceId: getMangaUpdatesSeriesSourceId(doc, canonicalUrl) || candidate.id,
+    title,
+    url: canonicalUrl,
+    cover: sanitizeEntityImageUrl(
+      getMetaContent(doc, 'property', 'og:image')
+      || getImageUrlFromElement(getInfoBoxContentByLabel(doc, 'Image')?.querySelector('img')),
+    ) || undefined,
+    description: descriptionBlock.description,
+    alternativeTitles: getMangaUpdatesInfoBoxLines(doc, 'Associated Names'),
+    genres: filterMangaUpdatesValues([
+      ...getMangaUpdatesInfoBoxLinks(doc, 'Genre', canonicalUrl)
+        .filter((item) => item.url.includes('/series?genre='))
+        .map((item) => item.title),
+      ...structuredGenres,
+    ]),
+    categories: getMangaUpdatesInfoBoxLinks(doc, 'Categories', canonicalUrl)
+      .filter((item) => item.url.includes('/series?category='))
+      .map((item) => item.title),
+    relatedSeries: uniqueByUrl(
+      Array.from(getInfoBoxContentByLabel(doc, 'Related Series')?.children || [])
+        .map((entry) => {
+          const link = Array.from(entry.querySelectorAll<HTMLAnchorElement>('a[href]')).find((anchor) => (
+            /\/series\//i.test(normalizeText(anchor.getAttribute('href')))
+          ));
+          const href = normalizeText(link?.getAttribute('href'));
+          const relationText = normalizeText(entry.textContent);
+          const titleText = normalizeText(link?.textContent) || relationText;
+          if (!titleText || isMangaUpdatesEmptyValue(titleText)) {
+            return null;
+          }
 
-  return 'author';
+          const relationMatch = relationText.match(/\(([^()]+)\)\s*$/);
+          return {
+            title: titleText,
+            relationType: normalizeRelationType(relationMatch?.[1] || ''),
+            sourceUrl: href ? toAbsoluteUrl(href, canonicalUrl) : undefined,
+          } satisfies ImportedRelatedSeriesDraft;
+        })
+        .filter((item): item is ImportedRelatedSeriesDraft => item !== null),
+    ),
+    authors: getMangaUpdatesPersonReferences(doc, 'Author(s)', canonicalUrl),
+    artists: getMangaUpdatesPersonReferences(doc, 'Artist(s)', canonicalUrl),
+    originalPublishers,
+    englishPublishers,
+    serializations,
+    officialTranslations: descriptionBlock.officialTranslations,
+    originalWebtoon: descriptionBlock.originalWebtoon,
+    originalNovel: descriptionBlock.originalNovel,
+    status: getInfoBoxTextByLabel(doc, 'Status in Country of Origin') || undefined,
+    type: getInfoBoxTextByLabel(doc, 'Type') || undefined,
+    year: toYear(getInfoBoxTextByLabel(doc, 'Year')),
+    averageScore: getMangaUpdatesAverageScore(doc),
+  };
 };
 
 const buildMangaUpdatesPersonDraft = async (
   reference: MangaUpdatesAuthorReference,
   role: 'author' | 'artist',
 ): Promise<ImportedPersonDraft> => {
-  const sourceUrl = reference.author_id
-    ? `${MANGA_UPDATES_API_BASE_URL}/authors/${reference.author_id}`
-    : undefined;
   const title = normalizeText(reference.name) || 'MangaUpdates person';
+  const sourceUrl = normalizeText(reference.url) || undefined;
 
-  if (!reference.author_id) {
+  if (!sourceUrl) {
     return createImportedPersonDraft('mangaupdates', title, sourceUrl, {
       details: {
         role: role === 'artist' ? 'Çizer' : 'Yazar',
@@ -2197,27 +2390,36 @@ const buildMangaUpdatesPersonDraft = async (
     });
   }
 
-  const details = await fetchMangaUpdatesApi<MangaUpdatesAuthorDetails>(`/authors/${reference.author_id}`);
-  const website = normalizeText(details.social?.officialsite) || undefined;
-  const twitter = normalizeText(details.social?.twitter) || undefined;
+  const html = await fetchMangaUpdatesHtml(sourceUrl);
+  const doc = parseHtml(html);
+  const canonicalUrl = getMetaContent(doc, 'property', 'og:url') || sourceUrl;
+  const resolvedTitle = getMetaContent(doc, 'property', 'og:title')
+    || normalizeText(doc.querySelector('.tabletitle, h1')?.textContent)
+    || title;
+  const website = getInfoBoxHrefByLabel(doc, 'Official Website') || undefined;
+  const twitter = getInfoBoxHrefByLabel(doc, 'Twitter') || undefined;
 
-  return createImportedPersonDraft('mangaupdates', title, sourceUrl, {
-    description: normalizeText(details.comments) || undefined,
-    alternativeNames: uniqueStrings([details.actualname]),
+  return createImportedPersonDraft('mangaupdates', resolvedTitle, canonicalUrl, {
+    imageUrl: sanitizeEntityImageUrl(
+      getMetaContent(doc, 'property', 'og:image')
+      || getImageUrlFromElement(getInfoBoxContentByLabel(doc, 'Image')?.querySelector('img')),
+    ) || undefined,
+    description: normalizeText(extractTextWithBreaks(getInfoBoxContentByLabel(doc, 'Comments'))) || undefined,
+    alternativeNames: getMangaUpdatesInfoBoxLines(doc, 'Associated Names'),
     details: {
-      nativeName: normalizeText(details.actualname) || undefined,
-      status: normalizeText(details.status) || undefined,
-      birthday: normalizeText(details.birthday?.as_string) || undefined,
-      birthPlace: normalizeText(details.birthplace) || undefined,
-      bloodType: normalizeText(details.bloodtype) || undefined,
-      gender: normalizeText(details.gender) || undefined,
+      nativeName: getInfoBoxTextByLabel(doc, 'Name (in native language)') || undefined,
+      status: getInfoBoxTextByLabel(doc, 'Status') || undefined,
+      birthday: getInfoBoxTextByLabel(doc, 'Birth Date') || undefined,
+      birthPlace: getInfoBoxTextByLabel(doc, 'Birth Place') || undefined,
+      bloodType: getInfoBoxTextByLabel(doc, 'Blood Type') || undefined,
+      gender: getInfoBoxTextByLabel(doc, 'Gender') || undefined,
       website,
       twitter,
-      genres: uniqueStrings((details.genres || []).map((item) => item.genre)),
+      genres: getMangaUpdatesInfoBoxLinks(doc, 'Genres', canonicalUrl).map((item) => item.title),
       role: role === 'artist' ? 'Çizer' : 'Yazar',
     },
     sourceLinks: mergeSourceLinks(
-      sourceUrl ? [createSourceLink('mangaupdates', sourceUrl, 'person', title)] : undefined,
+      canonicalUrl ? [createSourceLink('mangaupdates', canonicalUrl, 'person', resolvedTitle)] : undefined,
       website
         ? [{ source: 'mangaupdates', url: website, kind: 'external', label: 'Official Website' }]
         : undefined,
@@ -2242,24 +2444,13 @@ const tryBuildMangaUpdatesPersonDraft = async (
 
 const searchMangaUpdatesCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
   if (MANGA_UPDATES_HOST_PATTERN.test(input) && input.includes('/series/')) {
-    const slugTitle = normalizeText(input.split('/').pop()?.replace(/-/g, ' ')) || 'MangaUpdates series';
-    const exactMatch = (await getMangaUpdatesSearchRecords(slugTitle))
-      .map((item) => mapMangaUpdatesSearchCandidate(item))
-      .filter((item): item is SourceSearchCandidate => item !== null)
-      .find((item) => normalizeComparableUrl(item.url) === normalizeComparableUrl(input));
-
-    return [exactMatch || {
-      id: parseMangaUpdatesSeriesPath(input) || input,
-      source: 'mangaupdates',
-      title: slugTitle,
-      url: input,
-    }];
+    const html = await fetchMangaUpdatesHtml(input);
+    return [buildMangaUpdatesCandidateFromSeriesPage(parseHtml(html), input)];
   }
 
-  return (await getMangaUpdatesSearchRecords(input))
-    .map((item) => mapMangaUpdatesSearchCandidate(item))
-    .filter((item): item is SourceSearchCandidate => item !== null)
-    .slice(0, 8);
+  const searchUrl = `${MANGA_UPDATES_SEARCH_URL}?search=${encodeURIComponent(input)}`;
+  const html = await fetchMangaUpdatesHtml(searchUrl);
+  return parseMangaUpdatesSearchCandidates(html, searchUrl);
 };
 
 const loadMangaUpdatesPreview = async (
@@ -2267,71 +2458,47 @@ const loadMangaUpdatesPreview = async (
   enabledOptions: Partial<Record<ImportOptionKey, boolean>>,
 ): Promise<ImportedMangaPayload> => {
   const series = await resolveMangaUpdatesSeriesDetails(candidate);
-  const parsedDescription = parseMangaUpdatesDescriptionBlock(series.description);
-  const preview = createEmptyPreview(
-    'mangaupdates',
-    normalizeText(series.url) || candidate.url,
-    getMangaUpdatesSeriesTitle(series) || candidate.title,
-  );
+  const preview = createEmptyPreview('mangaupdates', series.url, series.title);
 
-  preview.sourceId = normalizeText(`${series.series_id || candidate.id}`);
-  preview.cover = getMangaUpdatesSeriesImage(series) || undefined;
-  preview.description = parsedDescription.description || undefined;
-  preview.alternativeTitles = uniqueStrings((series.associated || []).map((item) => item.title));
-  preview.genres = uniqueStrings((series.genres || []).map((item) => item.genre));
-  preview.tags = uniqueStrings([
-    ...preview.genres,
-    ...(series.categories || []).map((item) => item.name),
-  ]);
-  preview.relatedSeries = (series.related_series || [])
-    .map((item) => ({
-      title: normalizeText(item.related_series_name),
-      relationType: normalizeRelationType(item.relation_type),
-      sourceUrl: normalizeText(item.url) || undefined,
-    }))
-    .filter((item) => item.title);
+  preview.sourceId = normalizeText(series.sourceId || candidate.id);
+  preview.cover = series.cover;
+  preview.description = series.description || undefined;
+  preview.alternativeTitles = series.alternativeTitles;
+  preview.genres = series.genres;
+  preview.tags = uniqueStrings([...series.genres, ...series.categories]);
+  preview.relatedSeries = series.relatedSeries;
   preview.details = {
-    originalPublisher: uniqueStrings((series.publishers || []).map((item) => item.publisher_name)).join(', ') || undefined,
-    officialTranslations: parsedDescription.officialTranslations,
-    originalWebtoon: parsedDescription.originalWebtoon,
+    originalPublisher: uniqueStrings([...series.originalPublishers, ...series.englishPublishers]).join(', ') || undefined,
+    officialTranslations: series.officialTranslations,
+    originalWebtoon: mergeStringLists(series.originalWebtoon, series.originalNovel),
     genres: preview.genres,
-    status: normalizeText(series.status?.status) || undefined,
-    sourceMaterial: normalizeText(series.type) || undefined,
-    comments: normalizeText(series.status?.status) || undefined,
+    status: series.status,
+    sourceMaterial: series.type,
+    averageScore: series.averageScore,
     extra: {
-      typeLabel: normalizeText(series.type) || undefined,
-      year: toYear(`${series.year || ''}`),
-      statusInOrigin: normalizeText(series.status?.status) || undefined,
-      categories: uniqueStrings((series.categories || []).map((item) => item.name)),
+      typeLabel: series.type,
+      year: series.year,
+      statusInOrigin: series.status,
+      categories: series.categories,
+      originalPublishers: series.originalPublishers,
+      englishPublishers: series.englishPublishers,
+      serializations: series.serializations,
+      originalNovel: series.originalNovel,
     },
   };
 
-  if (enabledOptions.authors || enabledOptions.artists) {
-    for (const reference of series.authors || []) {
-      const resolvedRole = classifyMangaUpdatesAuthorRole(reference.type);
-      const draft = await tryBuildMangaUpdatesPersonDraft(
-        reference,
-        resolvedRole === 'artist' ? 'artist' : 'author',
-      );
-      if (!draft) {
-        continue;
-      }
+  if (enabledOptions.authors) {
+    const authors = await mapWithConcurrency(series.authors, 3, async (reference) => (
+      await tryBuildMangaUpdatesPersonDraft(reference, 'author')
+    ));
+    preview.authors = authors.filter((item): item is ImportedPersonDraft => item !== null);
+  }
 
-      if (resolvedRole === 'artist') {
-        if (enabledOptions.artists) {
-          preview.artists.push(draft);
-        }
-      } else if (resolvedRole === 'both') {
-        if (enabledOptions.authors) {
-          preview.authors.push(draft);
-        }
-        if (enabledOptions.artists) {
-          preview.artists.push({ ...draft, details: { ...draft.details, role: 'Çizer' } });
-        }
-      } else if (enabledOptions.authors) {
-        preview.authors.push(draft);
-      }
-    }
+  if (enabledOptions.artists) {
+    const artists = await mapWithConcurrency(series.artists, 3, async (reference) => (
+      await tryBuildMangaUpdatesPersonDraft(reference, 'artist')
+    ));
+    preview.artists = artists.filter((item): item is ImportedPersonDraft => item !== null);
   }
 
   return preview;

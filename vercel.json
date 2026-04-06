@@ -1,6 +1,10 @@
 {
     "rewrites": [
         {
+            "source": "/mangaupdates-proxy/:path*",
+            "destination": "https://www.mangaupdates.com/:path*"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }

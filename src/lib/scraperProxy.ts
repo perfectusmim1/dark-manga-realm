@@ -104,6 +104,20 @@ const readProxyResponse = async (response: Response) => {
 
   if (contentType.includes('application/json')) {
     const data = await response.clone().json().catch(() => null);
+    const embeddedStatusCode = data && typeof data === 'object' && typeof data.statusCode === 'number'
+      ? data.statusCode
+      : null;
+
+    if (embeddedStatusCode && embeddedStatusCode >= 400) {
+      const embeddedMessage = typeof data?.error === 'string'
+        ? data.error
+        : typeof data?.message === 'string'
+          ? data.message
+          : typeof data?.content === 'string' && data.content.trim()
+            ? data.content
+            : '';
+      throw new Error(embeddedMessage || `Scraper proxy upstream failed (${embeddedStatusCode})`);
+    }
 
     if (typeof data === 'string' && data.trim()) {
       return data;
