@@ -538,7 +538,7 @@ const AdminAutomation: React.FC = () => {
         </div>
       </div>
 
-      <div className="grid gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
+      <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
         <div className="space-y-6">
           <Card>
             <CardHeader>
@@ -683,7 +683,7 @@ const AdminAutomation: React.FC = () => {
                       id="source-url"
                       value={form.sourceUrl}
                       onChange={(event) => setForm((current) => ({ ...current, sourceUrl: event.target.value }))}
-                      placeholder="https://hayalistic.net/manga/... veya https://webtoonhatti.club/webtoon/..."
+                      placeholder="https://hayalistic.com/manga/... veya https://webtoonhatti.club/webtoon/..."
                     />
                   </div>
 
@@ -873,7 +873,7 @@ const AdminAutomation: React.FC = () => {
           </Card>
         </div>
 
-        <Card className="overflow-hidden">
+        <Card className="self-start overflow-hidden">
           <CardHeader>
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">

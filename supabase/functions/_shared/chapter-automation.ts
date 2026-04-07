@@ -31,22 +31,22 @@ const ISTANBUL_OFFSET_MS = 3 * 60 * 60 * 1000;
 const SOURCE_CONFIG: Record<ChapterAutomationSource, {
   label: string;
   baseUrl: string;
-  canonicalHost: string;
+  canonicalHosts: string[];
   directLinkPatterns: RegExp[];
 }> = {
   hayalistic: {
     label: "Hayalistic",
-    baseUrl: "https://hayalistic.net",
-    canonicalHost: "hayalistic.net",
+    baseUrl: "https://hayalistic.com",
+    canonicalHosts: ["hayalistic.com", "hayalistic.net"],
     directLinkPatterns: [
-      /^https?:\/\/(?:www\.)?hayalistic\.net\/manga\/[^?#]+$/i,
-      /^https?:\/\/(?:www\.)?hayalistic\.net\/webtoon\/[^?#]+$/i,
+      /^https?:\/\/(?:www\.)?hayalistic\.(?:com|net)\/manga\/[^?#]+$/i,
+      /^https?:\/\/(?:www\.)?hayalistic\.(?:com|net)\/webtoon\/[^?#]+$/i,
     ],
   },
   webtoonhatti: {
     label: "WebtoonHattı",
     baseUrl: "https://webtoonhatti.club",
-    canonicalHost: "webtoonhatti.club",
+    canonicalHosts: ["webtoonhatti.club"],
     directLinkPatterns: [
       /^https?:\/\/(?:www\.)?webtoonhatti\.club\/webtoon\/[^?#]+$/i,
     ],
@@ -89,6 +89,11 @@ const normalizePathname = (value: string) => {
 const isDirectSourceLink = (source: ChapterAutomationSource, value: string) => (
   SOURCE_CONFIG[source].directLinkPatterns.some((pattern) => pattern.test(value))
 );
+
+const isAllowedSourceHost = (hostname: string, canonicalHosts: string[]) => {
+  const normalizedHostname = hostname.toLowerCase().replace(/^www\./, "");
+  return canonicalHosts.some((host) => normalizedHostname === host);
+};
 
 const getChapterNumber = (name: string, link: string) => {
   const match = `${name} ${link}`.match(/(\d+(?:\.\d+)?)/);
@@ -196,7 +201,7 @@ export const normalizeAutomationSourceUrl = (sourceInput: string, sourceUrl: str
   const parsed = new URL(normalizeText(sourceUrl), config.baseUrl);
   const canonical = new URL(config.baseUrl);
 
-  if (!parsed.hostname.toLowerCase().endsWith(config.canonicalHost)) {
+  if (!isAllowedSourceHost(parsed.hostname, config.canonicalHosts)) {
     throw new Error(`${config.label} için geçerli bir seri linki girin`);
   }
 

@@ -12,6 +12,24 @@ const RUNNER_TOKEN_SECRET_KEY = "chapter_automation_runner_token";
 const RUNNER_NAME = "supabase-edge:chapter-automation-runner";
 const CLAIM_LIMIT = 5;
 
+interface RunnerAutomationRow {
+  id: string;
+  manga_id: string;
+  source: string;
+  source_url: string;
+  check_times?: string[] | null;
+  validation_snapshot?: Record<string, unknown> | null;
+}
+
+interface UserPreferenceRow {
+  id: string;
+  preferences?: {
+    notifications?: {
+      new_chapter?: boolean;
+    };
+  } | null;
+}
+
 const normalizeText = (value?: string | null) => value?.trim() || "";
 
 const loadRunnerToken = async (serviceClient: ReturnType<typeof createServiceClient>) => {
@@ -75,8 +93,8 @@ const createFollowerNotifications = async (
     return 0;
   }
 
-  const preferencesByUserId = new Map<string, any>();
-  for (const user of usersData || []) {
+  const preferencesByUserId = new Map<string, UserPreferenceRow["preferences"]>();
+  for (const user of (usersData || []) as UserPreferenceRow[]) {
     preferencesByUserId.set(user.id, user.preferences);
   }
 
@@ -109,7 +127,7 @@ const createFollowerNotifications = async (
 
 const updateAutomationRunState = async (
   serviceClient: ReturnType<typeof createServiceClient>,
-  automation: any,
+  automation: RunnerAutomationRow,
   runId: string,
   values: {
     status: "success" | "no_changes" | "error";
@@ -162,7 +180,7 @@ const updateAutomationRunState = async (
 
 const processAutomation = async (
   serviceClient: ReturnType<typeof createServiceClient>,
-  automation: any,
+  automation: RunnerAutomationRow,
 ) => {
   const startedAt = new Date().toISOString();
   const { data: runRow, error: runInsertError } = await serviceClient
@@ -356,7 +374,7 @@ Deno.serve(async (req: Request) => {
       throw claimError;
     }
 
-    const claimedList = claimedAutomations || [];
+    const claimedList = (claimedAutomations || []) as RunnerAutomationRow[];
     let successCount = 0;
     let noChangesCount = 0;
     let errorCount = 0;

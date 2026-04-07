@@ -38,12 +38,12 @@ const SOURCE_CONFIG: Record<ScrapeSource, {
 }> = {
   hayalistic: {
     label: 'Hayalistic',
-    baseUrl: 'https://hayalistic.net',
-    searchUrl: (query) => `https://hayalistic.net/?s=${encodeURIComponent(query)}&post_type=wp-manga`,
-    listUrl: 'https://hayalistic.net/webtoonlar/',
+    baseUrl: 'https://hayalistic.com',
+    searchUrl: (query) => `https://hayalistic.com/?s=${encodeURIComponent(query)}&post_type=wp-manga`,
+    listUrl: 'https://hayalistic.com/webtoonlar/',
     directLinkPatterns: [
-      /https?:\/\/(?:www\.)?hayalistic\.net\/manga\/[^?#]+/i,
-      /https?:\/\/(?:www\.)?hayalistic\.net\/webtoon\/[^?#]+/i,
+      /https?:\/\/(?:www\.)?hayalistic\.(?:com|net)\/manga\/[^?#]+/i,
+      /https?:\/\/(?:www\.)?hayalistic\.(?:com|net)\/webtoon\/[^?#]+/i,
     ],
   },
   webtoonhatti: {
@@ -373,7 +373,7 @@ export const detectScrapeSourceFromUrl = (value: string): ScrapeSource | null =>
     return 'webtoonhatti';
   }
 
-  if (normalized.includes('hayalistic.net')) {
+  if (normalized.includes('hayalistic.com') || normalized.includes('hayalistic.net')) {
     return 'hayalistic';
   }
 

@@ -16,6 +16,7 @@ const DEFAULT_ALLOWED_HOSTS = [
   'i.pinimg.com',
   'webtoonhatti.club',
   'hayalistic.net',
+  'hayalistic.com',
   'i.hizliresim.com',
   'preview.redd.it',
   'i.redd.it',
