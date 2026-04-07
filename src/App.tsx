@@ -68,6 +68,7 @@ const ReadingLists = lazy(() => import("./pages/ReadingLists"));
 const ReadingTime = lazy(() => import("./pages/ReadingTime"));
 const ReadingTimeMangaDetail = lazy(() => import("./pages/ReadingTimeMangaDetail"));
 const ReadingListDetail = lazy(() => import("./pages/ReadingListDetail"));
+const SeriesRequests = lazy(() => import("./pages/SeriesRequests"));
 const Settings = lazy(() => import("./pages/Settings"));
 const Support = lazy(() => import("./pages/support/Support"));
 const NotFound = lazy(() => import("./pages/NotFound"));
@@ -100,6 +101,7 @@ const AdminAnnouncements = lazy(() => import("./pages/admin/AdminAnnouncements")
 const AdminReports = lazy(() => import("./pages/admin/AdminReports"));
 const AdminSiteSettings = lazy(() => import("./pages/admin/AdminSiteSettings"));
 const AdminTickets = lazy(() => import("./pages/admin/AdminTickets"));
+const AdminSeriesRequests = lazy(() => import("./pages/admin/AdminSeriesRequests"));
 const LazyDownloadDock = lazy(() => import("@/components/offline/DownloadDock"));
 const LazyAdBlockWarning = lazy(() => import("@/components/security/AdBlockWarning"));
 
@@ -378,6 +380,7 @@ const App = () => (
                     <Route path="/tier-lists/:id" element={<TierListView />} />
                     <Route path="/tier-lists/:id/edit" element={<TierListEditor />} />
                     <Route path="/reading-lists/:listId" element={<ReadingListDetail />} />
+                    <Route path="/series-requests" element={<SeriesRequests />} />
                     <Route path="/settings" element={<Settings />} />
                     <Route path="/support" element={<Support />} />
                     <Route path="/profile/:userId" element={<Profile />} />
@@ -407,6 +410,7 @@ const App = () => (
                       <Route path="announcements" element={<AdminAnnouncements />} />
                       <Route path="reports" element={<AdminReports />} />
                       <Route path="tickets" element={<AdminTickets />} />
+                      <Route path="series-requests" element={<AdminSeriesRequests />} />
                       <Route path="site-settings" element={<AdminSiteSettings />} />
                     </Route>
 

@@ -18,6 +18,7 @@ import {
     Flag,
     LifeBuoy,
     Bot,
+    Send,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -67,6 +68,7 @@ const AdminLayout: React.FC = () => {
         { icon: Hash, label: 'Etiketler', path: '/admin/tags' },
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
         { icon: LifeBuoy, label: 'Destek Talepleri', path: '/admin/tickets' },
+        { icon: Send, label: 'Seri İstekleri', path: '/admin/series-requests' },
         ...(access.isPrimaryAdmin ? [{ icon: Megaphone, label: 'Duyurular', path: '/admin/announcements' }] : []),
         { icon: Flag, label: 'Bildirilenler', path: '/admin/reports' },
         ...(access.isPrimaryAdmin ? [{ icon: Settings, label: 'Site Settings', path: '/admin/site-settings' }] : []),

@@ -508,6 +508,8 @@ export type SupportTicketCategory = 'bug_report' | 'account' | 'content_issue' |
 
 export type SupportTicketStatus = 'open' | 'waiting_staff' | 'waiting_user' | 'closed';
 
+export type SeriesRequestStatus = 'pending' | 'in_review' | 'approved' | 'rejected';
+
 export type UserBanKind = 'timed' | 'permanent' | 'hard';
 
 export type ScrapeSource = 'hayalistic' | 'webtoonhatti';
@@ -607,6 +609,24 @@ export interface SupportTicket {
   updatedAt: string;
   lastMessageAt: string;
   messages: SupportTicketMessage[];
+}
+
+export interface SeriesRequest {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  seriesTitle: string;
+  referenceUrl: string;
+  referenceHost: string;
+  note?: string | null;
+  adminNote?: string | null;
+  status: SeriesRequestStatus;
+  reviewedAt?: string | null;
+  reviewedBy?: string | null;
+  reviewedByName?: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface UserWarning {

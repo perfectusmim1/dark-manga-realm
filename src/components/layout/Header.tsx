@@ -29,6 +29,7 @@ import {
   Download,
   ChevronDown,
   LifeBuoy,
+  Send,
   type LucideIcon,
 } from 'lucide-react';
 import { Artist, Author, Character, Manga } from '@/lib/types';
@@ -1092,6 +1093,12 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                   <Link to="/tier-lists" className="flex items-center gap-2">
                     <Book className="h-4 w-4" />
                     Tier Listelerim
+                  </Link>
+                </DropdownMenuItem>
+                <DropdownMenuItem asChild>
+                  <Link to="/series-requests" className="flex items-center gap-2">
+                    <Send className="h-4 w-4" />
+                    Seri İstekleri
                   </Link>
                 </DropdownMenuItem>
                 <DropdownMenuItem asChild>
