@@ -253,6 +253,8 @@ export interface Chapter {
   title: string;
   pages: string[];
   pageCount?: number;
+  cardImageUrl?: string;
+  cardImagePage?: number | null;
   releaseDate: string;
   views: number;
 }
@@ -289,6 +291,7 @@ export interface User {
     appearance?: {
       manga_hover_preview?: boolean;
       show_header_offline_toggle?: boolean;
+      show_chapter_card_images?: boolean;
     };
     privacy?: {
       visibility: 'public' | 'members' | 'mutuals' | 'private';

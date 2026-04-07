@@ -137,6 +137,7 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
   appearance: {
     manga_hover_preview: false,
     show_header_offline_toggle: true,
+    show_chapter_card_images: false,
   },
   privacy: {
     visibility: 'public',

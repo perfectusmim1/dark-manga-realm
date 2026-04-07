@@ -46,7 +46,6 @@ import {
     getMangaById,
     saveManga,
     getMangaSummaries,
-    addChapterToManga,
     deleteChapter,
     getCharacters,
     getAuthors,
@@ -64,6 +63,13 @@ import {
 } from '@/lib/database';
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import { Manga, Chapter, Character, Author, Artist, MangaRelation } from '@/lib/types';
+import {
+    DEFAULT_CHAPTER_CARD_IMAGE_MODE,
+    getChapterCardImageMode,
+    resolveChapterCardImageUrl,
+    setChapterCardImageMode,
+    type ChapterCardImageMode,
+} from '@/lib/chapterCardImages';
 import { allGenres, normalizeGenres } from '@/lib/mockData';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 import { createNotificationForFollowers } from '@/lib/storage';
@@ -155,6 +161,29 @@ const upsertNamedEntity = <T extends { id: string }>(items: T[], entity: T) => {
 
 const DEFAULT_CHARACTER_LISTING_ROLE: CharacterListingRole = 'minor';
 const DEFAULT_ENTITY_PICKER_LIMIT = 10;
+type ChapterDraft = Pick<Chapter, 'number' | 'title' | 'pages' | 'cardImagePage'>;
+
+const CHAPTER_CARD_IMAGE_MODE_OPTIONS: Array<{
+    value: ChapterCardImageMode;
+    label: string;
+    description: string;
+}> = [
+    {
+        value: 'auto_first_page',
+        label: 'Otomatik (1. sayfa)',
+        description: 'Her bölüm kartında ilk sayfa otomatik kullanılır.',
+    },
+    {
+        value: 'manual',
+        label: 'Manuel (sayfa seç)',
+        description: 'Her bölüm için seçtiğiniz sayfa seri sayfasında gösterilir.',
+    },
+    {
+        value: 'none',
+        label: 'Kapalı',
+        description: 'Bölüm kartlarında hiç görsel gösterilmez.',
+    },
+];
 
 const createEmptyMangaDraft = (): Partial<Manga> => ({
     title: '',
@@ -174,14 +203,15 @@ const createEmptyMangaDraft = (): Partial<Manga> => ({
     releaseYear: new Date().getFullYear(),
     averageRating: 0,
     reviewCount: 0,
-    details: {},
+    details: setChapterCardImageMode({}, DEFAULT_CHAPTER_CARD_IMAGE_MODE),
     sourceLinks: [],
 });
 
-const createEmptyChapterDraft = (number: number = 1) => ({
+const createEmptyChapterDraft = (number: number = 1): ChapterDraft => ({
     number,
     title: '',
     pages: [] as string[],
+    cardImagePage: null,
 });
 
 const createEmptyEntityDraft = () => ({
@@ -191,6 +221,44 @@ const createEmptyEntityDraft = () => ({
 });
 
 const normalizeSearchValue = (value: string) => value.trim().toLocaleLowerCase('tr-TR');
+
+const getChapterCardModeSummary = (mode: ChapterCardImageMode) => {
+    if (mode === 'manual') {
+        return 'Seri sayfasında yalnızca seçilen sayfalar kart görseli olarak kullanılır.';
+    }
+
+    if (mode === 'none') {
+        return 'Bölüm kartlarında görsel gösterilmez. Manuel seçimler saklanır.';
+    }
+
+    return 'Seri sayfasında her bölüm kartında ilk sayfa otomatik olarak gösterilir.';
+};
+
+const getChapterCardModeChapterHint = (mode: ChapterCardImageMode) => {
+    if (mode === 'manual') {
+        return 'Bu seçim şu anda aktif. Ziyaretçiler seri sayfasında seçtiğiniz sayfayı görecek.';
+    }
+
+    if (mode === 'none') {
+        return 'Görseller şu anda kapalı. İsterseniz burada bir sayfa seçip ileride kullanmak üzere saklayabilirsiniz.';
+    }
+
+    return 'Şu an otomatik mod aktif. Buradaki seçim kaydedilir; daha sonra manuel moda geçerseniz doğrudan kullanılır.';
+};
+
+const getChapterCardStatusText = (chapter: Chapter, mode: ChapterCardImageMode) => {
+    if (mode === 'none') {
+        return 'Kart görseli kapalı';
+    }
+
+    if (mode === 'manual') {
+        return chapter.cardImagePage
+            ? `Manuel sayfa ${chapter.cardImagePage}`
+            : 'Manuel sayfa seçilmedi';
+    }
+
+    return 'Otomatik olarak 1. sayfa';
+};
 
 interface SearchableOptionPickerProps<T extends { id: string }> {
     options: T[];
@@ -342,7 +410,7 @@ const AdminMangaEditor: React.FC = () => {
 
     const [altTitleInput, setAltTitleInput] = useState('');
     const [showChapterDialog, setShowChapterDialog] = useState(false);
-    const [newChapter, setNewChapter] = useState(() => createEmptyChapterDraft());
+    const [newChapter, setNewChapter] = useState<ChapterDraft>(() => createEmptyChapterDraft());
     const [pageUrlInput, setPageUrlInput] = useState('');
     const [seriesGalleryInput, setSeriesGalleryInput] = useState('');
     const [loading, setLoading] = useState(false);
@@ -365,6 +433,14 @@ const AdminMangaEditor: React.FC = () => {
     // Dialog States for creating new entities
     const [showEntityDialog, setShowEntityDialog] = useState<{ type: 'character' | 'author' | 'artist' | null }>({ type: null });
     const [newEntity, setNewEntity] = useState(() => createEmptyEntityDraft());
+    const chapterCardImageMode = useMemo(
+        () => getChapterCardImageMode(manga.details),
+        [manga.details],
+    );
+    const manualChapterCardSelectionCount = useMemo(
+        () => (manga.chapters || []).filter((chapter) => typeof chapter.cardImagePage === 'number' && chapter.cardImagePage > 0).length,
+        [manga.chapters],
+    );
 
     useEffect(() => {
         const loadInitialData = async () => {
@@ -471,6 +547,13 @@ const AdminMangaEditor: React.FC = () => {
 
     const handleChange = <K extends keyof Manga>(field: K, value: Partial<Manga>[K]) => {
         setManga(prev => ({ ...prev, [field]: value }));
+    };
+
+    const handleChapterCardImageModeChange = (mode: ChapterCardImageMode) => {
+        setManga((prev) => ({
+            ...prev,
+            details: setChapterCardImageMode(prev.details, mode),
+        }));
     };
 
     const updateSeriesGalleryUrls = (value: string) => {
@@ -637,6 +720,9 @@ const AdminMangaEditor: React.FC = () => {
         setNewChapter(prev => ({
             ...prev,
             pages: prev.pages.filter((_, i) => i !== index),
+            cardImagePage: prev.cardImagePage
+                ? Math.min(prev.cardImagePage, Math.max(prev.pages.length - 1, 0)) || null
+                : null,
         }));
     };
 
@@ -683,33 +769,34 @@ const AdminMangaEditor: React.FC = () => {
             return;
         }
 
+        const existingChapter = editingChapterId
+            ? (manga.chapters || []).find((chapter) => chapter.id === editingChapterId)
+            : undefined;
         const chapter: Chapter = {
             id: editingChapterId || `chapter-${Date.now()}`,
             number: newChapter.number,
-            title: newChapter.title,
+            title: newChapter.title.trim(),
             pages: newChapter.pages,
-            releaseDate: new Date().toISOString(),
-            views: 0,
+            cardImagePage: newChapter.cardImagePage ?? null,
+            cardImageUrl: resolveChapterCardImageUrl(newChapter, chapterCardImageMode, newChapter.cardImagePage),
+            releaseDate: existingChapter?.releaseDate || new Date().toISOString(),
+            views: existingChapter?.views || 0,
         };
+        const nextChapters = editingChapterId
+            ? (manga.chapters || []).map((item) => item.id === editingChapterId ? chapter : item)
+            : [...(manga.chapters || []), chapter];
+        let nextDraftNumber = nextChapters.length + 1;
 
         if (isEditing && manga.id) {
             setLoading(true);
             try {
-                // If it's a new chapter, we use the specific add function
-                // If it's editing, we use saveManga to sync everything
-                if (!editingChapterId) {
-                    await addChapterToManga(manga.id, chapter);
-                } else {
-                    const updatedChapters = (manga.chapters || []).map(c =>
-                        c.id === editingChapterId ? chapter : c
-                    );
-                    const updatedManga = { ...manga, chapters: updatedChapters } as Manga;
-                    await saveManga(updatedManga);
-                }
+                const updatedManga = { ...manga, chapters: nextChapters } as Manga;
+                await saveManga(updatedManga);
 
                 const refreshedManga = await getMangaById(manga.id, { includePrivate: true, includePages: true });
                 if (refreshedManga) {
                     setManga(refreshedManga);
+                    nextDraftNumber = refreshedManga.chapters.length + 1;
                     if (!editingChapterId) {
                         // Only notify for NEW chapters
                         createNotificationForFollowers(
@@ -728,19 +815,12 @@ const AdminMangaEditor: React.FC = () => {
                 setLoading(false);
             }
         } else {
-            if (editingChapterId) {
-                handleChange('chapters', (manga.chapters || []).map(c => c.id === editingChapterId ? chapter : c));
-            } else {
-                handleChange('chapters', [...(manga.chapters || []), chapter]);
-            }
-            toast.success('Bölüm listeye eklendi');
+            handleChange('chapters', nextChapters);
+            toast.success(editingChapterId ? 'Bölüm güncellendi' : 'Bölüm listeye eklendi');
         }
 
-        setNewChapter({
-            number: (manga.chapters?.length || 0) + 2,
-            title: '',
-            pages: [],
-        });
+        setNewChapter(createEmptyChapterDraft(nextDraftNumber));
+        setPageUrlInput('');
         setEditingChapterId(null);
         setShowChapterDialog(false);
     };
@@ -750,7 +830,9 @@ const AdminMangaEditor: React.FC = () => {
             number: chapter.number,
             title: chapter.title,
             pages: chapter.pages,
+            cardImagePage: chapter.cardImagePage ?? null,
         });
+        setPageUrlInput('');
         setEditingChapterId(chapter.id);
         setShowChapterDialog(true);
     };
@@ -1384,11 +1466,7 @@ const AdminMangaEditor: React.FC = () => {
                             <h2 className="text-lg font-semibold">Bölümler ({manga.chapters?.length || 0})</h2>
                             <Button className="w-full sm:w-auto" onClick={() => {
                                 setEditingChapterId(null);
-                                setNewChapter({
-                                    number: (manga.chapters?.length || 0) + 1,
-                                    title: '',
-                                    pages: [],
-                                });
+                                setNewChapter(createEmptyChapterDraft((manga.chapters?.length || 0) + 1));
                                 setPageUrlInput('');
                                 setShowChapterDialog(true);
                             }}>
@@ -1397,38 +1475,79 @@ const AdminMangaEditor: React.FC = () => {
                             </Button>
                         </div>
 
+                        <div className="rounded-xl border border-border/70 bg-secondary/20 p-4">
+                            <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                                <div className="space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <h3 className="text-sm font-semibold">Bölüm Kartı Görseli</h3>
+                                        <Badge variant="outline">
+                                            {CHAPTER_CARD_IMAGE_MODE_OPTIONS.find((option) => option.value === chapterCardImageMode)?.label}
+                                        </Badge>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                        {getChapterCardModeSummary(chapterCardImageMode)}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        Manuel seçimli bölüm: {manualChapterCardSelectionCount}
+                                    </p>
+                                </div>
+                                <div className="w-full lg:w-[280px]">
+                                    <Select value={chapterCardImageMode} onValueChange={(value) => handleChapterCardImageModeChange(value as ChapterCardImageMode)}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Bölüm kartı görsel modu seçin" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {CHAPTER_CARD_IMAGE_MODE_OPTIONS.map((option) => (
+                                                <SelectItem key={option.value} value={option.value}>
+                                                    {option.label}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </div>
+                            </div>
+                        </div>
+
                         {(manga.chapters?.length || 0) > 0 ? (
                             <div className="space-y-2 max-h-96 overflow-y-auto">
-                                {manga.chapters?.slice().reverse().map((chapter) => (
-                                    <div
-                                        key={chapter.id}
-                                        className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
-                                    >
-                                        <div>
-                                            <p className="font-medium">{formatChapterDisplayTitle(chapter.number, chapter.title)}</p>
-                                            <p className="text-sm text-muted-foreground">
-                                                {chapter.pages.length} sayfa • {new Date(chapter.releaseDate).toLocaleDateString('tr-TR')}
-                                            </p>
+                                {manga.chapters?.slice().reverse().map((chapter) => {
+                                    return (
+                                        <div
+                                            key={chapter.id}
+                                            className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+                                            style={{ contentVisibility: 'auto', containIntrinsicSize: '88px' }}
+                                        >
+                                            <div className="min-w-0 flex-1">
+                                                <div className="min-w-0">
+                                                    <p className="font-medium">{formatChapterDisplayTitle(chapter.number, chapter.title)}</p>
+                                                    <p className="text-sm text-muted-foreground">
+                                                        {chapter.pages.length} sayfa • {new Date(chapter.releaseDate).toLocaleDateString('tr-TR')}
+                                                    </p>
+                                                    <p className="mt-1 text-xs text-muted-foreground">
+                                                        {getChapterCardStatusText(chapter, chapterCardImageMode)}
+                                                    </p>
+                                                </div>
+                                            </div>
+                                            <div className="flex gap-2">
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    onClick={() => openEditChapterDialog(chapter)}
+                                                >
+                                                    <Upload className="h-4 w-4" />
+                                                </Button>
+                                                <Button
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="text-destructive"
+                                                    onClick={() => handleDeleteChapter(chapter.id)}
+                                                >
+                                                    <Trash2 className="h-4 w-4" />
+                                                </Button>
+                                            </div>
                                         </div>
-                                        <div className="flex gap-2">
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                onClick={() => openEditChapterDialog(chapter)}
-                                            >
-                                                <Upload className="h-4 w-4" />
-                                            </Button>
-                                            <Button
-                                                variant="ghost"
-                                                size="icon"
-                                                className="text-destructive"
-                                                onClick={() => handleDeleteChapter(chapter.id)}
-                                            >
-                                                <Trash2 className="h-4 w-4" />
-                                            </Button>
-                                        </div>
-                                    </div>
-                                ))}
+                                    );
+                                })}
                             </div>
                         ) : (
                             <p className="py-8 text-center text-muted-foreground">
@@ -1633,17 +1752,67 @@ const AdminMangaEditor: React.FC = () => {
                                 </div>
                             )}
                         </div>
+
+                        <div className="rounded-xl border border-border/70 bg-secondary/20 p-4">
+                            <div className="space-y-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                    <h3 className="text-sm font-semibold">Kart Görseli</h3>
+                                    <Badge variant="outline">
+                                        {CHAPTER_CARD_IMAGE_MODE_OPTIONS.find((option) => option.value === chapterCardImageMode)?.label}
+                                    </Badge>
+                                </div>
+                                <p className="text-sm text-muted-foreground">
+                                    {getChapterCardModeChapterHint(chapterCardImageMode)}
+                                </p>
+                            </div>
+
+                            <div className="mt-4 grid gap-4 md:grid-cols-[minmax(0,1fr)_220px]">
+                                <div className="space-y-2">
+                                    <label className="text-sm font-medium">Manuel mod için sayfa seçimi</label>
+                                    <Select
+                                        value={newChapter.cardImagePage ? String(newChapter.cardImagePage) : 'none'}
+                                        onValueChange={(value) => setNewChapter((prev) => ({
+                                            ...prev,
+                                            cardImagePage: value === 'none' ? null : Number(value),
+                                        }))}
+                                        disabled={newChapter.pages.length === 0}
+                                    >
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Sayfa seçin" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            <SelectItem value="none">Seçili değil</SelectItem>
+                                            {newChapter.pages.map((_, index) => (
+                                                <SelectItem key={`chapter-card-page-${index + 1}`} value={String(index + 1)}>
+                                                    Sayfa {index + 1}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                    <p className="text-xs text-muted-foreground">
+                                        {chapterCardImageMode === 'manual'
+                                            ? 'Manuel moddayken seçilen sayfa seri kartında gösterilir.'
+                                            : 'Seçiminiz kaydedilir; daha sonra manuel moda geçtiğinizde aynı sayfa kullanılır.'}
+                                    </p>
+                                    <p className="text-xs text-muted-foreground">
+                                        {newChapter.cardImagePage
+                                            ? `Seçili sayfa: ${newChapter.cardImagePage}`
+                                            : chapterCardImageMode === 'manual'
+                                                ? 'Henüz manuel kart sayfası seçilmedi.'
+                                                : chapterCardImageMode === 'none'
+                                                    ? 'Görseller kapalı. İstersen sayfa seçimini yine de kaydedebilirsin.'
+                                                    : 'Otomatik modda kart için ilk sayfa kullanılır.'}
+                                    </p>
+                                </div>
+                            </div>
+                        </div>
                     </div>
 
                     <DialogFooter className="flex-col gap-2 sm:flex-row">
                         <Button variant="outline" onClick={() => {
                             setShowChapterDialog(false);
                             setEditingChapterId(null);
-                            setNewChapter({
-                                number: (manga.chapters?.length || 0) + 1,
-                                title: '',
-                                pages: [],
-                            });
+                            setNewChapter(createEmptyChapterDraft((manga.chapters?.length || 0) + 1));
                             setPageUrlInput('');
                         }}>
                             İptal

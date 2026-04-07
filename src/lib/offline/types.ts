@@ -35,6 +35,7 @@ export interface OfflineManga {
   lastUpdated: string;
   createdAt: string;
   downloadedAt: string;
+  details?: Manga['details'];
   characters?: OfflineCharacterCard[];
 }
 
@@ -43,6 +44,8 @@ export interface OfflineChapter {
   mangaId: string;
   chapterNumber: number;
   title: string;
+  cardImageUrl?: string;
+  cardImagePage?: number | null;
   releaseDate: string;
   pageCount: number;
   sourcePageUrls: string[];

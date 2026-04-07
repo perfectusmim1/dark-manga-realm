@@ -1,4 +1,5 @@
 import { User, Favorite, ReadingProgress, Bookmark, ReaderSettings, LibraryCategory, Notification, MangaFollow, Manga } from './types';
+import { hydrateChaptersWithCardImageState } from './chapterCardImages';
 import {
     isExpectedAccessControlError,
     isRetryableSupabaseBootstrapError,
@@ -249,7 +250,7 @@ const cacheOfflineMangaMetadata = async (mangaIds: string[]) => {
     const [{ data: mangaRows, error: mangaError }, { data: chapterRows, error: chapterError }] = await Promise.all([
         supabase
             .from('mangas')
-            .select('id, title, alternative_titles, cover, banner, author, artist, status, genres, description, type, views, last_updated, created_at')
+            .select('id, title, alternative_titles, cover, banner, author, artist, status, genres, description, type, views, last_updated, created_at, details')
             .in('id', uniqueMangaIds),
         supabase
             .from('chapters')
@@ -299,10 +300,14 @@ const cacheOfflineMangaMetadata = async (mangaIds: string[]) => {
                 description: mangaRow.description || '',
                 ratings: [],
                 views: Number(mangaRow.views || 0),
-                chapters: [...(chaptersByMangaId[mangaRow.id] || [])].sort((left, right) => right.number - left.number),
+                chapters: hydrateChaptersWithCardImageState(
+                    [...(chaptersByMangaId[mangaRow.id] || [])].sort((left, right) => right.number - left.number),
+                    mangaRow.details,
+                ),
                 lastUpdated: mangaRow.last_updated,
                 createdAt: mangaRow.created_at,
                 type: mangaRow.type,
+                details: mangaRow.details || {},
                 averageRating: 0,
                 reviewCount: 0,
             };

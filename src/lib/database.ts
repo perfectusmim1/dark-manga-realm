@@ -26,7 +26,15 @@ import {
     ExternalSourceLink,
     EntityGalleryImage,
 } from './types';
+import {
+    CHAPTER_CARD_ADMIN_DIALOG_IMAGE_TRANSFORM,
+    buildChapterCardImageDetails,
+    getChapterCardImageMode,
+    hydrateChaptersWithCardImageState,
+    resolveChapterCardImageUrl,
+} from './chapterCardImages';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
+import { materializeRemoteImages } from './mediaStorage';
 import { normalizeGenres } from './mockData';
 import { slugifyCatalogTagName, type OfficialTagSeed } from './officialTagCatalog';
 import { sortChapterBatchItems } from './chapterBatchOrdering';
@@ -1591,6 +1599,8 @@ export const getMangaById = async (
         breakdown.engagement = Math.round((breakdown.engagement / reviews.length) * 10) / 10;
     }
 
+    const hydratedChapters = hydrateChaptersWithCardImageState(chapterRows, data.details);
+
     return {
         ...data,
         author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || data.author,
@@ -1603,7 +1613,7 @@ export const getMangaById = async (
         details: data.details || {},
         sourceLinks: data.source_links || [],
         relatedSeries,
-        chapters: chapterRows,
+        chapters: hydratedChapters,
         ratings: reviews.map(r => ({
             userId: r.user_id,
             rating: Math.round((r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5),
@@ -1624,6 +1634,55 @@ export const getMangaById = async (
  * Save or update a manga
  */
 export const saveManga = async (manga: Manga): Promise<void> => {
+    const normalizedChapters = (manga.chapters || []).map((chapter) => ({
+        ...chapter,
+        pages: sanitizeChapterPageUrls(chapter.pages || []),
+        cardImagePage: chapter.cardImagePage ?? null,
+    }));
+    const chapterCardImageMode = getChapterCardImageMode(manga.details);
+    const chaptersWithMaterializedCardImages = chapterCardImageMode === 'none'
+        ? normalizedChapters
+        : await materializeRemoteImages(
+            normalizedChapters
+                .map((chapter) => {
+                    const sourceUrl = resolveChapterCardImageUrl(
+                        chapter,
+                        chapterCardImageMode,
+                        chapter.cardImagePage,
+                    );
+
+                    if (!sourceUrl) {
+                        return null;
+                    }
+
+                    return {
+                        id: chapter.id,
+                        sourceUrl,
+                        entityType: 'manga' as const,
+                        entityId: manga.id,
+                        variant: 'gallery' as const,
+                        objectKey: `manga/${manga.id}/chapter-card/${chapter.id}.webp`,
+                        transform: CHAPTER_CARD_ADMIN_DIALOG_IMAGE_TRANSFORM,
+                    };
+                })
+                .filter((item): item is NonNullable<typeof item> => Boolean(item)),
+        )
+            .then((materializedImages) => normalizedChapters.map((chapter) => ({
+                ...chapter,
+                cardImageUrl: materializedImages.get(chapter.id)
+                    || chapter.cardImageUrl
+                    || resolveChapterCardImageUrl(chapter, chapterCardImageMode, chapter.cardImagePage),
+            })))
+            .catch((error) => {
+                console.warn('Chapter card image materialize failed:', error);
+                return normalizedChapters.map((chapter) => ({
+                    ...chapter,
+                    cardImageUrl: chapter.cardImageUrl
+                        || resolveChapterCardImageUrl(chapter, chapterCardImageMode, chapter.cardImagePage),
+                }));
+            });
+    const normalizedDetails = buildChapterCardImageDetails(manga.details, chaptersWithMaterializedCardImages);
+
     const mangaData = {
         id: manga.id,
         title: manga.title,
@@ -1639,7 +1698,7 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         views: manga.views || 0,
         release_year: manga.releaseYear,
         alternative_titles: manga.alternativeTitles || [],
-        details: normalizeEntityMetadata(manga.details),
+        details: normalizeEntityMetadata(normalizedDetails),
         source_links: normalizeEntitySourceLinks(manga.sourceLinks),
         last_updated: new Date().toISOString(),
         created_at: manga.createdAt || new Date().toISOString(),
@@ -1665,13 +1724,13 @@ export const saveManga = async (manga: Manga): Promise<void> => {
     invalidateAllMangasCache();
 
     // Sync chapters as well
-    if (manga.chapters && manga.chapters.length > 0) {
-        const chaptersData = manga.chapters.map(c => ({
+    if (chaptersWithMaterializedCardImages.length > 0) {
+        const chaptersData = hydrateChaptersWithCardImageState(chaptersWithMaterializedCardImages, normalizedDetails).map(c => ({
             id: c.id,
             manga_id: manga.id,
             number: c.number,
             title: c.title,
-            pages: sanitizeChapterPageUrls(c.pages || []),
+            pages: c.pages,
             views: c.views || 0,
             release_date: c.releaseDate,
         }));

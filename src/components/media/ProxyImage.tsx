@@ -9,6 +9,7 @@ interface ProxyImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>
   src: string;
   alt: string;
   transform?: ImageProxyTransformOptions;
+  allowProxy?: boolean;
 }
 
 const getTransformKey = (transform?: ImageProxyTransformOptions) =>
@@ -20,6 +21,7 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
   src,
   alt,
   transform,
+  allowProxy = false,
   onError,
   fetchPriority: _fetchPriority,
   ...rest
@@ -33,7 +35,7 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
   }, [src, transformKey]);
 
   const proxiedSrc = React.useMemo(() => {
-    if (shouldBypassProxy) {
+    if (!allowProxy || shouldBypassProxy) {
       return src;
     }
 
@@ -41,18 +43,18 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
       purpose: 'preview',
       surface: 'admin_preview',
     }) || src;
-  }, [shouldBypassProxy, src, transform]);
+  }, [allowProxy, shouldBypassProxy, src, transform]);
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
-      if (!avoidRawFallback && !shouldBypassProxy && proxiedSrc !== src) {
+      if (allowProxy && !avoidRawFallback && !shouldBypassProxy && proxiedSrc !== src) {
         setShouldBypassProxy(true);
         return;
       }
 
       onError?.(event);
     },
-    [avoidRawFallback, onError, proxiedSrc, shouldBypassProxy, src],
+    [allowProxy, avoidRawFallback, onError, proxiedSrc, shouldBypassProxy, src],
   );
 
   return (

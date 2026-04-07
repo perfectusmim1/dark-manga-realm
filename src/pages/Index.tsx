@@ -16,6 +16,7 @@ import { AnimatePresence, motion } from 'framer-motion';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
+import { useBootstrappedAppearancePreferences } from '@/hooks/useBootstrappedAppearancePreferences';
 import DeferredMount from '@/components/performance/DeferredMount';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -886,6 +887,7 @@ const Index: React.FC = () => {
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
+  const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
   const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => (
     readHomeFeedSeed().sections?.value ?? EMPTY_HOME_PAGE_SECTIONS
   ));
@@ -903,7 +905,7 @@ const Index: React.FC = () => {
     readHomeFeedSeed().trendingTags?.value ?? []
   ));
   const [tagsLoading, setTagsLoading] = useState(() => readHomeFeedSeed().trendingTags === null);
-  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
+  const hoverPreviewEnabled = appearancePreferences.manga_hover_preview;
   const mangas = useMemo(() => {
     const uniqueMangaById = new Map<string, Manga>();
 

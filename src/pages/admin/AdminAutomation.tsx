@@ -660,6 +660,7 @@ const AdminAutomation: React.FC = () => {
                       <ProxyImage
                         src={selectedManga.cover}
                         alt={selectedManga.title}
+                        allowProxy
                         className="h-16 w-12 rounded-xl border border-border object-cover"
                       />
                       <div className="min-w-0 space-y-1">
@@ -709,6 +710,7 @@ const AdminAutomation: React.FC = () => {
                             <ProxyImage
                               src={validation.cover}
                               alt={validation.sourceTitle}
+                              allowProxy
                               className="h-20 w-14 rounded-xl border border-border object-cover"
                             />
                           ) : (
@@ -933,6 +935,7 @@ const AdminAutomation: React.FC = () => {
                               <ProxyImage
                                 src={automation.mangaCover}
                                 alt={automation.mangaTitle}
+                                allowProxy
                                 className="h-16 w-12 rounded-xl border border-border object-cover"
                               />
                             ) : (

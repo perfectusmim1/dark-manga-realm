@@ -80,6 +80,7 @@ type PreferenceState = {
     appearance: {
         manga_hover_preview: boolean;
         show_header_offline_toggle: boolean;
+        show_chapter_card_images: boolean;
     };
     privacy: {
         visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['visibility'];
@@ -147,6 +148,7 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
     appearance: {
         manga_hover_preview: preferences?.appearance?.manga_hover_preview ?? false,
         show_header_offline_toggle: preferences?.appearance?.show_header_offline_toggle ?? true,
+        show_chapter_card_images: preferences?.appearance?.show_chapter_card_images ?? false,
     },
     privacy: {
         visibility: preferences?.privacy?.visibility ?? 'public',
@@ -1833,6 +1835,21 @@ const Settings: React.FC = () => {
                                         onCheckedChange={(checked) => handleUpdatePreferences({
                                             ...prefs,
                                             appearance: { ...prefs.appearance, show_header_offline_toggle: checked }
+                                        }, 'Tercihler güncellendi')}
+                                        disabled={isUpdatingPrefs}
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                    <div className="flex min-w-0 flex-col space-y-1">
+                                        <Label htmlFor="show-chapter-card-images">Seri Sayfasında Bölüm Görsellerini Göster</Label>
+                                        <p className="text-sm text-muted-foreground">Bölüm listesinde kart görsellerini yükler ve gösterir. Performans için varsayılan olarak kapalıdır.</p>
+                                    </div>
+                                    <Switch
+                                        id="show-chapter-card-images"
+                                        checked={prefs.appearance?.show_chapter_card_images ?? false}
+                                        onCheckedChange={(checked) => handleUpdatePreferences({
+                                            ...prefs,
+                                            appearance: { ...prefs.appearance, show_chapter_card_images: checked }
                                         }, 'Tercihler güncellendi')}
                                         disabled={isUpdatingPrefs}
                                     />

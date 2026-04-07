@@ -320,6 +320,7 @@ const PreviewSelectionRow = ({
       <ProxyImage
         src={item.imageUrl}
         alt={item.label}
+        allowProxy
         className="h-12 w-12 shrink-0 rounded-xl border border-border object-cover"
       />
     ) : (
@@ -487,6 +488,7 @@ const ManualEntityMatchDialog = ({
                       <ProxyImage
                         src={candidate.imageUrl}
                         alt={candidate.name}
+                        allowProxy
                         className="h-12 w-12 shrink-0 rounded-xl border border-border object-cover"
                       />
                     ) : (

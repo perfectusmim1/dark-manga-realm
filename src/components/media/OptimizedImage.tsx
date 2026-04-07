@@ -15,6 +15,7 @@ interface OptimizedImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElem
   containerClassName?: string;
   placeholderClassName?: string;
   transform?: ImageProxyTransformOptions;
+  allowProxy?: boolean;
 }
 
 const getTransformKey = (transform?: ImageProxyTransformOptions) =>
@@ -31,6 +32,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   containerClassName,
   placeholderClassName,
   transform,
+  allowProxy = false,
   onError,
   fetchPriority: _fetchPriority,
   ...rest
@@ -46,7 +48,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
 
   const shouldLoad = priority || isNearViewport;
   const resolvedSrc = React.useMemo(() => {
-    if (shouldBypassProxy) {
+    if (!allowProxy || shouldBypassProxy) {
       return src;
     }
 
@@ -54,7 +56,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
       purpose: 'render',
       surface: 'public_render',
     }) || src;
-  }, [shouldBypassProxy, src, transform, transformKey]);
+  }, [allowProxy, shouldBypassProxy, src, transform, transformKey]);
 
   React.useEffect(() => {
     setShouldBypassProxy(false);
@@ -62,14 +64,14 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
-      if (!avoidRawFallback && !shouldBypassProxy && resolvedSrc !== src) {
+      if (allowProxy && !avoidRawFallback && !shouldBypassProxy && resolvedSrc !== src) {
         setShouldBypassProxy(true);
         return;
       }
 
       onError?.(event);
     },
-    [avoidRawFallback, onError, resolvedSrc, shouldBypassProxy, src],
+    [allowProxy, avoidRawFallback, onError, resolvedSrc, shouldBypassProxy, src],
   );
 
   return (

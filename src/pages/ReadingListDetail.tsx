@@ -30,6 +30,7 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
+import { useBootstrappedAppearancePreferences } from '@/hooks/useBootstrappedAppearancePreferences';
 import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
 
 const getSixColumnDesktopCount = (width: number) => {
@@ -44,6 +45,7 @@ const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
     const { user, isLoading: authLoading } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
+    const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
     const navigate = useNavigate();
     const [list, setList] = useState<ReadingList | undefined>();
     const [isLoading, setIsLoading] = useState(true);
@@ -52,7 +54,7 @@ const ReadingListDetail: React.FC = () => {
     const [selectedMangaIds, setSelectedMangaIds] = useState<string[]>([]);
     const [isRemovingSelected, setIsRemovingSelected] = useState(false);
     const topTenWeekIds = useTopTenWeekIds(Boolean(list?.mangas?.length));
-    const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
+    const hoverPreviewEnabled = appearancePreferences.manga_hover_preview;
     
     // Likes State
     const [likesCount, setLikesCount] = useState(0);

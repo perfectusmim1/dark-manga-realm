@@ -72,6 +72,7 @@ import {
   matchesNamedEntitySearch,
 } from '@/lib/searchMatching';
 import { useHeaderShellSnapshot } from '@/hooks/useHeaderShellSnapshot';
+import { useBootstrappedAppearancePreferences } from '@/hooks/useBootstrappedAppearancePreferences';
 import { shouldRenderHeaderBootstrap } from '@/components/layout/HeaderBootstrapShell';
 
 const CHARACTER_MENU_LONG_PRESS_MS = 320;
@@ -171,8 +172,9 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   const shouldHideEmbeddedHeader = !persistent && globalHeaderEnabled && shouldRenderHeaderBootstrap(location.pathname);
   const shellUser = authLoading && !user ? headerShellSnapshot?.user ?? null : null;
   const displayUser = user ?? shellUser;
+  const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
   const isAdmin = Boolean(displayUser && access.canAccessAdminPanel);
-  const showHeaderOfflineToggle = displayUser?.preferences?.appearance?.show_header_offline_toggle ?? true;
+  const showHeaderOfflineToggle = appearancePreferences.show_header_offline_toggle;
   const canUseCachedHeaderCounts = Boolean(displayUser && headerShellSnapshot?.user?.id === displayUser.id);
   const cachedAnnouncementCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadAnnouncementCount || 0 : 0;
   const cachedNotificationCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadNotificationCount || 0 : 0;
