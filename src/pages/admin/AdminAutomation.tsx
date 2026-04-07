@@ -912,7 +912,7 @@ const AdminAutomation: React.FC = () => {
                 Henüz kayıtlı otomasyon yok.
               </div>
             ) : (
-              <ScrollArea className="max-h-[920px] pr-4">
+              <div className="max-h-[min(68vh,920px)] overflow-y-auto overscroll-contain pr-3 [scrollbar-gutter:stable] sm:pr-4">
                 <div className="space-y-4">
                   {automations.map((automation) => {
                     const isTesting = testingAutomationIdSet.has(automation.id);
@@ -1057,7 +1057,7 @@ const AdminAutomation: React.FC = () => {
                     );
                   })}
                 </div>
-              </ScrollArea>
+              </div>
             )}
           </CardContent>
         </Card>
