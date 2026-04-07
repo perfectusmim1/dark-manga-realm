@@ -60,6 +60,7 @@ import {
   deleteChapterAutomation,
   listChapterAutomations,
   setChapterAutomationActive,
+  testChapterAutomations,
   updateChapterAutomation,
   validateChapterAutomation,
   type ChapterAutomationUpsertInput,
@@ -70,6 +71,7 @@ import type {
   ChapterAutomationRunStatus,
   ChapterAutomationRunSummary,
   ChapterAutomationSource,
+  ChapterAutomationTestStatus,
   ChapterAutomationValidation,
   Manga,
 } from '@/lib/types';
@@ -129,6 +131,32 @@ const getStatusLabel = (status: ChapterAutomationRunStatus) => {
   }
 };
 
+const getTestStatusBadgeVariant = (status?: ChapterAutomationTestStatus | null) => {
+  switch (status) {
+    case 'success':
+      return 'default';
+    case 'error':
+      return 'destructive';
+    case 'running':
+      return 'secondary';
+    default:
+      return 'outline';
+  }
+};
+
+const getTestStatusLabel = (status?: ChapterAutomationTestStatus | null) => {
+  switch (status) {
+    case 'running':
+      return 'Test Ediliyor';
+    case 'success':
+      return 'Test Başarılı';
+    case 'error':
+      return 'Test Başarısız';
+    default:
+      return 'Test Yok';
+  }
+};
+
 const formatAbsoluteDate = (value?: string | null) => (
   value
     ? new Intl.DateTimeFormat('tr-TR', {
@@ -161,6 +189,10 @@ const formatRelativeDate = (value?: string | null) => {
   });
 };
 
+const formatRelativeTestDate = (value?: string | null) => (
+  value ? formatRelativeDate(value) : 'Henüz test yok'
+);
+
 const AdminAutomation: React.FC = () => {
   const { isAllowed, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'admin' });
   const [mangas, setMangas] = useState<Manga[]>([]);
@@ -177,6 +209,8 @@ const AdminAutomation: React.FC = () => {
   const [isValidating, setIsValidating] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [busyAutomationId, setBusyAutomationId] = useState<string | null>(null);
+  const [testingAutomationIds, setTestingAutomationIds] = useState<string[]>([]);
+  const [isTestingAll, setIsTestingAll] = useState(false);
   const [pendingDeleteAutomation, setPendingDeleteAutomation] = useState<ChapterAutomation | null>(null);
 
   const filteredMangas = useMemo(() => {
@@ -196,6 +230,11 @@ const AdminAutomation: React.FC = () => {
   const selectedManga = useMemo(
     () => mangas.find((manga) => manga.id === form.mangaId) || null,
     [form.mangaId, mangas],
+  );
+
+  const testingAutomationIdSet = useMemo(
+    () => new Set(testingAutomationIds),
+    [testingAutomationIds],
   );
 
   const currentValidationInputKey = buildValidationInputKey(form.source, form.sourceUrl);
@@ -340,6 +379,48 @@ const AdminAutomation: React.FC = () => {
       toast.error(error instanceof Error ? error.message : 'Otomasyon durumu güncellenemedi');
     } finally {
       setBusyAutomationId(null);
+    }
+  };
+
+  const markAutomationsTesting = (automationIds: string[]) => {
+    setTestingAutomationIds((current) => Array.from(new Set([...current, ...automationIds])));
+  };
+
+  const clearAutomationsTesting = (automationIds: string[]) => {
+    const clearedIds = new Set(automationIds);
+    setTestingAutomationIds((current) => current.filter((automationId) => !clearedIds.has(automationId)));
+  };
+
+  const handleTestAutomations = async (automationIds?: string[]) => {
+    const targetAutomationIds = automationIds?.length
+      ? automationIds
+      : automations.map((automation) => automation.id);
+
+    if (targetAutomationIds.length === 0) {
+      toast.error('Test edilecek otomasyon yok');
+      return;
+    }
+
+    try {
+      markAutomationsTesting(targetAutomationIds);
+      setIsTestingAll(!automationIds?.length);
+
+      const result = await testChapterAutomations(automationIds);
+      const failedCount = result.testResults.filter((testResult) => testResult.status === 'error').length;
+
+      await loadPageData();
+
+      if (failedCount > 0) {
+        toast.error(`${failedCount} otomasyon testi başarısız oldu`);
+      } else {
+        toast.success(`${result.testResults.length} otomasyon testi başarılı`);
+      }
+    } catch (error) {
+      console.error('Chapter automation test failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Otomasyon testi çalıştırılamadı');
+    } finally {
+      clearAutomationsTesting(targetAutomationIds);
+      setIsTestingAll(false);
     }
   };
 
@@ -794,16 +875,31 @@ const AdminAutomation: React.FC = () => {
 
         <Card className="overflow-hidden">
           <CardHeader>
-            <div className="flex items-start justify-between gap-4">
-              <div>
+            <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+              <div className="min-w-0">
                 <CardTitle>Tanımlı Otomasyonlar</CardTitle>
                 <CardDescription>
                   Her manga için doğrulanmış link ve saat listesini ayrı ayrı yönetebilirsin.
                 </CardDescription>
               </div>
-              <Button variant="outline" size="icon" onClick={() => void loadPageData()} disabled={isBootstrapping}>
-                <RefreshCw className={`h-4 w-4 ${isBootstrapping ? 'animate-spin' : ''}`} />
-              </Button>
+              <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => void handleTestAutomations()}
+                  disabled={isBootstrapping || isTestingAll || testingAutomationIds.length > 0 || automations.length === 0}
+                >
+                  {isTestingAll ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <CheckCircle2 className="mr-2 h-4 w-4" />
+                  )}
+                  Hepsini Test Et
+                </Button>
+                <Button variant="outline" size="icon" onClick={() => void loadPageData()} disabled={isBootstrapping}>
+                  <RefreshCw className={`h-4 w-4 ${isBootstrapping ? 'animate-spin' : ''}`} />
+                </Button>
+              </div>
             </div>
           </CardHeader>
           <CardContent>
@@ -819,7 +915,9 @@ const AdminAutomation: React.FC = () => {
               <ScrollArea className="max-h-[920px] pr-4">
                 <div className="space-y-4">
                   {automations.map((automation) => {
-                    const isBusy = busyAutomationId === automation.id;
+                    const isTesting = testingAutomationIdSet.has(automation.id);
+                    const isMutationBusy = busyAutomationId === automation.id;
+                    const isBusy = isMutationBusy || isTesting;
                     const isEditing = editingAutomationId === automation.id;
 
                     return (
@@ -851,6 +949,9 @@ const AdminAutomation: React.FC = () => {
                                 <Badge variant={getStatusBadgeVariant(automation.lastRunStatus)}>
                                   {getStatusLabel(automation.lastRunStatus)}
                                 </Badge>
+                                <Badge variant={getTestStatusBadgeVariant(automation.lastTestStatus)}>
+                                  {getTestStatusLabel(automation.lastTestStatus)}
+                                </Badge>
                               </div>
 
                               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
@@ -862,6 +963,7 @@ const AdminAutomation: React.FC = () => {
                                 {automation.sourceUrl}
                               </p>
                             </div>
+
                           </div>
 
                           <div className="grid gap-3 text-xs text-muted-foreground sm:grid-cols-2">
@@ -891,6 +993,24 @@ const AdminAutomation: React.FC = () => {
                                 <p className="mt-2 text-destructive">{automation.lastRunError}</p>
                               ) : null}
                             </div>
+
+                            <div className="rounded-xl border border-border bg-muted/20 px-3 py-3">
+                              <div className="flex items-center gap-2 text-foreground">
+                                {automation.lastTestStatus === 'error' ? (
+                                  <Unplug className="h-4 w-4" />
+                                ) : (
+                                  <ShieldCheck className="h-4 w-4" />
+                                )}
+                                <span className="font-medium">Son Test</span>
+                              </div>
+                              <p className="mt-2">
+                                Durum: {getTestStatusLabel(automation.lastTestStatus)}
+                              </p>
+                              <p className="mt-1">Zaman: {formatRelativeTestDate(automation.lastTestedAt)}</p>
+                              {automation.lastTestError ? (
+                                <p className="mt-2 text-destructive">{automation.lastTestError}</p>
+                              ) : null}
+                            </div>
                           </div>
 
                           <div className="flex flex-col gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
@@ -906,6 +1026,18 @@ const AdminAutomation: React.FC = () => {
                             </div>
 
                             <div className="flex flex-col gap-2 sm:flex-row">
+                              <Button
+                                variant="outline"
+                                onClick={() => void handleTestAutomations([automation.id])}
+                                disabled={isBusy || isTestingAll}
+                              >
+                                {isTesting ? (
+                                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                                ) : (
+                                  <CheckCircle2 className="mr-2 h-4 w-4" />
+                                )}
+                                Test Et
+                              </Button>
                               <Button variant="outline" onClick={() => startEditing(automation)} disabled={isBusy}>
                                 Düzenle
                               </Button>
@@ -915,7 +1047,7 @@ const AdminAutomation: React.FC = () => {
                                 onClick={() => setPendingDeleteAutomation(automation)}
                                 disabled={isBusy}
                               >
-                                {isBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                                {isMutationBusy ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
                                 Sil
                               </Button>
                             </div>

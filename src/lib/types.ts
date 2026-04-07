@@ -515,6 +515,7 @@ export type ScrapeSource = 'hayalistic' | 'webtoonhatti';
 export type ChapterAutomationSource = ScrapeSource;
 export type ChapterAutomationProxyProvider = 'cloudflare';
 export type ChapterAutomationRunStatus = 'idle' | 'running' | 'success' | 'no_changes' | 'error';
+export type ChapterAutomationTestStatus = 'idle' | 'running' | 'success' | 'error';
 
 export interface ChapterAutomationValidation {
   source: ChapterAutomationSource;
@@ -539,6 +540,15 @@ export interface ChapterAutomationRunSummary {
   details?: Record<string, JsonValue>;
 }
 
+export interface ChapterAutomationTestResult {
+  automationId: string;
+  status: Exclude<ChapterAutomationTestStatus, 'idle' | 'running'>;
+  testedAt: string;
+  message?: string | null;
+  errorMessage?: string | null;
+  details?: Record<string, JsonValue>;
+}
+
 export interface ChapterAutomation {
   id: string;
   automationType: 'chapter';
@@ -558,6 +568,10 @@ export interface ChapterAutomation {
   lastRunFinishedAt?: string | null;
   lastRunError?: string | null;
   lastAddedChapterCount: number;
+  lastTestStatus: ChapterAutomationTestStatus;
+  lastTestedAt?: string | null;
+  lastTestError?: string | null;
+  lastTestDetails?: Record<string, JsonValue>;
   createdAt: string;
   updatedAt: string;
   createdBy?: string | null;

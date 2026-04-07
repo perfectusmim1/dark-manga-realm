@@ -1,13 +1,68 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
-import { json, requireRequester } from "../_shared/auth.ts";
+import { json, requireRequester, type createServiceClient } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
   computeNextRunAt,
+  fetchAutomationSeries,
+  fetchChapterImagesForAutomation,
   normalizeCheckTimes,
   validateAutomationSource,
 } from "../_shared/chapter-automation.ts";
 
+type AutomationTestStatus = "success" | "error";
+type ServiceClient = ReturnType<typeof createServiceClient>;
+
+interface AutomationRunRow {
+  id: string;
+  automation_id: string;
+  status: string;
+  started_at: string;
+  finished_at?: string | null;
+  chapters_added?: number | null;
+  source_chapter_count?: number | null;
+  new_chapter_count?: number | null;
+  error_message?: string | null;
+  details?: Record<string, unknown> | null;
+}
+
+interface AutomationMangaRow {
+  id: string;
+  title: string;
+  cover?: string | null;
+  alternative_titles?: string[] | null;
+}
+
+interface AutomationRow {
+  id: string;
+  automation_type: string;
+  manga_id: string;
+  source: string;
+  source_url: string;
+  proxy_provider: string;
+  check_times?: string[] | null;
+  schedule_timezone: string;
+  is_active: boolean;
+  validation_snapshot?: unknown;
+  next_run_at?: string | null;
+  last_run_status: string;
+  last_run_started_at?: string | null;
+  last_run_finished_at?: string | null;
+  last_run_error?: string | null;
+  last_added_chapter_count?: number | null;
+  last_test_status?: string | null;
+  last_tested_at?: string | null;
+  last_test_error?: string | null;
+  last_test_details?: unknown;
+  created_at: string;
+  updated_at: string;
+  created_by?: string | null;
+  updated_by?: string | null;
+}
+
 const normalizeText = (value?: string | null) => value?.trim() || "";
+const normalizePayloadText = (value: unknown) => normalizeText(value == null ? "" : `${value}`);
+
+const TEST_CONCURRENCY_LIMIT = 3;
 
 const normalizeValidationSnapshot = (value: unknown) => (
   value && typeof value === "object" && !Array.isArray(value)
@@ -15,7 +70,7 @@ const normalizeValidationSnapshot = (value: unknown) => (
     : {}
 );
 
-const mapRun = (row: any) => ({
+const mapRun = (row: AutomationRunRow) => ({
   id: row.id,
   automationId: row.automation_id,
   status: row.status,
@@ -28,7 +83,11 @@ const mapRun = (row: any) => ({
   details: row.details || {},
 });
 
-const mapAutomation = (row: any, mangaMap: Map<string, any>, latestRunMap: Map<string, ReturnType<typeof mapRun>>) => {
+const mapAutomation = (
+  row: AutomationRow,
+  mangaMap: Map<string, AutomationMangaRow>,
+  latestRunMap: Map<string, ReturnType<typeof mapRun>>,
+) => {
   const manga = mangaMap.get(row.manga_id);
   const latestRun = latestRunMap.get(row.id) || null;
 
@@ -51,6 +110,10 @@ const mapAutomation = (row: any, mangaMap: Map<string, any>, latestRunMap: Map<s
     lastRunFinishedAt: row.last_run_finished_at,
     lastRunError: row.last_run_error,
     lastAddedChapterCount: Number(row.last_added_chapter_count || 0),
+    lastTestStatus: row.last_test_status || "idle",
+    lastTestedAt: row.last_tested_at || null,
+    lastTestError: row.last_test_error || null,
+    lastTestDetails: normalizeValidationSnapshot(row.last_test_details),
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     createdBy: row.created_by || null,
@@ -60,7 +123,7 @@ const mapAutomation = (row: any, mangaMap: Map<string, any>, latestRunMap: Map<s
 };
 
 const loadAutomationRows = async (
-  serviceClient: any,
+  serviceClient: ServiceClient,
   options?: { automationIds?: string[]; recentRunsLimit?: number },
 ) => {
   let query = serviceClient
@@ -77,11 +140,11 @@ const loadAutomationRows = async (
     throw automationError;
   }
 
-  const automationList = automationRows || [];
+  const automationList = (automationRows || []) as AutomationRow[];
   const mangaIds = Array.from(new Set(automationList.map((row) => row.manga_id).filter(Boolean)));
   const automationIds = automationList.map((row) => row.id);
 
-  const mangaMap = new Map<string, any>();
+  const mangaMap = new Map<string, AutomationMangaRow>();
   if (mangaIds.length > 0) {
     const { data: mangaRows, error: mangaError } = await serviceClient
       .from("mangas")
@@ -92,7 +155,7 @@ const loadAutomationRows = async (
       throw mangaError;
     }
 
-    for (const manga of mangaRows || []) {
+    for (const manga of (mangaRows || []) as AutomationMangaRow[]) {
       mangaMap.set(manga.id, manga);
     }
   }
@@ -112,7 +175,7 @@ const loadAutomationRows = async (
       throw runError;
     }
 
-    recentRuns = (runRows || []).map(mapRun);
+    recentRuns = ((runRows || []) as AutomationRunRow[]).map(mapRun);
     for (const run of recentRuns) {
       if (!latestRunMap.has(run.automationId)) {
         latestRunMap.set(run.automationId, run);
@@ -126,13 +189,226 @@ const loadAutomationRows = async (
   };
 };
 
-const parseAutomationPayload = (payload: any) => ({
-  mangaId: normalizeText(payload?.mangaId),
-  source: normalizeText(payload?.source),
-  sourceUrl: normalizeText(payload?.sourceUrl),
+const parseAutomationPayload = (payload: Record<string, unknown> | null | undefined) => ({
+  mangaId: normalizePayloadText(payload?.mangaId),
+  source: normalizePayloadText(payload?.source),
+  sourceUrl: normalizePayloadText(payload?.sourceUrl),
   isActive: payload?.isActive !== false,
-  checkTimes: normalizeCheckTimes(Array.isArray(payload?.checkTimes) ? payload.checkTimes : []),
+  checkTimes: normalizeCheckTimes(
+    Array.isArray(payload?.checkTimes)
+      ? payload.checkTimes.map((time) => normalizePayloadText(time))
+      : [],
+  ),
 });
+
+const normalizeAutomationIds = (value: unknown) => (
+  Array.isArray(value)
+    ? Array.from(new Set(value.map((item) => normalizeText(`${item ?? ""}`)).filter(Boolean)))
+    : []
+);
+
+const normalizeComparableTitle = (value?: string | null) => (
+  normalizeText(value)
+    .toLocaleLowerCase("tr-TR")
+    .replace(/ı/g, "i")
+    .replace(/ğ/g, "g")
+    .replace(/ü/g, "u")
+    .replace(/ş/g, "s")
+    .replace(/ö/g, "o")
+    .replace(/ç/g, "c")
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "")
+);
+
+const titlesMatch = (sourceTitle: string, manga: AutomationMangaRow) => {
+  const sourceKey = normalizeComparableTitle(sourceTitle);
+  const localTitles = [
+    manga?.title,
+    ...(Array.isArray(manga?.alternative_titles) ? manga.alternative_titles : []),
+  ];
+
+  return localTitles.some((title) => {
+    const localKey = normalizeComparableTitle(title);
+    return Boolean(
+      sourceKey
+        && localKey
+        && (
+          sourceKey === localKey
+          || (sourceKey.length >= 5 && localKey.includes(sourceKey))
+          || (localKey.length >= 5 && sourceKey.includes(localKey))
+        ),
+    );
+  });
+};
+
+const updateAutomationTestState = async (
+  serviceClient: ServiceClient,
+  automationId: string,
+  values: {
+    status: "running" | AutomationTestStatus;
+    testedAt?: string | null;
+    errorMessage?: string | null;
+    details?: Record<string, unknown>;
+    updatedBy?: string | null;
+  },
+) => {
+  const updateValues: Record<string, unknown> = {
+    last_test_status: values.status,
+    last_test_error: values.errorMessage || null,
+    last_test_details: values.details || {},
+  };
+
+  if (values.testedAt !== undefined) {
+    updateValues.last_tested_at = values.testedAt;
+  }
+
+  if (values.updatedBy) {
+    updateValues.updated_by = values.updatedBy;
+  }
+
+  const { error } = await serviceClient
+    .from("chapter_automations")
+    .update(updateValues)
+    .eq("id", automationId);
+
+  if (error) {
+    throw error;
+  }
+};
+
+const runAutomationConnectivityTest = async (
+  serviceClient: ServiceClient,
+  automation: AutomationRow,
+  requesterId: string,
+) => {
+  const details: Record<string, unknown> = {
+    source: automation.source,
+    sourceUrl: automation.source_url,
+  };
+
+  await updateAutomationTestState(serviceClient, automation.id, {
+    status: "running",
+    testedAt: new Date().toISOString(),
+    details,
+    updatedBy: requesterId,
+  });
+
+  try {
+    const [{ data: manga, error: mangaError }, { count: localChapterCount, error: chapterCountError }] = await Promise.all([
+      serviceClient
+        .from("mangas")
+        .select("id, title, alternative_titles")
+        .eq("id", automation.manga_id)
+        .maybeSingle(),
+      serviceClient
+        .from("chapters")
+        .select("id", { count: "exact", head: true })
+        .eq("manga_id", automation.manga_id),
+    ]);
+
+    if (mangaError) {
+      throw mangaError;
+    }
+
+    if (chapterCountError) {
+      throw chapterCountError;
+    }
+
+    const mangaRow = manga as AutomationMangaRow | null;
+
+    if (!mangaRow) {
+      throw new Error("Local manga kaydı bulunamadı");
+    }
+
+    details.localMangaTitle = mangaRow.title;
+    details.localChapterCount = Number(localChapterCount || 0);
+
+    const sourceResult = await fetchAutomationSeries(serviceClient, automation.source, automation.source_url);
+    const sourceChapters = sourceResult.chapters.filter((chapter) => normalizeText(chapter.link));
+    const numberedChapters = sourceChapters.filter((chapter) => Number.isFinite(chapter.number) && chapter.number > 0);
+    const sampledChapter = [...(numberedChapters.length > 0 ? numberedChapters : sourceChapters)].pop();
+    const titleMatched = titlesMatch(sourceResult.validation.sourceTitle, mangaRow);
+
+    details.sourceTitle = sourceResult.validation.sourceTitle;
+    details.normalizedUrl = sourceResult.validation.normalizedUrl;
+    details.sourceChapterCount = sourceResult.chapters.length;
+    details.latestChapterNumber = sourceResult.validation.latestChapterNumber ?? null;
+    details.titleMatched = titleMatched;
+
+    if (!titleMatched) {
+      throw new Error("Kaynak seri başlığı seçili manga ile eşleşmiyor");
+    }
+
+    if (sourceResult.chapters.length === 0 || !sampledChapter) {
+      throw new Error("Kaynak bölüm listesi boş döndü");
+    }
+
+    details.sampledChapterName = sampledChapter.name;
+    details.sampledChapterNumber = sampledChapter.number || null;
+
+    const pages = await fetchChapterImagesForAutomation(serviceClient, automation.source, sampledChapter.link);
+    details.sampledPageCount = pages.length;
+
+    if (pages.length === 0) {
+      throw new Error("Örnek bölüm sayfaları alınamadı");
+    }
+
+    const testedAt = new Date().toISOString();
+    await updateAutomationTestState(serviceClient, automation.id, {
+      status: "success",
+      testedAt,
+      details,
+      updatedBy: requesterId,
+    });
+
+    return {
+      automationId: automation.id,
+      status: "success" as const,
+      testedAt,
+      message: "Seri, bölüm listesi ve örnek bölüm sayfaları doğrulandı",
+      details,
+    };
+  } catch (error) {
+    const testedAt = new Date().toISOString();
+    const message = error instanceof Error ? error.message : "Otomasyon testi başarısız";
+
+    await updateAutomationTestState(serviceClient, automation.id, {
+      status: "error",
+      testedAt,
+      errorMessage: message,
+      details,
+      updatedBy: requesterId,
+    });
+
+    return {
+      automationId: automation.id,
+      status: "error" as const,
+      testedAt,
+      message,
+      errorMessage: message,
+      details,
+    };
+  }
+};
+
+const runAutomationTests = async (
+  serviceClient: ServiceClient,
+  automations: AutomationRow[],
+  requesterId: string,
+) => {
+  const results: Array<Awaited<ReturnType<typeof runAutomationConnectivityTest>>> = [];
+
+  for (let index = 0; index < automations.length; index += TEST_CONCURRENCY_LIMIT) {
+    const chunk = automations.slice(index, index + TEST_CONCURRENCY_LIMIT);
+    const chunkResults = await Promise.all(
+      chunk.map((automation) => runAutomationConnectivityTest(serviceClient, automation, requesterId)),
+    );
+    results.push(...chunkResults);
+  }
+
+  return results;
+};
 
 const isUniqueViolation = (error: unknown) => (
   typeof error === "object"
@@ -172,6 +448,45 @@ Deno.serve(async (req: Request) => {
       );
 
       return json({ success: true, validation });
+    }
+
+    if (action === "test") {
+      const requestedAutomationIds = normalizeAutomationIds(body?.automationIds);
+      let query = auth.serviceClient
+        .from("chapter_automations")
+        .select("*")
+        .order("created_at", { ascending: false });
+
+      if (requestedAutomationIds.length > 0) {
+        query = query.in("id", requestedAutomationIds);
+      }
+
+      const { data: automationRows, error: automationError } = await query;
+
+      if (automationError) {
+        throw automationError;
+      }
+
+      const automations = (automationRows || []) as AutomationRow[];
+      if (automations.length === 0) {
+        return json({ success: false, message: "Test edilecek otomasyon bulunamadı" }, 404);
+      }
+
+      const testResults = await runAutomationTests(
+        auth.serviceClient,
+        automations,
+        auth.requesterProfile.id,
+      );
+      const payload = await loadAutomationRows(auth.serviceClient, {
+        automationIds: automations.map((automation) => automation.id),
+        recentRunsLimit: 5,
+      });
+
+      return json({
+        success: true,
+        automations: payload.automations,
+        testResults,
+      });
     }
 
     if (action === "create" || action === "update") {

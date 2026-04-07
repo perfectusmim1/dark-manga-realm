@@ -2,6 +2,7 @@ import {
   ChapterAutomation,
   ChapterAutomationRunSummary,
   ChapterAutomationSource,
+  ChapterAutomationTestResult,
   ChapterAutomationValidation,
 } from '@/lib/types';
 import { invokeAuthenticatedFunction } from '@/lib/supabase';
@@ -13,6 +14,7 @@ interface ChapterAutomationResponse {
   automations?: ChapterAutomation[];
   validation?: ChapterAutomationValidation;
   recentRuns?: ChapterAutomationRunSummary[];
+  testResults?: ChapterAutomationTestResult[];
 }
 
 export interface ChapterAutomationUpsertInput {
@@ -51,6 +53,20 @@ export const validateChapterAutomation = async (source: ChapterAutomationSource,
 
   ensureSuccess(response, 'CHAPTER_AUTOMATION_VALIDATE_FAILED');
   return response.validation as ChapterAutomationValidation;
+};
+
+export const testChapterAutomations = async (automationIds?: string[]) => {
+  const response = await invokeAuthenticatedFunction<ChapterAutomationResponse>('admin-chapter-automation', {
+    action: 'test',
+    automationIds: automationIds || [],
+  });
+
+  ensureSuccess(response, 'CHAPTER_AUTOMATION_TEST_FAILED');
+
+  return {
+    automations: Array.isArray(response?.automations) ? response.automations : [],
+    testResults: Array.isArray(response?.testResults) ? response.testResults : [],
+  };
 };
 
 export const createChapterAutomation = async (payload: ChapterAutomationUpsertInput) => {
