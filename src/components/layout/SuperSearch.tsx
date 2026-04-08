@@ -23,6 +23,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
 import { toast } from 'sonner';
 import { matchesMangaSearch } from '@/lib/searchMatching';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
 let mangaSummariesLoaderPromise: Promise<(() => Promise<Manga[]>)> | null = null;
 
@@ -311,10 +312,14 @@ const SuperSearch: React.FC = () => {
                                                                     ? 'bg-emerald-600/90 text-white shadow-emerald-500/20'
                                                                     : manga.type === 'webtoon'
                                                                         ? 'bg-sky-600/90 text-white shadow-sky-500/20'
+                                                                        : manga.type === 'hentai'
+          ? 'bg-pink-600/90 text-white shadow-pink-500/20'
+                                                                            : manga.type === 'webtoon_hentai'
+                                                                                ? 'bg-rose-600/90 text-white shadow-rose-500/20'
                                                                         : 'bg-primary/90 text-primary-foreground shadow-primary/20'
                                                         }`}
                                                     >
-                                                        {manga.type.toUpperCase()}
+                                                        {getMangaTypeLabel(manga.type)}
                                                     </Badge>
                                                     <Badge
                                                         variant="outline"

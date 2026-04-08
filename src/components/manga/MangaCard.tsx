@@ -16,6 +16,7 @@ import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { formatChapterNumberLabel } from '@/lib/chapterTitle';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
 interface MangaCardProps {
   manga: Manga;
@@ -61,7 +62,7 @@ const MANGA_CARD_HOVER_BG_INTRINSIC_HEIGHT = 480;
 const MANGA_CARD_SIZES = '(min-width: 1536px) 14vw, (min-width: 1280px) 15vw, (min-width: 1024px) 17vw, (min-width: 768px) 20vw, (min-width: 640px) 25vw, 42vw';
 
 const HIGHLIGHT_BADGE_BASE =
-  'relative h-auto overflow-hidden border px-2.5 pb-[0.28rem] pt-[0.34rem] text-[8px] font-black uppercase leading-none tracking-[0.18em] shadow-[0_10px_26px_rgba(0,0,0,0.22)]';
+  'relative inline-flex min-h-[1.45rem] items-center justify-center overflow-hidden border px-2.5 py-[0.22rem] text-center text-[8px] font-black uppercase leading-none tracking-[0.18em] shadow-[0_10px_26px_rgba(0,0,0,0.22)]';
 const TOP_TEN_CORNER_CLIP_PATH = 'polygon(100% 0, 100% 100%, 0 0)';
 const TOP_TEN_CORNER_SIZE = 'clamp(3rem, 28%, 4.3rem)';
 
@@ -114,6 +115,13 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : chapters.length;
   const coverSrcSet = useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
   const latestChapterLinks = useMemo(() => getLatestChapterLinks(chapters), [chapters]);
+  const cardMetaLine = useMemo(() => {
+    const primaryPerson = [manga.author, manga.artist]
+      .map((value) => value?.trim())
+      .find(Boolean);
+
+    return primaryPerson || '\u00A0';
+  }, [manga.artist, manga.author]);
 
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -148,8 +156,10 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   const typeBadgeClassName = cn(
     `absolute left-2 top-2 z-10 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
     manga.type === 'manhwa' ? 'bg-orange-600/90 text-white shadow-lg shadow-orange-500/20' :
-      manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
-        manga.type === 'webtoon' ? 'bg-sky-600/90 text-white shadow-lg shadow-sky-500/20' :
+        manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
+          manga.type === 'webtoon' ? 'bg-sky-600/90 text-white shadow-lg shadow-sky-500/20' :
+          manga.type === 'hentai' ? 'bg-pink-600/90 text-white shadow-lg shadow-pink-500/20' :
+            manga.type === 'webtoon_hentai' ? 'bg-rose-600/90 text-white shadow-lg shadow-rose-500/20' :
           'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
   );
 
@@ -245,7 +255,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           variant="secondary"
           className={typeBadgeClassName}
         >
-          {manga.type.toUpperCase()}
+          {getMangaTypeLabel(manga.type)}
         </Badge>
 
         {isTopTenWeek && (
@@ -292,6 +302,21 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
             <span className="relative z-10 block">
               Yeni
             </span>
+          </Badge>
+        )}
+
+        {manga.isAdult && (
+          <Badge
+            className={cn(
+              HIGHLIGHT_BADGE_BASE,
+              'absolute left-2 z-10 border-rose-200/45 bg-[linear-gradient(135deg,rgba(251,113,133,0.96),rgba(244,63,94,0.94),rgba(190,24,93,0.9))] text-white',
+              isNewRelease || isTopTenWeek ? 'top-10' : 'top-2',
+              disableHeavyEffects
+                ? 'shadow-[0_10px_24px_rgba(244,63,94,0.22)]'
+                : 'shadow-[0_10px_28px_rgba(244,63,94,0.28)] backdrop-blur-md before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.32),transparent_54%)] before:opacity-80',
+            )}
+          >
+            <span className="relative z-10 block">18+</span>
           </Badge>
         )}
 
@@ -344,8 +369,8 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         <h3 className={`h-8 line-clamp-2 text-[13px] font-bold leading-tight text-foreground ${disableHeavyEffects ? '' : 'transition-colors group-hover:text-primary'}`}>
           {manga.title}
         </h3>
-        <p className="mt-1 line-clamp-1 text-[11px] text-muted-foreground">
-          {manga.author}
+        <p className="mt-1 min-h-[16px] line-clamp-1 text-[11px] text-muted-foreground">
+          {cardMetaLine}
         </p>
         <div className="mt-1.5 space-y-1.5">
           <div className="flex flex-wrap gap-1">
@@ -458,6 +483,11 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
                   <Badge variant="outline" className="h-5 bg-background/50 px-1.5 text-[9px]">
                     {manga.status === 'completed' ? 'Tamamlandı' : 'Devam Ediyor'}
                   </Badge>
+                  {manga.isAdult ? (
+                    <Badge variant="outline" className="h-5 border-rose-500/30 bg-rose-500/10 px-1.5 text-[9px] text-rose-400">
+                      18+
+                    </Badge>
+                  ) : null}
                 </div>
               </div>
             </div>

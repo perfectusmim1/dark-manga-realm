@@ -88,6 +88,7 @@ import {
   Edit3
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { getMangaTypeLabel } from '@/lib/mangaType';
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -2513,10 +2514,12 @@ const MangaDetail: React.FC = () => {
                     className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' :
                       manga.type === 'manhua' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' :
                         manga.type === 'webtoon' ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/20' :
+            manga.type === 'hentai' ? 'bg-pink-600 text-white shadow-lg shadow-pink-500/20' :
+                            manga.type === 'webtoon_hentai' ? 'bg-rose-600 text-white shadow-lg shadow-rose-500/20' :
                           'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                       }`}
                   >
-                    {manga.type.toUpperCase()}
+                    {getMangaTypeLabel(manga.type)}
                   </Badge>
                   <Badge variant="outline">
                     {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara Verildi'}

@@ -1,6 +1,9 @@
-import type { Manga } from '@/lib/types';
+import type { Manga, ScrapeSource as AppScrapeSource } from '@/lib/types';
+import { syncAdultContentGenres } from '@/lib/adultContentFormat';
+import { normalizeAdultMangaType } from '@/lib/mangaType';
+import { filterRecognizedGenres } from '@/lib/mockData';
 
-export type ScrapeSource = 'hayalistic' | 'webtoonhatti';
+export type ScrapeSource = AppScrapeSource;
 
 export interface ScrapedMangaCard {
   title: string;
@@ -13,6 +16,17 @@ export interface ScrapedChapter {
   name: string;
   link: string;
   number: number;
+  prefetchedImageResult?: ScrapedChapterImageResult;
+}
+
+export interface ScrapedChapterImageResult {
+  status: 'ok' | 'locked' | 'error';
+  images: string[];
+  reason?: string;
+}
+
+export interface ChapterImageResultOptions {
+  excludeSiyahMelekPromoFirstPage?: boolean;
 }
 
 export interface ScrapedMangaDraft extends Partial<Manga> {
@@ -53,6 +67,15 @@ const SOURCE_CONFIG: Record<ScrapeSource, {
     listUrl: 'https://webtoonhatti.club/webtoon/',
     directLinkPatterns: [
       /https?:\/\/(?:www\.)?webtoonhatti\.club\/webtoon\/[^?#]+/i,
+    ],
+  },
+  siyahmelek: {
+    label: 'SiyahMelek',
+    baseUrl: 'https://siyahmelek.mom',
+    searchUrl: (query) => `https://siyahmelek.mom/?s=${encodeURIComponent(query)}&post_type=wp-manga`,
+    listUrl: 'https://siyahmelek.mom/manga/',
+    directLinkPatterns: [
+      /https?:\/\/(?:www\.)?siyahmelek\.mom\/manga\/[^?#]+/i,
     ],
   },
 };
@@ -162,6 +185,58 @@ const normalizeUrl = (baseUrl: string, value?: string | null) => {
   }
 };
 
+const normalizeSourcePathname = (source: ScrapeSource, pathname: string) => {
+  const normalizedPathname = pathname.replace(/\/+$/, '');
+
+  if (source === 'siyahmelek') {
+    return normalizedPathname
+      .replace(/\/bolum\/page\/\d+$/i, '')
+      .replace(/\/bolum$/i, '')
+      .replace(/\/bolum-[^/]+$/i, '');
+  }
+
+  return normalizedPathname;
+};
+
+const normalizeSourceUrl = (source: ScrapeSource, rawUrl: string) => {
+  try {
+    const parsedUrl = new URL(rawUrl);
+    parsedUrl.hash = '';
+
+    if (source === 'siyahmelek') {
+      parsedUrl.search = '';
+      parsedUrl.pathname = `${normalizeSourcePathname(source, parsedUrl.pathname) || '/'}/`.replace(/\/{2,}/g, '/');
+    }
+
+    return parsedUrl.href;
+  } catch {
+    return rawUrl;
+  }
+};
+
+const ADULT_CONTENT_PATTERNS = [
+  /\b18\+\b/i,
+  /contentrating["'\s:>]+18\+/i,
+  /b[üu]y[üu]kler i[cç]in/i,
+  /\badult\b/i,
+  /\berotik\b/i,
+];
+
+const LOCKED_CHAPTER_PATTERNS = [
+  /kilitli b[öo]l[üu]m/i,
+  /vip [üu]yeler bu b[öo]l[üu]m[üu]/i,
+  /erken okuyabilir/i,
+];
+
+const CHAPTER_SHORTCUT_PATTERNS = [
+  /^ba[şs]tan$/i,
+  /^ba[şs]tan oku$/i,
+  /^okumaya ba[şs]la$/i,
+  /^ilk b[öo]l[üu]m$/i,
+  /^chapter start$/i,
+  /^start reading$/i,
+];
+
 const DETAIL_TITLE_PREFIX_PATTERNS = [
   /^g[üu]ncel\s+/i,
   /^tamamland[ıi]\s+/i,
@@ -191,6 +266,248 @@ const sanitizeDetailTitleText = (value?: string | null) => {
   }
 
   return nextValue;
+};
+
+const CHAPTER_TEXT_REMOVAL_SELECTORS = [
+  '.chapter-release-date',
+  '.chapter-date',
+  '.chapter-time',
+  '.chapter-view',
+  '.chapter-views',
+  '.chapter-comment',
+  '.chapter-comments',
+  '.chapter-meta',
+  '.chapter-metadata',
+  '.post-on',
+  '.views',
+  '.comments',
+  '.meta',
+  'i',
+  'svg',
+  'time',
+];
+
+const SIYAHMELEK_PAGINATION_SELECTORS = [
+  '.wp-pagenavi a',
+  '.wp-pagenavi span',
+  '.pagination a',
+  '.pagination span',
+  '.page-numbers a',
+  'a.page-numbers',
+  '.page-numbers',
+];
+
+export const getScrapedPaginationPageNumber = (value: string) => {
+  const match = value.match(/\/bolum\/page\/(\d+)\/?/i) || value.match(/\/page\/(\d+)\/?/i);
+  return match ? Number(match[1]) : 1;
+};
+
+const formatScrapedChapterNumber = (value: number) => (
+  Number.isInteger(value) ? String(value) : String(value)
+);
+
+const getSiyahMelekChapterLabel = (number?: number) => (
+  typeof number === 'number' && number > 0
+    ? `Bölüm ${formatScrapedChapterNumber(number)}`
+    : ''
+);
+
+const extractRawChapterText = (container: Element, anchor: HTMLAnchorElement) => {
+  const directTitle = normalizeScrapedText(
+    anchor.getAttribute('title')
+    || anchor.querySelector('.chapter-manhwa-title, .chapter-title, .chapternum, .chapter-name')?.textContent
+    || container.querySelector('.chapter-manhwa-title, .chapter-title, .chapternum, .chapter-name')?.textContent,
+  );
+
+  if (directTitle) {
+    return directTitle;
+  }
+
+  const clonedAnchor = anchor.cloneNode(true) as Element;
+  clonedAnchor.querySelectorAll(CHAPTER_TEXT_REMOVAL_SELECTORS.join(', ')).forEach((element) => element.remove());
+  const anchorText = normalizeScrapedText(clonedAnchor.textContent);
+  if (anchorText) {
+    return anchorText;
+  }
+
+  const clonedContainer = container.cloneNode(true) as Element;
+  clonedContainer.querySelectorAll(CHAPTER_TEXT_REMOVAL_SELECTORS.join(', ')).forEach((element) => element.remove());
+  return normalizeScrapedText(clonedContainer.textContent);
+};
+
+const sanitizeScrapedChapterName = (
+  value?: string | null,
+  number?: number,
+  seriesTitle?: string | null,
+) => {
+  let nextValue = normalizeScrapedText(value);
+
+  if (!nextValue) {
+    return '';
+  }
+
+  if (seriesTitle) {
+    const escapedSeriesTitle = seriesTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    nextValue = nextValue.replace(new RegExp(`^${escapedSeriesTitle}\\s*[-–—:|]?\\s*`, 'i'), '').trim();
+  }
+
+  nextValue = nextValue.replace(/^[-–—:|]+/, '').trim();
+  nextValue = nextValue
+    .replace(/\s+\d+\s*(?:dakika|saat|g[üu]n|hafta|ay|y[ıi]l)(?:\s+\d+(?:[.,]\d+)?\s*[kmb])?(?:\s+\d+)?$/iu, '')
+    .replace(/\s+\d+(?:[.,]\d+)?\s*[kmb]\s+\d+$/iu, '')
+    .trim();
+
+  const chapterMarker = nextValue.match(/(b[öo]l[üu]m\s*\d+(?:\.\d+)?(?:\s*[-–—:]\s*.+)?)$/iu);
+  if (chapterMarker?.[1]) {
+    nextValue = chapterMarker[1].trim();
+  }
+
+  const normalizedChapterMatch = nextValue.match(/(b[öo]l[üu]m\s*\d+(?:\.\d+)?)/iu);
+  if (normalizedChapterMatch?.[1]) {
+    const chapterLabel = normalizedChapterMatch[1].replace(/\s+/g, ' ').trim();
+    const trailingValue = nextValue
+      .slice(nextValue.toLocaleLowerCase('tr-TR').indexOf(normalizedChapterMatch[1].toLocaleLowerCase('tr-TR')) + normalizedChapterMatch[1].length)
+      .trim();
+
+    if (
+      !trailingValue
+      || /^(?:\d+(?:[.,]\d+)?\s*[kmb]?[\s]*)+(?:buradas[ıi]n[ıi]z)?$/iu.test(trailingValue)
+    ) {
+      return chapterLabel;
+    }
+  }
+
+  if (CHAPTER_SHORTCUT_PATTERNS.some((pattern) => pattern.test(nextValue))) {
+    return '';
+  }
+
+  if (!nextValue && typeof number === 'number' && number > 0) {
+    return `Bölüm ${number}`;
+  }
+
+  if (nextValue && !/b[öo]l[üu]m/i.test(nextValue) && typeof number === 'number' && number > 0) {
+    return `Bölüm ${number}`;
+  }
+
+  return nextValue;
+};
+
+const stripChapterHtmlTags = (value: string) => (
+  normalizeScrapedText(
+    value
+      .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+      .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&#8211;|&ndash;/gi, '-')
+      .replace(/&#8212;|&mdash;/gi, '-')
+      .replace(/&#39;|&apos;/gi, "'")
+      .replace(/&quot;/gi, '"')
+      .replace(/&amp;/gi, '&'),
+  )
+);
+
+const SIYAHMELEK_CHAPTER_LINK_PATTERN = /<a\b[^>]*href=["']([^"']*\/bolum-\d+\/?)["'][^>]*>([\s\S]*?)<\/a>/gi;
+const SIYAHMELEK_PAGINATION_LINK_PATTERN = /<a\b[^>]*href=["']([^"']*\/bolum\/page\/\d+\/[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+export const extractSiyahMelekChapterLinksFromHtml = (
+  rawHtml: string,
+  seriesUrl: string,
+  seriesTitle?: string | null,
+) => {
+  const normalizedSeriesUrl = normalizeScrapeSeriesUrl('siyahmelek', seriesUrl);
+  if (!normalizedSeriesUrl || !rawHtml.trim()) {
+    return [] as ScrapedChapter[];
+  }
+
+  let parsedSeriesUrl: URL;
+  try {
+    parsedSeriesUrl = new URL(normalizedSeriesUrl);
+  } catch {
+    return [] as ScrapedChapter[];
+  }
+
+  const seriesReferencePath = parsedSeriesUrl.pathname.replace(/\/$/, '');
+  const chapters = new Map<string, ScrapedChapter>();
+
+  for (const match of rawHtml.matchAll(SIYAHMELEK_CHAPTER_LINK_PATTERN)) {
+    const href = normalizeUrl(SOURCE_CONFIG.siyahmelek.baseUrl, match[1]);
+    if (!href) {
+      continue;
+    }
+
+    let parsedHref: URL;
+    try {
+      parsedHref = new URL(href);
+    } catch {
+      continue;
+    }
+
+    const pathname = parsedHref.pathname.replace(/\/$/, '');
+    if (!pathname.includes('/bolum-')) {
+      continue;
+    }
+
+    if (seriesReferencePath && !pathname.startsWith(`${seriesReferencePath}/`)) {
+      continue;
+    }
+
+    const rawName = stripChapterHtmlTags(match[2] || '');
+    const numberMatch = `${rawName} ${href}`.match(/(\d+(?:\.\d+)?)/);
+    const number = numberMatch ? parseFloat(numberMatch[1]) : 0;
+    const name = getSiyahMelekChapterLabel(number) || sanitizeScrapedChapterName(rawName, number, seriesTitle);
+    if (!name) {
+      continue;
+    }
+
+    chapters.set(href, {
+      name,
+      link: href,
+      number,
+    });
+  }
+
+  return Array.from(chapters.values()).sort((left, right) => left.number - right.number);
+};
+
+export const extractSiyahMelekChapterPaginationUrlsFromHtml = (
+  rawHtml: string,
+  seriesUrl: string,
+) => {
+  const normalizedSeriesUrl = normalizeScrapeSeriesUrl('siyahmelek', seriesUrl);
+  if (!normalizedSeriesUrl || !rawHtml.trim()) {
+    return [] as string[];
+  }
+
+  let parsedSeriesUrl: URL;
+  try {
+    parsedSeriesUrl = new URL(normalizedSeriesUrl);
+  } catch {
+    return [] as string[];
+  }
+
+  const seriesReferencePath = parsedSeriesUrl.pathname.replace(/\/$/, '');
+  const urls = new Set<string>();
+
+  for (const match of rawHtml.matchAll(SIYAHMELEK_PAGINATION_LINK_PATTERN)) {
+    const href = normalizeUrl(SOURCE_CONFIG.siyahmelek.baseUrl, match[1]);
+    if (!href) {
+      continue;
+    }
+
+    try {
+      const parsedHref = new URL(href);
+      if (!parsedHref.pathname.startsWith(seriesReferencePath)) {
+        continue;
+      }
+
+      urls.add(parsedHref.href);
+    } catch {
+      continue;
+    }
+  }
+
+  return Array.from(urls).sort((left, right) => getScrapedPaginationPageNumber(right) - getScrapedPaginationPageNumber(left));
 };
 
 const extractCardLink = (element: Element, baseUrl: string) => {
@@ -327,8 +644,10 @@ const parseWebtoonHattiSearchFallbackCard = (doc: Document): ScrapedMangaCard[] 
 export const getAvailableScrapeSources = (): ScrapeSource[] => Object.keys(SOURCE_CONFIG) as ScrapeSource[];
 
 export const isScrapeSource = (value: string): value is ScrapeSource => (
-  value === 'hayalistic' || value === 'webtoonhatti'
+  value === 'hayalistic' || value === 'webtoonhatti' || value === 'siyahmelek'
 );
+
+export const isAdultOnlyScrapeSource = (source: ScrapeSource) => source === 'siyahmelek';
 
 export const getScrapeSourceLabel = (source: ScrapeSource) => SOURCE_CONFIG[source].label;
 
@@ -369,6 +688,10 @@ export const isDirectScrapeLink = (source: ScrapeSource, value: string) => (
 export const detectScrapeSourceFromUrl = (value: string): ScrapeSource | null => {
   const normalized = value.trim().toLocaleLowerCase('tr-TR');
 
+  if (normalized.includes('siyahmelek.mom')) {
+    return 'siyahmelek';
+  }
+
   if (normalized.includes('webtoonhatti.club')) {
     return 'webtoonhatti';
   }
@@ -380,9 +703,14 @@ export const detectScrapeSourceFromUrl = (value: string): ScrapeSource | null =>
   return null;
 };
 
-export const normalizeScrapeUrl = (source: ScrapeSource, value?: string | null) => (
-  normalizeUrl(SOURCE_CONFIG[source].baseUrl, value)
-);
+export const normalizeScrapeUrl = (source: ScrapeSource, value?: string | null) => {
+  return normalizeUrl(SOURCE_CONFIG[source].baseUrl, value);
+};
+
+export const normalizeScrapeSeriesUrl = (source: ScrapeSource, value?: string | null) => {
+  const normalized = normalizeUrl(SOURCE_CONFIG[source].baseUrl, value);
+  return normalized ? normalizeSourceUrl(source, normalized) : '';
+};
 
 export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, rawHtml?: string): ScrapedMangaCard[] => {
   const cards: ScrapedMangaCard[] = [];
@@ -429,7 +757,11 @@ const extractDetailTitle = (doc: Document) => {
   const titleElement = doc.querySelector('.post-title h1, .post-title .entry-title, .post-title');
 
   if (!titleElement) {
-    return '';
+    return sanitizeDetailTitleText(
+      doc.querySelector('meta[property="og:title"]')?.getAttribute('content')
+      || doc.querySelector('title')?.textContent
+      || '',
+    ).replace(/\s*-\s*Siyah.*$/i, '');
   }
 
   const clonedTitleElement = titleElement.cloneNode(true) as Element;
@@ -454,33 +786,95 @@ const extractDetailCover = (doc: Document, source: ScrapeSource) => {
     SOURCE_CONFIG[source].baseUrl,
     image?.getAttribute('data-src') ||
     image?.getAttribute('data-lazy-src') ||
-    image?.getAttribute('src'),
+    image?.getAttribute('src')
+    || doc.querySelector('meta[property="og:image"]')?.getAttribute('content'),
   );
 };
 
-const extractDescription = (doc: Document, source: ScrapeSource) => {
-  const selectors = source === 'webtoonhatti'
-    ? [
-      '.manga-excerpt.summary__content.show-more',
-      '.summary__content.show-more',
-      '.description-summary .summary__content',
-      '.manga-excerpt',
-      '.post-content_item p',
-    ]
-    : [
-      '.description-summary .summary__content',
-      '.manga-excerpt',
-      '.post-content_item p',
-    ];
-
+const extractTextFromSelectors = (doc: Document, selectors: string[]) => {
   for (const selector of selectors) {
-    const value = normalizeScrapedText(doc.querySelector(selector)?.textContent);
+    const element = doc.querySelector(selector);
+    const value = normalizeScrapedText(element?.textContent);
     if (value) {
       return value;
     }
   }
 
   return '';
+};
+
+const extractJoinedTextFromSelectors = (doc: Document, selectors: string[]) => {
+  for (const selector of selectors) {
+    const elements = Array.from(doc.querySelectorAll(selector));
+    const value = normalizeScrapedText(
+      elements
+        .map((element) => normalizeScrapedText(element.textContent))
+        .filter(Boolean)
+        .join(' '),
+    );
+
+    if (value) {
+      return value;
+    }
+  }
+
+  return '';
+};
+
+const extractDescription = (doc: Document, source: ScrapeSource) => {
+  const prioritizedParagraphSelectors = source === 'siyahmelek'
+    ? [
+      '.description-summary .summary__content.show-more p',
+      '.description-summary .summary__content p',
+      '.summary__content.show-more p',
+      '.summary__content p',
+    ]
+    : source === 'webtoonhatti'
+      ? [
+        '.manga-excerpt.summary__content.show-more p',
+        '.summary__content.show-more p',
+        '.description-summary .summary__content p',
+        '.manga-excerpt p',
+      ]
+      : [];
+
+  const paragraphValue = extractJoinedTextFromSelectors(doc, prioritizedParagraphSelectors);
+  if (paragraphValue) {
+    return paragraphValue;
+  }
+
+  const selectors = source === 'siyahmelek'
+    ? [
+      '.description-summary .summary__content.show-more',
+      '.description-summary .summary__content',
+      '.summary__content.show-more',
+      '.summary__content',
+      '.manga-excerpt',
+      '.post-content_item p',
+    ]
+    : source === 'webtoonhatti'
+      ? [
+        '.manga-excerpt.summary__content.show-more',
+        '.summary__content.show-more',
+        '.description-summary .summary__content',
+        '.manga-excerpt',
+        '.post-content_item p',
+      ]
+      : [
+        '.description-summary .summary__content',
+        '.manga-excerpt',
+        '.post-content_item p',
+      ];
+
+  const value = extractTextFromSelectors(doc, selectors);
+  if (value) {
+    return value;
+  }
+
+  return normalizeScrapedText(
+    doc.querySelector('meta[property="og:description"]')?.getAttribute('content')
+    || doc.querySelector('meta[name="description"]')?.getAttribute('content'),
+  ).replace(/\s*-\s*Hentai oku.*$/i, '');
 };
 
 const extractDetailStatus = (doc: Document) => {
@@ -529,13 +923,22 @@ const extractDetailAuthors = (doc: Document, labels: string[], fallback: string)
   return isScrapedPlaceholderValue(extractedName) ? '' : extractedName;
 };
 
-const extractGenres = (doc: Document, fallbackGenres: string[]) => {
-  const genreElements = doc.querySelectorAll('.genres-content a, .summary-content a[href*="/webtoon-tur/"]');
-  const genres = Array.from(genreElements)
+const extractGenres = (doc: Document, fallbackGenres: string[], source?: ScrapeSource) => {
+  const genreElements = doc.querySelectorAll([
+    '.genres-content a',
+    '.post-content_item .summary-content a',
+    '.summary-content a[href*="/webtoon-tur/"]',
+    '.summary-content a[href*="/manga-genre/"]',
+    '.summary-content a[href*="/manga-tag/"]',
+    '.post-content_item.mg_genres a',
+    '.tagcloud a',
+  ].join(', '));
+  const candidateGenres = Array.from(genreElements)
     .map((genre) => normalizeScrapedText(genre.textContent))
     .filter(Boolean);
 
-  return genres.length > 0 ? genres : fallbackGenres;
+  const genres = candidateGenres.length > 0 ? candidateGenres : fallbackGenres;
+  return source === 'siyahmelek' ? filterRecognizedGenres(genres) : genres;
 };
 
 const extractReleaseYear = (doc: Document) => {
@@ -567,33 +970,239 @@ const extractAlternativeTitles = (doc: Document, mainTitle?: string) => {
   return sanitizeAlternativeTitles(altTitlesText, mainTitle);
 };
 
+const inferAdultContent = (doc: Document, source: ScrapeSource, genres: string[], fallbackGenres: string[]) => {
+  if (isAdultOnlyScrapeSource(source)) {
+    return true;
+  }
+
+  const contentToInspect = [
+    genres.join(' '),
+    fallbackGenres.join(' '),
+    normalizeScrapedText(doc.body?.textContent || ''),
+    Array.from(doc.querySelectorAll('script[type="application/ld+json"], script'))
+      .map((script) => script.textContent || '')
+      .join(' '),
+  ].join(' ');
+
+  return ADULT_CONTENT_PATTERNS.some((pattern) => pattern.test(contentToInspect));
+};
+
 export const extractScrapedChapterLinks = (doc: Document, source: ScrapeSource) => {
-  const chapters: ScrapedChapter[] = [];
+  const chapterSelectors = source === 'siyahmelek'
+    ? [
+      '.wp-manga-chapter a',
+      '.listing-chapters_wrap a[href*="/bolum-"]',
+      '.page-content-listing a[href*="/bolum-"]',
+      '.version-chap a[href*="/bolum-"]',
+      '.main.version-chap a[href*="/bolum-"]',
+      '.chapter-link a[href*="/bolum-"]',
+      'a[href*="/bolum-"]',
+    ]
+    : ['.wp-manga-chapter a'];
+  const seriesReferenceUrl = normalizeUrl(
+    SOURCE_CONFIG[source].baseUrl,
+    doc.querySelector('meta[property="og:url"]')?.getAttribute('content')
+      || doc.querySelector('link[rel="canonical"]')?.getAttribute('href'),
+  );
+  const seriesReferencePath = (() => {
+    if (!seriesReferenceUrl) {
+      return '';
+    }
 
-  for (const element of doc.querySelectorAll('.wp-manga-chapter')) {
-    const linkEl = element.querySelector('a') as HTMLAnchorElement | null;
+    try {
+      return new URL(seriesReferenceUrl).pathname
+        .replace(/\/$/, '')
+        .replace(/\/bolum\/page\/\d+$/i, '')
+        .replace(/\/bolum$/i, '')
+        .replace(/\/bolum-[^/]+$/i, '');
+    } catch {
+      return '';
+    }
+  })();
+  const seriesTitle = sanitizeDetailTitleText(
+    doc.querySelector('.post-title h1, .post-title .entry-title, .post-title')?.textContent
+    || doc.querySelector('meta[property="og:title"]')?.getAttribute('content')
+    || '',
+  );
+  const chapters = new Map<string, ScrapedChapter>();
 
-    if (!linkEl) {
+  for (const linkEl of Array.from(doc.querySelectorAll(chapterSelectors.join(', ')))) {
+    const anchor = linkEl as HTMLAnchorElement;
+    const container = anchor.closest('.wp-manga-chapter, li, .chapter-link') || anchor;
+    const link = normalizeUrl(SOURCE_CONFIG[source].baseUrl, anchor.href || anchor.getAttribute('href'));
+    if (!link) {
       continue;
     }
 
-    const name = normalizeScrapedText(linkEl.textContent);
-    const link = normalizeUrl(SOURCE_CONFIG[source].baseUrl, linkEl.href || linkEl.getAttribute('href'));
-    const numberMatch = `${name} ${link}`.match(/(\d+(?:\.\d+)?)/);
+    let parsedLink: URL | null = null;
+    try {
+      parsedLink = new URL(link);
+    } catch {
+      parsedLink = null;
+    }
+
+    if (source === 'siyahmelek') {
+      const pathname = parsedLink?.pathname.replace(/\/$/, '') || '';
+      if (!pathname.includes('/bolum-')) {
+        continue;
+      }
+
+      if (seriesReferencePath && !pathname.startsWith(`${seriesReferencePath}/`)) {
+        continue;
+      }
+    }
+
+    const rawName = extractRawChapterText(container, anchor);
+    const numberMatch = `${rawName} ${link}`.match(/(\d+(?:\.\d+)?)/);
     const number = numberMatch ? parseFloat(numberMatch[1]) : 0;
+    const name = source === 'siyahmelek'
+      ? (getSiyahMelekChapterLabel(number) || sanitizeScrapedChapterName(rawName, number, seriesTitle))
+      : sanitizeScrapedChapterName(rawName, number, seriesTitle);
 
-    if (!name || !link) {
+    if (!name) {
       continue;
     }
 
-    chapters.push({
+    chapters.set(link, {
       name,
       link,
       number,
     });
   }
 
-  return chapters.sort((a, b) => a.number - b.number);
+  return [...chapters.values()].sort((a, b) => a.number - b.number);
+};
+
+export const extractScrapedChapterPaginationUrls = (
+  doc: Document,
+  source: ScrapeSource,
+  referenceUrl?: string,
+) => {
+  if (source !== 'siyahmelek') {
+    return [] as string[];
+  }
+
+  const seriesReferenceUrl = normalizeUrl(
+    SOURCE_CONFIG[source].baseUrl,
+    referenceUrl
+      || doc.querySelector('meta[property="og:url"]')?.getAttribute('content')
+      || doc.querySelector('link[rel="canonical"]')?.getAttribute('href'),
+  );
+
+  if (!seriesReferenceUrl) {
+    return [];
+  }
+
+  let parsedSeriesUrl: URL;
+  try {
+    parsedSeriesUrl = new URL(seriesReferenceUrl);
+  } catch {
+    return [];
+  }
+
+  const seriesReferencePath = parsedSeriesUrl.pathname
+    .replace(/\/$/, '')
+    .replace(/\/bolum\/page\/\d+$/i, '')
+    .replace(/\/bolum$/i, '')
+    .replace(/\/bolum-[^/]+$/i, '');
+
+  const urls = new Set<string>([
+    `${parsedSeriesUrl.origin}${seriesReferencePath}/`,
+  ]);
+
+  let maxPage = 1;
+  for (const element of Array.from(doc.querySelectorAll(SIYAHMELEK_PAGINATION_SELECTORS.join(', ')))) {
+    const pageLabel = normalizeScrapedText(element.textContent);
+    if (/^\d+$/.test(pageLabel)) {
+      maxPage = Math.max(maxPage, Number(pageLabel));
+    }
+
+    const href = normalizeUrl(
+      SOURCE_CONFIG[source].baseUrl,
+      (element as HTMLAnchorElement).href || element.getAttribute('href'),
+    );
+
+    if (!href) {
+      continue;
+    }
+
+    try {
+      const parsedPageUrl = new URL(href);
+      const sameSeries = parsedPageUrl.pathname.startsWith(seriesReferencePath);
+      const looksLikePageLink = /\/bolum\/page\/\d+\/?$/i.test(parsedPageUrl.pathname)
+        || /\/page\/\d+\/?$/i.test(parsedPageUrl.pathname)
+        || parsedPageUrl.searchParams.has('page')
+        || /^\d+$/.test(pageLabel);
+
+      if (sameSeries && looksLikePageLink) {
+        urls.add(parsedPageUrl.href);
+      }
+    } catch {
+      continue;
+    }
+  }
+
+  if (maxPage > 1) {
+    for (let pageNumber = 2; pageNumber <= maxPage; pageNumber += 1) {
+      urls.add(`${parsedSeriesUrl.origin}${seriesReferencePath}/bolum/page/${pageNumber}/#chapter-list`);
+    }
+  }
+
+  return Array.from(urls).sort((left, right) => getScrapedPaginationPageNumber(right) - getScrapedPaginationPageNumber(left));
+};
+
+export const buildScrapedChapterPaginationCandidates = (
+  source: ScrapeSource,
+  seriesUrl: string,
+  explicitUrls: string[],
+  maxProbePages = 12,
+) => {
+  if (source !== 'siyahmelek') {
+    return explicitUrls;
+  }
+
+  const normalizedSeriesUrl = normalizeScrapeSeriesUrl(source, seriesUrl);
+  if (!normalizedSeriesUrl) {
+    return [];
+  }
+
+  const normalizedExplicitUrls = explicitUrls
+    .filter((url) => url && url !== normalizedSeriesUrl)
+    .sort((left, right) => getScrapedPaginationPageNumber(right) - getScrapedPaginationPageNumber(left));
+
+  const pageUrls = new Set<string>(normalizedExplicitUrls);
+  const maxExplicitPage = normalizedExplicitUrls.reduce((maxPage, url) => {
+    return Math.max(maxPage, getScrapedPaginationPageNumber(url));
+  }, 1);
+  const seriesBase = normalizedSeriesUrl.replace(/\/$/, '');
+
+  if (normalizedExplicitUrls.length === 0) {
+    for (let pageNumber = 2; pageNumber <= maxProbePages; pageNumber += 1) {
+      pageUrls.add(`${seriesBase}/bolum/page/${pageNumber}/`);
+    }
+  } else {
+    const maxExtraProbePage = Math.min(maxProbePages, maxExplicitPage + 2);
+    for (let pageNumber = maxExplicitPage + 1; pageNumber <= maxExtraProbePage; pageNumber += 1) {
+      pageUrls.add(`${seriesBase}/bolum/page/${pageNumber}/`);
+    }
+  }
+
+  return Array.from(pageUrls).sort((left, right) => {
+    const leftPage = getScrapedPaginationPageNumber(left);
+    const rightPage = getScrapedPaginationPageNumber(right);
+    const leftExplicit = normalizedExplicitUrls.includes(left);
+    const rightExplicit = normalizedExplicitUrls.includes(right);
+
+    if (leftExplicit && !rightExplicit) {
+      return -1;
+    }
+
+    if (!leftExplicit && rightExplicit) {
+      return 1;
+    }
+
+    return rightPage - leftPage;
+  });
 };
 
 export const extractScrapedMangaDetail = (
@@ -603,9 +1212,16 @@ export const extractScrapedMangaDetail = (
 ): ScrapedMangaDraft => {
   const detailTitle = extractDetailTitle(doc);
   const detailCover = extractDetailCover(doc, source);
-  const genres = extractGenres(doc, fallbackCard.genres);
+  const genres = extractGenres(doc, fallbackCard.genres, source);
   const title = sanitizeDetailTitleText(detailTitle || fallbackCard.title);
   const chapters = extractScrapedChapterLinks(doc, source);
+
+  const isAdult = inferAdultContent(doc, source, genres, fallbackCard.genres);
+  const type = normalizeAdultMangaType(
+    inferMangaType(doc, genres, fallbackCard.genres),
+    genres,
+    isAdult,
+  );
 
   return {
     title,
@@ -616,8 +1232,9 @@ export const extractScrapedMangaDetail = (
     author: extractDetailAuthors(doc, ['yazar', 'author', 'yazarlar', 'yazar(lar)'], ''),
     artist: extractDetailAuthors(doc, ['çizer', 'artist', 'çizerler', 'çizer(ler)'], '') || undefined,
     status: extractDetailStatus(doc),
-    type: inferMangaType(doc, genres, fallbackCard.genres),
-    genres,
+    type,
+    genres: syncAdultContentGenres(genres, { isAdult, type }),
+    isAdult,
     releaseYear: extractReleaseYear(doc),
     chapters: [],
     views: 0,
@@ -703,6 +1320,24 @@ export const sanitizeChapterPageUrls = (images: string[]) => (
   )
 );
 
+const SIYAHMELEK_INLINE_IMAGE_PATTERN = /https:\/\/s3\.melek\.lol\/api\/(?:uploads|amazon)\/[^"'\\\s<>]+\.(?:jpe?g|png|webp|gif)/gi;
+
+const extractSiyahMelekInlineImageUrls = (doc: Document) => {
+  const html = doc.documentElement?.outerHTML || '';
+  if (!html) {
+    return [] as string[];
+  }
+
+  return sanitizeChapterPageUrls(
+    Array.from(html.matchAll(SIYAHMELEK_INLINE_IMAGE_PATTERN)).map((match) => match[0]),
+  );
+};
+
+const hasLockedChapterMarkers = (doc: Document) => {
+  const text = normalizeScrapedText(doc.body?.textContent || '');
+  return LOCKED_CHAPTER_PATTERNS.some((pattern) => pattern.test(text));
+};
+
 const extractWebtoonHattiImageUrls = (doc: Document) => {
   const pageBreaks = Array.from(doc.querySelectorAll('.reading-content .page-break'));
   const orderedImages = pageBreaks.flatMap((pageBreak) => {
@@ -729,6 +1364,46 @@ const extractWebtoonHattiImageUrls = (doc: Document) => {
 };
 
 export const extractChapterImageUrls = (doc: Document, source: ScrapeSource): string[] => {
+  return extractChapterImageResult(doc, source).images;
+};
+
+export const applyChapterImageResultOptions = (
+  imageResult: ScrapedChapterImageResult,
+  source: ScrapeSource,
+  options?: ChapterImageResultOptions,
+): ScrapedChapterImageResult => {
+  if (
+    imageResult.status !== 'ok'
+    || source !== 'siyahmelek'
+    || options?.excludeSiyahMelekPromoFirstPage !== true
+  ) {
+    return imageResult;
+  }
+
+  if (imageResult.images.length <= 1) {
+    return imageResult;
+  }
+
+  const trimmedImages = imageResult.images.slice(1);
+  if (trimmedImages.length === 0) {
+    return {
+      status: 'error',
+      images: [],
+      reason: 'İlk reklam görseli çıkarılınca bölüm sayfası kalmadı',
+    };
+  }
+
+  return {
+    ...imageResult,
+    images: trimmedImages,
+  };
+};
+
+export const extractChapterImageResult = (
+  doc: Document,
+  source: ScrapeSource,
+  options?: ChapterImageResultOptions,
+): ScrapedChapterImageResult => {
   let images = source === 'webtoonhatti'
     ? extractWebtoonHattiImageUrls(doc)
     : getChapterImageElements(doc, source)
@@ -760,5 +1435,30 @@ export const extractChapterImageUrls = (doc: Document, source: ScrapeSource): st
     }
   }
 
-  return sanitizeChapterPageUrls(images);
+  const sanitizedImages = sanitizeChapterPageUrls(images);
+  const inlineSiyahMelekImages = source === 'siyahmelek' && sanitizedImages.length === 0
+    ? extractSiyahMelekInlineImageUrls(doc)
+    : [];
+  const finalImages = sanitizedImages.length > 0 ? sanitizedImages : inlineSiyahMelekImages;
+
+  if (finalImages.length > 0) {
+    return applyChapterImageResultOptions({
+      status: 'ok',
+      images: finalImages,
+    }, source, options);
+  }
+
+  if (source === 'siyahmelek' && hasLockedChapterMarkers(doc)) {
+    return {
+      status: 'locked',
+      images: [],
+      reason: 'VIP veya kilitli bölüm',
+    };
+  }
+
+  return {
+    status: 'error',
+    images: [],
+    reason: 'Sayfa görselleri bulunamadı',
+  };
 };

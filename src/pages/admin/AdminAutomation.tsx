@@ -80,7 +80,10 @@ import { cn } from '@/lib/utils';
 const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> = [
   { value: 'hayalistic', label: 'Hayalistic' },
   { value: 'webtoonhatti', label: 'WebtoonHattı' },
+  { value: 'siyahmelek', label: 'SiyahMelek' },
 ];
+
+const isAdultOnlyAutomationSource = (source: ChapterAutomationSource) => source === 'siyahmelek';
 
 const DEFAULT_TIME_SLOT = '13:00';
 const TURKEY_TIME_PLACEHOLDER = '13:00';
@@ -193,6 +196,14 @@ const formatRelativeTestDate = (value?: string | null) => (
   value ? formatRelativeDate(value) : 'Henüz test yok'
 );
 
+const getSourceUrlPlaceholder = (source: ChapterAutomationSource) => {
+  if (source === 'siyahmelek') {
+    return 'https://siyahmelek.mom/manga/...';
+  }
+
+  return 'https://hayalistic.com/manga/... veya https://webtoonhatti.club/webtoon/...';
+};
+
 const AdminAutomation: React.FC = () => {
   const { isAllowed, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'admin' });
   const [mangas, setMangas] = useState<Manga[]>([]);
@@ -212,25 +223,32 @@ const AdminAutomation: React.FC = () => {
   const [testingAutomationIds, setTestingAutomationIds] = useState<string[]>([]);
   const [isTestingAll, setIsTestingAll] = useState(false);
   const [pendingDeleteAutomation, setPendingDeleteAutomation] = useState<ChapterAutomation | null>(null);
+  const requiresAdultManga = isAdultOnlyAutomationSource(form.source);
+
+  const availableMangasForSource = useMemo(
+    () => (requiresAdultManga ? mangas.filter((manga) => manga.isAdult === true) : mangas),
+    [requiresAdultManga, mangas],
+  );
 
   const filteredMangas = useMemo(() => {
     const query = mangaQuery.trim().toLocaleLowerCase('tr-TR');
     if (!query) {
-      return mangas;
+      return availableMangasForSource;
     }
 
-    return mangas.filter((manga) => (
+    return availableMangasForSource.filter((manga) => (
       [manga.title, ...(manga.alternativeTitles || [])]
         .join(' ')
         .toLocaleLowerCase('tr-TR')
         .includes(query)
     ));
-  }, [mangaQuery, mangas]);
+  }, [availableMangasForSource, mangaQuery]);
 
   const selectedManga = useMemo(
     () => mangas.find((manga) => manga.id === form.mangaId) || null,
     [form.mangaId, mangas],
   );
+  const hasAdultSourceMismatch = requiresAdultManga && selectedManga?.isAdult !== true;
 
   const testingAutomationIdSet = useMemo(
     () => new Set(testingAutomationIds),
@@ -248,8 +266,27 @@ const AdminAutomation: React.FC = () => {
     form.mangaId
       && form.sourceUrl.trim()
       && form.checkTimes.some((time) => time.trim())
+      && !hasAdultSourceMismatch
       && validationIsFresh,
   );
+
+  const ensureAdultCompatibleSelection = () => {
+    if (!requiresAdultManga) {
+      return true;
+    }
+
+    if (!selectedManga) {
+      toast.error('SiyahMelek otomasyonu için 18+ seriyi seçmelisiniz.');
+      return false;
+    }
+
+    if (selectedManga.isAdult !== true) {
+      toast.error('SiyahMelek sadece 18+ olarak işaretlenmiş serilere bağlanabilir.');
+      return false;
+    }
+
+    return true;
+  };
 
   const loadPageData = async () => {
     const [nextMangas, automationData] = await Promise.all([
@@ -325,6 +362,10 @@ const AdminAutomation: React.FC = () => {
       return;
     }
 
+    if (!ensureAdultCompatibleSelection()) {
+      return;
+    }
+
     try {
       setIsValidating(true);
       const nextValidation = await validateChapterAutomation(form.source, form.sourceUrl);
@@ -344,6 +385,10 @@ const AdminAutomation: React.FC = () => {
   const handleSave = async () => {
     if (!canSave) {
       toast.error('Kaynağı doğrulayıp tüm zorunlu alanları doldurun');
+      return;
+    }
+
+    if (!ensureAdultCompatibleSelection()) {
       return;
     }
 
@@ -576,6 +621,12 @@ const AdminAutomation: React.FC = () => {
                 </div>
               </div>
 
+              {requiresAdultManga ? (
+                <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-sm text-rose-100">
+                  SiyahMelek kaynağı sadece 18+ olarak işaretlenmiş yerel seriler için kullanılabilir.
+                </div>
+              ) : null}
+
               <div className="grid gap-4 md:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                 <div className="space-y-4">
                   <div className="space-y-2">
@@ -591,8 +642,15 @@ const AdminAutomation: React.FC = () => {
                         >
                           <div className="min-w-0">
                             {selectedManga ? (
-                              <div className="min-w-0">
-                                <p className="truncate text-sm font-medium">{selectedManga.title}</p>
+                              <div className="min-w-0 space-y-1">
+                                <div className="flex flex-wrap items-center gap-2">
+                                  <p className="truncate text-sm font-medium">{selectedManga.title}</p>
+                                  {selectedManga.isAdult ? (
+                                    <Badge variant="outline" className="border-rose-500/20 bg-rose-500/10 text-rose-500">
+                                      18+
+                                    </Badge>
+                                  ) : null}
+                                </div>
                                 {selectedManga.alternativeTitles?.[0] ? (
                                   <p className="truncate text-xs text-muted-foreground">
                                     {selectedManga.alternativeTitles[0]}
@@ -636,7 +694,14 @@ const AdminAutomation: React.FC = () => {
                                     )}
                                   />
                                   <div className="min-w-0 space-y-1">
-                                    <p className="truncate text-sm font-medium">{manga.title}</p>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                      <p className="truncate text-sm font-medium">{manga.title}</p>
+                                      {manga.isAdult ? (
+                                        <Badge variant="outline" className="border-rose-500/20 bg-rose-500/10 text-rose-500">
+                                          18+
+                                        </Badge>
+                                      ) : null}
+                                    </div>
                                     {manga.alternativeTitles?.length ? (
                                       <p className="line-clamp-2 text-xs text-muted-foreground">
                                         {manga.alternativeTitles.join(' • ')}
@@ -664,7 +729,14 @@ const AdminAutomation: React.FC = () => {
                         className="h-16 w-12 rounded-xl border border-border object-cover"
                       />
                       <div className="min-w-0 space-y-1">
-                        <p className="truncate text-sm font-semibold">{selectedManga.title}</p>
+                        <div className="flex flex-wrap items-center gap-2">
+                          <p className="truncate text-sm font-semibold">{selectedManga.title}</p>
+                          {selectedManga.isAdult ? (
+                            <Badge variant="outline" className="border-rose-500/20 bg-rose-500/10 text-rose-500">
+                              18+
+                            </Badge>
+                          ) : null}
+                        </div>
                         <p className="text-xs text-muted-foreground">
                           Local bölüm sayısı: {selectedManga.chapterCount ?? selectedManga.chapters.length}
                         </p>
@@ -675,6 +747,12 @@ const AdminAutomation: React.FC = () => {
                       Otomasyonu bağlamak istediğin local seri burada görünecek.
                     </div>
                   )}
+
+                  {hasAdultSourceMismatch ? (
+                    <div className="rounded-2xl border border-rose-500/20 bg-rose-500/10 px-4 py-3 text-xs text-rose-100">
+                      Seçili seri 18+ değil. SiyahMelek otomasyonu kurmadan önce seriyi admin düzenleme ekranından 18+ olarak işaretlemelisin.
+                    </div>
+                  ) : null}
                 </div>
 
                 <div className="space-y-4">
@@ -684,12 +762,12 @@ const AdminAutomation: React.FC = () => {
                       id="source-url"
                       value={form.sourceUrl}
                       onChange={(event) => setForm((current) => ({ ...current, sourceUrl: event.target.value }))}
-                      placeholder="https://hayalistic.com/manga/... veya https://webtoonhatti.club/webtoon/..."
+                      placeholder={getSourceUrlPlaceholder(form.source)}
                     />
                   </div>
 
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-                    <Button onClick={handleValidate} disabled={isValidating || !form.sourceUrl.trim()} className="sm:w-auto">
+                    <Button onClick={handleValidate} disabled={isValidating || !form.sourceUrl.trim() || hasAdultSourceMismatch} className="sm:w-auto">
                       {isValidating ? (
                         <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                       ) : (

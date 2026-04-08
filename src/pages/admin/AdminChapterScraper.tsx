@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Search,
@@ -6,12 +6,32 @@ import {
     RefreshCw,
     Loader2,
     Globe,
+    Check,
+    ChevronsUpDown,
+    BookOpen,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
+import { Switch } from '@/components/ui/switch';
+import {
+    Dialog,
+    DialogContent,
+    DialogHeader,
+    DialogTitle,
+    DialogDescription,
+    DialogTrigger,
+} from '@/components/ui/dialog';
+import {
+    Command,
+    CommandEmpty,
+    CommandGroup,
+    CommandInput,
+    CommandItem,
+    CommandList,
+} from '@/components/ui/command';
 import {
     Select,
     SelectContent,
@@ -26,26 +46,41 @@ import { Manga, Chapter } from '@/lib/types';
 import {
     fetchScraperContent,
     getAvailableScraperProviders,
+    getDefaultScraperProviderForSource,
     getScraperProviderLabel,
     readPreferredScraperProvider,
     type ScraperProvider,
     writePreferredScraperProvider,
 } from '@/lib/scraperProxy';
 import {
+    buildScrapedChapterPaginationCandidates,
     buildScrapeSearchUrl,
     detectScrapeSourceFromUrl,
-    extractChapterImageUrls,
+    applyChapterImageResultOptions,
+    extractChapterImageResult,
     extractScrapedMangaCards,
     extractScrapedChapterLinks,
+    extractScrapedChapterPaginationUrls,
+    extractSiyahMelekChapterLinksFromHtml,
+    extractSiyahMelekChapterPaginationUrlsFromHtml,
     getAvailableScrapeSources,
     getScrapeSourceLabel,
+    isAdultOnlyScrapeSource,
     isDirectScrapeLink,
     normalizeScrapeUrl,
+    normalizeScrapeSeriesUrl,
     readPreferredScrapeSource,
+    type ScrapedChapterImageResult,
     type ScrapeSource,
     writePreferredScrapeSource,
 } from '@/lib/scraper/scrapeSources';
 import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
+import {
+    readSiyahMelekSkipPromoFirstPage,
+    writeSiyahMelekSkipPromoFirstPage,
+} from '@/lib/scraper/siyahmelekSettings';
+import { cn } from '@/lib/utils';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
 interface ScrapedMangaCard {
     title: string;
@@ -60,6 +95,7 @@ interface ScrapedChapter {
     link: string;
     number: number;
     source: ScrapeSource;
+    prefetchedImageResult?: ScrapedChapterImageResult;
 }
 
 interface ChapterImportCandidate extends ScrapedChapter {
@@ -84,6 +120,8 @@ const AdminChapterScraper: React.FC = () => {
     const [selectedLocalMangaId, setSelectedLocalMangaId] = useState<string>('');
     const [localMangaDetails, setLocalMangaDetails] = useState<Manga | null>(null);
     const [loadingLocal, setLoadingLocal] = useState(false);
+    const [localMangaPickerOpen, setLocalMangaPickerOpen] = useState(false);
+    const [localMangaSearch, setLocalMangaSearch] = useState('');
 
     // Source State
     const [searchQuery, setSearchQuery] = useState('');
@@ -99,6 +137,51 @@ const AdminChapterScraper: React.FC = () => {
     const [importing, setImporting] = useState(false);
     const [scrapeSource, setScrapeSource] = useState<ScrapeSource>(() => readPreferredScrapeSource());
     const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
+    const [skipSiyahMelekPromoFirstPage, setSkipSiyahMelekPromoFirstPage] = useState(() => readSiyahMelekSkipPromoFirstPage());
+    const sourceSearchBlocked = isAdultOnlyScrapeSource(scrapeSource) && localMangaDetails?.isAdult !== true;
+    const filteredLocalMangas = useMemo(() => {
+        const query = localMangaSearch.trim().toLocaleLowerCase('tr-TR');
+
+        const scored = localMangas
+            .map((manga) => {
+                if (!query) {
+                    return { manga, score: 0 };
+                }
+
+                const haystacks = [
+                    manga.title,
+                    manga.author,
+                    manga.artist,
+                    ...(manga.alternativeTitles || []),
+                ]
+                    .filter(Boolean)
+                    .map((value) => value.toLocaleLowerCase('tr-TR'));
+
+                let score = -1;
+
+                for (const value of haystacks) {
+                    if (value === query) {
+                        score = Math.max(score, 100);
+                    } else if (value.startsWith(query)) {
+                        score = Math.max(score, 80);
+                    } else if (value.includes(query)) {
+                        score = Math.max(score, 50);
+                    }
+                }
+
+                return { manga, score };
+            })
+            .filter(({ score }) => !query || score >= 0)
+            .sort((left, right) => {
+                if (right.score !== left.score) {
+                    return right.score - left.score;
+                }
+
+                return left.manga.title.localeCompare(right.manga.title, 'tr');
+            });
+
+        return scored.map(({ manga }) => manga);
+    }, [localMangas, localMangaSearch]);
 
     useEffect(() => {
         if (!canUseScraper) {
@@ -141,7 +224,39 @@ const AdminChapterScraper: React.FC = () => {
         setSelectedSourceManga(null);
         setSourceChapters([]);
         setNewChapters([]);
+        setSelectedChapterIndices([]);
+
+        if (nextSource === 'siyahmelek') {
+            const preferredProvider = getDefaultScraperProviderForSource(nextSource);
+            writePreferredScraperProvider(preferredProvider);
+            setScraperProvider(preferredProvider);
+        }
+
         toast.success(`Kaynak site: ${getScrapeSourceLabel(nextSource)}`);
+    };
+
+    const handleSkipSiyahMelekPromoFirstPageChange = (checked: boolean) => {
+        writeSiyahMelekSkipPromoFirstPage(checked);
+        setSkipSiyahMelekPromoFirstPage(checked);
+        toast.success(checked ? 'SiyahMelek ilk reklam sayfası atlanacak' : 'SiyahMelek ilk sayfası korunacak');
+    };
+
+    const ensureAdultCompatibleLocalManga = (source: ScrapeSource) => {
+        if (!isAdultOnlyScrapeSource(source)) {
+            return true;
+        }
+
+        if (!localMangaDetails) {
+            toast.error('SiyahMelek için önce sitedeki 18+ seriyi seçin.');
+            return false;
+        }
+
+        if (localMangaDetails.isAdult !== true) {
+            toast.error('SiyahMelek sadece 18+ seriler için kullanılabilir. Önce bu seriyi 18+ olarak işaretleyin.');
+            return false;
+        }
+
+        return true;
     };
 
     const loadLocalMangas = async () => {
@@ -156,8 +271,54 @@ const AdminChapterScraper: React.FC = () => {
         }
     };
 
+    const applyParsedSourceChapters = (chapters: ScrapedChapter[]) => {
+        setSourceChapters(chapters);
+
+        if (!localMangaDetails) {
+            setNewChapters([]);
+            setSelectedChapterIndices([]);
+            return;
+        }
+
+        const localChapterByNumber = new Map(
+            localMangaDetails.chapters.map((chapter) => [Number(chapter.number), chapter]),
+        );
+        const diff = chapters.flatMap<ChapterImportCandidate>((scrapedChapter) => {
+            const existingChapter = localChapterByNumber.get(Number(scrapedChapter.number));
+            if (!existingChapter) {
+                return [{ ...scrapedChapter, changeType: 'new' as const }];
+            }
+
+            const titleChanged = normalizeChapterTitle(existingChapter.title, Number(existingChapter.number))
+                !== normalizeChapterTitle(scrapedChapter.name, Number(scrapedChapter.number));
+
+            if (!titleChanged) {
+                return [];
+            }
+
+            return [{
+                ...scrapedChapter,
+                changeType: 'updated' as const,
+                existingChapterId: existingChapter.id,
+                existingChapterTitle: existingChapter.title,
+            }];
+        });
+
+        setNewChapters(diff);
+        setSelectedChapterIndices(diff.map((_, index) => index));
+
+        if (diff.length === 0) {
+            toast.info('Bu manga zaten güncel.');
+            return;
+        }
+
+        toast.success(`${diff.length} yeni veya güncellenecek bölüm bulundu!`);
+    };
+
     const handleLocalMangaChange = async (mangaId: string) => {
         setSelectedLocalMangaId(mangaId);
+        setLocalMangaPickerOpen(false);
+        setLocalMangaSearch('');
         setLoadingLocal(true);
         try {
             const details = await getMangaById(mangaId, { includePrivate: true, includePages: true });
@@ -178,6 +339,10 @@ const AdminChapterScraper: React.FC = () => {
         const detectedSource = rawQuery.startsWith('http') ? detectScrapeSourceFromUrl(rawQuery) : null;
         const sourceToUse = detectedSource || scrapeSource;
 
+        if (!ensureAdultCompatibleLocalManga(sourceToUse)) {
+            return;
+        }
+
         if (rawQuery.startsWith('http') && isDirectScrapeLink(sourceToUse, rawQuery)) {
             if (detectedSource && detectedSource !== scrapeSource) {
                 handleScrapeSourceChange(detectedSource);
@@ -186,7 +351,7 @@ const AdminChapterScraper: React.FC = () => {
             toast.info('Direkt link algılandı, bölümler kontrol ediliyor...');
             fetchSourceChapters({
                 title: 'Linkten Çekilen Manga',
-                link: normalizeScrapeUrl(sourceToUse, rawQuery),
+                link: normalizeScrapeSeriesUrl(sourceToUse, rawQuery),
                 cover: '',
                 genres: [],
                 source: sourceToUse,
@@ -199,6 +364,7 @@ const AdminChapterScraper: React.FC = () => {
         setSelectedSourceManga(null);
         setSourceChapters([]);
         setNewChapters([]);
+        setSelectedChapterIndices([]);
 
         try {
             const url = buildScrapeSearchUrl(sourceToUse, rawQuery);
@@ -213,64 +379,98 @@ const AdminChapterScraper: React.FC = () => {
             setSourceResults(results);
             if (results.length === 0) toast.error('Sonuç bulunamadı');
         } catch (err) {
-            toast.error('Arama başarısız oldu');
+            toast.error(err instanceof Error ? err.message : 'Arama başarısız oldu');
         } finally {
             setLoadingSource(false);
         }
     };
 
     const fetchSourceChapters = async (card: ScrapedMangaCard, source: ScrapeSource = card.source) => {
-        setSelectedSourceManga({ ...card, source });
+        if (!ensureAdultCompatibleLocalManga(source)) {
+            return;
+        }
+
+        const normalizedSeriesLink = normalizeScrapeSeriesUrl(source, card.link);
+        setSelectedSourceManga({ ...card, link: normalizedSeriesLink, source });
         setFetchingDetails(true);
         setSourceChapters([]);
         setNewChapters([]);
+        setSelectedChapterIndices([]);
 
         try {
-            const html = await fetchScraperContent(card.link, { provider: scraperProvider, source });
+            const html = await fetchScraperContent(normalizedSeriesLink, { provider: scraperProvider, source });
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            const parsedChapters = extractScrapedChapterLinks(doc, source).map((chapter) => ({
+            let parsedChapters = source === 'siyahmelek'
+                ? extractSiyahMelekChapterLinksFromHtml(html, normalizedSeriesLink, card.title)
+                : extractScrapedChapterLinks(doc, source);
+
+            if (parsedChapters.length === 0) {
+                parsedChapters = extractScrapedChapterLinks(doc, source);
+            }
+
+            if (source === 'siyahmelek') {
+                const explicitPaginationUrls = Array.from(new Set([
+                    ...extractScrapedChapterPaginationUrls(doc, source, normalizedSeriesLink),
+                    ...extractSiyahMelekChapterPaginationUrlsFromHtml(html, normalizedSeriesLink),
+                ]));
+                const paginationUrls = buildScrapedChapterPaginationCandidates(
+                    source,
+                    normalizedSeriesLink,
+                    explicitPaginationUrls,
+                );
+
+                if (paginationUrls.length > 0) {
+                    const chapterMap = new Map(
+                        parsedChapters.map((chapter) => [normalizeScrapeUrl(source, chapter.link), chapter]),
+                    );
+                    let consecutivePagesWithoutNewChapters = 0;
+
+                    for (const pageUrl of paginationUrls) {
+                        try {
+                            const pageHtml = await fetchScraperContent(pageUrl, { provider: scraperProvider, source });
+                            const pageDoc = parser.parseFromString(pageHtml, 'text/html');
+                            const pageChapters = extractSiyahMelekChapterLinksFromHtml(
+                                pageHtml,
+                                normalizedSeriesLink,
+                                card.title,
+                            );
+                            const normalizedPageChapters = pageChapters.length > 0
+                                ? pageChapters
+                                : extractScrapedChapterLinks(pageDoc, source);
+                            let newChapterCount = 0;
+
+                            for (const chapter of normalizedPageChapters) {
+                                const chapterKey = normalizeScrapeUrl(source, chapter.link);
+                                if (!chapterMap.has(chapterKey)) {
+                                    newChapterCount += 1;
+                                }
+                                chapterMap.set(chapterKey, chapter);
+                            }
+
+                            consecutivePagesWithoutNewChapters = newChapterCount === 0
+                                ? consecutivePagesWithoutNewChapters + 1
+                                : 0;
+                        } catch {
+                            consecutivePagesWithoutNewChapters += 1;
+                        }
+
+                        if (consecutivePagesWithoutNewChapters >= 2) {
+                            break;
+                        }
+                    }
+
+                    parsedChapters = Array.from(chapterMap.values()).sort((left, right) => left.number - right.number);
+                }
+            }
+
+            const sourcedChapters = parsedChapters.map((chapter) => ({
                 ...chapter,
                 source,
             }));
-            setSourceChapters(parsedChapters);
-
-            // Compare with local chapters
-            if (localMangaDetails) {
-                const localChapterByNumber = new Map(
-                    localMangaDetails.chapters.map((chapter) => [Number(chapter.number), chapter]),
-                );
-                const diff = parsedChapters.flatMap<ChapterImportCandidate>((scrapedChapter) => {
-                    const existingChapter = localChapterByNumber.get(Number(scrapedChapter.number));
-                    if (!existingChapter) {
-                        return [{ ...scrapedChapter, changeType: 'new' as const }];
-                    }
-
-                    const titleChanged = normalizeChapterTitle(existingChapter.title, Number(existingChapter.number))
-                        !== normalizeChapterTitle(scrapedChapter.name, Number(scrapedChapter.number));
-
-                    if (!titleChanged) {
-                        return [];
-                    }
-
-                    return [{
-                        ...scrapedChapter,
-                        changeType: 'updated' as const,
-                        existingChapterId: existingChapter.id,
-                        existingChapterTitle: existingChapter.title,
-                    }];
-                });
-                setNewChapters(diff);
-                setSelectedChapterIndices(diff.map((_, i) => i));
-
-                if (diff.length === 0) {
-                    toast.info('Bu manga zaten güncel.');
-                } else {
-                    toast.success(`${diff.length} yeni veya güncellenecek bölüm bulundu!`);
-                }
-            }
+            applyParsedSourceChapters(sourcedChapters);
         } catch (err) {
-            toast.error('Bölümler çekilemedi');
+            toast.error(err instanceof Error ? err.message : 'Bölümler çekilemedi');
         } finally {
             setFetchingDetails(false);
         }
@@ -279,10 +479,22 @@ const AdminChapterScraper: React.FC = () => {
     const handleImportNewChapters = async () => {
         if (!localMangaDetails || newChapters.length === 0) return;
 
+        if (!ensureAdultCompatibleLocalManga(selectedSourceManga?.source || scrapeSource)) {
+            return;
+        }
+
         const chaptersToImport = newChapters.filter((_, i) => selectedChapterIndices.includes(i));
         if (chaptersToImport.length === 0) {
             toast.error('Lütfen en az bir bölüm seçin');
             return;
+        }
+
+        if ((selectedSourceManga?.source || scrapeSource) === 'siyahmelek') {
+            const chaptersMissingImageCapture = chaptersToImport.filter((chapter) => !chapter.prefetchedImageResult);
+            if (scraperProvider !== 'localhost' && chaptersMissingImageCapture.length > 0) {
+                toast.error(`Seçili ${chaptersMissingImageCapture.length} bölüm için görsel yakalama eksik. Önce seçili bölüm scriptini çalıştırın.`);
+                return;
+            }
         }
 
         setImporting(true);
@@ -290,23 +502,46 @@ const AdminChapterScraper: React.FC = () => {
         try {
             const importedChapters: Chapter[] = [...localMangaDetails.chapters];
             const importedThisRun: Chapter[] = [];
+            let updatedThisRun = 0;
+            let lockedChapterCount = 0;
+            let failedChapterCount = 0;
 
             for (let i = 0; i < chaptersToImport.length; i++) {
                 const sc = chaptersToImport[i];
                 try {
-                    // Small delay to prevent proxy ban
-                    if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
+                    let imageResult = sc.prefetchedImageResult
+                        ? applyChapterImageResultOptions(
+                            sc.prefetchedImageResult,
+                            sc.source,
+                            { excludeSiyahMelekPromoFirstPage: skipSiyahMelekPromoFirstPage },
+                        )
+                        : undefined;
 
-                    const chHtml = await fetchScraperContent(sc.link, { provider: scraperProvider, source: sc.source });
-                    const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
-                    const images = extractChapterImageUrls(chDoc, sc.source);
+                    if (!imageResult) {
+                        if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
+
+                        const chHtml = await fetchScraperContent(sc.link, { provider: scraperProvider, source: sc.source });
+                        const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
+                        imageResult = extractChapterImageResult(
+                            chDoc,
+                            sc.source,
+                            { excludeSiyahMelekPromoFirstPage: skipSiyahMelekPromoFirstPage },
+                        );
+                    }
                     const existingChapterIndex = importedChapters.findIndex((chapter) => (
                         chapter.id === sc.existingChapterId
                         || Number(chapter.number) === Number(sc.number)
                     ));
                     const existingChapter = existingChapterIndex >= 0 ? importedChapters[existingChapterIndex] : null;
 
-                    if (images.length === 0) {
+                    if (imageResult.status === 'locked') {
+                        lockedChapterCount += 1;
+                        toast.info(`Bölüm ${sc.number} VIP/kilitli olduğu için atlandı.`);
+                        continue;
+                    }
+
+                    if (imageResult.status === 'error') {
+                        failedChapterCount += 1;
                         toast.error(`Bölüm ${sc.number} için görsel bulunamadı, atlanıyor.`);
                         continue;
                     }
@@ -315,13 +550,14 @@ const AdminChapterScraper: React.FC = () => {
                         id: existingChapter?.id || `chapter-${Date.now()}-${sc.number}`,
                         number: sc.number,
                         title: sc.name,
-                        pages: images,
+                        pages: imageResult.images,
                         releaseDate: existingChapter?.releaseDate || new Date().toISOString(),
                         views: existingChapter?.views || 0,
                     };
 
                     if (existingChapterIndex >= 0) {
                         importedChapters[existingChapterIndex] = importedChapter;
+                        updatedThisRun += 1;
                     } else {
                         importedChapters.push(importedChapter);
                         importedThisRun.push(importedChapter);
@@ -329,8 +565,18 @@ const AdminChapterScraper: React.FC = () => {
 
                     toast.info(`Bölüm ${sc.number} ${sc.changeType === 'updated' ? 'güncellendi' : 'yüklendi'}... (${i + 1}/${chaptersToImport.length})`);
                 } catch (e) {
+                    failedChapterCount += 1;
                     toast.error(`Bölüm ${sc.number} hata verdi, atlanıyor.`);
                 }
+            }
+
+            if (importedThisRun.length === 0 && updatedThisRun === 0) {
+                if (lockedChapterCount > 0 && failedChapterCount === 0) {
+                    toast.info('Seçilen bölümlerin tamamı VIP/kilitli durumda, güncelleme yapılmadı.');
+                } else {
+                    toast.error('Aktarılabilecek açık bölüm bulunamadı.');
+                }
+                return;
             }
 
             // Save updated manga
@@ -356,8 +602,7 @@ const AdminChapterScraper: React.FC = () => {
                 );
             }
 
-            const updatedCount = chaptersToImport.filter((chapter) => chapter.changeType === 'updated').length;
-            toast.success(`${importedThisRun.length} yeni bölüm eklendi, ${updatedCount} bölüm güncellendi!`);
+            toast.success(`${importedThisRun.length} yeni bölüm eklendi, ${updatedThisRun} bölüm güncellendi, ${lockedChapterCount} kilitli bölüm atlandı${failedChapterCount > 0 ? `, ${failedChapterCount} bölüm hata verdi` : ''}.`);
             navigate(`/admin/mangas/${localMangaDetails.id}`);
         } catch (err) {
             toast.error('Güncelleme sırasında bir hata oluştu');
@@ -408,6 +653,27 @@ const AdminChapterScraper: React.FC = () => {
                 </div>
             </div>
 
+            {scrapeSource === 'siyahmelek' ? (
+                <Card className="border-rose-500/20 bg-rose-500/5 backdrop-blur-sm">
+                    <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="space-y-1">
+                            <p className="text-sm font-semibold text-rose-200">SiyahMelek İlk Sayfa Filtresi</p>
+                            <p className="text-sm text-rose-100/80">
+                                Bazı bölümlerde ilk görsel reklam oluyor. Açıkken `0001.jpg` olan ilk sayfa otomatik atlanır.
+                            </p>
+                        </div>
+                        <div className="flex items-center gap-3 rounded-xl border border-rose-500/20 bg-black/20 px-3 py-2">
+                            <span className="text-sm text-rose-100">{skipSiyahMelekPromoFirstPage ? 'Açık' : 'Kapalı'}</span>
+                            <Switch
+                                checked={skipSiyahMelekPromoFirstPage}
+                                onCheckedChange={handleSkipSiyahMelekPromoFirstPageChange}
+                                aria-label="SiyahMelek reklam ilk sayfasını atla"
+                            />
+                        </div>
+                    </CardContent>
+                </Card>
+            ) : null}
+
             <div className="grid gap-6 md:grid-cols-2">
                 {/* Step 1: Select Local Manga */}
                 <Card className="border-border bg-card/50 backdrop-blur-sm">
@@ -419,22 +685,125 @@ const AdminChapterScraper: React.FC = () => {
                         <CardDescription>Yeni bölümlerini kontrol etmek istediğiniz mangayı seçin.</CardDescription>
                     </CardHeader>
                     <CardContent className="space-y-4">
-                        <Select onValueChange={handleLocalMangaChange} value={selectedLocalMangaId}>
-                            <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Manga seçin..." />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {localMangas.map(m => (
-                                    <SelectItem key={m.id} value={m.id}>{m.title}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <Dialog open={localMangaPickerOpen} onOpenChange={setLocalMangaPickerOpen}>
+                            <DialogTrigger asChild>
+                                <Button
+                                    variant="outline"
+                                    role="combobox"
+                                    aria-expanded={localMangaPickerOpen}
+                                    className="h-auto min-h-14 w-full justify-between rounded-xl border-border bg-background px-3 py-2 text-left"
+                                >
+                                    {localMangaDetails ? (
+                                        <div className="flex min-w-0 items-center gap-3">
+                                            <img
+                                                src={localMangaDetails.cover}
+                                                alt={localMangaDetails.title}
+                                                className="h-12 w-9 rounded-md object-cover ring-1 ring-white/10"
+                                            />
+                                            <div className="min-w-0">
+                                                <div className="truncate text-sm font-semibold">{localMangaDetails.title}</div>
+                                                <div className="mt-1 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+                                                    <span className="inline-flex items-center gap-1">
+                                                        <BookOpen className="h-3.5 w-3.5" />
+                                                        {localMangaDetails.chapters.length} bölüm
+                                                    </span>
+                                                    <Badge variant="outline" className="h-5 border-primary/20 bg-primary/5 px-1.5 text-[10px] text-primary">
+                                                        {getMangaTypeLabel(localMangaDetails.type)}
+                                                    </Badge>
+                                                    {localMangaDetails.isAdult ? (
+                                                        <Badge variant="outline" className="h-5 border-rose-500/20 bg-rose-500/10 px-1.5 text-[10px] text-rose-500">
+                                                            18+
+                                                        </Badge>
+                                                    ) : null}
+                                                </div>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <span className="text-muted-foreground">Manga seçin...</span>
+                                    )}
+                                    <ChevronsUpDown className="ml-3 h-4 w-4 shrink-0 opacity-60" />
+                                </Button>
+                            </DialogTrigger>
+                            <DialogContent className="w-[min(96vw,820px)] max-w-[820px] rounded-2xl border-border p-0">
+                                <DialogHeader className="border-b border-border px-4 py-3 text-left">
+                                    <DialogTitle>Manga Seç</DialogTitle>
+                                    <DialogDescription>
+                                        Seri adı, yazar, çizer veya alternatif ada göre ara.
+                                    </DialogDescription>
+                                </DialogHeader>
+                                <Command shouldFilter={false}>
+                                    <CommandInput
+                                        value={localMangaSearch}
+                                        onValueChange={setLocalMangaSearch}
+                                        placeholder="Seri adı, yazar veya alternatif ad ara..."
+                                        className="h-11"
+                                    />
+                                    <CommandList>
+                                        <CommandEmpty>Eşleşen manga bulunamadı.</CommandEmpty>
+                                        <CommandGroup>
+                                            <ScrollArea className="h-[min(62vh,420px)]">
+                                                <div className="p-2">
+                                                    {filteredLocalMangas.map((manga) => (
+                                                        <CommandItem
+                                                            key={manga.id}
+                                                            value={manga.id}
+                                                            onSelect={() => handleLocalMangaChange(manga.id)}
+                                                            className="mb-2 flex items-center gap-3 rounded-xl border border-transparent px-2 py-2 aria-selected:border-primary/25 aria-selected:bg-primary/10"
+                                                        >
+                                                            <img
+                                                                src={manga.cover}
+                                                                alt={manga.title}
+                                                                className="h-14 w-10 rounded-md object-cover ring-1 ring-white/10"
+                                                            />
+                                                            <div className="min-w-0 flex-1">
+                                                                <div className="truncate text-sm font-semibold text-foreground">
+                                                                    {manga.title}
+                                                                </div>
+                                                                <div className="mt-1 truncate text-xs text-muted-foreground">
+                                                                    {[manga.author, manga.artist].filter(Boolean).join(' • ') || 'Yazar / çizer bilgisi yok'}
+                                                                </div>
+                                                                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                                                                    <Badge variant="outline" className="h-5 border-primary/20 bg-primary/5 px-1.5 text-[10px] text-primary">
+                                                                        {getMangaTypeLabel(manga.type)}
+                                                                    </Badge>
+                                                                    <Badge variant="outline" className="h-5 border-border px-1.5 text-[10px] text-muted-foreground">
+                                                                        {manga.chapters.length} bölüm
+                                                                    </Badge>
+                                                                    {manga.isAdult ? (
+                                                                        <Badge variant="outline" className="h-5 border-rose-500/20 bg-rose-500/10 px-1.5 text-[10px] text-rose-500">
+                                                                            18+
+                                                                        </Badge>
+                                                                    ) : null}
+                                                                </div>
+                                                            </div>
+                                                            <Check
+                                                                className={cn(
+                                                                    'h-4 w-4 text-primary transition-opacity',
+                                                                    selectedLocalMangaId === manga.id ? 'opacity-100' : 'opacity-0',
+                                                                )}
+                                                            />
+                                                        </CommandItem>
+                                                    ))}
+                                                </div>
+                                            </ScrollArea>
+                                        </CommandGroup>
+                                    </CommandList>
+                                </Command>
+                            </DialogContent>
+                        </Dialog>
 
                         {localMangaDetails && (
                             <div className="flex items-center gap-3 rounded-lg border border-border p-3 bg-card">
                                 <img src={localMangaDetails.cover} className="h-16 w-12 rounded object-cover" />
                                 <div>
-                                    <p className="font-bold">{localMangaDetails.title}</p>
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <p className="font-bold">{localMangaDetails.title}</p>
+                                        {localMangaDetails.isAdult ? (
+                                            <Badge variant="outline" className="border-rose-500/20 bg-rose-500/10 text-rose-500">
+                                                18+
+                                            </Badge>
+                                        ) : null}
+                                    </div>
                                     <p className="text-sm text-muted-foreground">Mevcut Bölüm Sayısı: {localMangaDetails.chapters.length}</p>
                                 </div>
                             </div>
@@ -458,10 +827,16 @@ const AdminChapterScraper: React.FC = () => {
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 placeholder={`Manga adı veya ${getScrapeSourceLabel(scrapeSource)} URL...`}
                             />
-                            <Button type="submit" disabled={loadingSource}>
+                            <Button type="submit" disabled={loadingSource || sourceSearchBlocked}>
                                 {loadingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                             </Button>
                         </form>
+
+                        {sourceSearchBlocked ? (
+                            <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
+                                SiyahMelek sadece 18+ olarak işaretlenmiş yerel seriler için kullanılabilir.
+                            </div>
+                        ) : null}
 
                         <ScrollArea className="h-[200px] rounded-md border border-border p-2">
                             {sourceResults.length > 0 ? (
@@ -473,7 +848,14 @@ const AdminChapterScraper: React.FC = () => {
                                             className={`flex cursor-pointer items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary ${selectedSourceManga?.link === m.link ? 'bg-primary/20 border-primary' : ''}`}
                                         >
                                             <img src={m.cover} className="h-10 w-8 rounded object-cover" />
-                                            <span className="text-sm font-medium">{m.title}</span>
+                                            <div className="min-w-0">
+                                                <span className="block truncate text-sm font-medium">{m.title}</span>
+                                                {m.source === 'siyahmelek' ? (
+                                                    <Badge variant="outline" className="mt-1 border-rose-500/20 bg-rose-500/10 text-[10px] text-rose-500">
+                                                        18+
+                                                    </Badge>
+                                                ) : null}
+                                            </div>
                                         </div>
                                     ))}
                                 </div>
@@ -495,7 +877,7 @@ const AdminChapterScraper: React.FC = () => {
                                 <CardDescription>Kaynak site ile bizim sitemiz arasındaki farklar.</CardDescription>
                             </div>
                             <Button
-                                disabled={newChapters.length === 0 || importing}
+                                disabled={newChapters.length === 0 || importing || sourceSearchBlocked}
                                 onClick={handleImportNewChapters}
                                 className="w-full gap-2 sm:w-auto"
                             >

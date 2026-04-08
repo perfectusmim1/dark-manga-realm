@@ -1,12 +1,18 @@
 import { DOMParser } from "jsr:@b-fuze/deno-dom";
 import { createServiceClient } from "./auth.ts";
 
-export type ChapterAutomationSource = "hayalistic" | "webtoonhatti";
+export type ChapterAutomationSource = "hayalistic" | "webtoonhatti" | "siyahmelek";
 
 export interface ScrapedAutomationChapter {
   name: string;
   link: string;
   number: number;
+}
+
+export interface AutomationChapterImageResult {
+  status: "ok" | "locked" | "error";
+  images: string[];
+  reason?: string;
 }
 
 export interface ChapterAutomationValidationSnapshot {
@@ -51,6 +57,14 @@ const SOURCE_CONFIG: Record<ChapterAutomationSource, {
       /^https?:\/\/(?:www\.)?webtoonhatti\.club\/webtoon\/[^?#]+$/i,
     ],
   },
+  siyahmelek: {
+    label: "SiyahMelek",
+    baseUrl: "https://siyahmelek.mom",
+    canonicalHosts: ["siyahmelek.mom"],
+    directLinkPatterns: [
+      /^https?:\/\/(?:www\.)?siyahmelek\.mom\/manga\/[^?#]+$/i,
+    ],
+  },
 };
 
 const normalizeText = (value?: string | null) => value?.replace(/\s+/g, " ").trim() || "";
@@ -74,7 +88,7 @@ const normalizeUrl = (baseUrl: string, value?: string | null) => {
 };
 
 const ensureValidSource = (value: string): ChapterAutomationSource => {
-  if (value === "hayalistic" || value === "webtoonhatti") {
+  if (value === "hayalistic" || value === "webtoonhatti" || value === "siyahmelek") {
     return value;
   }
 
@@ -127,6 +141,12 @@ const sanitizeChapterPageUrls = (images: string[]) => Array.from(
       .filter((image) => image.startsWith("http") && !image.includes("base64")),
   ),
 );
+
+const LOCKED_CHAPTER_PATTERNS = [
+  /kilitli b[öo]l[üu]m/i,
+  /vip [üu]yeler bu b[öo]l[üu]m[üu]/i,
+  /erken okuyabilir/i,
+];
 
 const getIstanbulParts = (date: Date) => {
   const localDate = new Date(date.getTime() + ISTANBUL_OFFSET_MS);
@@ -456,6 +476,14 @@ const extractWebtoonHattiImageUrls = (doc: Document) => {
   );
 };
 
+const getChapterImageElements = (doc: Document, source: ChapterAutomationSource) => {
+  if (source === "webtoonhatti") {
+    return Array.from(doc.querySelectorAll(".reading-content img.wp-manga-chapter-img, .reading-content .wp-manga-chapter-img"));
+  }
+
+  return Array.from(doc.querySelectorAll(".reading-content img, .wp-manga-chapter-img, .page-break img, .entry-content img"));
+};
+
 const isParsedChapterDataPayload = (value: unknown): value is { images?: Array<{ src?: string | null }> } => {
   if (!value || typeof value !== "object") {
     return false;
@@ -464,10 +492,22 @@ const isParsedChapterDataPayload = (value: unknown): value is { images?: Array<{
   return Array.isArray((value as { images?: unknown[] }).images);
 };
 
-export const extractChapterImageUrls = (doc: Document, source: ChapterAutomationSource) => {
+const hasLockedChapterMarkers = (doc: Document) => {
+  const text = normalizeText(doc.body?.textContent || "");
+  return LOCKED_CHAPTER_PATTERNS.some((pattern) => pattern.test(text));
+};
+
+export const extractChapterImageUrls = (doc: Document, source: ChapterAutomationSource) => (
+  extractChapterImageResult(doc, source).images
+);
+
+export const extractChapterImageResult = (
+  doc: Document,
+  source: ChapterAutomationSource,
+): AutomationChapterImageResult => {
   let images = source === "webtoonhatti"
     ? extractWebtoonHattiImageUrls(doc)
-    : Array.from(doc.querySelectorAll(".reading-content img, .wp-manga-chapter-img, .page-break img, .entry-content img"))
+    : getChapterImageElements(doc, source)
       .map((img) => extractImageSource(img))
       .filter(Boolean);
 
@@ -497,7 +537,28 @@ export const extractChapterImageUrls = (doc: Document, source: ChapterAutomation
     }
   }
 
-  return sanitizeChapterPageUrls(images);
+  const sanitizedImages = sanitizeChapterPageUrls(images);
+
+  if (sanitizedImages.length > 0) {
+    return {
+      status: "ok",
+      images: sanitizedImages,
+    };
+  }
+
+  if (source === "siyahmelek" && hasLockedChapterMarkers(doc)) {
+    return {
+      status: "locked",
+      images: [],
+      reason: "VIP veya kilitli bölüm",
+    };
+  }
+
+  return {
+    status: "error",
+    images: [],
+    reason: "Sayfa görselleri bulunamadı",
+  };
 };
 
 export const fetchAutomationSeries = async (
@@ -559,7 +620,7 @@ export const fetchChapterImagesForAutomation = async (
     throw new Error("Bölüm sayfası çözümlenemedi");
   }
 
-  return extractChapterImageUrls(doc, source);
+  return extractChapterImageResult(doc, source);
 };
 
 export const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));

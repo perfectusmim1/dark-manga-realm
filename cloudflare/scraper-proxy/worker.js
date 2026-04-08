@@ -2,6 +2,7 @@ const DEFAULT_ALLOWED_HOSTS = [
   'hayalistic.net',
   'hayalistic.com',
   'webtoonhatti.club',
+  'siyahmelek.mom',
   'yedek.mangawow.com',
   'kirmizikafa.monster',
   'myanimelist.net',

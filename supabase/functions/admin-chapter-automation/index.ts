@@ -30,6 +30,7 @@ interface AutomationMangaRow {
   title: string;
   cover?: string | null;
   alternative_titles?: string[] | null;
+  is_adult?: boolean | null;
 }
 
 interface AutomationRow {
@@ -148,7 +149,7 @@ const loadAutomationRows = async (
   if (mangaIds.length > 0) {
     const { data: mangaRows, error: mangaError } = await serviceClient
       .from("mangas")
-      .select("id, title, cover")
+      .select("id, title, cover, is_adult")
       .in("id", mangaIds);
 
     if (mangaError) {
@@ -220,6 +221,8 @@ const normalizeComparableTitle = (value?: string | null) => (
     .replace(/[\u0300-\u036f]/g, "")
     .replace(/[^a-z0-9]+/g, "")
 );
+
+const isAdultOnlyAutomationSource = (source: string) => source === "siyahmelek";
 
 const titlesMatch = (sourceTitle: string, manga: AutomationMangaRow) => {
   const sourceKey = normalizeComparableTitle(sourceTitle);
@@ -298,7 +301,7 @@ const runAutomationConnectivityTest = async (
     const [{ data: manga, error: mangaError }, { count: localChapterCount, error: chapterCountError }] = await Promise.all([
       serviceClient
         .from("mangas")
-        .select("id, title, alternative_titles")
+        .select("id, title, alternative_titles, is_adult")
         .eq("id", automation.manga_id)
         .maybeSingle(),
       serviceClient
@@ -321,13 +324,19 @@ const runAutomationConnectivityTest = async (
       throw new Error("Local manga kaydı bulunamadı");
     }
 
+    if (isAdultOnlyAutomationSource(automation.source) && mangaRow.is_adult !== true) {
+      throw new Error("SiyahMelek otomasyonu sadece 18+ olarak işaretlenmiş seriler için kullanılabilir");
+    }
+
     details.localMangaTitle = mangaRow.title;
     details.localChapterCount = Number(localChapterCount || 0);
 
     const sourceResult = await fetchAutomationSeries(serviceClient, automation.source, automation.source_url);
     const sourceChapters = sourceResult.chapters.filter((chapter) => normalizeText(chapter.link));
     const numberedChapters = sourceChapters.filter((chapter) => Number.isFinite(chapter.number) && chapter.number > 0);
-    const sampledChapter = [...(numberedChapters.length > 0 ? numberedChapters : sourceChapters)].pop();
+    const sampleCandidates = [...(numberedChapters.length > 0 ? numberedChapters : sourceChapters)]
+      .slice(-5)
+      .reverse();
     const titleMatched = titlesMatch(sourceResult.validation.sourceTitle, mangaRow);
 
     details.sourceTitle = sourceResult.validation.sourceTitle;
@@ -340,19 +349,68 @@ const runAutomationConnectivityTest = async (
       throw new Error("Kaynak seri başlığı seçili manga ile eşleşmiyor");
     }
 
-    if (sourceResult.chapters.length === 0 || !sampledChapter) {
+    if (sourceResult.chapters.length === 0 || sampleCandidates.length === 0) {
       throw new Error("Kaynak bölüm listesi boş döndü");
     }
 
-    details.sampledChapterName = sampledChapter.name;
-    details.sampledChapterNumber = sampledChapter.number || null;
+    const lockedSampleChapterNumbers: number[] = [];
+    const failedSampleChapterNumbers: number[] = [];
+    let sampledChapterName: string | null = null;
+    let sampledChapterNumber: number | null = null;
+    let sampledPageCount = 0;
 
-    const pages = await fetchChapterImagesForAutomation(serviceClient, automation.source, sampledChapter.link);
-    details.sampledPageCount = pages.length;
+    for (const sampledChapter of sampleCandidates) {
+      const pageResult = await fetchChapterImagesForAutomation(serviceClient, automation.source, sampledChapter.link);
 
-    if (pages.length === 0) {
+      if (pageResult.status === "locked") {
+        lockedSampleChapterNumbers.push(sampledChapter.number);
+        continue;
+      }
+
+      if (pageResult.status === "error") {
+        failedSampleChapterNumbers.push(sampledChapter.number);
+        continue;
+      }
+
+      sampledChapterName = sampledChapter.name;
+      sampledChapterNumber = sampledChapter.number || null;
+      sampledPageCount = pageResult.images.length;
+      break;
+    }
+
+    details.lockedSampleChapterNumbers = lockedSampleChapterNumbers;
+    details.failedSampleChapterNumbers = failedSampleChapterNumbers;
+
+    if (sampledPageCount === 0 && failedSampleChapterNumbers.length === 0 && lockedSampleChapterNumbers.length > 0) {
+      const testedAt = new Date().toISOString();
+      const lockedSuccessDetails = {
+        ...details,
+        sampledPageCount: 0,
+      };
+
+      await updateAutomationTestState(serviceClient, automation.id, {
+        status: "success",
+        testedAt,
+        details: lockedSuccessDetails,
+        updatedBy: requesterId,
+      });
+
+      return {
+        automationId: automation.id,
+        status: "success" as const,
+        testedAt,
+        message: "Seri ve bölüm listesi doğrulandı. Son örnek bölümler VIP/kilitli olduğu için sayfa testi atlandı",
+        details: lockedSuccessDetails,
+      };
+    }
+
+    if (sampledPageCount === 0) {
       throw new Error("Örnek bölüm sayfaları alınamadı");
     }
+
+    details.sampledChapterName = sampledChapterName;
+    details.sampledChapterNumber = sampledChapterNumber;
+    details.sampledPageCount = sampledPageCount;
 
     const testedAt = new Date().toISOString();
     await updateAutomationTestState(serviceClient, automation.id, {
@@ -505,7 +563,7 @@ Deno.serve(async (req: Request) => {
 
       const { data: manga, error: mangaError } = await auth.serviceClient
         .from("mangas")
-        .select("id")
+        .select("id, is_adult")
         .eq("id", payload.mangaId)
         .maybeSingle();
 
@@ -515,6 +573,10 @@ Deno.serve(async (req: Request) => {
 
       if (!manga) {
         return json({ success: false, message: "Local manga kaydı bulunamadı" }, 404);
+      }
+
+      if (isAdultOnlyAutomationSource(payload.source) && manga.is_adult !== true) {
+        return json({ success: false, message: "SiyahMelek otomasyonu için seçili seri 18+ olarak işaretlenmelidir" }, 400);
       }
 
       const validation = await validateAutomationSource(auth.serviceClient, payload.source, payload.sourceUrl);

@@ -34,7 +34,11 @@ import { getAllMangas, deleteManga } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
 
-const AdminMangaList: React.FC = () => {
+interface AdminMangaListProps {
+    section?: 'standard' | 'adult';
+}
+
+const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' }) => {
     const [mangas, setMangas] = useState<Manga[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const [typeFilter, setTypeFilter] = useState<string>('all');
@@ -43,6 +47,7 @@ const AdminMangaList: React.FC = () => {
     const [deleteId, setDeleteId] = useState<string | null>(null);
 
     const [isLoading, setIsLoading] = useState(true);
+    const isAdultSection = section === 'adult';
 
     useEffect(() => {
         loadMangas();
@@ -75,6 +80,7 @@ const AdminMangaList: React.FC = () => {
     };
 
     const filteredMangas = mangas.filter((manga) => {
+        const matchesSection = isAdultSection ? manga.isAdult === true : manga.isAdult !== true;
         const query = searchQuery.toLocaleLowerCase('tr-TR');
         const matchesSearch = manga.title.toLocaleLowerCase('tr-TR').includes(query) ||
             manga.author.toLocaleLowerCase('tr-TR').includes(query);
@@ -83,7 +89,7 @@ const AdminMangaList: React.FC = () => {
         const matchesVisibility = visibilityFilter === 'all'
             || (visibilityFilter === 'public' && manga.isPublic !== false)
             || (visibilityFilter === 'private' && manga.isPublic === false);
-        return matchesSearch && matchesType && matchesStatus && matchesVisibility;
+        return matchesSection && matchesSearch && matchesType && matchesStatus && matchesVisibility;
     });
 
     const getStatusBadge = (status: string) => {
@@ -128,12 +134,26 @@ const AdminMangaList: React.FC = () => {
         )
     );
 
+    const getAdultBadge = (isAdult?: boolean) => (
+        isAdult ? (
+            <Badge variant="outline" className="border-rose-500/20 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20">
+                18+
+            </Badge>
+        ) : null
+    );
+
+    const sectionTitle = isAdultSection ? 'Yetişkin Mangalar' : 'Mangalar';
+    const sectionDescription = isAdultSection
+        ? '18+ işaretli serileri ayrı listeden yönetin.'
+        : '18+ dışındaki tüm serileri yönetin.';
+    const emptyMessage = isAdultSection ? 'Yetişkin manga bulunamadı' : 'Manga bulunamadı';
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold sm:text-3xl">Mangalar</h1>
-                    <p className="text-muted-foreground">Tüm mangaları yönetin</p>
+                    <h1 className="text-2xl font-bold sm:text-3xl">{sectionTitle}</h1>
+                    <p className="text-muted-foreground">{sectionDescription}</p>
                 </div>
                 <Button asChild className="w-full sm:w-auto">
                     <Link to="/admin/mangas/new">
@@ -224,6 +244,7 @@ const AdminMangaList: React.FC = () => {
                                         {getTypeBadge(manga.type)}
                                         {getStatusBadge(manga.status)}
                                         {getVisibilityBadge(manga.isPublic)}
+                                        {getAdultBadge(manga.isAdult)}
                                     </div>
                                     <div className="grid grid-cols-2 gap-2 text-sm text-muted-foreground">
                                         <span>{manga.chapters.length} bölüm</span>
@@ -289,7 +310,12 @@ const AdminMangaList: React.FC = () => {
                                     </td>
                                     <td className="px-4 py-3">{getTypeBadge(manga.type)}</td>
                                     <td className="px-4 py-3">{getStatusBadge(manga.status)}</td>
-                                    <td className="px-4 py-3">{getVisibilityBadge(manga.isPublic)}</td>
+                                    <td className="px-4 py-3">
+                                        <div className="flex flex-wrap gap-2">
+                                            {getVisibilityBadge(manga.isPublic)}
+                                            {getAdultBadge(manga.isAdult)}
+                                        </div>
+                                    </td>
                                     <td className="px-4 py-3">{manga.chapters.length}</td>
                                     <td className="px-4 py-3">{manga.views.toLocaleString('tr-TR')}</td>
                                     <td className="px-4 py-3">
@@ -321,7 +347,7 @@ const AdminMangaList: React.FC = () => {
                 </div>
                 {filteredMangas.length === 0 && (
                     <div className="py-12 text-center text-muted-foreground">
-                        Manga bulunamadı
+                        {emptyMessage}
                     </div>
                 )}
             </div>

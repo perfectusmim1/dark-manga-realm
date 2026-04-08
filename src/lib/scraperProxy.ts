@@ -1,28 +1,30 @@
-import { supabaseUrl } from '@/lib/supabase';
+import { getCurrentAccessToken, supabaseUrl } from '@/lib/supabase';
 import { type ScrapeSource, getDefaultScrapeSource } from '@/lib/scraper/scrapeSources';
 
 const configuredCloudflareScraperUrl = import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '';
 const configuredSupabaseScraperUrl = supabaseUrl
   ? `${supabaseUrl}/functions/v1/proxy-scraper`
   : '';
+const configuredLocalhostScraperUrl = import.meta.env.VITE_LOCALHOST_SCRAPER_URL?.trim() || 'http://127.0.0.1:41113/fetch';
 
 const SCRAPER_PROVIDER_STORAGE_KEY = 'toonparrot:scraper-provider';
 
-export type ScraperProvider = 'cloudflare' | 'supabase';
+export type ScraperProvider = 'cloudflare' | 'supabase' | 'localhost';
 
 const SCRAPER_PROVIDER_LABELS: Record<ScraperProvider, string> = {
   cloudflare: 'Cloudflare',
   supabase: 'Supabase',
+  localhost: 'Localhost',
 };
 
 interface ProxyAttempt {
   label: string;
-  request: (targetUrl: string) => Promise<Response>;
+  request: (targetUrl: string, source?: ScrapeSource) => Promise<Response>;
 }
 
 interface StructuredProxyAttempt {
   label: string;
-  request: (payload: ScraperProxyRequestPayload) => Promise<Response>;
+  request: (payload: ScraperProxyRequestPayload, source?: ScrapeSource) => Promise<Response>;
 }
 
 export interface ScraperProxyRequestPayload {
@@ -30,10 +32,11 @@ export interface ScraperProxyRequestPayload {
   method?: 'GET' | 'POST';
   headers?: Record<string, string>;
   body?: string | Record<string, unknown> | unknown[];
+  source?: ScrapeSource;
 }
 
 export const isScraperProvider = (value: string): value is ScraperProvider => (
-  value === 'cloudflare' || value === 'supabase'
+  value === 'cloudflare' || value === 'supabase' || value === 'localhost'
 );
 
 export const getScraperProviderLabel = (provider: ScraperProvider) => (
@@ -41,7 +44,7 @@ export const getScraperProviderLabel = (provider: ScraperProvider) => (
 );
 
 export const getAvailableScraperProviders = (): ScraperProvider[] => {
-  const providers: ScraperProvider[] = [];
+  const providers: ScraperProvider[] = ['localhost'];
 
   if (configuredCloudflareScraperUrl) {
     providers.push('cloudflare');
@@ -65,11 +68,23 @@ export const getDefaultScraperProvider = (): ScraperProvider => {
     return 'supabase';
   }
 
+  if (availableProviders.includes('localhost')) {
+    return 'localhost';
+  }
+
   throw new Error('No scraper provider configured');
 };
 
 export const getDefaultScraperProviderForSource = (source: ScrapeSource): ScraperProvider => {
   const availableProviders = getAvailableScraperProviders();
+
+  if (source === 'siyahmelek' && availableProviders.includes('localhost')) {
+    return 'localhost';
+  }
+
+  if (source === 'siyahmelek' && availableProviders.includes('supabase')) {
+    return 'supabase';
+  }
 
   if (source === 'webtoonhatti' && availableProviders.includes('cloudflare')) {
     return 'cloudflare';
@@ -141,6 +156,24 @@ const readProxyResponse = async (response: Response) => {
 };
 
 const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
+  if (provider === 'localhost') {
+    return {
+      label: 'Localhost scraper',
+      request: async (targetUrl, source) => {
+        try {
+          return await fetch(configuredLocalhostScraperUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ url: targetUrl, source }),
+            credentials: 'omit',
+          });
+        } catch {
+          throw new Error('Localhost scraper erişilemiyor. Önce `npm run scraper:local` çalıştırın.');
+        }
+      },
+    };
+  }
+
   if (provider === 'cloudflare') {
     if (!configuredCloudflareScraperUrl) {
       throw new Error('Cloudflare scraper proxy URL is not configured');
@@ -164,17 +197,45 @@ const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
 
   return {
     label: 'Supabase scraper proxy',
-    request: (targetUrl) =>
-      fetch(configuredSupabaseScraperUrl, {
+    request: async (targetUrl, source) => {
+      const accessToken = await getCurrentAccessToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+
+      return await fetch(configuredSupabaseScraperUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ url: targetUrl }),
+        headers,
+        body: JSON.stringify({ url: targetUrl, source }),
         credentials: 'omit',
-      }),
+      });
+    },
   };
 };
 
 const createStructuredProxyAttempt = (provider: ScraperProvider): StructuredProxyAttempt => {
+  if (provider === 'localhost') {
+    return {
+      label: 'Localhost scraper',
+      request: async (payload, source) => {
+        try {
+          return await fetch(configuredLocalhostScraperUrl, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...payload, source: payload.source ?? source }),
+            credentials: 'omit',
+          });
+        } catch {
+          throw new Error('Localhost scraper erişilemiyor. Önce `npm run scraper:local` çalıştırın.');
+        }
+      },
+    };
+  }
+
   if (provider === 'cloudflare') {
     if (!configuredCloudflareScraperUrl) {
       throw new Error('Cloudflare scraper proxy URL is not configured');
@@ -198,13 +259,23 @@ const createStructuredProxyAttempt = (provider: ScraperProvider): StructuredProx
 
   return {
     label: 'Supabase scraper proxy',
-    request: (payload) =>
-      fetch(configuredSupabaseScraperUrl, {
+    request: async (payload, source) => {
+      const accessToken = await getCurrentAccessToken();
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+
+      if (accessToken) {
+        headers.Authorization = `Bearer ${accessToken}`;
+      }
+
+      return await fetch(configuredSupabaseScraperUrl, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
+        headers,
+        body: JSON.stringify({ ...payload, source: payload.source ?? source }),
         credentials: 'omit',
-      }),
+      });
+    },
   };
 };
 
@@ -215,11 +286,11 @@ const fetchScraperResponse = async (
   const provider = options?.provider ?? getDefaultScraperProviderForSource(options?.source ?? getDefaultScrapeSource());
   const errors: string[] = [];
 
-  for (const providerToTry of getProviderAttemptOrder(provider)) {
+  for (const providerToTry of getProviderAttemptOrder(provider, options?.source)) {
     const attempt = createProxyAttempt(providerToTry);
 
     try {
-      const response = await attempt.request(targetUrl);
+      const response = await attempt.request(targetUrl, options?.source);
 
       if (!response.ok) {
         throw new Error(`${attempt.label} failed (${response.status})`);
@@ -241,11 +312,11 @@ const fetchStructuredScraperResponse = async (
   const provider = options?.provider ?? getDefaultScraperProviderForSource(options?.source ?? getDefaultScrapeSource());
   const errors: string[] = [];
 
-  for (const providerToTry of getProviderAttemptOrder(provider)) {
+  for (const providerToTry of getProviderAttemptOrder(provider, options?.source)) {
     const attempt = createStructuredProxyAttempt(providerToTry);
 
     try {
-      const response = await attempt.request(payload);
+      const response = await attempt.request(payload, options?.source);
 
       if (!response.ok) {
         throw new Error(`${attempt.label} failed (${response.status})`);
@@ -260,11 +331,18 @@ const fetchStructuredScraperResponse = async (
   throw new Error(errors.join(' | ') || 'Scraper proxy request failed');
 };
 
-const getProviderAttemptOrder = (preferredProvider: ScraperProvider) => {
+const getProviderAttemptOrder = (preferredProvider: ScraperProvider, source?: ScrapeSource) => {
   const availableProviders = getAvailableScraperProviders();
   const orderedProviders: ScraperProvider[] = [];
+  const forcedFirstProvider = source === 'siyahmelek' && availableProviders.includes('localhost')
+    ? 'localhost'
+    : null;
 
-  if (availableProviders.includes(preferredProvider)) {
+  if (forcedFirstProvider) {
+    orderedProviders.push(forcedFirstProvider);
+  }
+
+  if (availableProviders.includes(preferredProvider) && !orderedProviders.includes(preferredProvider)) {
     orderedProviders.push(preferredProvider);
   }
 

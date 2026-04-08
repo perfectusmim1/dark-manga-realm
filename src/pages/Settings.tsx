@@ -71,6 +71,9 @@ type PreferenceState = {
         likes: boolean;
         follows: boolean;
     };
+    content: {
+        adult_mode: boolean;
+    };
     comments: {
         auto_show_media: boolean;
         auto_show_gifs: boolean;
@@ -138,6 +141,9 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
         replies: preferences?.notifications?.replies ?? true,
         likes: preferences?.notifications?.likes ?? true,
         follows: preferences?.notifications?.follows ?? true,
+    },
+    content: {
+        adult_mode: preferences?.content?.adult_mode ?? false,
     },
     comments: {
         auto_show_media: preferences?.comments?.auto_show_media ?? false,
@@ -1809,6 +1815,34 @@ const Settings: React.FC = () => {
                                 <CardDescription>Üst çubuk, yorum görünümü ve genel kullanım davranışlarını buradan belirleyebilirsiniz.</CardDescription>
                             </CardHeader>
                             <CardContent className="space-y-6">
+                                <div className="relative overflow-hidden rounded-2xl border border-rose-500/30 bg-[linear-gradient(135deg,rgba(127,29,29,0.95),rgba(136,19,55,0.92),rgba(120,53,15,0.92))] p-4 text-white shadow-[0_20px_50px_rgba(120,53,15,0.22)] sm:p-5">
+                                    <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(251,191,36,0.22),transparent_38%),radial-gradient(circle_at_bottom_left,rgba(251,113,133,0.18),transparent_34%)]" />
+                                    <div className="relative flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0 space-y-2">
+                                            <div className="flex items-center gap-2">
+                                                <TriangleAlert className="h-5 w-5 text-amber-300" />
+                                                <span className="rounded-full border border-white/20 bg-white/10 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.28em] text-amber-100">
+                                                    18+
+                                                </span>
+                                            </div>
+                                            <div className="space-y-1">
+                                                <Label htmlFor="adult-mode" className="text-sm font-semibold text-white">Yetişkin Modu</Label>
+                                                <p className="text-sm leading-6 text-rose-50/88">
+                                                    Varsayılan olarak kapalıdır. Sadece hesabına giriş yapmış ve bu ayarı açmış kullanıcılar +18 serileri görebilir; diğer tüm kullanıcılar için listelerde ve direkt bağlantılarda gizlenir.
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <Switch
+                                            id="adult-mode"
+                                            checked={prefs.content.adult_mode}
+                                            onCheckedChange={(checked) => handleUpdatePreferences({
+                                                ...prefs,
+                                                content: { ...prefs.content, adult_mode: checked }
+                                            }, checked ? 'Yetişkin modu açıldı' : 'Yetişkin modu kapatıldı')}
+                                            disabled={isUpdatingPrefs}
+                                        />
+                                    </div>
+                                </div>
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                                     <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="manga-hover-preview">Manga Önizleme Kartını Göster</Label>

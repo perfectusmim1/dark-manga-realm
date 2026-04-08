@@ -58,6 +58,7 @@ const AdminLayout: React.FC = () => {
     const menuItems = [
         { icon: LayoutDashboard, label: 'Dashboard', path: '/admin' },
         { icon: BookOpen, label: 'Mangalar', path: '/admin/mangas' },
+        { icon: BookOpen, label: 'Yetişkin Mangalar', path: '/admin/adult-mangas' },
         { icon: Plus, label: 'Manga Ekle', path: '/admin/mangas/new' },
         ...(canUseScrapers ? [{ icon: Download, label: 'İçerik Çek', path: '/admin/scraper' }] : []),
         ...(canUseScrapers ? [{ icon: Download, label: 'Metadata Import', path: '/admin/metadata-import' }] : []),

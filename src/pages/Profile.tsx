@@ -22,6 +22,7 @@ import ReadingListCover from '@/components/manga/ReadingListCover';
 import StaffBadge from '@/components/user/StaffBadge';
 import { getStaffTextClassName } from '@/lib/staffRoles';
 import { cn } from '@/lib/utils';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 import { UserPlus, UserMinus, ShieldAlert, ShieldCheck, Loader2 } from 'lucide-react';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -848,7 +849,7 @@ const Profile: React.FC = () => {
                               />
                              <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
                              <Badge className="absolute left-3 top-3 rounded-full bg-black/70 text-[10px] text-white hover:bg-black/70">
-                               {manga.type === 'manhwa' ? 'Manhwa' : manga.type === 'manhua' ? 'Manhua' : manga.type === 'webtoon' ? 'Webtoon' : 'Manga'}
+                              {getMangaTypeLabel(manga.type)}
                              </Badge>
                            </div>
 

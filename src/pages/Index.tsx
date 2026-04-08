@@ -33,6 +33,7 @@ import {
   writePersistedContinueReadingCache,
 } from '@/lib/continueReadingCache';
 import { readHeaderShellSnapshot } from '@/lib/headerShellCache';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 import {
   HOME_SECTIONS_CACHE_TTL_MS,
   TOP_TEN_WEEK_CACHE_TTL_MS,
@@ -523,7 +524,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                 Sayfa {Math.max(1, featured.page)}
               </Badge>
               <Badge variant="outline" className={continueReadingGlassBadgeClass}>
-                {featured.manga.type.toUpperCase()}
+                {getMangaTypeLabel(featured.manga.type)}
               </Badge>
               {featured.manga.genres[0] && (
                 <Badge variant="outline" className={continueReadingGlassBadgeClass}>

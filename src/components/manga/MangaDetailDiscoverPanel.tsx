@@ -4,6 +4,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import type { Manga } from '@/lib/types';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
 interface MangaDetailDiscoverPanelProps {
   genres: string[];
@@ -63,7 +64,7 @@ const MangaDetailDiscoverPanel = ({
                 <h4 className="line-clamp-2 text-sm font-semibold text-white">{manga.title}</h4>
                 <div className="mt-1 flex items-center gap-2">
                   <Badge variant="secondary" className="h-5 px-1.5 text-[10px]">
-                    {manga.type.toUpperCase()}
+                    {getMangaTypeLabel(manga.type)}
                   </Badge>
                   {typeof manga.averageRating === 'number' && manga.averageRating > 0 ? (
                     <span className="flex items-center gap-0.5 text-xs text-yellow-400">

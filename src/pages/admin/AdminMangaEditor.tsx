@@ -11,12 +11,14 @@ import {
     ChevronsUpDown,
     Globe2,
     Lock,
+    TriangleAlert,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { Checkbox } from '@/components/ui/checkbox';
 import {
     Select,
     SelectContent,
@@ -71,6 +73,8 @@ import {
     type ChapterCardImageMode,
 } from '@/lib/chapterCardImages';
 import { allGenres, normalizeGenres } from '@/lib/mockData';
+import { syncAdultContentGenres } from '@/lib/adultContentFormat';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 import { getMangaRelationTypeLabel } from '@/lib/mangaRelations';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { getCharacterListingRoleLabel, type CharacterListingRole } from '@/lib/characterRoles';
@@ -191,6 +195,7 @@ const createEmptyMangaDraft = (): Partial<Manga> => ({
     cover: '',
     banner: '',
     isPublic: true,
+    isAdult: false,
     author: '',
     artist: '',
     status: 'ongoing',
@@ -415,6 +420,7 @@ const AdminMangaEditor: React.FC = () => {
     const [seriesGalleryInput, setSeriesGalleryInput] = useState('');
     const [loading, setLoading] = useState(false);
     const [editingChapterId, setEditingChapterId] = useState<string | null>(null);
+    const [selectedChapterIds, setSelectedChapterIds] = useState<string[]>([]);
 
     // Entity States
     const [allCharacters, setAllCharacters] = useState<Character[]>([]);
@@ -471,6 +477,7 @@ const AdminMangaEditor: React.FC = () => {
                 setSeriesGalleryInput('');
                 setLoading(false);
                 setEditingChapterId(null);
+                setSelectedChapterIds([]);
                 setMangaCharacters([]);
                 setSelectedAuthors([]);
                 setSelectedArtists([]);
@@ -513,12 +520,16 @@ const AdminMangaEditor: React.FC = () => {
                     ...existingManga,
                     author: joinEntityNames(manualAuthorNames),
                     artist: joinEntityNames(manualArtistNames),
-                    genres: normalizeGenres(existingManga.genres || []),
+                    genres: syncAdultContentGenres(
+                        normalizeGenres(existingManga.genres || []),
+                        { isAdult: existingManga.isAdult, type: existingManga.type },
+                    ),
                 });
                 setNewChapter(createEmptyChapterDraft(existingManga.chapters.length + 1));
                 setPageUrlInput('');
                 setSeriesGalleryInput(getSeriesGalleryUrls(existingManga.details).join('\n'));
                 setEditingChapterId(null);
+                setSelectedChapterIds([]);
                 setSelectedCharacterQuery('');
                 setShowAllSelectedCharacters(false);
                 setMangaCharacters(chars.map((character) => ({
@@ -760,14 +771,12 @@ const AdminMangaEditor: React.FC = () => {
     };
 
     const handleSaveChapter = async () => {
-        if (!newChapter.title.trim()) {
-            toast.error('Bölüm başlığı gerekli');
-            return;
-        }
         if (newChapter.pages.length === 0) {
             toast.error('En az bir sayfa ekleyin');
             return;
         }
+
+        const normalizedChapterTitle = newChapter.title.trim();
 
         const existingChapter = editingChapterId
             ? (manga.chapters || []).find((chapter) => chapter.id === editingChapterId)
@@ -775,7 +784,7 @@ const AdminMangaEditor: React.FC = () => {
         const chapter: Chapter = {
             id: editingChapterId || `chapter-${Date.now()}`,
             number: newChapter.number,
-            title: newChapter.title.trim(),
+            title: normalizedChapterTitle,
             pages: newChapter.pages,
             cardImagePage: newChapter.cardImagePage ?? null,
             cardImageUrl: resolveChapterCardImageUrl(newChapter, chapterCardImageMode, newChapter.cardImagePage),
@@ -846,6 +855,7 @@ const AdminMangaEditor: React.FC = () => {
                 if (updatedManga) {
                     setManga(updatedManga);
                 }
+                setSelectedChapterIds((current) => current.filter((id) => id !== chapterId));
                 toast.success('Bölüm silindi');
             } catch (err) {
                 toast.error('Bölüm silinemedi');
@@ -854,7 +864,76 @@ const AdminMangaEditor: React.FC = () => {
             }
         } else {
             handleChange('chapters', (manga.chapters || []).filter(c => c.id !== chapterId));
+            setSelectedChapterIds((current) => current.filter((id) => id !== chapterId));
             toast.success('Bölüm silindi');
+        }
+    };
+
+    const toggleChapterSelection = (chapterId: string, checked: boolean) => {
+        setSelectedChapterIds((current) => (
+            checked
+                ? current.includes(chapterId)
+                    ? current
+                    : [...current, chapterId]
+                : current.filter((id) => id !== chapterId)
+        ));
+    };
+
+    const toggleAllChapterSelection = (checked: boolean) => {
+        if (!checked) {
+            setSelectedChapterIds([]);
+            return;
+        }
+
+        setSelectedChapterIds((manga.chapters || []).map((chapter) => chapter.id));
+    };
+
+    const handleDeleteSelectedChapters = async () => {
+        const chapterIdsToDelete = selectedChapterIds;
+
+        if (chapterIdsToDelete.length === 0) {
+            toast.error('Önce silinecek bölümleri seçin');
+            return;
+        }
+
+        if (typeof window !== 'undefined' && !window.confirm(`${chapterIdsToDelete.length} bölümü silmek istediğine emin misin?`)) {
+            return;
+        }
+
+        if (isEditing && manga.id) {
+            setLoading(true);
+            try {
+                const results = await Promise.allSettled(
+                    chapterIdsToDelete.map((chapterId) => deleteChapter(manga.id!, chapterId)),
+                );
+                const deletedCount = results.filter((result) => result.status === 'fulfilled').length;
+                const failedCount = results.length - deletedCount;
+                const updatedManga = await getMangaById(manga.id, { includePrivate: true, includePages: true });
+
+                if (updatedManga) {
+                    setManga(updatedManga);
+                }
+
+                setSelectedChapterIds([]);
+
+                if (deletedCount > 0) {
+                    toast.success(
+                        failedCount > 0
+                            ? `${deletedCount} bölüm silindi, ${failedCount} bölüm silinemedi`
+                            : `${deletedCount} bölüm silindi`,
+                    );
+                } else {
+                    toast.error('Seçili bölümler silinemedi');
+                }
+            } catch (err) {
+                toast.error('Seçili bölümler silinemedi');
+            } finally {
+                setLoading(false);
+            }
+        } else {
+            handleChange('chapters', (manga.chapters || []).filter((chapter) => !chapterIdsToDelete.includes(chapter.id)));
+            setSelectedChapterIds([]);
+            toast.success(`${chapterIdsToDelete.length} bölüm silindi`);
         }
     };
 
@@ -919,11 +998,15 @@ const AdminMangaEditor: React.FC = () => {
                 cover: normalizedCover,
                 banner: manga.banner?.trim() || normalizedCover,
                 isPublic: manga.isPublic ?? true,
+                isAdult: manga.isAdult ?? false,
                 author: normalizedAuthorLabel,
                 artist: normalizedArtistLabel || undefined,
                 status: manga.status as 'ongoing' | 'completed' | 'hiatus',
                 type: manga.type as 'manga' | 'manhwa' | 'manhua' | 'webtoon',
-                genres: normalizeGenres(manga.genres || []),
+                genres: syncAdultContentGenres(
+                    normalizeGenres(manga.genres || []),
+                    { isAdult: manga.isAdult, type: manga.type },
+                ),
                 description: manga.description || '',
                 ratings: manga.ratings || [],
                 views: manga.views || 0,
@@ -960,7 +1043,7 @@ const AdminMangaEditor: React.FC = () => {
             );
 
             toast.success(isEditing ? 'Manga güncellendi' : 'Manga oluşturuldu');
-            navigate('/admin/mangas');
+            navigate(mangaToSave.isAdult ? '/admin/adult-mangas' : '/admin/mangas');
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Kaydedilirken bir hata oluştu';
             toast.error(message);
@@ -1213,10 +1296,12 @@ const AdminMangaEditor: React.FC = () => {
                                         <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
-                                        <SelectItem value="manga">Manga</SelectItem>
-                                        <SelectItem value="manhwa">Manhwa</SelectItem>
-                                        <SelectItem value="manhua">Manhua</SelectItem>
-                                        <SelectItem value="webtoon">Webtoon</SelectItem>
+                            <SelectItem value="manga">{getMangaTypeLabel('manga')}</SelectItem>
+                            <SelectItem value="manhwa">{getMangaTypeLabel('manhwa')}</SelectItem>
+                            <SelectItem value="manhua">{getMangaTypeLabel('manhua')}</SelectItem>
+                            <SelectItem value="webtoon">{getMangaTypeLabel('webtoon')}</SelectItem>
+                            <SelectItem value="hentai">{getMangaTypeLabel('hentai')}</SelectItem>
+                            <SelectItem value="webtoon_hentai">{getMangaTypeLabel('webtoon_hentai')}</SelectItem>
                                     </SelectContent>
                                 </Select>
                             </div>
@@ -1464,15 +1549,38 @@ const AdminMangaEditor: React.FC = () => {
                     <div className="rounded-xl border border-border bg-card p-4 space-y-4 sm:p-6">
                         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                             <h2 className="text-lg font-semibold">Bölümler ({manga.chapters?.length || 0})</h2>
-                            <Button className="w-full sm:w-auto" onClick={() => {
-                                setEditingChapterId(null);
-                                setNewChapter(createEmptyChapterDraft((manga.chapters?.length || 0) + 1));
-                                setPageUrlInput('');
-                                setShowChapterDialog(true);
-                            }}>
-                                <Plus className="mr-2 h-4 w-4" />
-                                Bölüm Ekle
-                            </Button>
+                            <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="w-full sm:w-auto"
+                                    disabled={(manga.chapters?.length || 0) === 0}
+                                    onClick={() => toggleAllChapterSelection(selectedChapterIds.length !== (manga.chapters?.length || 0))}
+                                >
+                                    {selectedChapterIds.length === (manga.chapters?.length || 0) && (manga.chapters?.length || 0) > 0
+                                        ? 'Seçimi Temizle'
+                                        : 'Tümünü Seç'}
+                                </Button>
+                                <Button
+                                    type="button"
+                                    variant="destructive"
+                                    className="w-full sm:w-auto"
+                                    disabled={selectedChapterIds.length === 0 || loading}
+                                    onClick={handleDeleteSelectedChapters}
+                                >
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Seçiliyi Sil ({selectedChapterIds.length})
+                                </Button>
+                                <Button className="w-full sm:w-auto" onClick={() => {
+                                    setEditingChapterId(null);
+                                    setNewChapter(createEmptyChapterDraft((manga.chapters?.length || 0) + 1));
+                                    setPageUrlInput('');
+                                    setShowChapterDialog(true);
+                                }}>
+                                    <Plus className="mr-2 h-4 w-4" />
+                                    Bölüm Ekle
+                                </Button>
+                            </div>
                         </div>
 
                         <div className="rounded-xl border border-border/70 bg-secondary/20 p-4">
@@ -1510,14 +1618,39 @@ const AdminMangaEditor: React.FC = () => {
 
                         {(manga.chapters?.length || 0) > 0 ? (
                             <div className="space-y-2 max-h-96 overflow-y-auto">
+                                {selectedChapterIds.length > 0 ? (
+                                    <div className="sticky top-0 z-10 flex items-center justify-between rounded-lg border border-primary/20 bg-background/95 px-3 py-2 text-xs text-muted-foreground backdrop-blur">
+                                        <span>{selectedChapterIds.length} bölüm seçili</span>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="sm"
+                                            className="h-7 px-2 text-xs"
+                                            onClick={() => setSelectedChapterIds([])}
+                                        >
+                                            Temizle
+                                        </Button>
+                                    </div>
+                                ) : null}
                                 {manga.chapters?.slice().reverse().map((chapter) => {
                                     return (
                                         <div
                                             key={chapter.id}
-                                            className="flex flex-col gap-3 rounded-lg border border-border p-3 sm:flex-row sm:items-center sm:justify-between"
+                                            className={`
+                                                flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between
+                                                ${selectedChapterIds.includes(chapter.id)
+                                                    ? 'border-primary/30 bg-primary/5'
+                                                    : 'border-border'}
+                                            `}
                                             style={{ contentVisibility: 'auto', containIntrinsicSize: '88px' }}
                                         >
-                                            <div className="min-w-0 flex-1">
+                                            <div className="flex min-w-0 flex-1 gap-3">
+                                                <Checkbox
+                                                    checked={selectedChapterIds.includes(chapter.id)}
+                                                    onCheckedChange={(checked) => toggleChapterSelection(chapter.id, checked === true)}
+                                                    aria-label={`${formatChapterDisplayTitle(chapter.number, chapter.title)} bölümünü seç`}
+                                                    className="mt-1"
+                                                />
                                                 <div className="min-w-0">
                                                     <p className="font-medium">{formatChapterDisplayTitle(chapter.number, chapter.title)}</p>
                                                     <p className="text-sm text-muted-foreground">
@@ -1584,6 +1717,33 @@ const AdminMangaEditor: React.FC = () => {
                                     checked={manga.isPublic !== false}
                                     onCheckedChange={(checked) => handleChange('isPublic', checked)}
                                     aria-label="Seri görünürlüğünü değiştir"
+                                />
+                            </div>
+                        </div>
+
+                        <div className="rounded-xl border border-rose-500/20 bg-[linear-gradient(135deg,rgba(127,29,29,0.12),rgba(136,19,55,0.08),rgba(120,53,15,0.12))] p-4">
+                            <div className="flex items-start justify-between gap-4">
+                                <div className="space-y-1">
+                                    <div className="flex items-center gap-2">
+                                        <TriangleAlert className="h-4 w-4 text-rose-500" />
+                                        <h2 className="text-sm font-semibold">18+ İçerik</h2>
+                                        <Badge
+                                            variant="outline"
+                                            className={manga.isAdult
+                                                ? 'border-rose-500/30 bg-rose-500/10 text-rose-500'
+                                                : 'border-border/70 bg-background/60 text-muted-foreground'}
+                                        >
+                                            {manga.isAdult ? 'Yetişkin' : 'Normal'}
+                                        </Badge>
+                                    </div>
+                                    <p className="text-sm text-muted-foreground">
+                                        Bu seri yetişkin olarak işaretlenirse sadece hesabına giriş yapmış ve ayarlardan yetişkin modunu açmış kullanıcılar görür.
+                                    </p>
+                                </div>
+                                <Switch
+                                    checked={manga.isAdult === true}
+                                    onCheckedChange={(checked) => handleChange('isAdult', checked)}
+                                    aria-label="Serinin yetişkin içerik durumunu değiştir"
                                 />
                             </div>
                         </div>
@@ -1710,11 +1870,11 @@ const AdminMangaEditor: React.FC = () => {
                                 />
                             </div>
                             <div className="space-y-2">
-                                <label className="text-sm font-medium">Bölüm Başlığı</label>
+                                <label className="text-sm font-medium">Bölüm Başlığı (Opsiyonel)</label>
                                 <Input
                                     value={newChapter.title || ''}
                                     onChange={(e) => setNewChapter(prev => ({ ...prev, title: e.target.value }))}
-                                    placeholder="Bölüm başlığı"
+                                    placeholder="Boş bırakırsan sadece Bölüm numarası kullanılır"
                                 />
                             </div>
                         </div>

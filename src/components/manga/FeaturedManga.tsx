@@ -7,6 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
 import { toast } from 'sonner';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
 interface FeaturedMangaProps {
   manga: Manga;
@@ -87,10 +88,12 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
               className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' :
                 manga.type === 'manhua' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' :
                   manga.type === 'webtoon' ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/20' :
+                    manga.type === 'hentai' ? 'bg-pink-600 text-white shadow-lg shadow-pink-500/20' :
+                      manga.type === 'webtoon_hentai' ? 'bg-rose-600 text-white shadow-lg shadow-rose-500/20' :
                     'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                 }`}
             >
-              {manga.type.toUpperCase()}
+              {getMangaTypeLabel(manga.type)}
             </Badge>
             <Badge variant="outline" className="border-primary/50">
               {manga.status === 'completed' ? 'Tamamlandı' : 'Devam Ediyor'}

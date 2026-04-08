@@ -8,7 +8,7 @@ enabled = true
 head_sampling_rate = 1
 
 [vars]
-ALLOWED_HOSTS = "hayalistic.net,hayalistic.com,webtoonhatti.club,yedek.mangawow.com,kirmizikafa.monster,myanimelist.net,cdn.myanimelist.net,mangaupdates.com,api.mangaupdates.com,anilist.co,graphql.anilist.co,api.jikan.moe,anime-planet.com,www.anime-planet.com,anisearch.com,www.anisearch.com,cdn.anisearch.com"
+ALLOWED_HOSTS = "hayalistic.net,hayalistic.com,webtoonhatti.club,siyahmelek.mom,yedek.mangawow.com,kirmizikafa.monster,myanimelist.net,cdn.myanimelist.net,mangaupdates.com,api.mangaupdates.com,anilist.co,graphql.anilist.co,api.jikan.moe,anime-planet.com,www.anime-planet.com,anisearch.com,www.anisearch.com,cdn.anisearch.com"
 ALLOWED_ORIGINS = "https://toonparrot.vercel.app,https://*.vercel.app,http://localhost:*,http://127.0.0.1:*"
 METRICS_INGEST_URL = "https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/cloudflare-metrics-ingest"
 

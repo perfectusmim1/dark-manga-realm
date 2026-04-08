@@ -34,6 +34,8 @@ export const allGenres = [
   'Sistem',
   'Yetişim',
   'Ecchi',
+  'Hentai',
+  'Webtoon Hentai',
   'Harem',
   'Ters Harem',
   'Trajedi',
@@ -127,6 +129,11 @@ const genreAliasMap: Record<string, string> = {
   system: 'Sistem',
   cultivation: 'Yetişim',
   ecchi: 'Ecchi',
+  hentai: 'Hentai',
+  pornhwa: 'Webtoon Hentai',
+  'webtoon hentai': 'Webtoon Hentai',
+  'hentai webtoon': 'Webtoon Hentai',
+  'adult webtoon': 'Webtoon Hentai',
   harem: 'Harem',
   'reverse harem': 'Ters Harem',
   tragedy: 'Trajedi',
@@ -194,6 +201,13 @@ const BLOCKED_GENRE_KEYS = new Set([
   'soft yuri',
 ]);
 
+const ADULT_MARKER_GENRE_PATTERNS = [
+  /\b18\+\b/i,
+  /b[üu]y[üu]kler i[cç]in/i,
+  /\badult\b/i,
+  /\berotik\b/i,
+];
+
 export const normalizeGenreName = (genre: string): string => {
   const trimmed = genre.trim();
   if (!trimmed) {
@@ -211,6 +225,34 @@ export const normalizeGenreName = (genre: string): string => {
 
   const canonical = allGenres.find((item) => toGenreKey(item) === toGenreKey(trimmed));
   return canonical || trimmed;
+};
+
+export const isKnownGenre = (genre: string): boolean => {
+  const trimmed = genre.trim();
+  if (!trimmed) {
+    return false;
+  }
+
+  return Boolean(
+    genreAliasMap[toGenreKey(trimmed)]
+    || allGenres.find((item) => toGenreKey(item) === toGenreKey(trimmed)),
+  );
+};
+
+export const isAdultMarkerGenre = (genre: string): boolean =>
+  ADULT_MARKER_GENRE_PATTERNS.some((pattern) => pattern.test(genre.trim()));
+
+export const filterRecognizedGenres = (genres?: readonly string[] | null): string[] => {
+  if (!genres || genres.length === 0) {
+    return [];
+  }
+
+  return normalizeGenres(
+    genres.filter((genre) => {
+      const trimmed = genre.trim();
+      return trimmed.length > 0 && (isKnownGenre(trimmed) || isAdultMarkerGenre(trimmed));
+    }),
+  );
 };
 
 export const normalizeGenres = (genres?: readonly string[] | null): string[] => {

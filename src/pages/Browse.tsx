@@ -21,8 +21,13 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import DeferredMount from '@/components/performance/DeferredMount';
 import { matchesMangaSearch } from '@/lib/searchMatching';
+import { useAuth } from '@/contexts/AuthContext';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
-let browsePageCache: Manga[] | null = null;
+type BrowseAudienceCacheKey = 'safe' | 'adult';
+type BrowseContentFilter = 'all' | 'safe' | 'adult';
+
+const browsePageCache: Partial<Record<BrowseAudienceCacheKey, Manga[]>> = {};
 
 const getSixColumnDesktopCount = (width: number) => {
   if (width >= 1024) return 6;
@@ -33,8 +38,16 @@ const getSixColumnDesktopCount = (width: number) => {
 };
 
 const Browse: React.FC = () => {
+  const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const [searchParams, setSearchParams] = useSearchParams();
+  const isAuthenticatedViewer = Boolean(user?.id);
+  const canSeeAdultContent = isAuthenticatedViewer && (
+    user?.role === 'admin'
+      || user?.role === 'moderator'
+      || user?.preferences?.content?.adult_mode === true
+  );
+  const browseAudienceKey: BrowseAudienceCacheKey = canSeeAdultContent ? 'adult' : 'safe';
   const [showFilters, setShowFilters] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(
     searchParams.get('genre') ? searchParams.get('genre')!.split(',') : []
@@ -43,12 +56,16 @@ const Browse: React.FC = () => {
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'popular');
   const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || 'all');
   const [statusFilter, setStatusFilter] = useState('all');
+  const [contentFilter, setContentFilter] = useState<BrowseContentFilter>(() => {
+    const value = searchParams.get('content');
+    return value === 'safe' || value === 'adult' ? value : 'all';
+  });
   const [selectedTagSlugs, setSelectedTagSlugs] = useState<string[]>(
     searchParams.get('tags') ? searchParams.get('tags')!.split(',') : []
   );
-  const [mangas, setMangas] = useState<Manga[]>(() => browsePageCache ?? []);
+  const [mangas, setMangas] = useState<Manga[]>(() => browsePageCache[browseAudienceKey] ?? []);
   const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
-  const [isLoading, setIsLoading] = useState(() => browsePageCache === null);
+  const [isLoading, setIsLoading] = useState(() => !browsePageCache[browseAudienceKey]);
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   if (!isOnline) {
@@ -62,11 +79,24 @@ const Browse: React.FC = () => {
   }
 
   useEffect(() => {
+    if (!canSeeAdultContent && contentFilter === 'adult') {
+      setContentFilter('all');
+    }
+  }, [canSeeAdultContent, contentFilter]);
+
+  useEffect(() => {
     let active = true;
 
     const fetchMangas = async () => {
       try {
-        if (browsePageCache === null) {
+        const cachedMangas = browsePageCache[browseAudienceKey];
+        if (cachedMangas) {
+          setMangas(cachedMangas);
+          setIsLoading(false);
+          return;
+        }
+
+        if (!cachedMangas) {
           setIsLoading(true);
         }
         const data = await getMangaSummaries();
@@ -74,7 +104,7 @@ const Browse: React.FC = () => {
           return;
         }
 
-        browsePageCache = data;
+        browsePageCache[browseAudienceKey] = data;
         setMangas(data);
       } finally {
         if (active) {
@@ -88,7 +118,7 @@ const Browse: React.FC = () => {
     return () => {
       active = false;
     };
-  }, []);
+  }, [browseAudienceKey]);
 
   useEffect(() => {
     const loadTagFilteredMangas = async () => {
@@ -107,11 +137,12 @@ const Browse: React.FC = () => {
     if (searchQuery) params.search = searchQuery;
     if (sortBy !== 'popular') params.sort = sortBy;
     if (typeFilter !== 'all') params.type = typeFilter;
+    if (contentFilter !== 'all') params.content = contentFilter;
     if (selectedGenres.length > 0) params.genre = selectedGenres.join(',');
     if (selectedTagSlugs.length > 0) params.tags = selectedTagSlugs.join(',');
 
     setSearchParams(params);
-  }, [searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, setSearchParams]);
+  }, [contentFilter, searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, setSearchParams]);
 
   const filteredManga = useMemo(() => {
     let result = [...mangas];
@@ -131,6 +162,12 @@ const Browse: React.FC = () => {
     // Status filter
     if (statusFilter !== 'all') {
       result = result.filter(manga => manga.status === statusFilter);
+    }
+
+    if (contentFilter === 'safe') {
+      result = result.filter(manga => manga.isAdult !== true);
+    } else if (contentFilter === 'adult') {
+      result = result.filter(manga => manga.isAdult === true);
     }
 
     if (selectedGenres.length > 0) {
@@ -182,7 +219,7 @@ const Browse: React.FC = () => {
     }
 
     return result;
-  }, [deferredSearchQuery, typeFilter, statusFilter, selectedGenres, selectedTagSlugs, tagFilteredMangaIds, sortBy, mangas]);
+  }, [contentFilter, deferredSearchQuery, typeFilter, statusFilter, selectedGenres, selectedTagSlugs, tagFilteredMangaIds, sortBy, mangas]);
 
   const toggleGenre = (genre: string) => {
     setSelectedGenres(prev =>
@@ -198,11 +235,12 @@ const Browse: React.FC = () => {
     setSelectedTagSlugs([]);
     setTypeFilter('all');
     setStatusFilter('all');
+    setContentFilter('all');
     setSortBy('popular');
     setSearchParams({});
   };
 
-  const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all';
+  const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all' || contentFilter !== 'all';
   const isInitialResultsPending = isLoading && mangas.length === 0;
 
   return (
@@ -234,10 +272,12 @@ const Browse: React.FC = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tümü</SelectItem>
-                <SelectItem value="manga">Manga</SelectItem>
-                <SelectItem value="manhwa">Manhwa</SelectItem>
-                <SelectItem value="manhua">Manhua</SelectItem>
-                <SelectItem value="webtoon">Webtoon</SelectItem>
+                <SelectItem value="manga">{getMangaTypeLabel('manga')}</SelectItem>
+                <SelectItem value="manhwa">{getMangaTypeLabel('manhwa')}</SelectItem>
+                <SelectItem value="manhua">{getMangaTypeLabel('manhua')}</SelectItem>
+                <SelectItem value="webtoon">{getMangaTypeLabel('webtoon')}</SelectItem>
+                <SelectItem value="hentai">{getMangaTypeLabel('hentai')}</SelectItem>
+                <SelectItem value="webtoon_hentai">{getMangaTypeLabel('webtoon_hentai')}</SelectItem>
               </SelectContent>
             </Select>
           </div>
@@ -252,6 +292,21 @@ const Browse: React.FC = () => {
                 <SelectItem value="ongoing">Devam Ediyor</SelectItem>
                 <SelectItem value="completed">Tamamlandı</SelectItem>
                 <SelectItem value="hiatus">Ara Verildi</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+
+          <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-40">
+            <Select value={contentFilter} onValueChange={(value) => setContentFilter(value as BrowseContentFilter)}>
+              <SelectTrigger className={`w-full ${contentFilter === 'adult' ? 'border-rose-500/40 bg-rose-500/10 text-rose-500' : ''}`}>
+                <SelectValue placeholder="İçerik" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="all">Tümü</SelectItem>
+                <SelectItem value="safe">Sadece Normal</SelectItem>
+                {canSeeAdultContent ? (
+                  <SelectItem value="adult">Sadece 18+</SelectItem>
+                ) : null}
               </SelectContent>
             </Select>
           </div>

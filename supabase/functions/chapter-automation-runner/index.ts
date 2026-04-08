@@ -252,7 +252,8 @@ const processAutomation = async (
 
     const insertedChapterRows: Array<{ id: string; number: number }> = [];
     const chapterInsertPayload: Array<Record<string, unknown>> = [];
-    const skippedChapters: number[] = [];
+    const skippedLockedChapters: number[] = [];
+    const failedChapters: number[] = [];
 
     for (let index = 0; index < missingChapters.length; index += 1) {
       const chapter = missingChapters[index];
@@ -261,9 +262,14 @@ const processAutomation = async (
         await sleep(800);
       }
 
-      const pages = await fetchChapterImagesForAutomation(serviceClient, automation.source, chapter.link);
-      if (pages.length === 0) {
-        skippedChapters.push(chapter.number);
+      const pageResult = await fetchChapterImagesForAutomation(serviceClient, automation.source, chapter.link);
+      if (pageResult.status === "locked") {
+        skippedLockedChapters.push(chapter.number);
+        continue;
+      }
+
+      if (pageResult.status === "error") {
+        failedChapters.push(chapter.number);
         continue;
       }
 
@@ -273,7 +279,7 @@ const processAutomation = async (
         manga_id: automation.manga_id,
         number: chapter.number,
         title: chapter.name,
-        pages,
+        pages: pageResult.images,
         views: 0,
         release_date: new Date().toISOString(),
       });
@@ -303,8 +309,14 @@ const processAutomation = async (
 
     const finishedAt = new Date().toISOString();
     const addedCount = insertedChapterRows.length;
-    const errorMessage = addedCount === 0 ? "Yeni bölümler bulundu ancak içerik alınamadı" : null;
-    const status = addedCount > 0 ? "success" as const : "error" as const;
+    const status = addedCount > 0
+      ? "success" as const
+      : failedChapters.length === 0 && skippedLockedChapters.length > 0
+        ? "no_changes" as const
+        : "error" as const;
+    const errorMessage = status === "error"
+      ? "Yeni bölümler bulundu ancak erişilebilir sayfalar alınamadı"
+      : null;
 
     await updateAutomationRunState(serviceClient, automation, runRow.id, {
       status,
@@ -315,7 +327,8 @@ const processAutomation = async (
       errorMessage,
       details: {
         addedChapterNumbers: insertedChapterRows.map((chapter) => chapter.number),
-        skippedChapterNumbers: skippedChapters,
+        skippedLockedChapterNumbers: skippedLockedChapters,
+        failedChapterNumbers: failedChapters,
       },
       validationSnapshot: sourceResult.validation as Record<string, unknown>,
     });

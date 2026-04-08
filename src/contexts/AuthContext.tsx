@@ -128,6 +128,9 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
     likes: true,
     follows: true,
   },
+  content: {
+    adult_mode: false,
+  },
   comments: {
     auto_show_media: false,
     auto_show_gifs: false,
@@ -182,6 +185,10 @@ const normalizeUserPreferences = (preferences?: User['preferences']): NonNullabl
   notifications: {
     ...DEFAULT_USER_PREFERENCES.notifications,
     ...preferences?.notifications,
+  },
+  content: {
+    ...DEFAULT_USER_PREFERENCES.content,
+    ...preferences?.content,
   },
   comments: {
     ...DEFAULT_USER_PREFERENCES.comments,

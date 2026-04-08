@@ -612,7 +612,7 @@ export type Database = {
                     banner: string | null;
                     genres: string[];
                     status: 'ongoing' | 'completed' | 'hiatus';
-                    type: 'manga' | 'manhwa' | 'manhua' | 'webtoon';
+                    type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'hentai' | 'webtoon_hentai';
                     views: number;
                     created_at: string;
                     last_updated: string;

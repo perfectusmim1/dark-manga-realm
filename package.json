@@ -9,7 +9,8 @@
     "build:dev": "vite build --mode development",
     "lint": "eslint .",
     "preview": "vite preview",
-    "media:backfill:plan": "node scripts/media-backfill.mjs"
+    "media:backfill:plan": "node scripts/media-backfill.mjs",
+    "scraper:local": "node scripts/local-scraper-server.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.0",

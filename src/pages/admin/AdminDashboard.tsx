@@ -14,6 +14,7 @@ import { Button } from '@/components/ui/button';
 import { getStatistics, getAllMangas } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
 const AdminDashboard: React.FC = () => {
     const [stats, setStats] = useState<any | null>(null);
@@ -141,14 +142,16 @@ const AdminDashboard: React.FC = () => {
                             return (
                                 <div key={type}>
                                     <div className="mb-1 flex items-center justify-between text-sm">
-                                        <span className="capitalize">{type}</span>
+                                        <span>{getMangaTypeLabel(type as Manga['type'])}</span>
                                         <span className="text-muted-foreground">{count} ({percentage}%)</span>
                                     </div>
                                     <div className="h-2 overflow-hidden rounded-full bg-secondary">
                                         <div
                                             className={`h-full rounded-full transition-all ${type === 'manga' ? 'bg-primary' :
                                                 type === 'manhwa' ? 'bg-orange-500' :
-                                                    type === 'manhua' ? 'bg-green-500' : 'bg-sky-500'
+                                                    type === 'manhua' ? 'bg-green-500' :
+                                                        type === 'webtoon' ? 'bg-sky-500' :
+                                                            type === 'hentai' ? 'bg-fuchsia-500' : 'bg-rose-500'
                                                 }`}
                                             style={{ width: `${percentage}%` }}
                                         />

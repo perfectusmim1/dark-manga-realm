@@ -24,6 +24,7 @@ export interface OfflineManga {
   coverSourceUrl?: string;
   banner?: string;
   bannerSourceUrl?: string;
+  isAdult?: boolean;
   author: string;
   artist?: string;
   type: Manga['type'];

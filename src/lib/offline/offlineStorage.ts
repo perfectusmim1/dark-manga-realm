@@ -1,5 +1,6 @@
 import { DBSchema, openDB } from 'idb';
 import { Chapter, Character, Manga, ResolvedReaderPage } from '@/lib/types';
+import { supabase } from '@/lib/supabase';
 import {
   DownloadJob,
   OfflineChapter,
@@ -10,6 +11,7 @@ import {
   OfflinePage,
   PendingReaderSync,
 } from '@/lib/offline/types';
+import { getCachedPreferencesForUser } from '@/lib/offline/userSync';
 import {
   cachePersistentImageDataUrl,
   isPersistentImageDataUrl,
@@ -146,6 +148,7 @@ const mapMangaToOffline = (manga: Manga): OfflineManga => ({
   coverSourceUrl: manga.cover,
   banner: manga.banner,
   bannerSourceUrl: manga.banner,
+  isAdult: manga.isAdult ?? false,
   author: manga.author,
   artist: manga.artist,
   type: manga.type,
@@ -260,6 +263,22 @@ const queueOfflineMangaArtworkPersist = (
   artwork?: { coverSourceUrl?: string | null; bannerSourceUrl?: string | null },
 ) => {
   void persistOfflineMangaArtwork(mangaId, artwork).catch(() => undefined);
+};
+
+const canCurrentViewerAccessAdultOfflineManga = async () => {
+  const { data } = await supabase.auth.getSession();
+  const authUser = data.session?.user;
+  const sessionRole = authUser?.user_metadata?.role;
+
+  if (sessionRole === 'admin' || sessionRole === 'moderator') {
+    return true;
+  }
+
+  if (!authUser?.id) {
+    return false;
+  }
+
+  return getCachedPreferencesForUser(authUser.id)?.content?.adult_mode === true;
 };
 
 export const subscribeOfflineLibrary = (listener: () => void) => {
@@ -669,6 +688,10 @@ export const getOfflineMangaDetail = async (mangaId: string): Promise<Manga | un
     return undefined;
   }
 
+  if (manga.isAdult && !(await canCurrentViewerAccessAdultOfflineManga())) {
+    return undefined;
+  }
+
   if (!isPersistentImageDataUrl(manga.cover) || (manga.banner && !isPersistentImageDataUrl(manga.banner))) {
     queueOfflineMangaArtworkPersist(manga.mangaId, {
       coverSourceUrl: manga.coverSourceUrl,
@@ -682,6 +705,7 @@ export const getOfflineMangaDetail = async (mangaId: string): Promise<Manga | un
     alternativeTitles: [],
     cover: manga.cover,
     banner: manga.banner,
+    isAdult: manga.isAdult ?? false,
     author: manga.author,
     artist: manga.artist,
     status: manga.status,

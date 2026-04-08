@@ -395,7 +395,8 @@ const App = () => (
                     <Route path="/admin/login" element={<AdminLogin />} />
                     <Route path="/admin" element={<AdminLayout />}>
                       <Route index element={<AdminDashboard />} />
-                      <Route path="mangas" element={<AdminMangaList />} />
+                      <Route path="mangas" element={<AdminMangaList section="standard" />} />
+                      <Route path="adult-mangas" element={<AdminMangaList section="adult" />} />
                       <Route path="mangas/new" element={<AdminMangaEditor />} />
                       <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
                       <Route path="comments" element={<AdminComments />} />

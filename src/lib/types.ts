@@ -5,6 +5,7 @@ export interface Manga {
   cover: string;
   banner?: string;
   isPublic?: boolean;
+  isAdult?: boolean;
   author: string;
   artist?: string;
   status: 'ongoing' | 'completed' | 'hiatus';
@@ -19,7 +20,7 @@ export interface Manga {
   characterCount?: number;
   lastUpdated: string;
   createdAt: string;
-  type: 'manga' | 'manhwa' | 'manhua' | 'webtoon';
+  type: 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'hentai' | 'webtoon_hentai';
   releaseYear?: number;
   characters?: Character[];
   authorDetails?: Author;
@@ -282,6 +283,9 @@ export interface User {
       likes: boolean;
       follows?: boolean;
     };
+    content?: {
+      adult_mode: boolean;
+    };
     comments?: {
       auto_show_media: boolean;
       auto_show_gifs: boolean;
@@ -515,7 +519,7 @@ export type SeriesRequestStatus = 'pending' | 'in_review' | 'approved' | 'reject
 
 export type UserBanKind = 'timed' | 'permanent' | 'hard';
 
-export type ScrapeSource = 'hayalistic' | 'webtoonhatti';
+export type ScrapeSource = 'hayalistic' | 'webtoonhatti' | 'siyahmelek';
 
 export type ChapterAutomationSource = ScrapeSource;
 export type ChapterAutomationProxyProvider = 'cloudflare';

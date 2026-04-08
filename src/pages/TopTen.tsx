@@ -12,6 +12,7 @@ import { Manga } from '@/lib/types';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { getAlignedCarouselTarget } from '@/lib/carousel';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
 type TopTenTimeframe = 'today' | 'week' | 'all';
 
@@ -132,10 +133,14 @@ const TopTenCard: React.FC<{
                     ? 'bg-emerald-600/90 text-white'
                     : manga.type === 'webtoon'
                       ? 'bg-sky-600/90 text-white'
+                      : manga.type === 'hentai'
+                  ? 'bg-pink-600/90 text-white'
+                        : manga.type === 'webtoon_hentai'
+                          ? 'bg-rose-600/90 text-white'
                       : 'bg-primary text-primary-foreground'
               }`}
             >
-              {manga.type.toUpperCase()}
+              {getMangaTypeLabel(manga.type)}
             </Badge>
           </div>
 
