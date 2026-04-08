@@ -11,6 +11,11 @@ interface VirtualMangaGridProps {
   emptyMessage?: string;
   overscanRows?: number;
   getColumnCount?: (viewportWidth: number) => number;
+  enableEntryAnimation?: boolean;
+  showTopTenWeekBadges?: boolean;
+  entryAnimationClassName?: string;
+  entryAnimationDelayStepMs?: number;
+  entryAnimationDurationMs?: number;
 }
 
 const GRID_GAP_PX = 12;
@@ -46,6 +51,11 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
   emptyMessage = 'Manga bulunamadı',
   overscanRows = 3,
   getColumnCount = getDefaultColumnCount,
+  enableEntryAnimation = true,
+  showTopTenWeekBadges = true,
+  entryAnimationClassName = 'animate-fade-up',
+  entryAnimationDelayStepMs = 50,
+  entryAnimationDurationMs = 500,
 }) => {
   const { disableHeavyEffects } = useDeviceProfile();
   const { user } = useAuth();
@@ -78,7 +88,7 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
   const rowStride = resolvedCardHeight + GRID_GAP_PX;
   const totalRows = Math.ceil(manga.length / columns);
   const shouldVirtualize = manga.length > columns * 6 && containerWidth > 0;
-  const topTenWeekIds = useTopTenWeekIds(manga.length > 0);
+  const topTenWeekIds = useTopTenWeekIds(showTopTenWeekBadges && manga.length > 0);
 
   useEffect(() => {
     const container = containerRef.current;
@@ -265,9 +275,10 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
               <MangaCard
                 manga={manga[0]}
                 index={0}
-                topTenWeekIds={null}
+                topTenWeekIds={showTopTenWeekBadges ? null : new Set<string>()}
                 hoverPreviewEnabled={false}
                 disableHeavyEffects
+                enableEntryAnimation={false}
               />
             </div>
           </div>
@@ -287,6 +298,10 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
               topTenWeekIds={topTenWeekIds}
               hoverPreviewEnabled={hoverPreviewEnabled}
               disableHeavyEffects={disableHeavyEffects}
+              enableEntryAnimation={enableEntryAnimation}
+              entryAnimationClassName={entryAnimationClassName}
+              entryAnimationDelayStepMs={entryAnimationDelayStepMs}
+              entryAnimationDurationMs={entryAnimationDurationMs}
             />
           ))}
         </div>

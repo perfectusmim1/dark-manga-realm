@@ -42,9 +42,8 @@ export const getMangaTypeLabel = (type?: Manga['type'] | null) => {
     case 'webtoon':
       return 'Webtoon';
     case 'hentai':
-      return 'Hentai';
     case 'webtoon_hentai':
-      return 'Webtoon Hentai';
+      return 'Yetişkin';
     case 'manga':
     default:
       return 'Manga';

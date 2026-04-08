@@ -1,6 +1,6 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
-import { Star, Eye, BookOpen, Clock, User, Sparkles } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { Star, Eye, BookOpen, Clock, User } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { getTopTenMangaIds } from '@/lib/database';
@@ -16,7 +16,7 @@ import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { formatChapterNumberLabel } from '@/lib/chapterTitle';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
-import { getMangaTypeLabel } from '@/lib/mangaType';
+import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
 
 interface MangaCardProps {
   manga: Manga;
@@ -61,8 +61,6 @@ const MANGA_CARD_HOVER_BG_INTRINSIC_WIDTH = 320;
 const MANGA_CARD_HOVER_BG_INTRINSIC_HEIGHT = 480;
 const MANGA_CARD_SIZES = '(min-width: 1536px) 14vw, (min-width: 1280px) 15vw, (min-width: 1024px) 17vw, (min-width: 768px) 20vw, (min-width: 640px) 25vw, 42vw';
 
-const HIGHLIGHT_BADGE_BASE =
-  'relative inline-flex min-h-[1.45rem] items-center justify-center overflow-hidden border px-2.5 py-[0.22rem] text-center text-[8px] font-black uppercase leading-none tracking-[0.18em] shadow-[0_10px_26px_rgba(0,0,0,0.22)]';
 const TOP_TEN_CORNER_CLIP_PATH = 'polygon(100% 0, 100% 100%, 0 0)';
 const TOP_TEN_CORNER_SIZE = 'clamp(3rem, 28%, 4.3rem)';
 
@@ -106,7 +104,6 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   entryAnimationDelayStepMs = 50,
   entryAnimationDurationMs = 500,
 }) => {
-  const navigate = useNavigate();
   const [isTopTenWeek, setIsTopTenWeek] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const ratings = manga.ratings || [];
@@ -141,27 +138,23 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   );
   const hasVisibleRating = averageRatingValue > 0 || reviewCount > 0;
 
-  const isNewRelease = useMemo(() => {
-    if (!manga.createdAt) return false;
-
-    const createdTime = new Date(manga.createdAt).getTime();
-    if (Number.isNaN(createdTime)) return false;
-
-    const ageMs = Date.now() - createdTime;
-    const oneWeekMs = 7 * 24 * 60 * 60 * 1000;
-
-    return ageMs >= 0 && ageMs < oneWeekMs;
-  }, [manga.createdAt]);
+  const showAdultLabel = manga.isAdult === true || isAdultMangaType(manga.type);
+  const typeBadgeLabel = showAdultLabel ? 'Yetişkin' : getMangaTypeLabel(manga.type);
 
   const typeBadgeClassName = cn(
-    `absolute left-2 top-2 z-10 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
+    `absolute left-2 z-10 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
+    'top-2',
+    showAdultLabel ? 'bg-rose-600/90 text-white shadow-lg shadow-rose-500/20' :
     manga.type === 'manhwa' ? 'bg-orange-600/90 text-white shadow-lg shadow-orange-500/20' :
         manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
           manga.type === 'webtoon' ? 'bg-sky-600/90 text-white shadow-lg shadow-sky-500/20' :
-          manga.type === 'hentai' ? 'bg-pink-600/90 text-white shadow-lg shadow-pink-500/20' :
-            manga.type === 'webtoon_hentai' ? 'bg-rose-600/90 text-white shadow-lg shadow-rose-500/20' :
           'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
   );
+  const topTenCornerClassName = manga.isAdult
+    ? 'absolute inset-0 overflow-hidden border-l border-b border-rose-100/18 bg-[linear-gradient(220deg,rgba(255,228,236,0.98)_0%,rgba(251,113,133,0.96)_44%,rgba(225,29,72,0.95)_72%,rgba(136,19,55,0.94)_100%)] shadow-[0_8px_18px_rgba(190,24,93,0.24)]'
+    : 'absolute inset-0 overflow-hidden border-l border-b border-sky-100/20 bg-[linear-gradient(220deg,rgba(239,246,255,0.98)_0%,rgba(125,211,252,0.96)_42%,rgba(59,130,246,0.95)_72%,rgba(29,78,216,0.94)_100%)] shadow-[0_8px_18px_rgba(37,99,235,0.24)]';
+  const topTenCornerTextClassName = manga.isAdult ? 'text-white' : 'text-slate-950';
+  const topTenCornerEyebrowClassName = manga.isAdult ? 'text-white/72' : 'text-slate-900/62';
 
   useEffect(() => {
     let isActive = true;
@@ -209,16 +202,6 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
   const cardContent = (
     <div
-      role="link"
-      tabIndex={0}
-      aria-label={`${manga.title} detay sayfasını aç`}
-      onClick={() => navigate(`/manga/${manga.id}`)}
-      onKeyDown={(event) => {
-        if (event.key === 'Enter' || event.key === ' ') {
-          event.preventDefault();
-          navigate(`/manga/${manga.id}`);
-        }
-      }}
       className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background [transform:translateZ(0)] ${disableHeavyEffects ? '' : 'transition-all duration-300 hover-lift'} ${disableHeavyEffects || !enableEntryAnimation ? '' : `${entryAnimationClassName} opacity-0`}`}
       style={disableHeavyEffects || !enableEntryAnimation ? undefined : {
         animationDelay: `${index * entryAnimationDelayStepMs}ms`,
@@ -226,7 +209,13 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         animationFillMode: 'forwards',
       }}
     >
-      <div className="relative aspect-[2/3] overflow-hidden">
+      <Link
+        to={`/manga/${manga.id}`}
+        aria-label={`${manga.title} detay sayfasını aç`}
+        className="absolute inset-0 z-[1] rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      />
+
+      <div className="pointer-events-none relative aspect-[2/3] overflow-hidden">
         <OptimizedImage
           src={manga.cover}
           alt={manga.title}
@@ -249,13 +238,18 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           className="pointer-events-none absolute inset-x-0 top-0 h-24 bg-[linear-gradient(180deg,rgba(6,8,14,0.56)_0%,rgba(6,8,14,0.26)_55%,rgba(6,8,14,0)_100%)] sm:h-28"
         />
 
-        <div className={`absolute inset-x-0 -bottom-px top-0 bg-gradient-to-t from-background via-background/20 to-transparent ${disableHeavyEffects ? '' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100'}`} />
+        <div
+          className={cn(
+            'absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-background/95 via-background/50 to-transparent',
+            disableHeavyEffects ? '' : 'opacity-0 transition-opacity duration-200 group-hover:opacity-100',
+          )}
+        />
 
         <Badge
           variant="secondary"
           className={typeBadgeClassName}
         >
-          {getMangaTypeLabel(manga.type)}
+          {typeBadgeLabel}
         </Badge>
 
         {isTopTenWeek && (
@@ -265,15 +259,15 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           >
             <div
               className={cn(
-                'absolute inset-0 overflow-hidden border-l border-b border-amber-100/30 bg-[linear-gradient(220deg,rgba(255,246,178,0.98)_0%,rgba(251,191,36,0.96)_56%,rgba(217,119,6,0.92)_100%)] shadow-[0_8px_18px_rgba(217,119,6,0.24)]',
+                topTenCornerClassName,
                 disableHeavyEffects ? '' : 'before:absolute before:inset-0 before:bg-[linear-gradient(225deg,rgba(255,255,255,0.18),transparent_55%)] before:opacity-80',
               )}
               style={{
                 clipPath: TOP_TEN_CORNER_CLIP_PATH,
               }}
             >
-              <div className="absolute right-[clamp(0.3rem,2.6vw,0.58rem)] top-[clamp(0.18rem,1.6vw,0.34rem)] flex flex-col items-end text-slate-950">
-                <span className="text-[0.35rem] font-black uppercase tracking-[0.28em] text-slate-900/62">
+              <div className={cn('absolute right-[clamp(0.3rem,2.6vw,0.58rem)] top-[clamp(0.18rem,1.6vw,0.34rem)] flex flex-col items-end', topTenCornerTextClassName)}>
+                <span className={cn('text-[0.35rem] font-black uppercase tracking-[0.28em]', topTenCornerEyebrowClassName)}>
                   Top
                 </span>
                 <span className="mt-[-0.02rem] text-[clamp(0.98rem,7vw,1.42rem)] font-black leading-none tracking-[-0.1em]">
@@ -282,42 +276,6 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
               </div>
             </div>
           </div>
-        )}
-
-        {isNewRelease && (
-          <Badge
-            className={cn(
-              HIGHLIGHT_BADGE_BASE,
-              'absolute z-10 pr-[1.15rem]',
-              isTopTenWeek ? 'left-2 top-10' : 'right-2 top-2',
-              'border-cyan-200/45 bg-[linear-gradient(135deg,rgba(103,232,249,0.94),rgba(34,211,238,0.94),rgba(52,211,153,0.9))] text-slate-950',
-              disableHeavyEffects
-                ? 'shadow-[0_10px_24px_rgba(34,211,238,0.22)]'
-                : 'shadow-[0_10px_28px_rgba(34,211,238,0.26)] backdrop-blur-md before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.42),transparent_54%)] before:opacity-90',
-            )}
-          >
-            <span className="pointer-events-none absolute right-[0.22rem] top-[0.16rem] z-10">
-              <Sparkles className="h-[0.55rem] w-[0.55rem]" />
-            </span>
-            <span className="relative z-10 block">
-              Yeni
-            </span>
-          </Badge>
-        )}
-
-        {manga.isAdult && (
-          <Badge
-            className={cn(
-              HIGHLIGHT_BADGE_BASE,
-              'absolute left-2 z-10 border-rose-200/45 bg-[linear-gradient(135deg,rgba(251,113,133,0.96),rgba(244,63,94,0.94),rgba(190,24,93,0.9))] text-white',
-              isNewRelease || isTopTenWeek ? 'top-10' : 'top-2',
-              disableHeavyEffects
-                ? 'shadow-[0_10px_24px_rgba(244,63,94,0.22)]'
-                : 'shadow-[0_10px_28px_rgba(244,63,94,0.28)] backdrop-blur-md before:absolute before:inset-0 before:bg-[radial-gradient(circle_at_left,rgba(255,255,255,0.32),transparent_54%)] before:opacity-80',
-            )}
-          >
-            <span className="relative z-10 block">18+</span>
-          </Badge>
         )}
 
         <div className="pointer-events-none absolute inset-x-2 bottom-2 z-10 flex items-end justify-between gap-2">
@@ -346,7 +304,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         </div>
 
         {!disableHeavyEffects && (
-          <div className="absolute bottom-0 left-0 right-0 translate-y-full p-3 transition-transform duration-300 group-hover:translate-y-0">
+          <div className="absolute bottom-0 left-0 right-0 translate-y-3 p-3 opacity-0 transition-[transform,opacity] duration-200 group-hover:translate-y-0 group-hover:opacity-100">
             <div className="flex items-center gap-3 text-xs text-white">
               <span className="flex items-center gap-1 font-medium drop-shadow-md">
                 <Star className="h-3 w-3 fill-primary text-primary" />
@@ -365,7 +323,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         )}
       </div>
 
-      <div className="p-2">
+      <div className="pointer-events-none p-2">
         <h3 className={`h-8 line-clamp-2 text-[13px] font-bold leading-tight text-foreground ${disableHeavyEffects ? '' : 'transition-colors group-hover:text-primary'}`}>
           {manga.title}
         </h3>
@@ -385,14 +343,11 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           </div>
 
           {latestChapterLinks.length > 0 ? (
-            <div className="grid grid-cols-2 gap-1.5">
+            <div className="pointer-events-auto relative z-20 grid grid-cols-2 gap-1.5">
               {latestChapterLinks.map((chapter) => (
                 <Link
                   key={chapter.id}
                   to={`/manga/${manga.id}/chapter/${chapter.id}`}
-                  onClick={(event) => {
-                    event.stopPropagation();
-                  }}
                   className="relative z-10 inline-flex min-h-7 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 px-2 py-1.5 text-[10px] font-bold text-primary shadow-[0_8px_18px_rgba(37,99,235,0.12)] transition-all duration-200 hover:-translate-y-px hover:border-primary/45 hover:bg-primary/18 hover:shadow-[0_12px_24px_rgba(37,99,235,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:translate-y-0 active:scale-[0.98]"
                 >
                   <span className="truncate">Bölüm {formatChapterNumberLabel(chapter.number)}</span>

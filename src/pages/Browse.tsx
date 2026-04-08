@@ -6,7 +6,8 @@ import VirtualMangaGrid from '@/components/manga/VirtualMangaGrid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { allGenres } from '@/lib/mockData';
+import { Skeleton } from '@/components/ui/skeleton';
+import { allGenres, normalizeGenreName } from '@/lib/mockData';
 import { getMangaSummaries, getMangasByMultipleTags } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import {
@@ -19,15 +20,78 @@ import {
 import TagFilterPanel from '@/components/tags/TagFilterPanel';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
-import DeferredMount from '@/components/performance/DeferredMount';
 import { matchesMangaSearch } from '@/lib/searchMatching';
 import { useAuth } from '@/contexts/AuthContext';
+import { ADULT_MODE_CHANGED_EVENT } from '@/lib/adultModeEvents';
 import { getMangaTypeLabel } from '@/lib/mangaType';
 
 type BrowseAudienceCacheKey = 'safe' | 'adult';
 type BrowseContentFilter = 'all' | 'safe' | 'adult';
+type BrowseTypeFilter = 'all' | 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'adult';
 
 const browsePageCache: Partial<Record<BrowseAudienceCacheKey, Manga[]>> = {};
+const ADULT_GENRE_EQUIVALENTS = new Set(['Yetişkin', 'Hentai', 'Webtoon Hentai']);
+
+const normalizeBrowseTypeFilter = (value: string | null): BrowseTypeFilter => {
+  switch (value) {
+    case 'manga':
+    case 'manhwa':
+    case 'manhua':
+    case 'webtoon':
+    case 'adult':
+      return value;
+    case 'hentai':
+    case 'webtoon_hentai':
+      return 'adult';
+    default:
+      return 'all';
+  }
+};
+
+const normalizeBrowseGenresFromParams = (value: string | null): string[] => {
+  if (!value) {
+    return [];
+  }
+
+  return Array.from(new Set(
+    value
+      .split(',')
+      .map((genre) => normalizeGenreName(genre))
+      .filter(Boolean),
+  ));
+};
+
+const mangaMatchesSelectedGenre = (manga: Manga, genre: string) => {
+  const normalizedGenres = (manga.genres || []).map((item) => normalizeGenreName(item));
+
+  if (genre === 'Yetişkin') {
+    return manga.isAdult === true || normalizedGenres.some((item) => ADULT_GENRE_EQUIVALENTS.has(item));
+  }
+
+  return normalizedGenres.includes(genre);
+};
+
+const BrowseGridSkeleton: React.FC = () => (
+  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+    {Array.from({ length: 12 }).map((_, index) => (
+      <div key={`browse-skeleton-${index}`} className="overflow-hidden rounded-xl border border-border/60 bg-card/40">
+        <Skeleton className="aspect-[2/3] w-full rounded-none" />
+        <div className="space-y-2 p-2.5">
+          <Skeleton className="h-4 w-5/6" />
+          <Skeleton className="h-3 w-2/3" />
+          <div className="flex gap-2 pt-1">
+            <Skeleton className="h-5 w-14 rounded-md" />
+            <Skeleton className="h-5 w-16 rounded-md" />
+          </div>
+          <div className="grid grid-cols-2 gap-2 pt-1">
+            <Skeleton className="h-8 w-full rounded-lg" />
+            <Skeleton className="h-8 w-full rounded-lg" />
+          </div>
+        </div>
+      </div>
+    ))}
+  </div>
+);
 
 const getSixColumnDesktopCount = (width: number) => {
   if (width >= 1024) return 6;
@@ -50,11 +114,11 @@ const Browse: React.FC = () => {
   const browseAudienceKey: BrowseAudienceCacheKey = canSeeAdultContent ? 'adult' : 'safe';
   const [showFilters, setShowFilters] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(
-    searchParams.get('genre') ? searchParams.get('genre')!.split(',') : []
+    () => normalizeBrowseGenresFromParams(searchParams.get('genre'))
   );
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'popular');
-  const [typeFilter, setTypeFilter] = useState(searchParams.get('type') || 'all');
+  const [typeFilter, setTypeFilter] = useState<BrowseTypeFilter>(() => normalizeBrowseTypeFilter(searchParams.get('type')));
   const [statusFilter, setStatusFilter] = useState('all');
   const [contentFilter, setContentFilter] = useState<BrowseContentFilter>(() => {
     const value = searchParams.get('content');
@@ -66,6 +130,7 @@ const Browse: React.FC = () => {
   const [mangas, setMangas] = useState<Manga[]>(() => browsePageCache[browseAudienceKey] ?? []);
   const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
   const [isLoading, setIsLoading] = useState(() => !browsePageCache[browseAudienceKey]);
+  const [isHydratingFullCollection, setIsHydratingFullCollection] = useState(() => !browsePageCache[browseAudienceKey]);
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   if (!isOnline) {
@@ -85,6 +150,27 @@ const Browse: React.FC = () => {
   }, [canSeeAdultContent, contentFilter]);
 
   useEffect(() => {
+    if (!canSeeAdultContent && typeFilter === 'adult') {
+      setTypeFilter('all');
+    }
+  }, [canSeeAdultContent, typeFilter]);
+
+  useEffect(() => {
+    const handleAdultModeChanged = () => {
+      browsePageCache.safe = undefined;
+      browsePageCache.adult = undefined;
+      setMangas([]);
+      setIsLoading(true);
+      setIsHydratingFullCollection(true);
+    };
+
+    window.addEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
+    return () => {
+      window.removeEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
+    };
+  }, []);
+
+  useEffect(() => {
     let active = true;
 
     const fetchMangas = async () => {
@@ -93,12 +179,14 @@ const Browse: React.FC = () => {
         if (cachedMangas) {
           setMangas(cachedMangas);
           setIsLoading(false);
+          setIsHydratingFullCollection(false);
           return;
         }
 
-        if (!cachedMangas) {
-          setIsLoading(true);
-        }
+        setMangas([]);
+        setIsLoading(true);
+        setIsHydratingFullCollection(true);
+
         const data = await getMangaSummaries();
         if (!active) {
           return;
@@ -109,6 +197,7 @@ const Browse: React.FC = () => {
       } finally {
         if (active) {
           setIsLoading(false);
+          setIsHydratingFullCollection(false);
         }
       }
     };
@@ -156,7 +245,11 @@ const Browse: React.FC = () => {
 
     // Type filter
     if (typeFilter !== 'all') {
-      result = result.filter(manga => manga.type === typeFilter);
+      result = result.filter((manga) => (
+        typeFilter === 'adult'
+          ? (manga.isAdult === true || manga.type === 'hentai' || manga.type === 'webtoon_hentai')
+          : manga.type === typeFilter
+      ));
     }
 
     // Status filter
@@ -171,9 +264,9 @@ const Browse: React.FC = () => {
     }
 
     if (selectedGenres.length > 0) {
-      result = result.filter(manga =>
-        selectedGenres.every(genre => manga.genres.includes(genre))
-      );
+      result = result.filter((manga) => (
+        selectedGenres.every((genre) => mangaMatchesSelectedGenre(manga, genre))
+      ));
     }
 
     if (tagFilteredMangaIds) {
@@ -221,6 +314,26 @@ const Browse: React.FC = () => {
     return result;
   }, [contentFilter, deferredSearchQuery, typeFilter, statusFilter, selectedGenres, selectedTagSlugs, tagFilteredMangaIds, sortBy, mangas]);
 
+  const typeOptions = useMemo(() => {
+    const nextOptions = [
+      { value: 'manga', label: getMangaTypeLabel('manga') },
+      { value: 'manhwa', label: getMangaTypeLabel('manhwa') },
+      { value: 'manhua', label: getMangaTypeLabel('manhua') },
+      { value: 'webtoon', label: getMangaTypeLabel('webtoon') },
+      ...(canSeeAdultContent ? [{ value: 'adult', label: 'Yetişkin' }] : []),
+    ];
+
+    const seenLabels = new Set<string>();
+    return nextOptions.filter((option) => {
+      if (seenLabels.has(option.label)) {
+        return false;
+      }
+
+      seenLabels.add(option.label);
+      return true;
+    });
+  }, [canSeeAdultContent]);
+
   const toggleGenre = (genre: string) => {
     setSelectedGenres(prev =>
       prev.includes(genre)
@@ -242,19 +355,24 @@ const Browse: React.FC = () => {
 
   const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all' || contentFilter !== 'all';
   const isInitialResultsPending = isLoading && mangas.length === 0;
+  const resultsLabel = isInitialResultsPending
+    ? 'Seriler hazırlanıyor...'
+    : isHydratingFullCollection
+      ? `${filteredManga.length} seri gösteriliyor, tam liste yükleniyor...`
+      : `${filteredManga.length} sonuç bulundu`;
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
 
       <main className="container pb-12 pt-20">
-        <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+        <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">Keşfet</h1>
           <p className="mt-2 text-muted-foreground">Binlerce manga, manhwa, manhua ve webtoon arasından seçim yapın</p>
         </div>
 
         {/* Filters Bar */}
-        <div className="mb-6 flex flex-wrap items-center gap-3 animate-fade-up opacity-0 sm:gap-4" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
+        <div className="mb-6 flex flex-wrap items-center gap-3 sm:gap-4">
           <div className="w-full md:min-w-[240px] md:flex-1">
             <Input
               type="search"
@@ -272,12 +390,11 @@ const Browse: React.FC = () => {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="all">Tümü</SelectItem>
-                <SelectItem value="manga">{getMangaTypeLabel('manga')}</SelectItem>
-                <SelectItem value="manhwa">{getMangaTypeLabel('manhwa')}</SelectItem>
-                <SelectItem value="manhua">{getMangaTypeLabel('manhua')}</SelectItem>
-                <SelectItem value="webtoon">{getMangaTypeLabel('webtoon')}</SelectItem>
-                <SelectItem value="hentai">{getMangaTypeLabel('hentai')}</SelectItem>
-                <SelectItem value="webtoon_hentai">{getMangaTypeLabel('webtoon_hentai')}</SelectItem>
+                {typeOptions.map((option) => (
+                  <SelectItem key={option.value} value={option.value}>
+                    {option.label}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -305,7 +422,7 @@ const Browse: React.FC = () => {
                 <SelectItem value="all">Tümü</SelectItem>
                 <SelectItem value="safe">Sadece Normal</SelectItem>
                 {canSeeAdultContent ? (
-                  <SelectItem value="adult">Sadece 18+</SelectItem>
+                  <SelectItem value="adult">Sadece Yetişkin</SelectItem>
                 ) : null}
               </SelectContent>
             </Select>
@@ -361,28 +478,31 @@ const Browse: React.FC = () => {
         )}
 
         {/* Tag Filters */}
-        <DeferredMount className="mb-6 animate-fade-up opacity-0" placeholderMinHeight={86} rootMargin="240px 0px">
-          <div style={{ animationDelay: '0.25s', animationFillMode: 'forwards' }}>
-            <TagFilterPanel
-              selectedTags={selectedTagSlugs}
-              onSelectedTagsChange={setSelectedTagSlugs}
-            />
-          </div>
-        </DeferredMount>
+        <div className="mb-6">
+          <TagFilterPanel
+            selectedTags={selectedTagSlugs}
+            onSelectedTagsChange={setSelectedTagSlugs}
+          />
+        </div>
 
         <p className="mb-4 text-sm text-muted-foreground">
-          {isInitialResultsPending ? 'Seriler hazırlanıyor...' : `${filteredManga.length} sonuç bulundu`}
+          {resultsLabel}
         </p>
 
         {/* Manga Grid */}
         {isInitialResultsPending ? (
-          <div className="min-h-[220px]" />
+          <BrowseGridSkeleton />
         ) : (
-          <div className="animate-fade-up opacity-0" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
+          <div>
             <VirtualMangaGrid
               manga={filteredManga}
               getColumnCount={getSixColumnDesktopCount}
               emptyMessage="Arama kriterlerinize uygun manga bulunamadı"
+              enableEntryAnimation
+              showTopTenWeekBadges={false}
+              entryAnimationClassName="animate-card-reveal-fast"
+              entryAnimationDelayStepMs={10}
+              entryAnimationDurationMs={170}
             />
           </div>
         )}

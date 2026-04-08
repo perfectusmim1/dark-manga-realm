@@ -4,8 +4,8 @@ import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { BookOpen, Clock } from 'lucide-react';
 import Header from '@/components/layout/Header';
-import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import { Badge } from '@/components/ui/badge';
+import { Skeleton } from '@/components/ui/skeleton';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
 import { getLatestChapters, getLatestChaptersCountLast24Hours, LatestChapterFeedItem } from '@/lib/database';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
@@ -26,6 +26,58 @@ const mergeLatestChapterPages = (
 
     return nextItems.length > 0 ? [...current, ...nextItems] : current;
 };
+
+const LatestChaptersSkeleton: React.FC = () => (
+    <div className="min-h-screen bg-background">
+        <Header />
+
+        <main className="container pb-12 pt-20">
+            <div className="mb-8">
+                <div className="flex items-center gap-3">
+                    <Skeleton className="h-12 w-12 rounded-2xl bg-primary/10" />
+                    <div className="space-y-2">
+                        <Skeleton className="h-10 w-56 sm:w-72" />
+                        <Skeleton className="h-5 w-[22rem] max-w-[75vw]" />
+                    </div>
+                </div>
+                <Skeleton className="mt-4 h-8 w-48 rounded-full" />
+            </div>
+
+            <div className="grid gap-4 xl:grid-cols-3">
+                {Array.from({ length: 9 }).map((_, index) => (
+                    <div
+                        key={`latest-chapters-skeleton-${index}`}
+                        className="rounded-[24px] border border-border bg-card/40 p-4 sm:p-5"
+                    >
+                        <div className="flex items-center gap-4 sm:gap-5">
+                            <Skeleton className="h-24 w-24 shrink-0 rounded-2xl sm:h-28 sm:w-28 lg:h-32 lg:w-32" />
+
+                            <div className="min-w-0 flex-1">
+                                <div className="flex items-start justify-between gap-3">
+                                    <div className="min-w-0 flex-1">
+                                        <div className="mb-2 flex flex-wrap items-center gap-2">
+                                            <Skeleton className="h-6 w-32 rounded-full" />
+                                            <Skeleton className="h-4 w-20" />
+                                        </div>
+                                        <Skeleton className="h-8 w-4/5 max-w-[18rem]" />
+                                        <Skeleton className="mt-2 h-7 w-32" />
+                                    </div>
+
+                                    <Skeleton className="h-7 w-32 shrink-0 rounded-full" />
+                                </div>
+
+                                <div className="mt-4 flex items-center gap-2">
+                                    <Skeleton className="h-4 w-4 rounded-sm" />
+                                    <Skeleton className="h-5 w-44 max-w-[70%]" />
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </main>
+    </div>
+);
 
 const LatestChapters: React.FC = () => {
     const { isOnline } = useEffectiveOnlineStatus();
@@ -120,12 +172,7 @@ const LatestChapters: React.FC = () => {
     }, [hasMore, isLoading, isLoadingMore, loadChapters]);
 
     if (isLoading) {
-        return (
-            <>
-                <Header />
-                <ListSkeleton />
-            </>
-        );
+        return <LatestChaptersSkeleton />;
     }
 
     return (
@@ -154,11 +201,15 @@ const LatestChapters: React.FC = () => {
 
                 {chapters.length > 0 ? (
                     <div className="grid gap-4 xl:grid-cols-3">
-                        {chapters.map((chapter) => (
+                        {chapters.map((chapter, index) => (
                             <Link
                                 key={chapter.chapterId}
                                 to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
-                                className="group flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 transition-all duration-200 hover:border-primary/40 hover:bg-card sm:gap-5"
+                                className="group flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 opacity-0 transition-all duration-200 hover:border-primary/40 hover:bg-card animate-card-reveal-fast sm:gap-5"
+                                style={{
+                                    animationDelay: `${index * 12}ms`,
+                                    animationFillMode: 'forwards',
+                                }}
                             >
                                 <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-secondary/40 shadow-sm sm:h-28 sm:w-28 lg:h-32 lg:w-32">
                                     <img

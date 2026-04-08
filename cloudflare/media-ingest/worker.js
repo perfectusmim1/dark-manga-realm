@@ -27,6 +27,8 @@ const DEFAULT_ALLOWED_HOSTS = [
   'gg.asuracomic.net',
   'us-a.tapas.io',
   'wallpapers.com',
+  'wallpapercave.com',
+  'i.ibb.co',
   'www.mc-tr.com',
   'napost.com',
   'ruyamanga.net',

@@ -251,6 +251,46 @@ const createRichEntityPayload = (entity: Partial<Character | Author | Artist>) =
     source_links: normalizeEntitySourceLinks(entity.sourceLinks),
 });
 
+const materializeNamedEntityMedia = async (
+    entityType: 'character' | 'author' | 'artist',
+    entityId: string,
+    media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
+) => {
+    const normalizedImageUrl = sanitizeEntityImageUrl(media.imageUrl);
+    const normalizedGallery = normalizeEntityGallery(media.gallery || []);
+
+    const materialized = await materializeRemoteImages([
+        ...(normalizedImageUrl ? [{
+            id: `${entityType}:${entityId}:profile`,
+            sourceUrl: normalizedImageUrl,
+            entityType,
+            entityId,
+            variant: 'profile' as const,
+        }] : []),
+        ...normalizedGallery.map((image, index) => ({
+            id: `${entityType}:${entityId}:gallery:${index}`,
+            sourceUrl: sanitizeEntityImageUrl(image.url),
+            entityType,
+            entityId,
+            variant: 'gallery' as const,
+            objectKey: `${entityType}/${entityId}/gallery/${String(index + 1).padStart(3, '0')}.webp`,
+        })),
+    ]).catch((error) => {
+        console.warn(`${entityType} media materialize failed:`, error);
+        return new Map<string, string>();
+    });
+
+    return {
+        imageUrl: normalizedImageUrl
+            ? materialized.get(`${entityType}:${entityId}:profile`) || normalizedImageUrl
+            : undefined,
+        gallery: normalizedGallery.map((image, index) => ({
+            ...image,
+            url: materialized.get(`${entityType}:${entityId}:gallery:${index}`) || image.url,
+        })),
+    };
+};
+
 const getOrderedEntityRank = async (
     tableName: 'characters' | 'authors' | 'artists',
     entityId: string,
@@ -697,6 +737,12 @@ const invalidateAllMangasCache = () => {
     topTenMangaIdsPromises.week = null;
     topTenMangaIdsPromises.all = null;
     clearHomeFeedCache();
+};
+
+export const invalidateMangaVisibilityCaches = () => {
+    currentViewerRoleCache = null;
+    currentViewerRolePromise = null;
+    invalidateAllMangasCache();
 };
 
 const getMangaSummarySelectColumns = (
@@ -1784,6 +1830,34 @@ export const getMangaById = async (
  * Save or update a manga
  */
 export const saveManga = async (manga: Manga): Promise<void> => {
+    const materializedMangaMedia = await materializeRemoteImages([
+        {
+            id: `${manga.id}:cover`,
+            sourceUrl: manga.cover,
+            entityType: 'manga',
+            entityId: manga.id,
+            variant: 'cover',
+        },
+        {
+            id: `${manga.id}:banner`,
+            sourceUrl: manga.banner || manga.cover,
+            entityType: 'manga',
+            entityId: manga.id,
+            variant: 'banner',
+        },
+    ]).catch((error) => {
+        console.warn('Manga cover/banner materialize failed:', error);
+        return new Map<string, string>();
+    });
+
+    const normalizedCover =
+        materializedMangaMedia.get(`${manga.id}:cover`)
+        || manga.cover;
+    const normalizedBanner =
+        materializedMangaMedia.get(`${manga.id}:banner`)
+        || manga.banner
+        || normalizedCover;
+
     const normalizedChapters = (manga.chapters || []).map((chapter) => ({
         ...chapter,
         pages: sanitizeChapterPageUrls(chapter.pages || []),
@@ -1841,8 +1915,8 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         is_public: manga.isPublic ?? true,
         is_adult: manga.isAdult ?? false,
         description: manga.description,
-        cover: manga.cover,
-        banner: manga.banner,
+        cover: normalizedCover,
+        banner: normalizedBanner,
         genres: normalizeGenres(manga.genres),
         status: manga.status,
         type: manga.type,
@@ -4600,23 +4674,36 @@ export const saveCharacter = async (character: Partial<Character>): Promise<stri
         name: normalizedName,
         description: sanitizeCharacterDescription(character.description),
     });
+    const { image_url: _imageUrl, gallery: _gallery, ...dataWithoutMedia } = data;
 
     if (character.id) {
         const { error } = await supabase
             .from('characters')
-            .update(data)
+            .update(dataWithoutMedia)
             .eq('id', character.id);
         if (error) throw error;
+        if ('imageUrl' in character || 'gallery' in character) {
+            await updateCharacterMedia(character.id, {
+                imageUrl: character.imageUrl,
+                gallery: character.gallery,
+            });
+        }
         return character.id;
     }
 
     const { data: inserted, error } = await supabase
         .from('characters')
-        .insert(data)
+        .insert(dataWithoutMedia)
         .select('id')
         .single();
 
     if (error) throw error;
+    if ('imageUrl' in character || 'gallery' in character) {
+        await updateCharacterMedia(inserted.id, {
+            imageUrl: character.imageUrl,
+            gallery: character.gallery,
+        });
+    }
     return inserted.id;
 };
 
@@ -4632,13 +4719,14 @@ export const updateCharacterMedia = async (
     media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
 ): Promise<void> => {
     const payload: Record<string, unknown> = {};
+    const materializedMedia = await materializeNamedEntityMedia('character', characterId, media);
 
     if ('imageUrl' in media) {
-        payload.image_url = sanitizeEntityImageUrl(media.imageUrl);
+        payload.image_url = materializedMedia.imageUrl;
     }
 
     if ('gallery' in media) {
-        payload.gallery = normalizeEntityGallery(media.gallery || []);
+        payload.gallery = materializedMedia.gallery;
     }
 
     if (Object.keys(payload).length === 0) {
@@ -4924,18 +5012,31 @@ export const saveAuthor = async (author: Partial<Author>) => {
         ...author,
         name: normalizedName,
     });
+    const { image_url: _imageUrl, gallery: _gallery, ...dataWithoutMedia } = data;
     if (author.id) {
-        const { error } = await supabase.from('authors').update(data).eq('id', author.id);
+        const { error } = await supabase.from('authors').update(dataWithoutMedia).eq('id', author.id);
         if (error) throw error;
+        if ('imageUrl' in author || 'gallery' in author) {
+            await updateAuthorMedia(author.id, {
+                imageUrl: author.imageUrl,
+                gallery: author.gallery,
+            });
+        }
         return author.id;
     }
 
     const { data: inserted, error } = await supabase
         .from('authors')
-        .insert(data)
+        .insert(dataWithoutMedia)
         .select('id')
         .single();
     if (error) throw error;
+    if ('imageUrl' in author || 'gallery' in author) {
+        await updateAuthorMedia(inserted.id, {
+            imageUrl: author.imageUrl,
+            gallery: author.gallery,
+        });
+    }
     return inserted.id;
 };
 
@@ -4951,13 +5052,14 @@ export const updateAuthorMedia = async (
     media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
 ): Promise<void> => {
     const payload: Record<string, unknown> = {};
+    const materializedMedia = await materializeNamedEntityMedia('author', authorId, media);
 
     if ('imageUrl' in media) {
-        payload.image_url = sanitizeEntityImageUrl(media.imageUrl);
+        payload.image_url = materializedMedia.imageUrl;
     }
 
     if ('gallery' in media) {
-        payload.gallery = normalizeEntityGallery(media.gallery || []);
+        payload.gallery = materializedMedia.gallery;
     }
 
     if (Object.keys(payload).length === 0) {
@@ -4987,18 +5089,31 @@ export const saveArtist = async (artist: Partial<Artist>) => {
         ...artist,
         name: normalizedName,
     });
+    const { image_url: _imageUrl, gallery: _gallery, ...dataWithoutMedia } = data;
     if (artist.id) {
-        const { error } = await supabase.from('artists').update(data).eq('id', artist.id);
+        const { error } = await supabase.from('artists').update(dataWithoutMedia).eq('id', artist.id);
         if (error) throw error;
+        if ('imageUrl' in artist || 'gallery' in artist) {
+            await updateArtistMedia(artist.id, {
+                imageUrl: artist.imageUrl,
+                gallery: artist.gallery,
+            });
+        }
         return artist.id;
     }
 
     const { data: inserted, error } = await supabase
         .from('artists')
-        .insert(data)
+        .insert(dataWithoutMedia)
         .select('id')
         .single();
     if (error) throw error;
+    if ('imageUrl' in artist || 'gallery' in artist) {
+        await updateArtistMedia(inserted.id, {
+            imageUrl: artist.imageUrl,
+            gallery: artist.gallery,
+        });
+    }
     return inserted.id;
 };
 
@@ -5014,13 +5129,14 @@ export const updateArtistMedia = async (
     media: { imageUrl?: string | null; gallery?: EntityGalleryImage[] | null },
 ): Promise<void> => {
     const payload: Record<string, unknown> = {};
+    const materializedMedia = await materializeNamedEntityMedia('artist', artistId, media);
 
     if ('imageUrl' in media) {
-        payload.image_url = sanitizeEntityImageUrl(media.imageUrl);
+        payload.image_url = materializedMedia.imageUrl;
     }
 
     if ('gallery' in media) {
-        payload.gallery = normalizeEntityGallery(media.gallery || []);
+        payload.gallery = materializedMedia.gallery;
     }
 
     if (Object.keys(payload).length === 0) {
@@ -6009,39 +6125,109 @@ export const getMangasByMultipleTags = async (tagSlugs: string[]): Promise<Manga
  * - 1 View (Chapter Read) = 0.5 pts
  * Uses get_top_engaged_mangas RPC
  */
-export const getTopTenMangas = async (timeframe: 'today' | 'week' | 'all' = 'today'): Promise<Manga[]> => {
-    try {
-        const summaries = await getMangaSummaries();
-        const summaryMap = new Map(summaries.map((manga) => [manga.id, manga]));
-        const { data: rawData, error } = await supabase.rpc('get_top_engaged_mangas', { time_filter: timeframe });
+type TopTenAudience = 'visible' | 'safe' | 'adult';
 
-        if (error || !rawData || rawData.length === 0) {
-            if (error) console.error('getTopTenMangas error:', error);
-            // Return top 10 by views if engagement logic fails
-            return summaries.sort((a, b) => (b.views || 0) - (a.views || 0)).slice(0, 10);
-        }
+const buildAudienceTopTen = (
+    summaries: Manga[],
+    rawData: any[] | null | undefined,
+    audience: TopTenAudience,
+): Manga[] => {
+    const matchesAudience = (manga: Manga) => (
+        audience === 'adult'
+            ? manga.isAdult === true
+            : audience === 'safe'
+                ? manga.isAdult !== true
+                : true
+    );
 
-        // Map results to Manga interface
-        return rawData
-        .filter((m: any) => summaryMap.has(m.id))
-        .map((m: any) => {
-            const summary = summaryMap.get(m.id);
+    const filteredSummaries = summaries.filter(matchesAudience);
+    const filteredSummaryMap = new Map(filteredSummaries.map((manga) => [manga.id, manga]));
+
+    if (!rawData || rawData.length === 0) {
+        return [];
+    }
+
+    return rawData
+        .filter((item: any) => filteredSummaryMap.has(item?.id))
+        .map((item: any) => {
+            const summary = filteredSummaryMap.get(item.id);
 
             return {
-                ...m,
-                ...mapMangaBaseFields(m),
+                ...item,
+                ...mapMangaBaseFields(item),
                 chapters: [],
                 ratings: [],
                 chapterCount: summary?.chapterCount ?? 0,
-                engagementScore: m.engagement_score,
-                averageRating: m.average_rating || summary?.averageRating || 0,
+                engagementScore: item.engagement_score,
+                averageRating: item.average_rating || summary?.averageRating || 0,
                 reviewCount: summary?.reviewCount || 0,
-            };
-        }) as Manga[];
+            } as Manga;
+        })
+        .sort((left, right) => {
+            const engagementDiff = (right.engagementScore || 0) - (left.engagementScore || 0);
+            if (engagementDiff !== 0) {
+                return engagementDiff;
+            }
+
+            const ratingDiff = (right.averageRating || 0) - (left.averageRating || 0);
+            if (ratingDiff !== 0) {
+                return ratingDiff;
+            }
+
+            const reviewDiff = (right.reviewCount || 0) - (left.reviewCount || 0);
+            if (reviewDiff !== 0) {
+                return reviewDiff;
+            }
+
+            const chapterDiff = (right.chapterCount || 0) - (left.chapterCount || 0);
+            if (chapterDiff !== 0) {
+                return chapterDiff;
+            }
+
+            const viewDiff = (right.views || 0) - (left.views || 0);
+            if (viewDiff !== 0) {
+                return viewDiff;
+            }
+
+            const titleDiff = (left.title || '').localeCompare(right.title || '', 'tr');
+            if (titleDiff !== 0) {
+                return titleDiff;
+            }
+
+            return left.id.localeCompare(right.id, 'tr');
+        })
+        .slice(0, 10);
+};
+
+export const getTopTenMangaBuckets = async (
+    timeframe: 'today' | 'week' | 'all' = 'today',
+): Promise<{ visible: Manga[]; safe: Manga[]; adult: Manga[] }> => {
+    try {
+        const summaries = await getMangaSummaries();
+        const { data: rawData, error } = await supabase.rpc('get_top_engaged_mangas', { time_filter: timeframe });
+
+        if (error) {
+            console.error('getTopTenMangaBuckets error:', error);
+        }
+
+        return {
+            visible: buildAudienceTopTen(summaries, rawData, 'visible'),
+            safe: buildAudienceTopTen(summaries, rawData, 'safe'),
+            adult: buildAudienceTopTen(summaries, rawData, 'adult'),
+        };
     } catch (error) {
-        console.error('getTopTenMangas exception:', error);
-        return [];
+        console.error('getTopTenMangaBuckets exception:', error);
+        return {
+            visible: [],
+            safe: [],
+            adult: [],
+        };
     }
+};
+
+export const getTopTenMangas = async (timeframe: 'today' | 'week' | 'all' = 'today'): Promise<Manga[]> => {
+    const buckets = await getTopTenMangaBuckets(timeframe);
+    return buckets.visible;
 };
 
 export const getTopTenMangaIds = async (timeframe: TopTenTimeframe = 'today'): Promise<Set<string>> => {

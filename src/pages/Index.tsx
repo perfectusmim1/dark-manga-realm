@@ -32,6 +32,7 @@ import {
   type ContinueReadingCacheEntry,
   writePersistedContinueReadingCache,
 } from '@/lib/continueReadingCache';
+import { ADULT_MODE_CHANGED_EVENT } from '@/lib/adultModeEvents';
 import { readHeaderShellSnapshot } from '@/lib/headerShellCache';
 import { getMangaTypeLabel } from '@/lib/mangaType';
 import {
@@ -137,6 +138,7 @@ const CONTINUE_READING_DESCRIPTION_LIMIT = 280;
 
 type HomeDataModule = {
   getHomePageMangaSections: () => Promise<HomePageMangaSections>;
+  getMangaSummariesByIds: (mangaIds: string[], options?: { includePrivate?: boolean }) => Promise<Manga[]>;
   getTopTenMangaIds: (timeframe?: 'today' | 'week' | 'all') => Promise<Set<string>>;
   getTrendingTags: (limit?: number, options?: { includePending?: boolean }) => Promise<Tag[]>;
 };
@@ -152,6 +154,7 @@ const loadHomeDataModule = () => {
   if (!homeDataModulePromise) {
     homeDataModulePromise = import('@/lib/database').then((module) => ({
       getHomePageMangaSections: module.getHomePageMangaSections,
+      getMangaSummariesByIds: module.getMangaSummariesByIds,
       getTopTenMangaIds: module.getTopTenMangaIds,
       getTrendingTags: module.getTrendingTags,
     }));
@@ -635,7 +638,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   cardAnimationDelayStepMs = HOME_CARD_ANIMATION_DELAY_STEP_MS,
   cardAnimationDurationMs = HOME_CARD_ANIMATION_DURATION_MS,
 }) => {
-  const scrollRef = useRef<HTMLDivElement>(null);
+  const scrollRef = useRef<HTMLDivElement | null>(null);
   const probeRef = useRef<HTMLDivElement>(null);
   const layoutRafRef = useRef<number | null>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
@@ -889,6 +892,12 @@ const Index: React.FC = () => {
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
+  const canSeeAdultContent = Boolean(user?.id) && (
+    user?.role === 'admin'
+      || user?.role === 'moderator'
+      || user?.preferences?.content?.adult_mode === true
+  );
+  const homeAudienceKey = canSeeAdultContent ? 'adult' : 'safe';
   const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => (
     readHomeFeedSeed().sections?.value ?? EMPTY_HOME_PAGE_SECTIONS
   ));
@@ -986,6 +995,31 @@ const Index: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    const handleAdultModeChanged = () => {
+      HOME_PAGE_CACHE.sections = null;
+      HOME_PAGE_CACHE.sectionsFetchedAt = 0;
+      HOME_PAGE_CACHE.topTenWeekIds = null;
+      HOME_PAGE_CACHE.topTenWeekIdsFetchedAt = 0;
+      if (user?.id) {
+        delete HOME_PAGE_CACHE.continueReadingByUser[user.id];
+      } else {
+        HOME_PAGE_CACHE.continueReadingByUser = {};
+      }
+
+      clearPersistedContinueReadingCache();
+      setHomeSections(EMPTY_HOME_PAGE_SECTIONS);
+      setTopTenWeekIds(null);
+      setContinueReadingSeed([]);
+      setContinueReadingLoading(Boolean(user?.id));
+    };
+
+    window.addEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
+    return () => {
+      window.removeEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
+    };
+  }, [user?.id]);
+
+  useEffect(() => {
     if (!isOnline) {
       setTopTenWeekIds(null);
       return;
@@ -1059,7 +1093,7 @@ const Index: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [isOnline]);
+  }, [homeAudienceKey, isOnline]);
 
   useEffect(() => {
     let active = true;
@@ -1131,6 +1165,7 @@ const Index: React.FC = () => {
 
   useEffect(() => {
     let active = true;
+    const homeDataPromise = loadHomeDataModule();
     const readingHistoryPromise = loadReadingHistoryModule();
 
     const loadContinueReading = async () => {
@@ -1170,8 +1205,25 @@ const Index: React.FC = () => {
           return;
         }
 
+        const missingMangaIds = uniqueEntries
+          .map((entry) => entry.mangaId)
+          .filter((mangaId, index, ids) => (
+            ids.indexOf(mangaId) === index
+            && !mangaById.has(mangaId)
+            && !cachedEntriesByMangaId.get(mangaId)?.mangaSnapshot
+          ));
+        const fetchedSummaryById = new Map<string, Manga>();
+
+        if (missingMangaIds.length > 0) {
+          const { getMangaSummariesByIds } = await homeDataPromise;
+          const fetchedSummaries = await getMangaSummariesByIds(missingMangaIds);
+          fetchedSummaries.forEach((manga) => {
+            fetchedSummaryById.set(manga.id, manga);
+          });
+        }
+
         const nextEntries: ContinueReadingCacheEntry[] = uniqueEntries.map((entry) => {
-          const liveManga = mangaById.get(entry.mangaId);
+          const liveManga = mangaById.get(entry.mangaId) ?? fetchedSummaryById.get(entry.mangaId);
           const mangaSnapshot = liveManga
             ? extractContinueReadingMangaSnapshot(liveManga)
             : cachedEntriesByMangaId.get(entry.mangaId)?.mangaSnapshot ?? null;
@@ -1210,7 +1262,7 @@ const Index: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [authLoading, continueReadingSeed.length, hasPersistedAuthSession, isOnline, mangaById, user]);
+  }, [authLoading, continueReadingSeed.length, hasPersistedAuthSession, homeAudienceKey, isOnline, mangaById, user]);
 
   useEffect(() => {
     if (!user?.id || continueReadingSeed.length === 0) {
@@ -1248,9 +1300,24 @@ const Index: React.FC = () => {
   const continueReading = useMemo<ContinueReadingEntry[]>(() => (
     continueReadingSeed
       .map((entry) => {
-        const manga = mangaById.get(entry.mangaId)
-          || (entry.mangaSnapshot ? buildContinueReadingMangaFromSnapshot(entry.mangaSnapshot) : null)
-          || buildContinueReadingFallbackManga(entry);
+        const liveManga = mangaById.get(entry.mangaId) ?? null;
+        const snapshotManga = entry.mangaSnapshot
+          ? buildContinueReadingMangaFromSnapshot(entry.mangaSnapshot)
+          : null;
+        const manga = liveManga
+          || snapshotManga
+          || (canSeeAdultContent ? buildContinueReadingFallbackManga(entry) : null);
+
+        if (!canSeeAdultContent) {
+          if (liveManga?.isAdult === true || entry.mangaSnapshot?.isAdult === true) {
+            return null;
+          }
+
+          if (!liveManga && !entry.mangaSnapshot) {
+            return null;
+          }
+        }
+
         if (!manga) {
           return null;
         }
@@ -1264,7 +1331,7 @@ const Index: React.FC = () => {
         } satisfies ContinueReadingEntry;
       })
       .filter(Boolean) as ContinueReadingEntry[]
-  ), [continueReadingSeed, mangaById]);
+  ), [canSeeAdultContent, continueReadingSeed, mangaById]);
 
   const {
     trendingManga,

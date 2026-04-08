@@ -19,6 +19,7 @@ export interface ContinueReadingMangaSnapshot {
     lastUpdated: string;
     createdAt: string;
     type: Manga['type'];
+    isAdult: boolean;
 }
 
 export interface ContinueReadingCacheEntry extends ReadingHistoryEntry {
@@ -96,6 +97,7 @@ export const areContinueReadingMangaSnapshotsEquivalent = (
         && left.banner === right.banner
         && left.description === right.description
         && left.type === right.type
+        && left.isAdult === right.isAdult
         && left.author === right.author
         && left.artist === right.artist
         && left.status === right.status
@@ -120,6 +122,7 @@ export const extractContinueReadingMangaSnapshot = (manga: Manga): ContinueReadi
     lastUpdated: manga.lastUpdated,
     createdAt: manga.createdAt,
     type: manga.type,
+    isAdult: manga.isAdult === true,
 });
 
 export const buildContinueReadingMangaFromSnapshot = (
@@ -141,6 +144,7 @@ export const buildContinueReadingMangaFromSnapshot = (
     lastUpdated: snapshot.lastUpdated,
     createdAt: snapshot.createdAt,
     type: snapshot.type,
+    isAdult: snapshot.isAdult,
     averageRating: 0,
     reviewCount: 0,
 });

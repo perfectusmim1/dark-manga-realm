@@ -14,6 +14,7 @@ import {
 } from '@/lib/offline/userSync';
 import { clearHeaderShellSnapshot, writeHeaderShellUser } from '@/lib/headerShellCache';
 import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
+import { dispatchAdultModeChanged } from '@/lib/adultModeEvents';
 import { isDocumentVisible } from '@/lib/documentVisibility';
 import { acknowledgeCurrentUserWarning, getCurrentUserAccessSnapshot, type CurrentUserAccessSnapshot } from '@/lib/userAccess';
 import { toast } from 'sonner';
@@ -1364,8 +1365,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     if (!user) return { success: false, error: 'Oturum açılmamış' };
 
     const normalizedPreferences = normalizeUserPreferences(newPreferences);
+    const previousAdultModeEnabled = user.preferences?.content?.adult_mode === true;
+    const nextAdultModeEnabled = normalizedPreferences.content?.adult_mode === true;
+    const adultModeChanged = previousAdultModeEnabled !== nextAdultModeEnabled;
     setCachedPreferencesForUser(user.id, normalizedPreferences);
     setUser((prev) => (prev ? { ...prev, preferences: normalizedPreferences } : prev));
+
+    if (adultModeChanged) {
+      void import('@/lib/database')
+        .then(({ invalidateMangaVisibilityCaches }) => {
+          invalidateMangaVisibilityCaches();
+          dispatchAdultModeChanged({ enabled: nextAdultModeEnabled });
+        })
+        .catch((error: unknown) => {
+          console.error('Adult mode cache invalidation error:', error);
+        });
+    }
 
     if (!isEffectivelyOnline()) {
       queuePreferencesUpdate(user.id, normalizedPreferences);

@@ -21,7 +21,7 @@ export const getAdultContentFormatLabel = ({
     return null;
   }
 
-  return normalizedType === 'webtoon_hentai' ? 'Webtoon Hentai' : 'Hentai';
+  return 'Yetişkin';
 };
 
 export const syncAdultContentGenres = (
@@ -35,11 +35,9 @@ export const syncAdultContentGenres = (
     return cleanedGenres;
   }
 
-  const normalizedType = normalizeAdultMangaType(options.type, genres, options.isAdult);
-  const adultFormatLabel = getAdultContentFormatLabel({ ...options, type: normalizedType });
+  const adultFormatLabel = getAdultContentFormatLabel(options);
   return normalizeGenres([
     ...cleanedGenres,
-    'Yetişkin',
     ...(adultFormatLabel ? [adultFormatLabel] : []),
   ]);
 };
