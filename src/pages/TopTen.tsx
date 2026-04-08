@@ -133,8 +133,8 @@ const TOP_TEN_CARD_TRANSFORM = Object.freeze({
 
 const TOP_TEN_CARD_INTRINSIC_WIDTH = 480;
 const TOP_TEN_CARD_INTRINSIC_HEIGHT = 640;
-const TOP_TEN_CARD_SIZES = '(min-width: 1280px) 15vw, (min-width: 1024px) 22vw, (min-width: 640px) 40vw, 46vw';
-const TOP_TEN_CARD_WIDTH_CLASS = 'w-[46vw] max-w-[10.5rem] min-[420px]:w-[42vw] min-[420px]:max-w-[11rem] sm:w-[calc((100%-24px)/2)] sm:max-w-none lg:w-[calc((100%-48px)/3)]';
+const TOP_TEN_CARD_SIZES = '(min-width: 1536px) 18.5rem, (min-width: 1280px) 18rem, (min-width: 1024px) 17rem, (min-width: 640px) 16rem, 46vw';
+const TOP_TEN_CARD_WIDTH_CLASS = 'w-[46vw] max-w-[10.5rem] min-[420px]:w-[42vw] min-[420px]:max-w-[11rem] sm:w-[16rem] sm:max-w-none lg:w-[17rem] xl:w-[18rem] 2xl:w-[18.5rem]';
 
 const readCachedTopTenSections = (): TopTenSections => ({
   safe: {
@@ -319,6 +319,7 @@ const TopTenAudienceBlock: React.FC<{
   isLoading: boolean;
   disableHeavyEffects: boolean;
   isCoarsePointer: boolean;
+  isSinglePanel?: boolean;
 }> = ({
   audience,
   timeframe,
@@ -327,6 +328,7 @@ const TopTenAudienceBlock: React.FC<{
   isLoading,
   disableHeavyEffects,
   isCoarsePointer,
+  isSinglePanel = false,
 }) => {
   const audienceMeta = TOP_TEN_AUDIENCE_META[audience];
   const timeframeMeta = TOP_TEN_TIMEFRAME_META[timeframe];
@@ -391,7 +393,7 @@ const TopTenAudienceBlock: React.FC<{
             }
       }
     >
-      <div className={`relative min-w-0 max-w-full overflow-hidden rounded-[18px] border p-3 shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:rounded-[30px] sm:p-6 lg:p-7 ${audienceMeta.frameClassName}`}>
+      <div className={`relative min-w-0 max-w-full overflow-hidden rounded-[18px] border p-3 shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:rounded-[30px] sm:p-6 lg:p-7 ${isSinglePanel ? 'xl:mx-auto xl:max-w-[68rem]' : ''} ${audienceMeta.frameClassName}`}>
         <div className="relative z-10">
           <div className="mb-3 flex flex-col gap-3 border-b border-white/10 pb-3 sm:mb-6 sm:gap-5 sm:pb-6">
             <div className="flex min-w-0 flex-col items-start gap-2.5 xl:flex-row xl:items-start xl:justify-between">
@@ -652,6 +654,7 @@ const TopTen: React.FC = () => {
             isLoading={isLoading}
             disableHeavyEffects={disableHeavyEffects}
             isCoarsePointer={isCoarsePointer}
+            isSinglePanel={!adultModeEnabled}
           />
 
           {adultModeEnabled ? (
