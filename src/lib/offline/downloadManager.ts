@@ -46,15 +46,15 @@ const getSourceUrlOrigin = (sourceUrl: string) => {
 
 const shouldAttemptDirectStoredMediaDownload = (sourceUrl: string) => {
   const sourceOrigin = getSourceUrlOrigin(sourceUrl);
-  if (!sourceOrigin || typeof window === 'undefined') {
+  if (typeof window === 'undefined') {
     return true;
   }
 
-  if (sourceOrigin === window.location.origin) {
-    return true;
+  if (!sourceOrigin) {
+    return false;
   }
 
-  return !blockedStoredMediaOrigins.has(sourceOrigin);
+  return sourceOrigin === window.location.origin && !blockedStoredMediaOrigins.has(sourceOrigin);
 };
 
 export class DownloadAuthRequiredError extends Error {
