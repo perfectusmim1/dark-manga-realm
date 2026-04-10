@@ -10,6 +10,7 @@ head_sampling_rate = 1
 [vars]
 ALLOWED_HOSTS = "cdn.anime-planet.com,anime-planet.com,www.anime-planet.com,hayalistic.net,hayalistic.com,webtoonhatti.club,webtoonhatti.me,webtoon-oku.net,cdn-2.webtoon-oku.net,siyahmelek.mom,s3.melek.lol,yedek.mangawow.com,kirmizikafa.monster"
 ALLOWED_ORIGINS = "https://toonparrot.vercel.app,https://*.vercel.app,http://localhost:*,http://127.0.0.1:*"
+PUBLIC_BUCKET_URL = "https://pub-b8b12b52a3ac4feaa96e8ca218e48473.r2.dev"
 METRICS_INGEST_URL = "https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/cloudflare-metrics-ingest"
 
 # Set this with `wrangler secret put PROXY_TOKEN`

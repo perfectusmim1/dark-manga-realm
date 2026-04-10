@@ -201,6 +201,29 @@ const getOriginFromValue = (value) => {
   }
 };
 
+const getHostnameFromValue = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  try {
+    return new URL(value).hostname.trim().toLowerCase();
+  } catch {
+    return null;
+  }
+};
+
+const getAllowedHosts = (env) => {
+  const allowedHosts = parseCsv(env.ALLOWED_HOSTS, DEFAULT_ALLOWED_HOSTS);
+  const publicBucketHost = getHostnameFromValue(env.PUBLIC_BUCKET_URL);
+
+  if (!publicBucketHost || allowedHosts.includes(publicBucketHost)) {
+    return allowedHosts;
+  }
+
+  return [...allowedHosts, publicBucketHost];
+};
+
 const clampInteger = (value, min, max) => Math.min(max, Math.max(min, Math.round(value)));
 
 const parseIntegerWithinRange = (value, min, max) => {
@@ -287,7 +310,7 @@ export default {
   async fetch(request, env, ctx) {
     const startedAt = Date.now();
     const requestId = getRequestId(request);
-    const allowedHosts = parseCsv(env.ALLOWED_HOSTS, DEFAULT_ALLOWED_HOSTS);
+    const allowedHosts = getAllowedHosts(env);
     const allowedOriginPatterns = parseCsv(env.ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS);
     const allowedOrigin = resolveAllowedOrigin(request, allowedOriginPatterns);
     const corsHeaders = buildCorsHeaders(allowedOrigin);

@@ -28,6 +28,34 @@ import { supabase } from '@/lib/supabase';
 
 const PAGE_DOWNLOAD_CONCURRENCY = 3;
 export const DOWNLOAD_AUTH_REQUIRED_ERROR_CODE = 'DOWNLOAD_AUTH_REQUIRED';
+// Remember cross-origin R2 origins that already failed in the browser so we do not hit
+// the same CORS wall for every page in the chapter download queue.
+const blockedStoredMediaOrigins = new Set<string>();
+
+const getSourceUrlOrigin = (sourceUrl: string) => {
+  try {
+    if (typeof window !== 'undefined') {
+      return new URL(sourceUrl, window.location.href).origin;
+    }
+
+    return new URL(sourceUrl).origin;
+  } catch {
+    return null;
+  }
+};
+
+const shouldAttemptDirectStoredMediaDownload = (sourceUrl: string) => {
+  const sourceOrigin = getSourceUrlOrigin(sourceUrl);
+  if (!sourceOrigin || typeof window === 'undefined') {
+    return true;
+  }
+
+  if (sourceOrigin === window.location.origin) {
+    return true;
+  }
+
+  return !blockedStoredMediaOrigins.has(sourceOrigin);
+};
 
 export class DownloadAuthRequiredError extends Error {
   code = DOWNLOAD_AUTH_REQUIRED_ERROR_CODE;
@@ -267,10 +295,14 @@ const downloadChapterPageImage = async (
   signal: AbortSignal,
   onChunk: (delta: number) => void,
 ) => {
-  if (isStoredMediaUrl(sourceUrl)) {
+  if (isStoredMediaUrl(sourceUrl) && shouldAttemptDirectStoredMediaDownload(sourceUrl)) {
     try {
       return await downloadImageDirect(sourceUrl, signal, onChunk);
     } catch (error) {
+      const sourceOrigin = getSourceUrlOrigin(sourceUrl);
+      if (sourceOrigin && typeof window !== 'undefined' && sourceOrigin !== window.location.origin) {
+        blockedStoredMediaOrigins.add(sourceOrigin);
+      }
       console.warn('Direct R2 chapter download failed, retrying via proxy fallback:', error);
     }
   }

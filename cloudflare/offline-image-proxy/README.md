@@ -76,6 +76,8 @@ VITE_OFFLINE_IMAGE_PROXY_URL=https://your-worker-name.your-subdomain.workers.dev
 
 If you use Vercel, add the same var in the Vercel project settings and redeploy.
 
+If you also proxy images that already live in your R2 bucket, set `PUBLIC_BUCKET_URL` in `wrangler.toml` so the Worker auto-allows that bucket host.
+
 ## Manual test
 
 ```bash
