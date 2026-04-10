@@ -7,6 +7,9 @@ const DEFAULT_ALLOWED_HOSTS = [
   'webtoonhatti.club',
   'webtoonhatti.me',
   'webtoon-oku.net',
+  'cdn-2.webtoon-oku.net',
+  'siyahmelek.mom',
+  's3.melek.lol',
   'yedek.mangawow.com',
   'kirmizikafa.monster',
 ];
@@ -219,7 +222,7 @@ const normalizeTransform = (transform) => {
   }
 
   const width = parseIntegerWithinRange(transform.width, 64, 1600);
-  const quality = parseIntegerWithinRange(transform.quality, 35, 90);
+  const quality = parseIntegerWithinRange(transform.quality, 35, 95);
   const format = ['webp', 'avif', 'jpeg', 'png'].includes(transform.format) ? transform.format : undefined;
   const fit = ['scale-down', 'contain', 'cover'].includes(transform.fit) ? transform.fit : undefined;
 

@@ -10,6 +10,12 @@
     "lint": "eslint .",
     "preview": "vite preview",
     "media:backfill:plan": "node scripts/media-backfill.mjs",
+    "media:backfill:chapters:plan": "node scripts/chapter-pages-backfill.mjs --mode=fast",
+    "media:backfill:chapters": "node scripts/chapter-pages-backfill.mjs --apply --mode=fast",
+    "media:backfill:chapters:optimized:plan": "node scripts/chapter-pages-backfill.mjs --mode=optimized",
+    "media:backfill:chapters:optimized": "node scripts/chapter-pages-backfill.mjs --apply --mode=optimized",
+    "media:optimize:r2:plan": "python scripts/r2_true_webp_optimize.py",
+    "media:optimize:r2": "python scripts/r2_true_webp_optimize.py --apply",
     "scraper:local": "node scripts/local-scraper-server.mjs"
   },
   "dependencies": {

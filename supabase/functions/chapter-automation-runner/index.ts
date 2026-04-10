@@ -7,6 +7,7 @@ import {
   fetchChapterImagesForAutomation,
   sleep,
 } from "../_shared/chapter-automation.ts";
+import { materializeAutomationChapterPages } from "../_shared/media-storage.ts";
 
 const RUNNER_TOKEN_SECRET_KEY = "chapter_automation_runner_token";
 const RUNNER_NAME = "supabase-edge:chapter-automation-runner";
@@ -287,9 +288,27 @@ const processAutomation = async (
     }
 
     if (chapterInsertPayload.length > 0) {
+      const materializedChapterInsertPayload = await materializeAutomationChapterPages(
+        serviceClient,
+        automation.manga_id,
+        chapterInsertPayload.map((chapter) => ({
+          id: String(chapter.id),
+          pages: Array.isArray(chapter.pages) ? chapter.pages as string[] : [],
+        })),
+      ).then((materializedChapters) => {
+        const pagesByChapterId = new Map(
+          materializedChapters.map((chapter) => [chapter.id, chapter.pages]),
+        );
+
+        return chapterInsertPayload.map((chapter) => ({
+          ...chapter,
+          pages: pagesByChapterId.get(String(chapter.id)) || chapter.pages,
+        }));
+      });
+
       const { error: chapterInsertError } = await serviceClient
         .from("chapters")
-        .insert(chapterInsertPayload);
+        .insert(materializedChapterInsertPayload);
 
       if (chapterInsertError) {
         throw chapterInsertError;

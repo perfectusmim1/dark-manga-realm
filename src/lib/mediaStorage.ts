@@ -1,13 +1,13 @@
 import { invokeAuthenticatedFunction } from '@/lib/supabase';
-import type { ExternalSourceName } from '@/lib/types';
+import type { Chapter, ExternalSourceName } from '@/lib/types';
 
-export type MediaEntityType = 'manga' | 'character' | 'author' | 'artist';
-export type MediaVariant = 'cover' | 'banner' | 'profile' | 'gallery';
+export type MediaEntityType = 'manga' | 'character' | 'author' | 'artist' | 'chapter';
+export type MediaVariant = 'cover' | 'banner' | 'profile' | 'gallery' | 'page';
 
 export interface MediaTransformPreset {
-  width: number;
-  quality: number;
-  fit: 'scale-down' | 'contain' | 'cover';
+  width?: number;
+  quality?: number;
+  fit?: 'scale-down' | 'contain' | 'cover';
   format: 'webp';
 }
 
@@ -43,10 +43,11 @@ interface MaterializeWorkerResponseItem {
 const configuredMediaBucketUrl = import.meta.env.VITE_MEDIA_BUCKET_URL?.trim() || '';
 const configuredOfflineImageProxyUrl = import.meta.env.VITE_OFFLINE_IMAGE_PROXY_URL?.trim() || '';
 const configuredScraperProxyUrl = import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '';
+const MATERIALIZE_WORKER_BATCH_SIZE = 40;
 
 const MEDIA_HOST_PATTERNS = ['.r2.dev', 'toonparrot-media'];
 
-const PRESETS: Record<`${MediaEntityType}:${MediaVariant}`, MediaTransformPreset> = {
+const PRESETS: Partial<Record<`${MediaEntityType}:${MediaVariant}`, MediaTransformPreset>> = {
   'manga:cover': { width: 720, quality: 86, fit: 'cover', format: 'webp' },
   'manga:banner': { width: 1600, quality: 84, fit: 'cover', format: 'webp' },
   'manga:gallery': { width: 1600, quality: 84, fit: 'scale-down', format: 'webp' },
@@ -56,6 +57,7 @@ const PRESETS: Record<`${MediaEntityType}:${MediaVariant}`, MediaTransformPreset
   'author:gallery': { width: 1200, quality: 84, fit: 'scale-down', format: 'webp' },
   'artist:profile': { width: 560, quality: 84, fit: 'cover', format: 'webp' },
   'artist:gallery': { width: 1200, quality: 84, fit: 'scale-down', format: 'webp' },
+  'chapter:page': { quality: 90, format: 'webp' },
 };
 
 const normalizeText = (value?: string | null) => value?.trim() || '';
@@ -115,6 +117,8 @@ const unwrapProxyUrl = (sourceUrl?: string | null) => {
   return normalized;
 };
 
+export const unwrapManagedMediaUrl = (sourceUrl?: string | null) => unwrapProxyUrl(sourceUrl);
+
 export const isStoredMediaUrl = (sourceUrl?: string | null) => {
   const normalized = normalizeText(sourceUrl);
   if (!normalized) {
@@ -146,6 +150,14 @@ export const buildMaterializedGalleryObjectKey = (
   entityId: string,
   galleryIdentity: string | number,
 ) => `${entityType}/${toSafeEntityId(entityId)}/gallery/${toGalleryObjectSegment(galleryIdentity)}.webp`;
+
+const toPageObjectSegment = (pageIndex: number) => `${Math.max(0, Math.trunc(pageIndex)) + 1}`.padStart(3, '0');
+
+export const buildMaterializedChapterPageObjectKey = (
+  mangaId: string,
+  chapterId: string,
+  pageIndex: number,
+) => `manga/${toSafeEntityId(mangaId)}/chapters/${toSafeEntityId(chapterId)}/${toPageObjectSegment(pageIndex)}.webp`;
 
 const toWorkerItem = (input: MaterializeRemoteImageInput): MaterializeWorkerItem | null => {
   const sourceUrl = unwrapProxyUrl(input.sourceUrl);
@@ -181,18 +193,21 @@ export const materializeRemoteImages = async (inputs: MaterializeRemoteImageInpu
   if (items.length === 0) {
     return new Map<string, string>();
   }
-
-  const data = await invokeAuthenticatedFunction<{ items?: MaterializeWorkerResponseItem[] }>(
-    'admin-media-ingest',
-    { items },
-  ).catch((error) => {
-    throw new Error(error instanceof Error ? error.message : 'Media ingest failed');
-  });
   const results = new Map<string, string>();
 
-  for (const item of data?.items || []) {
-    if ((item.status === 'stored' || item.status === 'exists') && item.publicUrl) {
-      results.set(item.id, item.publicUrl);
+  for (let index = 0; index < items.length; index += MATERIALIZE_WORKER_BATCH_SIZE) {
+    const batch = items.slice(index, index + MATERIALIZE_WORKER_BATCH_SIZE);
+    const data = await invokeAuthenticatedFunction<{ items?: MaterializeWorkerResponseItem[] }>(
+      'admin-media-ingest',
+      { items: batch },
+    ).catch((error) => {
+      throw new Error(error instanceof Error ? error.message : 'Media ingest failed');
+    });
+
+    for (const item of data?.items || []) {
+      if ((item.status === 'stored' || item.status === 'exists') && item.publicUrl) {
+        results.set(item.id, item.publicUrl);
+      }
     }
   }
 
@@ -202,4 +217,43 @@ export const materializeRemoteImages = async (inputs: MaterializeRemoteImageInpu
 export const materializeRemoteImage = async (input: MaterializeRemoteImageInput) => {
   const results = await materializeRemoteImages([input]);
   return results.get(input.id);
+};
+
+const normalizeStoredMediaOutputUrl = (sourceUrl?: string | null) => {
+  const normalized = unwrapManagedMediaUrl(sourceUrl);
+  return isStoredMediaUrl(normalized) ? normalized : normalizeText(sourceUrl);
+};
+
+export const materializeChapterPages = async <TChapter extends Pick<Chapter, 'id' | 'pages'>>(
+  mangaId: string,
+  chapters: TChapter[],
+) => {
+  if (!canMaterializeRemoteMedia() || !mangaId || chapters.length === 0) {
+    return chapters.map((chapter) => ({
+      ...chapter,
+      pages: chapter.pages.map((pageUrl) => normalizeStoredMediaOutputUrl(pageUrl)),
+    }));
+  }
+
+  const results = await materializeRemoteImages(
+    chapters.flatMap((chapter) => (
+      chapter.pages.map((pageUrl, pageIndex) => ({
+        id: `${chapter.id}:${pageIndex}`,
+        sourceUrl: pageUrl,
+        entityType: 'chapter' as const,
+        entityId: chapter.id,
+        variant: 'page' as const,
+        objectKey: buildMaterializedChapterPageObjectKey(mangaId, chapter.id, pageIndex),
+        transform: PRESETS['chapter:page'],
+      }))
+    )),
+  );
+
+  return chapters.map((chapter) => ({
+    ...chapter,
+    pages: chapter.pages.map((pageUrl, pageIndex) => (
+      results.get(`${chapter.id}:${pageIndex}`)
+      || normalizeStoredMediaOutputUrl(pageUrl)
+    )),
+  }));
 };

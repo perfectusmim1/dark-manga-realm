@@ -17,6 +17,11 @@ const DEFAULT_ALLOWED_HOSTS = [
   'webtoonhatti.club',
   'hayalistic.net',
   'hayalistic.com',
+  'siyahmelek.mom',
+  's3.melek.lol',
+  'yedek.mangawow.com',
+  'cdn-2.webtoon-oku.net',
+  'kirmizikafa.monster',
   'i.hizliresim.com',
   'preview.redd.it',
   'i.redd.it',
@@ -262,7 +267,7 @@ const normalizeTransform = (transform) => {
   }
 
   const width = Number.isFinite(Number(transform.width)) ? Math.max(64, Math.min(2400, Math.round(Number(transform.width)))) : undefined;
-  const quality = Number.isFinite(Number(transform.quality)) ? Math.max(35, Math.min(90, Math.round(Number(transform.quality)))) : undefined;
+  const quality = Number.isFinite(Number(transform.quality)) ? Math.max(35, Math.min(95, Math.round(Number(transform.quality)))) : undefined;
   const fit = ['scale-down', 'contain', 'cover'].includes(transform.fit) ? transform.fit : undefined;
   const format = ['webp', 'avif', 'jpeg', 'png'].includes(transform.format) ? transform.format : 'webp';
 
@@ -343,6 +348,112 @@ const readRequestPayload = async (request) => {
     items,
     force: body.force === true,
   };
+};
+
+const clampListLimit = (value) => {
+  const parsed = Number.parseInt(`${value || ''}`, 10);
+  if (!Number.isFinite(parsed)) {
+    return 200;
+  }
+
+  return Math.max(1, Math.min(1000, parsed));
+};
+
+const handleListObjects = async (request, env, context) => {
+  const url = new URL(request.url);
+  const prefix = typeof url.searchParams.get('prefix') === 'string' ? url.searchParams.get('prefix').trim() : '';
+  const cursor = typeof url.searchParams.get('cursor') === 'string' ? url.searchParams.get('cursor').trim() : '';
+  const limit = clampListLimit(url.searchParams.get('limit'));
+  const startedAt = Date.now();
+
+  const listed = await env.MEDIA_BUCKET.list({
+    prefix: prefix || undefined,
+    cursor: cursor || undefined,
+    limit,
+  });
+
+  reportEvent(env, context.ctx, 'admin_list', {
+    requestId: context.requestId,
+    prefix,
+    cursor: cursor || null,
+    returnedCount: Array.isArray(listed.objects) ? listed.objects.length : 0,
+    truncated: listed.truncated === true,
+    refererPath: context.refererPath,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return jsonResponse({
+    success: true,
+    prefix,
+    cursor: listed.truncated ? listed.cursor || null : null,
+    truncated: listed.truncated === true,
+    items: (listed.objects || []).map((object) => ({
+      key: object.key,
+      size: object.size,
+      uploaded: object.uploaded ? new Date(object.uploaded).toISOString() : null,
+      etag: object.httpEtag || null,
+      publicUrl: buildPublicUrl(env, object.key),
+    })),
+  }, 200, context.corsHeaders);
+};
+
+const handleUploadObject = async (request, env, context) => {
+  const url = new URL(request.url);
+  const objectKey = typeof url.searchParams.get('objectKey') === 'string' ? url.searchParams.get('objectKey').trim() : '';
+  const contentType = (url.searchParams.get('contentType') || 'application/octet-stream').trim();
+  const sourceFormat = (url.searchParams.get('sourceFormat') || '').trim();
+  const optimizeMode = (url.searchParams.get('mode') || '').trim();
+  const startedAt = Date.now();
+
+  if (!objectKey || !isValidObjectKey(objectKey)) {
+    reportEvent(env, context.ctx, 'invalid_request', {
+      requestId: context.requestId,
+      objectKey,
+      status: 400,
+      refererPath: context.refererPath,
+      durationMs: Date.now() - startedAt,
+    });
+
+    return jsonResponse({ error: 'Invalid objectKey' }, 400, context.corsHeaders);
+  }
+
+  const arrayBuffer = await request.arrayBuffer();
+  if (!arrayBuffer || arrayBuffer.byteLength === 0) {
+    return jsonResponse({ error: 'Request body is empty' }, 400, context.corsHeaders);
+  }
+
+  await env.MEDIA_BUCKET.put(objectKey, arrayBuffer, {
+    httpMetadata: {
+      contentType,
+      cacheControl: PUBLIC_CACHE_CONTROL,
+    },
+    customMetadata: {
+      optimizedBy: 'localhost-webp-script',
+      optimizedAt: new Date().toISOString(),
+      sourceFormat,
+      mode: optimizeMode,
+    },
+  });
+
+  const publicUrl = buildPublicUrl(env, objectKey);
+  reportEvent(env, context.ctx, 'admin_upload', {
+    requestId: context.requestId,
+    objectKey,
+    bytes: arrayBuffer.byteLength,
+    contentType,
+    sourceFormat,
+    optimizeMode,
+    refererPath: context.refererPath,
+    durationMs: Date.now() - startedAt,
+  });
+
+  return jsonResponse({
+    success: true,
+    objectKey,
+    publicUrl,
+    bytes: arrayBuffer.byteLength,
+    contentType,
+  }, 200, context.corsHeaders);
 };
 
 const processItem = async (env, item, context) => {
@@ -529,6 +640,7 @@ const processItem = async (env, item, context) => {
 export default {
   async fetch(request, env, ctx) {
     const startedAt = Date.now();
+    const url = new URL(request.url);
     const requestId = getRequestId(request);
     const allowedHosts = parseCsv(env.ALLOWED_HOSTS, DEFAULT_ALLOWED_HOSTS);
     const allowedOriginPatterns = parseCsv(env.ALLOWED_ORIGINS, DEFAULT_ALLOWED_ORIGINS);
@@ -591,6 +703,25 @@ export default {
         durationMs: Date.now() - startedAt,
       });
       return jsonResponse({ error: 'Unauthorized' }, 401, corsHeaders);
+    }
+
+    const adminContext = {
+      requestId,
+      refererPath,
+      corsHeaders,
+      ctx,
+    };
+
+    if (url.pathname === '/admin/list') {
+      return handleListObjects(request, env, adminContext);
+    }
+
+    if (url.pathname === '/admin/upload') {
+      if (request.method !== 'POST') {
+        return jsonResponse({ error: 'Method not allowed' }, 405, corsHeaders);
+      }
+
+      return handleUploadObject(request, env, adminContext);
     }
 
     const payload = await readRequestPayload(request);

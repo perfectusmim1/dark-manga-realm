@@ -34,7 +34,12 @@ import {
     resolveChapterCardImageUrl,
 } from './chapterCardImages';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
-import { materializeRemoteImages } from './mediaStorage';
+import {
+    isStoredMediaUrl,
+    materializeChapterPages,
+    materializeRemoteImages,
+    unwrapManagedMediaUrl,
+} from './mediaStorage';
 import { normalizeGenres } from './mockData';
 import { slugifyCatalogTagName, type OfficialTagSeed } from './officialTagCatalog';
 import { sortChapterBatchItems } from './chapterBatchOrdering';
@@ -1726,6 +1731,26 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
     }, {});
 };
 
+const normalizeComparableChapterPageUrl = (value?: string | null) => {
+    const normalized = unwrapManagedMediaUrl(value);
+    return typeof normalized === 'string' ? normalized.trim() : '';
+};
+
+const haveEqualChapterPages = (left: string[] = [], right: string[] = []) => (
+    left.length === right.length
+    && left.every((pageUrl, index) => (
+        normalizeComparableChapterPageUrl(pageUrl)
+        === normalizeComparableChapterPageUrl(right[index])
+    ))
+);
+
+const chapterNeedsStoredPageMaterialization = (chapter: Pick<Chapter, 'pages'>) => (
+    chapter.pages.some((pageUrl) => {
+        const normalizedPageUrl = normalizeComparableChapterPageUrl(pageUrl);
+        return Boolean(normalizedPageUrl) && !isStoredMediaUrl(normalizedPageUrl);
+    })
+);
+
 /**
  * Get a single manga by ID with all its chapters
  */
@@ -1858,14 +1883,41 @@ export const saveManga = async (manga: Manga): Promise<void> => {
         || manga.banner
         || normalizedCover;
 
-    const normalizedChapters = (manga.chapters || []).map((chapter) => ({
+    const normalizedChapters: Chapter[] = (manga.chapters || []).map((chapter) => ({
         ...chapter,
         pages: sanitizeChapterPageUrls(chapter.pages || []),
         cardImagePage: chapter.cardImagePage ?? null,
     }));
+    const existingChapterPagesById = normalizedChapters.length > 0
+        ? await getChapterPagesByIds(normalizedChapters.map((chapter) => chapter.id)).catch((error) => {
+            console.warn('Existing chapter page lookup failed:', error);
+            return {};
+        })
+        : {};
+    const chaptersPendingStoredPageMaterialization = normalizedChapters.filter((chapter) => (
+        chapterNeedsStoredPageMaterialization(chapter)
+        && !haveEqualChapterPages(existingChapterPagesById[chapter.id], chapter.pages)
+    ));
+    const materializedChapterPageMap = chaptersPendingStoredPageMaterialization.length > 0
+        ? new Map<string, string[]>(
+            (
+                await materializeChapterPages<Chapter>(manga.id, chaptersPendingStoredPageMaterialization).catch((error) => {
+                    console.warn('Chapter page materialize failed:', error);
+                    return chaptersPendingStoredPageMaterialization;
+                })
+            ).map((chapter) => [chapter.id, chapter.pages] as [string, string[]]),
+        )
+        : new Map<string, string[]>();
+    const chaptersWithMaterializedPages = normalizedChapters.map((chapter) => ({
+        ...chapter,
+        pages: materializedChapterPageMap.get(chapter.id) || chapter.pages,
+    }));
+    const normalizedChapterById = new Map<string, Chapter>(
+        normalizedChapters.map((chapter) => [chapter.id, chapter] as [string, Chapter]),
+    );
     const chapterCardImageMode = getChapterCardImageMode(manga.details);
     const chaptersWithMaterializedCardImages = chapterCardImageMode === 'none'
-        ? normalizedChapters
+        ? chaptersWithMaterializedPages
         : await materializeRemoteImages(
             normalizedChapters
                 .map((chapter) => {
@@ -1891,18 +1943,26 @@ export const saveManga = async (manga: Manga): Promise<void> => {
                 })
                 .filter((item): item is NonNullable<typeof item> => Boolean(item)),
         )
-            .then((materializedImages) => normalizedChapters.map((chapter) => ({
+            .then((materializedImages) => chaptersWithMaterializedPages.map((chapter) => ({
                 ...chapter,
                 cardImageUrl: materializedImages.get(chapter.id)
                     || chapter.cardImageUrl
-                    || resolveChapterCardImageUrl(chapter, chapterCardImageMode, chapter.cardImagePage),
+                    || resolveChapterCardImageUrl(
+                        normalizedChapterById.get(chapter.id) || chapter,
+                        chapterCardImageMode,
+                        chapter.cardImagePage,
+                    ),
             })))
             .catch((error) => {
                 console.warn('Chapter card image materialize failed:', error);
-                return normalizedChapters.map((chapter) => ({
+                return chaptersWithMaterializedPages.map((chapter) => ({
                     ...chapter,
                     cardImageUrl: chapter.cardImageUrl
-                        || resolveChapterCardImageUrl(chapter, chapterCardImageMode, chapter.cardImagePage),
+                        || resolveChapterCardImageUrl(
+                            normalizedChapterById.get(chapter.id) || chapter,
+                            chapterCardImageMode,
+                            chapter.cardImagePage,
+                        ),
                 }));
             });
     const normalizedDetails = buildChapterCardImageDetails(manga.details, chaptersWithMaterializedCardImages);
@@ -2056,12 +2116,20 @@ export const updateMangaMediaUrls = async (
 // ==================== CHAPTER OPERATIONS ====================
 
 export const addChapterToManga = async (mangaId: string, chapter: Chapter): Promise<boolean> => {
+    const normalizedChapter = {
+        ...chapter,
+        pages: sanitizeChapterPageUrls(chapter.pages || []),
+    };
+    const [materializedChapter] = await materializeChapterPages(mangaId, [normalizedChapter]).catch((error) => {
+        console.warn('Single chapter page materialize failed:', error);
+        return [normalizedChapter];
+    });
     const chapterData = {
         id: chapter.id,
         manga_id: mangaId,
         number: chapter.number,
         title: chapter.title,
-        pages: sanitizeChapterPageUrls(chapter.pages || []),
+        pages: materializedChapter?.pages || normalizedChapter.pages,
         views: chapter.views || 0,
         release_date: chapter.releaseDate,
     };

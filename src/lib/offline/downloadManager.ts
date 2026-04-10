@@ -23,6 +23,7 @@ import {
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
 import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
+import { isStoredMediaUrl } from '@/lib/mediaStorage';
 import { supabase } from '@/lib/supabase';
 
 const PAGE_DOWNLOAD_CONCURRENCY = 3;
@@ -168,7 +169,7 @@ const readStreamToBlob = async (
   onChunk: (delta: number) => void,
 ): Promise<DownloadedPageResult> => {
   if (!response.ok) {
-    throw new Error(`Proxy indirme basarisiz oldu (${response.status})`);
+    throw new Error(`Gorsel indirme basarisiz oldu (${response.status})`);
   }
 
   const reader = response.body?.getReader();
@@ -215,6 +216,19 @@ const readStreamToBlob = async (
   };
 };
 
+const downloadImageDirect = async (
+  sourceUrl: string,
+  signal: AbortSignal,
+  onChunk: (delta: number) => void,
+) => {
+  const response = await fetch(sourceUrl, {
+    method: 'GET',
+    signal,
+  });
+
+  return readStreamToBlob(response, signal, onChunk);
+};
+
 const downloadImageViaProxy = async (
   sourceUrl: string,
   signal: AbortSignal,
@@ -246,6 +260,22 @@ const downloadImageViaProxy = async (
   });
 
   return readStreamToBlob(response, signal, onChunk);
+};
+
+const downloadChapterPageImage = async (
+  sourceUrl: string,
+  signal: AbortSignal,
+  onChunk: (delta: number) => void,
+) => {
+  if (isStoredMediaUrl(sourceUrl)) {
+    try {
+      return await downloadImageDirect(sourceUrl, signal, onChunk);
+    } catch (error) {
+      console.warn('Direct R2 chapter download failed, retrying via proxy fallback:', error);
+    }
+  }
+
+  return downloadImageViaProxy(sourceUrl, signal, onChunk);
 };
 
 class OfflineDownloadManager {
@@ -669,7 +699,7 @@ class OfflineDownloadManager {
         }
 
         try {
-          const result = await downloadImageViaProxy(nextItem.sourceUrl, signal, (delta) => {
+          const result = await downloadChapterPageImage(nextItem.sourceUrl, signal, (delta) => {
             downloadedBytes += delta;
             speedSampleBytes += delta;
             void persistProgress();
