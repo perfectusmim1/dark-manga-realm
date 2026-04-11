@@ -1,0 +1,2 @@
+[functions.proxy-scraper]
+verify_jwt = false

@@ -303,20 +303,50 @@ export const fetchScraperHtml = async (
     throw new Error("Scraper proxy erişilemiyor");
   }
 
-  if (!response.ok) {
-    const rawBody = await response.text().catch(() => "");
-    const trimmedBody = rawBody.trim();
-    let upstreamMessage = trimmedBody;
+  const contentType = (response.headers.get("Content-Type") || "").toLowerCase();
+  if (contentType.includes("application/json")) {
+    const payload = await response.clone().json().catch(() => null) as {
+      content?: string;
+      contents?: string;
+      error?: string;
+      message?: string;
+      statusCode?: number;
+    } | null;
 
-    if (trimmedBody.startsWith("{")) {
-      try {
-        const parsedBody = JSON.parse(trimmedBody) as { error?: string; message?: string };
-        upstreamMessage = parsedBody.message || parsedBody.error || trimmedBody;
-      } catch {
-        upstreamMessage = trimmedBody;
+    const embeddedStatusCode = typeof payload?.statusCode === "number"
+      ? payload.statusCode
+      : null;
+    const embeddedMessage = normalizeText(
+      payload?.message
+      || payload?.error
+      || "",
+    );
+
+    if (embeddedStatusCode && embeddedStatusCode >= 400) {
+      if (embeddedStatusCode === 401) {
+        throw new Error("Scraper proxy yetkilendirmesi reddedildi");
       }
+
+      if (embeddedStatusCode === 403) {
+        throw new Error(embeddedMessage || "Scraper proxy istegi engelledi");
+      }
+
+      throw new Error(embeddedMessage || `Scraper proxy hatası (${embeddedStatusCode})`);
     }
 
+    if (typeof payload?.content === "string" && payload.content.trim()) {
+      return payload.content;
+    }
+
+    if (typeof payload?.contents === "string" && payload.contents.trim()) {
+      return payload.contents;
+    }
+  }
+
+  const rawBody = await response.text().catch(() => "");
+  const trimmedBody = rawBody.trim();
+
+  if (!response.ok) {
     if (response.status === 401) {
       throw new Error("Scraper proxy yetkilendirmesi reddedildi");
     }
@@ -325,10 +355,14 @@ export const fetchScraperHtml = async (
       throw new Error("Scraper proxy istegi engelledi");
     }
 
-    throw new Error(upstreamMessage || `Scraper proxy hatası (${response.status})`);
+    throw new Error(trimmedBody || `Scraper proxy hatası (${response.status})`);
   }
 
-  return await response.text();
+  if (trimmedBody) {
+    return rawBody;
+  }
+
+  throw new Error("Boş scraper proxy yanıtı");
 };
 
 const DETAIL_TITLE_PREFIX_PATTERNS = [
