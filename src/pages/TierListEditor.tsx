@@ -3,6 +3,7 @@ import { useNavigate, useParams } from 'react-router-dom';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
@@ -11,6 +12,7 @@ import { Save, Search, ArrowLeft, Image as ImageIcon } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import { cn } from '@/lib/utils';
 
 const defaultTiers = [
   { id: 'S', color: 'bg-red-500' },
@@ -38,6 +40,24 @@ const getItemDisplayName = (item: any) => item?.name || item?.title || '';
 
 const normalizeSearchValue = (value: string) =>
   value.toLocaleLowerCase('tr-TR');
+
+const getTierLabelTextClassName = (label: string) => {
+  const labelLength = label.trim().length;
+
+  if (labelLength > 26) {
+    return 'text-[10px] sm:text-xs';
+  }
+
+  if (labelLength > 16) {
+    return 'text-xs sm:text-sm';
+  }
+
+  if (labelLength > 9) {
+    return 'text-sm sm:text-base';
+  }
+
+  return 'text-xl sm:text-2xl';
+};
 
 const getAutoScrollSpeed = (clientY: number, viewportHeight: number) => {
   if (clientY < AUTO_SCROLL_EDGE_THRESHOLD) {
@@ -495,32 +515,44 @@ export default function TierListEditor() {
         </div>
 
         <div className="flex flex-1 flex-col gap-2 overflow-hidden rounded-xl border border-border bg-card/50 p-2.5 shadow-xl sm:p-4">
-           {defaultTiers.map(tier => (
-              <div 
-                key={tier.id} 
-                data-tier-dropzone="true"
-                data-tier-id={tier.id}
-                className={`flex min-h-[84px] border-b border-border last:border-b-0 cursor-pointer transition-colors sm:min-h-[100px] ${selectedItem ? 'hover:bg-primary/5' : ''} ${touchDropTargetId === tier.id && touchDragState?.isActive ? 'bg-primary/5 ring-1 ring-inset ring-primary/30' : ''}`}
-                onDrop={(e) => onDrop(e, tier.id)}
-                onDragOver={onDragOver}
-                onClick={() => handleTierAreaClick(tier.id)}
-              >
-                  <div className={`w-20 shrink-0 ${tier.color} relative flex items-center justify-center shadow-inner sm:w-24`}>
-                      <Input 
-                        value={tierLabels[tier.id] ?? tier.id}
-                        onChange={(e) => setTierLabels(prev => ({ ...prev, [tier.id]: e.target.value }))}
-                        className="h-full w-full border-none bg-transparent text-center text-lg font-bold text-black focus:bg-white/10 focus-visible:ring-0 sm:text-xl"
-                      />
-                  </div>
-                  <div className="flex flex-1 flex-wrap items-center gap-1.5 bg-background/50 p-2 sm:gap-2 sm:p-3">
-                      {tierState[tier.id]?.map((item) =>
-                        renderTierItemCard(item, tier.id, 'w-[54px] sm:w-[70px]', 'border-border/50 shadow-md hover:scale-105')
-                      )}
-                      {tierState[tier.id]?.length === 0 && <span className="w-full text-center text-xs font-medium text-muted-foreground/30 sm:text-sm">İçerikleri buraya sürükleyin...</span>}
-                  </div>
-              </div>
-           ))}
-        </div>
+            {defaultTiers.map(tier => {
+              const tierLabel = tierLabels[tier.id] ?? tier.id;
+
+              return (
+               <div
+                 key={tier.id}
+                 data-tier-dropzone="true"
+                 data-tier-id={tier.id}
+                 className={`flex min-h-[84px] border-b border-border last:border-b-0 cursor-pointer transition-colors sm:min-h-[100px] ${selectedItem ? 'hover:bg-primary/5' : ''} ${touchDropTargetId === tier.id && touchDragState?.isActive ? 'bg-primary/5 ring-1 ring-inset ring-primary/30' : ''}`}
+                 onDrop={(e) => onDrop(e, tier.id)}
+                 onDragOver={onDragOver}
+                 onClick={() => handleTierAreaClick(tier.id)}
+               >
+                   <div className={`w-20 shrink-0 ${tier.color} relative overflow-hidden shadow-inner sm:w-24`}>
+                       <Textarea
+                         value={tierLabel}
+                         onChange={(e) => setTierLabels(prev => ({ ...prev, [tier.id]: e.target.value }))}
+                         onClick={(e) => e.stopPropagation()}
+                         onPointerDown={(e) => e.stopPropagation()}
+                         rows={3}
+                         spellCheck={false}
+                         aria-label={`${tier.id} etiketi`}
+                         className={cn(
+                           'h-full min-h-0 resize-none overflow-y-auto rounded-none border-none bg-transparent px-2 py-2 text-center font-bold leading-[0.95] text-black shadow-none [overflow-wrap:anywhere] focus:bg-white/10 focus-visible:ring-0 focus-visible:ring-offset-0',
+                           getTierLabelTextClassName(tierLabel),
+                         )}
+                       />
+                   </div>
+                   <div className="flex flex-1 flex-wrap items-center gap-1.5 bg-background/50 p-2 sm:gap-2 sm:p-3">
+                       {tierState[tier.id]?.map((item) =>
+                         renderTierItemCard(item, tier.id, 'w-[54px] sm:w-[70px]', 'border-border/50 shadow-md hover:scale-105')
+                       )}
+                       {tierState[tier.id]?.length === 0 && <span className="w-full text-center text-xs font-medium text-muted-foreground/30 sm:text-sm">İçerikleri buraya sürükleyin...</span>}
+                   </div>
+               </div>
+              );
+            })}
+         </div>
 
          {/* Unranked Items Pool */}
          <div className="rounded-xl border border-border bg-secondary/20 p-3 sm:p-4">

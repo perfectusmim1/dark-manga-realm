@@ -296,11 +296,13 @@ export interface User {
       manga_hover_preview?: boolean;
       show_header_offline_toggle?: boolean;
       show_chapter_card_images?: boolean;
+      adult_cover_blur?: boolean;
     };
     privacy?: {
       visibility: 'public' | 'members' | 'mutuals' | 'private';
       reading_history_visibility?: 'public' | 'members' | 'mutuals' | 'private';
       comments_visibility?: 'public' | 'members' | 'mutuals' | 'private';
+      reviews_visibility?: 'public' | 'members' | 'mutuals' | 'private';
       reading_lists_visibility?: 'public' | 'members' | 'mutuals' | 'private';
       tier_lists_visibility?: 'public' | 'members' | 'mutuals' | 'private';
       followed_manga_visibility?: 'public' | 'members' | 'mutuals' | 'private';
@@ -341,6 +343,7 @@ export interface Bookmark {
   createdAt?: string;
   mangaTitle?: string;
   mangaCover?: string;
+  pageImage?: string;
   mangaAlternativeTitles?: string[];
   chapterTitle?: string;
 }

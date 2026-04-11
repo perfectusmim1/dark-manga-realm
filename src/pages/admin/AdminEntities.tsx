@@ -124,6 +124,7 @@ const ENTITY_LABELS: Record<EntityType, string> = {
 };
 
 const ADMIN_ENTITY_PREVIEW_LIMIT = 20;
+const INTERACTIVE_ROW_ELEMENT_SELECTOR = 'button, a, input, textarea, select, [role="button"], [data-prevent-row-toggle="true"]';
 
 interface AdminEntityThumbnailProps {
   item: EditableEntity;
@@ -348,6 +349,39 @@ const AdminEntities: React.FC = () => {
     ));
   };
 
+  const handleItemPress = (id: string) => {
+    toggleItemSelection(id, !selectedIdSet.has(id));
+  };
+
+  const handleItemContainerClick = (id: string, event: React.MouseEvent<HTMLElement>) => {
+    const interactiveTarget = event.target instanceof HTMLElement
+      ? event.target.closest(INTERACTIVE_ROW_ELEMENT_SELECTOR)
+      : null;
+
+    if (interactiveTarget && interactiveTarget !== event.currentTarget) {
+      return;
+    }
+
+    handleItemPress(id);
+  };
+
+  const handleItemContainerKeyDown = (id: string, event: React.KeyboardEvent<HTMLElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+
+    const interactiveTarget = event.target instanceof HTMLElement
+      ? event.target.closest(INTERACTIVE_ROW_ELEMENT_SELECTOR)
+      : null;
+
+    if (interactiveTarget && interactiveTarget !== event.currentTarget) {
+      return;
+    }
+
+    event.preventDefault();
+    handleItemPress(id);
+  };
+
   const currentItems = useMemo(() => {
     switch (activeTab) {
       case 'character':
@@ -547,13 +581,22 @@ const AdminEntities: React.FC = () => {
               <div className="divide-y divide-border md:hidden">
                 {visibleItems.length > 0 ? (
                   visibleItems.map((item) => (
-                    <div key={item.id} className="space-y-4 p-4">
+                    <div
+                      key={item.id}
+                      className="space-y-4 p-4 cursor-pointer transition-colors hover:bg-white/5"
+                      onClick={(event) => handleItemContainerClick(item.id, event)}
+                      onKeyDown={(event) => handleItemContainerKeyDown(item.id, event)}
+                      role="checkbox"
+                      aria-checked={selectedIdSet.has(item.id)}
+                      tabIndex={0}
+                    >
                       <div className="flex items-start gap-3">
                         <Checkbox
                           checked={selectedIdSet.has(item.id)}
                           onCheckedChange={(checked) => toggleItemSelection(item.id, checked === true)}
                           aria-label={`${item.name} seç`}
                           className="mt-4"
+                          data-prevent-row-toggle="true"
                         />
                         <AdminEntityThumbnail
                           item={item}
@@ -579,7 +622,12 @@ const AdminEntities: React.FC = () => {
                       </div>
 
                       <div className="flex gap-2">
-                        <Button variant="outline" className="flex-1" onClick={() => handleOpenDialog(item)}>
+                        <Button
+                          variant="outline"
+                          className="flex-1"
+                          onClick={() => handleOpenDialog(item)}
+                          data-prevent-row-toggle="true"
+                        >
                           <UserPen className="mr-2 h-4 w-4" />
                           Düzenle
                         </Button>
@@ -587,6 +635,7 @@ const AdminEntities: React.FC = () => {
                           variant="outline"
                           className="flex-1 text-destructive hover:text-destructive"
                           onClick={() => setEntityToDelete({ id: item.id, name: item.name })}
+                          data-prevent-row-toggle="true"
                         >
                           <Trash2 className="mr-2 h-4 w-4" />
                           Sil
@@ -616,7 +665,6 @@ const AdminEntities: React.FC = () => {
                       <TableHead className="w-16">Resim</TableHead>
                       <TableHead>İsim</TableHead>
                       <TableHead>Görünürlük</TableHead>
-                      <TableHead>Ek Bilgiler</TableHead>
                       <TableHead className="hidden xl:table-cell">Açıklama</TableHead>
                       <TableHead className="text-right">İşlemler</TableHead>
                     </TableRow>
@@ -624,12 +672,21 @@ const AdminEntities: React.FC = () => {
                   <TableBody>
                     {visibleItems.length > 0 ? (
                       visibleItems.map((item) => (
-                        <TableRow key={item.id} className="border-border hover:bg-white/5 transition-colors">
+                        <TableRow
+                          key={item.id}
+                          className="border-border cursor-pointer transition-colors hover:bg-white/5"
+                          onClick={(event) => handleItemContainerClick(item.id, event)}
+                          onKeyDown={(event) => handleItemContainerKeyDown(item.id, event)}
+                          role="checkbox"
+                          aria-checked={selectedIdSet.has(item.id)}
+                          tabIndex={0}
+                        >
                           <TableCell>
                             <Checkbox
                               checked={selectedIdSet.has(item.id)}
                               onCheckedChange={(checked) => toggleItemSelection(item.id, checked === true)}
                               aria-label={`${item.name} seç`}
+                              data-prevent-row-toggle="true"
                             />
                           </TableCell>
                           <TableCell>
@@ -646,18 +703,6 @@ const AdminEntities: React.FC = () => {
                               {item.isPublic === false ? 'Gizli' : 'Açık'}
                             </Badge>
                           </TableCell>
-                          <TableCell className="text-sm text-muted-foreground">
-                            <div className="space-y-1">
-                              {(item.alternativeNames || []).length > 0 && (
-                                <p>{item.alternativeNames?.length} alternatif isim</p>
-                              )}
-                              {(item.gallery || []).length > 0 && (
-                                <p>{item.gallery?.length} galeri görseli</p>
-                              )}
-                              {item.details?.age && <p>Yaş: {item.details.age}</p>}
-                              {item.details?.gender && <p>Cinsiyet: {item.details.gender}</p>}
-                            </div>
-                          </TableCell>
                           <TableCell className="hidden xl:table-cell max-w-md">
                             <p className="truncate text-sm text-muted-foreground">
                               {item.description || 'Açıklama yok'}
@@ -665,7 +710,12 @@ const AdminEntities: React.FC = () => {
                           </TableCell>
                           <TableCell className="text-right">
                             <div className="flex justify-end gap-2">
-                              <Button variant="ghost" size="icon" onClick={() => handleOpenDialog(item)}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleOpenDialog(item)}
+                                data-prevent-row-toggle="true"
+                              >
                                 <UserPen className="h-4 w-4" />
                               </Button>
                               <Button
@@ -673,6 +723,7 @@ const AdminEntities: React.FC = () => {
                                 size="icon"
                                 className="text-destructive hover:text-destructive hover:bg-destructive/10"
                                 onClick={() => setEntityToDelete({ id: item.id, name: item.name })}
+                                data-prevent-row-toggle="true"
                               >
                                 <Trash2 className="h-4 w-4" />
                               </Button>
@@ -682,7 +733,7 @@ const AdminEntities: React.FC = () => {
                       ))
                     ) : (
                       <TableRow>
-                        <TableCell colSpan={7} className="h-24 text-center text-muted-foreground">
+                        <TableCell colSpan={6} className="h-24 text-center text-muted-foreground">
                           Sonuç bulunamadı
                         </TableCell>
                       </TableRow>

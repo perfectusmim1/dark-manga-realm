@@ -49,11 +49,19 @@ let persistedAutoScrollIntent = false;
 const MIN_READING_SESSION_SECONDS = 1;
 const READING_SESSION_FLUSH_INTERVAL_MS = 30000;
 const NEXT_CHAPTER_CRITICAL_PAGES = 4;
-const NEXT_CHAPTER_PREFETCH_PAGES = 8;
-const NEXT_CHAPTER_PREFETCH_CONCURRENCY = 6;
 const RESTORE_FORWARD_READY_PAGES = 1;
 const RESTORE_LAYOUT_MAX_ATTEMPTS = 60;
 const RESTORE_LAYOUT_RETRY_MS = 80;
+
+const CURRENT_CHAPTER_PREFETCH_CONCURRENCY = {
+  mobile: 6,
+  desktop: 10,
+} as const;
+
+const NEXT_CHAPTER_PREFETCH_CONCURRENCY = {
+  mobile: 4,
+  desktop: 8,
+} as const;
 
 const sanitizeReaderChapter = (chapter?: Chapter | null): Chapter | null => {
   if (!chapter) {
@@ -70,6 +78,11 @@ const sanitizeReaderChapter = (chapter?: Chapter | null): Chapter | null => {
     pages: sanitizedPages,
   };
 };
+
+const haveSameReaderPages = (left: string[] = [], right: string[] = []) => (
+  left.length === right.length
+  && left.every((page, index) => page === right[index])
+);
 
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
@@ -114,14 +127,189 @@ const Reader: React.FC = () => {
   const resumeAutoScrollAfterNavigationRef = useRef(false);
   const pendingInitialRestorePageRef = useRef<number | null>(null);
   const currentMangaRef = useRef<any>(null);
+  const chapterPagesCacheRef = useRef(new Map<string, string[]>());
+  const chapterPageRequestsRef = useRef(new Map<string, Promise<string[]>>());
   const preparedTransitionRef = useRef<{
     mangaId: string;
     chapterId: string;
     chapter: Chapter;
     resolvedPages: ResolvedReaderPage[];
   } | null>(null);
+  const cacheChapterPages = useCallback((targetChapterId: string, pages: string[]) => {
+    if (!targetChapterId) {
+      return [];
+    }
+
+    const sanitizedPages = sanitizeChapterPageUrls(pages || []);
+    if (sanitizedPages.length === 0) {
+      return [];
+    }
+
+    chapterPagesCacheRef.current.set(targetChapterId, sanitizedPages);
+    return sanitizedPages;
+  }, []);
+
+  const syncChapterPagesIntoState = useCallback((targetChapterId: string, pages: string[]) => {
+    if (!targetChapterId || pages.length === 0) {
+      return;
+    }
+
+    setManga((currentManga: any) => {
+      if (!currentManga || !Array.isArray(currentManga.chapters)) {
+        return currentManga;
+      }
+
+      let hasChanges = false;
+      const nextChapters = currentManga.chapters.map((chapterItem: Chapter) => {
+        if (chapterItem.id !== targetChapterId) {
+          return chapterItem;
+        }
+
+        const existingPages = sanitizeChapterPageUrls(chapterItem.pages || []);
+        if (haveSameReaderPages(existingPages, pages) && chapterItem.pageCount === pages.length) {
+          return chapterItem;
+        }
+
+        hasChanges = true;
+        return {
+          ...chapterItem,
+          pages,
+          pageCount: pages.length,
+        };
+      });
+
+      return hasChanges
+        ? {
+            ...currentManga,
+            chapters: nextChapters,
+          }
+        : currentManga;
+    });
+
+    setChapter((currentChapter: Chapter | null) => {
+      if (!currentChapter || currentChapter.id !== targetChapterId) {
+        return currentChapter;
+      }
+
+      const existingPages = sanitizeChapterPageUrls(currentChapter.pages || []);
+      if (haveSameReaderPages(existingPages, pages) && currentChapter.pageCount === pages.length) {
+        return currentChapter;
+      }
+
+      return {
+        ...currentChapter,
+        pages,
+        pageCount: pages.length,
+      };
+    });
+  }, []);
+
+  const hydrateChapterWithCachedPages = useCallback((chapterToHydrate?: Chapter | null): Chapter | undefined => {
+    const sanitizedChapter = sanitizeReaderChapter(chapterToHydrate);
+    if (!sanitizedChapter) {
+      return undefined;
+    }
+
+    if (Array.isArray(sanitizedChapter.pages) && sanitizedChapter.pages.length > 0) {
+      return {
+        ...sanitizedChapter,
+        pageCount: sanitizedChapter.pages.length,
+      };
+    }
+
+    const cachedPages = chapterPagesCacheRef.current.get(sanitizedChapter.id);
+    if (!cachedPages || cachedPages.length === 0) {
+      return sanitizedChapter;
+    }
+
+    return {
+      ...sanitizedChapter,
+      pages: cachedPages,
+      pageCount: cachedPages.length,
+    };
+  }, []);
+
+  const loadChapterPages = useCallback(async (targetChapterId?: string) => {
+    if (!targetChapterId || !canUseNetworkReaderFeatures) {
+      return [];
+    }
+
+    const cachedPages = chapterPagesCacheRef.current.get(targetChapterId);
+    if (cachedPages && cachedPages.length > 0) {
+      return cachedPages;
+    }
+
+    const existingRequest = chapterPageRequestsRef.current.get(targetChapterId);
+    if (existingRequest) {
+      return existingRequest;
+    }
+
+    const request = getChapterPagesByIds([targetChapterId])
+      .then((chapterPagesById) => {
+        const loadedPages = cacheChapterPages(targetChapterId, chapterPagesById[targetChapterId] || []);
+        syncChapterPagesIntoState(targetChapterId, loadedPages);
+        return loadedPages;
+      })
+      .catch((error) => {
+        console.error('Reader chapter page hydrate error:', error);
+        return [];
+      })
+      .finally(() => {
+        chapterPageRequestsRef.current.delete(targetChapterId);
+      });
+
+    chapterPageRequestsRef.current.set(targetChapterId, request);
+    return request;
+  }, [cacheChapterPages, canUseNetworkReaderFeatures, syncChapterPagesIntoState]);
+
+  const ensureChapterPagesLoaded = useCallback(async (chapterToEnsure?: Chapter | null) => {
+    const hydratedChapter = hydrateChapterWithCachedPages(chapterToEnsure);
+    if (!hydratedChapter) {
+      return undefined;
+    }
+
+    if (Array.isArray(hydratedChapter.pages) && hydratedChapter.pages.length > 0) {
+      return hydratedChapter;
+    }
+
+    const loadedPages = await loadChapterPages(hydratedChapter.id);
+    if (loadedPages.length === 0) {
+      return hydratedChapter;
+    }
+
+    return {
+      ...hydratedChapter,
+      pages: loadedPages,
+      pageCount: loadedPages.length,
+    };
+  }, [hydrateChapterWithCachedPages, loadChapterPages]);
+
+  const prefetchReaderChapter = useCallback((chapterToPrefetch?: Chapter, type: 'current' | 'next' = 'current') => {
+    const sanitizedChapter = hydrateChapterWithCachedPages(chapterToPrefetch);
+    if (
+      !sanitizedChapter
+      || !canUseNetworkReaderFeatures
+      || isOfflineChapter
+      || !Array.isArray(sanitizedChapter.pages)
+      || sanitizedChapter.pages.length === 0
+    ) {
+      return;
+    }
+
+    const sources = sanitizedChapter.pages.filter(Boolean);
+    if (sources.length === 0) {
+      return;
+    }
+
+    const concurrency = type === 'current'
+      ? Math.min(sources.length, isMobile ? CURRENT_CHAPTER_PREFETCH_CONCURRENCY.mobile : CURRENT_CHAPTER_PREFETCH_CONCURRENCY.desktop)
+      : Math.min(sources.length, isMobile ? NEXT_CHAPTER_PREFETCH_CONCURRENCY.mobile : NEXT_CHAPTER_PREFETCH_CONCURRENCY.desktop);
+
+    void prefetchChapterAssets(sanitizedChapter.id, sources, { concurrency });
+  }, [canUseNetworkReaderFeatures, hydrateChapterWithCachedPages, isMobile, isOfflineChapter]);
+
   const warmCriticalChapterPages = useCallback((chapterToWarm?: Chapter) => {
-    const sanitizedChapter = sanitizeReaderChapter(chapterToWarm);
+    const sanitizedChapter = hydrateChapterWithCachedPages(chapterToWarm);
     if (!sanitizedChapter || !Array.isArray(sanitizedChapter.pages) || sanitizedChapter.pages.length === 0) {
       return;
     }
@@ -133,10 +321,10 @@ const Reader: React.FC = () => {
 
       void prefetchImageAsset(page).catch(() => undefined);
     });
-  }, []);
+  }, [hydrateChapterWithCachedPages]);
 
   const primeChapterEntry = useCallback(async (chapterToPrime?: Chapter) => {
-    const sanitizedChapter = sanitizeReaderChapter(chapterToPrime);
+    const sanitizedChapter = hydrateChapterWithCachedPages(chapterToPrime);
     if (
       !sanitizedChapter
       || !canUseNetworkReaderFeatures
@@ -147,18 +335,9 @@ const Reader: React.FC = () => {
       return;
     }
 
-    const criticalSources = sanitizedChapter.pages.slice(0, Math.min(3, sanitizedChapter.pages.length));
+    const criticalSources = sanitizedChapter.pages.slice(0, Math.min(NEXT_CHAPTER_CRITICAL_PAGES, sanitizedChapter.pages.length));
     await Promise.allSettled(criticalSources.map((page) => prefetchImageAsset(page)));
-  }, [canUseNetworkReaderFeatures, isOfflineChapter]);
-
-  const getNextChapterPrefetchSources = useCallback((chapterToPrefetch?: Chapter) => {
-    const sanitizedChapter = sanitizeReaderChapter(chapterToPrefetch);
-    if (!sanitizedChapter || !Array.isArray(sanitizedChapter.pages)) {
-      return [];
-    }
-
-    return sanitizedChapter.pages.slice(0, Math.min(NEXT_CHAPTER_PREFETCH_PAGES, sanitizedChapter.pages.length));
-  }, []);
+  }, [canUseNetworkReaderFeatures, hydrateChapterWithCachedPages, isOfflineChapter]);
 
   useEffect(() => {
     document.documentElement.classList.add('reader-active');
@@ -175,17 +354,14 @@ const Reader: React.FC = () => {
   }, [manga]);
 
   const prepareChapterTransition = useCallback((targetChapter?: Chapter) => {
-    const sanitizedTargetChapter = sanitizeReaderChapter(targetChapter);
+    const sanitizedTargetChapter = hydrateChapterWithCachedPages(targetChapter);
     if (
       canUseNetworkReaderFeatures
       && !isOfflineChapter
-      && settings.prefetchNextChapter
       && sanitizedTargetChapter
       && Array.isArray(sanitizedTargetChapter.pages)
       && sanitizedTargetChapter.pages.length > 0
     ) {
-      const nextChapterSources = getNextChapterPrefetchSources(sanitizedTargetChapter);
-
       preparedTransitionRef.current = {
         mangaId: mangaId || '',
         chapterId: sanitizedTargetChapter.id,
@@ -193,13 +369,7 @@ const Reader: React.FC = () => {
         resolvedPages: sanitizedTargetChapter.pages.map((page) => ({ src: page, source: 'remote' })),
       };
       warmCriticalChapterPages(sanitizedTargetChapter);
-      if (nextChapterSources.length > 0) {
-        void prefetchChapterAssets(
-          sanitizedTargetChapter.id,
-          nextChapterSources,
-          { concurrency: Math.min(nextChapterSources.length, NEXT_CHAPTER_PREFETCH_CONCURRENCY) }
-        );
-      }
+      prefetchReaderChapter(sanitizedTargetChapter, 'current');
     } else {
       preparedTransitionRef.current = null;
     }
@@ -216,15 +386,19 @@ const Reader: React.FC = () => {
     }
 
     window.scrollTo({ top: 0, behavior: 'auto' });
-  }, [canUseNetworkReaderFeatures, getNextChapterPrefetchSources, isOfflineChapter, mangaId, settings.prefetchNextChapter, warmCriticalChapterPages]);
+  }, [canUseNetworkReaderFeatures, hydrateChapterWithCachedPages, isOfflineChapter, mangaId, prefetchReaderChapter, warmCriticalChapterPages]);
 
   const handleBeforeChapterChange = useCallback(async (targetChapter?: Chapter) => {
-    if (targetChapter) {
-      await primeChapterEntry(targetChapter);
+    const resolvedTargetChapter = targetChapter
+      ? await ensureChapterPagesLoaded(targetChapter)
+      : undefined;
+
+    if (resolvedTargetChapter) {
+      await primeChapterEntry(resolvedTargetChapter);
     }
 
-    prepareChapterTransition(targetChapter);
-  }, [prepareChapterTransition, primeChapterEntry]);
+    prepareChapterTransition(resolvedTargetChapter ?? targetChapter);
+  }, [ensureChapterPagesLoaded, prepareChapterTransition, primeChapterEntry]);
 
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
@@ -362,6 +536,29 @@ const Reader: React.FC = () => {
         const existingManga = currentMangaRef.current && currentMangaRef.current.id === mangaId
           ? currentMangaRef.current
           : null;
+        const preparedTransition = preparedTransitionRef.current;
+        const preparedChapter = (
+          preparedTransition
+          && preparedTransition.mangaId === mangaId
+          && preparedTransition.chapterId === chapterId
+        )
+          ? sanitizeReaderChapter(preparedTransition.chapter)
+          : null;
+
+        if (preparedChapter) {
+          const preparedPages = cacheChapterPages(preparedChapter.id, preparedChapter.pages);
+          syncChapterPagesIntoState(preparedChapter.id, preparedPages);
+          setChapter({
+            ...preparedChapter,
+            pages: preparedPages,
+            pageCount: preparedPages.length,
+          });
+          setResolvedPages(preparedTransition?.resolvedPages || []);
+          setIsOfflineChapter(false);
+          setOfflineUnavailable(false);
+          setIsContentReady(true);
+        }
+
         const [offlineChapter, mData, chapterPagesById, offlineManga] = await Promise.all([
           getOfflineChapter(chapterId),
           canUseNetworkReaderFeatures
@@ -388,14 +585,38 @@ const Reader: React.FC = () => {
           navigate('/');
           return;
         }
-        setManga(fallbackManga);
 
         const baseChapter = fallbackManga.chapters.find(c => c.id === chapterId);
+        const currentChapterPages = cacheChapterPages(
+          chapterId,
+          chapterPagesById[chapterId]
+          || preparedChapter?.pages
+          || baseChapter?.pages
+          || [],
+        );
+        syncChapterPagesIntoState(chapterId, currentChapterPages);
+
+        const resolvedManga = baseChapter && currentChapterPages.length > 0
+          ? {
+              ...fallbackManga,
+              chapters: fallbackManga.chapters.map((chapterItem) => (
+                chapterItem.id === chapterId
+                  ? {
+                      ...chapterItem,
+                      pages: currentChapterPages,
+                      pageCount: currentChapterPages.length,
+                    }
+                  : chapterItem
+              )),
+            }
+          : fallbackManga;
+
+        setManga(resolvedManga);
         const resolvedChapter = sanitizeReaderChapter(
           (baseChapter ? {
             ...baseChapter,
-            pages: chapterPagesById[chapterId] || baseChapter.pages || [],
-            pageCount: (chapterPagesById[chapterId] || baseChapter.pages || []).length || baseChapter.pageCount,
+            pages: currentChapterPages,
+            pageCount: currentChapterPages.length || baseChapter.pageCount,
           } : null)
           || (offlineChapter ? {
             id: offlineChapter.chapterId,
@@ -414,6 +635,7 @@ const Reader: React.FC = () => {
         }
 
         warmCriticalChapterPages(resolvedChapter);
+        prefetchReaderChapter(resolvedChapter, 'current');
 
         if ((forceOfflineRead || !isOnlineNow) && offlineChapter?.downloadStatus === 'completed') {
           setChapter(resolvedChapter);
@@ -463,7 +685,18 @@ const Reader: React.FC = () => {
     };
 
     loadContent();
-  }, [canUseNetworkReaderFeatures, chapterId, forceOfflineRead, isOnlineNow, mangaId, navigate, warmCriticalChapterPages]);
+  }, [
+    cacheChapterPages,
+    canUseNetworkReaderFeatures,
+    chapterId,
+    forceOfflineRead,
+    isOnlineNow,
+    mangaId,
+    navigate,
+    prefetchReaderChapter,
+    syncChapterPagesIntoState,
+    warmCriticalChapterPages,
+  ]);
 
   useEffect(() => {
     if (initialized || !isContentReady || !mangaId || !chapterId) {
@@ -739,7 +972,7 @@ const Reader: React.FC = () => {
       if (window.scrollY >= maxScrollTop - 2) {
         if (nextChapter && mangaId) {
           resumeAutoScrollAfterNavigationRef.current = true;
-          prepareChapterTransition();
+          prepareChapterTransition(nextChapter);
           navigate(`/manga/${mangaId}/chapter/${nextChapter.id}?page=1`);
           return;
         }
@@ -788,27 +1021,33 @@ const Reader: React.FC = () => {
       || isOfflineChapter
       || !settings.prefetchNextChapter
       || !nextChapter
-      || !Array.isArray(nextChapter.pages)
-      || nextChapter.pages.length === 0
     ) {
       return;
     }
 
-    const nextChapterSources = getNextChapterPrefetchSources(nextChapter);
+    let isCancelled = false;
 
-    warmCriticalChapterPages(nextChapter);
-    if (nextChapterSources.length > 0) {
-      void prefetchChapterAssets(
-        nextChapter.id,
-        nextChapterSources,
-        { concurrency: Math.min(nextChapterSources.length, NEXT_CHAPTER_PREFETCH_CONCURRENCY) }
-      );
-    }
+    const prefetchNextChapter = async () => {
+      const resolvedNextChapter = await ensureChapterPagesLoaded(nextChapter);
+      if (!resolvedNextChapter || isCancelled) {
+        return;
+      }
+
+      warmCriticalChapterPages(resolvedNextChapter);
+      prefetchReaderChapter(resolvedNextChapter, 'next');
+    };
+
+    void prefetchNextChapter();
+
+    return () => {
+      isCancelled = true;
+    };
   }, [
     canUseNetworkReaderFeatures,
-    getNextChapterPrefetchSources,
+    ensureChapterPagesLoaded,
     isOfflineChapter,
     nextChapter,
+    prefetchReaderChapter,
     settings.prefetchNextChapter,
     warmCriticalChapterPages,
   ]);
@@ -984,6 +1223,9 @@ const Reader: React.FC = () => {
     }
 
     if (mangaId && chapterId && chapter && user) {
+      const currentPageImage = chapter.pages?.[currentPage - 1]
+        || (resolvedPages[currentPage - 1]?.source === 'remote' ? resolvedPages[currentPage - 1]?.src : undefined);
+
       addBookmark(user.id, {
         mangaId,
         chapterId,
@@ -991,6 +1233,7 @@ const Reader: React.FC = () => {
         page: currentPage,
         mangaTitle: manga?.title,
         mangaCover: manga?.cover,
+        pageImage: currentPageImage,
         mangaAlternativeTitles: manga?.alternativeTitles || [],
         chapterTitle: chapter.title,
       }).then(() => {
@@ -1008,7 +1251,7 @@ const Reader: React.FC = () => {
         }
       });
     }
-  }, [chapter, chapterId, currentPage, isOnlineNow, manga, mangaId, user]);
+  }, [chapter, chapterId, currentPage, isOnlineNow, manga, mangaId, resolvedPages, user]);
 
   const toggleControls = useCallback(() => {
     setControlsVisible(prev => !prev);

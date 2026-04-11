@@ -49,9 +49,10 @@ const STATUS_LABELS: Record<OfflineDownloadStatus, string> = {
 };
 
 const isReaderRoute = (pathname: string) => /^\/manga\/[^/]+\/chapter\/[^/]+/.test(pathname);
-const DOCK_TRANSITION_CLASS = 'transition-all duration-300 [transition-timing-function:cubic-bezier(0.16,0.84,0.28,1)]';
-const DOCK_PANEL_TRANSITION_CLASS = 'transition-[grid-template-rows,opacity,transform] duration-300 [transition-timing-function:cubic-bezier(0.16,0.84,0.28,1)]';
-const DOCK_EXIT_DURATION_MS = 300;
+const DOCK_TRANSITION_CLASS = 'transition-[opacity,transform,border-color] duration-200 ease-out';
+const DOCK_PANEL_TRANSITION_CLASS = 'transition-[grid-template-rows,opacity] duration-200 ease-out';
+const DOCK_EXIT_DURATION_MS = 200;
+const DOCK_SNAPSHOT_THROTTLE_MS = 1000;
 
 const sortJobs = (jobs: DownloadJob[]) => (
   [...jobs].sort((a, b) => {
@@ -86,7 +87,7 @@ const setStoredBoolean = (key: string, value: boolean) => {
 };
 
 const DownloadDock: React.FC = () => {
-  const { snapshot, isOnline } = useOfflineLibrary();
+  const { snapshot, isOnline } = useOfflineLibrary({ throttleMs: DOCK_SNAPSHOT_THROTTLE_MS });
   const { pathname } = useLocation();
   const [isExpanded, setIsExpanded] = useState(false);
   const [isMinimized, setIsMinimized] = useState(() => getStoredBoolean(STORAGE_KEYS.minimized, true));
@@ -215,28 +216,27 @@ const DownloadDock: React.FC = () => {
         type="button"
         onClick={() => setIsMinimized(false)}
         className={cn(
-          'pointer-events-auto absolute bottom-0 right-0 flex h-[72px] w-[72px] flex-col items-center justify-between overflow-hidden rounded-[22px] border border-primary/30 bg-[linear-gradient(180deg,rgba(9,20,42,0.96),rgba(6,12,28,0.98))] px-3 py-3 text-blue-50 shadow-[0_20px_55px_-24px_rgba(37,99,235,0.45)] backdrop-blur-xl transform-gpu will-change-transform hover:border-primary/50 sm:h-[78px] sm:w-[78px]',
+          'pointer-events-auto absolute bottom-0 right-0 flex h-[68px] w-[68px] flex-col items-center justify-between overflow-hidden rounded-2xl border border-border/70 bg-background/95 px-3 py-3 text-foreground shadow-xl sm:h-[72px] sm:w-[72px]',
           DOCK_TRANSITION_CLASS,
-          showMinimizedTrigger ? 'translate-y-0 scale-100 opacity-100' : 'translate-y-1.5 scale-[0.92] opacity-0',
+          showMinimizedTrigger ? 'translate-y-0 opacity-100' : 'translate-y-1 opacity-0',
         )}
         tabIndex={showMinimizedTrigger ? 0 : -1}
         disabled={!showMinimizedTrigger}
         aria-label="İndirme panelini büyüt"
         title="İndirme panelini büyüt"
       >
-        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.24),_transparent_58%)]" />
-        <div className="relative mt-0.5 flex h-7 w-7 items-center justify-center rounded-[14px] bg-primary/12 text-primary shadow-[inset_0_0_0_1px_rgba(96,165,250,0.18)] sm:h-8 sm:w-8">
+        <div className="relative mt-0.5 flex h-7 w-7 items-center justify-center rounded-xl bg-primary/10 text-primary sm:h-8 sm:w-8">
           <Download className="h-4 w-4" />
           {hasActiveJobs && (
-            <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-sky-300 shadow-[0_0_12px_rgba(125,211,252,0.8)] animate-pulse" />
+            <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
           )}
         </div>
         <div className="relative mt-2.5 w-full space-y-1.5">
           <Progress
             value={primaryJob.progressPercent}
-            className="h-1.5 bg-slate-900/60 [&>div]:bg-[linear-gradient(90deg,rgba(96,165,250,1)_0%,rgba(37,99,235,1)_100%)]"
+            className="h-1.5 bg-muted [&>div]:bg-primary"
           />
-          <p className="text-center text-[10px] font-semibold text-blue-100/90">
+          <p className="text-center text-[10px] font-semibold text-muted-foreground">
             {Math.round(primaryJob.progressPercent)}%
           </p>
         </div>
@@ -244,31 +244,31 @@ const DownloadDock: React.FC = () => {
 
       <div
         className={cn(
-          'absolute bottom-0 right-0 flex max-h-[calc(100vh-6rem)] w-[min(92vw,420px)] max-w-[calc(100vw-1rem)] flex-col items-end gap-3 transform-gpu will-change-transform md:w-[min(94vw,460px)]',
+          'absolute bottom-0 right-0 flex max-h-[calc(100vh-6rem)] w-[min(92vw,420px)] max-w-[calc(100vw-1rem)] flex-col items-end gap-2.5 md:w-[min(94vw,440px)]',
           DOCK_TRANSITION_CLASS,
           shouldHideDockSurface
-            ? 'pointer-events-none translate-y-2.5 scale-[0.97] opacity-0'
-            : 'pointer-events-auto translate-y-0 scale-100 opacity-100',
+            ? 'pointer-events-none translate-y-2 opacity-0'
+            : 'pointer-events-auto translate-y-0 opacity-100',
         )}
         aria-hidden={shouldHideDockSurface}
       >
         <div
           className={cn(
-            'grid w-full overflow-hidden rounded-[24px] border border-primary/15 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.16),_transparent_38%),linear-gradient(180deg,rgba(9,18,38,0.98)_0%,rgba(6,11,22,0.98)_100%)] shadow-[0_22px_48px_-24px_rgba(37,99,235,0.35)] backdrop-blur-xl transform-gpu will-change-transform',
+            'grid w-full overflow-hidden rounded-2xl border border-border/70 bg-card/95 shadow-xl',
             DOCK_PANEL_TRANSITION_CLASS,
             isExpanded && !isDismissing
-              ? 'grid-rows-[1fr] translate-y-0 opacity-100'
-              : 'grid-rows-[0fr] translate-y-1.5 opacity-0',
+              ? 'grid-rows-[1fr] opacity-100'
+              : 'grid-rows-[0fr] opacity-0',
           )}
         >
           <div className="min-h-0 overflow-hidden">
             <div className="max-h-[min(40vh,360px)] overflow-y-auto p-4 md:max-h-[min(52vh,480px)]">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/85">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
                   Arka Plan İndirmeleri
                 </p>
-                <div className="mt-1 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
-                  <h3 className="text-lg font-black tracking-tight text-slate-50">
+                <div className="mt-1.5 flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+                  <h3 className="text-lg font-bold tracking-tight text-foreground">
                     {relevantJobs.length} iş
                   </h3>
 
@@ -277,7 +277,7 @@ const DownloadDock: React.FC = () => {
                       <Button
                         variant="ghost"
                         size="sm"
-                        className="h-8 px-3 text-xs text-slate-100/88 hover:bg-primary/10 hover:text-slate-50"
+                        className="h-8 px-3 text-xs text-muted-foreground hover:bg-muted hover:text-foreground"
                         onClick={() => void handleClearCompleted()}
                       >
                         Bitenleri Temizle
@@ -287,14 +287,14 @@ const DownloadDock: React.FC = () => {
                       asChild
                       variant="outline"
                       size="sm"
-                      className="border-primary/20 bg-primary/8 text-slate-100/90 hover:bg-primary/12 hover:text-slate-50"
+                      className="border-border bg-background text-foreground hover:bg-muted"
                     >
                       <Link to="/downloads">İndirilenler</Link>
                     </Button>
                     <Button
                       variant="ghost"
                       size="icon"
-                      className="h-8 w-8 text-slate-100/88 hover:bg-primary/10 hover:text-slate-50"
+                      className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
                       onClick={() => setIsExpanded(false)}
                       title="Detayı kapat"
                     >
@@ -305,7 +305,7 @@ const DownloadDock: React.FC = () => {
               </div>
 
               {!isOnline && (
-                <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-blue-500/30 bg-blue-500/10 px-3 py-1 text-xs text-blue-200">
+                <div className="mt-3 inline-flex items-center gap-2 rounded-full border border-border bg-muted/60 px-3 py-1 text-xs text-muted-foreground">
                   <WifiOff className="h-3.5 w-3.5" />
                   Bağlantı yok, indirmeler internet gelince devam eder.
                 </div>
@@ -315,12 +315,12 @@ const DownloadDock: React.FC = () => {
                 {relevantJobs.slice(0, 4).map((job) => (
                   <div
                     key={job.id}
-                    className="rounded-[18px] border border-primary/12 bg-[linear-gradient(180deg,rgba(10,18,34,0.88),rgba(6,11,22,0.96))] p-3 text-slate-50 transition-all duration-200"
+                    className="rounded-xl border border-border/70 bg-background/70 p-3 text-foreground"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
                         <p className="truncate text-sm font-semibold">{job.mangaTitle}</p>
-                        <p className="mt-1 text-xs text-slate-300/78">
+                        <p className="mt-1 text-xs text-muted-foreground">
                           {STATUS_LABELS[job.status]}
                           {job.currentChapterId ? ' • bölüm indiriliyor' : ''}
                         </p>
@@ -331,7 +331,7 @@ const DownloadDock: React.FC = () => {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-slate-100/88 hover:bg-primary/10 hover:text-slate-50"
+                            className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
                             onClick={() => void handlePause(job.id)}
                             title="Duraklat"
                           >
@@ -341,7 +341,7 @@ const DownloadDock: React.FC = () => {
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-8 w-8 text-slate-100/88 hover:bg-primary/10 hover:text-slate-50"
+                            className="h-8 w-8 text-muted-foreground hover:bg-muted hover:text-foreground"
                             onClick={() => void handleResume(job.id)}
                             title="Devam Et"
                           >
@@ -352,7 +352,7 @@ const DownloadDock: React.FC = () => {
                     </div>
 
                     <div className="mt-3 space-y-2">
-                      <div className="flex items-center justify-between text-[11px] font-medium text-slate-300/78">
+                      <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
                         <span>{Math.round(job.progressPercent)}%</span>
                         <span>
                           {job.speedBps > 0 ? formatSpeed(job.speedBps) : formatBytes(job.downloadedBytes)}
@@ -360,7 +360,7 @@ const DownloadDock: React.FC = () => {
                       </div>
                       <Progress
                         value={job.progressPercent}
-                        className="h-1.5 bg-slate-900/60 [&>div]:bg-[linear-gradient(90deg,rgba(96,165,250,1)_0%,rgba(37,99,235,1)_100%)]"
+                        className="h-1.5 bg-muted [&>div]:bg-primary"
                       />
                     </div>
                   </div>
@@ -377,16 +377,15 @@ const DownloadDock: React.FC = () => {
           onClick={handleToggleExpanded}
           onKeyDown={handleExpandedKeyDown}
           className={cn(
-            'relative w-full overflow-hidden rounded-[24px] border border-primary/22 bg-[radial-gradient(circle_at_top_left,_rgba(59,130,246,0.18),_transparent_30%),linear-gradient(180deg,rgba(9,20,42,0.98)_0%,rgba(6,12,28,0.98)_100%)] p-4 pr-24 text-left text-slate-50 shadow-[0_22px_52px_-24px_rgba(37,99,235,0.42)] backdrop-blur-xl transform-gpu will-change-transform hover:border-primary/42 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+            'relative w-full overflow-hidden rounded-2xl border border-border/70 bg-card/95 p-4 pr-24 text-left text-foreground shadow-xl hover:border-border focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
             DOCK_TRANSITION_CLASS,
-            isExpanded && 'rounded-b-xl',
+            isExpanded && 'rounded-b-lg',
           )}
         >
-          <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(180deg,rgba(96,165,250,0.08),transparent_40%)]" />
           <div className="absolute right-3 top-3 z-10 flex items-center gap-1">
             <button
               type="button"
-              className="rounded-lg p-1.5 text-slate-300/82 transition-colors duration-150 hover:bg-primary/10 hover:text-slate-50"
+              className="rounded-lg p-1.5 text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
               onClick={handleToggleMinimize}
               aria-label="İndirme panelini küçült"
               title="Küçült"
@@ -397,7 +396,7 @@ const DownloadDock: React.FC = () => {
             {!hasActiveJobs && (
               <button
                 type="button"
-                className="rounded-lg p-1.5 text-slate-300/82 transition-colors duration-150 hover:bg-primary/10 hover:text-slate-50"
+                className="rounded-lg p-1.5 text-muted-foreground transition-colors duration-150 hover:bg-muted hover:text-foreground"
                 onClick={(event) => {
                   event.stopPropagation();
                   handleDismiss();
@@ -411,24 +410,24 @@ const DownloadDock: React.FC = () => {
           </div>
 
           <div className="flex items-start gap-3">
-            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-[18px] bg-primary/12 text-primary shadow-[inset_0_0_0_1px_rgba(96,165,250,0.18)]">
+            <div className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
               <Download className="h-4 w-4" />
               {hasActiveJobs && (
-                <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-sky-300 shadow-[0_0_12px_rgba(125,211,252,0.8)] animate-pulse" />
+                <span className="absolute -right-0.5 -top-0.5 h-2 w-2 rounded-full bg-primary" />
               )}
             </div>
 
             <div className="min-w-0 flex-1">
               <div className="pr-2">
                 <p className="truncate text-base font-semibold">{primaryJob.mangaTitle}</p>
-                <p className="mt-0.5 text-xs text-slate-300/78">
+                <p className="mt-0.5 text-xs text-muted-foreground">
                   {STATUS_LABELS[primaryJob.status]}
                   {relevantJobs.length > 1 ? ` • +${relevantJobs.length - 1} iş` : ''}
                 </p>
               </div>
 
               <div className="mt-3 space-y-1.5">
-                <div className="flex items-center justify-between text-[11px] font-medium text-slate-300/78">
+                <div className="flex items-center justify-between text-[11px] font-medium text-muted-foreground">
                   <span>{Math.round(primaryJob.progressPercent)}%</span>
                   <span>
                     {primaryJob.speedBps > 0 ? formatSpeed(primaryJob.speedBps) : formatBytes(primaryJob.downloadedBytes)}
@@ -436,18 +435,18 @@ const DownloadDock: React.FC = () => {
                 </div>
                 <Progress
                   value={primaryJob.progressPercent}
-                  className="h-1.5 bg-slate-900/60 [&>div]:bg-[linear-gradient(90deg,rgba(96,165,250,1)_0%,rgba(37,99,235,1)_100%)]"
+                  className="h-1.5 bg-muted [&>div]:bg-primary"
                 />
               </div>
             </div>
           </div>
 
           <div className="mt-3 flex items-center justify-between">
-            <div className="flex items-center gap-1 text-[11px] text-slate-300/72">
+            <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
               {!isOnline && <WifiOff className="h-3.5 w-3.5" />}
               <span>{isExpanded ? 'Detay açık' : 'Detay için tıkla'}</span>
             </div>
-            <div className="text-slate-300/78">
+            <div className="text-muted-foreground">
               {isExpanded ? <ChevronDown className="h-4 w-4" /> : <ChevronUp className="h-4 w-4" />}
             </div>
           </div>

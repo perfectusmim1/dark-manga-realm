@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { User } from './types';
+import { User, type Manga } from './types';
 import { parseCommentContent, stripCommentFormatting } from './commentContent';
 import { createFollowNotification, hasPersistedChapterRecord } from './storage';
 
@@ -45,6 +45,7 @@ const buildProfileSectionAccess = (
             profile: false,
             readingHistory: false,
             comments: false,
+            reviews: false,
             readingLists: false,
             tierLists: false,
             followedManga: false,
@@ -55,6 +56,7 @@ const buildProfileSectionAccess = (
         profile: true,
         readingHistory: canAccessPrivacyScope(privacy?.reading_history_visibility, ownerId, viewerId, isMutualFollow),
         comments: canAccessPrivacyScope(privacy?.comments_visibility, ownerId, viewerId, isMutualFollow),
+        reviews: canAccessPrivacyScope(privacy?.reviews_visibility, ownerId, viewerId, isMutualFollow),
         readingLists: canAccessPrivacyScope(privacy?.reading_lists_visibility, ownerId, viewerId, isMutualFollow),
         tierLists: canAccessPrivacyScope(privacy?.tier_lists_visibility, ownerId, viewerId, isMutualFollow),
         followedManga: canAccessPrivacyScope(privacy?.followed_manga_visibility, ownerId, viewerId, isMutualFollow),
@@ -74,6 +76,26 @@ export interface ProfileRecentComment {
     hasMedia: boolean;
     hasGif: boolean;
     parentId?: string;
+}
+
+export interface ProfileRecentReview {
+    id: string;
+    mangaId: string;
+    mangaTitle: string;
+    mangaCover?: string | null;
+    mangaType?: Manga['type'] | null;
+    mangaStatus?: Manga['status'] | null;
+    targetHref: string;
+    content: string;
+    ratingStory: number;
+    ratingCharacters: number;
+    ratingArt: number;
+    ratingProgression: number;
+    ratingEngagement: number;
+    createdAt: string;
+    updatedAt: string;
+    likes: number;
+    dislikes: number;
 }
 
 export interface ProfileFollowedManga {
@@ -100,6 +122,7 @@ interface ProfileAccessContextRow {
     can_view_profile: boolean;
     can_view_reading_history: boolean;
     can_view_comments: boolean;
+    can_view_reviews?: boolean;
     can_view_reading_lists: boolean;
     can_view_tier_lists: boolean;
     can_view_followed_manga: boolean;
@@ -116,6 +139,7 @@ interface ProfileRouteBundle {
     };
     recentReads?: any[];
     recentComments?: any[];
+    recentReviews?: any[];
     followedManga?: any[];
     readingActivity?: { date: string; count: number }[];
     readingLists?: any[];
@@ -388,6 +412,58 @@ export const getUserFollowedManga = async (userId: string, limit: number = 18): 
         .filter(Boolean) as ProfileFollowedManga[];
 };
 
+export const getUserRecentReviews = async (userId: string, limit: number = 12): Promise<ProfileRecentReview[]> => {
+    const { data, error } = await supabase
+        .from('reviews')
+        .select(`
+            id,
+            manga_id,
+            content,
+            rating_story,
+            rating_characters,
+            rating_art,
+            rating_progression,
+            rating_engagement,
+            created_at,
+            updated_at,
+            mangas:manga_id(title, cover, type, status),
+            likes_count:review_likes(count),
+            dislikes_count:review_dislikes(count)
+        `)
+        .eq('user_id', userId)
+        .order('created_at', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        console.error('Recent reviews fetch error:', error);
+        return [];
+    }
+
+    return (data || []).map((review: any) => {
+        const manga = Array.isArray(review.mangas) ? review.mangas[0] : review.mangas;
+
+        return {
+            id: review.id,
+            mangaId: review.manga_id,
+            mangaTitle: manga?.title || 'Seri',
+            mangaCover: manga?.cover || null,
+            mangaType: manga?.type || null,
+            mangaStatus: manga?.status || null,
+            targetHref: `/manga/${review.manga_id}`,
+            content: review.content || '',
+            ratingStory: review.rating_story || 0,
+            ratingCharacters: review.rating_characters || 0,
+            ratingArt: review.rating_art || 0,
+            ratingProgression: review.rating_progression || 0,
+            ratingEngagement: review.rating_engagement || 0,
+            createdAt: review.created_at,
+            updatedAt: review.updated_at || review.created_at,
+            likes: review.likes_count?.[0]?.count || 0,
+            dislikes: review.dislikes_count?.[0]?.count || 0,
+        };
+    });
+};
+
 const getProfileAccessContext = async (userId: string): Promise<ProfileAccessContextRow | null> => {
     const { data, error } = await supabase.rpc('get_profile_access_context', {
         p_target_user_id: userId,
@@ -455,6 +531,7 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         profile: context.can_view_profile,
         readingHistory: context.can_view_reading_history,
         comments: context.can_view_comments,
+        reviews: context.can_view_reviews ?? context.can_view_comments,
         readingLists: context.can_view_reading_lists,
         tierLists: context.can_view_tier_lists,
         followedManga: context.can_view_followed_manga,
@@ -468,6 +545,14 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         } catch (bundleError) {
             console.error('Profile route bundle error:', bundleError);
             bundle = {};
+        }
+
+        if (sectionAccess.reviews && (!Array.isArray(bundle.recentReviews) || bundle.recentReviews.length === 0)) {
+            try {
+                bundle.recentReviews = await getUserRecentReviews(userId);
+            } catch (reviewError) {
+                console.error('Profile recent reviews fallback error:', reviewError);
+            }
         }
     }
 
@@ -503,6 +588,7 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
             sectionAccess,
             recentReads: [],
             recentComments: [],
+            recentReviews: [],
             followedManga: [],
             activity: [],
             readingLists: [],
@@ -547,6 +633,25 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
                 parentId: comment.parentId || undefined,
             };
         }),
+        recentReviews: (bundle.recentReviews || []).map((review: any) => ({
+            id: review.id,
+            mangaId: review.mangaId,
+            mangaTitle: review.mangaTitle,
+            mangaCover: review.mangaCover || null,
+            mangaType: review.mangaType || null,
+            mangaStatus: review.mangaStatus || null,
+            targetHref: review.targetHref,
+            content: review.content || '',
+            ratingStory: review.ratingStory || 0,
+            ratingCharacters: review.ratingCharacters || 0,
+            ratingArt: review.ratingArt || 0,
+            ratingProgression: review.ratingProgression || 0,
+            ratingEngagement: review.ratingEngagement || 0,
+            createdAt: review.createdAt,
+            updatedAt: review.updatedAt || review.createdAt,
+            likes: review.likes || 0,
+            dislikes: review.dislikes || 0,
+        })),
         followedManga: bundle.followedManga || [],
         activity: bundle.readingActivity || [],
         readingLists: bundle.readingLists || [],

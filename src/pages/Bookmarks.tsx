@@ -6,11 +6,11 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { useAuth } from '@/contexts/AuthContext';
 import { getBookmarks, removeBookmark } from '../lib/storage';
-import { getMangaById } from '@/lib/database';
+import { getChapterPagesByIds } from '@/lib/database';
 import { getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { toast } from 'sonner';
-import { Manga, Bookmark } from '@/lib/types';
+import { Bookmark } from '@/lib/types';
 import ListSkeleton from '@/components/skeletons/ListSkeleton';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import OptimizedImage from '@/components/media/OptimizedImage';
@@ -19,8 +19,7 @@ import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
 
 type EnrichedBookmark = Bookmark & {
-  manga?: Manga;
-  chapter?: Manga['chapters'][number];
+  pagePreview?: string | null;
 };
 
 const BOOKMARK_PAGE_THUMBNAIL_TRANSFORM = Object.freeze({
@@ -48,15 +47,37 @@ const Bookmarks: React.FC = () => {
     try {
       setIsLoading(true);
       const bks = await getBookmarks(user.id);
+      const uniqueChapterIds = [...new Set(bks.map((bookmark) => bookmark.chapterId).filter(Boolean))];
+      const uniqueMangaIds = [...new Set(bks.map((bookmark) => bookmark.mangaId).filter(Boolean))];
+      const [pagesByChapterId, offlineMangas] = await Promise.all([
+        isOnline && uniqueChapterIds.length > 0
+          ? getChapterPagesByIds(uniqueChapterIds).catch((error) => {
+              console.error('Bookmark preview fetch error:', error);
+              return {} as Record<string, string[]>;
+            })
+          : Promise.resolve({} as Record<string, string[]>),
+        !isOnline && uniqueMangaIds.length > 0
+          ? Promise.all(uniqueMangaIds.map(async (mangaId) => [mangaId, await getOfflineMangaDetail(mangaId)] as const))
+          : Promise.resolve([] as ReadonlyArray<readonly [string, Awaited<ReturnType<typeof getOfflineMangaDetail>>]>),
+      ]);
 
-      const enrichedBookmarks = await Promise.all(bks.map(async (b) => {
-        const manga = (isOnline ? await getMangaById(b.mangaId) : undefined) || await getOfflineMangaDetail(b.mangaId);
-        if (manga) {
-          const chapter = manga.chapters.find(c => c.id === b.chapterId);
-          return { ...b, manga, chapter };
-        }
-        return { ...b };
-      }));
+      const offlineMangaMap = new Map(offlineMangas);
+
+      const enrichedBookmarks = bks.map((bookmark) => {
+        const onlinePreviewPages = pagesByChapterId[bookmark.chapterId];
+        const onlinePagePreview = Array.isArray(onlinePreviewPages) && bookmark.page > 0 && bookmark.page <= onlinePreviewPages.length
+          ? onlinePreviewPages[bookmark.page - 1]
+          : null;
+        const offlineChapter = offlineMangaMap.get(bookmark.mangaId)?.chapters.find((chapter) => chapter.id === bookmark.chapterId);
+        const offlinePagePreview = Array.isArray(offlineChapter?.pages) && bookmark.page > 0 && bookmark.page <= offlineChapter.pages.length
+          ? offlineChapter.pages[bookmark.page - 1]
+          : null;
+
+        return {
+          ...bookmark,
+          pagePreview: bookmark.pageImage || onlinePagePreview || offlinePagePreview,
+        };
+      });
 
       setBookmarks(enrichedBookmarks.filter((bookmark): bookmark is EnrichedBookmark => Boolean(bookmark)));
     } catch (err) {
@@ -76,8 +97,8 @@ const Bookmarks: React.FC = () => {
     }
 
     return bookmarks.filter((bookmark) => {
-      const mangaTitle = (bookmark.manga?.title || bookmark.mangaTitle || '').toLocaleLowerCase('tr-TR');
-      const alternativeTitles = (bookmark.manga?.alternativeTitles || bookmark.mangaAlternativeTitles || [])
+      const mangaTitle = (bookmark.mangaTitle || '').toLocaleLowerCase('tr-TR');
+      const alternativeTitles = (bookmark.mangaAlternativeTitles || [])
         .join(' ')
         .toLocaleLowerCase('tr-TR');
 
@@ -199,16 +220,12 @@ const Bookmarks: React.FC = () => {
               estimatedItemHeight={348}
               overscanRows={4}
               renderItem={(item, index) => {
-                const { manga, chapter } = item;
-                const mangaTitle = manga?.title || item.mangaTitle || 'Seri';
-                const chapterLabel = chapter?.number || item.chapterNumber;
+                const mangaTitle = item.mangaTitle || 'Seri';
+                const chapterLabel = item.chapterNumber;
                 const chapterNumberLabel = formatChapterNumberLabel(chapterLabel);
-                const chapterTitle = sanitizeChapterTitle(chapterLabel, chapter?.title || item.chapterTitle);
-                const previewImage = !isOnline
-                  ? (manga?.cover || item.mangaCover)
-                  : (chapter?.pages && chapter.pages.length >= item.page)
-                    ? chapter.pages[item.page - 1]
-                    : (manga?.cover || item.mangaCover);
+                const chapterTitle = sanitizeChapterTitle(chapterLabel, item.chapterTitle);
+                const previewImage = item.pagePreview || item.mangaCover;
+                const hasPagePreview = Boolean(item.pagePreview);
 
                 return (
                   <div
@@ -235,7 +252,7 @@ const Bookmarks: React.FC = () => {
                             <ProxyImage
                               src={previewImage}
                               alt={mangaTitle}
-                              transform={chapter?.pages && chapter.pages.length >= item.page ? BOOKMARK_PAGE_THUMBNAIL_TRANSFORM : undefined}
+                              transform={hasPagePreview ? BOOKMARK_PAGE_THUMBNAIL_TRANSFORM : undefined}
                               loading="lazy"
                               decoding="async"
                               fetchPriority="low"

@@ -99,6 +99,14 @@ export const deleteChapterAutomation = async (automationId: string) => {
   ensureSuccess(response, 'CHAPTER_AUTOMATION_DELETE_FAILED');
 };
 
+export const clearChapterAutomationRuns = async () => {
+  const response = await invokeAuthenticatedFunction<ChapterAutomationResponse>('admin-chapter-automation', {
+    action: 'clear-runs',
+  });
+
+  ensureSuccess(response, 'CHAPTER_AUTOMATION_CLEAR_RUNS_FAILED');
+};
+
 export const setChapterAutomationActive = async (automationId: string, isActive: boolean) => {
   const response = await invokeAuthenticatedFunction<ChapterAutomationResponse>('admin-chapter-automation', {
     action: 'set-active',

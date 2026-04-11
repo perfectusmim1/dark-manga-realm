@@ -27,7 +27,6 @@ import { Textarea } from '@/components/ui/textarea';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
     DropdownMenu,
     DropdownMenuContent,
@@ -133,6 +132,7 @@ const normalizeDraft = (draft: CommentDraft) => ({
 });
 
 const extractMentionPrefix = (value: string) => value.match(/^@[\w.-]+\s+/)?.[0] || null;
+const MENTION_PATTERN = /(@[\w.-]+)/g;
 
 const keepMentionPrefix = (value: string, mentionPrefix: string | null) => {
     if (!mentionPrefix) {
@@ -146,11 +146,26 @@ const keepMentionPrefix = (value: string, mentionPrefix: string | null) => {
     return `${mentionPrefix}${value.replace(/^@[\w.-]+\s*/, '')}`;
 };
 
-const highlightMentions = (content: string) => {
-    const parts = content.split(/(@[\w.-]+)/g);
+const highlightMentions = (content: string, mentionUserIdByUsername: Record<string, string>) => {
+    const parts = content.split(MENTION_PATTERN);
 
     return parts.map((part, i) => {
         if (part.startsWith('@')) {
+            const username = part.slice(1);
+            const mentionedUserId = mentionUserIdByUsername[username.toLowerCase()];
+
+            if (mentionedUserId) {
+                return (
+                    <Link
+                        key={i}
+                        to={`/profile/${mentionedUserId}`}
+                        className="font-medium text-sky-400 transition-colors hover:text-sky-300 hover:underline"
+                    >
+                        {part}
+                    </Link>
+                );
+            }
+
             return <span key={i} className="font-medium text-sky-400">{part}</span>;
         }
 
@@ -169,17 +184,78 @@ const getCommentMediaUrls = (comment: Comment) => {
 const hasCommentMedia = (comment: Comment) => getCommentMediaUrls(comment).length > 0;
 const hasCommentGif = (comment: Comment) => Boolean(comment.gifUrl);
 
-const renderFormattedText = (content: string) => {
+const renderFormattedText = (content: string, mentionUserIdByUsername: Record<string, string>) => {
     const plainText = stripCommentFormatting(content).replace(/\r\n/g, '\n');
     const lines = plainText.split('\n');
 
     return lines.map((line, index) => (
         <React.Fragment key={`${line}-${index}`}>
             {index > 0 && <br />}
-            {highlightMentions(line)}
+            {highlightMentions(line, mentionUserIdByUsername)}
         </React.Fragment>
     ));
 };
+
+const getStaffCommentCardClassName = (role?: Comment['userRole'], variant: 'parent' | 'reply' = 'parent') => {
+    if (role === 'admin') {
+        return variant === 'parent'
+            ? 'border-red-950/80 bg-[linear-gradient(135deg,rgba(42,18,24,0.94)_0%,rgba(31,18,22,0.97)_46%,rgba(24,19,20,0.98)_100%)] shadow-none'
+            : 'border-red-950/55 bg-[linear-gradient(135deg,rgba(36,20,24,0.92)_0%,rgba(29,20,22,0.95)_52%,rgba(24,20,21,0.97)_100%)] shadow-none';
+    }
+
+    if (role === 'moderator') {
+        return variant === 'parent'
+            ? 'border-orange-950/60 bg-[linear-gradient(135deg,rgba(44,31,25,0.88)_0%,rgba(34,27,23,0.93)_46%,rgba(27,24,22,0.96)_100%)] shadow-none'
+            : 'border-orange-950/45 bg-[linear-gradient(135deg,rgba(37,29,24,0.9)_0%,rgba(31,26,23,0.94)_52%,rgba(26,23,21,0.97)_100%)] shadow-none';
+    }
+
+    return '';
+};
+
+const renderStaffCommentBackdrop = (role?: Comment['userRole'], variant: 'parent' | 'reply' = 'parent') => {
+    if (variant === 'reply') {
+        return null;
+    }
+
+    if (role === 'admin') {
+        return (
+            <>
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(153,27,27,0.08),transparent_34%)]" />
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_right,rgba(69,10,10,0.07),transparent_70%)]" />
+            </>
+        );
+    }
+
+    if (role === 'moderator') {
+        return (
+            <>
+                <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(251,191,36,0.08),transparent_34%)]" />
+                <div className="pointer-events-none absolute inset-y-0 right-0 w-1/2 bg-[radial-gradient(circle_at_right,rgba(180,83,9,0.06),transparent_70%)]" />
+            </>
+        );
+    }
+
+    return null;
+};
+
+const sortRepliesForDisplay = (items: Comment[]) => items.slice().sort((a, b) => {
+    const likeDiff = b.likes - a.likes;
+    if (likeDiff !== 0) {
+        return likeDiff;
+    }
+
+    const scoreDiff = getReactionScore(b) - getReactionScore(a);
+    if (scoreDiff !== 0) {
+        return scoreDiff;
+    }
+
+    const pinDiff = Number(Boolean(b.isPinned)) - Number(Boolean(a.isPinned));
+    if (pinDiff !== 0) {
+        return pinDiff;
+    }
+
+    return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+});
 
 const shouldShowEditedLabel = (comment: Comment) => {
     if (!comment.updatedAt) {
@@ -480,13 +556,20 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                                 <Link2 className="mr-2 h-4 w-4" />
                                 Görsel Ekle
                             </Button>
-                            <label className="col-span-2 flex items-center gap-2 pt-1 text-xs text-muted-foreground sm:ml-1 sm:w-auto sm:pt-0 sm:text-sm">
-                                <Checkbox
-                                    checked={draft.isSpoiler}
-                                    onCheckedChange={(checked) => setField('isSpoiler', checked === true)}
-                                />
+                            <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                aria-pressed={draft.isSpoiler}
+                                className={cn(
+                                    'col-span-2 h-8 justify-center px-2.5 text-xs sm:col-span-1 sm:h-9 sm:px-3 sm:text-sm',
+                                    draft.isSpoiler && 'border border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary',
+                                )}
+                                onClick={() => setField('isSpoiler', !draft.isSpoiler)}
+                            >
+                                {draft.isSpoiler ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
                                 Spoiler Olarak İşaretle
-                            </label>
+                            </Button>
                         </div>
 
                         <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center">
@@ -1304,16 +1387,28 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         [comments, mergedBlockedUserIds]
     );
 
-    const commentChildrenMap = useMemo(() => visibleComments.reduce<Record<string, Comment[]>>((accumulator, comment) => {
-        const key = comment.parentId || 'root';
+    const commentChildrenMap = useMemo(() => {
+        const groupedComments = visibleComments.reduce<Record<string, Comment[]>>((accumulator, comment) => {
+            const key = comment.parentId || 'root';
 
-        if (!accumulator[key]) {
-            accumulator[key] = [];
+            if (!accumulator[key]) {
+                accumulator[key] = [];
+            }
+
+            accumulator[key].push(comment);
+            return accumulator;
+        }, {});
+
+        for (const [parentId, replies] of Object.entries(groupedComments)) {
+            if (parentId === 'root' || replies.length < 2) {
+                continue;
+            }
+
+            groupedComments[parentId] = sortRepliesForDisplay(replies);
         }
 
-        accumulator[key].push(comment);
-        return accumulator;
-    }, {}), [visibleComments]);
+        return groupedComments;
+    }, [visibleComments]);
 
     const parentComments = commentChildrenMap.root || [];
     const totalPages = Math.max(1, Math.ceil(parentComments.length / PARENT_COMMENTS_PER_PAGE));
@@ -1326,6 +1421,13 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const commentById = useMemo(
         () => visibleComments.reduce<Record<string, Comment>>((accumulator, comment) => {
             accumulator[comment.id] = comment;
+            return accumulator;
+        }, {}),
+        [visibleComments]
+    );
+    const mentionUserIdByUsername = useMemo(
+        () => visibleComments.reduce<Record<string, string>>((accumulator, comment) => {
+            accumulator[comment.username.toLowerCase()] = comment.userId;
             return accumulator;
         }, {}),
         [visibleComments]
@@ -1844,10 +1946,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     ? 'border border-primary/30 bg-primary/5 p-2'
                                     : useNestedCardStyle
                                         ? 'border border-border/60 bg-background/30 p-2.5 sm:p-3'
-                                        : ''
+                                        : '',
+                                getStaffCommentCardClassName(reply.userRole, 'reply')
                             )}
                         >
-                            <div className="flex items-start gap-2 transition-all duration-300 sm:flex-row">
+                            {renderStaffCommentBackdrop(reply.userRole, 'reply')}
+                            <div className="relative z-10 flex items-start gap-2 transition-all duration-300 sm:flex-row">
                                 <Link to={`/profile/${reply.userId}`} className="shrink-0 transition-transform hover:scale-105">
                                     <Avatar className="h-8 w-8 border border-transparent text-foreground transition-colors hover:border-primary">
                                         <AvatarImage src={reply.userAvatar} />
@@ -1946,7 +2050,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                         <div className="space-y-2">
                                             {reply.title && <h4 className="font-bold text-foreground">{reply.title}</h4>}
                                             <p className="text-sm leading-relaxed text-foreground/90">
-                                                {renderFormattedText(reply.content)}
+                                                {renderFormattedText(reply.content, mentionUserIdByUsername)}
                                             </p>
                                             {hasCommentMedia(reply) && (
                                                 <CommentRevealPanel
@@ -2338,10 +2442,12 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     className={cn(
                                         'relative overflow-hidden rounded-lg border p-2.5 transition-all sm:p-4',
                                         highlightedCommentId === comment.id && 'animate-pulse ring-2 ring-primary/70 bg-primary/10 shadow-[0_0_32px_rgba(59,130,246,0.22)]',
-                                        comment.isPinned ? 'border-primary/40 bg-primary/5' : 'border-border bg-card/50'
+                                        comment.isPinned ? 'border-primary/40 bg-primary/5' : 'border-border bg-card/50',
+                                        getStaffCommentCardClassName(comment.userRole)
                                     )}
                                 >
-                                    <div className="transition-all duration-300">
+                                    {renderStaffCommentBackdrop(comment.userRole)}
+                                    <div className="relative z-10 transition-all duration-300">
                                         <div className="flex items-start gap-3">
                                             <Link to={`/profile/${comment.userId}`} className="shrink-0 transition-transform hover:scale-105">
                                                 <Avatar className="h-9 w-9 border border-transparent text-foreground transition-colors cursor-pointer hover:border-primary sm:h-10 sm:w-10">
@@ -2466,7 +2572,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                             <>
                                                                 {comment.title && <h4 className="font-bold text-foreground">{comment.title}</h4>}
                                                                 <p className="text-foreground/90 leading-relaxed font-sans">
-                                                                    {renderFormattedText(comment.content)}
+                                                                    {renderFormattedText(comment.content, mentionUserIdByUsername)}
                                                                 </p>
 
                                                                 {comment.isSpoiler && (

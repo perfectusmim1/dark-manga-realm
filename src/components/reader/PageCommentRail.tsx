@@ -1,9 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { formatDistanceToNow } from 'date-fns';
-import { tr } from 'date-fns/locale';
-import { AlertTriangle, Eye, EyeOff, MessageCircle, Reply, ThumbsDown, ThumbsUp } from 'lucide-react';
+import { AlertTriangle, Eye, EyeOff, ThumbsDown, ThumbsUp } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
-import { Badge } from '@/components/ui/badge';
 import StaffBadge from '@/components/user/StaffBadge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getStaffTextClassName } from '@/lib/staffRoles';
@@ -382,9 +379,6 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
                                         </p>
                                         <StaffBadge role={comment.userRole} compact />
                                     </div>
-                                    <p className="text-[10px] text-muted-foreground">
-                                        {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
-                                    </p>
                                 </div>
 
                                 <button
@@ -414,18 +408,6 @@ const PageCommentRail: React.FC<PageCommentRailProps> = ({
                                     <span className="font-semibold">{comment.dislikes}</span>
                                 </button>
                             </div>
-
-                            {comment.parentId ? (
-                                <Badge variant="outline" className="h-5 gap-1 px-1.5 text-[10px]">
-                                    <Reply className="h-3 w-3" />
-                                    Yanıt
-                                </Badge>
-                            ) : (
-                                <Badge variant="outline" className="h-5 gap-1 px-1.5 text-[10px]">
-                                    <MessageCircle className="h-3 w-3" />
-                                    Yorum
-                                </Badge>
-                            )}
 
                             {isSpoilerHidden ? (
                                 <button

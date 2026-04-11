@@ -8,6 +8,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
 import { toast } from 'sonner';
 import { getMangaTypeLabel } from '@/lib/mangaType';
+import { useAdultImageBlurPreference } from '@/hooks/useAdultImageBlurPreference';
 
 interface FeaturedMangaProps {
   manga: Manga;
@@ -16,6 +17,8 @@ interface FeaturedMangaProps {
 const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
   const { user } = useAuth();
   const [favorite, setFavorite] = React.useState(false);
+  const blurAdultArtwork = useAdultImageBlurPreference();
+  const shouldBlurAdultArtwork = blurAdultArtwork && manga.isAdult === true;
 
   React.useEffect(() => {
     setFavorite(false); // Reset state immediately when user or manga changes
@@ -56,7 +59,7 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
         <img
           src={manga.banner || manga.cover}
           alt=""
-          className="h-full w-full object-cover opacity-20 blur-2xl"
+          className={`h-full w-full object-cover opacity-20 blur-2xl ${shouldBlurAdultArtwork ? 'scale-[1.03] blur-[30px]' : ''}`}
         />
         <div className="absolute inset-0 bg-gradient-to-r from-background via-background/80 to-transparent" />
       </div>
@@ -70,7 +73,7 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
           <img
             src={manga.cover}
             alt={manga.title}
-            className="h-64 w-44 object-cover md:h-80 md:w-56"
+            className={`h-64 w-44 object-cover md:h-80 md:w-56 ${shouldBlurAdultArtwork ? 'scale-[1.03] blur-md' : ''}`}
           />
           <div className="absolute inset-0 flex items-center justify-center bg-black/40 opacity-0 transition-all duration-300 group-hover:opacity-100 backdrop-blur-[2px]">
             <div className="relative flex h-16 w-16 items-center justify-center rounded-full bg-white/10 border border-white/20 backdrop-blur-md shadow-2xl transition-all duration-300 group-hover:scale-110 group-hover:bg-white/20 group-active:scale-95">

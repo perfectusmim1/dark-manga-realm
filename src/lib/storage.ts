@@ -1777,6 +1777,7 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
                         ...bookmark,
                         mangaTitle: manga?.title || existingBookmark?.mangaTitle,
                         mangaCover: manga?.cover || existingBookmark?.mangaCover,
+                        pageImage: existingBookmark?.pageImage,
                         mangaAlternativeTitles: manga?.alternative_titles || existingBookmark?.mangaAlternativeTitles || [],
                         chapterTitle: chapter?.title || existingBookmark?.chapterTitle,
                     } satisfies Bookmark;
@@ -1817,6 +1818,7 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         createdAt: new Date().toISOString(),
         mangaTitle: bookmark.mangaTitle,
         mangaCover: bookmark.mangaCover,
+        pageImage: bookmark.pageImage,
         mangaAlternativeTitles: bookmark.mangaAlternativeTitles || [],
         chapterTitle: bookmark.chapterTitle,
     };

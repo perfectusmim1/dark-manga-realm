@@ -3057,6 +3057,21 @@ const isMissingMangaCommentPageNumberError = (error: unknown) => {
         || message.includes('page_number');
 };
 
+const isMissingSetCommentPinnedRpcError = (error: unknown) => {
+    const message = typeof error === 'object' && error !== null
+        ? `${String((error as { message?: unknown }).message || '')} ${String((error as { details?: unknown }).details || '')} ${String((error as { hint?: unknown }).hint || '')}`.toLowerCase()
+        : '';
+    const code = typeof error === 'object' && error !== null && 'code' in error
+        ? String((error as { code?: unknown }).code || '').toLowerCase()
+        : '';
+
+    return code === '42883'
+        || code === 'pgrst202'
+        || message.includes('set_comment_pinned')
+        || message.includes('does not exist')
+        || message.includes('could not find');
+};
+
 export const getCommentsForManga = async (
     mangaId: string,
     chapterId?: string,
@@ -3473,15 +3488,30 @@ export const getMangaTitlesByIds = async (mangaIds: string[]): Promise<Record<st
 };
 
 export const setCommentPinned = async (id: string, isPinned: boolean, entityType: string = 'manga'): Promise<void> => {
+    const { error } = await supabase.rpc('set_comment_pinned', {
+        p_comment_id: id,
+        p_is_pinned: isPinned,
+        p_entity_type: entityType,
+    });
+
+    if (!error) {
+        return;
+    }
+
+    if (!isMissingSetCommentPinnedRpcError(error)) {
+        console.error('Yorum sabitleme hatası:', error);
+        throw error;
+    }
+
     const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
-    const { error } = await supabase
+    const { error: fallbackError } = await supabase
         .from(tableName as any)
         .update({ is_pinned: isPinned } as any)
         .eq('id', id);
 
-    if (error) {
-        console.error('Yorum sabitleme hatası:', error);
-        throw error;
+    if (fallbackError) {
+        console.error('Yorum sabitleme hatası:', fallbackError);
+        throw fallbackError;
     }
 };
 
@@ -6208,29 +6238,32 @@ const buildAudienceTopTen = (
                 : true
     );
 
-    const filteredSummaries = summaries.filter(matchesAudience);
-    const filteredSummaryMap = new Map(filteredSummaries.map((manga) => [manga.id, manga]));
+    const summaryMap = new Map(summaries.map((manga) => [manga.id, manga]));
 
     if (!rawData || rawData.length === 0) {
         return [];
     }
 
     return rawData
-        .filter((item: any) => filteredSummaryMap.has(item?.id))
         .map((item: any) => {
-            const summary = filteredSummaryMap.get(item.id);
+            const summary = summaryMap.get(item.id);
+
+            const mappedItem = {
+                ...item,
+                ...mapMangaBaseFields(summary ?? item),
+            } as Manga;
 
             return {
-                ...item,
-                ...mapMangaBaseFields(item),
+                ...mappedItem,
                 chapters: [],
                 ratings: [],
-                chapterCount: summary?.chapterCount ?? 0,
-                engagementScore: item.engagement_score,
-                averageRating: item.average_rating || summary?.averageRating || 0,
-                reviewCount: summary?.reviewCount || 0,
+                chapterCount: summary?.chapterCount ?? item.chapter_count ?? item.chapterCount ?? 0,
+                engagementScore: item.engagement_score ?? item.engagementScore ?? 0,
+                averageRating: item.average_rating || summary?.averageRating || item.averageRating || 0,
+                reviewCount: summary?.reviewCount || item.review_count || item.reviewCount || 0,
             } as Manga;
         })
+        .filter(matchesAudience)
         .sort((left, right) => {
             const engagementDiff = (right.engagementScore || 0) - (left.engagementScore || 0);
             if (engagementDiff !== 0) {
@@ -6287,6 +6320,48 @@ export const getTopTenMangaBuckets = async (
         console.error('getTopTenMangaBuckets exception:', error);
         return {
             visible: [],
+            safe: [],
+            adult: [],
+        };
+    }
+};
+
+export const getTopTenPageBuckets = async (
+    timeframe: 'today' | 'week' | 'all' = 'today',
+): Promise<{ safe: Manga[]; adult: Manga[] }> => {
+    try {
+        const summaries = await getMangaSummaries();
+        const [
+            { data: safeRawData, error: safeError },
+            { data: adultRawData, error: adultError },
+        ] = await Promise.all([
+            supabase.rpc('get_top_engaged_mangas_by_audience', {
+                time_filter: timeframe,
+                target_audience: 'safe',
+                result_limit: 10,
+            }),
+            supabase.rpc('get_top_engaged_mangas_by_audience', {
+                time_filter: timeframe,
+                target_audience: 'adult',
+                result_limit: 10,
+            }),
+        ]);
+
+        if (safeError) {
+            console.error('getTopTenPageBuckets safe error:', safeError);
+        }
+
+        if (adultError) {
+            console.error('getTopTenPageBuckets adult error:', adultError);
+        }
+
+        return {
+            safe: buildAudienceTopTen(summaries, safeRawData, 'safe'),
+            adult: buildAudienceTopTen(summaries, adultRawData, 'adult'),
+        };
+    } catch (error) {
+        console.error('getTopTenPageBuckets exception:', error);
+        return {
             safe: [],
             adult: [],
         };

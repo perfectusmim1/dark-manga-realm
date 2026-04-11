@@ -7,11 +7,11 @@ const isStaffRole = (role?: StaffRole): role is 'admin' | 'moderator' =>
 
 const getStaffTextClassName = (role?: StaffRole, interactive = true) => {
   if (role === 'admin') {
-    return interactive ? 'text-violet-300 hover:text-violet-200' : 'text-violet-300';
+    return interactive ? 'text-[#d77878] hover:text-[#e08a8a]' : 'text-[#d77878]';
   }
 
   if (role === 'moderator') {
-    return interactive ? 'text-orange-300 hover:text-orange-200' : 'text-orange-300';
+    return interactive ? 'text-orange-100 hover:text-orange-50' : 'text-orange-100';
   }
 
   return '';

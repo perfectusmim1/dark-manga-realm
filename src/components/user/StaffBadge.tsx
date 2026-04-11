@@ -28,8 +28,8 @@ const StaffBadge: React.FC<StaffBadgeProps> = ({ role, compact = false, classNam
         'inline-flex items-center gap-1 whitespace-nowrap rounded-full font-semibold',
         compact ? 'h-5 px-1.5 text-[10px]' : 'h-6 px-2.5 text-[11px]',
         role === 'admin'
-          ? 'border-violet-400/30 bg-violet-500/10 text-violet-200'
-          : 'border-orange-400/30 bg-orange-500/10 text-orange-200',
+          ? 'border-red-900/45 bg-red-950/70 text-red-300'
+          : 'border-orange-500/25 bg-orange-950/45 text-orange-200',
         className
       )}
     >

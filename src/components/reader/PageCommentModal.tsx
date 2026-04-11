@@ -1,10 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Image, Link2, Send, X } from 'lucide-react';
+import { Eye, EyeOff, Image, Link2, Send, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
-import { Checkbox } from '@/components/ui/checkbox';
 import {
     Dialog,
     DialogContent,
@@ -17,6 +16,7 @@ import { addCommentV2 } from '@/lib/database';
 import { commentHasRenderableContent, isValidCommentMediaUrls } from '@/lib/commentContent';
 import { dispatchPageCommentsUpdated } from '@/lib/pageCommentEvents';
 import { User } from '@/lib/types';
+import { cn } from '@/lib/utils';
 
 const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
 
@@ -304,16 +304,22 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                                                 Görsel Ekle
                                             </Button>
 
-                                            <label className="ml-1 flex items-center gap-2 text-sm text-muted-foreground">
-                                                <Checkbox
-                                                    checked={draft.isSpoiler}
-                                                    onCheckedChange={(checked) => setDraft((previous) => ({
-                                                        ...previous,
-                                                        isSpoiler: checked === true,
-                                                    }))}
-                                                />
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="sm"
+                                                aria-pressed={draft.isSpoiler}
+                                                className={cn(
+                                                    draft.isSpoiler && 'border border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary',
+                                                )}
+                                                onClick={() => setDraft((previous) => ({
+                                                    ...previous,
+                                                    isSpoiler: !previous.isSpoiler,
+                                                }))}
+                                            >
+                                                {draft.isSpoiler ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
                                                 Spoiler Olarak İşaretle
-                                            </label>
+                                            </Button>
                                         </div>
 
                                         <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center">

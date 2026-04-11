@@ -35,6 +35,7 @@ import {
 import { ADULT_MODE_CHANGED_EVENT } from '@/lib/adultModeEvents';
 import { readHeaderShellSnapshot } from '@/lib/headerShellCache';
 import { getMangaTypeLabel } from '@/lib/mangaType';
+import { cn } from '@/lib/utils';
 import {
   HOME_SECTIONS_CACHE_TTL_MS,
   TOP_TEN_WEEK_CACHE_TTL_MS,
@@ -384,6 +385,7 @@ const continueReadingGlassMetaClass = 'inline-flex items-center rounded-full bor
 interface ContinueReadingSpotlightProps {
   entries: ContinueReadingEntry[];
   disableHeavyEffects: boolean;
+  blurAdultArtwork: boolean;
 }
 
 const ContinueReadingSpotlightSkeleton: React.FC = () => (
@@ -444,6 +446,7 @@ const ContinueReadingSpotlightSkeleton: React.FC = () => (
 const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
   entries,
   disableHeavyEffects,
+  blurAdultArtwork,
 }) => {
   const [featured, ...secondaryEntries] = entries;
 
@@ -458,6 +461,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
   const continueHref = `/manga/${featured.manga.id}/chapter/${featured.chapterId}`;
   const detailsHref = `/manga/${featured.manga.id}`;
   const featuredDescription = truncateContinueReadingDescription(featured.manga.description);
+  const shouldBlurFeaturedArtwork = blurAdultArtwork && featured.manga.isAdult === true;
 
   return (
     <section
@@ -496,7 +500,10 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
               transform={CONTINUE_READING_BANNER_TRANSFORM}
               containerClassName="h-full w-full"
               placeholderClassName="rounded-none"
-              className="h-full w-full object-cover object-top opacity-30"
+              className={cn(
+                'h-full w-full object-cover object-top opacity-30',
+                shouldBlurFeaturedArtwork && 'scale-[1.04] blur-md',
+              )}
             />
           </div>
         )}
@@ -568,7 +575,11 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                   transform={CONTINUE_READING_COVER_TRANSFORM}
                   containerClassName="h-full w-full"
                   placeholderClassName="rounded-[24px] sm:rounded-[28px]"
-                  className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105'}`}
+                  className={cn(
+                    'h-full w-full object-cover',
+                    shouldBlurFeaturedArtwork && 'scale-[1.03] blur-md',
+                    disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105',
+                  )}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
                 <div className="absolute inset-x-0 bottom-0 p-3 sm:p-4">
@@ -601,7 +612,11 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                 transform={CONTINUE_READING_COVER_TRANSFORM}
                 containerClassName="h-20 w-14 shrink-0 overflow-hidden rounded-xl"
                 placeholderClassName="rounded-xl"
-                className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-300 group-hover:scale-105'}`}
+                className={cn(
+                  'h-full w-full object-cover',
+                  blurAdultArtwork && entry.manga.isAdult === true && 'scale-[1.03] blur-sm',
+                  disableHeavyEffects ? '' : 'transition-transform duration-300 group-hover:scale-105',
+                )}
               />
               <div className="min-w-0 flex-1">
                 <p className="line-clamp-1 text-sm font-semibold">{entry.manga.title}</p>
@@ -916,6 +931,7 @@ const Index: React.FC = () => {
   ));
   const [tagsLoading, setTagsLoading] = useState(() => readHomeFeedSeed().trendingTags === null);
   const hoverPreviewEnabled = appearancePreferences.manga_hover_preview;
+  const blurAdultArtwork = appearancePreferences.adult_cover_blur && user?.preferences?.content?.adult_mode === true;
   const mangas = useMemo(() => {
     const uniqueMangaById = new Map<string, Manga>();
 
@@ -1390,6 +1406,7 @@ const Index: React.FC = () => {
             <ContinueReadingSpotlight
               entries={continueReading}
               disableHeavyEffects={disableHeavyEffects}
+              blurAdultArtwork={blurAdultArtwork}
             />
             )}
           </div>

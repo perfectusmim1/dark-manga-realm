@@ -17,6 +17,7 @@ import { formatChapterNumberLabel } from '@/lib/chapterTitle';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
+import { useAdultImageBlurPreference } from '@/hooks/useAdultImageBlurPreference';
 
 interface MangaCardProps {
   manga: Manga;
@@ -106,6 +107,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 }) => {
   const [isTopTenWeek, setIsTopTenWeek] = useState(false);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const blurAdultArtwork = useAdultImageBlurPreference();
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
   const chapters = manga.chapters || [];
@@ -139,6 +141,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   const hasVisibleRating = averageRatingValue > 0 || reviewCount > 0;
 
   const showAdultLabel = manga.isAdult === true || isAdultMangaType(manga.type);
+  const shouldBlurAdultArtwork = blurAdultArtwork && showAdultLabel;
   const typeBadgeLabel = showAdultLabel ? 'Yetişkin' : getMangaTypeLabel(manga.type);
 
   const typeBadgeClassName = cn(
@@ -228,7 +231,11 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           transform={MANGA_CARD_COVER_TRANSFORM}
           containerClassName="h-full w-full"
           placeholderClassName="rounded-none"
-          className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-110'}`}
+          className={cn(
+            'h-full w-full object-cover',
+            shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
+            disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-110',
+          )}
         />
 
         <div className="absolute inset-0 bg-black/20" style={{ opacity: 0.9 }} />

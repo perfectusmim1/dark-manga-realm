@@ -190,6 +190,7 @@ const getReviewAverageScore = (review?: Partial<Review> | null) => {
 const REVIEW_EDIT_INDICATOR_THRESHOLD_MS = 1000;
 const REVIEW_CONTENT_MAX_LENGTH = 5000;
 const REVIEW_COLLAPSE_THRESHOLD = 700;
+type ReviewSortMode = 'new' | 'popular';
 
 const shouldShowEditedReviewLabel = (review: Review) => {
   const createdAt = new Date(review.createdAt).getTime();
@@ -422,8 +423,8 @@ const BookmarkPagePreview = React.memo(({
   return (
     <div
       ref={cardRef}
-      className="relative h-28 w-20 shrink-0 overflow-hidden rounded-xl border border-border bg-secondary shadow-sm sm:h-32 sm:w-24"
-      style={{ contentVisibility: 'auto', containIntrinsicSize: '80px 112px' }}
+      className="relative h-32 w-24 shrink-0 overflow-hidden rounded-2xl border border-border bg-secondary shadow-sm sm:h-36 sm:w-28 lg:h-40 lg:w-32"
+      style={{ contentVisibility: 'auto', containIntrinsicSize: '96px 128px' }}
     >
       {isNearViewport && src ? (
         <img
@@ -431,9 +432,9 @@ const BookmarkPagePreview = React.memo(({
           alt={alt}
           loading="lazy"
           decoding="async"
-          width={160}
-          height={224}
-          sizes="96px"
+          width={256}
+          height={320}
+          sizes="(min-width: 1024px) 128px, (min-width: 640px) 112px, 96px"
           draggable={false}
           referrerPolicy="no-referrer"
           className="h-full w-full object-cover"
@@ -445,7 +446,7 @@ const BookmarkPagePreview = React.memo(({
       )}
 
       <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
-      <div className="absolute bottom-2 left-2 rounded-md bg-black/70 px-2 py-1 text-[10px] font-semibold text-white shadow">
+      <div className="absolute bottom-2 left-2 rounded-md bg-black/70 px-2.5 py-1 text-[11px] font-semibold text-white shadow sm:bottom-3 sm:left-3 sm:text-xs">
         Sayfa {pageNumber}
       </div>
     </div>
@@ -505,6 +506,7 @@ const MangaDetail: React.FC = () => {
   const [isSeriesBookmarksLoading, setIsSeriesBookmarksLoading] = useState(false);
   const [hasLoadedBookmarks, setHasLoadedBookmarks] = useState(false);
   const [reviews, setReviews] = useState<Review[]>([]);
+  const [reviewSortMode, setReviewSortMode] = useState<ReviewSortMode>('new');
   const [expandedReviewIds, setExpandedReviewIds] = useState<Record<string, boolean>>({});
   const [avgBreakdown, setAvgBreakdown] = useState<any>({
     story: 0,
@@ -649,9 +651,34 @@ const MangaDetail: React.FC = () => {
   const isGalleryTabActive = activeTab === 'gallery';
   const isCharactersTabActive = activeTab === 'characters';
   const isDiscoverTabActive = activeTab === 'discover';
+  const targetCommentId = useMemo(
+    () => getTargetCommentIdFromLocation(location.search, location.hash),
+    [location.hash, location.search],
+  );
   const reviewCount = useMemo(() => (
     Math.max(manga?.reviewCount || 0, averageRating.count || 0)
   ), [averageRating.count, manga?.reviewCount]);
+  const sortedReviews = useMemo(() => {
+    const sortableReviews = [...reviews];
+
+    if (reviewSortMode === 'popular') {
+      return sortableReviews.sort((left, right) => {
+        if (right.likes !== left.likes) {
+          return right.likes - left.likes;
+        }
+
+        const rightCreatedAt = new Date(right.createdAt).getTime();
+        const leftCreatedAt = new Date(left.createdAt).getTime();
+        return rightCreatedAt - leftCreatedAt;
+      });
+    }
+
+    return sortableReviews.sort((left, right) => {
+      const rightCreatedAt = new Date(right.createdAt).getTime();
+      const leftCreatedAt = new Date(left.createdAt).getTime();
+      return rightCreatedAt - leftCreatedAt;
+    });
+  }, [reviewSortMode, reviews]);
   const characterCount = useMemo(() => (
     Math.max(manga?.characterCount || 0, mangaCharacters.length)
   ), [manga?.characterCount, mangaCharacters.length]);
@@ -940,11 +967,13 @@ const MangaDetail: React.FC = () => {
     return seriesBookmarks.map((bookmark) => {
       const chapter = chapterMap.get(bookmark.chapterId);
       const previewPages = chapter ? previewChapterPagesById[chapter.id] : undefined;
-      const previewImage = isOnline
+      const previewImage = bookmark.pageImage || (isOnline
         ? (Array.isArray(previewPages) && bookmark.page > 0 && bookmark.page <= previewPages.length
             ? previewPages[bookmark.page - 1]
             : manga?.cover || null)
-        : (manga?.cover || (Array.isArray(chapter?.pages) ? chapter.pages[0] : null));
+        : (Array.isArray(chapter?.pages) && bookmark.page > 0 && bookmark.page <= chapter.pages.length
+            ? chapter.pages[bookmark.page - 1]
+            : manga?.cover || null));
 
       return {
         bookmark,
@@ -987,12 +1016,10 @@ const MangaDetail: React.FC = () => {
   }, [hasLoadedBookmarks, hasLoadedCharacters, hasLoadedReviews, hasLoadedSimilar]);
 
   useEffect(() => {
-    const targetCommentId = getTargetCommentIdFromLocation(location.search, location.hash);
-
     if (targetCommentId && activeTab !== 'overview') {
       setActiveTab('overview');
     }
-  }, [activeTab, location.hash, location.search]);
+  }, [activeTab, targetCommentId]);
 
   useEffect(() => {
     setIsDescriptionExpanded(false);
@@ -2129,13 +2156,18 @@ const MangaDetail: React.FC = () => {
   }, [maxLoadedIndex, minLoadedPreviewIndex, previewStartIndex, sortedPreviewChapters]);
 
   useEffect(() => {
-    if (!isPreviewTabActive || !isOnline || previewWindow.displayedPreviewChapters.length === 0) {
+    if (!isOnline) {
       return;
     }
 
-    const missingChapterIds = previewWindow.displayedPreviewChapters
-      .map((chapter) => chapter.id)
-      .filter((chapterId) => !previewChapterPagesById[chapterId]);
+    const previewChapterIds = isPreviewTabActive
+      ? previewWindow.displayedPreviewChapters.map((chapter) => chapter.id)
+      : [];
+    const bookmarkChapterIds = isBookmarksTabActive
+      ? seriesBookmarks.map((bookmark) => bookmark.chapterId)
+      : [];
+    const missingChapterIds = [...new Set([...previewChapterIds, ...bookmarkChapterIds])]
+      .filter((chapterId) => chapterId && !previewChapterPagesById[chapterId]);
 
     if (missingChapterIds.length === 0) {
       return;
@@ -2163,7 +2195,14 @@ const MangaDetail: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [isOnline, isPreviewTabActive, previewChapterPagesById, previewWindow.displayedPreviewChapters]);
+  }, [
+    isBookmarksTabActive,
+    isOnline,
+    isPreviewTabActive,
+    previewChapterPagesById,
+    previewWindow.displayedPreviewChapters,
+    seriesBookmarks,
+  ]);
 
   useEffect(() => {
     setOverviewVisibleCount(OVERVIEW_CHAPTER_BATCH_SIZE);
@@ -2462,6 +2501,7 @@ const MangaDetail: React.FC = () => {
     ? manga.chapters.find(ch => ch.id === latestProgress.chapterId)
     : null;
   const heroArtwork = manga.banner || manga.cover;
+  const shouldBlurAdultArtwork = appearancePreferences.adult_cover_blur && user?.preferences?.content?.adult_mode === true && manga.isAdult === true;
 
   return (
     <div className="min-h-screen bg-background">
@@ -2480,6 +2520,7 @@ const MangaDetail: React.FC = () => {
               containerClassName="h-full w-full"
               className={cn(
                 'h-full w-full object-cover [mask-image:linear-gradient(to_bottom,rgba(0,0,0,0.98)_0%,rgba(0,0,0,0.88)_48%,rgba(0,0,0,0.55)_72%,transparent_100%)]',
+                shouldBlurAdultArtwork && 'scale-[1.12] blur-[34px]',
                 disableHeavyEffects
                   ? 'scale-105 blur-lg opacity-80'
                   : 'scale-[1.08] blur-xl lg:blur-2xl opacity-90',
@@ -2502,7 +2543,10 @@ const MangaDetail: React.FC = () => {
                   alt={manga.title}
                   priority
                   containerClassName="mx-auto"
-                  className="mx-auto h-auto w-full rounded-xl object-cover shadow-2xl shadow-primary/10 md:h-96"
+                  className={cn(
+                    'mx-auto h-auto w-full rounded-xl object-cover shadow-2xl shadow-primary/10 md:h-96',
+                    shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
+                  )}
                 />
               </div>
 
@@ -2631,42 +2675,51 @@ const MangaDetail: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-4 text-sm">
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-base sm:text-lg">
                   {averageRating.count > 0 && (
-                    <div className="flex items-center gap-1 text-primary">
-                      <Star className="h-4 w-4 fill-primary" />
-                      <span className="font-semibold">{averageRating.average}/10</span>
-                      <span className="text-muted-foreground">({averageRating.count})</span>
+                    <div className="flex items-center gap-1.5 text-yellow-400">
+                      <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
+                      <span className="font-semibold tracking-tight">{averageRating.average}/10</span>
+                      <span className="text-sm font-medium text-yellow-100/85 sm:text-base">({averageRating.count})</span>
                     </div>
                   )}
-                  <div className="flex items-center gap-1 text-muted-foreground">
-                    <Eye className="h-4 w-4" />
-                    <span>{formatViews(manga.views || 0)} görüntülenme</span>
+                  <div className="flex items-center gap-1.5 text-white">
+                    <Eye className="h-5 w-5 text-white/90" />
+                    <span className="font-medium tracking-tight">{formatViews(manga.views || 0)} görüntülenme</span>
                   </div>
-                  <div className="flex items-center gap-1 text-muted-foreground">
-                    <BookOpen className="h-4 w-4" />
-                    <span>{manga.chapters.length} bölüm</span>
+                  <div className="flex items-center gap-1.5 text-emerald-400">
+                    <BookOpen className="h-5 w-5 text-emerald-400" />
+                    <span className="font-semibold tracking-tight">{manga.chapters.length} bölüm</span>
                   </div>
                   {user && (
-                    <div className="flex items-center gap-1 text-red-400">
-                      <Clock3 className="h-4 w-4" />
-                      <span>
+                    <div className="flex items-center gap-1.5 text-red-400">
+                      <Clock3 className="h-5 w-5" />
+                      <span className="font-medium tracking-tight">
                         Bu seride {isSeriesReadingTimeLoading ? 'yükleniyor...' : formatReadingDuration(seriesReadingSeconds)}
                       </span>
                     </div>
                   )}
                   {offlineSeriesEntry && offlineSeriesEntry.downloadedChapters > 0 && (
-                    <div className="flex items-center gap-1 text-blue-400">
-                      <Download className="h-4 w-4" />
-                      <span>{offlineSeriesEntry.downloadedChapters} bölüm çevrimdışı hazır</span>
+                    <div className="flex items-center gap-1.5 text-blue-400">
+                      <Download className="h-5 w-5" />
+                      <span className="font-medium tracking-tight">{offlineSeriesEntry.downloadedChapters} bölüm çevrimdışı hazır</span>
                     </div>
                   )}
                 </div>
 
                 <div>
-                  <p className="text-foreground/80 leading-relaxed">
+                  <button
+                    type="button"
+                    onClick={() => shouldShowDescriptionToggle && setIsDescriptionExpanded((previous) => !previous)}
+                    className={cn(
+                      'w-full text-left text-base leading-relaxed text-foreground/80 transition-colors sm:text-[1.0625rem]',
+                      shouldShowDescriptionToggle && 'cursor-pointer hover:text-foreground/90',
+                    )}
+                    aria-expanded={isDescriptionExpanded}
+                    title={shouldShowDescriptionToggle ? 'Seri özetini göster/gizle' : undefined}
+                  >
                     {shouldShowDescriptionToggle && !isDescriptionExpanded ? descriptionPreview : manga.description}
-                  </p>
+                  </button>
                   {shouldShowDescriptionToggle && (
                     <Button
                       type="button"
@@ -3148,7 +3201,12 @@ const MangaDetail: React.FC = () => {
                     </div>
                   </div>
 
-                  <DeferredMount className="mt-4 sm:mt-8" placeholderMinHeight={420} rootMargin="240px 0px">
+                  <DeferredMount
+                    className="mt-4 sm:mt-8"
+                    placeholderMinHeight={420}
+                    rootMargin="240px 0px"
+                    disabled={Boolean(targetCommentId)}
+                  >
                     <div className="rounded-xl border border-border bg-card/50 p-3 shadow-sm sm:p-6 lg:p-10">
                       {isOnline ? (
                         <CommentSection mangaId={manga.id} />
@@ -3245,7 +3303,7 @@ const MangaDetail: React.FC = () => {
 
             <TabsContent value="bookmarks" className="animate-in fade-in slide-in-from-bottom-4 duration-500">
               {isBookmarksTabActive ? (
-              <div className="mx-auto max-w-5xl space-y-6">
+              <div className="mx-auto max-w-6xl space-y-6">
                 {!user ? (
                   <div className="rounded-xl border border-border bg-card/50 p-8 text-center shadow-sm">
                     <h3 className="text-xl font-semibold">Bu serideki yer imlerini görmek için giriş yapın</h3>
@@ -3273,12 +3331,12 @@ const MangaDetail: React.FC = () => {
                       />
                     )}
 
-                    <div className="grid gap-4 lg:grid-cols-2">
+                    <div className="grid gap-5 lg:grid-cols-2">
                       {seriesBookmarkEntries.map(({ bookmark, chapter, chapterLabel, createdAtLabel, previewImage }, index) => (
                         <Link
                           key={`${bookmark.chapterId}-${bookmark.page}-${bookmark.createdAt || index}`}
                           to={`/manga/${manga.id}/chapter/${bookmark.chapterId}?page=${bookmark.page}`}
-                          className="group flex gap-4 rounded-xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 animate-fade-up opacity-0 [transform:translateZ(0)]"
+                          className="group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6 animate-fade-up opacity-0 [transform:translateZ(0)]"
                           style={{ animationDelay: `${0.08 + index * 0.04}s`, animationFillMode: 'forwards' }}
                         >
                           <BookmarkPagePreview
@@ -3289,14 +3347,14 @@ const MangaDetail: React.FC = () => {
 
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
-                              <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary/80">Yer İmi</p>
+                              <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80 sm:text-sm">Yer İmi</p>
                             </div>
 
-                            <h3 className="mt-2 line-clamp-2 text-base font-semibold sm:text-lg">
+                            <h3 className="mt-2 line-clamp-2 text-lg font-semibold sm:mt-3 sm:text-xl">
                               {chapterLabel}
                             </h3>
 
-                            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground">
+                            <div className="mt-3 flex items-center gap-2 text-sm text-muted-foreground sm:text-base">
                               <span>
                                 {chapter
                                   ? (getKnownChapterPageCount(chapter)
@@ -3307,12 +3365,12 @@ const MangaDetail: React.FC = () => {
                             </div>
 
                             {bookmark.note && (
-                              <div className="mt-3 rounded-lg border border-border/60 bg-secondary/40 p-3 text-sm italic text-muted-foreground">
+                              <div className="mt-4 rounded-xl border border-border/60 bg-secondary/40 p-3 text-sm italic text-muted-foreground sm:p-4">
                                 "{bookmark.note}"
                               </div>
                             )}
 
-                            <div className="mt-4 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+                            <div className="mt-auto flex items-center justify-between gap-3 pt-4 text-sm text-muted-foreground sm:pt-5 sm:text-base">
                               <span>{createdAtLabel}</span>
                               <span className="inline-flex items-center gap-1 text-primary transition-all group-hover:gap-1.5">
                                 Yer imine git
@@ -3582,14 +3640,46 @@ const MangaDetail: React.FC = () => {
 
                   {/* Reviews List */}
                   <div className="space-y-6">
-                    <h3 className="text-xl font-bold mb-6 flex items-center gap-2">
-                      <MessageSquare className="h-5 w-5 text-primary" />
-                      Kullanıcı İncelemeleri
-                    </h3>
+                    <div className="mb-6 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                      <h3 className="flex items-center gap-2 text-xl font-bold">
+                        <MessageSquare className="h-5 w-5 text-primary" />
+                        Kullanıcı İncelemeleri
+                      </h3>
+                      <div className="inline-flex w-full rounded-full border border-border/70 bg-secondary/30 p-1 sm:w-auto">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setReviewSortMode('new')}
+                          className={cn(
+                            'h-9 flex-1 rounded-full px-4 text-sm sm:flex-none',
+                            reviewSortMode === 'new'
+                              ? 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          Yeni
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setReviewSortMode('popular')}
+                          className={cn(
+                            'h-9 flex-1 rounded-full px-4 text-sm sm:flex-none',
+                            reviewSortMode === 'popular'
+                              ? 'bg-primary text-primary-foreground hover:bg-primary/90 hover:text-primary-foreground'
+                              : 'text-muted-foreground hover:text-foreground',
+                          )}
+                        >
+                          Popüler
+                        </Button>
+                      </div>
+                    </div>
 
-                    {reviews.length > 0 ? (
+                    {sortedReviews.length > 0 ? (
                       <div className="grid grid-cols-1 gap-6">
-                        {reviews.map((review) => {
+                        {sortedReviews.map((review) => {
                           const isBlocked = blockedUserIds.includes(review.userId);
                           const isRevealed = revealedBlockedReviews[review.id];
                           const isReviewExpanded = Boolean(expandedReviewIds[review.id]);

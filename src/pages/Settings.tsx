@@ -84,11 +84,13 @@ type PreferenceState = {
         manga_hover_preview: boolean;
         show_header_offline_toggle: boolean;
         show_chapter_card_images: boolean;
+        adult_cover_blur: boolean;
     };
     privacy: {
         visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['visibility'];
         reading_history_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['reading_history_visibility'];
         comments_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['comments_visibility'];
+        reviews_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['reviews_visibility'];
         reading_lists_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['reading_lists_visibility'];
         tier_lists_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['tier_lists_visibility'];
         followed_manga_visibility: NonNullable<NonNullable<AppUser['preferences']>['privacy']>['followed_manga_visibility'];
@@ -155,11 +157,13 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
         manga_hover_preview: preferences?.appearance?.manga_hover_preview ?? false,
         show_header_offline_toggle: preferences?.appearance?.show_header_offline_toggle ?? true,
         show_chapter_card_images: preferences?.appearance?.show_chapter_card_images ?? false,
+        adult_cover_blur: preferences?.appearance?.adult_cover_blur ?? false,
     },
     privacy: {
         visibility: preferences?.privacy?.visibility ?? 'public',
         reading_history_visibility: preferences?.privacy?.reading_history_visibility ?? 'public',
         comments_visibility: preferences?.privacy?.comments_visibility ?? 'public',
+        reviews_visibility: preferences?.privacy?.reviews_visibility ?? 'public',
         reading_lists_visibility: preferences?.privacy?.reading_lists_visibility ?? 'public',
         tier_lists_visibility: preferences?.privacy?.tier_lists_visibility ?? 'public',
         followed_manga_visibility: preferences?.privacy?.followed_manga_visibility ?? 'public',
@@ -1622,6 +1626,11 @@ const Settings: React.FC = () => {
                                     'Profilinizdeki yorum sekmesini ve son yorumlarınızı kimler görebilir?'
                                 )}
                                 {renderPrivacySelector(
+                                    'reviews_visibility',
+                                    'İncelemeler',
+                                    'Profilinizdeki inceleme sekmesini ve yazdığınız seri incelemelerini kimler görebilir?'
+                                )}
+                                {renderPrivacySelector(
                                     'reading_lists_visibility',
                                     'Okuma Listeleri',
                                     'Profilinizdeki okuma listelerini kimler görebilir?'
@@ -1842,6 +1851,27 @@ const Settings: React.FC = () => {
                                             disabled={isUpdatingPrefs}
                                         />
                                     </div>
+                                    {prefs.content.adult_mode && (
+                                        <div className="relative mt-4 border-t border-white/10 pt-4">
+                                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
+                                                <div className="flex min-w-0 flex-col space-y-1">
+                                                    <Label htmlFor="adult-cover-blur" className="text-sm font-semibold text-white">+18 Görselleri Otomatik Bulanık Göster</Label>
+                                                    <p className="text-sm leading-6 text-rose-50/82">
+                                                        +18 serilerin kapak ve öne çıkan görsellerini varsayılan olarak bulanık gösterir.
+                                                    </p>
+                                                </div>
+                                                <Switch
+                                                    id="adult-cover-blur"
+                                                    checked={prefs.appearance?.adult_cover_blur ?? false}
+                                                    onCheckedChange={(checked) => handleUpdatePreferences({
+                                                        ...prefs,
+                                                        appearance: { ...prefs.appearance, adult_cover_blur: checked }
+                                                    }, checked ? '+18 görsel bulanıklaştırma açıldı' : '+18 görsel bulanıklaştırma kapatıldı')}
+                                                    disabled={isUpdatingPrefs}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
                                 </div>
                                 <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                                     <div className="flex min-w-0 flex-col space-y-1">

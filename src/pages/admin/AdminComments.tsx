@@ -20,6 +20,7 @@ import { Comment } from '@/lib/types';
 import { toast } from 'sonner';
 
 const PAGE_SIZE = 30;
+const INTERACTIVE_COMMENT_SELECTOR = 'button, a, input, textarea, select, [role="button"], [data-prevent-card-toggle="true"]';
 
 const buildAdminCommentTargetHref = (comment: Comment): string | null => {
     if (!comment.mangaId) {
@@ -199,6 +200,35 @@ const AdminComments: React.FC = () => {
         });
     };
 
+    const handleCommentCardClick = (id: string, event: React.MouseEvent<HTMLElement>) => {
+        const interactiveTarget = event.target instanceof HTMLElement
+            ? event.target.closest(INTERACTIVE_COMMENT_SELECTOR)
+            : null;
+
+        if (interactiveTarget && interactiveTarget !== event.currentTarget) {
+            return;
+        }
+
+        toggleSelect(id);
+    };
+
+    const handleCommentCardKeyDown = (id: string, event: React.KeyboardEvent<HTMLElement>) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+        }
+
+        const interactiveTarget = event.target instanceof HTMLElement
+            ? event.target.closest(INTERACTIVE_COMMENT_SELECTOR)
+            : null;
+
+        if (interactiveTarget && interactiveTarget !== event.currentTarget) {
+            return;
+        }
+
+        event.preventDefault();
+        toggleSelect(id);
+    };
+
     const toggleSelectLoaded = () => {
         const loadedIds = comments.map((comment) => comment.id);
         const isAllLoadedSelected = loadedIds.length > 0 && loadedIds.every((id) => selectedComments.has(id));
@@ -297,7 +327,12 @@ const AdminComments: React.FC = () => {
                         return (
                         <div
                             key={comment.id}
-                            className={`rounded-2xl border bg-card/60 p-4 transition-colors ${selectedComments.has(comment.id) ? 'border-primary/50 bg-primary/5' : 'border-border hover:border-primary/20'}`}
+                            className={`cursor-pointer rounded-2xl border bg-card/60 p-4 transition-colors ${selectedComments.has(comment.id) ? 'border-primary/50 bg-primary/5' : 'border-border hover:border-primary/20'}`}
+                            onClick={(event) => handleCommentCardClick(comment.id, event)}
+                            onKeyDown={(event) => handleCommentCardKeyDown(comment.id, event)}
+                            role="checkbox"
+                            aria-checked={selectedComments.has(comment.id)}
+                            tabIndex={0}
                         >
                             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                                 <div className="flex gap-4">
@@ -305,6 +340,7 @@ const AdminComments: React.FC = () => {
                                         <Checkbox
                                             checked={selectedComments.has(comment.id)}
                                             onCheckedChange={() => toggleSelect(comment.id)}
+                                            data-prevent-card-toggle="true"
                                         />
                                     </div>
 
@@ -351,7 +387,7 @@ const AdminComments: React.FC = () => {
 
                                 <div className="flex shrink-0 items-center gap-2 lg:pl-4">
                                     {commentTargetHref && (
-                                        <Button asChild variant="outline" size="sm" className="gap-2">
+                                        <Button asChild variant="outline" size="sm" className="gap-2" data-prevent-card-toggle="true">
                                             <Link to={commentTargetHref}>
                                                 <ArrowUpRight className="h-4 w-4" />
                                                 Yoruma Git
@@ -364,6 +400,7 @@ const AdminComments: React.FC = () => {
                                         disabled={updatingCommentId === comment.id}
                                         className={comment.isPinned ? 'text-primary hover:bg-primary/10 hover:text-primary' : 'text-muted-foreground hover:bg-primary/10 hover:text-primary'}
                                         onClick={() => void handleTogglePin(comment)}
+                                        data-prevent-card-toggle="true"
                                     >
                                         {updatingCommentId === comment.id ? (
                                             <Loader2 className="h-4 w-4 animate-spin" />
@@ -376,6 +413,7 @@ const AdminComments: React.FC = () => {
                                         size="icon"
                                         className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive"
                                         onClick={() => setDeleteId(comment.id)}
+                                        data-prevent-card-toggle="true"
                                     >
                                         <Trash2 className="h-4 w-4" />
                                     </Button>

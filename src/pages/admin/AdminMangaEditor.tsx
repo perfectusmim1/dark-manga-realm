@@ -165,6 +165,7 @@ const upsertNamedEntity = <T extends { id: string }>(items: T[], entity: T) => {
 
 const DEFAULT_CHARACTER_LISTING_ROLE: CharacterListingRole = 'minor';
 const DEFAULT_ENTITY_PICKER_LIMIT = 10;
+const INTERACTIVE_CHAPTER_SELECTOR = 'button, a, input, textarea, select, [role="button"], [data-prevent-card-toggle="true"]';
 type ChapterDraft = Pick<Chapter, 'number' | 'title' | 'pages' | 'cardImagePage'>;
 
 const CHAPTER_CARD_IMAGE_MODE_OPTIONS: Array<{
@@ -877,6 +878,35 @@ const AdminMangaEditor: React.FC = () => {
                     : [...current, chapterId]
                 : current.filter((id) => id !== chapterId)
         ));
+    };
+
+    const handleChapterCardClick = (chapterId: string, event: React.MouseEvent<HTMLElement>) => {
+        const interactiveTarget = event.target instanceof HTMLElement
+            ? event.target.closest(INTERACTIVE_CHAPTER_SELECTOR)
+            : null;
+
+        if (interactiveTarget && interactiveTarget !== event.currentTarget) {
+            return;
+        }
+
+        toggleChapterSelection(chapterId, !selectedChapterIds.includes(chapterId));
+    };
+
+    const handleChapterCardKeyDown = (chapterId: string, event: React.KeyboardEvent<HTMLElement>) => {
+        if (event.key !== 'Enter' && event.key !== ' ') {
+            return;
+        }
+
+        const interactiveTarget = event.target instanceof HTMLElement
+            ? event.target.closest(INTERACTIVE_CHAPTER_SELECTOR)
+            : null;
+
+        if (interactiveTarget && interactiveTarget !== event.currentTarget) {
+            return;
+        }
+
+        event.preventDefault();
+        toggleChapterSelection(chapterId, !selectedChapterIds.includes(chapterId));
     };
 
     const toggleAllChapterSelection = (checked: boolean) => {
@@ -1637,12 +1667,17 @@ const AdminMangaEditor: React.FC = () => {
                                         <div
                                             key={chapter.id}
                                             className={`
-                                                flex flex-col gap-3 rounded-lg border p-3 sm:flex-row sm:items-center sm:justify-between
+                                                flex cursor-pointer flex-col gap-3 rounded-lg border p-3 transition-colors sm:flex-row sm:items-center sm:justify-between
                                                 ${selectedChapterIds.includes(chapter.id)
                                                     ? 'border-primary/30 bg-primary/5'
-                                                    : 'border-border'}
+                                                    : 'border-border hover:border-primary/20 hover:bg-white/5'}
                                             `}
                                             style={{ contentVisibility: 'auto', containIntrinsicSize: '88px' }}
+                                            onClick={(event) => handleChapterCardClick(chapter.id, event)}
+                                            onKeyDown={(event) => handleChapterCardKeyDown(chapter.id, event)}
+                                            role="checkbox"
+                                            aria-checked={selectedChapterIds.includes(chapter.id)}
+                                            tabIndex={0}
                                         >
                                             <div className="flex min-w-0 flex-1 gap-3">
                                                 <Checkbox
@@ -1650,6 +1685,7 @@ const AdminMangaEditor: React.FC = () => {
                                                     onCheckedChange={(checked) => toggleChapterSelection(chapter.id, checked === true)}
                                                     aria-label={`${formatChapterDisplayTitle(chapter.number, chapter.title)} bölümünü seç`}
                                                     className="mt-1"
+                                                    data-prevent-card-toggle="true"
                                                 />
                                                 <div className="min-w-0">
                                                     <p className="font-medium">{formatChapterDisplayTitle(chapter.number, chapter.title)}</p>
@@ -1666,6 +1702,7 @@ const AdminMangaEditor: React.FC = () => {
                                                     variant="ghost"
                                                     size="icon"
                                                     onClick={() => openEditChapterDialog(chapter)}
+                                                    data-prevent-card-toggle="true"
                                                 >
                                                     <Upload className="h-4 w-4" />
                                                 </Button>
@@ -1674,6 +1711,7 @@ const AdminMangaEditor: React.FC = () => {
                                                     size="icon"
                                                     className="text-destructive"
                                                     onClick={() => handleDeleteChapter(chapter.id)}
+                                                    data-prevent-card-toggle="true"
                                                 >
                                                     <Trash2 className="h-4 w-4" />
                                                 </Button>

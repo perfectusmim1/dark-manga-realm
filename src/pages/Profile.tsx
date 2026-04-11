@@ -5,7 +5,7 @@ import { tr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import HeatMap from '@/components/profile/HeatMap';
-import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3, Flag } from 'lucide-react';
+import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3, Flag, Star, ThumbsUp } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { formatReadingDuration, getUserProfile, syncAchievements, followUser, unfollowUser, blockUser, unblockUser } from '@/lib/profile';
+import { formatReadingDuration, getUserProfile, syncAchievements, followUser, unfollowUser, blockUser, unblockUser, type ProfileRecentReview } from '@/lib/profile';
 import { createProfileReport } from '@/lib/database';
 import { ACHIEVEMENTS } from '@/lib/achievements';
 import { useToast } from "@/components/ui/use-toast";
@@ -150,6 +150,7 @@ const Profile: React.FC = () => {
   const canViewReadingLists = profileData.sectionAccess?.readingLists ?? true;
   const canViewTierLists = profileData.sectionAccess?.tierLists ?? true;
   const canViewComments = profileData.sectionAccess?.comments ?? true;
+  const canViewReviews = profileData.sectionAccess?.reviews ?? canViewComments;
   const canViewFollowedManga = profileData.sectionAccess?.followedManga ?? true;
   const canViewAnyLists = canViewReadingLists || canViewTierLists;
   const canViewAchievements = canView;
@@ -158,6 +159,7 @@ const Profile: React.FC = () => {
     ...(canViewAchievements ? ['achievements'] : []),
     ...(canViewAnyLists ? ['tierlists'] : []),
     ...(canViewComments ? ['comments'] : []),
+    ...(canViewReviews ? ['reviews'] : []),
     ...(canViewFollowedManga ? ['following-manga'] : []),
   ];
   const requestedTab = searchParams.get('tab') || 'overview';
@@ -167,6 +169,29 @@ const Profile: React.FC = () => {
     month: 'long', 
     year: 'numeric'
   });
+  const profileReviews = (profileData.recentReviews || []) as ProfileRecentReview[];
+  const getReviewAverageScore = (review: ProfileRecentReview) => (
+    Math.round((((review.ratingStory + review.ratingCharacters + review.ratingArt + review.ratingProgression + review.ratingEngagement) / 5) * 10)) / 10
+  );
+  const isEditedReview = (review: ProfileRecentReview) => {
+    const createdAt = new Date(review.createdAt).getTime();
+    const updatedAt = new Date(review.updatedAt).getTime();
+
+    if (!Number.isFinite(createdAt) || !Number.isFinite(updatedAt)) {
+      return false;
+    }
+
+    return updatedAt - createdAt > 1000;
+  };
+  const getMangaStatusLabel = (status?: string | null) => (
+    status === 'ongoing'
+      ? 'Devam Ediyor'
+      : status === 'completed'
+        ? 'Tamamlandı'
+        : status === 'hiatus'
+          ? 'Ara Verdi'
+          : null
+  );
 
   const openProfileReportDialog = () => {
     if (!currentUser) {
@@ -459,6 +484,14 @@ const Profile: React.FC = () => {
                   className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
                 >
                   Yorumlar
+                </TabsTrigger>
+              )}
+              {canViewReviews && (
+                <TabsTrigger 
+                  value="reviews" 
+                  className="rounded-none border-b-2 border-transparent data-[state=active]:border-primary bg-transparent px-0 pb-3 text-base font-semibold transition-all"
+                >
+                  İncelemeler
                 </TabsTrigger>
               )}
               {canViewFollowedManga && (
@@ -814,6 +847,137 @@ const Profile: React.FC = () => {
                      <MessageSquare className="w-10 h-10 mx-auto text-muted-foreground/60 mb-4" />
                      <h3 className="text-lg font-semibold">Henuz yorum yok</h3>
                      <p className="text-muted-foreground mt-2">Kullanicinin attigi son yorumlar burada gorunecek.</p>
+                   </div>
+                 )}
+                </div>
+             </TabsContent>
+            )}
+            {canViewReviews && (
+            <TabsContent value="reviews" className="mt-0 animate-in fade-in slide-in-from-bottom-4 duration-300">
+                <div className="rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-6 md:p-8">
+                 <div className="mb-4 flex items-center justify-between gap-3 sm:mb-6">
+                   <div className="flex items-center gap-2">
+                     <Star className="w-5 h-5 text-yellow-400" />
+                     <h3 className="text-xl font-bold">Son İncelemeler</h3>
+                   </div>
+                   <Badge variant="secondary" className="rounded-full px-3 py-1">
+                     {profileReviews.length || 0} inceleme
+                   </Badge>
+                 </div>
+
+                 {profileReviews.length > 0 ? (
+                   <div className="space-y-4">
+                     {profileReviews.map((review) => {
+                       const averageScore = getReviewAverageScore(review);
+                       const statusLabel = getMangaStatusLabel(review.mangaStatus);
+
+                       return (
+                         <Link
+                           key={review.id}
+                           to={review.targetHref}
+                           className="group block rounded-2xl border border-border/70 bg-background/40 p-3 transition-all hover:border-primary/40 hover:bg-background/70 sm:p-4"
+                         >
+                           <div className="flex flex-col gap-4 sm:flex-row">
+                             <div className="mx-auto w-full max-w-[156px] shrink-0 sm:mx-0 sm:w-24">
+                               <div className="relative aspect-[3/4] overflow-hidden rounded-xl border border-border/70 bg-secondary/20">
+                                 {review.mangaCover ? (
+                                   <img
+                                     src={review.mangaCover}
+                                     alt={review.mangaTitle}
+                                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                   />
+                                 ) : (
+                                   <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-center text-xs text-muted-foreground">
+                                     Kapak yok
+                                   </div>
+                                 )}
+                                 {review.mangaType && (
+                                   <Badge className="absolute left-2 top-2 rounded-full bg-black/70 text-[10px] text-white hover:bg-black/70">
+                                     {getMangaTypeLabel(review.mangaType)}
+                                   </Badge>
+                                 )}
+                                 <div className="absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/80 via-black/20 to-transparent" />
+                               </div>
+                             </div>
+
+                             <div className="min-w-0 flex-1">
+                               <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                                 <div className="min-w-0">
+                                   <div className="flex flex-wrap items-center gap-2">
+                                     <h4 className="line-clamp-1 text-lg font-bold transition-colors group-hover:text-primary">
+                                       {review.mangaTitle}
+                                     </h4>
+                                     {isEditedReview(review) && (
+                                       <Badge variant="outline" className="rounded-full border-primary/30 bg-primary/10 text-[10px] font-semibold uppercase tracking-wide text-primary">
+                                         Düzenlendi
+                                       </Badge>
+                                     )}
+                                   </div>
+                                   <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                     <span>{formatDistanceToNow(new Date(review.createdAt), { addSuffix: true, locale: tr })}</span>
+                                     {statusLabel && (
+                                       <>
+                                         <span className="text-muted-foreground/50">•</span>
+                                         <span>{statusLabel}</span>
+                                       </>
+                                     )}
+                                   </div>
+                                 </div>
+
+                                 <div className="flex flex-wrap items-center gap-3">
+                                   <div className="rounded-full border border-yellow-500/30 bg-yellow-500/10 px-3 py-1.5 text-sm font-bold text-yellow-300">
+                                     <div className="flex items-center gap-1.5">
+                                       <Star className="h-4 w-4 fill-current" />
+                                       <span>{averageScore.toFixed(1)}/10</span>
+                                     </div>
+                                   </div>
+                                   <div className="flex items-center gap-1.5 text-sm text-muted-foreground">
+                                     <ThumbsUp className="h-4 w-4 text-emerald-400" />
+                                     <span>{review.likes}</span>
+                                   </div>
+                                 </div>
+                               </div>
+
+                               <p className="mt-3 line-clamp-4 whitespace-pre-wrap text-sm leading-6 text-foreground/90">
+                                 {review.content}
+                               </p>
+
+                               <div className="mt-4 flex flex-wrap gap-2">
+                                 <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
+                                   Hikaye {review.ratingStory}/10
+                                 </Badge>
+                                 <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
+                                   Karakter {review.ratingCharacters}/10
+                                 </Badge>
+                                 <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
+                                   Çizim {review.ratingArt}/10
+                                 </Badge>
+                                 <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
+                                   İlerleyiş {review.ratingProgression}/10
+                                 </Badge>
+                                 <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
+                                   Sürükleyicilik {review.ratingEngagement}/10
+                                 </Badge>
+                               </div>
+
+                               <div className="mt-4 flex items-center justify-between gap-3 border-t border-border/70 pt-4 text-xs text-muted-foreground">
+                                 <span>{review.dislikes || 0} dislike</span>
+                                 <span className="flex items-center font-medium text-primary">
+                                   Seriye Git
+                                   <ChevronRight className="ml-1 h-3.5 w-3.5 transition-transform group-hover:translate-x-0.5" />
+                                 </span>
+                               </div>
+                             </div>
+                           </div>
+                         </Link>
+                       );
+                     })}
+                   </div>
+                 ) : (
+                   <div className="rounded-xl border border-border border-dashed bg-card/10 p-12 text-center">
+                     <Star className="w-10 h-10 mx-auto text-muted-foreground/60 mb-4" />
+                     <h3 className="text-lg font-semibold">Henüz inceleme yok</h3>
+                     <p className="text-muted-foreground mt-2">Bu kullanıcının seri incelemeleri burada görünecek.</p>
                    </div>
                  )}
                 </div>

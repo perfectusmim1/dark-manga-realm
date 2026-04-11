@@ -27,6 +27,7 @@ import { isStoredMediaUrl } from '@/lib/mediaStorage';
 import { supabase } from '@/lib/supabase';
 
 const PAGE_DOWNLOAD_CONCURRENCY = 3;
+const DOWNLOAD_PROGRESS_PERSIST_INTERVAL_MS = 1000;
 export const DOWNLOAD_AUTH_REQUIRED_ERROR_CODE = 'DOWNLOAD_AUTH_REQUIRED';
 // Remember cross-origin R2 origins that already failed in the browser so we do not hit
 // the same CORS wall for every page in the chapter download queue.
@@ -684,7 +685,7 @@ class OfflineDownloadManager {
 
     const persistProgress = async (force = false) => {
       const now = performance.now();
-      if (!force && now - lastPersistAt < 250) {
+      if (!force && now - lastPersistAt < DOWNLOAD_PROGRESS_PERSIST_INTERVAL_MS) {
         return;
       }
 

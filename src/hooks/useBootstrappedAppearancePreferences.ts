@@ -6,12 +6,14 @@ type AppearancePreferences = {
   manga_hover_preview: boolean;
   show_header_offline_toggle: boolean;
   show_chapter_card_images: boolean;
+  adult_cover_blur: boolean;
 };
 
 const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
   manga_hover_preview: false,
   show_header_offline_toggle: true,
   show_chapter_card_images: false,
+  adult_cover_blur: false,
 };
 
 export const useBootstrappedAppearancePreferences = ({
@@ -36,6 +38,7 @@ export const useBootstrappedAppearancePreferences = ({
           : DEFAULT_APPEARANCE_PREFERENCES.show_header_offline_toggle
       ),
       show_chapter_card_images: appearance?.show_chapter_card_images ?? DEFAULT_APPEARANCE_PREFERENCES.show_chapter_card_images,
+      adult_cover_blur: appearance?.adult_cover_blur ?? DEFAULT_APPEARANCE_PREFERENCES.adult_cover_blur,
     };
   }, [authLoading, headerShellSnapshot?.user, user]);
 };

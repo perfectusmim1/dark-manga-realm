@@ -663,6 +663,19 @@ Deno.serve(async (req: Request) => {
       return json({ success: true });
     }
 
+    if (action === "clear-runs") {
+      const { error } = await auth.serviceClient
+        .from("chapter_automation_runs")
+        .delete()
+        .not("id", "is", null);
+
+      if (error) {
+        throw error;
+      }
+
+      return json({ success: true });
+    }
+
     if (action === "set-active") {
       const automationId = normalizeText(body?.automationId);
       if (!automationId) {

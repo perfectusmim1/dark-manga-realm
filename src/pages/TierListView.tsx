@@ -20,6 +20,24 @@ const defaultTiers = [
   { id: 'F', color: 'bg-gray-500' },
 ];
 
+const getTierLabelTextClassName = (label: string) => {
+  const labelLength = label.trim().length;
+
+  if (labelLength > 26) {
+    return 'text-[10px] sm:text-xs';
+  }
+
+  if (labelLength > 16) {
+    return 'text-xs sm:text-sm';
+  }
+
+  if (labelLength > 9) {
+    return 'text-sm sm:text-base';
+  }
+
+  return 'text-xl sm:text-2xl';
+};
+
 export default function TierListView() {
   const { id } = useParams<{ id: string }>();
   const { user } = useAuth();
@@ -29,7 +47,7 @@ export default function TierListView() {
   const [tierList, setTierList] = useState<any>(null);
   const [tierState, setTierState] = useState<Record<string, any[]>>({});
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({
-    'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D'
+    'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D', 'F': 'F'
   });
   const [loading, setLoading] = useState(true);
   const [ownerName, setOwnerName] = useState('');
@@ -58,7 +76,7 @@ export default function TierListView() {
       }
 
       setTierList(data);
-      setTierLabels(data.tier_labels || { 'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D' });
+      setTierLabels(data.tier_labels || { 'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D', 'F': 'F' });
 
       const { data: profile } = await supabase.from('public_profiles').select('username').eq('id', data.user_id).single();
       setOwnerName(profile?.username || 'Anonim');
@@ -130,10 +148,18 @@ export default function TierListView() {
         <div className="bg-card/50 border border-border rounded-xl shadow-xl overflow-hidden flex flex-col">
           {defaultTiers.map(tier => {
             const items = tierState[tier.id] || [];
+            const tierLabel = tierLabels[tier.id]?.trim() || tier.id;
             return (
               <div key={tier.id} className="flex border-b border-border min-h-[90px] last:border-b-0">
-                <div className={`w-24 ${tier.color} flex items-center justify-center font-bold text-black text-2xl shadow-inner shrink-0`}>
-                  {tierLabels[tier.id] || tier.id}
+                <div className={`w-24 ${tier.color} shrink-0 overflow-hidden shadow-inner`}>
+                  <div className="flex h-full items-center justify-center px-2 py-3">
+                    <span
+                      title={tierLabel}
+                      className={`block max-w-full overflow-hidden text-center font-bold leading-[0.95] text-black whitespace-normal [overflow-wrap:anywhere] line-clamp-3 ${getTierLabelTextClassName(tierLabel)}`}
+                    >
+                      {tierLabel}
+                    </span>
+                  </div>
                 </div>
                 <div className="flex-1 bg-background/50 flex flex-wrap gap-2 p-3 items-center">
                   {items.map((item: any) => (

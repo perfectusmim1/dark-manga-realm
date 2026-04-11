@@ -24,6 +24,7 @@ import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
 import { toast } from 'sonner';
 import { matchesMangaSearch } from '@/lib/searchMatching';
 import { getMangaTypeLabel } from '@/lib/mangaType';
+import { useAdultImageBlurPreference } from '@/hooks/useAdultImageBlurPreference';
 
 let mangaSummariesLoaderPromise: Promise<(() => Promise<Manga[]>)> | null = null;
 
@@ -44,6 +45,7 @@ const SuperSearch: React.FC = () => {
     const [activeGenre, setActiveGenre] = useState('Hepsi');
     const [favorites, setFavorites] = useState<Record<string, boolean>>({});
     const { user } = useAuth();
+    const blurAdultArtwork = useAdultImageBlurPreference();
     const [popularMangas, setPopularMangas] = useState<Manga[]>([]);
     const [randomShowcase, setRandomShowcase] = useState<Manga[]>([]);
 
@@ -240,7 +242,10 @@ const SuperSearch: React.FC = () => {
                                                         <img
                                                             src={manga.cover}
                                                             alt={manga.title}
-                                                            className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                            className={cn(
+                                                                'h-full w-full object-cover transition-transform duration-500 group-hover:scale-105',
+                                                                blurAdultArtwork && manga.isAdult === true && 'scale-[1.03] blur-sm',
+                                                            )}
                                                         />
                                                     </div>
                                                     <div className="flex-1 min-w-0 pt-0.5">
@@ -300,7 +305,10 @@ const SuperSearch: React.FC = () => {
                                                     <img
                                                         src={manga.cover}
                                                         alt={manga.title}
-                                                        className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                                        className={cn(
+                                                            'h-full w-full object-cover transition-transform duration-500 group-hover:scale-105',
+                                                            blurAdultArtwork && manga.isAdult === true && 'scale-[1.03] blur-sm',
+                                                        )}
                                                     />
                                                     <div className="absolute inset-0 bg-gradient-to-t from-black via-black/10 to-transparent" />
                                                     <Badge

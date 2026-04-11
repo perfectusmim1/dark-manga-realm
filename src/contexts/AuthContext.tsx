@@ -142,11 +142,13 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
     manga_hover_preview: false,
     show_header_offline_toggle: true,
     show_chapter_card_images: false,
+    adult_cover_blur: false,
   },
   privacy: {
     visibility: 'public',
     reading_history_visibility: 'public',
     comments_visibility: 'public',
+    reviews_visibility: 'public',
     reading_lists_visibility: 'public',
     tier_lists_visibility: 'public',
     followed_manga_visibility: 'public',

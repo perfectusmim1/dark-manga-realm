@@ -16,13 +16,14 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
-import { getTopTenMangaBuckets } from '@/lib/database';
+import { getTopTenPageBuckets } from '@/lib/database';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
 import { Manga } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import { useAdultImageBlurPreference } from '@/hooks/useAdultImageBlurPreference';
 
 type TopTenTimeframe = 'today' | 'week' | 'all';
 type TopTenAudience = 'safe' | 'adult';
@@ -221,6 +222,7 @@ const TopTenCard: React.FC<{
   audience,
   disableHeavyEffects,
 }) => {
+  const blurAdultArtwork = useAdultImageBlurPreference();
   const engagementLabel = typeof manga.engagementScore === 'number' && Number.isFinite(manga.engagementScore)
     ? `${Math.round(manga.engagementScore)} puan`
     : 'Skor yok';
@@ -236,6 +238,7 @@ const TopTenCard: React.FC<{
     : 'border-border/70 bg-card/75 hover:border-primary/20';
   const chapterCountClassName = audience === 'adult' ? 'text-rose-300' : 'text-primary';
   const showAdultLabel = manga.isAdult === true || isAdultMangaType(manga.type);
+  const shouldBlurAdultArtwork = blurAdultArtwork && showAdultLabel;
   const typeBadgeLabel = showAdultLabel ? 'Yetişkin' : getMangaTypeLabel(manga.type);
   const typeBadgeClassName = showAdultLabel
     ? 'bg-rose-600/90 text-white'
@@ -272,7 +275,11 @@ const TopTenCard: React.FC<{
             transform={TOP_TEN_CARD_TRANSFORM}
             containerClassName="h-full w-full"
             placeholderClassName="rounded-none"
-            className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105'}`}
+            className={cn(
+              'h-full w-full object-cover',
+              shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
+              disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105',
+            )}
           />
           <div className="absolute inset-0 bg-gradient-to-t from-black/28 via-transparent to-transparent" />
           <div className="absolute inset-x-0 bottom-0 h-[72%] bg-gradient-to-t from-black via-black/94 to-transparent" />
@@ -557,9 +564,9 @@ const TopTen: React.FC = () => {
     const loadTopTenSections = async () => {
       try {
         const [todayBuckets, weekBuckets, allBuckets] = await Promise.all([
-          getTopTenMangaBuckets('today'),
-          getTopTenMangaBuckets('week'),
-          getTopTenMangaBuckets('all'),
+          getTopTenPageBuckets('today'),
+          getTopTenPageBuckets('week'),
+          getTopTenPageBuckets('all'),
         ]);
 
         if (!active) {

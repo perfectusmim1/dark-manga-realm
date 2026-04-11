@@ -173,6 +173,11 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   const shellUser = authLoading && !user ? headerShellSnapshot?.user ?? null : null;
   const displayUser = user ?? shellUser;
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
+  const shouldBlurAdultArtwork = (manga: Manga) => (
+    appearancePreferences.adult_cover_blur
+    && user?.preferences?.content?.adult_mode === true
+    && manga.isAdult === true
+  );
   const isAdmin = Boolean(displayUser && access.canAccessAdminPanel);
   const showHeaderOfflineToggle = appearancePreferences.show_header_offline_toggle;
   const canUseCachedHeaderCounts = Boolean(displayUser && headerShellSnapshot?.user?.id === displayUser.id);
@@ -846,7 +851,10 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                               <img
                                 src={manga.cover}
                                 alt={manga.title}
-                                className="h-12 w-9 rounded object-cover shadow-sm group-hover:scale-105 transition-transform"
+                                className={cn(
+                                  'h-12 w-9 rounded object-cover shadow-sm transition-transform group-hover:scale-105',
+                                  shouldBlurAdultArtwork(manga) && 'scale-[1.03] blur-sm',
+                                )}
                               />
                               <div className="flex-1 min-w-0">
                                 <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>

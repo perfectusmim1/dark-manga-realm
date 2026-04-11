@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import {
@@ -11,6 +11,7 @@ import {
   Plus,
   RefreshCw,
   Save,
+  Search,
   ShieldCheck,
   Trash2,
   Unplug,
@@ -41,7 +42,6 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import {
@@ -56,6 +56,7 @@ import {
 } from '@/components/ui/alert-dialog';
 import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 import {
+  clearChapterAutomationRuns,
   createChapterAutomation,
   deleteChapterAutomation,
   listChapterAutomations,
@@ -87,6 +88,7 @@ const isAdultOnlyAutomationSource = (source: ChapterAutomationSource) => source 
 
 const DEFAULT_TIME_SLOT = '13:00';
 const TURKEY_TIME_PLACEHOLDER = '13:00';
+const AUTOMATION_BATCH_SIZE = 10;
 const createCheckTimeKey = () => crypto.randomUUID();
 const createCheckTimeKeys = (times: string[]) => times.map(() => createCheckTimeKey());
 
@@ -223,7 +225,14 @@ const AdminAutomation: React.FC = () => {
   const [testingAutomationIds, setTestingAutomationIds] = useState<string[]>([]);
   const [isTestingAll, setIsTestingAll] = useState(false);
   const [pendingDeleteAutomation, setPendingDeleteAutomation] = useState<ChapterAutomation | null>(null);
+  const [automationSearchQuery, setAutomationSearchQuery] = useState('');
+  const [visibleAutomationCount, setVisibleAutomationCount] = useState(AUTOMATION_BATCH_SIZE);
+  const [isClearingRecentRuns, setIsClearingRecentRuns] = useState(false);
+  const [isClearRecentRunsDialogOpen, setIsClearRecentRunsDialogOpen] = useState(false);
+  const automationListRef = useRef<HTMLDivElement | null>(null);
+  const automationLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const requiresAdultManga = isAdultOnlyAutomationSource(form.source);
+  const deferredAutomationSearchQuery = useDeferredValue(automationSearchQuery);
 
   const availableMangasForSource = useMemo(
     () => (requiresAdultManga ? mangas.filter((manga) => manga.isAdult === true) : mangas),
@@ -254,6 +263,35 @@ const AdminAutomation: React.FC = () => {
     () => new Set(testingAutomationIds),
     [testingAutomationIds],
   );
+
+  const filteredAutomations = useMemo(() => {
+    const query = deferredAutomationSearchQuery.trim().toLocaleLowerCase('tr-TR');
+
+    if (!query) {
+      return automations;
+    }
+
+    return automations.filter((automation) => {
+      const sourceLabel = SOURCE_OPTIONS.find((option) => option.value === automation.source)?.label || automation.source;
+      const haystack = [
+        automation.mangaTitle,
+        automation.sourceUrl,
+        sourceLabel,
+        automation.checkTimes.join(' '),
+      ]
+        .join(' ')
+        .toLocaleLowerCase('tr-TR');
+
+      return haystack.includes(query);
+    });
+  }, [automations, deferredAutomationSearchQuery]);
+
+  const visibleAutomations = useMemo(
+    () => filteredAutomations.slice(0, visibleAutomationCount),
+    [filteredAutomations, visibleAutomationCount],
+  );
+
+  const hasMoreAutomations = visibleAutomationCount < filteredAutomations.length;
 
   const currentValidationInputKey = buildValidationInputKey(form.source, form.sourceUrl);
   const validationIsFresh = Boolean(
@@ -548,6 +586,59 @@ const AdminAutomation: React.FC = () => {
     }));
     setCheckTimeKeys(createCheckTimeKeys(nextCheckTimes));
   }, [form.checkTimes.length]);
+
+  useEffect(() => {
+    startTransition(() => {
+      setVisibleAutomationCount(AUTOMATION_BATCH_SIZE);
+    });
+  }, [deferredAutomationSearchQuery, automations.length]);
+
+  useEffect(() => {
+    const root = automationListRef.current;
+    const target = automationLoadMoreRef.current;
+
+    if (!root || !target || !hasMoreAutomations) {
+      return;
+    }
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const [entry] = entries;
+        if (!entry?.isIntersecting) {
+          return;
+        }
+
+        startTransition(() => {
+          setVisibleAutomationCount((current) => Math.min(current + AUTOMATION_BATCH_SIZE, filteredAutomations.length));
+        });
+      },
+      {
+        root,
+        rootMargin: '120px 0px',
+      },
+    );
+
+    observer.observe(target);
+
+    return () => {
+      observer.disconnect();
+    };
+  }, [filteredAutomations.length, hasMoreAutomations]);
+
+  const handleClearRecentRuns = async () => {
+    try {
+      setIsClearingRecentRuns(true);
+      await clearChapterAutomationRuns();
+      setRecentRuns([]);
+      toast.success('Çalışma geçmişi temizlendi');
+    } catch (error) {
+      console.error('Chapter automation runs clear failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Çalışma geçmişi temizlenemedi');
+    } finally {
+      setIsClearingRecentRuns(false);
+      setIsClearRecentRunsDialogOpen(false);
+    }
+  };
 
   if (accessLoading || !isAllowed) {
     return null;
@@ -912,10 +1003,27 @@ const AdminAutomation: React.FC = () => {
 
           <Card>
             <CardHeader>
-              <CardTitle>Son Çalışma Geçmişi</CardTitle>
-              <CardDescription>
-                En son tetiklenen otomasyon koşularının kısa log özeti.
-              </CardDescription>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+                <div className="min-w-0">
+                  <CardTitle>Son Çalışma Geçmişi</CardTitle>
+                  <CardDescription>
+                    En son tetiklenen otomasyon koşularının kısa log özeti.
+                  </CardDescription>
+                </div>
+                <Button
+                  variant="outline"
+                  className="w-full sm:w-auto"
+                  onClick={() => setIsClearRecentRunsDialogOpen(true)}
+                  disabled={recentRuns.length === 0 || isClearingRecentRuns}
+                >
+                  {isClearingRecentRuns ? (
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="mr-2 h-4 w-4" />
+                  )}
+                  Geçmişi Temizle
+                </Button>
+              </div>
             </CardHeader>
             <CardContent>
               {recentRuns.length === 0 ? (
@@ -923,7 +1031,7 @@ const AdminAutomation: React.FC = () => {
                   Henüz otomasyon koşusu oluşmadı.
                 </div>
               ) : (
-                <ScrollArea className="max-h-[360px] pr-4">
+                <div className="max-h-[360px] overflow-y-auto overscroll-contain pr-2 [scrollbar-gutter:stable] sm:pr-3">
                   <div className="space-y-3">
                     {recentRuns.map((run) => (
                       <div key={run.id} className="rounded-2xl border border-border bg-card px-4 py-3">
@@ -947,7 +1055,7 @@ const AdminAutomation: React.FC = () => {
                       </div>
                     ))}
                   </div>
-                </ScrollArea>
+                </div>
               )}
             </CardContent>
           </Card>
@@ -981,6 +1089,15 @@ const AdminAutomation: React.FC = () => {
                 </Button>
               </div>
             </div>
+            <div className="relative mt-4">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                value={automationSearchQuery}
+                onChange={(event) => setAutomationSearchQuery(event.target.value)}
+                placeholder="Seri adı, kaynak linki veya site ara"
+                className="pl-9"
+              />
+            </div>
           </CardHeader>
           <CardContent>
             {isBootstrapping ? (
@@ -991,10 +1108,17 @@ const AdminAutomation: React.FC = () => {
               <div className="rounded-2xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
                 Henüz kayıtlı otomasyon yok.
               </div>
+            ) : filteredAutomations.length === 0 ? (
+              <div className="rounded-2xl border border-dashed border-border px-4 py-10 text-center text-sm text-muted-foreground">
+                Aramaya uyan otomasyon bulunamadı.
+              </div>
             ) : (
-              <div className="max-h-[min(68vh,920px)] overflow-y-auto overscroll-contain pr-3 [scrollbar-gutter:stable] sm:pr-4">
+              <div
+                ref={automationListRef}
+                className="max-h-[min(68vh,920px)] overflow-y-auto overscroll-contain pr-3 [scrollbar-gutter:stable] sm:pr-4"
+              >
                 <div className="space-y-4">
-                  {automations.map((automation) => {
+                  {visibleAutomations.map((automation) => {
                     const isTesting = testingAutomationIdSet.has(automation.id);
                     const isMutationBusy = busyAutomationId === automation.id;
                     const isBusy = isMutationBusy || isTesting;
@@ -1137,6 +1261,18 @@ const AdminAutomation: React.FC = () => {
                       </div>
                     );
                   })}
+                  {hasMoreAutomations ? (
+                    <div ref={automationLoadMoreRef} className="flex items-center justify-center py-2">
+                      <div className="inline-flex items-center gap-2 rounded-full border border-border bg-background/80 px-3 py-1 text-xs text-muted-foreground">
+                        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                        Daha fazla otomasyon yükleniyor
+                      </div>
+                    </div>
+                  ) : filteredAutomations.length > AUTOMATION_BATCH_SIZE ? (
+                    <p className="py-2 text-center text-xs text-muted-foreground">
+                      Tüm otomasyonlar yüklendi.
+                    </p>
+                  ) : null}
                 </div>
               </div>
             )}
@@ -1166,6 +1302,30 @@ const AdminAutomation: React.FC = () => {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Sil
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={isClearRecentRunsDialogOpen} onOpenChange={setIsClearRecentRunsDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Çalışma Geçmişini Temizle</AlertDialogTitle>
+            <AlertDialogDescription>
+              Son çalışma geçmişindeki tüm log kayıtları silinecek. Otomasyon ayarları korunur, sadece geçmiş temizlenir.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClearingRecentRuns}>İptal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleClearRecentRuns()}
+              disabled={isClearingRecentRuns}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isClearingRecentRuns ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Temizle
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
