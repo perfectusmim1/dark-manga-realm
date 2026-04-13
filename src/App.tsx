@@ -89,6 +89,7 @@ const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
 const AdminMangaList = lazy(() => import("./pages/admin/AdminMangaList"));
 const AdminMangaEditor = lazy(() => import("./pages/admin/AdminMangaEditor"));
 const AdminComments = lazy(() => import("./pages/admin/AdminComments"));
+const AdminReviews = lazy(() => import("./pages/admin/AdminReviews"));
 const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
 const AdminUserManagement = lazy(() => import("./pages/admin/AdminUserManagement"));
 const AdminScraper = lazy(() => import("./pages/admin/AdminScraper"));
@@ -400,6 +401,7 @@ const App = () => (
                       <Route path="mangas/new" element={<AdminMangaEditor />} />
                       <Route path="mangas/:mangaId" element={<AdminMangaEditor />} />
                       <Route path="comments" element={<AdminComments />} />
+                      <Route path="reviews" element={<AdminReviews />} />
                       <Route path="scraper" element={<AdminScraper />} />
                       <Route path="metadata-import" element={<AdminMetadataImport />} />
                       <Route path="chapter-scraper" element={<AdminChapterScraper />} />

@@ -19,6 +19,7 @@ import {
     LifeBuoy,
     Bot,
     Send,
+    Star,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { useAuth } from '@/contexts/AuthContext';
@@ -65,6 +66,7 @@ const AdminLayout: React.FC = () => {
         ...(canUseScrapers ? [{ icon: RefreshCw, label: 'Bölüm Çekme', path: '/admin/chapter-scraper' }] : []),
         ...(canUseScrapers ? [{ icon: Bot, label: 'Otomasyon', path: '/admin/automation' }] : []),
         { icon: MessageSquare, label: 'Yorumlar', path: '/admin/comments' },
+        { icon: Star, label: 'İncelemeler', path: '/admin/reviews' },
         { icon: Users, label: 'Karakter & Sanatçı', path: '/admin/entities' },
         { icon: Hash, label: 'Etiketler', path: '/admin/tags' },
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },

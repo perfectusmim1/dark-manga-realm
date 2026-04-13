@@ -71,9 +71,16 @@ const normalizeValidationSnapshot = (value: unknown) => (
     : {}
 );
 
-const mapRun = (row: AutomationRunRow) => ({
+const mapRun = (
+  row: AutomationRunRow,
+  context?: { automation?: AutomationRow | null; manga?: AutomationMangaRow | null },
+) => ({
   id: row.id,
   automationId: row.automation_id,
+  mangaId: context?.automation?.manga_id || "",
+  mangaTitle: context?.manga?.title || "Silinmiş Seri",
+  mangaCover: context?.manga?.cover || null,
+  source: (context?.automation?.source as ChapterAutomationSource | undefined) || undefined,
   status: row.status,
   startedAt: row.started_at,
   finishedAt: row.finished_at,
@@ -144,6 +151,7 @@ const loadAutomationRows = async (
   const automationList = (automationRows || []) as AutomationRow[];
   const mangaIds = Array.from(new Set(automationList.map((row) => row.manga_id).filter(Boolean)));
   const automationIds = automationList.map((row) => row.id);
+  const automationMap = new Map<string, AutomationRow>(automationList.map((row) => [row.id, row]));
 
   const mangaMap = new Map<string, AutomationMangaRow>();
   if (mangaIds.length > 0) {
@@ -176,7 +184,12 @@ const loadAutomationRows = async (
       throw runError;
     }
 
-    recentRuns = ((runRows || []) as AutomationRunRow[]).map(mapRun);
+    recentRuns = ((runRows || []) as AutomationRunRow[]).map((runRow) => {
+      const automation = automationMap.get(runRow.automation_id);
+      const manga = automation ? mangaMap.get(automation.manga_id) : null;
+
+      return mapRun(runRow, { automation, manga });
+    });
     for (const run of recentRuns) {
       if (!latestRunMap.has(run.automationId)) {
         latestRunMap.set(run.automationId, run);

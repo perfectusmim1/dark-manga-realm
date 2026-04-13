@@ -542,6 +542,10 @@ export interface ChapterAutomationValidation {
 export interface ChapterAutomationRunSummary {
   id: string;
   automationId: string;
+  mangaId?: string;
+  mangaTitle?: string;
+  mangaCover?: string | null;
+  source?: ChapterAutomationSource;
   status: Exclude<ChapterAutomationRunStatus, 'idle'>;
   startedAt: string;
   finishedAt?: string | null;

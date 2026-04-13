@@ -663,8 +663,40 @@ export interface ProfileReport {
     updatedAt: string;
 }
 
+export interface ReviewReport {
+    id: string;
+    reviewId: string;
+    mangaId: string;
+    mangaTitle: string;
+    mangaCover?: string;
+    reporterId: string;
+    reporterUsername?: string;
+    reportedUserId: string;
+    reportedUsername?: string;
+    reviewPreview?: string;
+    reviewCreatedAt?: string;
+    ratingAverage: number;
+    reason: string;
+    details?: string;
+    status: ReportStatus;
+    createdAt: string;
+    updatedAt: string;
+}
+
 export interface AdminCommentsPage {
     comments: Comment[];
+    total: number;
+}
+
+export interface AdminReview extends Review {
+    mangaTitle: string;
+    mangaCover?: string;
+    averageScore: number;
+    targetHref: string;
+}
+
+export interface AdminReviewsPage {
+    reviews: AdminReview[];
     total: number;
 }
 
@@ -1038,6 +1070,32 @@ const buildReviewStatsByMangaId = (reviews: any[] = []) => {
     }
 
     return reviewStatsByMangaId;
+};
+
+const calculateReviewAverage = (review?: {
+    rating_story?: number | null;
+    rating_characters?: number | null;
+    rating_art?: number | null;
+    rating_progression?: number | null;
+    rating_engagement?: number | null;
+} | null) => {
+    if (!review) {
+        return 0;
+    }
+
+    const scores = [
+        review.rating_story,
+        review.rating_characters,
+        review.rating_art,
+        review.rating_progression,
+        review.rating_engagement,
+    ].filter((value): value is number => typeof value === 'number' && Number.isFinite(value));
+
+    if (scores.length === 0) {
+        return 0;
+    }
+
+    return Math.round((scores.reduce((total, score) => total + score, 0) / scores.length) * 10) / 10;
 };
 
 const buildChapterCountByMangaId = (chapters: any[] = []) => {
@@ -3399,6 +3457,13 @@ export const getAllComments = async (): Promise<Comment[]> => {
     }) as Comment[];
 };
 
+const buildPostgrestInFilter = (values: string[]) => (
+    values
+        .filter(Boolean)
+        .map((value) => `"${value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')}"`)
+        .join(',')
+);
+
 export const getAdminCommentsPage = async (
     page: number,
     pageSize: number = 30,
@@ -3460,6 +3525,110 @@ export const getAdminCommentsPage = async (
 
     return {
         comments,
+        total: count || 0,
+    };
+};
+
+export const getAdminReviewsPage = async (
+    page: number,
+    pageSize: number = 30,
+    searchQuery: string = '',
+): Promise<AdminReviewsPage> => {
+    const from = page * pageSize;
+    const to = from + pageSize - 1;
+    const normalizedQuery = searchQuery.trim();
+
+    let matchingUserIds: string[] = [];
+    let matchingMangaIds: string[] = [];
+
+    if (normalizedQuery) {
+        const [{ data: usersData }, { data: mangasData }] = await Promise.all([
+            supabase
+                .from('users')
+                .select('id')
+                .ilike('username', `%${normalizedQuery}%`)
+                .limit(50),
+            supabase
+                .from('mangas')
+                .select('id')
+                .ilike('title', `%${normalizedQuery}%`)
+                .limit(50),
+        ]);
+
+        matchingUserIds = (usersData || []).map((user: any) => user.id).filter(Boolean);
+        matchingMangaIds = (mangasData || []).map((manga: any) => manga.id).filter(Boolean);
+    }
+
+    let query = supabase
+        .from('reviews')
+        .select(`
+            id,
+            manga_id,
+            user_id,
+            content,
+            rating_story,
+            rating_characters,
+            rating_art,
+            rating_progression,
+            rating_engagement,
+            created_at,
+            updated_at,
+            user:users!user_id(username, avatar, role),
+            manga:mangas!manga_id(title, cover),
+            likes_count:review_likes(count),
+            dislikes_count:review_dislikes(count)
+        `, { count: 'exact' })
+        .order('created_at', { ascending: false })
+        .range(from, to);
+
+    if (normalizedQuery) {
+        const filters = [`content.ilike.%${normalizedQuery}%`];
+
+        if (matchingUserIds.length > 0) {
+            filters.push(`user_id.in.(${buildPostgrestInFilter(matchingUserIds)})`);
+        }
+
+        if (matchingMangaIds.length > 0) {
+            filters.push(`manga_id.in.(${buildPostgrestInFilter(matchingMangaIds)})`);
+        }
+
+        query = query.or(filters.join(','));
+    }
+
+    const { data, error, count } = await query;
+
+    if (error) {
+        console.error('Admin reviews page fetch error:', error);
+        return { reviews: [], total: 0 };
+    }
+
+    const reviews = (data || []).map((review: any) => ({
+        id: review.id,
+        mangaId: review.manga_id,
+        mangaTitle: review.manga?.title || 'Bilinmeyen seri',
+        mangaCover: review.manga?.cover || undefined,
+        userId: review.user_id,
+        username: review.user?.username || 'Anonim',
+        userAvatar: review.user?.avatar || undefined,
+        userRole: review.user?.role || undefined,
+        content: review.content,
+        rating_story: review.rating_story,
+        rating_characters: review.rating_characters,
+        rating_art: review.rating_art,
+        rating_progression: review.rating_progression,
+        rating_engagement: review.rating_engagement,
+        createdAt: review.created_at,
+        updatedAt: review.updated_at,
+        likes: review.likes_count?.[0]?.count || 0,
+        dislikes: review.dislikes_count?.[0]?.count || 0,
+        likedBy: [],
+        dislikedBy: [],
+        averageScore: calculateReviewAverage(review),
+        targetHref: `/manga/${review.manga_id}`,
+    })) as AdminReview[];
+
+    return {
+        reviews,
         total: count || 0,
     };
 };
@@ -3573,6 +3742,53 @@ export const createCommentReport = async (payload: {
     }
 };
 
+export const createReviewReport = async (payload: {
+    reviewId: string;
+    reporterId: string;
+    reason: string;
+    details?: string;
+}): Promise<void> => {
+    const { data: review, error: reviewError } = await supabase
+        .from('reviews')
+        .select('id, user_id')
+        .eq('id', payload.reviewId)
+        .maybeSingle();
+
+    if (reviewError) {
+        console.error('Review report validation error:', reviewError);
+        throw reviewError;
+    }
+
+    if (!review) {
+        throw new Error('İnceleme bulunamadı');
+    }
+
+    if (review.user_id === payload.reporterId) {
+        throw new Error('Kendi incelemenizi bildiremezsiniz');
+    }
+
+    const { error } = await supabase
+        .from('review_reports')
+        .upsert({
+            review_id: payload.reviewId,
+            reporter_id: payload.reporterId,
+            reason: payload.reason.trim(),
+            details: payload.details?.trim() || null,
+            status: 'open',
+            updated_at: new Date().toISOString(),
+        }, {
+            onConflict: 'reporter_id,review_id',
+        });
+
+    if (error) {
+        if (isMissingTableInSchemaCache(error, 'review_reports')) {
+            throw new Error('İnceleme bildirme sistemi birkaç saniye içinde aktif olacak. Sayfayı yenileyip tekrar deneyin.');
+        }
+        console.error('Review report create error:', error);
+        throw error;
+    }
+};
+
 export const createProfileReport = async (payload: {
     reporterId: string;
     reportedUserId: string;
@@ -3636,6 +3852,80 @@ export const getMangaReports = async (): Promise<MangaReport[]> => {
             mangaCover: manga?.cover,
             reporterId: report.reporter_id,
             reporterUsername: reporterMap.get(report.reporter_id),
+            reason: report.reason,
+            details: report.details || undefined,
+            status: report.status as ReportStatus,
+            createdAt: report.created_at,
+            updatedAt: report.updated_at,
+        };
+    });
+};
+
+export const getReviewReports = async (): Promise<ReviewReport[]> => {
+    const { data, error } = await supabase
+        .from('review_reports')
+        .select('id, review_id, reporter_id, reason, details, status, created_at, updated_at')
+        .order('created_at', { ascending: false });
+
+    if (error || !data) {
+        if (error) {
+            if (isMissingTableInSchemaCache(error, 'review_reports')) {
+                return [];
+            }
+            console.error('Review reports fetch error:', error);
+        }
+        return [];
+    }
+
+    const reviewIds = [...new Set(data.map((report: any) => report.review_id).filter(Boolean))];
+    const reporterIds = [...new Set(data.map((report: any) => report.reporter_id).filter(Boolean))];
+
+    const [{ data: reviewsData }, { data: reportersData }] = await Promise.all([
+        reviewIds.length
+            ? supabase
+                .from('reviews')
+                .select('id, manga_id, user_id, content, created_at, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
+                .in('id', reviewIds)
+            : Promise.resolve({ data: [] as any[] }),
+        reporterIds.length
+            ? supabase.from('users').select('id, username').in('id', reporterIds)
+            : Promise.resolve({ data: [] as any[] }),
+    ]);
+
+    const reviewMap = new Map((reviewsData || []).map((review: any) => [review.id, review]));
+    const reviewedUserIds = [...new Set((reviewsData || []).map((review: any) => review.user_id).filter(Boolean))];
+    const mangaIds = [...new Set((reviewsData || []).map((review: any) => review.manga_id).filter(Boolean))];
+
+    const [{ data: reviewedUsersData }, { data: mangasData }] = await Promise.all([
+        reviewedUserIds.length
+            ? supabase.from('users').select('id, username').in('id', reviewedUserIds)
+            : Promise.resolve({ data: [] as any[] }),
+        mangaIds.length
+            ? supabase.from('mangas').select('id, title, cover').in('id', mangaIds)
+            : Promise.resolve({ data: [] as any[] }),
+    ]);
+
+    const reporterMap = new Map((reportersData || []).map((user: any) => [user.id, user.username]));
+    const reviewedUserMap = new Map((reviewedUsersData || []).map((user: any) => [user.id, user.username]));
+    const mangaMap = new Map((mangasData || []).map((manga: any) => [manga.id, manga]));
+
+    return data.map((report: any) => {
+        const review = reviewMap.get(report.review_id);
+        const manga = review ? mangaMap.get(review.manga_id) : null;
+
+        return {
+            id: report.id,
+            reviewId: report.review_id,
+            mangaId: review?.manga_id || '',
+            mangaTitle: manga?.title || 'Bilinmeyen seri',
+            mangaCover: manga?.cover || undefined,
+            reporterId: report.reporter_id,
+            reporterUsername: reporterMap.get(report.reporter_id),
+            reportedUserId: review?.user_id || '',
+            reportedUsername: review ? reviewedUserMap.get(review.user_id) : undefined,
+            reviewPreview: review?.content || undefined,
+            reviewCreatedAt: review?.created_at || undefined,
+            ratingAverage: calculateReviewAverage(review),
             reason: report.reason,
             details: report.details || undefined,
             status: report.status as ReportStatus,
@@ -3825,6 +4115,18 @@ export const updateCommentReportStatus = async (id: string, status: ReportStatus
 
     if (error) {
         console.error('Comment report status update error:', error);
+        throw error;
+    }
+};
+
+export const updateReviewReportStatus = async (id: string, status: ReportStatus): Promise<void> => {
+    const { error } = await supabase
+        .from('review_reports')
+        .update({ status, updated_at: new Date().toISOString() })
+        .eq('id', id);
+
+    if (error) {
+        console.error('Review report status update error:', error);
         throw error;
     }
 };

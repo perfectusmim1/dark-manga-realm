@@ -55,6 +55,7 @@ import {
   getSimilarMangas,
   getMangaCharacters,
   createMangaReport,
+  createReviewReport,
 } from '@/lib/database';
 import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
 import {
@@ -492,9 +493,13 @@ const MangaDetail: React.FC = () => {
   const [isReportDialogOpen, setIsReportDialogOpen] = useState(false);
   const [reportReason, setReportReason] = useState('Yanlış seri bilgisi');
   const [reportDetails, setReportDetails] = useState('');
+  const [reviewReportTarget, setReviewReportTarget] = useState<Review | null>(null);
+  const [reviewReportReason, setReviewReportReason] = useState('Spam veya anlamsız içerik');
+  const [reviewReportDetails, setReviewReportDetails] = useState('');
   const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   const [isAlternativeTitlesExpanded, setIsAlternativeTitlesExpanded] = useState(false);
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
+  const [isSubmittingReviewReport, setIsSubmittingReviewReport] = useState(false);
   const [seriesReadingSeconds, setSeriesReadingSeconds] = useState(0);
   const [isSeriesReadingTimeLoading, setIsSeriesReadingTimeLoading] = useState(false);
   const [isOfflineView, setIsOfflineView] = useState(false);
@@ -933,6 +938,13 @@ const MangaDetail: React.FC = () => {
     'Kapak veya görsel sorunu',
     'Yinelenen seri kaydı',
     'Çeviri veya içerik hatası',
+    'Diğer',
+  ];
+  const reviewReportReasons = [
+    'Spam veya anlamsız içerik',
+    'Hakaret veya nefret söylemi',
+    'Yanıltıcı inceleme',
+    'Spoiler veya uygunsuz içerik',
     'Diğer',
   ];
   const descriptionPreviewLimit = 185;
@@ -1849,6 +1861,62 @@ const MangaDetail: React.FC = () => {
     }
   };
 
+  const openReviewReportDialog = (review: Review) => {
+    if (!isOnline) {
+      toast.error('İnceleme bildirmek için internet bağlantısı gerekli');
+      return;
+    }
+
+    if (!user) {
+      toast.error('İnceleme bildirmek için giriş yapmalısınız');
+      return;
+    }
+
+    if (review.userId === user.id) {
+      toast.error('Kendi incelemenizi bildiremezsiniz');
+      return;
+    }
+
+    setReviewReportTarget(review);
+    setReviewReportReason('Spam veya anlamsız içerik');
+    setReviewReportDetails('');
+  };
+
+  const handleSubmitReviewReport = async () => {
+    if (!isOnline) {
+      toast.error('İnceleme bildirmek için internet bağlantısı gerekli');
+      return;
+    }
+
+    if (!user || !reviewReportTarget) {
+      toast.error('Bildirim göndermek için giriş yapmalısınız');
+      return;
+    }
+
+    if (!reviewReportReason.trim()) {
+      toast.error('Bir neden seçmelisiniz');
+      return;
+    }
+
+    try {
+      setIsSubmittingReviewReport(true);
+      await createReviewReport({
+        reviewId: reviewReportTarget.id,
+        reporterId: user.id,
+        reason: reviewReportReason,
+        details: reviewReportDetails,
+      });
+      toast.success('İnceleme bildirimi admin ekibine iletildi');
+      setReviewReportTarget(null);
+      setReviewReportDetails('');
+    } catch (error) {
+      console.error('Review report submit error:', error);
+      toast.error(error instanceof Error ? error.message : 'Bildirim gönderilemedi');
+    } finally {
+      setIsSubmittingReviewReport(false);
+    }
+  };
+
 
   const handleRating = async (rating: number) => {
     if (!isOnline) {
@@ -1895,6 +1963,14 @@ const MangaDetail: React.FC = () => {
     }
 
     return user.role === 'admin';
+  };
+
+  const canReportReview = (review: Review) => {
+    if (!user) {
+      return true;
+    }
+
+    return review.userId !== user.id;
   };
 
   const handleReviewSubmit = async () => {
@@ -3769,7 +3845,7 @@ const MangaDetail: React.FC = () => {
                                   <span>Sürükleyicilik: <strong className="text-foreground">{review.rating_engagement}/10</strong></span>
                                 </div>
 
-                                <div className="flex items-center justify-between gap-3 border-t border-border pt-4">
+                                <div className="flex flex-wrap items-center justify-between gap-3 border-t border-border pt-4">
                                   <div className="flex items-center gap-2">
                                     <Button
                                       variant="ghost"
@@ -3798,18 +3874,31 @@ const MangaDetail: React.FC = () => {
                                       <span>{review.dislikes}</span>
                                     </Button>
                                   </div>
-                                  {canDeleteReview(review) && review.userId !== user?.id && (
-                                    <Button
-                                      variant="ghost"
-                                      size="sm"
-                                      className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
-                                      onClick={() => handleDeleteReview(review)}
-                                      disabled={deletingReviewId === review.id}
-                                    >
-                                      <Trash2 className="h-4 w-4" />
-                                      {deletingReviewId === review.id ? 'Siliniyor...' : 'Sil'}
-                                    </Button>
-                                  )}
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    {canReportReview(review) ? (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="gap-2 text-amber-200 hover:bg-amber-500/10 hover:text-amber-100"
+                                        onClick={() => openReviewReportDialog(review)}
+                                      >
+                                        <Flag className="h-4 w-4" />
+                                        Bildir
+                                      </Button>
+                                    ) : null}
+                                    {canDeleteReview(review) && review.userId !== user?.id && (
+                                      <Button
+                                        variant="ghost"
+                                        size="sm"
+                                        className="gap-2 text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                        onClick={() => handleDeleteReview(review)}
+                                        disabled={deletingReviewId === review.id}
+                                      >
+                                        <Trash2 className="h-4 w-4" />
+                                        {deletingReviewId === review.id ? 'Siliniyor...' : 'Sil'}
+                                      </Button>
+                                    )}
+                                  </div>
                                 </div>
                               </div>
 
@@ -3980,6 +4069,89 @@ const MangaDetail: React.FC = () => {
             </Button>
             <Button className="w-full sm:w-auto" onClick={handleSubmitReport} disabled={isSubmittingReport}>
               {isSubmittingReport ? 'Gönderiliyor...' : 'Bildirimi Gönder'}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(reviewReportTarget)}
+        onOpenChange={(open) => {
+          if (!open && !isSubmittingReviewReport) {
+            setReviewReportTarget(null);
+          }
+        }}
+      >
+        <DialogContent className="max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 p-4 sm:max-w-[560px] sm:p-6">
+          <DialogHeader className="space-y-2 pr-6 text-left sm:pr-8">
+            <DialogTitle className="text-xl font-bold sm:text-2xl">İncelemeyi Bildir</DialogTitle>
+            <DialogDescription>
+              Uygunsuz, yanıltıcı veya problemli kullanıcı incelemelerini buradan admin ekibine iletebilirsiniz.
+            </DialogDescription>
+          </DialogHeader>
+
+          {reviewReportTarget ? (
+            <div className="space-y-4 py-1 sm:space-y-5 sm:py-2">
+              <div className="rounded-xl border border-border/60 bg-card/60 p-3 sm:p-4">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-medium">{reviewReportTarget.username}</p>
+                  <Badge variant="outline">{manga?.title}</Badge>
+                </div>
+                <p className="mt-2 line-clamp-4 whitespace-pre-wrap text-xs text-muted-foreground">
+                  {reviewReportTarget.content}
+                </p>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Aynı inceleme için tekrar bildirim gönderirseniz son notunuzla güncellenir.
+                </p>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Neden</label>
+                <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+                  {reviewReportReasons.map((reason) => (
+                    <Button
+                      key={reason}
+                      type="button"
+                      variant={reviewReportReason === reason ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-auto min-h-10 justify-start whitespace-normal px-3 py-2 text-left leading-snug"
+                      onClick={() => setReviewReportReason(reason)}
+                    >
+                      {reason}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                <label className="text-sm font-medium">Detay</label>
+                <Textarea
+                  value={reviewReportDetails}
+                  onChange={(event) => setReviewReportDetails(event.target.value)}
+                  placeholder="Sorunu biraz daha açıklayın. Örnek: Tamamen spoiler veriyor ve hakaret içeriyor."
+                  className="min-h-[128px] sm:min-h-[140px]"
+                  maxLength={600}
+                />
+                <p className="text-xs text-muted-foreground">{reviewReportDetails.length}/600</p>
+              </div>
+            </div>
+          ) : null}
+
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
+            <Button
+              variant="ghost"
+              className="w-full sm:w-auto"
+              onClick={() => setReviewReportTarget(null)}
+              disabled={isSubmittingReviewReport}
+            >
+              İptal
+            </Button>
+            <Button
+              className="w-full sm:w-auto"
+              onClick={handleSubmitReviewReport}
+              disabled={isSubmittingReviewReport || !reviewReportTarget}
+            >
+              {isSubmittingReviewReport ? 'Gönderiliyor...' : 'Bildirimi Gönder'}
             </Button>
           </DialogFooter>
         </DialogContent>

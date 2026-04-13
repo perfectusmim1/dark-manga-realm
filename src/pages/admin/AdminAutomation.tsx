@@ -1044,6 +1044,33 @@ const AdminAutomation: React.FC = () => {
                           </div>
                           <p className="text-xs text-muted-foreground">{formatAbsoluteDate(run.startedAt)}</p>
                         </div>
+                        <div className="mt-3 flex items-start gap-3">
+                          {run.mangaCover ? (
+                            <ProxyImage
+                              src={run.mangaCover}
+                              alt={run.mangaTitle || 'Seri kapağı'}
+                              allowProxy
+                              className="h-14 w-10 rounded-xl border border-border object-cover"
+                            />
+                          ) : (
+                            <div className="flex h-14 w-10 items-center justify-center rounded-xl border border-border bg-muted text-[10px] text-muted-foreground">
+                              Kapak
+                            </div>
+                          )}
+                          <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2">
+                              <p className="truncate text-sm font-semibold">{run.mangaTitle || 'Silinmiş Seri'}</p>
+                              {run.source ? (
+                                <Badge variant="outline" className="text-[11px]">
+                                  {SOURCE_OPTIONS.find((option) => option.value === run.source)?.label || run.source}
+                                </Badge>
+                              ) : null}
+                            </div>
+                            {run.mangaId ? (
+                              <p className="mt-1 text-xs text-muted-foreground">Manga kimliği: {run.mangaId}</p>
+                            ) : null}
+                          </div>
+                        </div>
                         <div className="mt-3 flex flex-wrap gap-3 text-xs text-muted-foreground">
                           <span>Eklenen: {run.chaptersAdded}</span>
                           <span>Yeni bulunan: {run.newChapterCount}</span>
