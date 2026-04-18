@@ -65,6 +65,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import {
   matchesCharacterSearch,

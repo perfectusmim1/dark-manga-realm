@@ -105,7 +105,7 @@ const loadUserMap = async (
     throw error;
   }
 
-  return new Map((data || []).map((user) => [
+  return new Map<string, { username: string; email: string }>((data || []).map((user) => [
     user.id,
     {
       username: user.username,

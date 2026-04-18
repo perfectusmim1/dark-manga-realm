@@ -151,12 +151,12 @@ Deno.serve(async (req: Request) => {
       }
 
       uniqueIpHashes = [...new Set(
-        (fingerprints || [])
+        ((fingerprints || []) as Array<{ ip_hash?: string | null }>)
           .map((item: { ip_hash?: string | null }) => item.ip_hash)
           .filter((value): value is string => typeof value === "string" && value.length > 0),
       )];
       uniqueDeviceHashes = [...new Set(
-        (fingerprints || [])
+        ((fingerprints || []) as Array<{ device_hash?: string | null }>)
           .map((item: { device_hash?: string | null }) => item.device_hash)
           .filter((value): value is string => typeof value === "string" && value.length > 0),
       )];

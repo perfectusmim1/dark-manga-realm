@@ -477,7 +477,10 @@ const AdminScraper: React.FC = () => {
                 const mergedCount = mergedChapters.filter((chapter) => chapter.prefetchedImageResult).length;
                 setFetchedData({
                     ...fetchedData,
-                    _rawChapters: mergedChapters,
+                    _rawChapters: mergedChapters.map((chapter) => ({
+                        ...chapter,
+                        source: fetchedData.source,
+                    })),
                 });
                 setBrowserCaptureInput(rawValue);
                 toast.success(`Tarayıcıdan ${mergedCount} bölüm için görsel sonucu işlendi`);

@@ -531,7 +531,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Cosplay': ['cosplay'],
   'Kovboylar': ['cowboys'],
   'Yaratık Eğitmenliği': ['creature taming'],
-  'Suç': ['crime'],
   'Suç Örgütü': ['criminal organization'],
   'Karşı Cinsin Kıyafetlerini Giyme': ['crossdressing'],
   'Crossover': ['crossover'],
@@ -557,8 +556,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Çizim': ['drawing'],
   'Uyuşturucu': ['drugs'],
   'Dullahan': ['dullahan'],
-  'Zindan': ['dungeon'],
-  'Distopya': ['dystopian', 'dystopia'],
   'E-Spor': ['e-sports', 'esports'],
   'Çevre Korkusu': ['eco-horror'],
   'Ekonomi': ['economics'],
@@ -586,7 +583,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Balıkçılık': ['fishing'],
   'Fitness': ['fitness', 'exercise', 'workout'],
   'Flaş': ['flash'],
-  'Yemek': ['food', 'cooking', 'gourmet'],
   'Futbol': ['football', 'soccer'],
   'Yabancı': ['foreign'],
   'Seçilmiş Aile': ['found family'],
@@ -620,10 +616,8 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Yerli Kültürler': ['indigenous cultures'],
   'Han': ['inn'],
   'Türler Arası': ['interspecies'],
-  'Isekai': ['isekai'],
   'Iyashikei': ['iyashikei', 'healing'],
   'Caz Müzik': ['jazz music'],
-  'Josei': ['josei'],
   'Judo': ['judo'],
   'Kabuki': ['kabuki'],
   'Kaiju': ['kaiju'],
@@ -638,9 +632,7 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'LGBTQ+ Temaları': ['lgbtq+ themes', 'lgbtq', 'lgbt'],
   'Uzun Şerit': ['long strip', 'webtoon'],
   'Kayıp Medeniyet': ['lost civilization'],
-  'Aşk Üçgeni': ['love triangle'],
   'Mafia': ['mafia'],
-  'Büyü': ['magic'],
   'Mahjong': ['mahjong', 'majong'],
   'Hizmetçiler': ['maids'],
   'Makyaj': ['makeup'],
@@ -648,7 +640,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Erkek Protagonist': ['male protagonist'],
   'Manzai': ['manzai'],
   'Evlilik': ['marriage'],
-  'Dövüş Sanatları': ['martial arts'],
   'Eşleştirme': ['matchmaking'],
   'Matriyarkal': ['matriarchy'],
   'Tıp': ['medicine', 'medical'],
@@ -667,7 +658,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Motosikletler': ['motorcycles'],
   'Dağcılık': ['mountaineering'],
   'Müzikal Tiyatro': ['musical theater', 'musical theatre'],
-  'Mitoloji': ['mythology'],
   'Doğal Afet': ['natural disaster'],
   'Nekromansi': ['necromancy'],
   'Nekomimi': ['nekomimi'],
@@ -677,7 +667,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Kurgu Dışı': ['non-fiction'],
   'Çıplaklık': ['nudity', 'nude'],
   'Rahibe': ['nun'],
-  'Ofis': ['office'],
   'Ofis Kadını': ['office lady', 'ol'],
   'Oiran': ['oiran'],
   'Ojou-sama': ['ojou-sama', 'ojou'],
@@ -687,15 +676,12 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Pandemi': ['pandemic'],
   'Ebeveynlik': ['parenthood'],
   'Parkour': ['parkour'],
-  'Parodi': ['parody'],
   'Felsefe': ['philosophy'],
   'Fotoğrafçılık': ['photography'],
   'Korsanlar': ['pirates'],
   'Poker': ['poker'],
   'Polis': ['police'],
-  'Politika': ['politics'],
   'Çokeşlilik': ['polyamorous', 'polyamory'],
-  'Kıyamet Sonrası': ['post-apocalyptic', 'post-apocalypse'],
   'POV': ['pov'],
   'Hamilelik': ['pregnancy'],
   'Öncelikle Yetişkin Kadro': ['primarily adult cast'],
@@ -711,11 +697,9 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Rakugo': ['rakugo'],
   'Gerçek Robot': ['real robot'],
   'Rehabilitasyon': ['rehabilitation'],
-  'Reenkarnasyon': ['reincarnation'],
   'Din': ['religion'],
   'Kurtarma': ['rescue'],
   'Restoran': ['restaurant'],
-  'İntikam': ['revenge'],
   'Ters Isekai': ['reverse isekai'],
   'Robotlar': ['robots'],
   'Rock Müzik': ['rock music', 'rock'],
@@ -723,17 +707,13 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Kraliyet İşleri': ['royal affairs'],
   'Ragbi': ['rugby'],
   'Kırsal': ['rural', 'countryside'],
-  'Samuray': ['samurai'],
   'Hiciv': ['satire'],
   'Okul': ['school'],
   'Okul Kulübü': ['school club'],
   'Dalgıçlık': ['scuba diving'],
-  'Seinen': ['seinen'],
   'Şekil Değiştirme': ['shapeshifting'],
   'Gemiler': ['ships'],
   'Shogi': ['shogi'],
-  'Shoujo': ['shoujo'],
-  'Shounen': ['shounen'],
   'Tapınak Bekçisi': ['shrine maiden'],
   'Tek Sayfa Bölüm': ['single-page chapter'],
   'Kaykay': ['skateboarding'],
@@ -742,7 +722,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Kölelik': ['slavery'],
   'Kar Manzarası': ['snowscape'],
   'Yazılım Geliştirme': ['software development'],
-  'Uzay': ['space'],
   'Uzay Operası': ['space opera'],
   'Mızrak Savaşı': ['spearplay'],
   'Steampunk': ['steampunk'],
@@ -750,12 +729,10 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Succubus': ['succubus'],
   'İntihar': ['suicide'],
   'Sumo': ['sumo'],
-  'Süper Güç': ['super power', 'superpower', 'super powers'],
   'Süper Robot': ['super robot'],
   'Süper Kahraman': ['superhero', 'super heroes'],
   'Sörf': ['surfing'],
   'Gerçeküstü Komedi': ['surreal comedy'],
-  'Hayatta Kalma': ['survival'],
   'Yüzme': ['swimming'],
   'Kılıç Savaşı': ['swordplay'],
   'Masa Tenisi': ['table tennis', 'ping pong', 'ping-pong'],
@@ -765,13 +742,11 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Gençlerin Aşkı': ["teens' love"],
   'Tenis': ['tennis'],
   'Terörizm': ['terrorism'],
-  'Zaman Döngüsü': ['time loop'],
   'Zaman Manipülasyonu': ['time manipulation'],
   'Zaman Atlaması': ['time skip'],
   'Tokusatsu': ['tokusatsu'],
   'Tomboy': ['tomboy'],
   'İşkence': ['torture'],
-  'Trajedi': ['tragedy'],
   'Trenler': ['trains'],
   'Transgender': ['transgender'],
   'Seyahat': ['travel'],
@@ -781,7 +756,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Karşılıksız Aşk': ['unrequited love'],
   'Kentsel': ['urban'],
   'Kentsel Fantezi': ['urban fantasy'],
-  'Vampir': ['vampire'],
   'Dikey Video': ['vertical video'],
   'Veteriner Hekim': ['veterinarian'],
   'Video Oyunları': ['video games', 'gaming', 'game'],
@@ -803,7 +777,6 @@ const GENRE_ALIAS_MAP: Record<string, string[]> = {
   'Yandere': ['yandere'],
   'Youkai': ['youkai', 'yokai'],
   'Yuri': ['yuri'],
-  'Zombi': ['zombie'],
 };
 
 const buildGenreAliasLookup = () => {
@@ -2205,7 +2178,7 @@ const getMangaUpdatesPersonReferences = (
         url: href ? toAbsoluteUrl(href, baseUrl) : undefined,
       } satisfies MangaUpdatesAuthorReference;
     })
-    .filter((item): item is MangaUpdatesAuthorReference => item !== null);
+    .filter((item): item is NonNullable<typeof item> => item !== null);
 
   if (references.length > 0) {
     return references;
@@ -2289,7 +2262,7 @@ const parseMangaUpdatesSearchCandidates = (html: string, searchUrl: string): Sou
           url,
         };
       })
-      .filter((item): item is SourceSearchCandidate => item !== null),
+      .filter((item): item is NonNullable<typeof item> => item !== null),
   ).slice(0, 8);
 };
 
@@ -2358,7 +2331,7 @@ const resolveMangaUpdatesSeriesDetails = async (
             sourceUrl: href ? toAbsoluteUrl(href, canonicalUrl) : undefined,
           } satisfies ImportedRelatedSeriesDraft;
         })
-        .filter((item): item is ImportedRelatedSeriesDraft => item !== null),
+        .filter((item): item is NonNullable<typeof item> => item !== null),
     ),
     authors: getMangaUpdatesPersonReferences(doc, 'Author(s)', canonicalUrl),
     artists: getMangaUpdatesPersonReferences(doc, 'Artist(s)', canonicalUrl),
@@ -2889,7 +2862,7 @@ const buildFandomGallery = (
         label: `${labelPrefix} ${index + 1}`,
       };
     })
-    .filter((item): item is EntityGalleryImage => item !== null),
+    .filter((item): item is NonNullable<typeof item> => item !== null),
 );
 
 const extractFandomAltTitles = (text: string) => {
@@ -4305,7 +4278,7 @@ const parseAniSearchRelatedSeries = (doc: Document, currentUrl: string) => uniqu
         cover,
       };
     })
-    .filter((item): item is ImportedRelatedSeriesDraft => item !== null),
+    .filter((item): item is NonNullable<typeof item> => item !== null),
 );
 
 const sanitizeAniSearchCharacterDescription = (value?: string | null) => {

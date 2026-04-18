@@ -384,7 +384,7 @@ const Browse: React.FC = () => {
           </div>
 
           <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-32">
-            <Select value={typeFilter} onValueChange={setTypeFilter}>
+            <Select value={typeFilter} onValueChange={(value) => setTypeFilter(normalizeBrowseTypeFilter(value))}>
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Tür" />
               </SelectTrigger>

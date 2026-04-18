@@ -2,6 +2,7 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { json, requireRequester, type createServiceClient } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
+  type ChapterAutomationSource,
   computeNextRunAt,
   fetchAutomationSeries,
   fetchChapterImagesForAutomation,
@@ -157,7 +158,7 @@ const loadAutomationRows = async (
   if (mangaIds.length > 0) {
     const { data: mangaRows, error: mangaError } = await serviceClient
       .from("mangas")
-      .select("id, title, cover, is_adult")
+      .select("id, title, cover, alternative_titles, is_adult")
       .in("id", mangaIds);
 
     if (mangaError) {
@@ -485,7 +486,7 @@ const isUniqueViolation = (error: unknown) => (
   typeof error === "object"
     && error !== null
     && "code" in error
-    && `${(error as { code?: string }).code || ""}` === "23505"
+    && String((error as { code?: string }).code || "") === "23505"
 );
 
 Deno.serve(async (req: Request) => {

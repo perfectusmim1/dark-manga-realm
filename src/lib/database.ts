@@ -1655,8 +1655,10 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
 
             const uniqueRowsById = new Map<string, any>();
             [...(newlyAddedRows || []), ...(recentlyUpdatedRows || []), ...(trendingRows || [])].forEach((row) => {
-                if (row?.id && !uniqueRowsById.has(row.id)) {
-                    uniqueRowsById.set(row.id, row);
+                const normalizedRow = row && typeof row === 'object' ? row as Record<string, unknown> : null;
+                const rowId = typeof normalizedRow?.id === 'string' ? normalizedRow.id : null;
+                if (rowId && !uniqueRowsById.has(rowId)) {
+                    uniqueRowsById.set(rowId, normalizedRow);
                 }
             });
 
@@ -2377,7 +2379,9 @@ export const rateManga = async (mangaId: string, userId: string, rating: number)
     return true;
 };
 
-export const addReview = async (review: Omit<Review, 'id' | 'createdAt' | 'updatedAt' | 'likes' | 'likedBy'>): Promise<void> => {
+export const addReview = async (
+    review: Omit<Review, 'id' | 'createdAt' | 'updatedAt' | 'likes' | 'likedBy' | 'dislikes' | 'dislikedBy'>
+): Promise<void> => {
     const { error } = await supabase.from('reviews').upsert({
         manga_id: review.mangaId,
         user_id: review.userId,
@@ -2411,7 +2415,7 @@ export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => 
             user:users!user_id(username, avatar, role),
             likes_count:${reviewReactionTables.like}(count),
             dislikes_count:${reviewReactionTables.dislike}(count)
-        `)
+        ` as any)
         .eq('manga_id', mangaId)
         .order('created_at', { ascending: false });
 
@@ -2430,26 +2434,30 @@ export const getReviewsForManga = async (mangaId: string): Promise<Review[]> => 
         ])
         : [[], []];
 
-    return (data || []).map(r => ({
-        id: r.id,
-        mangaId: r.manga_id,
-        userId: r.user_id,
-        username: (r as any).user?.username || 'Anonim',
-        userAvatar: (r as any).user?.avatar,
-        userRole: (r as any).user?.role,
-        content: r.content,
-        rating_story: r.rating_story,
-        rating_characters: r.rating_characters,
-        rating_art: r.rating_art,
-        rating_progression: r.rating_progression,
-        rating_engagement: r.rating_engagement,
-        createdAt: r.created_at,
-        updatedAt: r.updated_at,
-        likes: (r as any).likes_count?.[0]?.count || 0,
-        dislikes: (r as any).dislikes_count?.[0]?.count || 0,
-        likedBy: userId && userLikes.includes(r.id) ? [userId] : [],
-        dislikedBy: userId && userDislikes.includes(r.id) ? [userId] : [],
-    })) as Review[];
+    const reviewRows = ((data || []) as any[])
+        .filter((row) => row !== null && typeof row === 'object' && 'id' in row);
+
+    return reviewRows
+        .map((r) => ({
+            id: r.id,
+            mangaId: r.manga_id,
+            userId: r.user_id,
+            username: (r as any).user?.username || 'Anonim',
+            userAvatar: (r as any).user?.avatar,
+            userRole: (r as any).user?.role,
+            content: r.content,
+            rating_story: r.rating_story,
+            rating_characters: r.rating_characters,
+            rating_art: r.rating_art,
+            rating_progression: r.rating_progression,
+            rating_engagement: r.rating_engagement,
+            createdAt: r.created_at,
+            updatedAt: r.updated_at,
+            likes: (r as any).likes_count?.[0]?.count || 0,
+            dislikes: (r as any).dislikes_count?.[0]?.count || 0,
+            likedBy: userId && userLikes.includes(r.id) ? [userId] : [],
+            dislikedBy: userId && userDislikes.includes(r.id) ? [userId] : [],
+        })) as Review[];
 };
 
 const toggleReviewReaction = async (
@@ -5982,6 +5990,8 @@ export const addEntityComment = async (entityType: RichEntityType, entityId: str
         userId,
         username: '',
         content,
+        dislikes: 0,
+        dislikedBy: [],
     });
 };
 

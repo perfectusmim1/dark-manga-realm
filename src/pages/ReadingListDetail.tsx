@@ -53,7 +53,7 @@ const ReadingListDetail: React.FC = () => {
     const [isSelectionMode, setIsSelectionMode] = useState(false);
     const [selectedMangaIds, setSelectedMangaIds] = useState<string[]>([]);
     const [isRemovingSelected, setIsRemovingSelected] = useState(false);
-    const topTenWeekIds = useTopTenWeekIds(Boolean(list?.mangas?.length));
+    const topTenWeekIds = useTopTenWeekIds(Boolean(list?.items?.length));
     const hoverPreviewEnabled = appearancePreferences.manga_hover_preview;
     
     // Likes State

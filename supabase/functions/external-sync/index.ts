@@ -890,7 +890,9 @@ const getRequestedProviders = (input: unknown) => {
     .map((value) => normalizeProvider(typeof value === "string" ? value : ""))
     .filter(Boolean) as ExternalSyncProvider[];
 
-  return providers.length > 0 ? [...new Set(providers)] : ["myanimelist", "anilist"];
+  return providers.length > 0
+    ? [...new Set(providers)] as ExternalSyncProvider[]
+    : ["myanimelist", "anilist"] as ExternalSyncProvider[];
 };
 
 const getSyncStateMap = (rows: any[] | null | undefined) => {

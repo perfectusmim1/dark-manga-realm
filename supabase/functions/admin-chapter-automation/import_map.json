@@ -1,0 +1,7 @@
+{
+  "imports": {
+    "../_shared/auth.ts": "./_shared/auth.ts",
+    "../_shared/cors.ts": "./_shared/cors.ts",
+    "../_shared/chapter-automation.ts": "./_shared/chapter-automation.ts"
+  }
+}

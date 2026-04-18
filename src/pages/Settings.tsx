@@ -993,7 +993,7 @@ const Settings: React.FC = () => {
                                 <div key={`${provider}-${field}`} className="flex items-center justify-between rounded-lg border border-border/60 bg-background/40 px-3 py-2.5">
                                     <span className="text-sm">{fieldLabel}</span>
                                     <Switch
-                                        checked={Boolean((providerPrefs.fieldToggles as Record<string, boolean>)[field])}
+                                        checked={Boolean((providerPrefs.fieldToggles as unknown as Partial<Record<string, boolean>>)[field])}
                                         onCheckedChange={(checked) => void handleToggleProviderField(provider, field, checked)}
                                         disabled={isUpdatingPrefs}
                                     />

@@ -177,6 +177,14 @@ interface ManualEntityMatchSelection {
   type: MatchableEntityType;
 }
 
+const toImportedMatchedEntityType = (
+  value?: MatchableEntityType,
+): ImportedPersonDraft['matchedEntityType'] => (
+  value === 'author' || value === 'artist' || value === 'character'
+    ? value
+    : undefined
+);
+
 interface LocalMatchableEntityOption {
   id: string;
   name: string;
@@ -1280,13 +1288,13 @@ const AdminMetadataImport: React.FC = () => {
         ...item.item,
         matchedEntityId: item.matchedEntity?.id,
         matchedEntityName: item.matchedEntity?.name,
-        matchedEntityType: item.matchedEntity?.type,
+        matchedEntityType: toImportedMatchedEntityType(item.matchedEntity?.type),
       })),
       artists: previewCollections.artists.filter((item) => item.checked).map((item) => ({
         ...item.item,
         matchedEntityId: item.matchedEntity?.id,
         matchedEntityName: item.matchedEntity?.name,
-        matchedEntityType: item.matchedEntity?.type,
+        matchedEntityType: toImportedMatchedEntityType(item.matchedEntity?.type),
       })),
       characters: previewCollections.characters
         .filter((item) => item.checked)
@@ -1294,7 +1302,7 @@ const AdminMetadataImport: React.FC = () => {
           ...item.item,
           matchedEntityId: item.matchedEntity?.id,
           matchedEntityName: item.matchedEntity?.name,
-          matchedEntityType: item.matchedEntity?.type,
+          matchedEntityType: toImportedMatchedEntityType(item.matchedEntity?.type),
           gallery: selectedCharacterGalleryMap.get(item.key) || [],
         })),
       relatedSeries: previewCollections.relatedSeries.filter((item) => item.checked).map((item) => item.item),

@@ -2,6 +2,9 @@ import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createServiceClient, json } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
 import {
+  type ChapterAutomationSource,
+  type ChapterAutomationValidationSnapshot,
+  type ScrapedAutomationChapter,
   computeNextRunAfter,
   fetchAutomationSeries,
   fetchChapterImagesForAutomation,
@@ -47,7 +50,7 @@ const loadRunnerToken = async (serviceClient: ReturnType<typeof createServiceCli
   return normalizeText(data?.value);
 };
 
-const dedupeSourceChaptersByNumber = (chapters: Array<{ number: number } & Record<string, unknown>>) => {
+const dedupeSourceChaptersByNumber = <T extends { number: number }>(chapters: T[]) => {
   const unique = new Map<number, typeof chapters[number]>();
 
   for (const chapter of chapters) {
@@ -59,6 +62,18 @@ const dedupeSourceChaptersByNumber = (chapters: Array<{ number: number } & Recor
   }
 
   return Array.from(unique.values()).sort((left, right) => left.number - right.number);
+};
+
+const toValidationSnapshotRecord = (value: ChapterAutomationValidationSnapshot) => (
+  value as unknown as Record<string, unknown>
+);
+
+const normalizeAutomationSource = (value: string): ChapterAutomationSource => {
+  if (value === "hayalistic" || value === "webtoonhatti" || value === "siyahmelek") {
+    return value;
+  }
+
+  throw new Error("Desteklenmeyen otomasyon kaynağı");
 };
 
 const createFollowerNotifications = async (
@@ -231,7 +246,7 @@ const processAutomation = async (
     }
 
     const existingNumbers = new Set((chapterRows || []).map((chapter) => Number(chapter.number)));
-    const missingChapters = dedupeSourceChaptersByNumber(sourceResult.chapters)
+    const missingChapters = dedupeSourceChaptersByNumber<ScrapedAutomationChapter>(sourceResult.chapters)
       .filter((chapter) => !existingNumbers.has(chapter.number));
 
     if (missingChapters.length === 0) {
@@ -245,7 +260,7 @@ const processAutomation = async (
         details: {
           latestSourceChapterNumber: sourceResult.validation.latestChapterNumber,
         },
-        validationSnapshot: sourceResult.validation as Record<string, unknown>,
+        validationSnapshot: toValidationSnapshotRecord(sourceResult.validation),
       });
 
       return { status: "no_changes" as const, chaptersAdded: 0 };
@@ -263,7 +278,11 @@ const processAutomation = async (
         await sleep(800);
       }
 
-      const pageResult = await fetchChapterImagesForAutomation(serviceClient, automation.source, chapter.link);
+      const pageResult = await fetchChapterImagesForAutomation(
+        serviceClient,
+        normalizeAutomationSource(automation.source),
+        chapter.link,
+      );
       if (pageResult.status === "locked") {
         skippedLockedChapters.push(chapter.number);
         continue;
@@ -349,7 +368,7 @@ const processAutomation = async (
         skippedLockedChapterNumbers: skippedLockedChapters,
         failedChapterNumbers: failedChapters,
       },
-      validationSnapshot: sourceResult.validation as Record<string, unknown>,
+      validationSnapshot: toValidationSnapshotRecord(sourceResult.validation),
     });
 
     return { status, chaptersAdded: addedCount };

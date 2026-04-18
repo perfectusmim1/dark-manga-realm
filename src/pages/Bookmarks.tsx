@@ -79,7 +79,7 @@ const Bookmarks: React.FC = () => {
         };
       });
 
-      setBookmarks(enrichedBookmarks.filter((bookmark): bookmark is EnrichedBookmark => Boolean(bookmark)));
+      setBookmarks(enrichedBookmarks);
     } catch (err) {
       console.error('Bookmarks load error:', err);
     } finally {

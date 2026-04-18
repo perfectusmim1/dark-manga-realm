@@ -86,7 +86,7 @@ export const getDefaultScraperProviderForSource = (source: ScrapeSource): Scrape
     return 'supabase';
   }
 
-  if (source === 'webtoonhatti' && availableProviders.includes('cloudflare')) {
+  if ((source === 'webtoonhatti' || source === 'hayalistic') && availableProviders.includes('cloudflare')) {
     return 'cloudflare';
   }
 

@@ -177,6 +177,8 @@ const PageCommentModal: React.FC<PageCommentModalProps> = ({
                 mediaUrls: normalizedDraft.mediaUrls,
                 isSpoiler: normalizedDraft.isSpoiler,
                 gifUrl: normalizedDraft.gifUrl || undefined,
+                dislikes: 0,
+                dislikedBy: [],
             });
 
             dispatchPageCommentsUpdated({

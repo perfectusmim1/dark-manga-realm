@@ -1055,6 +1055,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             mediaUrls: normalizedDraft.mediaUrls,
             isSpoiler: normalizedDraft.isSpoiler,
             gifUrl: normalizedDraft.gifUrl || undefined,
+            dislikes: 0,
+            dislikedBy: [],
         });
 
         setNewDraft(createEmptyDraft());
@@ -1219,6 +1221,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
             isSpoiler: normalizedDraft.isSpoiler,
             gifUrl: normalizedDraft.gifUrl || undefined,
             parentId,
+            dislikes: 0,
+            dislikedBy: [],
         });
 
         setExpandedReplies(prev => ({ ...prev, [parentId]: true }));
