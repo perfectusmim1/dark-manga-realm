@@ -888,11 +888,10 @@ const getCurrentViewerAdultModePreference = async (): Promise<boolean> => {
         return cachedPreferences.content?.adult_mode === true;
     }
 
-    const { data: profile, error } = await supabase
-        .from('users')
-        .select('preferences')
-        .eq('id', authUserId)
-        .maybeSingle();
+    const { data: profile, error } = await supabase.rpc('sync_current_auth_profile', {
+        p_avatar: null,
+        p_base_username: null,
+    });
 
     if (error) {
         if (!isExpectedAccessControlError(error)) {
@@ -901,7 +900,8 @@ const getCurrentViewerAdultModePreference = async (): Promise<boolean> => {
         return false;
     }
 
-    return profile?.preferences?.content?.adult_mode === true;
+    const profileRow = Array.isArray(profile) ? profile[0] : profile;
+    return profileRow?.preferences?.content?.adult_mode === true;
 };
 
 const getCurrentViewerRole = async (): Promise<User['role'] | undefined> => {

@@ -1,2 +1,68 @@
+[functions.admin-ban-user]
+verify_jwt = true
+
+[functions.admin-chapter-automation]
+verify_jwt = true
+
+[functions.admin-delete-user]
+verify_jwt = true
+
+[functions.admin-export-backup]
+verify_jwt = true
+
+[functions.admin-import-backup]
+verify_jwt = true
+
+[functions.admin-media-ingest]
+verify_jwt = true
+
+[functions.admin-media-metrics]
+verify_jwt = true
+
+[functions.admin-unban-user]
+verify_jwt = true
+
+[functions.admin-user-access]
+verify_jwt = true
+
+[functions.admin-user-directory]
+verify_jwt = true
+
+[functions.chapter-automation-runner]
+verify_jwt = false
+
+[functions.check-access]
+verify_jwt = false
+
+[functions.cloudflare-metrics-ingest]
+verify_jwt = false
+
+[functions.external-ratings-refresh]
+verify_jwt = false
+
+[functions.external-sync]
+verify_jwt = true
+
+[functions.offline-image-proxy]
+verify_jwt = false
+
+[functions.password-login]
+verify_jwt = false
+
 [functions.proxy-scraper]
 verify_jwt = false
+
+[functions.series-requests]
+verify_jwt = true
+
+[functions.support-ticket-public-create]
+verify_jwt = false
+
+[functions.support-tickets]
+verify_jwt = true
+
+[functions.user-access-state]
+verify_jwt = true
+
+[functions.user-sessions]
+verify_jwt = true

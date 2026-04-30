@@ -216,8 +216,11 @@ Deno.serve(async (req: Request) => {
       } catch (error) {
         console.error("Authenticated access evaluation failed:", error);
         return json({
-          allowed: true,
+          allowed: isSupportAllowedPath(routePath),
           reason: "access_check_failed",
+          message: isSupportAllowedPath(routePath)
+            ? undefined
+            : "Erişim güvenliği kontrol edilemedi. Lütfen kısa süre sonra tekrar deneyin.",
           supportOnly: false,
           warning: null,
           ban: { active: false },

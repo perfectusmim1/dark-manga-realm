@@ -147,6 +147,7 @@ const Profile: React.FC = () => {
 
   const canView = profileData.sectionAccess?.profile ?? true;
   const canViewReadingHistory = profileData.sectionAccess?.readingHistory ?? true;
+  const canViewReadingDetails = canViewReadingHistory && Boolean(currentUser);
   const canViewReadingLists = profileData.sectionAccess?.readingLists ?? true;
   const canViewTierLists = profileData.sectionAccess?.tierLists ?? true;
   const canViewComments = profileData.sectionAccess?.comments ?? true;
@@ -164,6 +165,10 @@ const Profile: React.FC = () => {
   ];
   const requestedTab = searchParams.get('tab') || 'overview';
   const activeTab = visibleTabs.includes(requestedTab) ? requestedTab : visibleTabs[0];
+  const readingTimeStatCardClassName = cn(
+    'rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center',
+    isOwnProfile && 'transition-colors hover:border-primary/40 hover:bg-card',
+  );
   
   const joinDate = new Date(profileData.created_at).toLocaleDateString('tr-TR', {
     month: 'long', 
@@ -513,7 +518,7 @@ const Profile: React.FC = () => {
                   <p className="text-sm text-muted-foreground mt-1">Kayıt Tarihi</p>
                 </div>
 
-                {canViewReadingHistory && (
+                {canViewReadingDetails && (
                   <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
                     <BookOpen className="w-6 h-6 text-primary mb-3 mx-auto" />
                     <p className="text-2xl font-bold">{profileData.stats.totalChapters}</p>
@@ -521,7 +526,7 @@ const Profile: React.FC = () => {
                   </div>
                 )}
 
-                {canViewReadingHistory && (
+                {canViewReadingDetails && (
                   <div className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center">
                     <Book className="w-6 h-6 text-primary mb-3 mx-auto" />
                     <p className="text-2xl font-bold">{profileData.stats.totalSeries}</p>
@@ -538,18 +543,23 @@ const Profile: React.FC = () => {
                 )}
 
                 {canViewReadingHistory && (
-                  <Link
-                    to="/reading-time"
-                    className="rounded-xl border border-border bg-card/50 p-6 flex flex-col justify-center items-center text-center transition-colors hover:border-primary/40 hover:bg-card"
-                  >
-                    <Clock3 className="w-6 h-6 text-primary mb-3 mx-auto" />
-                    <p className="text-2xl font-bold">{formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}</p>
-                    <p className="text-sm text-muted-foreground mt-1">Toplam Okuma Süresi</p>
-                  </Link>
+                  isOwnProfile ? (
+                    <Link to="/reading-time" className={readingTimeStatCardClassName}>
+                      <Clock3 className="w-6 h-6 text-primary mb-3 mx-auto" />
+                      <p className="text-2xl font-bold">{formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}</p>
+                      <p className="text-sm text-muted-foreground mt-1">Toplam Okuma Süresi</p>
+                    </Link>
+                  ) : (
+                    <div className={readingTimeStatCardClassName}>
+                      <Clock3 className="w-6 h-6 text-primary mb-3 mx-auto" />
+                      <p className="text-2xl font-bold">{formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}</p>
+                      <p className="text-sm text-muted-foreground mt-1">Toplam Okuma Süresi</p>
+                    </div>
+                  )
                 )}
               </div>
 
-              {canViewReadingHistory && (
+              {canViewReadingDetails && (
                 <>
                   {/* Heat Map Section */}
                   <div className="rounded-xl border border-border bg-card/50 p-6 md:p-8 shadow-sm">

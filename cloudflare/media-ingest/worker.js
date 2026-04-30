@@ -41,7 +41,6 @@ const DEFAULT_ALLOWED_HOSTS = [
 
 const DEFAULT_ALLOWED_ORIGINS = [
   'https://toonparrot.vercel.app',
-  'https://*.vercel.app',
   'http://localhost:*',
   'http://127.0.0.1:*',
 ];

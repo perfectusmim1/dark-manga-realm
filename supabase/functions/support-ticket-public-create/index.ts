@@ -1,12 +1,17 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createServiceClient, json } from "../_shared/auth.ts";
 import { corsHeaders } from "../_shared/cors.ts";
+import { getIpAddress, sha256Hex } from "../_shared/session-tracking.ts";
 
 type TicketCategory = "bug_report" | "account" | "content_issue" | "ban_appeal" | "other";
 
 const TICKET_CATEGORIES = new Set<TicketCategory>(["bug_report", "account", "content_issue", "ban_appeal", "other"]);
 const TICKET_CREATION_COOLDOWN_MS = 3 * 60 * 60 * 1000;
 const PUBLIC_TICKET_CREATION_COOLDOWN_MESSAGE = "Aynı iletişim e-postasıyla 3 saatte yalnızca 1 destek bileti oluşturabilirsin.";
+const IP_TICKET_CREATION_WINDOW_MS = 60 * 60 * 1000;
+const IP_TICKET_CREATION_LIMIT = 5;
+const RATE_LIMIT_RETENTION_MS = 24 * 60 * 60 * 1000;
+const PUBLIC_TICKET_IP_RATE_LIMIT_MESSAGE = "Çok kısa sürede fazla destek bileti oluşturuldu. Lütfen daha sonra tekrar deneyin.";
 
 const normalizeImageUrl = (value?: string | null) => {
   const trimmed = value?.trim();
@@ -112,6 +117,30 @@ Deno.serve(async (req: Request) => {
       return json({ success: false, message: "Geçerli bir http/https görsel linki girin" }, 400);
     }
 
+    const ipLimiterKey = `ip:${await sha256Hex(getIpAddress(req))}`;
+    const ipWindowStart = new Date(Date.now() - IP_TICKET_CREATION_WINDOW_MS).toISOString();
+    const rateLimitRetentionCutoff = new Date(Date.now() - RATE_LIMIT_RETENTION_MS).toISOString();
+
+    await serviceClient
+      .from("support_ticket_public_rate_limits")
+      .delete()
+      .lt("created_at", rateLimitRetentionCutoff);
+
+    const { count: recentIpTicketCount, error: ipRateLimitError } = await serviceClient
+      .from("support_ticket_public_rate_limits")
+      .select("id", { count: "exact", head: true })
+      .eq("limiter_key", ipLimiterKey)
+      .gte("created_at", ipWindowStart);
+
+    if (ipRateLimitError) {
+      console.error("Public ticket IP rate-limit lookup failed:", ipRateLimitError);
+      return json({ success: false, message: "Bilet limiti kontrol edilemedi" }, 500);
+    }
+
+    if ((recentIpTicketCount || 0) >= IP_TICKET_CREATION_LIMIT) {
+      return json({ success: false, message: PUBLIC_TICKET_IP_RATE_LIMIT_MESSAGE }, 429);
+    }
+
     const recentTicketWindowStart = new Date(Date.now() - TICKET_CREATION_COOLDOWN_MS).toISOString();
     const { data: recentTicket, error: recentTicketError } = await serviceClient
       .from("support_tickets")
@@ -135,6 +164,18 @@ Deno.serve(async (req: Request) => {
     }
 
     const now = new Date().toISOString();
+    const { error: rateLimitInsertError } = await serviceClient
+      .from("support_ticket_public_rate_limits")
+      .insert({
+        limiter_key: ipLimiterKey,
+        created_at: now,
+      });
+
+    if (rateLimitInsertError) {
+      console.error("Public ticket IP rate-limit insert failed:", rateLimitInsertError);
+      return json({ success: false, message: "Bilet limiti kaydedilemedi" }, 500);
+    }
+
     const { data: createdTicket, error: ticketError } = await serviceClient
       .from("support_tickets")
       .insert({

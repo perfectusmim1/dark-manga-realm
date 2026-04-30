@@ -128,20 +128,15 @@ const Community: React.FC = () => {
   useEffect(() => {
     const fetchUserStats = async () => {
       try {
-      const oneMinuteAgo = new Date(Date.now() - 60000).toISOString();
+        const { data: presenceCounts, error: presenceError } = await supabase
+          .rpc('get_public_user_presence_counts');
 
-        const { count: onlineCount } = await supabase
-          .from('users')
-          .select('id', { count: 'exact', head: true })
-          .gt('last_seen_at', oneMinuteAgo);
+        if (presenceError) throw presenceError;
 
-        const { count: totalCount } = await supabase
-          .from('users')
-          .select('id', { count: 'exact', head: true });
-
+        const presenceRow = Array.isArray(presenceCounts) ? presenceCounts[0] : presenceCounts;
         setUserStats({
-          online: onlineCount || 0,
-          offline: Math.max(0, (totalCount || 0) - (onlineCount || 0)),
+          online: Number(presenceRow?.online_count || 0),
+          offline: Number(presenceRow?.offline_count || 0),
         });
       } catch (err) {
         console.error('User stats fetch error:', err);

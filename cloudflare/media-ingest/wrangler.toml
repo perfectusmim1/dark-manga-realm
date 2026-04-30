@@ -9,7 +9,7 @@ head_sampling_rate = 1
 
 [vars]
 ALLOWED_HOSTS = "cdn.anime-planet.com,anime-planet.com,www.anime-planet.com,myanimelist.net,cdn.myanimelist.net,api.jikan.moe,mangaupdates.com,api.mangaupdates.com,anilist.co,anisearch.com,www.anisearch.com,cdn.anisearch.com,cdn.mangaupdates.com,i.imgur.com,i.pinimg.com,webtoonhatti.club,hayalistic.net,hayalistic.com,siyahmelek.mom,s3.melek.lol,yedek.mangawow.com,cdn-2.webtoon-oku.net,kirmizikafa.monster,i.hizliresim.com,preview.redd.it,i.redd.it,i.namu.wiki,wikia.nocookie.net,images.wikia.com,nabimanga.com,gg.asuracomic.net,us-a.tapas.io,wallpapers.com,wallpapercave.com,i.ibb.co,www.mc-tr.com,napost.com,ruyamanga.net"
-ALLOWED_ORIGINS = "https://toonparrot.vercel.app,https://*.vercel.app,http://localhost:*,http://127.0.0.1:*"
+ALLOWED_ORIGINS = "https://toonparrot.vercel.app,http://localhost:*,http://127.0.0.1:*"
 PUBLIC_BUCKET_URL = "https://pub-b8b12b52a3ac4feaa96e8ca218e48473.r2.dev"
 METRICS_INGEST_URL = "https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/cloudflare-metrics-ingest"
 
