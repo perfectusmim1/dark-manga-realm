@@ -146,11 +146,12 @@ Deno.serve(async (req: Request) => {
 
     if (authUserId) {
       try {
-        await serviceClient.rpc("refresh_user_ban_state", {
+        const { error: banRefreshError } = await serviceClient.rpc("refresh_user_ban_state", {
           p_user_id: authUserId,
-        }).catch((error) => {
-          console.error("Failed to refresh user ban state:", error);
         });
+        if (banRefreshError) {
+          console.error("Failed to refresh user ban state:", banRefreshError);
+        }
 
         const [
           userRecordResult,
