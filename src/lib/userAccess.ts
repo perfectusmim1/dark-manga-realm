@@ -25,7 +25,13 @@ interface UserAccessSnapshotRequestOptions {
 
 const USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS = 3 * 60 * 1000;
 const USER_ACCESS_AUTH_RETRY_BACKOFF_MS = 45 * 1000;
+const USER_ACCESS_SNAPSHOT_CACHE_TTL_MS = 8_000;
 let nextUserAccessSnapshotRetryAt = 0;
+const userAccessSnapshotCache = new Map<string, {
+  fetchedAt: number;
+  value: CurrentUserAccessSnapshot;
+}>();
+const userAccessSnapshotInflightRequests = new Map<string, Promise<CurrentUserAccessSnapshot>>();
 
 const invokeUserAccessState = (
   body: Record<string, unknown>,
@@ -65,6 +71,40 @@ const normalizeSnapshot = (payload: UserAccessSnapshotResponse | null | undefine
   unreadWarningCount: Number(payload?.unreadWarningCount) || 0,
 });
 
+const cloneSnapshot = (snapshot: CurrentUserAccessSnapshot): CurrentUserAccessSnapshot => ({
+  warning: snapshot.warning ? { ...snapshot.warning } : null,
+  ban: { ...snapshot.ban },
+  warningCount: snapshot.warningCount,
+  unreadWarningCount: snapshot.unreadWarningCount,
+});
+
+const getSnapshotCacheKey = (options?: UserAccessSnapshotRequestOptions) => (
+  options?.preferredAccessToken?.trim()
+    ? options.preferredAccessToken.trim().slice(-24)
+    : 'current'
+);
+
+const readSnapshotCache = (cacheKey: string): CurrentUserAccessSnapshot | null => {
+  const cached = userAccessSnapshotCache.get(cacheKey);
+  if (!cached) {
+    return null;
+  }
+
+  if (Date.now() - cached.fetchedAt > USER_ACCESS_SNAPSHOT_CACHE_TTL_MS) {
+    userAccessSnapshotCache.delete(cacheKey);
+    return null;
+  }
+
+  return cloneSnapshot(cached.value);
+};
+
+const writeSnapshotCache = (cacheKey: string, snapshot: CurrentUserAccessSnapshot) => {
+  userAccessSnapshotCache.set(cacheKey, {
+    fetchedAt: Date.now(),
+    value: cloneSnapshot(snapshot),
+  });
+};
+
 export const getCurrentUserAccessSnapshot = async (
   options?: UserAccessSnapshotRequestOptions,
 ): Promise<CurrentUserAccessSnapshot> => {
@@ -72,30 +112,55 @@ export const getCurrentUserAccessSnapshot = async (
     throw new Error('USER_ACCESS_STATE_BACKOFF_ACTIVE');
   }
 
-  let data: UserAccessSnapshotResponse | null | undefined;
+  const cacheKey = getSnapshotCacheKey(options);
+  const cachedSnapshot = readSnapshotCache(cacheKey);
+  if (cachedSnapshot) {
+    return cachedSnapshot;
+  }
+
+  const inflightRequest = userAccessSnapshotInflightRequests.get(cacheKey);
+  if (inflightRequest) {
+    return cloneSnapshot(await inflightRequest);
+  }
+
+  const request = (async () => {
+    let data: UserAccessSnapshotResponse | null | undefined;
+    try {
+      data = await invokeUserAccessState({
+        action: 'get',
+      }, {
+        maxAttempts: options?.maxAttempts ?? 2,
+        preferredAccessToken: options?.preferredAccessToken,
+      });
+    } catch (error) {
+      nextUserAccessSnapshotRetryAt = Date.now() + (
+        isAuthSessionUnavailableError(error)
+          ? USER_ACCESS_AUTH_RETRY_BACKOFF_MS
+          : USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS
+      );
+      throw error;
+    }
+
+    if (!data?.success) {
+      nextUserAccessSnapshotRetryAt = Date.now() + USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS;
+      throw new Error(data?.message || 'USER_ACCESS_STATE_FAILED');
+    }
+
+    nextUserAccessSnapshotRetryAt = 0;
+    return normalizeSnapshot(data);
+  })();
+
+  userAccessSnapshotInflightRequests.set(cacheKey, request);
+
   try {
-    data = await invokeUserAccessState({
-      action: 'get',
-    }, {
-      maxAttempts: options?.maxAttempts ?? 2,
-      preferredAccessToken: options?.preferredAccessToken,
-    });
-  } catch (error) {
-    nextUserAccessSnapshotRetryAt = Date.now() + (
-      isAuthSessionUnavailableError(error)
-        ? USER_ACCESS_AUTH_RETRY_BACKOFF_MS
-        : USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS
-    );
-    throw error;
+    const snapshot = await request;
+    writeSnapshotCache(cacheKey, snapshot);
+    return cloneSnapshot(snapshot);
+  } finally {
+    if (userAccessSnapshotInflightRequests.get(cacheKey) === request) {
+      userAccessSnapshotInflightRequests.delete(cacheKey);
+    }
   }
-
-  if (!data?.success) {
-    nextUserAccessSnapshotRetryAt = Date.now() + USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS;
-    throw new Error(data?.message || 'USER_ACCESS_STATE_FAILED');
-  }
-
-  nextUserAccessSnapshotRetryAt = 0;
-  return normalizeSnapshot(data);
 };
 
 export const acknowledgeCurrentUserWarning = async (
@@ -110,5 +175,6 @@ export const acknowledgeCurrentUserWarning = async (
     throw new Error(data?.message || 'WARNING_ACK_FAILED');
   }
 
+  userAccessSnapshotCache.clear();
   return normalizeSnapshot(data);
 };

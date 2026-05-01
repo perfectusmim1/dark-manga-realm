@@ -11,14 +11,18 @@ import CustomContextMenu from './CustomContextMenu';
 
 const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) => {
     const { user } = useAuth();
-    const { access, isLoading: adminAccessLoading } = useAdminAccess();
     const [settings, setSettings] = useState<SiteSecuritySettings>({
         devtoolsProtectionEnabled: false,
         adblockWarningEnabled: false,
         updatedAt: null,
         updatedBy: null,
     });
-    const isAdmin = access.role === 'admin';
+    const shouldValidateAdminBypass = settings.devtoolsProtectionEnabled
+        && Boolean(user && (user.role === 'admin' || user.role === 'moderator'));
+    const { access, isLoading: adminAccessLoading } = useAdminAccess({
+        enabled: shouldValidateAdminBypass,
+    });
+    const isAdmin = user?.role === 'admin' || access.role === 'admin';
     const shouldEnforce = settings.devtoolsProtectionEnabled
         && (!user || (!adminAccessLoading && !isAdmin));
 

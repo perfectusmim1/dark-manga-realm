@@ -368,6 +368,13 @@ const extractTotpFactors = (factors: TotpFactorRecord[] | undefined): TotpFactor
 // Convert Supabase user + Profile data to our User type
 const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileRow | null): User => {
   const cachedPreferences = getCachedPreferencesForUser(supabaseUser.id);
+  const profilePreferences = profile?.preferences
+    ? normalizeUserPreferences(profile.preferences)
+    : undefined;
+
+  if (!cachedPreferences && profilePreferences) {
+    setCachedPreferencesForUser(supabaseUser.id, profilePreferences);
+  }
 
   return {
     id: supabaseUser.id,
@@ -385,7 +392,7 @@ const mapSupabaseUserToUser = (supabaseUser: SupabaseUser, profile: UserProfileR
     warningCount: profile?.warning_count || 0,
     unreadWarningCount: profile?.unread_warning_count || 0,
     twoFactorEnabled: profile?.two_factor_enabled || false,
-    preferences: normalizeUserPreferences(cachedPreferences || profile?.preferences),
+    preferences: normalizeUserPreferences(cachedPreferences || profilePreferences),
   };
 };
 

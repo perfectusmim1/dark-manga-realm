@@ -10,6 +10,15 @@ export interface SiteSecuritySettings {
 
 const SITE_SECURITY_EVENT = 'site-security-settings-updated';
 const SITE_SECURITY_CACHE_KEY = 'toonparrot:site-security-settings-cache';
+const SITE_SECURITY_CACHE_TTL_MS = 60_000;
+
+interface SiteSecurityCacheEntry {
+  settings: SiteSecuritySettings;
+  fetchedAt: number;
+}
+
+let cachedSiteSecuritySettingsEntry: SiteSecurityCacheEntry | null = null;
+let siteSecuritySettingsRequest: Promise<SiteSecuritySettings> | null = null;
 
 const normalizeSiteSecuritySettings = (payload: any): SiteSecuritySettings => ({
   devtoolsProtectionEnabled: Boolean(payload?.devtools_protection_enabled),
@@ -30,53 +39,115 @@ const getDefaultSiteSecuritySettings = (): SiteSecuritySettings => ({
   updatedBy: null,
 });
 
-const readCachedSiteSecuritySettings = (): SiteSecuritySettings => {
+const readCachedSiteSecuritySettingsEntry = (): SiteSecurityCacheEntry => {
+  if (cachedSiteSecuritySettingsEntry) {
+    return cachedSiteSecuritySettingsEntry;
+  }
+
   if (typeof window === 'undefined') {
-    return getDefaultSiteSecuritySettings();
+    return {
+      settings: getDefaultSiteSecuritySettings(),
+      fetchedAt: 0,
+    };
   }
 
   const raw = window.localStorage.getItem(SITE_SECURITY_CACHE_KEY);
   if (!raw) {
-    return getDefaultSiteSecuritySettings();
+    return {
+      settings: getDefaultSiteSecuritySettings(),
+      fetchedAt: 0,
+    };
   }
 
   try {
-    return {
-      ...getDefaultSiteSecuritySettings(),
-      ...JSON.parse(raw),
+    const parsed = JSON.parse(raw);
+    const cachedSettings = parsed?.settings && typeof parsed.settings === 'object'
+      ? parsed.settings
+      : parsed;
+    const entry = {
+      settings: {
+        ...getDefaultSiteSecuritySettings(),
+        ...cachedSettings,
+      },
+      fetchedAt: Number(parsed?.fetchedAt) || 0,
     };
+
+    cachedSiteSecuritySettingsEntry = entry;
+    return entry;
   } catch {
-    return getDefaultSiteSecuritySettings();
+    return {
+      settings: getDefaultSiteSecuritySettings(),
+      fetchedAt: 0,
+    };
   }
 };
 
-const writeCachedSiteSecuritySettings = (settings: SiteSecuritySettings) => {
+const readCachedSiteSecuritySettings = (): SiteSecuritySettings => (
+  readCachedSiteSecuritySettingsEntry().settings
+);
+
+const writeCachedSiteSecuritySettings = (
+  settings: SiteSecuritySettings,
+  fetchedAt = Date.now(),
+) => {
+  cachedSiteSecuritySettingsEntry = {
+    settings,
+    fetchedAt,
+  };
+
   if (typeof window === 'undefined') {
     return;
   }
 
-  window.localStorage.setItem(SITE_SECURITY_CACHE_KEY, JSON.stringify(settings));
+  window.localStorage.setItem(
+    SITE_SECURITY_CACHE_KEY,
+    JSON.stringify(cachedSiteSecuritySettingsEntry),
+  );
 };
 
-export const getSiteSecuritySettings = async (): Promise<SiteSecuritySettings> => {
+export const getSiteSecuritySettings = async (
+  options?: { forceRefresh?: boolean },
+): Promise<SiteSecuritySettings> => {
+  const cachedEntry = readCachedSiteSecuritySettingsEntry();
+
   if (!isEffectivelyOnline()) {
-    return readCachedSiteSecuritySettings();
+    return cachedEntry.settings;
   }
 
-  const { data, error } = await supabase.rpc('get_site_security_settings');
+  if (
+    !options?.forceRefresh
+    && cachedEntry.fetchedAt > 0
+    && Date.now() - cachedEntry.fetchedAt < SITE_SECURITY_CACHE_TTL_MS
+  ) {
+    return cachedEntry.settings;
+  }
 
-  if (error) {
-    if (isExpectedAccessControlError(error)) {
-      return readCachedSiteSecuritySettings();
+  if (siteSecuritySettingsRequest) {
+    return siteSecuritySettingsRequest;
+  }
+
+  siteSecuritySettingsRequest = (async () => {
+    const { data, error } = await supabase.rpc('get_site_security_settings');
+
+    if (error) {
+      if (isExpectedAccessControlError(error)) {
+        return readCachedSiteSecuritySettings();
+      }
+
+      throw error;
     }
 
-    throw error;
-  }
+    const row = Array.isArray(data) ? data[0] : data;
+    const normalized = normalizeSiteSecuritySettings(row);
+    writeCachedSiteSecuritySettings(normalized);
+    return normalized;
+  })();
 
-  const row = Array.isArray(data) ? data[0] : data;
-  const normalized = normalizeSiteSecuritySettings(row);
-  writeCachedSiteSecuritySettings(normalized);
-  return normalized;
+  try {
+    return await siteSecuritySettingsRequest;
+  } finally {
+    siteSecuritySettingsRequest = null;
+  }
 };
 
 export const setDevtoolsProtectionEnabled = async (

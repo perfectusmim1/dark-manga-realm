@@ -162,7 +162,9 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   const [allMangas, setAllMangas] = useState<Manga[]>([]);
   const [isSearchFocused, setIsSearchFocused] = useState(false);
   const { user, logout, isLoading: authLoading } = useAuth();
-  const { access } = useAdminAccess();
+  const { access } = useAdminAccess({
+    enabled: Boolean(user && (user.role === 'admin' || user.role === 'moderator')),
+  });
   const { preferences: offlinePreferences, updatePreferences: updateOfflinePreferences } = useOfflinePreferences();
   const { isOnline } = useEffectiveOnlineStatus();
   const { snapshot } = useOfflineLibrary();

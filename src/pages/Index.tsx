@@ -1041,6 +1041,10 @@ const Index: React.FC = () => {
       return;
     }
 
+    if (authLoading && hasPersistedAuthSession) {
+      return;
+    }
+
     let active = true;
     const homeDataPromise = loadHomeDataModule();
     const sectionsAreFresh = HOME_PAGE_CACHE.sections !== null
@@ -1109,7 +1113,7 @@ const Index: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [homeAudienceKey, isOnline]);
+  }, [authLoading, hasPersistedAuthSession, homeAudienceKey, isOnline]);
 
   useEffect(() => {
     let active = true;

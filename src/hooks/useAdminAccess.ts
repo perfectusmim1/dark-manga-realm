@@ -27,12 +27,13 @@ const loadAdminAccessModule = () => {
     return adminAccessModulePromise;
 };
 
-export const useAdminAccess = (options?: { requireOnlineValidation?: boolean }) => {
+export const useAdminAccess = (options?: { requireOnlineValidation?: boolean; enabled?: boolean }) => {
     const { user, isLoading: authLoading } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
     const requireOnlineValidation = options?.requireOnlineValidation ?? false;
+    const enabled = options?.enabled ?? true;
     const [access, setAccess] = useState<AdminAccessContext>(DEFAULT_ACCESS);
-    const [isLoading, setIsLoading] = useState(() => Boolean(user?.id));
+    const [isLoading, setIsLoading] = useState(() => enabled && Boolean(user?.id));
 
     useEffect(() => {
         if (authLoading) {
@@ -42,7 +43,7 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean }) 
         let isCancelled = false;
 
         const loadAccess = async () => {
-            if (!user?.id) {
+            if (!enabled || !user?.id) {
                 setAccess(DEFAULT_ACCESS);
                 setIsLoading(false);
                 return;
@@ -95,10 +96,10 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean }) 
         return () => {
             isCancelled = true;
         };
-    }, [authLoading, isOnline, requireOnlineValidation, user?.id]);
+    }, [authLoading, enabled, isOnline, requireOnlineValidation, user?.id]);
 
     return {
         access,
-        isLoading: authLoading || isLoading,
+        isLoading: enabled && (authLoading || isLoading),
     };
 };

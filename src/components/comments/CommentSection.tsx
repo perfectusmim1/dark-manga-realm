@@ -602,7 +602,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     pagePreviewUrls = [],
 }) => {
     const { user } = useAuth();
-    const { access } = useAdminAccess();
+    const { access } = useAdminAccess({
+        enabled: Boolean(user && (user.role === 'admin' || user.role === 'moderator')),
+    });
     const { isOnline } = useEffectiveOnlineStatus();
     const canModerateComments = access.canAccessAdminPanel;
     const location = useLocation();

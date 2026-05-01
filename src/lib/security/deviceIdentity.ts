@@ -19,7 +19,15 @@ export interface AccessCheckResult {
 }
 
 const ACCESS_CHECK_RETRY_DELAYS_MS = [0, 900, 1800];
+const ACCESS_CHECK_ALLOWED_CACHE_TTL_MS = 8_000;
+const ACCESS_CHECK_BLOCKED_CACHE_TTL_MS = 3_000;
+const ACCESS_CHECK_FAILURE_CACHE_TTL_MS = 2_000;
 const accessCheckInflightRequests = new Map<string, Promise<AccessCheckResult>>();
+const accessCheckResultCache = new Map<string, {
+    fetchedAt: number;
+    ttlMs: number;
+    value: AccessCheckResult;
+}>();
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -75,6 +83,45 @@ const buildSoftAccessCheckFallback = (): AccessCheckResult => ({
     user: null,
 });
 
+const cloneAccessCheckResult = (result: AccessCheckResult): AccessCheckResult => ({
+    ...result,
+    warning: result.warning ? { ...result.warning } : result.warning,
+    ban: result.ban ? { ...result.ban } : result.ban,
+    user: result.user ? { ...result.user } : result.user,
+});
+
+const getAccessCheckResultCacheTtl = (result: AccessCheckResult) => {
+    if (result.reason === 'access_check_failed') {
+        return ACCESS_CHECK_FAILURE_CACHE_TTL_MS;
+    }
+
+    return result.allowed
+        ? ACCESS_CHECK_ALLOWED_CACHE_TTL_MS
+        : ACCESS_CHECK_BLOCKED_CACHE_TTL_MS;
+};
+
+const readAccessCheckResultCache = (cacheKey: string): AccessCheckResult | null => {
+    const cached = accessCheckResultCache.get(cacheKey);
+    if (!cached) {
+        return null;
+    }
+
+    if (Date.now() - cached.fetchedAt > cached.ttlMs) {
+        accessCheckResultCache.delete(cacheKey);
+        return null;
+    }
+
+    return cloneAccessCheckResult(cached.value);
+};
+
+const writeAccessCheckResultCache = (cacheKey: string, result: AccessCheckResult) => {
+    accessCheckResultCache.set(cacheKey, {
+        fetchedAt: Date.now(),
+        ttlMs: getAccessCheckResultCacheTtl(result),
+        value: cloneAccessCheckResult(result),
+    });
+};
+
 const getAccessCheckCacheKey = async (
     path: string,
     preferredAccessToken?: string | null,
@@ -107,9 +154,22 @@ export const checkCurrentAccess = async (
 
     const preferredAccessToken = options?.preferredAccessToken?.trim() || null;
     const cacheKey = await getAccessCheckCacheKey(path, preferredAccessToken);
+    const cachedResult = readAccessCheckResultCache(cacheKey);
+    if (cachedResult) {
+        return cachedResult;
+    }
+
     const inflightRequest = accessCheckInflightRequests.get(cacheKey);
     if (inflightRequest) {
-        return inflightRequest;
+        try {
+            return cloneAccessCheckResult(await inflightRequest);
+        } catch (error) {
+            if (isRetryableAccessCheckError(error)) {
+                return buildSoftAccessCheckFallback();
+            }
+
+            throw error;
+        }
     }
 
     const request = (async () => {
@@ -160,10 +220,14 @@ export const checkCurrentAccess = async (
     accessCheckInflightRequests.set(cacheKey, request);
 
     try {
-        return await request;
+        const result = await request;
+        writeAccessCheckResultCache(cacheKey, result);
+        return cloneAccessCheckResult(result);
     } catch (error) {
         if (isRetryableAccessCheckError(error)) {
-            return buildSoftAccessCheckFallback();
+            const fallback = buildSoftAccessCheckFallback();
+            writeAccessCheckResultCache(cacheKey, fallback);
+            return fallback;
         }
 
         throw error;
