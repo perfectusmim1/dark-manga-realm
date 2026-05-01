@@ -257,9 +257,13 @@ const WARNING_BAN_SYNC_INTERVAL_MS = 120000;
 const USER_ACCESS_STATE_AUTH_FAILURE_BACKOFF_MS = 5000;
 const USER_ACCESS_STATE_FAILURE_BACKOFF_MS = 3 * 60 * 1000;
 
+const isConcreteAccessDenial = (accessCheck: AccessCheckResult) => (
+  !accessCheck.allowed && accessCheck.reason !== 'access_check_failed'
+);
+
 const mapAccessCheckToAccessState = (accessCheck: AccessCheckResult): UserAccessState => ({
   reason: accessCheck.reason || 'ok',
-  blockedMessage: accessCheck.allowed ? null : accessCheck.message || null,
+  blockedMessage: isConcreteAccessDenial(accessCheck) ? accessCheck.message || null : null,
   supportOnly: Boolean(accessCheck.supportOnly),
   warning: accessCheck.warning || null,
   ban: accessCheck.ban || {
@@ -739,7 +743,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           setAccessState(mapAccessCheckToAccessState(accessCheck));
 
-          const shouldBlockCurrentSession = !accessCheck.allowed && accessCheck.reason !== 'user_banned';
+          const shouldBlockCurrentSession = (
+            isConcreteAccessDenial(accessCheck)
+            && accessCheck.reason !== 'user_banned'
+          );
           if (shouldBlockCurrentSession) {
             const blockedUser = mapSupabaseUserToUser(activeSession.user, null);
             setSession(prev => JSON.stringify(prev) === JSON.stringify(activeSession) ? prev : activeSession);
@@ -1042,7 +1049,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
       setAccessState(mapAccessCheckToAccessState(accessCheck));
 
-      if (!accessCheck.allowed && accessCheck.reason !== 'user_banned') {
+      if (isConcreteAccessDenial(accessCheck) && accessCheck.reason !== 'user_banned') {
         await supabase.auth.signOut({ scope: 'local' });
         return {
           success: false,
@@ -1101,7 +1108,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         allowAccessOnFailure(error, 'Access check error during register:')
       );
 
-      if (!accessCheck.allowed) {
+      if (isConcreteAccessDenial(accessCheck)) {
         return { success: false, error: accessCheck.message || 'Bu cihaz veya bağlantı için kayıt engellendi' };
       }
 
@@ -1641,7 +1648,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         allowAccessOnFailure(error, 'Access check error during Google login:')
       );
 
-      if (!accessCheck.allowed) {
+      if (isConcreteAccessDenial(accessCheck)) {
         toast.error(accessCheck.message || 'Bu cihaz veya bağlantı için bu işleme izin verilmiyor');
         return;
       }

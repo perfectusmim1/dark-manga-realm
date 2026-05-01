@@ -159,7 +159,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
         return;
       }
 
-      if (!access.allowed) {
+      if (!access.allowed && access.reason !== 'access_check_failed') {
         setBlockedMessage(access.message || 'Bu cihaz veya bağlantı için site erişimi engellendi.');
         return;
       }
