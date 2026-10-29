@@ -41,7 +41,7 @@ import { User } from '@/lib/types';
 import { toast } from 'sonner';
 import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 
-const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
+const PRIMARY_ADMIN_EMAIL = (import.meta.env.VITE_PRIMARY_ADMIN_EMAIL || '').trim().toLowerCase();
 
 const AdminUsers: React.FC = () => {
     const { user, isAllowed: isPrimaryAdmin, isLoading: accessLoading } = useAdminPageGuard({ requiredRole: 'primary-admin' });

@@ -25,7 +25,7 @@ export const R2_CATALOG_TABLES = new Set([
 const CATALOG_WORKER_URL = (
   (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_CATALOG_WORKER_URL) ||
   (typeof process !== 'undefined' && process.env?.VITE_CATALOG_WORKER_URL) ||
-  'https://toonparrot-catalog-worker.caganhuseyinerdil.workers.dev'
+  ''
 ).replace(/\/+$/, '');
 
 const CATALOG_RPCS = new Set(['increment_manga_views', 'increment_chapter_views']);
@@ -71,7 +71,7 @@ export const getCatalogAdminHeaders = async (init?: RequestInit): Promise<Record
     try {
       for (let i = 0; i < window.localStorage.length; i++) {
         const key = window.localStorage.key(i);
-        if (key && (key.includes('-auth-token') || key === 'sb-gmczrwjjlysiryvwxkgb-auth-token')) {
+        if (key && key.includes('-auth-token')) {
           const raw = window.localStorage.getItem(key);
           if (raw) {
             const parsed = JSON.parse(raw);

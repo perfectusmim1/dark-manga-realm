@@ -716,7 +716,7 @@ export interface AdminAccessContext {
 type TopTenTimeframe = 'today' | 'week' | 'all';
 type MangaAudienceCacheKey = 'safe' | 'adult';
 
-const PRIMARY_ADMIN_EMAIL = 'caganherdil@gmail.com';
+const PRIMARY_ADMIN_EMAIL = (import.meta.env.VITE_PRIMARY_ADMIN_EMAIL || '').trim().toLowerCase();
 let adminAccessContextCache:
     | { authUserId: string | null; value: AdminAccessContext }
     | null = null;
