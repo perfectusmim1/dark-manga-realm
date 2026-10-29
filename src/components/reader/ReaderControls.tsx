@@ -14,6 +14,7 @@ import {
   Pause,
   Gauge,
   Search,
+  Languages,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, Chapter } from '@/lib/types';
@@ -38,6 +39,8 @@ import { Slider } from '@/components/ui/slider';
 import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
+import TranslationPanel from '@/components/reader/TranslationPanel';
+import { TranslationSettings } from '@/lib/translation/translationSettings';
 
 const READER_TOP_SAFE_AREA = 'calc(env(safe-area-inset-top) + 0px)';
 const READER_BOTTOM_SAFE_AREA = 'calc(env(safe-area-inset-bottom) + 0px)';
@@ -65,6 +68,8 @@ interface ReaderControlsProps {
   isOnline?: boolean;
   forceOfflineRead?: boolean;
   onBeforeChapterChange?: (chapter?: Chapter) => Promise<void> | void;
+  translationSettings: TranslationSettings;
+  onTranslationSettingsChange: (patch: Partial<TranslationSettings>) => void;
 }
 
 const normalizeChapterSearchValue = (value?: string | null) => (
@@ -94,6 +99,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   isOnline = true,
   forceOfflineRead = false,
   onBeforeChapterChange,
+  translationSettings,
+  onTranslationSettingsChange,
 }) => {
   const navigate = useNavigate();
   const { isMobile } = useDeviceProfile();
@@ -343,6 +350,18 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 </PopoverContent>
               </Popover>
             )}
+
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" aria-label="Çeviri ayarları">
+                  <Languages className="h-4 w-4 sm:h-5 sm:w-5" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-[min(20rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:w-80 sm:p-4">
+                <h4 className="mb-3 text-sm font-semibold sm:mb-4 sm:text-base">Görsel Çeviri</h4>
+                <TranslationPanel settings={translationSettings} onChange={onTranslationSettingsChange} />
+              </PopoverContent>
+            </Popover>
 
             <Popover>
               <PopoverTrigger asChild>

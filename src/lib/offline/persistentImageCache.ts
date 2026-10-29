@@ -1,8 +1,10 @@
-import { isStoredMediaUrl } from '@/lib/mediaStorage';
+import { buildProxiedImageUrl, isStoredMediaUrl } from '@/lib/mediaStorage';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
+import { getOfflineImageProxyUrl, offlineProxyConfig } from '@/lib/offline/proxyConfig';
+import { inferRefererForImageUrl } from '@/lib/offline/downloadManager';
 const DATA_URL_IMAGE_PREFIX = 'data:image';
 const IMAGE_FAILURE_CACHE_KEY = 'toonparrot_offline_image_failures_v1';
-const IMAGE_FAILURE_COOLDOWN_MS = 24 * 60 * 60 * 1000;
+const IMAGE_FAILURE_COOLDOWN_MS = 15 * 60 * 1000;
 
 export const isPersistentImageDataUrl = (value?: string | null): value is string =>
   typeof value === 'string' && value.startsWith(DATA_URL_IMAGE_PREFIX);
@@ -17,13 +19,7 @@ class PersistentImageRequestError extends Error {
   }
 }
 
-const getFailureCacheKey = (sourceUrl: string) => {
-  try {
-    return `host:${new URL(sourceUrl).hostname.toLowerCase()}`;
-  } catch {
-    return `url:${sourceUrl}`;
-  }
-};
+const getFailureCacheKey = (sourceUrl: string) => `url:${sourceUrl.trim()}`;
 
 const readFailureCache = () => {
   if (typeof window === 'undefined') {
@@ -92,19 +88,7 @@ const clearImageFailure = (sourceUrl: string) => {
   writeFailureCache(failures);
 };
 
-const shouldUsePersistentRemoteFetch = () => {
-  if (typeof window === 'undefined') {
-    return false;
-  }
-
-  const { hostname, protocol } = window.location;
-  return !(
-    protocol === 'file:'
-    || hostname === 'localhost'
-    || hostname === '127.0.0.1'
-    || hostname === '::1'
-  );
-};
+const shouldUsePersistentRemoteFetch = () => typeof window !== 'undefined';
 
 export const shouldAttemptPersistentImageCache = (sourceUrl?: string | null) => {
   const normalizedSourceUrl = sourceUrl?.trim();
@@ -136,25 +120,68 @@ const blobToDataUrl = (blob: Blob) =>
     reader.readAsDataURL(blob);
   });
 
-const fetchImageDirectly = async (sourceUrl: string) => {
-  let response: Response;
+const fetchImageViaProxy = async (sourceUrl: string): Promise<Blob> => {
+  const proxyUrl = getOfflineImageProxyUrl();
+  const referer = inferRefererForImageUrl(sourceUrl);
+
+  if (proxyUrl) {
+    // 1. POST via Proxy
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+      };
+      if (offlineProxyConfig.usesSupabaseAuth) {
+        headers.apikey = offlineProxyConfig.supabaseAnonKey;
+        headers.Authorization = `Bearer ${offlineProxyConfig.supabaseAnonKey}`;
+      }
+
+      const postResponse = await fetch(proxyUrl, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ url: sourceUrl, referer }),
+      });
+
+      if (postResponse.ok) {
+        return await postResponse.blob();
+      }
+    } catch {
+      // Ignore and fallback to GET proxy
+    }
+
+    // 2. GET Proxy fallback
+    try {
+      const getUrl = buildProxiedImageUrl(sourceUrl, referer);
+      if (getUrl && getUrl !== sourceUrl) {
+        const getResponse = await fetch(getUrl);
+        if (getResponse.ok) {
+          return await getResponse.blob();
+        }
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  throw new PersistentImageRequestError('Proxy fetch failed');
+};
+
+const fetchImageWithFallback = async (sourceUrl: string): Promise<Blob> => {
+  // 1. Try direct fetch
   try {
-    response = await fetch(sourceUrl, {
+    const response = await fetch(sourceUrl, {
       mode: 'cors',
       credentials: 'omit',
     });
+
+    if (response.ok) {
+      return await response.blob();
+    }
   } catch {
-    throw new PersistentImageRequestError('Image request failed before a response was received');
+    // Direct fetch failed (likely CORS or network), fallback to proxy
   }
 
-  if (!response.ok) {
-    throw new PersistentImageRequestError(
-      `Image request failed (${response.status})`,
-      response.status,
-    );
-  }
-
-  return response.blob();
+  // 2. Fallback to Cloudflare Offline Image Proxy
+  return await fetchImageViaProxy(sourceUrl);
 };
 
 export const cachePersistentImageDataUrl = async (sourceUrl?: string | null) => {
@@ -178,14 +205,10 @@ export const cachePersistentImageDataUrl = async (sourceUrl?: string | null) => 
   let imageBlob: Blob;
 
   try {
-    imageBlob = await fetchImageDirectly(normalizedSourceUrl);
+    imageBlob = await fetchImageWithFallback(normalizedSourceUrl);
     clearImageFailure(normalizedSourceUrl);
-  } catch (directError) {
-    const directStatus = directError instanceof PersistentImageRequestError ? directError.status : undefined;
+  } catch (error) {
     rememberImageFailure(normalizedSourceUrl, IMAGE_FAILURE_COOLDOWN_MS);
-    if (directStatus) {
-      void directStatus;
-    }
     return undefined;
   }
 

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getCachedImageAsset, prefetchImageAsset } from '@/lib/imagePrefetch';
+import { buildProxiedImageUrl } from '@/lib/mediaStorage';
 
 interface ProtectedImageProps {
     src: string;
@@ -8,6 +9,7 @@ interface ProtectedImageProps {
     style?: React.CSSProperties;
     zoom?: number;
     onMediaReadyChange?: (ready: boolean) => void;
+    overlay?: React.ReactNode;
 }
 
 const ProtectedImage: React.FC<ProtectedImageProps> = ({
@@ -17,18 +19,26 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
     style,
     zoom = 100,
     onMediaReadyChange,
+    overlay,
 }) => {
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const isExternalUrl = src.startsWith('http://') || src.startsWith('https://');
     const shouldBypassCanvas = src.startsWith('blob:') || src.startsWith('data:');
     const [useFallback, setUseFallback] = useState(shouldBypassCanvas);
     const [isBroken, setIsBroken] = useState(false);
     const [isMediaReady, setIsMediaReady] = useState(false);
+    const [useProxyFallback, setUseProxyFallback] = useState(false);
+
+    const currentSrc = useProxyFallback && isExternalUrl
+        ? buildProxiedImageUrl(src) || src
+        : src;
 
     useEffect(() => {
         setUseFallback(shouldBypassCanvas);
         setIsBroken(false);
         setIsMediaReady(false);
+        setUseProxyFallback(false);
     }, [shouldBypassCanvas, src]);
 
     useEffect(() => {
@@ -67,15 +77,19 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
             }
         };
 
-        const cachedImage = getCachedImageAsset(src);
+        const cachedImage = getCachedImageAsset(currentSrc);
         if (cachedImage) {
             drawImageToCanvas(cachedImage);
         } else {
-            void prefetchImageAsset(src)
+            void prefetchImageAsset(currentSrc)
                 .then((img) => drawImageToCanvas(img))
                 .catch(() => {
                     if (!isCancelled) {
-                        setUseFallback(true);
+                        if (isExternalUrl && !useProxyFallback) {
+                            setUseProxyFallback(true);
+                        } else {
+                            setUseFallback(true);
+                        }
                     }
                 });
         }
@@ -95,11 +109,22 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
             isCancelled = true;
             observer.disconnect();
         };
-    }, [src, useFallback]);
+    }, [currentSrc, isExternalUrl, useFallback, useProxyFallback]);
 
     if (isBroken) {
         return <div className="w-full h-96 bg-black flex items-center justify-center text-red-500 font-bold">GÜVENLİK İHLALİ</div>;
     }
+
+    const handleImgError = () => {
+        if (isExternalUrl && !useProxyFallback) {
+            const proxied = buildProxiedImageUrl(src);
+            if (proxied && proxied !== currentSrc) {
+                setUseProxyFallback(true);
+                return;
+            }
+        }
+        setIsMediaReady(false);
+    };
 
     return (
         <div
@@ -116,14 +141,15 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
         >
             {useFallback ? (
                 <img
-                    src={src}
+                    src={currentSrc}
                     alt={alt}
                     className="w-full h-auto block select-none pointer-events-none"
                     draggable={false}
                     onContextMenu={(e) => e.preventDefault()}
                     onLoad={() => setIsMediaReady(true)}
-                    onError={() => setIsMediaReady(false)}
+                    onError={handleImgError}
                     data-media-ready={isMediaReady ? 'true' : 'false'}
+                    data-proxied={useProxyFallback ? 'true' : 'false'}
                     style={{
                         userSelect: 'none',
                         WebkitUserSelect: 'none',
@@ -144,6 +170,8 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
                 onContextMenu={(e) => e.preventDefault()}
                 style={{ pointerEvents: 'auto' }}
             />
+
+            {overlay}
         </div>
     );
 };

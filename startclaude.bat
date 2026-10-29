@@ -1,1 +1,0 @@
-ccagan --dangerously-skip-permissions

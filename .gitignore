@@ -29,4 +29,5 @@ dist-ssr
 *.sw?
 tmp/
 local-scraper.config.json
+.cache/
 supabase/.temp/

@@ -1,6 +1,6 @@
 name = "toonparrot-offline-image-proxy"
 main = "worker.js"
-compatibility_date = "2026-03-26"
+compatibility_date = "2026-03-27"
 workers_dev = true
 
 [observability]
@@ -8,11 +8,7 @@ enabled = true
 head_sampling_rate = 1
 
 [vars]
-ALLOWED_HOSTS = "cdn.anime-planet.com,anime-planet.com,www.anime-planet.com,hayalistic.net,hayalistic.com,webtoonhatti.club,webtoonhatti.me,webtoon-oku.net,cdn-2.webtoon-oku.net,siyahmelek.mom,s3.melek.lol,yedek.mangawow.com,kirmizikafa.monster"
-ALLOWED_ORIGINS = "https://toonparrot.vercel.app,http://localhost:*,http://127.0.0.1:*"
+ALLOWED_HOSTS = "webtoonhatti.club,okutoon.com,om-cdn.okutoon.com,mangacix.net,cdn.mangacix.net,image.tmdb.org,golgebahcesi.com,api.golgebahcesi.com,dxdfansub.com,api.dxdfansub.com,anilist.co,s4.anilist.co,myanimelist.net,cdn.myanimelist.net,mangadex.org,uploads.mangadex.org,anime-planet.com,cdn.anime-planet.com,anisearch.com,www.anisearch.com,mangaupdates.com,cdn.mangaupdates.com,imgur.com,i.imgur.com,wp.com,i0.wp.com,i1.wp.com,i2.wp.com,i3.wp.com,blogspot.com,googleusercontent.com,r2.dev,cloudflarestorage.com,siyahmelek.my,www.siyahmelek.my,siyahmelek.mom,hentaiturk.com,www.hentaiturk.com,cdn.hentaiturk.com,hattorimanga.net,www.hattorimanga.net"
+ALLOWED_ORIGINS = "*"
 PUBLIC_BUCKET_URL = "https://pub-b8b12b52a3ac4feaa96e8ca218e48473.r2.dev"
 METRICS_INGEST_URL = "https://gmczrwjjlysiryvwxkgb.supabase.co/functions/v1/cloudflare-metrics-ingest"
-
-# Set this with `wrangler secret put PROXY_TOKEN`
-# PROXY_TOKEN = ""
-# wrangler secret put METRICS_INGEST_TOKEN

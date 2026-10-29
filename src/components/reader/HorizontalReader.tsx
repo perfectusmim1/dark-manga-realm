@@ -2,12 +2,15 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
+import { PageTranslateButton, TranslationOverlay } from '@/components/reader/TranslationOverlay';
+import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
 
 interface HorizontalReaderProps {
   pages: ResolvedReaderPage[];
   settings: ReaderSettings;
   currentPage: number;
   onPageChange: (page: number) => void;
+  translation?: ReaderTranslationApi;
 }
 
 import ProtectedImage from '@/components/security/ProtectedImage';
@@ -16,12 +19,48 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
   pages,
   settings,
   currentPage,
-  onPageChange
+  onPageChange,
+  translation
 }) => {
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
+  const [pageOverlayShown, setPageOverlayShown] = useState(true);
   const effectiveZoom = isMobileViewport && settings.fitWidth
     ? Math.max(settings.zoom, 100)
     : settings.zoom;
+
+  const pageIndex = currentPage - 1;
+  const translationState = translation?.pageStates[pageIndex];
+  const showTranslationOverlay = Boolean(
+    translation
+    && translationState?.status === 'done'
+    && translationState.blocks
+    && translation.settings.overlayVisible
+    && pageOverlayShown,
+  );
+
+  useEffect(() => {
+    setPageOverlayShown(true);
+  }, [currentPage]);
+
+  const translationOverlayNode = translation && translation.enabled ? (
+    <>
+      {showTranslationOverlay && translationState?.blocks && (
+        <TranslationOverlay blocks={translationState.blocks} />
+      )}
+      <PageTranslateButton
+        state={translationState}
+        showIdleButton={!translation.settings.autoTranslate}
+        overlayShown={translation.settings.overlayVisible && pageOverlayShown}
+        onTranslate={() => translation.translatePage(pageIndex)}
+        onRetranslate={() => translation.translatePage(pageIndex, { force: true })}
+        onToggleOverlay={() => setPageOverlayShown((prev) => !prev)}
+      />
+    </>
+  ) : (
+    showTranslationOverlay && translationState?.blocks
+      ? <TranslationOverlay blocks={translationState.blocks} />
+      : undefined
+  );
 
   useEffect(() => {
     const handleResize = () => setIsMobileViewport(window.innerWidth < 640);
@@ -78,6 +117,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
               width: settings.fitWidth ? '100%' : 'auto',
               maxWidth: settings.fitWidth ? '896px' : 'none',
             }}
+            overlay={translationOverlayNode}
           />
         </div>
       </div>

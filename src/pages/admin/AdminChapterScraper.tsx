@@ -9,10 +9,11 @@ import {
     Check,
     ChevronsUpDown,
     BookOpen,
+    Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent, CardFooter } from '@/components/ui/card';
+import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
@@ -46,57 +47,36 @@ import { Manga, Chapter } from '@/lib/types';
 import {
     fetchScraperContent,
     getAvailableScraperProviders,
-    getDefaultScraperProviderForSource,
     getScraperProviderLabel,
     readPreferredScraperProvider,
     type ScraperProvider,
     writePreferredScraperProvider,
 } from '@/lib/scraperProxy';
 import {
-    buildScrapedChapterPaginationCandidates,
+    areSeriesTitlesMatching,
     buildScrapeSearchUrl,
     detectScrapeSourceFromUrl,
-    applyChapterImageResultOptions,
     extractChapterImageResult,
     extractScrapedMangaCards,
     extractScrapedChapterLinks,
-    extractScrapedChapterPaginationUrls,
-    extractSiyahMelekChapterLinksFromHtml,
-    extractSiyahMelekChapterPaginationUrlsFromHtml,
+    extractScrapedMangaDetail,
     getAvailableScrapeSources,
     getScrapeSourceLabel,
     isAdultOnlyScrapeSource,
     isDirectScrapeLink,
-    normalizeScrapeUrl,
     normalizeScrapeSeriesUrl,
     readPreferredScrapeSource,
-    type ScrapedChapterImageResult,
+    sanitizeAndDedupePageUrls,
+    SCRAPER_SOURCES,
+    type ScrapedChapter,
+    type ScrapedMangaCard,
+    type ScraperSourceKey,
     type ScrapeSource,
     writePreferredScrapeSource,
 } from '@/lib/scraper/scrapeSources';
 import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
-import {
-    readSiyahMelekSkipPromoFirstPage,
-    writeSiyahMelekSkipPromoFirstPage,
-} from '@/lib/scraper/siyahmelekSettings';
 import { cn } from '@/lib/utils';
 import { getMangaTypeLabel } from '@/lib/mangaType';
-
-interface ScrapedMangaCard {
-    title: string;
-    link: string;
-    cover: string;
-    genres: string[];
-    source: ScrapeSource;
-}
-
-interface ScrapedChapter {
-    name: string;
-    link: string;
-    number: number;
-    source: ScrapeSource;
-    prefetchedImageResult?: ScrapedChapterImageResult;
-}
 
 interface ChapterImportCandidate extends ScrapedChapter {
     changeType: 'new' | 'updated';
@@ -108,6 +88,75 @@ const normalizeChapterTitle = (value?: string | null, number?: number) => (
     (value?.replace(/\s+/g, ' ').trim() || `bolum ${number ?? ''}`)
         .toLocaleLowerCase('tr-TR')
 );
+
+/**
+ * Birincil kaynakta görsel eksik veya bozuk çıktığında diğer 4 kaynaktan
+ * aynı seriyi arayıp bölümü tamamlar.
+ */
+async function tryRecoverChapterImagesFromFallbackSources(
+    seriesTitle: string,
+    alternativeTitles: string[] | undefined,
+    chapterNumber: number,
+    primarySource: ScrapeSource,
+    scraperProvider: ScraperProvider,
+    cachedSourceChapters: Map<ScraperSourceKey, ScrapedChapter[]>,
+): Promise<{ images: string[]; source: ScraperSourceKey } | null> {
+    const fallbackSources = SCRAPER_SOURCES.filter((s) => s !== primarySource);
+
+    for (const fbSource of fallbackSources) {
+        try {
+            let candidateChapters = cachedSourceChapters.get(fbSource);
+
+            if (!candidateChapters) {
+                const searchUrl = buildScrapeSearchUrl(fbSource, seriesTitle);
+                const searchHtml = await fetchScraperContent(searchUrl, { provider: scraperProvider, source: fbSource });
+                const parser = new DOMParser();
+                const searchDoc = parser.parseFromString(searchHtml, 'text/html');
+                const cards = extractScrapedMangaCards(searchDoc, fbSource, searchHtml);
+
+                const matchedCard = cards.find((card) =>
+                    areSeriesTitlesMatching(
+                        { title: seriesTitle, alternativeTitles },
+                        { title: card.title },
+                    ),
+                );
+
+                if (!matchedCard) {
+                    cachedSourceChapters.set(fbSource, []);
+                    continue;
+                }
+
+                const seriesUrl = normalizeScrapeSeriesUrl(fbSource, matchedCard.link);
+                const seriesHtml = await fetchScraperContent(seriesUrl, { provider: scraperProvider, source: fbSource });
+                const seriesDoc = parser.parseFromString(seriesHtml, 'text/html');
+                const detail = extractScrapedMangaDetail(seriesDoc, fbSource, { ...matchedCard, link: seriesUrl });
+                candidateChapters = detail._rawChapters;
+                cachedSourceChapters.set(fbSource, candidateChapters);
+            }
+
+            const matchedChapter = candidateChapters.find(
+                (ch) => Number(ch.number) === Number(chapterNumber),
+            );
+
+            if (!matchedChapter) {
+                continue;
+            }
+
+            const chHtml = await fetchScraperContent(matchedChapter.link, { provider: scraperProvider, source: fbSource });
+            const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
+            const imgResult = extractChapterImageResult(chDoc, fbSource, undefined, chHtml);
+            const cleanPages = sanitizeAndDedupePageUrls(imgResult.images, fbSource);
+
+            if (cleanPages.length > 0) {
+                return { images: cleanPages, source: fbSource };
+            }
+        } catch (fbErr) {
+            console.warn(`Fallback recovery failed for ${fbSource} chapter ${chapterNumber}`, fbErr);
+        }
+    }
+
+    return null;
+}
 
 const AdminChapterScraper: React.FC = () => {
     const navigate = useNavigate();
@@ -137,8 +186,8 @@ const AdminChapterScraper: React.FC = () => {
     const [importing, setImporting] = useState(false);
     const [scrapeSource, setScrapeSource] = useState<ScrapeSource>(() => readPreferredScrapeSource());
     const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
-    const [skipSiyahMelekPromoFirstPage, setSkipSiyahMelekPromoFirstPage] = useState(() => readSiyahMelekSkipPromoFirstPage());
-    const sourceSearchBlocked = isAdultOnlyScrapeSource(scrapeSource) && localMangaDetails?.isAdult !== true;
+    const [autoRecoverFromFallbacks, setAutoRecoverFromFallbacks] = useState(true);
+
     const filteredLocalMangas = useMemo(() => {
         const query = localMangaSearch.trim().toLocaleLowerCase('tr-TR');
 
@@ -201,11 +250,11 @@ const AdminChapterScraper: React.FC = () => {
     }, [availableScraperProviders, scraperProvider]);
 
     useEffect(() => {
-        if (!availableScrapeSources.includes(scrapeSource)) {
+        if (!availableScrapeSources.includes(scrapeSource as ScraperSourceKey)) {
             const nextSource = readPreferredScrapeSource();
             setScrapeSource(nextSource);
         }
-    }, [availableScrapeSources, availableScraperProviders, scrapeSource, scraperProvider]);
+    }, [availableScrapeSources, scrapeSource]);
 
     if (accessLoading || !canUseScraper) {
         return null;
@@ -225,38 +274,7 @@ const AdminChapterScraper: React.FC = () => {
         setSourceChapters([]);
         setNewChapters([]);
         setSelectedChapterIndices([]);
-
-        if (nextSource === 'siyahmelek') {
-            const preferredProvider = getDefaultScraperProviderForSource(nextSource);
-            writePreferredScraperProvider(preferredProvider);
-            setScraperProvider(preferredProvider);
-        }
-
         toast.success(`Kaynak site: ${getScrapeSourceLabel(nextSource)}`);
-    };
-
-    const handleSkipSiyahMelekPromoFirstPageChange = (checked: boolean) => {
-        writeSiyahMelekSkipPromoFirstPage(checked);
-        setSkipSiyahMelekPromoFirstPage(checked);
-        toast.success(checked ? 'SiyahMelek ilk reklam sayfası atlanacak' : 'SiyahMelek ilk sayfası korunacak');
-    };
-
-    const ensureAdultCompatibleLocalManga = (source: ScrapeSource) => {
-        if (!isAdultOnlyScrapeSource(source)) {
-            return true;
-        }
-
-        if (!localMangaDetails) {
-            toast.error('SiyahMelek için önce sitedeki 18+ seriyi seçin.');
-            return false;
-        }
-
-        if (localMangaDetails.isAdult !== true) {
-            toast.error('SiyahMelek sadece 18+ seriler için kullanılabilir. Önce bu seriyi 18+ olarak işaretleyin.');
-            return false;
-        }
-
-        return true;
     };
 
     const loadLocalMangas = async () => {
@@ -264,7 +282,7 @@ const AdminChapterScraper: React.FC = () => {
         try {
             const data = await getAllMangas({ includePrivate: true });
             setLocalMangas(data);
-        } catch (err) {
+        } catch {
             toast.error('Mangalar yüklenemedi');
         } finally {
             setLoadingLocal(false);
@@ -323,9 +341,8 @@ const AdminChapterScraper: React.FC = () => {
         try {
             const details = await getMangaById(mangaId, { includePrivate: true, includePages: true });
             setLocalMangaDetails(details);
-            // Pre-fill search query with title for convenience
             if (details) setSearchQuery(details.title);
-        } catch (err) {
+        } catch {
             toast.error('Manga detayları yüklenemedi');
         } finally {
             setLoadingLocal(false);
@@ -338,10 +355,6 @@ const AdminChapterScraper: React.FC = () => {
         const rawQuery = searchQuery.trim();
         const detectedSource = rawQuery.startsWith('http') ? detectScrapeSourceFromUrl(rawQuery) : null;
         const sourceToUse = detectedSource || scrapeSource;
-
-        if (!ensureAdultCompatibleLocalManga(sourceToUse)) {
-            return;
-        }
 
         if (rawQuery.startsWith('http') && isDirectScrapeLink(sourceToUse, rawQuery)) {
             if (detectedSource && detectedSource !== scrapeSource) {
@@ -385,11 +398,7 @@ const AdminChapterScraper: React.FC = () => {
         }
     };
 
-    const fetchSourceChapters = async (card: ScrapedMangaCard, source: ScrapeSource = card.source) => {
-        if (!ensureAdultCompatibleLocalManga(source)) {
-            return;
-        }
-
+    const fetchSourceChapters = async (card: ScrapedMangaCard, source: ScrapeSource = card.source || scrapeSource) => {
         const normalizedSeriesLink = normalizeScrapeSeriesUrl(source, card.link);
         setSelectedSourceManga({ ...card, link: normalizedSeriesLink, source });
         setFetchingDetails(true);
@@ -401,68 +410,7 @@ const AdminChapterScraper: React.FC = () => {
             const html = await fetchScraperContent(normalizedSeriesLink, { provider: scraperProvider, source });
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
-            let parsedChapters = source === 'siyahmelek'
-                ? extractSiyahMelekChapterLinksFromHtml(html, normalizedSeriesLink, card.title)
-                : extractScrapedChapterLinks(doc, source);
-
-            if (parsedChapters.length === 0) {
-                parsedChapters = extractScrapedChapterLinks(doc, source);
-            }
-
-            if (source === 'siyahmelek') {
-                const explicitPaginationUrls = Array.from(new Set([
-                    ...extractScrapedChapterPaginationUrls(doc, source, normalizedSeriesLink),
-                    ...extractSiyahMelekChapterPaginationUrlsFromHtml(html, normalizedSeriesLink),
-                ]));
-                const paginationUrls = buildScrapedChapterPaginationCandidates(
-                    source,
-                    normalizedSeriesLink,
-                    explicitPaginationUrls,
-                );
-
-                if (paginationUrls.length > 0) {
-                    const chapterMap = new Map(
-                        parsedChapters.map((chapter) => [normalizeScrapeUrl(source, chapter.link), chapter]),
-                    );
-                    let consecutivePagesWithoutNewChapters = 0;
-
-                    for (const pageUrl of paginationUrls) {
-                        try {
-                            const pageHtml = await fetchScraperContent(pageUrl, { provider: scraperProvider, source });
-                            const pageDoc = parser.parseFromString(pageHtml, 'text/html');
-                            const pageChapters = extractSiyahMelekChapterLinksFromHtml(
-                                pageHtml,
-                                normalizedSeriesLink,
-                                card.title,
-                            );
-                            const normalizedPageChapters = pageChapters.length > 0
-                                ? pageChapters
-                                : extractScrapedChapterLinks(pageDoc, source);
-                            let newChapterCount = 0;
-
-                            for (const chapter of normalizedPageChapters) {
-                                const chapterKey = normalizeScrapeUrl(source, chapter.link);
-                                if (!chapterMap.has(chapterKey)) {
-                                    newChapterCount += 1;
-                                }
-                                chapterMap.set(chapterKey, chapter);
-                            }
-
-                            consecutivePagesWithoutNewChapters = newChapterCount === 0
-                                ? consecutivePagesWithoutNewChapters + 1
-                                : 0;
-                        } catch {
-                            consecutivePagesWithoutNewChapters += 1;
-                        }
-
-                        if (consecutivePagesWithoutNewChapters >= 2) {
-                            break;
-                        }
-                    }
-
-                    parsedChapters = Array.from(chapterMap.values()).sort((left, right) => left.number - right.number);
-                }
-            }
+            const parsedChapters = extractScrapedChapterLinks(doc, source);
 
             const sourcedChapters = parsedChapters.map((chapter) => ({
                 ...chapter,
@@ -479,22 +427,10 @@ const AdminChapterScraper: React.FC = () => {
     const handleImportNewChapters = async () => {
         if (!localMangaDetails || newChapters.length === 0) return;
 
-        if (!ensureAdultCompatibleLocalManga(selectedSourceManga?.source || scrapeSource)) {
-            return;
-        }
-
         const chaptersToImport = newChapters.filter((_, i) => selectedChapterIndices.includes(i));
         if (chaptersToImport.length === 0) {
             toast.error('Lütfen en az bir bölüm seçin');
             return;
-        }
-
-        if ((selectedSourceManga?.source || scrapeSource) === 'siyahmelek') {
-            const chaptersMissingImageCapture = chaptersToImport.filter((chapter) => !chapter.prefetchedImageResult);
-            if (scraperProvider !== 'localhost' && chaptersMissingImageCapture.length > 0) {
-                toast.error(`Seçili ${chaptersMissingImageCapture.length} bölüm için görsel yakalama eksik. Önce seçili bölüm scriptini çalıştırın.`);
-                return;
-            }
         }
 
         setImporting(true);
@@ -505,44 +441,58 @@ const AdminChapterScraper: React.FC = () => {
             let updatedThisRun = 0;
             let lockedChapterCount = 0;
             let failedChapterCount = 0;
+            let fallbackRecoveredCount = 0;
+
+            const fallbackCache = new Map<ScraperSourceKey, ScrapedChapter[]>();
 
             for (let i = 0; i < chaptersToImport.length; i++) {
                 const sc = chaptersToImport[i];
                 try {
-                    let imageResult = sc.prefetchedImageResult
-                        ? applyChapterImageResultOptions(
-                            sc.prefetchedImageResult,
-                            sc.source,
-                            { excludeSiyahMelekPromoFirstPage: skipSiyahMelekPromoFirstPage },
-                        )
-                        : undefined;
+                    let imageResult = sc.prefetchedImageResult;
 
                     if (!imageResult) {
-                        if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
+                        if (i > 0) await new Promise((resolve) => setTimeout(resolve, 600));
 
                         const chHtml = await fetchScraperContent(sc.link, { provider: scraperProvider, source: sc.source });
                         const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
-                        imageResult = extractChapterImageResult(
-                            chDoc,
-                            sc.source,
-                            { excludeSiyahMelekPromoFirstPage: skipSiyahMelekPromoFirstPage },
-                        );
+                        imageResult = extractChapterImageResult(chDoc, sc.source, undefined, chHtml);
                     }
+
+                    let cleanPages = imageResult ? sanitizeAndDedupePageUrls(imageResult.images, sc.source) : [];
+
+                    // Fallback recovery if empty and enabled
+                    if (cleanPages.length === 0 && autoRecoverFromFallbacks) {
+                        toast.info(`Bölüm ${sc.number} birincil kaynakta eksik, yedek kaynaklardan aranıyor...`);
+                        const recovered = await tryRecoverChapterImagesFromFallbackSources(
+                            localMangaDetails.title,
+                            localMangaDetails.alternativeTitles,
+                            sc.number,
+                            sc.source,
+                            scraperProvider,
+                            fallbackCache,
+                        );
+                        if (recovered && recovered.images.length > 0) {
+                            cleanPages = recovered.images;
+                            fallbackRecoveredCount += 1;
+                            toast.success(`Bölüm ${sc.number} ${getScrapeSourceLabel(recovered.source)} üzerinden tamamlandı (${cleanPages.length} görsel).`);
+                        }
+                    }
+
                     const existingChapterIndex = importedChapters.findIndex((chapter) => (
                         chapter.id === sc.existingChapterId
                         || Number(chapter.number) === Number(sc.number)
                     ));
                     const existingChapter = existingChapterIndex >= 0 ? importedChapters[existingChapterIndex] : null;
 
-                    if (imageResult.status === 'locked') {
+                    if (imageResult?.status === 'locked' && cleanPages.length === 0) {
                         lockedChapterCount += 1;
                         toast.info(`Bölüm ${sc.number} VIP/kilitli olduğu için atlandı.`);
                         continue;
                     }
 
-                    if (imageResult.status === 'error') {
+                    if (cleanPages.length === 0) {
                         failedChapterCount += 1;
-                        toast.error(`Bölüm ${sc.number} için görsel bulunamadı, atlanıyor.`);
+                        toast.error(`Bölüm ${sc.number} için geçerli görsel bulunamadı, atlanıyor.`);
                         continue;
                     }
 
@@ -550,7 +500,7 @@ const AdminChapterScraper: React.FC = () => {
                         id: existingChapter?.id || `chapter-${Date.now()}-${sc.number}`,
                         number: sc.number,
                         title: sc.name,
-                        pages: imageResult.images,
+                        pages: cleanPages,
                         releaseDate: existingChapter?.releaseDate || new Date().toISOString(),
                         views: existingChapter?.views || 0,
                     };
@@ -566,6 +516,7 @@ const AdminChapterScraper: React.FC = () => {
                     toast.info(`Bölüm ${sc.number} ${sc.changeType === 'updated' ? 'güncellendi' : 'yüklendi'}... (${i + 1}/${chaptersToImport.length})`);
                 } catch (e) {
                     failedChapterCount += 1;
+                    console.error('Bölüm çekme hatası:', { chapterNumber: sc.number, error: e });
                     toast.error(`Bölüm ${sc.number} hata verdi, atlanıyor.`);
                 }
             }
@@ -574,14 +525,17 @@ const AdminChapterScraper: React.FC = () => {
                 if (lockedChapterCount > 0 && failedChapterCount === 0) {
                     toast.info('Seçilen bölümlerin tamamı VIP/kilitli durumda, güncelleme yapılmadı.');
                 } else {
-                    toast.error('Aktarılabilecek açık bölüm bulunamadı.');
+                    toast.error('Aktarılabilecek geçerli görsele sahip açık bölüm bulunamadı.');
                 }
                 return;
             }
 
-            // Save updated manga
+            // Sort chapters by number
+            importedChapters.sort((a, b) => Number(a.number) - Number(b.number));
+
             const updatedManga: Manga = {
                 ...localMangaDetails,
+                isAdult: localMangaDetails.isAdult || isAdultOnlyScrapeSource(selectedSourceManga?.source || scrapeSource),
                 chapters: importedChapters,
                 lastUpdated: new Date().toISOString(),
             };
@@ -602,9 +556,17 @@ const AdminChapterScraper: React.FC = () => {
                 );
             }
 
-            toast.success(`${importedThisRun.length} yeni bölüm eklendi, ${updatedThisRun} bölüm güncellendi, ${lockedChapterCount} kilitli bölüm atlandı${failedChapterCount > 0 ? `, ${failedChapterCount} bölüm hata verdi` : ''}.`);
+            const msgParts = [];
+            if (importedThisRun.length > 0) msgParts.push(`${importedThisRun.length} yeni bölüm eklendi`);
+            if (updatedThisRun > 0) msgParts.push(`${updatedThisRun} bölüm güncellendi`);
+            if (fallbackRecoveredCount > 0) msgParts.push(`${fallbackRecoveredCount} bölüm yedek kaynaktan tamamlandı`);
+            if (lockedChapterCount > 0) msgParts.push(`${lockedChapterCount} kilitli atlandı`);
+            if (failedChapterCount > 0) msgParts.push(`${failedChapterCount} hatalı atlandı`);
+
+            toast.success(msgParts.join(', ') + '.');
             navigate(`/admin/mangas/${localMangaDetails.id}`);
         } catch (err) {
+            console.error(err);
             toast.error('Güncelleme sırasında bir hata oluştu');
         } finally {
             setImporting(false);
@@ -653,26 +615,24 @@ const AdminChapterScraper: React.FC = () => {
                 </div>
             </div>
 
-            {scrapeSource === 'siyahmelek' ? (
-                <Card className="border-rose-500/20 bg-rose-500/5 backdrop-blur-sm">
-                    <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="space-y-1">
-                            <p className="text-sm font-semibold text-rose-200">SiyahMelek İlk Sayfa Filtresi</p>
-                            <p className="text-sm text-rose-100/80">
-                                Bazı bölümlerde ilk görsel reklam oluyor. Açıkken `0001.jpg` olan ilk sayfa otomatik atlanır.
-                            </p>
-                        </div>
-                        <div className="flex items-center gap-3 rounded-xl border border-rose-500/20 bg-black/20 px-3 py-2">
-                            <span className="text-sm text-rose-100">{skipSiyahMelekPromoFirstPage ? 'Açık' : 'Kapalı'}</span>
-                            <Switch
-                                checked={skipSiyahMelekPromoFirstPage}
-                                onCheckedChange={handleSkipSiyahMelekPromoFirstPageChange}
-                                aria-label="SiyahMelek reklam ilk sayfasını atla"
-                            />
-                        </div>
-                    </CardContent>
-                </Card>
-            ) : null}
+            <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/30 px-4 py-3">
+                <div className="flex items-center gap-3">
+                    <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                        <Sparkles className="h-4 w-4" />
+                    </div>
+                    <div>
+                        <p className="text-sm font-medium">Bozuk Bölümleri Yedek Kaynaklardan Tamamla</p>
+                        <p className="text-xs text-muted-foreground">
+                            Birincil kaynakta görsel eksik veya bozuksa diğer 4 kaynaktan (OkuToon, MangaCix, Gölge Bahçesi, DxDFansub) otomatik aranıp tamamlanır.
+                        </p>
+                    </div>
+                </div>
+                <Switch
+                    checked={autoRecoverFromFallbacks}
+                    onCheckedChange={setAutoRecoverFromFallbacks}
+                    aria-label="Bozuk bölümleri yedek kaynaklardan tamamla"
+                />
+            </div>
 
             <div className="grid gap-6 md:grid-cols-2">
                 {/* Step 1: Select Local Manga */}
@@ -827,16 +787,10 @@ const AdminChapterScraper: React.FC = () => {
                                 onChange={(e) => setSearchQuery(e.target.value)}
                                 placeholder={`Manga adı veya ${getScrapeSourceLabel(scrapeSource)} URL...`}
                             />
-                            <Button type="submit" disabled={loadingSource || sourceSearchBlocked}>
+                            <Button type="submit" disabled={loadingSource}>
                                 {loadingSource ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}
                             </Button>
                         </form>
-
-                        {sourceSearchBlocked ? (
-                            <div className="rounded-lg border border-rose-500/20 bg-rose-500/10 px-3 py-2 text-xs text-rose-200">
-                                SiyahMelek sadece 18+ olarak işaretlenmiş yerel seriler için kullanılabilir.
-                            </div>
-                        ) : null}
 
                         <ScrollArea className="h-[200px] rounded-md border border-border p-2">
                             {sourceResults.length > 0 ? (
@@ -850,11 +804,6 @@ const AdminChapterScraper: React.FC = () => {
                                             <img src={m.cover} className="h-10 w-8 rounded object-cover" />
                                             <div className="min-w-0">
                                                 <span className="block truncate text-sm font-medium">{m.title}</span>
-                                                {m.source === 'siyahmelek' ? (
-                                                    <Badge variant="outline" className="mt-1 border-rose-500/20 bg-rose-500/10 text-[10px] text-rose-500">
-                                                        18+
-                                                    </Badge>
-                                                ) : null}
                                             </div>
                                         </div>
                                     ))}
@@ -877,7 +826,7 @@ const AdminChapterScraper: React.FC = () => {
                                 <CardDescription>Kaynak site ile bizim sitemiz arasındaki farklar.</CardDescription>
                             </div>
                             <Button
-                                disabled={newChapters.length === 0 || importing || sourceSearchBlocked}
+                                disabled={newChapters.length === 0 || importing}
                                 onClick={handleImportNewChapters}
                                 className="w-full gap-2 sm:w-auto"
                             >

@@ -79,12 +79,18 @@ import type {
 import { cn } from '@/lib/utils';
 
 const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> = [
-  { value: 'hayalistic', label: 'Hayalistic' },
   { value: 'webtoonhatti', label: 'WebtoonHattı' },
-  { value: 'siyahmelek', label: 'SiyahMelek' },
+  { value: 'okutoon', label: 'OkuToon' },
+  { value: 'mangacix', label: 'MangaCix' },
+  { value: 'golgebahcesi', label: 'Gölge Bahçesi' },
+  { value: 'dxdfansub', label: 'DxDFansub' },
+  { value: 'siyahmelek', label: 'SiyahMelek (+18)' },
+  { value: 'hentaiturk', label: 'HentaiTürk (+18)' },
+  { value: 'hattorimanga', label: 'HattoriManga (+18)' },
 ];
 
-const isAdultOnlyAutomationSource = (source: ChapterAutomationSource) => source === 'siyahmelek';
+const isAdultOnlyAutomationSource = (source: ChapterAutomationSource) =>
+  source === 'siyahmelek' || source === 'hentaiturk' || source === 'hattorimanga';
 
 const DEFAULT_TIME_SLOT = '13:00';
 const TURKEY_TIME_PLACEHOLDER = '13:00';
@@ -94,7 +100,7 @@ const createCheckTimeKeys = (times: string[]) => times.map(() => createCheckTime
 
 const createEmptyForm = (): ChapterAutomationUpsertInput => ({
   mangaId: '',
-  source: 'hayalistic',
+  source: 'webtoonhatti',
   sourceUrl: '',
   checkTimes: [DEFAULT_TIME_SLOT],
   isActive: true,
@@ -199,11 +205,26 @@ const formatRelativeTestDate = (value?: string | null) => (
 );
 
 const getSourceUrlPlaceholder = (source: ChapterAutomationSource) => {
-  if (source === 'siyahmelek') {
-    return 'https://siyahmelek.mom/manga/...';
+  switch (source) {
+    case 'webtoonhatti':
+      return 'https://webtoonhatti.club/manga/...';
+    case 'okutoon':
+      return 'https://okutoon.com/...';
+    case 'mangacix':
+      return 'https://mangacix.net/books/...';
+    case 'golgebahcesi':
+      return 'https://golgebahcesi.com/manga/...';
+    case 'dxdfansub':
+      return 'https://dxdfansub.com/manga/...';
+    case 'siyahmelek':
+      return 'https://siyahmelek.my/manga/ornek-seri/';
+    case 'hentaiturk':
+      return 'https://hentaiturk.com/galeri/504';
+    case 'hattorimanga':
+      return 'https://hattorimanga.net/manga/ornek-seri/';
+    default:
+      return 'https://webtoonhatti.club/manga/...';
   }
-
-  return 'https://hayalistic.com/manga/... veya https://webtoonhatti.club/webtoon/...';
 };
 
 const AdminAutomation: React.FC = () => {

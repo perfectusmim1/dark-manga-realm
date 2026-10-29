@@ -1,0 +1,20 @@
+name = "toonparrot-catalog-worker"
+main = "worker.js"
+compatibility_date = "2026-03-27"
+compatibility_flags = ["nodejs_compat"]
+workers_dev = true
+
+[observability]
+enabled = true
+head_sampling_rate = 1
+
+[[r2_buckets]]
+binding = "ARCHIVE_BUCKET"
+bucket_name = "toonparrot-archive"
+
+[vars]
+SUPABASE_URL = "https://gmczrwjjlysiryvwxkgb.supabase.co"
+SUPABASE_ANON_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdtY3pyd2pqbHlzaXJ5dnd4a2diIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NjY0ODE3NzIsImV4cCI6MjA4MjA1Nzc3Mn0.uZnPa6FM7DBXJ9ZclWpKGN4UaFJJtFsR7BifPBnEEnQ"
+
+# Secrets (configured via wrangler secret put or API):
+# CATALOG_ADMIN_TOKEN = "<set-via-wrangler-secret>"

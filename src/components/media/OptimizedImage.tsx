@@ -6,6 +6,7 @@ import {
   shouldAvoidRawImageFallback,
   type ImageProxyTransformOptions,
 } from '@/lib/imageProxy';
+import { buildProxiedImageUrl } from '@/lib/mediaStorage';
 
 interface OptimizedImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'alt'> {
   src: string;
@@ -44,10 +45,22 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   });
   const transformKey = React.useMemo(() => getTransformKey(transform), [transform]);
   const [shouldBypassProxy, setShouldBypassProxy] = React.useState(false);
+  const [useProxyFallback, setUseProxyFallback] = React.useState(false);
   const avoidRawFallback = React.useMemo(() => shouldAvoidRawImageFallback(src), [src]);
+  const isExternalUrl = React.useMemo(
+    () => typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://')),
+    [src],
+  );
 
   const shouldLoad = priority || isNearViewport;
   const resolvedSrc = React.useMemo(() => {
+    if (useProxyFallback && isExternalUrl) {
+      const proxied = buildProxiedImageUrl(src);
+      if (proxied && proxied !== src) {
+        return proxied;
+      }
+    }
+
     if (!allowProxy || shouldBypassProxy) {
       return src;
     }
@@ -56,22 +69,31 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
       purpose: 'render',
       surface: 'public_render',
     }) || src;
-  }, [allowProxy, shouldBypassProxy, src, transform, transformKey]);
+  }, [allowProxy, isExternalUrl, shouldBypassProxy, src, transform, transformKey, useProxyFallback]);
 
   React.useEffect(() => {
     setShouldBypassProxy(false);
+    setUseProxyFallback(false);
   }, [src, transformKey]);
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
-      if (allowProxy && !avoidRawFallback && !shouldBypassProxy && resolvedSrc !== src) {
+      if (allowProxy && !avoidRawFallback && !shouldBypassProxy && resolvedSrc !== src && !useProxyFallback) {
         setShouldBypassProxy(true);
         return;
       }
 
+      if (isExternalUrl && !useProxyFallback) {
+        const proxied = buildProxiedImageUrl(src);
+        if (proxied && proxied !== resolvedSrc) {
+          setUseProxyFallback(true);
+          return;
+        }
+      }
+
       onError?.(event);
     },
-    [allowProxy, avoidRawFallback, onError, resolvedSrc, shouldBypassProxy, src],
+    [allowProxy, avoidRawFallback, isExternalUrl, onError, resolvedSrc, shouldBypassProxy, src, useProxyFallback],
   );
 
   return (

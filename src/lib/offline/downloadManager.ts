@@ -23,7 +23,7 @@ import {
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
 import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
-import { isStoredMediaUrl } from '@/lib/mediaStorage';
+import { buildProxiedImageUrl, isStoredMediaUrl } from '@/lib/mediaStorage';
 import { supabase } from '@/lib/supabase';
 
 const PAGE_DOWNLOAD_CONCURRENCY = 3;
@@ -245,6 +245,46 @@ const readStreamToBlob = async (
   };
 };
 
+export const inferRefererForImageUrl = (imageUrl: string, fallbackReferer?: string): string => {
+  try {
+    const parsed = new URL(imageUrl);
+    const host = parsed.hostname.toLowerCase();
+
+    if (host === 'om-cdn.okutoon.com' || host === 'okutoon.com' || host.endsWith('.okutoon.com')) {
+      return 'https://okutoon.com/';
+    }
+    if (host === 'cdn.mangacix.net' || host === 'mangacix.net' || host.endsWith('.mangacix.net')) {
+      return 'https://mangacix.net/';
+    }
+    if (host === 'golgebahcesi.com' || host === 'api.golgebahcesi.com' || host.endsWith('.golgebahcesi.com')) {
+      return 'https://golgebahcesi.com/';
+    }
+    if (host === 'dxdfansub.com' || host === 'api.dxdfansub.com' || host.endsWith('.dxdfansub.com')) {
+      return 'https://dxdfansub.com/';
+    }
+    if (host === 'webtoonhatti.club' || host.endsWith('.webtoonhatti.club')) {
+      return 'https://webtoonhatti.club/';
+    }
+    if (host === 's4.anilist.co' || host.endsWith('.anilist.co')) {
+      return 'https://anilist.co/';
+    }
+    if (host === 'cdn.myanimelist.net' || host.endsWith('.myanimelist.net')) {
+      return 'https://myanimelist.net/';
+    }
+    if (host === 'uploads.mangadex.org' || host.endsWith('.mangadex.org')) {
+      return 'https://mangadex.org/';
+    }
+
+    if (fallbackReferer?.trim()) {
+      return fallbackReferer.trim();
+    }
+
+    return `${parsed.origin}/`;
+  } catch {
+    return fallbackReferer?.trim() || '';
+  }
+};
+
 const downloadImageDirect = async (
   sourceUrl: string,
   signal: AbortSignal,
@@ -252,6 +292,8 @@ const downloadImageDirect = async (
 ) => {
   const response = await fetch(sourceUrl, {
     method: 'GET',
+    mode: 'cors',
+    credentials: 'omit',
     signal,
   });
 
@@ -262,33 +304,104 @@ const downloadImageViaProxy = async (
   sourceUrl: string,
   signal: AbortSignal,
   onChunk: (delta: number) => void,
+  referer?: string,
 ) => {
+  const proxyUrl = offlineProxyConfig.url;
+  if (!proxyUrl) {
+    throw new Error('Offline image proxy URL is not configured');
+  }
+
+  const inferredReferer = inferRefererForImageUrl(sourceUrl, referer);
+
   if (offlineProxyConfig.usesSupabaseAuth) {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
+      apikey: offlineProxyConfig.supabaseAnonKey,
+      Authorization: `Bearer ${offlineProxyConfig.supabaseAnonKey}`,
     };
 
-    headers.apikey = offlineProxyConfig.supabaseAnonKey;
-    headers.Authorization = `Bearer ${offlineProxyConfig.supabaseAnonKey}`;
-
-    const response = await fetch(offlineProxyConfig.url, {
+    const response = await fetch(proxyUrl, {
       method: 'POST',
       headers,
-      body: JSON.stringify({ url: sourceUrl }),
+      body: JSON.stringify({ url: sourceUrl, referer: inferredReferer }),
       signal,
     });
 
     return readStreamToBlob(response, signal, onChunk);
   }
 
-  // Use a simple text/plain POST for custom proxies so the browser skips CORS preflight.
-  const response = await fetch(offlineProxyConfig.url, {
+  const response = await fetch(proxyUrl, {
     method: 'POST',
-    body: sourceUrl,
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ url: sourceUrl, referer: inferredReferer }),
     signal,
   });
 
   return readStreamToBlob(response, signal, onChunk);
+};
+
+export const downloadPageBlob = async (
+  pageUrl: string,
+  signal: AbortSignal,
+  onChunk: (delta: number) => void = () => {},
+  referer?: string,
+): Promise<DownloadedPageResult> => {
+  const inferredReferer = inferRefererForImageUrl(pageUrl, referer);
+  let lastError: unknown = null;
+
+  for (let attempt = 0; attempt <= 2; attempt += 1) {
+    if (signal.aborted) {
+      throw new DOMException('Iptal edildi', 'AbortError');
+    }
+
+    if (attempt > 0) {
+      const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 3000);
+      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (signal.aborted) {
+        throw new DOMException('Iptal edildi', 'AbortError');
+      }
+    }
+
+    // 1. Cloudflare Offline Image Proxy POST
+    if (offlineProxyConfig.url) {
+      try {
+        return await downloadImageViaProxy(pageUrl, signal, onChunk, inferredReferer);
+      } catch (proxyError) {
+        if (signal.aborted) throw proxyError;
+        lastError = proxyError;
+        console.warn(`[OfflineDownload] Proxy POST failed for ${pageUrl} (attempt ${attempt + 1}):`, proxyError);
+      }
+
+      // 2. GET Proxy URL fallback
+      try {
+        const getProxyUrl = buildProxiedImageUrl(pageUrl, inferredReferer);
+        if (getProxyUrl && getProxyUrl !== pageUrl) {
+          const response = await fetch(getProxyUrl, {
+            method: 'GET',
+            signal,
+          });
+          return await readStreamToBlob(response, signal, onChunk);
+        }
+      } catch (getProxyError) {
+        if (signal.aborted) throw getProxyError;
+        lastError = getProxyError;
+        console.warn(`[OfflineDownload] Proxy GET fallback failed for ${pageUrl}:`, getProxyError);
+      }
+    }
+
+    // 3. Direct fetch fallback with CORS omit
+    try {
+      return await downloadImageDirect(pageUrl, signal, onChunk);
+    } catch (directError) {
+      if (signal.aborted) throw directError;
+      lastError = directError;
+      console.warn(`[OfflineDownload] Direct fetch fallback failed for ${pageUrl}:`, directError);
+    }
+  }
+
+  throw lastError || new Error(`Görsel indirilemedi: ${pageUrl}`);
 };
 
 const downloadChapterPageImage = async (
@@ -296,19 +409,7 @@ const downloadChapterPageImage = async (
   signal: AbortSignal,
   onChunk: (delta: number) => void,
 ) => {
-  if (isStoredMediaUrl(sourceUrl) && shouldAttemptDirectStoredMediaDownload(sourceUrl)) {
-    try {
-      return await downloadImageDirect(sourceUrl, signal, onChunk);
-    } catch (error) {
-      const sourceOrigin = getSourceUrlOrigin(sourceUrl);
-      if (sourceOrigin && typeof window !== 'undefined' && sourceOrigin !== window.location.origin) {
-        blockedStoredMediaOrigins.add(sourceOrigin);
-      }
-      console.warn('Direct R2 chapter download failed, retrying via proxy fallback:', error);
-    }
-  }
-
-  return downloadImageViaProxy(sourceUrl, signal, onChunk);
+  return downloadPageBlob(sourceUrl, signal, onChunk);
 };
 
 class OfflineDownloadManager {

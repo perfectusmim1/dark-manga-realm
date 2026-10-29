@@ -1,6 +1,8 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import ProtectedImage from '@/components/security/ProtectedImage';
+import { PageTranslateButton, TranslationOverlay } from '@/components/reader/TranslationOverlay';
+import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
 
 interface VerticalReaderProps {
   pages: ResolvedReaderPage[];
@@ -8,6 +10,7 @@ interface VerticalReaderProps {
   onPageChange: (page: number) => void;
   initialPage?: number;
   trackingEnabled?: boolean;
+  translation?: ReaderTranslationApi;
 }
 
 interface ReaderPageProps {
@@ -15,6 +18,7 @@ interface ReaderPageProps {
   page: ResolvedReaderPage;
   zoom: number;
   fitWidth: boolean;
+  translation?: ReaderTranslationApi;
 }
 
 const ReaderPage: React.FC<ReaderPageProps> = ({
@@ -22,7 +26,34 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
   page,
   zoom,
   fitWidth,
+  translation,
 }) => {
+  const [pageOverlayShown, setPageOverlayShown] = useState(true);
+  const state = translation?.pageStates[index];
+  const showOverlay = Boolean(
+    translation
+    && state?.status === 'done'
+    && state.blocks
+    && translation.settings.overlayVisible
+    && pageOverlayShown,
+  );
+
+  const overlayNode = translation && translation.enabled ? (
+    <>
+      {showOverlay && state?.blocks && <TranslationOverlay blocks={state.blocks} />}
+      <PageTranslateButton
+        state={state}
+        showIdleButton={!translation.settings.autoTranslate}
+        overlayShown={translation.settings.overlayVisible && pageOverlayShown}
+        onTranslate={() => translation.translatePage(index)}
+        onRetranslate={() => translation.translatePage(index, { force: true })}
+        onToggleOverlay={() => setPageOverlayShown((prev) => !prev)}
+      />
+    </>
+  ) : (
+    showOverlay && state?.blocks ? <TranslationOverlay blocks={state.blocks} /> : undefined
+  );
+
   return (
     <div
       data-page-index={index}
@@ -37,9 +68,10 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
           src={page.src}
           alt={`Sayfa ${index + 1}`}
           zoom={zoom}
+          overlay={overlayNode}
         />
       </div>
-      <div className="absolute top-2 right-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
+      <div className="absolute top-2 left-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
         P{index + 1}
       </div>
     </div>
@@ -52,6 +84,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   onPageChange,
   initialPage = 1,
   trackingEnabled = true,
+  translation,
 }) => {
   const lastReportedPage = useRef<number>(initialPage);
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
@@ -118,6 +151,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
           page={page}
           zoom={effectiveZoom}
           fitWidth={settings.fitWidth}
+          translation={translation}
         />
       ))}
     </div>

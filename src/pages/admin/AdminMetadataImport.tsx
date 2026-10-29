@@ -58,8 +58,10 @@ import { normalizeComparableText } from '@/lib/textMatching';
 import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
 
 const SOURCE_LABELS: Record<MetadataImportSource, string> = {
-  anisearch: 'AniSearch',
+  anilist: 'AniList',
   myanimelist: 'MyAnimeList',
+  mangadex: 'MangaDex',
+  anisearch: 'AniSearch',
   mangaupdates: 'MangaUpdates',
   animeplanet: 'Anime-Planet',
   fandom: 'Wiki / Fandom',

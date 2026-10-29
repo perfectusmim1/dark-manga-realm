@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import {
     Search,
@@ -8,9 +8,7 @@ import {
     Globe,
     ExternalLink,
     Plus,
-    Copy,
-    Clipboard,
-    Upload,
+    Sparkles,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -19,9 +17,15 @@ import { Badge } from '@/components/ui/badge';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
-import { Textarea } from '@/components/ui/textarea';
 import { toast } from 'sonner';
-import { ensureArtistByName, ensureAuthorByName, linkMangaToArtist, linkMangaToAuthor, saveManga } from '@/lib/database';
+import {
+    ensureArtistByName,
+    ensureAuthorByName,
+    getAllMangas,
+    linkMangaToArtist,
+    linkMangaToAuthor,
+    saveManga,
+} from '@/lib/database';
 import { Manga, Chapter } from '@/lib/types';
 import { normalizeGenres } from '@/lib/mockData';
 import { getAdultContentFormatLabel } from '@/lib/adultContentFormat';
@@ -29,75 +33,38 @@ import { getMangaTypeLabel } from '@/lib/mangaType';
 import {
     fetchScraperContent,
     getAvailableScraperProviders,
-    getDefaultScraperProviderForSource,
     getScraperProviderLabel,
     readPreferredScraperProvider,
     type ScraperProvider,
     writePreferredScraperProvider,
 } from '@/lib/scraperProxy';
 import {
-    buildScrapedChapterPaginationCandidates,
+    areSeriesTitlesMatching,
     buildScrapeSearchUrl,
     detectScrapeSourceFromUrl,
-    applyChapterImageResultOptions,
     extractChapterImageResult,
-    extractScrapedChapterLinks,
-    extractScrapedChapterPaginationUrls,
     extractScrapedMangaCards,
     extractScrapedMangaDetail,
-    extractSiyahMelekChapterLinksFromHtml,
-    extractSiyahMelekChapterPaginationUrlsFromHtml,
-    getScrapedStatusLabel,
     getAvailableScrapeSources,
+    getScrapedStatusLabel,
     getScrapeSourceLabel,
     isAdultOnlyScrapeSource,
     isDirectScrapeLink,
-    normalizeScrapeUrl,
     normalizeScrapeSeriesUrl,
     readPreferredScrapeSource,
-    type ScrapedChapterImageResult,
+    sanitizeAndDedupePageUrls,
+    SCRAPER_SOURCES,
+    type ScrapedChapter,
+    type ScrapedMangaCard,
+    type ScrapedMangaDraft,
+    type ScraperSourceKey,
     type ScrapeSource,
     writePreferredScrapeSource,
 } from '@/lib/scraper/scrapeSources';
-import {
-    readSiyahMelekSkipPromoFirstPage,
-    writeSiyahMelekSkipPromoFirstPage,
-} from '@/lib/scraper/siyahmelekSettings';
-import {
-    buildSiyahMelekBrowserChapterImageCaptureScript,
-    buildSiyahMelekBrowserCaptureScript,
-    buildSiyahMelekDraftFromBrowserCapture,
-    mergeSiyahMelekBrowserCapturedChapterResults,
-    parseSiyahMelekBrowserCapture,
-} from '@/lib/scraper/siyahmelekBrowserCapture';
 import { useAdminPageGuard } from '@/hooks/useAdminPageGuard';
-
-interface ScrapedMangaCard {
-    title: string;
-    link: string;
-    cover: string;
-    genres: string[];
-    source: ScrapeSource;
-}
-
-interface ScrapedChapter {
-    name: string;
-    link: string;
-    number: number;
-    source: ScrapeSource;
-    prefetchedImageResult?: ScrapedChapterImageResult;
-}
-
-interface ScrapedMangaDraft extends Partial<Manga> {
-    _rawChapters: ScrapedChapter[];
-    source: ScrapeSource;
-}
 
 const normalizeScrapedText = (value?: string | null) =>
     value?.replace(/\s+/g, ' ').trim() || '';
-
-const toScrapedKey = (value?: string | null) =>
-    normalizeScrapedText(value).toLocaleLowerCase('tr-TR');
 
 const extractPrimaryScrapedPersonName = (value?: string | null) =>
     normalizeScrapedText(value);
@@ -118,71 +85,78 @@ const splitScrapedEntityNames = (value?: string | null) => {
     );
 };
 
-const getScrapedSummaryField = (doc: Document, labels: string[]) => {
-    const normalizedLabels = labels.map((label) => label.toLocaleLowerCase('tr-TR'));
-
-    const matchedItem = Array.from(doc.querySelectorAll('.post-content_item')).find((element) => {
-        const text = element.textContent?.toLocaleLowerCase('tr-TR') || '';
-        return normalizedLabels.some((label) => text.includes(label));
-    });
-
-    return normalizeScrapedText(
-        matchedItem?.querySelector('.summary-content, .author-content a, .artist-content a')?.textContent ||
-        matchedItem?.querySelector('.summary-content')?.textContent
-    );
-};
-
-const inferScrapedMangaType = (doc: Document, genres: string[], fallbackGenres: string[]) => {
-    const typeSource = [
-        getScrapedSummaryField(doc, ['tip', 'type']),
-        getScrapedSummaryField(doc, ['alternatif']),
-        getScrapedSummaryField(doc, ['kategori', 'categories']),
-        genres.join(', '),
-        fallbackGenres.join(', '),
-    ].join(' ');
-
-    const normalizedSource = typeSource.toLocaleLowerCase('tr-TR');
-
-    if (normalizedSource.includes('manhwa')) {
-        return 'manhwa' as const;
-    }
-
-    if (normalizedSource.includes('manhua')) {
-        return 'manhua' as const;
-    }
-
-    if (normalizedSource.includes('webtoon')) {
-        return 'webtoon' as const;
-    }
-
-    return 'manga' as const;
-};
-
-const BLOCKED_ALT_TITLE_PATTERNS = ['güncellenecek', 'guncellenecek'];
-
-const sanitizeAlternativeTitles = (rawText: string, mainTitle?: string) => {
-    const mainKey = toScrapedKey(mainTitle);
-
-    return Array.from(
-        new Set(
-            rawText
-                .split(/[,\n]/)
-                .map((title) => normalizeScrapedText(title))
-                .filter((title) => {
-                    const key = toScrapedKey(title);
-                    return (
-                        key.length > 0 &&
-                        key !== mainKey &&
-                        !BLOCKED_ALT_TITLE_PATTERNS.some((pattern) => key.includes(pattern))
-                    );
-                })
-        )
-    );
-};
-
 const getMediaTypeLabel = (type?: Manga['type']) => {
     return getMangaTypeLabel(type);
 };
+
+/**
+ * Birincil kaynakta görsel eksik veya bozuk çıktığında diğer 4 kaynaktan
+ * (okutoon, mangacix, golgebahcesi, dxdfansub) aynı seriyi arayıp bölümü tamamlar.
+ */
+async function tryRecoverChapterImagesFromFallbackSources(
+    seriesTitle: string,
+    alternativeTitles: string[] | undefined,
+    chapterNumber: number,
+    primarySource: ScrapeSource,
+    scraperProvider: ScraperProvider,
+    cachedSourceChapters: Map<ScraperSourceKey, ScrapedChapter[]>,
+): Promise<{ images: string[]; source: ScraperSourceKey } | null> {
+    const fallbackSources = SCRAPER_SOURCES.filter((s) => s !== primarySource);
+
+    for (const fbSource of fallbackSources) {
+        try {
+            let candidateChapters = cachedSourceChapters.get(fbSource);
+
+            if (!candidateChapters) {
+                const searchUrl = buildScrapeSearchUrl(fbSource, seriesTitle);
+                const searchHtml = await fetchScraperContent(searchUrl, { provider: scraperProvider, source: fbSource });
+                const parser = new DOMParser();
+                const searchDoc = parser.parseFromString(searchHtml, 'text/html');
+                const cards = extractScrapedMangaCards(searchDoc, fbSource, searchHtml);
+
+                const matchedCard = cards.find((card) =>
+                    areSeriesTitlesMatching(
+                        { title: seriesTitle, alternativeTitles },
+                        { title: card.title },
+                    ),
+                );
+
+                if (!matchedCard) {
+                    cachedSourceChapters.set(fbSource, []);
+                    continue;
+                }
+
+                const seriesUrl = normalizeScrapeSeriesUrl(fbSource, matchedCard.link);
+                const seriesHtml = await fetchScraperContent(seriesUrl, { provider: scraperProvider, source: fbSource });
+                const seriesDoc = parser.parseFromString(seriesHtml, 'text/html');
+                const detail = extractScrapedMangaDetail(seriesDoc, fbSource, { ...matchedCard, link: seriesUrl });
+                candidateChapters = detail._rawChapters;
+                cachedSourceChapters.set(fbSource, candidateChapters);
+            }
+
+            const matchedChapter = candidateChapters.find(
+                (ch) => Number(ch.number) === Number(chapterNumber),
+            );
+
+            if (!matchedChapter) {
+                continue;
+            }
+
+            const chHtml = await fetchScraperContent(matchedChapter.link, { provider: scraperProvider, source: fbSource });
+            const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
+            const imgResult = extractChapterImageResult(chDoc, fbSource, undefined, chHtml);
+            const cleanPages = sanitizeAndDedupePageUrls(imgResult.images, fbSource);
+
+            if (cleanPages.length > 0) {
+                return { images: cleanPages, source: fbSource };
+            }
+        } catch (fbErr) {
+            console.warn(`Fallback recovery failed for ${fbSource} chapter ${chapterNumber}`, fbErr);
+        }
+    }
+
+    return null;
+}
 
 const AdminScraper: React.FC = () => {
     const navigate = useNavigate();
@@ -198,15 +172,13 @@ const AdminScraper: React.FC = () => {
     const [selectedChapterIndices, setSelectedChapterIndices] = useState<number[]>([]);
     const [scrapeSource, setScrapeSource] = useState<ScrapeSource>(() => readPreferredScrapeSource());
     const [scraperProvider, setScraperProvider] = useState<ScraperProvider>(() => readPreferredScraperProvider());
-    const [skipSiyahMelekPromoFirstPage, setSkipSiyahMelekPromoFirstPage] = useState(() => readSiyahMelekSkipPromoFirstPage());
-    const [browserCaptureInput, setBrowserCaptureInput] = useState('');
+    const [autoRecoverFromFallbacks, setAutoRecoverFromFallbacks] = useState(true);
+
     const adultFormatLabel = fetchedData ? getAdultContentFormatLabel({
         isAdult: fetchedData.isAdult,
         type: fetchedData.type,
         genres: fetchedData.genres,
     }) : null;
-    const [processingBrowserCapture, setProcessingBrowserCapture] = useState(false);
-    const browserCaptureFileInputRef = useRef<HTMLInputElement | null>(null);
 
     useEffect(() => {
         if (availableScraperProviders.includes(scraperProvider)) {
@@ -218,11 +190,11 @@ const AdminScraper: React.FC = () => {
     }, [availableScraperProviders, scraperProvider]);
 
     useEffect(() => {
-        if (!availableScrapeSources.includes(scrapeSource)) {
+        if (!availableScrapeSources.includes(scrapeSource as ScraperSourceKey)) {
             const nextSource = readPreferredScrapeSource();
             setScrapeSource(nextSource);
         }
-    }, [availableScrapeSources, availableScraperProviders, scrapeSource, scraperProvider]);
+    }, [availableScrapeSources, scrapeSource]);
 
     if (accessLoading || !canUseScraper) {
         return null;
@@ -241,20 +213,7 @@ const AdminScraper: React.FC = () => {
         setSelectedManga(null);
         setFetchedData(null);
         setSelectedChapterIndices([]);
-
-        if (nextSource === 'siyahmelek') {
-            const preferredProvider = getDefaultScraperProviderForSource(nextSource);
-            writePreferredScraperProvider(preferredProvider);
-            setScraperProvider(preferredProvider);
-        }
-
         toast.success(`Kaynak site: ${getScrapeSourceLabel(nextSource)}`);
-    };
-
-    const handleSkipSiyahMelekPromoFirstPageChange = (checked: boolean) => {
-        writeSiyahMelekSkipPromoFirstPage(checked);
-        setSkipSiyahMelekPromoFirstPage(checked);
-        toast.success(checked ? 'SiyahMelek ilk reklam sayfası atlanacak' : 'SiyahMelek ilk sayfası korunacak');
     };
 
     const handleSearch = async (e?: React.FormEvent) => {
@@ -287,7 +246,6 @@ const AdminScraper: React.FC = () => {
 
         try {
             const url = buildScrapeSearchUrl(sourceToUse, rawQuery);
-
             const html = await fetchScraperContent(url, { provider: scraperProvider, source: sourceToUse });
 
             const parser = new DOMParser();
@@ -307,7 +265,7 @@ const AdminScraper: React.FC = () => {
         }
     };
 
-    const fetchMangaDetails = async (card: ScrapedMangaCard, source: ScrapeSource = card.source) => {
+    const fetchMangaDetails = async (card: ScrapedMangaCard, source: ScrapeSource = card.source || scrapeSource) => {
         const normalizedSeriesLink = normalizeScrapeSeriesUrl(source, card.link);
         setFetchingDetails(true);
         setSelectedManga({ ...card, link: normalizedSeriesLink, source });
@@ -315,81 +273,16 @@ const AdminScraper: React.FC = () => {
 
         try {
             const html = await fetchScraperContent(normalizedSeriesLink, { provider: scraperProvider, source });
-
             const parser = new DOMParser();
             const doc = parser.parseFromString(html, 'text/html');
             const extractedManga = extractScrapedMangaDetail(doc, source, { ...card, link: normalizedSeriesLink });
-            let mergedChapters = source === 'siyahmelek'
-                ? extractSiyahMelekChapterLinksFromHtml(html, normalizedSeriesLink, extractedManga.title || card.title)
-                : extractedManga._rawChapters;
-
-            if (mergedChapters.length === 0) {
-                mergedChapters = extractedManga._rawChapters;
-            }
-
-            if (source === 'siyahmelek') {
-                const explicitPaginationUrls = Array.from(new Set([
-                    ...extractScrapedChapterPaginationUrls(doc, source, normalizedSeriesLink),
-                    ...extractSiyahMelekChapterPaginationUrlsFromHtml(html, normalizedSeriesLink),
-                ]));
-                const paginationUrls = buildScrapedChapterPaginationCandidates(
-                    source,
-                    normalizedSeriesLink,
-                    explicitPaginationUrls,
-                );
-
-                if (paginationUrls.length > 0) {
-                    const chapterMap = new Map(
-                        mergedChapters.map((chapter) => [normalizeScrapeUrl(source, chapter.link), chapter]),
-                    );
-                    let consecutivePagesWithoutNewChapters = 0;
-
-                    for (const pageUrl of paginationUrls) {
-                        try {
-                            const pageHtml = await fetchScraperContent(pageUrl, { provider: scraperProvider, source });
-                            const pageDoc = parser.parseFromString(pageHtml, 'text/html');
-                            const pageChapters = extractSiyahMelekChapterLinksFromHtml(
-                                pageHtml,
-                                normalizedSeriesLink,
-                                extractedManga.title || card.title,
-                            );
-                            const normalizedPageChapters = pageChapters.length > 0
-                                ? pageChapters
-                                : extractScrapedChapterLinks(pageDoc, source);
-                            let newChapterCount = 0;
-
-                            for (const chapter of normalizedPageChapters) {
-                                const chapterKey = normalizeScrapeUrl(source, chapter.link);
-                                if (!chapterMap.has(chapterKey)) {
-                                    newChapterCount += 1;
-                                }
-                                chapterMap.set(chapterKey, chapter);
-                            }
-
-                            consecutivePagesWithoutNewChapters = newChapterCount === 0
-                                ? consecutivePagesWithoutNewChapters + 1
-                                : 0;
-                        } catch (pageError) {
-                            consecutivePagesWithoutNewChapters += 1;
-                            console.warn('SiyahMelek chapter page fetch failed', { pageUrl, pageError });
-                        }
-
-                        if (consecutivePagesWithoutNewChapters >= 2) {
-                            break;
-                        }
-                    }
-
-                    mergedChapters = Array.from(chapterMap.values()).sort((left, right) => left.number - right.number);
-                }
-            }
+            const mergedChapters = extractedManga._rawChapters;
 
             const scrapedManga: ScrapedMangaDraft = {
                 ...extractedManga,
                 isAdult: extractedManga.isAdult || isAdultOnlyScrapeSource(source),
-                source,
                 _rawChapters: mergedChapters.map((chapter) => ({
                     ...chapter,
-                    source,
                 })),
             };
 
@@ -404,160 +297,14 @@ const AdminScraper: React.FC = () => {
         }
     };
 
-    const handleCopySiyahMelekBrowserScript = async () => {
-        try {
-            await navigator.clipboard.writeText(buildSiyahMelekBrowserCaptureScript());
-            toast.success('SiyahMelek seri scripti panoya kopyalandı');
-        } catch {
-            toast.error('Script panoya kopyalanamadı');
-        }
-    };
-
-    const handleCopySelectedChapterCaptureScript = async () => {
-        if (!fetchedData || fetchedData.source !== 'siyahmelek') {
-            toast.error('Önce SiyahMelek serisini çözümleyin');
-            return;
-        }
-
-        const selectedChapters = fetchedData._rawChapters.filter((_, index) => selectedChapterIndices.includes(index));
-        if (selectedChapters.length === 0) {
-            toast.error('Önce en az bir bölüm seçin');
-            return;
-        }
-
-        if (selectedChapters.length > 15) {
-            toast.info('SiyahMelek için 10-15 bölüm halinde yakalama daha stabil çalışır.');
-        }
-
-        try {
-            await navigator.clipboard.writeText(
-                buildSiyahMelekBrowserChapterImageCaptureScript(selectedChapters),
-            );
-            toast.success(`Seçili ${selectedChapters.length} bölüm için görsel scripti panoya kopyalandı`);
-        } catch {
-            toast.error('Seçili bölüm scripti panoya kopyalanamadı');
-        }
-    };
-
-    const handlePasteBrowserCapture = async () => {
-        try {
-            const clipboardText = await navigator.clipboard.readText();
-            if (!clipboardText.trim()) {
-                toast.error('Panoda yapıştırılacak veri bulunamadı');
-                return;
-            }
-
-            setBrowserCaptureInput(clipboardText);
-            toast.success('Tarayıcı yakalama verisi alındı');
-        } catch {
-            toast.error('Pano erişimi başarısız oldu');
-        }
-    };
-
-    const applyBrowserCaptureValue = async (rawValue: string) => {
-        setProcessingBrowserCapture(true);
-
-        try {
-            const parsedPayload = parseSiyahMelekBrowserCapture(rawValue);
-            if (!parsedPayload) {
-                throw new Error('Aktarılan veri geçerli bir SiyahMelek capture çıktısı değil');
-            }
-
-            if ('mode' in parsedPayload && parsedPayload.mode === 'chapter_images') {
-                if (!fetchedData || fetchedData.source !== 'siyahmelek') {
-                    throw new Error('Önce seri metadata verisini çözümleyin');
-                }
-
-                const mergedChapters = mergeSiyahMelekBrowserCapturedChapterResults(
-                    fetchedData._rawChapters,
-                    parsedPayload.chapters,
-                    fetchedData.title,
-                );
-
-                const mergedCount = mergedChapters.filter((chapter) => chapter.prefetchedImageResult).length;
-                setFetchedData({
-                    ...fetchedData,
-                    _rawChapters: mergedChapters.map((chapter) => ({
-                        ...chapter,
-                        source: fetchedData.source,
-                    })),
-                });
-                setBrowserCaptureInput(rawValue);
-                toast.success(`Tarayıcıdan ${mergedCount} bölüm için görsel sonucu işlendi`);
-                return;
-            }
-
-            const draft = buildSiyahMelekDraftFromBrowserCapture(parsedPayload);
-            const sourcedDraft: ScrapedMangaDraft = {
-                ...draft,
-                source: 'siyahmelek',
-                _rawChapters: draft._rawChapters.map((chapter) => ({
-                    ...chapter,
-                    source: 'siyahmelek' as const,
-                })),
-            };
-            const draftCard: ScrapedMangaCard = {
-                title: sourcedDraft.title || 'SiyahMelek serisi',
-                link: normalizeScrapeSeriesUrl('siyahmelek', parsedPayload.mangaUrl),
-                cover: sourcedDraft.cover || '',
-                genres: sourcedDraft.genres || [],
-                source: 'siyahmelek',
-            };
-
-            writePreferredScrapeSource('siyahmelek');
-            setScrapeSource('siyahmelek');
-            const nextProvider = getDefaultScraperProviderForSource('siyahmelek');
-            writePreferredScraperProvider(nextProvider);
-            setScraperProvider(nextProvider);
-            setSearchQuery(draftCard.link);
-            setResults([draftCard]);
-            setSelectedManga(draftCard);
-            setFetchedData(sourcedDraft);
-            setSelectedChapterIndices(sourcedDraft._rawChapters.map((_, index) => index));
-            setBrowserCaptureInput(rawValue);
-
-            toast.success(`Tarayıcı oturumundan ${sourcedDraft._rawChapters.length} bölüm çözümlendi`);
-        } catch (err) {
-            toast.error(err instanceof Error ? err.message : 'Tarayıcı yakalama verisi işlenemedi');
-        } finally {
-            setProcessingBrowserCapture(false);
-        }
-    };
-
-    const handleApplyBrowserCapture = async () => {
-        await applyBrowserCaptureValue(browserCaptureInput);
-    };
-
-    const handleBrowserCaptureFileChange = async (event: React.ChangeEvent<HTMLInputElement>) => {
-        const file = event.target.files?.[0];
-        event.target.value = '';
-
-        if (!file) {
-            return;
-        }
-
-        try {
-            const text = await file.text();
-            if (!text.trim()) {
-                toast.error('Seçilen capture dosyası boş');
-                return;
-            }
-
-            setBrowserCaptureInput(text);
-            await applyBrowserCaptureValue(text);
-        } catch (error) {
-            toast.error(error instanceof Error ? error.message : 'Capture dosyası okunamadı');
-        }
-    };
-
     const handleImportManga = async () => {
-        if (!fetchedData) return;
+        if (!fetchedData || !fetchedData.title) return;
         setLoading(true);
 
         try {
             const rawChapters = fetchedData._rawChapters;
             const selectedChaptersToImport = rawChapters.filter((_, i) => selectedChapterIndices.includes(i));
-            const activeScrapeSource = fetchedData.source;
+            const activeScrapeSource = scrapeSource;
             const isAdultImport = fetchedData.isAdult === true || isAdultOnlyScrapeSource(activeScrapeSource);
 
             if (selectedChaptersToImport.length === 0) {
@@ -566,93 +313,118 @@ const AdminScraper: React.FC = () => {
                 return;
             }
 
-            if (activeScrapeSource === 'siyahmelek') {
-                const chaptersMissingImageCapture = selectedChaptersToImport.filter((chapter) => !chapter.prefetchedImageResult);
-                if (scraperProvider !== 'localhost' && chaptersMissingImageCapture.length > 0) {
-                    toast.error(`Seçili ${chaptersMissingImageCapture.length} bölüm için görsel yakalama eksik. Önce seçili bölüm scriptini çalıştırın.`);
-                    setLoading(false);
-                    return;
-                }
-            }
+            // 1. DUPLICATE CHECK: Search existing mangas
+            const existingMangas = await getAllMangas({ includePrivate: true });
+            const targetDraft = {
+                title: fetchedData.title,
+                alternativeTitles: fetchedData.alternativeTitles || [],
+            };
+            const matchedExisting = existingMangas.find((m) =>
+                areSeriesTitlesMatching(targetDraft, {
+                    title: m.title,
+                    alternativeTitles: m.alternativeTitles,
+                }),
+            );
 
-            const mangaId = `manga-${Date.now()}`;
-
-            // For chapters, we need to visit EACH chapter link to get image URLs.
-            // This can be heavy, so we'll do it sequentially or in chunks.
-            const chapters: Chapter[] = [];
+            const mangaId = matchedExisting ? matchedExisting.id : `manga-${Date.now()}`;
+            const chapters: Chapter[] = matchedExisting ? [...matchedExisting.chapters] : [];
+            let newlyAddedCount = 0;
+            let updatedCount = 0;
             let lockedChapterCount = 0;
             let failedChapterCount = 0;
+            let fallbackRecoveredCount = 0;
+
+            const fallbackCache = new Map<ScraperSourceKey, ScrapedChapter[]>();
 
             toast.info(`${selectedChaptersToImport.length} bölüm için görsel linkleri çekiliyor...`);
 
-            // Max 10 chapters for initial import to avoid rate limit/timeout? 
-            // Or just do all but warn user.
             for (let i = 0; i < selectedChaptersToImport.length; i++) {
                 const rc = selectedChaptersToImport[i];
                 try {
-                    let imageResult = rc.prefetchedImageResult
-                        ? applyChapterImageResultOptions(
-                            rc.prefetchedImageResult,
-                            rc.source || activeScrapeSource,
-                            { excludeSiyahMelekPromoFirstPage: skipSiyahMelekPromoFirstPage },
-                        )
-                        : undefined;
+                    let imageResult = rc.prefetchedImageResult;
 
                     if (!imageResult) {
-                        if (i > 0) await new Promise(resolve => setTimeout(resolve, 800));
+                        if (i > 0) await new Promise((resolve) => setTimeout(resolve, 600));
 
-                        const chHtml = await fetchScraperContent(rc.link, { provider: scraperProvider, source: rc.source || activeScrapeSource });
+                        const chHtml = await fetchScraperContent(rc.link, { provider: scraperProvider, source: activeScrapeSource });
                         const chDoc = new DOMParser().parseFromString(chHtml, 'text/html');
-                        imageResult = extractChapterImageResult(
-                            chDoc,
-                            rc.source || activeScrapeSource,
-                            { excludeSiyahMelekPromoFirstPage: skipSiyahMelekPromoFirstPage },
-                        );
+                        imageResult = extractChapterImageResult(chDoc, activeScrapeSource, undefined, chHtml);
                     }
 
-                    if (imageResult.status === 'locked') {
+                    let cleanPages = imageResult ? sanitizeAndDedupePageUrls(imageResult.images, activeScrapeSource) : [];
+
+                    // Fallback recovery if empty/error and enabled
+                    if (cleanPages.length === 0 && autoRecoverFromFallbacks) {
+                        toast.info(`Bölüm ${rc.number} birincil kaynakta eksik, yedek kaynaklardan aranıyor...`);
+                        const recovered = await tryRecoverChapterImagesFromFallbackSources(
+                            fetchedData.title,
+                            fetchedData.alternativeTitles,
+                            rc.number,
+                            activeScrapeSource,
+                            scraperProvider,
+                            fallbackCache,
+                        );
+                        if (recovered && recovered.images.length > 0) {
+                            cleanPages = recovered.images;
+                            fallbackRecoveredCount += 1;
+                            toast.success(`Bölüm ${rc.number} ${getScrapeSourceLabel(recovered.source)} üzerinden tamamlandı (${cleanPages.length} görsel).`);
+                        }
+                    }
+
+                    if (imageResult?.status === 'locked' && cleanPages.length === 0) {
                         lockedChapterCount += 1;
                         toast.info(`Bölüm ${rc.number} VIP/kilitli olduğu için atlandı.`);
                         continue;
                     }
 
-                    if (imageResult.status === 'error') {
+                    if (cleanPages.length === 0) {
                         failedChapterCount += 1;
-                        console.warn('Chapter image missing during admin import', {
-                            chapterNumber: rc.number,
-                            reason: imageResult.reason,
-                        });
-                        toast.error(`Bölüm ${rc.number} için görsel bulunamadı, atlandı.`);
+                        console.warn('Geçersiz/boş görsel linki, bölüm kaydedilmeyecek:', rc.number);
+                        toast.error(`Bölüm ${rc.number} için geçerli görsel bulunamadı, atlandı.`);
                         continue;
                     }
 
-                    chapters.push({
-                        id: `chapter-${Date.now()}-${i}`,
+                    const existingChapterIndex = chapters.findIndex(
+                        (ch) => Number(ch.number) === Number(rc.number),
+                    );
+
+                    const chapterPayload: Chapter = {
+                        id: existingChapterIndex >= 0 ? chapters[existingChapterIndex].id : `chapter-${Date.now()}-${i}`,
                         number: rc.number,
                         title: rc.name,
-                        pages: imageResult.images,
-                        releaseDate: new Date().toISOString(),
-                        views: 0,
-                    });
+                        pages: cleanPages,
+                        releaseDate: existingChapterIndex >= 0 ? chapters[existingChapterIndex].releaseDate : new Date().toISOString(),
+                        views: existingChapterIndex >= 0 ? chapters[existingChapterIndex].views : 0,
+                    };
+
+                    if (existingChapterIndex >= 0) {
+                        chapters[existingChapterIndex] = chapterPayload;
+                        updatedCount += 1;
+                    } else {
+                        chapters.push(chapterPayload);
+                        newlyAddedCount += 1;
+                    }
 
                     if ((i + 1) % 5 === 0 || i === selectedChaptersToImport.length - 1) {
-                        toast.info(`${i + 1} / ${selectedChaptersToImport.length} bölüm tamamlandı...`);
+                        toast.info(`${i + 1} / ${selectedChaptersToImport.length} bölüm işlendi...`);
                     }
                 } catch (e) {
                     failedChapterCount += 1;
-                    console.error('Chapter fetch failed during admin import', { chapterNumber: rc.number, error: e });
-                    toast.error(`Bölüm ${rc.number} atlandı (Hata: ${e instanceof Error ? e.message : 'Proxy hatası'})`);
+                    console.error('Bölüm çekme hatası:', { chapterNumber: rc.number, error: e });
+                    toast.error(`Bölüm ${rc.number} atlandı (Hata: ${e instanceof Error ? e.message : 'Bilinmeyen hata'})`);
                 }
             }
 
-            if (chapters.length === 0) {
-                const summaryMessage = lockedChapterCount > 0 && failedChapterCount === 0
-                    ? 'Seçilen bölümlerin tamamı VIP/kilitli durumda, seri boş olarak eklenmedi.'
-                    : 'İçe aktarılabilecek açık bölüm bulunamadı, seri kaydedilmedi.';
-                toast.error(summaryMessage);
+            // DO NOT SAVE IF NO VALID CHAPTERS
+            const totalValidChapters = chapters.filter((c) => Array.isArray(c.pages) && c.pages.length > 0);
+            if (totalValidChapters.length === 0) {
+                toast.error('İçe aktarılabilecek geçerli görsele sahip açık bölüm bulunamadı, seri kaydedilmedi.');
                 setLoading(false);
                 return;
             }
+
+            // Sort chapters by number ascending
+            chapters.sort((a, b) => Number(a.number) - Number(b.number));
 
             const normalizedAuthorNames = splitScrapedEntityNames(fetchedData.author);
             const normalizedArtistNames = splitScrapedEntityNames(fetchedData.artist);
@@ -665,45 +437,85 @@ const AdminScraper: React.FC = () => {
             const normalizedAuthorLabel = normalizedAuthorNames.join(', ');
             const normalizedArtistLabel = normalizedArtistNames.join(', ');
 
-            const finalManga: Manga = {
-                id: mangaId,
-                title: fetchedData.title!,
-                alternativeTitles: fetchedData.alternativeTitles || [],
-                description: fetchedData.description!,
-                cover: fetchedData.cover!,
-                banner: fetchedData.banner || fetchedData.cover!,
-                author: normalizedAuthorLabel || '',
-                artist: normalizedArtistLabel || undefined,
-                status: fetchedData.status!,
-                type: fetchedData.type!,
-                genres: fetchedData.genres!,
-                releaseYear: fetchedData.releaseYear,
-                chapters: chapters,
-                views: 0,
-                ratings: [],
-                averageRating: 0,
-                reviewCount: 0,
-                isAdult: isAdultImport,
-                createdAt: new Date().toISOString(),
-                lastUpdated: new Date().toISOString(),
-            };
+            if (matchedExisting) {
+                // Update existing manga
+                const mergedAlternativeTitles = Array.from(new Set([
+                    ...(matchedExisting.alternativeTitles || []),
+                    ...(fetchedData.alternativeTitles || []),
+                ]));
+                const mergedGenres = Array.from(new Set([
+                    ...(matchedExisting.genres || []),
+                    ...(fetchedData.genres || []),
+                ]));
 
-            await saveManga(finalManga);
+                const updatedManga: Manga = {
+                    ...matchedExisting,
+                    alternativeTitles: mergedAlternativeTitles,
+                    genres: mergedGenres,
+                    chapters,
+                    author: matchedExisting.author || normalizedAuthorLabel || '',
+                    artist: matchedExisting.artist || normalizedArtistLabel || undefined,
+                    description: matchedExisting.description || fetchedData.description || '',
+                    cover: matchedExisting.cover || fetchedData.cover || '',
+                    banner: matchedExisting.banner || fetchedData.banner || fetchedData.cover || '',
+                    isAdult: matchedExisting.isAdult || isAdultImport,
+                    lastUpdated: new Date().toISOString(),
+                };
 
-            for (const authorEntity of authorEntities) {
-                await linkMangaToAuthor(mangaId, authorEntity.id);
-            }
+                await saveManga(updatedManga);
 
-            for (const artistEntity of artistEntities) {
-                await linkMangaToArtist(mangaId, artistEntity.id);
-            }
+                for (const authorEntity of authorEntities) {
+                    await linkMangaToAuthor(mangaId, authorEntity.id);
+                }
+                for (const artistEntity of artistEntities) {
+                    await linkMangaToArtist(mangaId, artistEntity.id);
+                }
 
-            if (lockedChapterCount > 0 || failedChapterCount > 0) {
-                toast.success(`Manga eklendi. Açık bölüm: ${chapters.length}, kilitli atlanan: ${lockedChapterCount}, hatalı atlanan: ${failedChapterCount}`);
+                toast.success(
+                    `"${matchedExisting.title}" zaten mevcut. Seri üzerine güncellendi (+${newlyAddedCount} yeni, ${updatedCount} güncellenen bölüm).`,
+                );
+                navigate(isAdultImport ? '/admin/adult-mangas' : `/admin/mangas/${mangaId}`);
             } else {
-                toast.success('Manga başarıyla eklendi');
+                // Create brand new manga
+                const finalManga: Manga = {
+                    id: mangaId,
+                    title: fetchedData.title,
+                    alternativeTitles: fetchedData.alternativeTitles || [],
+                    description: fetchedData.description || '',
+                    cover: fetchedData.cover || '',
+                    banner: fetchedData.banner || fetchedData.cover || '',
+                    author: normalizedAuthorLabel || '',
+                    artist: normalizedArtistLabel || undefined,
+                    status: fetchedData.status || 'ongoing',
+                    type: fetchedData.type || 'webtoon',
+                    genres: fetchedData.genres || [],
+                    releaseYear: fetchedData.releaseYear,
+                    chapters,
+                    views: 0,
+                    ratings: [],
+                    averageRating: 0,
+                    reviewCount: 0,
+                    isAdult: isAdultImport,
+                    createdAt: new Date().toISOString(),
+                    lastUpdated: new Date().toISOString(),
+                };
+
+                await saveManga(finalManga);
+
+                for (const authorEntity of authorEntities) {
+                    await linkMangaToAuthor(mangaId, authorEntity.id);
+                }
+                for (const artistEntity of artistEntities) {
+                    await linkMangaToArtist(mangaId, artistEntity.id);
+                }
+
+                const summaryParts = [`${chapters.length} bölüm eklendi`];
+                if (fallbackRecoveredCount > 0) summaryParts.push(`${fallbackRecoveredCount} bölüm yedek kaynaktan tamamlandı`);
+                if (failedChapterCount > 0) summaryParts.push(`${failedChapterCount} hatalı bölüm atlandı`);
+
+                toast.success(`Manga başarıyla eklendi (${summaryParts.join(', ')}).`);
+                navigate(isAdultImport ? '/admin/adult-mangas' : '/admin/mangas');
             }
-            navigate(isAdultImport ? '/admin/adult-mangas' : '/admin/mangas');
         } catch (err) {
             console.error(err);
             toast.error('İçe aktarma sırasında hata oluştu');
@@ -717,7 +529,7 @@ const AdminScraper: React.FC = () => {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold sm:text-3xl">İçerik Çekici (Scraper)</h1>
-                    <p className="text-muted-foreground">Dış sitelerden manga ve webtoon verilerini otomatik olarak çekin.</p>
+                    <p className="text-muted-foreground">Aktif 5 dış kaynaktan manga ve webtoon serilerini otomatik olarak çekin.</p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                     <Select value={scrapeSource} onValueChange={(value) => handleScrapeSourceChange(value as ScrapeSource)}>
@@ -751,35 +563,14 @@ const AdminScraper: React.FC = () => {
                 </div>
             </div>
 
-            {scrapeSource === 'siyahmelek' ? (
-                <Card className="border-rose-500/20 bg-rose-500/5 backdrop-blur-sm">
-                    <CardContent className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="space-y-1">
-                            <p className="text-sm font-semibold text-rose-200">SiyahMelek İlk Sayfa Filtresi</p>
-                            <p className="text-sm text-rose-100/80">
-                                Bazı bölümlerde ilk görsel reklam oluyor. Açıkken `0001.jpg` olan ilk sayfa otomatik atlanır.
-                            </p>
-                        </div>
-                        <div className="flex items-center gap-3 rounded-xl border border-rose-500/20 bg-black/20 px-3 py-2">
-                            <span className="text-sm text-rose-100">{skipSiyahMelekPromoFirstPage ? 'Açık' : 'Kapalı'}</span>
-                            <Switch
-                                checked={skipSiyahMelekPromoFirstPage}
-                                onCheckedChange={handleSkipSiyahMelekPromoFirstPageChange}
-                                aria-label="SiyahMelek reklam ilk sayfasını atla"
-                            />
-                        </div>
-                    </CardContent>
-                </Card>
-            ) : null}
-
             <Card>
                 <CardHeader>
                     <CardTitle>Manga Ara veya Link Yapıştır</CardTitle>
                     <CardDescription>
-                        {getScrapeSourceLabel(scrapeSource)} üzerinden manga araması yapın veya direkt seri sayfasının linkini yapıştırın.
+                        {getScrapeSourceLabel(scrapeSource)} üzerinden arama yapın veya doğrudan seri bağlantısını yapıştırın.
                     </CardDescription>
                 </CardHeader>
-                <CardContent>
+                <CardContent className="space-y-4">
                     <form onSubmit={handleSearch} className="flex flex-col gap-2 sm:flex-row">
                         <div className="relative flex-1">
                             <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -795,112 +586,27 @@ const AdminScraper: React.FC = () => {
                             {searchQuery.startsWith('http') ? 'Linki Çek' : 'Ara'}
                         </Button>
                     </form>
+
+                    <div className="flex items-center justify-between rounded-xl border border-border bg-secondary/30 px-4 py-3">
+                        <div className="flex items-center gap-3">
+                            <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                                <Sparkles className="h-4 w-4" />
+                            </div>
+                            <div>
+                                <p className="text-sm font-medium">Bozuk Bölümleri Yedek Kaynaklardan Tamamla</p>
+                                <p className="text-xs text-muted-foreground">
+                                    Seçilen kaynakta görsel eksik veya bozuksa diğer 4 kaynaktan (OkuToon, MangaCix, Gölge Bahçesi, DxDFansub) otomatik tamamlanır.
+                                </p>
+                            </div>
+                        </div>
+                        <Switch
+                            checked={autoRecoverFromFallbacks}
+                            onCheckedChange={setAutoRecoverFromFallbacks}
+                            aria-label="Bozuk bölümleri yedek kaynaklardan tamamla"
+                        />
+                    </div>
                 </CardContent>
             </Card>
-
-            {scrapeSource === 'siyahmelek' && scraperProvider === 'localhost' ? (
-                <Card className="border-emerald-500/20 bg-[radial-gradient(circle_at_top_left,rgba(16,185,129,0.14),transparent_55%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))]">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-emerald-100">
-                            <Badge variant="outline" className="border-emerald-500/30 bg-emerald-500/10 text-emerald-300">Localhost Modu</Badge>
-                            SiyahMelek Yerel Scraper
-                        </CardTitle>
-                        <CardDescription className="text-emerald-100/80">
-                            En basit ve stabil yol bu. Cookie ve user-agent kendi bilgisayarında kalır, panel sadece sonucu alır.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-3 text-sm text-emerald-50/90">
-                        <div className="rounded-xl border border-emerald-500/20 bg-black/20 p-4">
-                            <p>1. <span className="font-mono">local-scraper.config.example.json</span> dosyasını <span className="font-mono">local-scraper.config.json</span> olarak kopyala.</p>
-                            <p>2. İçine kendi site origin’ini, `cf_clearance` ve `wordpress_logged_in` cookie’lerini koy.</p>
-                            <p>3. Terminalde `npm run scraper:local` çalıştır.</p>
-                            <p>4. Sonra yukarıdan SiyahMelek linkini direkt yapıştır ve `Linki Çek` de.</p>
-                        </div>
-                        <p className="text-xs text-emerald-100/70">
-                            Tarayıcı scriptleri hala yedek yöntem olarak duruyor, ama localhost çalışıyorsa onlara gerek yok.
-                        </p>
-                    </CardContent>
-                </Card>
-            ) : null}
-
-            {scrapeSource === 'siyahmelek' && scraperProvider !== 'localhost' ? (
-                <Card className="border-rose-500/20 bg-[radial-gradient(circle_at_top_left,rgba(244,63,94,0.14),transparent_55%),linear-gradient(180deg,rgba(15,23,42,0.96),rgba(15,23,42,0.9))]">
-                    <CardHeader>
-                        <CardTitle className="flex items-center gap-2 text-rose-100">
-                            <Badge variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-300">Yedek Yöntem</Badge>
-                            Tarayıcı Yakalama
-                        </CardTitle>
-                        <CardDescription className="text-rose-100/80">
-                            Localhost scraper kullanmıyorsan, SiyahMelek verisini tarayıcı oturumundan elle yakala.
-                        </CardDescription>
-                    </CardHeader>
-                    <CardContent className="space-y-4">
-                        <div className="grid gap-3 xl:grid-cols-[1.15fr_0.85fr]">
-                            <div className="space-y-3">
-                                <div className="rounded-xl border border-rose-500/20 bg-black/20 p-4 text-sm text-rose-50/90">
-                                    <p className="font-semibold text-rose-100">Kullanım</p>
-                                    <p className="mt-2">1. Önce seri scriptini çalıştır, temiz metadata ve bölüm listesi gelsin.</p>
-                                    <p>2. ToonParrot içinde import edeceğin bölümleri seç.</p>
-                                    <p>3. Sonra seçili bölüm scriptini çalıştır, sadece o bölümlerin görselleri gelsin.</p>
-                                </div>
-                                <div className="flex flex-col gap-2 sm:flex-row">
-                                    <Button type="button" variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20" onClick={handleCopySiyahMelekBrowserScript}>
-                                        <Copy className="mr-2 h-4 w-4" />
-                                        Seri Scripti Kopyala
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="border-rose-500/30 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20"
-                                        onClick={handleCopySelectedChapterCaptureScript}
-                                        disabled={!fetchedData || fetchedData.source !== 'siyahmelek' || selectedChapterIndices.length === 0}
-                                    >
-                                        <Copy className="mr-2 h-4 w-4" />
-                                        Seçili Bölüm Scripti
-                                    </Button>
-                                    <Button type="button" variant="outline" className="border-rose-500/30 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20" onClick={handlePasteBrowserCapture}>
-                                        <Clipboard className="mr-2 h-4 w-4" />
-                                        Panodan Al
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="border-rose-500/30 bg-rose-500/10 text-rose-100 hover:bg-rose-500/20"
-                                        onClick={() => browserCaptureFileInputRef.current?.click()}
-                                    >
-                                        <Upload className="mr-2 h-4 w-4" />
-                                        Capture Dosyası
-                                    </Button>
-                                    <input
-                                        ref={browserCaptureFileInputRef}
-                                        type="file"
-                                        accept=".json,application/json"
-                                        className="hidden"
-                                        onChange={handleBrowserCaptureFileChange}
-                                    />
-                                </div>
-                            </div>
-                            <div className="space-y-3">
-                                <Textarea
-                                    value={browserCaptureInput}
-                                    onChange={(event) => setBrowserCaptureInput(event.target.value)}
-                                    placeholder="SiyahMelek seri metadata veya seçili bölüm görsel JSON verisini buraya yapıştırın"
-                                    className="min-h-[180px] border-rose-500/20 bg-black/20 text-rose-50 placeholder:text-rose-100/35"
-                                />
-                                <Button
-                                    type="button"
-                                    className="w-full bg-rose-600 text-white hover:bg-rose-500"
-                                    disabled={processingBrowserCapture || !browserCaptureInput.trim()}
-                                    onClick={handleApplyBrowserCapture}
-                                >
-                                    {processingBrowserCapture ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                                    Yakalanan Veriyi Çözümle
-                                </Button>
-                            </div>
-                        </div>
-                    </CardContent>
-                </Card>
-            ) : null}
 
             <div className="grid gap-4 lg:grid-cols-2 lg:gap-6">
                 {/* Results List */}
@@ -929,11 +635,6 @@ const AdminScraper: React.FC = () => {
                                         <div className="flex-1 space-y-1">
                                             <h3 className="font-semibold line-clamp-1">{item.title}</h3>
                                             <div className="flex flex-wrap gap-1">
-                                                {item.source === 'siyahmelek' ? (
-                                                    <Badge variant="outline" className="h-4 border-rose-500/20 bg-rose-500/10 px-1 text-[10px] text-rose-500">
-                                                        18+
-                                                    </Badge>
-                                                ) : null}
                                                 {item.genres.slice(0, 3).map((g, gi) => (
                                                     <Badge key={gi} variant="secondary" className="text-[10px] px-1 h-4">
                                                         {g}
@@ -982,7 +683,7 @@ const AdminScraper: React.FC = () => {
                                         </div>
                                         <div className="space-y-2">
                                             <h2 className="text-xl font-bold">{fetchedData.title}</h2>
-                                            <p className="text-sm text-muted-foreground">Yazar: {fetchedData.author}</p>
+                                            <p className="text-sm text-muted-foreground">Yazar: {fetchedData.author || 'Belirtilmedi'}</p>
                                             <div className="flex flex-wrap gap-2">
                                                 {adultFormatLabel && adultFormatLabel !== getMediaTypeLabel(fetchedData.type) ? (
                                                     <Badge variant="outline" className="border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-300 hover:bg-fuchsia-500/20">
@@ -992,20 +693,24 @@ const AdminScraper: React.FC = () => {
                                                 <Badge variant="outline" className="bg-primary/10 text-primary border-primary/20 hover:bg-primary/20 transition-colors">
                                                     {getMediaTypeLabel(fetchedData.type)}
                                                 </Badge>
-                                                <Badge variant="outline" className="bg-secondary text-muted-foreground border-border hover:bg-secondary/80 transition-colors">{getScrapedStatusLabel(fetchedData.status)}</Badge>
+                                                <Badge variant="outline" className="bg-secondary text-muted-foreground border-border hover:bg-secondary/80 transition-colors">
+                                                    {getScrapedStatusLabel(fetchedData.status)}
+                                                </Badge>
                                                 {fetchedData.isAdult ? (
                                                     <Badge variant="outline" className="border-rose-500/20 bg-rose-500/10 text-rose-500 hover:bg-rose-500/20">
                                                         18+ İçerik
                                                     </Badge>
                                                 ) : null}
-                                                {fetchedData.source === 'siyahmelek' && fetchedData._rawChapters.some((chapter) => chapter.prefetchedImageResult) ? (
-                                                    <Badge variant="outline" className="border-sky-500/20 bg-sky-500/10 text-sky-400 hover:bg-sky-500/20">
-                                                        Tarayıcı Oturumu
-                                                    </Badge>
-                                                ) : null}
                                             </div>
                                         </div>
                                     </div>
+
+                                    {fetchedData.alternativeTitles && fetchedData.alternativeTitles.length > 0 && (
+                                        <div className="space-y-1">
+                                            <h4 className="text-xs font-semibold text-muted-foreground">Alternatif İsimler</h4>
+                                            <p className="text-xs text-muted-foreground">{fetchedData.alternativeTitles.join(' • ')}</p>
+                                        </div>
+                                    )}
 
                                     <div className="space-y-2">
                                         <h4 className="text-sm font-semibold">Türler</h4>
@@ -1018,25 +723,15 @@ const AdminScraper: React.FC = () => {
 
                                     <div className="space-y-2">
                                         <h4 className="text-sm font-semibold">Açıklama</h4>
-                                        <p className="text-sm text-muted-foreground line-clamp-4">{fetchedData.description}</p>
+                                        <p className="text-sm text-muted-foreground line-clamp-4">{fetchedData.description || 'Açıklama yok'}</p>
                                     </div>
 
                                     <div className="space-y-2 text-sm">
                                         <div className="flex items-center justify-between border-b pb-1">
                                             <div className="flex items-center gap-4">
-                                                <span className="font-semibold text-muted-foreground">Bölüm Sayısı: <span className="text-foreground">{fetchedData._rawChapters.length}</span></span>
-                                                {fetchedData.source === 'siyahmelek' && scraperProvider !== 'localhost' ? (
-                                                    <span className="font-semibold text-muted-foreground">
-                                                        Görseli Hazır:
-                                                        <span className="text-foreground"> {fetchedData._rawChapters.filter((chapter) => chapter.prefetchedImageResult).length}</span>
-                                                    </span>
-                                                ) : null}
-                                                {fetchedData.source === 'siyahmelek' && scraperProvider === 'localhost' ? (
-                                                    <span className="font-semibold text-muted-foreground">
-                                                        Görseller:
-                                                        <span className="text-foreground"> içe aktarımda otomatik çekilecek</span>
-                                                    </span>
-                                                ) : null}
+                                                <span className="font-semibold text-muted-foreground">
+                                                    Bölüm Sayısı: <span className="text-foreground">{fetchedData._rawChapters.length}</span>
+                                                </span>
                                                 <Button
                                                     variant="outline"
                                                     size="sm"
@@ -1062,9 +757,9 @@ const AdminScraper: React.FC = () => {
                                                     <div
                                                         key={originalIdx}
                                                         onClick={() => {
-                                                            setSelectedChapterIndices(prev =>
+                                                            setSelectedChapterIndices((prev) =>
                                                                 prev.includes(originalIdx)
-                                                                    ? prev.filter(id => id !== originalIdx)
+                                                                    ? prev.filter((id) => id !== originalIdx)
                                                                     : [...prev, originalIdx]
                                                             );
                                                         }}
@@ -1091,24 +786,10 @@ const AdminScraper: React.FC = () => {
                     </CardContent>
                     {fetchedData && (
                         <CardFooter className="border-t bg-muted/30 p-4">
-                            <div className="flex w-full flex-col gap-2 sm:flex-row">
-                                {fetchedData.source === 'siyahmelek' ? (
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="w-full sm:w-auto"
-                                        onClick={handleCopySelectedChapterCaptureScript}
-                                        disabled={loading || selectedChapterIndices.length === 0}
-                                    >
-                                        <Copy className="mr-2 h-4 w-4" />
-                                        Seçili Bölüm Scripti
-                                    </Button>
-                                ) : null}
-                                <Button className="w-full" onClick={handleImportManga} disabled={loading}>
-                                    {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
-                                    Onayla ve İçe Aktar
-                                </Button>
-                            </div>
+                            <Button className="w-full" onClick={handleImportManga} disabled={loading}>
+                                {loading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
+                                Onayla ve İçe Aktar ({selectedChapterIndices.length} Bölüm)
+                            </Button>
                         </CardFooter>
                     )}
                 </Card>

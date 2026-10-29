@@ -18,6 +18,7 @@ import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff } from 'lucide-react'
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
+import { useChapterTranslation } from '@/hooks/useChapterTranslation';
 import PageCommentRail from '@/components/reader/PageCommentRail';
 import PageCommentModal from '@/components/reader/PageCommentModal';
 import CommentSection from '@/components/comments/CommentSection';
@@ -118,6 +119,13 @@ const Reader: React.FC = () => {
   const [isInitialViewportReady, setIsInitialViewportReady] = useState(false);
   const [isContentReady, setIsContentReady] = useState(false);
   const [pageCommentModalOpen, setPageCommentModalOpen] = useState(false);
+
+  const translation = useChapterTranslation({
+    chapterId: chapterId || '',
+    pages: resolvedPages,
+    currentPage,
+    networkEnabled: canUseNetworkReaderFeatures,
+  });
   const [pageCommentModalPage, setPageCommentModalPage] = useState<number | null>(null);
   const readingSessionStartedAt = useRef<number | null>(null);
   const readerContentRef = useRef<HTMLDivElement | null>(null);
@@ -1386,6 +1394,8 @@ const Reader: React.FC = () => {
         currentPage={currentPage}
         totalPages={totalPageCount}
         visible={controlsVisible}
+        translationSettings={translation.settings}
+        onTranslationSettingsChange={translation.updateSettings}
         onPageChange={scrollToPage}
         isIncognito={isIncognito}
         onIncognitoToggle={toggleIncognito}
@@ -1425,6 +1435,7 @@ const Reader: React.FC = () => {
               onPageChange={handlePageChange}
               initialPage={currentPage}
               trackingEnabled={isInitialViewportReady}
+              translation={translation}
             />
           ) : (
             <HorizontalReader
@@ -1433,6 +1444,7 @@ const Reader: React.FC = () => {
               settings={settings}
               currentPage={currentPage}
               onPageChange={handlePageChange}
+              translation={translation}
             />
           )}
         </div>

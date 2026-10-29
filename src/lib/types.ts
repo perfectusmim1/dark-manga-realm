@@ -522,9 +522,28 @@ export type SeriesRequestStatus = 'pending' | 'in_review' | 'approved' | 'reject
 
 export type UserBanKind = 'timed' | 'permanent' | 'hard';
 
-export type ScrapeSource = 'hayalistic' | 'webtoonhatti' | 'siyahmelek';
+export type ScraperSourceKey =
+  | 'webtoonhatti'
+  | 'okutoon'
+  | 'mangacix'
+  | 'golgebahcesi'
+  | 'dxdfansub'
+  | 'siyahmelek'
+  | 'hentaiturk'
+  | 'hattorimanga';
+export type LegacyScrapeSource = 'hayalistic';
+export type ScrapeSource = ScraperSourceKey | LegacyScrapeSource;
 
-export type ChapterAutomationSource = ScrapeSource;
+export type ChapterAutomationSource =
+  | 'webtoonhatti'
+  | 'okutoon'
+  | 'mangacix'
+  | 'golgebahcesi'
+  | 'dxdfansub'
+  | 'siyahmelek'
+  | 'hentaiturk'
+  | 'hattorimanga'
+  | 'hayalistic';
 export type ChapterAutomationProxyProvider = 'cloudflare';
 export type ChapterAutomationRunStatus = 'idle' | 'running' | 'success' | 'no_changes' | 'error';
 export type ChapterAutomationTestStatus = 'idle' | 'running' | 'success' | 'error';

@@ -1,4 +1,3 @@
-import { invokeAuthenticatedFunction } from '@/lib/supabase';
 import type { Chapter, ExternalSourceName } from '@/lib/types';
 
 export type MediaEntityType = 'manga' | 'character' | 'author' | 'artist' | 'chapter';
@@ -32,13 +31,6 @@ interface MaterializeWorkerItem {
   transform: MediaTransformPreset;
 }
 
-interface MaterializeWorkerResponseItem {
-  id: string;
-  status: 'stored' | 'exists' | 'error' | 'blocked' | 'invalid';
-  publicUrl?: string;
-  objectKey?: string;
-  error?: string;
-}
 
 const configuredMediaBucketUrl = import.meta.env.VITE_MEDIA_BUCKET_URL?.trim() || '';
 const configuredOfflineImageProxyUrl = import.meta.env.VITE_OFFLINE_IMAGE_PROXY_URL?.trim() || '';
@@ -119,6 +111,23 @@ const unwrapProxyUrl = (sourceUrl?: string | null) => {
 
 export const unwrapManagedMediaUrl = (sourceUrl?: string | null) => unwrapProxyUrl(sourceUrl);
 
+export const buildProxiedImageUrl = (sourceUrl?: string | null, referer?: string | null): string => {
+  const normalized = normalizeText(sourceUrl);
+  if (!normalized) {
+    return '';
+  }
+
+  const proxyBaseUrl = configuredOfflineImageProxyUrl;
+  if (!proxyBaseUrl) {
+    return normalized;
+  }
+
+  const urlParam = encodeURIComponent(normalized);
+  const refererParam = referer?.trim() ? `&referer=${encodeURIComponent(referer.trim())}` : '';
+  const separator = proxyBaseUrl.includes('?') ? '&' : '?';
+  return `${proxyBaseUrl}${separator}url=${urlParam}${refererParam}`;
+};
+
 export const isStoredMediaUrl = (sourceUrl?: string | null) => {
   const normalized = normalizeText(sourceUrl);
   if (!normalized) {
@@ -137,7 +146,7 @@ export const isStoredMediaUrl = (sourceUrl?: string | null) => {
   }
 };
 
-export const canMaterializeRemoteMedia = () => Boolean(configuredMediaBucketUrl);
+export const canMaterializeRemoteMedia = () => false;
 
 export const buildMaterializedObjectKey = (
   entityType: MediaEntityType,
@@ -181,42 +190,13 @@ const toWorkerItem = (input: MaterializeRemoteImageInput): MaterializeWorkerItem
   };
 };
 
-export const materializeRemoteImages = async (inputs: MaterializeRemoteImageInput[]) => {
-  if (!canMaterializeRemoteMedia()) {
-    return new Map<string, string>();
-  }
-
-  const items = inputs
-    .map(toWorkerItem)
-    .filter((item): item is MaterializeWorkerItem => Boolean(item));
-
-  if (items.length === 0) {
-    return new Map<string, string>();
-  }
-  const results = new Map<string, string>();
-
-  for (let index = 0; index < items.length; index += MATERIALIZE_WORKER_BATCH_SIZE) {
-    const batch = items.slice(index, index + MATERIALIZE_WORKER_BATCH_SIZE);
-    const data = await invokeAuthenticatedFunction<{ items?: MaterializeWorkerResponseItem[] }>(
-      'admin-media-ingest',
-      { items: batch },
-    ).catch((error) => {
-      throw new Error(error instanceof Error ? error.message : 'Media ingest failed');
-    });
-
-    for (const item of data?.items || []) {
-      if ((item.status === 'stored' || item.status === 'exists') && item.publicUrl) {
-        results.set(item.id, item.publicUrl);
-      }
-    }
-  }
-
-  return results;
+export const materializeRemoteImages = async (_inputs: MaterializeRemoteImageInput[]) => {
+  // Artık R2 storage'a dosya yüklenmiyor; dış görsel linkleri korunuyor.
+  return new Map<string, string>();
 };
 
 export const materializeRemoteImage = async (input: MaterializeRemoteImageInput) => {
-  const results = await materializeRemoteImages([input]);
-  return results.get(input.id);
+  return input.sourceUrl || undefined;
 };
 
 const normalizeStoredMediaOutputUrl = (sourceUrl?: string | null) => {
@@ -224,36 +204,111 @@ const normalizeStoredMediaOutputUrl = (sourceUrl?: string | null) => {
   return isStoredMediaUrl(normalized) ? normalized : normalizeText(sourceUrl);
 };
 
-export const materializeChapterPages = async <TChapter extends Pick<Chapter, 'id' | 'pages'>>(
+const cleanRemotePageUrls = (pages: (string | null | undefined)[]): string[] => {
+  const seen = new Set<string>();
+  const cleaned: string[] = [];
+
+  for (const page of pages) {
+    if (!page) continue;
+    const trimmed = normalizeText(page);
+    if (!trimmed) continue;
+    if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) continue;
+    if (seen.has(trimmed)) continue;
+    seen.add(trimmed);
+    cleaned.push(trimmed);
+  }
+
+  return cleaned;
+};
+
+export interface ChapterPagesMaterializeResult {
+  pages: string[];
+  uploadedCount: number;
+  skippedCount: number;
+}
+
+export interface MaterializeChapterPagesInput {
+  pages?: (string | null | undefined)[];
+  mangaId?: string;
+  chapterId?: string;
+  sourceName?: string;
+  [key: string]: unknown;
+}
+
+export function materializeChapterPages(
+  input: MaterializeChapterPagesInput,
+): Promise<ChapterPagesMaterializeResult>;
+export function materializeChapterPages<TChapter extends Pick<Chapter, 'id' | 'pages'>>(
   mangaId: string,
   chapters: TChapter[],
-) => {
-  if (!canMaterializeRemoteMedia() || !mangaId || chapters.length === 0) {
-    return chapters.map((chapter) => ({
+): Promise<TChapter[]>;
+export async function materializeChapterPages<TChapter extends Pick<Chapter, 'id' | 'pages'>>(
+  firstArg: string | MaterializeChapterPagesInput,
+  secondArg?: TChapter[],
+): Promise<ChapterPagesMaterializeResult | TChapter[]> {
+  if (typeof firstArg === 'string' && Array.isArray(secondArg)) {
+    return secondArg.map((chapter) => ({
       ...chapter,
-      pages: chapter.pages.map((pageUrl) => normalizeStoredMediaOutputUrl(pageUrl)),
+      pages: cleanRemotePageUrls(chapter.pages),
     }));
   }
 
-  const results = await materializeRemoteImages(
-    chapters.flatMap((chapter) => (
-      chapter.pages.map((pageUrl, pageIndex) => ({
-        id: `${chapter.id}:${pageIndex}`,
-        sourceUrl: pageUrl,
-        entityType: 'chapter' as const,
-        entityId: chapter.id,
-        variant: 'page' as const,
-        objectKey: buildMaterializedChapterPageObjectKey(mangaId, chapter.id, pageIndex),
-        transform: PRESETS['chapter:page'],
-      }))
-    )),
-  );
+  const input = (firstArg && typeof firstArg === 'object' ? firstArg : {}) as MaterializeChapterPagesInput;
+  const rawPages = Array.isArray(input.pages) ? input.pages : [];
+  const cleanedPages = cleanRemotePageUrls(rawPages);
 
-  return chapters.map((chapter) => ({
-    ...chapter,
-    pages: chapter.pages.map((pageUrl, pageIndex) => (
-      results.get(`${chapter.id}:${pageIndex}`)
-      || normalizeStoredMediaOutputUrl(pageUrl)
-    )),
-  }));
+  return {
+    pages: cleanedPages,
+    uploadedCount: 0,
+    skippedCount: cleanedPages.length,
+  };
+}
+
+export interface MaterializeMangaMediaInput {
+  coverUrl?: string | null;
+  bannerUrl?: string | null;
+  cover?: string | null;
+  banner?: string | null;
+  [key: string]: unknown;
+}
+
+export interface MaterializeMangaMediaResult {
+  cover?: string;
+  banner?: string;
+  coverUrl?: string;
+  bannerUrl?: string;
+}
+
+export const materializeMangaMedia = async (
+  input: MaterializeMangaMediaInput,
+): Promise<MaterializeMangaMediaResult> => {
+  const cover = normalizeText(input.cover || input.coverUrl) || undefined;
+  const banner = normalizeText(input.banner || input.bannerUrl) || undefined;
+  return {
+    cover,
+    banner,
+    coverUrl: cover,
+    bannerUrl: banner,
+  };
+};
+
+export interface MaterializeCharacterImageInput {
+  image?: string | null;
+  imageUrl?: string | null;
+  [key: string]: unknown;
+}
+
+export interface MaterializeCharacterImageResult {
+  image?: string;
+  imageUrl?: string;
+}
+
+export const materializeCharacterImage = async (
+  input: MaterializeCharacterImageInput,
+): Promise<MaterializeCharacterImageResult> => {
+  const image = normalizeText(input.image || input.imageUrl) || undefined;
+  return {
+    image,
+    imageUrl: image,
+  };
 };

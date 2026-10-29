@@ -9,3 +9,5 @@ export const offlineProxyConfig = {
   usesSupabaseAuth: !(configuredProxyUrl && configuredProxyUrl !== defaultOfflineImageProxyUrl),
   supabaseAnonKey,
 };
+
+export const getOfflineImageProxyUrl = (): string => offlineProxyConfig.url;

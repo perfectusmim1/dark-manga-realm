@@ -55,7 +55,16 @@ import { sanitizeCharacterDescription } from '@/lib/descriptionSanitizers';
 import { sanitizeEntityImageUrl } from '@/lib/entityImages';
 import { normalizeComparableText } from '@/lib/textMatching';
 
-export type MetadataImportSource = 'anisearch' | 'myanimelist' | 'mangaupdates' | 'animeplanet' | 'fandom';
+export type MetadataSourceKey =
+  | 'myanimelist'
+  | 'anilist'
+  | 'mangadex'
+  | 'anisearch'
+  | 'mangaupdates'
+  | 'animeplanet'
+  | 'fandom';
+
+export type MetadataImportSource = MetadataSourceKey;
 
 export type ImportOptionKey =
   | 'manga_core'
@@ -204,6 +213,26 @@ interface FandomParsedPage {
 }
 
 export const SOURCE_OPTION_SUPPORT: Record<MetadataImportSource, SupportMatrix> = {
+  anilist: {
+    manga_core: true,
+    alternative_titles: true,
+    tags: true,
+    related_series: true,
+    authors: true,
+    artists: true,
+    characters: true,
+    gallery: false,
+  },
+  mangadex: {
+    manga_core: true,
+    alternative_titles: true,
+    tags: true,
+    related_series: false,
+    authors: true,
+    artists: true,
+    characters: false,
+    gallery: false,
+  },
   anisearch: {
     manga_core: true,
     alternative_titles: true,
@@ -5098,6 +5127,603 @@ export const filterImportedPreviewByOptions = (
   tagMatches: enabledOptions.tags ? preview.tagMatches : undefined,
 });
 
+// ---------------------------------------------------------------------------
+// AniList GraphQL Integration
+// ---------------------------------------------------------------------------
+
+interface AniListMedia {
+  id: number;
+  idMal?: number | null;
+  isAdult?: boolean;
+  status?: string | null;
+  countryOfOrigin?: string | null;
+  format?: string | null;
+  averageScore?: number | null;
+  startDate?: { year?: number | null; month?: number | null; day?: number | null } | null;
+  title?: {
+    romaji?: string | null;
+    english?: string | null;
+    native?: string | null;
+  } | null;
+  synonyms?: string[] | null;
+  description?: string | null;
+  coverImage?: {
+    extraLarge?: string | null;
+    large?: string | null;
+    medium?: string | null;
+  } | null;
+  bannerImage?: string | null;
+  genres?: string[] | null;
+  tags?: Array<{
+    name: string;
+    isAdult?: boolean;
+    rank?: number;
+  }> | null;
+  staff?: {
+    edges?: Array<{
+      role?: string | null;
+      node?: {
+        id: number;
+        name?: {
+          full?: string | null;
+          native?: string | null;
+          alternative?: string[] | null;
+        } | null;
+        image?: { large?: string | null } | null;
+        description?: string | null;
+      } | null;
+    }> | null;
+  } | null;
+  characters?: {
+    edges?: Array<{
+      role?: string | null;
+      node?: {
+        id: number;
+        name?: {
+          full?: string | null;
+          native?: string | null;
+          alternative?: string[] | null;
+        } | null;
+        image?: { large?: string | null } | null;
+        description?: string | null;
+      } | null;
+    }> | null;
+  } | null;
+  relations?: {
+    edges?: Array<{
+      relationType?: string | null;
+      node?: {
+        id: number;
+        type?: string | null;
+        title?: {
+          romaji?: string | null;
+          english?: string | null;
+        } | null;
+        coverImage?: { large?: string | null } | null;
+      } | null;
+    }> | null;
+  } | null;
+}
+
+const uniqueByName = <T extends { name: string }>(items: T[]): T[] => {
+  const seen = new Set<string>();
+  return items.filter((item) => {
+    const key = normalizeKey(item.name);
+    if (!key || seen.has(key)) {
+      return false;
+    }
+    seen.add(key);
+    return true;
+  });
+};
+
+const fetchAniListGraphQL = async <T>(query: string, variables: Record<string, unknown>): Promise<T> => {
+  const response = await fetch('https://graphql.anilist.co', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({ query, variables }),
+  });
+
+  if (!response.ok) {
+    throw new Error(`AniList GraphQL hatası (${response.status})`);
+  }
+
+  const json = await response.json();
+  if (json.errors && json.errors.length > 0) {
+    throw new Error(json.errors[0]?.message || 'AniList GraphQL error');
+  }
+
+  return json.data as T;
+};
+
+const searchAniListCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
+  const matchId = input.match(/anilist\.co\/manga\/(\d+)/i) || (/^\d+$/.test(input.trim()) ? [null, input.trim()] : null);
+
+  if (matchId && matchId[1]) {
+    const id = parseInt(matchId[1], 10);
+    try {
+      const data = await fetchAniListGraphQL<{ Media: AniListMedia }>(
+        `query ($id: Int) {
+          Media(id: $id, type: MANGA) {
+            id
+            idMal
+            isAdult
+            format
+            averageScore
+            countryOfOrigin
+            title { romaji english native }
+            coverImage { extraLarge large }
+          }
+        }`,
+        { id },
+      );
+      if (data?.Media) {
+        const m = data.Media;
+        const title = m.title?.english || m.title?.romaji || m.title?.native || `AniList #${m.id}`;
+        const subtitle = `[${m.format || 'MANGA'}] ${m.countryOfOrigin || ''} • Skor: ${m.averageScore ?? 'N/A'}${m.isAdult ? ' • +18' : ''}`.trim();
+        return [{
+          id: String(m.id),
+          source: 'anilist',
+          title,
+          subtitle,
+          url: `https://anilist.co/manga/${m.id}`,
+          imageUrl: m.coverImage?.large || m.coverImage?.extraLarge || undefined,
+        }];
+      }
+    } catch {
+      // devam et text search
+    }
+  }
+
+  const data = await fetchAniListGraphQL<{ Page: { media: AniListMedia[] } }>(
+    `query ($search: String) {
+      Page(page: 1, perPage: 15) {
+        media(search: $search, type: MANGA) {
+          id
+          idMal
+          isAdult
+          format
+          status
+          countryOfOrigin
+          averageScore
+          title { romaji english native }
+          coverImage { extraLarge large medium }
+        }
+      }
+    }`,
+    { search: input.trim() },
+  );
+
+  const mediaList = data?.Page?.media || [];
+  return mediaList.map((m) => {
+    const title = m.title?.english || m.title?.romaji || m.title?.native || `AniList #${m.id}`;
+    const subtitle = `[${m.format || 'MANGA'}] ${m.countryOfOrigin || ''} • Skor: ${m.averageScore ?? 'N/A'}${m.isAdult ? ' • +18' : ''}`.trim();
+    return {
+      id: String(m.id),
+      source: 'anilist' as const,
+      title,
+      subtitle,
+      url: `https://anilist.co/manga/${m.id}`,
+      imageUrl: m.coverImage?.large || m.coverImage?.extraLarge || m.coverImage?.medium || undefined,
+    };
+  });
+};
+
+const loadAniListPreview = async (
+  candidate: SourceSearchCandidate,
+  enabledOptions: Partial<Record<ImportOptionKey, boolean>>,
+): Promise<ImportedMangaPayload> => {
+  const idMatch = candidate.id.match(/\d+/) || candidate.url.match(/anilist\.co\/manga\/(\d+)/i);
+  const id = idMatch ? parseInt(idMatch[0], 10) : 0;
+  if (!id) {
+    throw new Error('Geçersiz AniList ID');
+  }
+
+  const data = await fetchAniListGraphQL<{ Media: AniListMedia }>(
+    `query ($id: Int) {
+      Media(id: $id, type: MANGA) {
+        id
+        idMal
+        isAdult
+        status
+        format
+        countryOfOrigin
+        averageScore
+        startDate { year month day }
+        title { romaji english native }
+        synonyms
+        description(asHtml: false)
+        coverImage { extraLarge large }
+        bannerImage
+        genres
+        tags { name isAdult rank }
+        staff(perPage: 25) {
+          edges {
+            role
+            node {
+              id
+              name { full native alternative }
+              image { large }
+              description
+            }
+          }
+        }
+        characters(perPage: 25, sort: [ROLE, RELEVANCE, ID]) {
+          edges {
+            role
+            node {
+              id
+              name { full native alternative }
+              image { large }
+              description
+            }
+          }
+        }
+        relations {
+          edges {
+            relationType
+            node {
+              id
+              type
+              title { romaji english }
+              coverImage { large }
+            }
+          }
+        }
+      }
+    }`,
+    { id },
+  );
+
+  const media = data?.Media;
+  if (!media) {
+    throw new Error('AniList serisi bulunamadı.');
+  }
+
+  const sourceTitle = media.title?.english || media.title?.romaji || media.title?.native || candidate.title;
+  const canonicalUrl = `https://anilist.co/manga/${media.id}`;
+  const preview = createEmptyPreview('anilist', canonicalUrl, sourceTitle);
+
+  preview.sourceId = String(media.id);
+  preview.cover = media.coverImage?.extraLarge || media.coverImage?.large || undefined;
+  preview.banner = media.bannerImage || preview.cover;
+  preview.description = media.description ? media.description.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim() : undefined;
+
+  const altTitlesSet = new Set<string>();
+  if (media.title?.romaji && media.title.romaji !== sourceTitle) altTitlesSet.add(media.title.romaji);
+  if (media.title?.english && media.title.english !== sourceTitle) altTitlesSet.add(media.title.english);
+  if (media.title?.native && media.title.native !== sourceTitle) altTitlesSet.add(media.title.native);
+  if (media.synonyms) {
+    for (const syn of media.synonyms) {
+      if (syn && syn !== sourceTitle) altTitlesSet.add(syn);
+    }
+  }
+  preview.alternativeTitles = Array.from(altTitlesSet);
+
+  preview.genres = uniqueStrings(media.genres || []);
+  const rawTags = (media.tags || []).map((t) => t.name);
+  if (media.isAdult) {
+    rawTags.push('+18', 'Adult');
+  }
+  preview.tags = uniqueStrings(rawTags);
+
+  let status: 'completed' | 'ongoing' | 'hiatus' | 'cancelled' = 'ongoing';
+  if (media.status === 'FINISHED') status = 'completed';
+  else if (media.status === 'HIATUS') status = 'hiatus';
+  else if (media.status === 'CANCELLED') status = 'cancelled';
+
+  preview.details = {
+    status,
+    releaseYear: media.startDate?.year || undefined,
+    score: media.averageScore ? media.averageScore / 10 : undefined,
+    isAdult: Boolean(media.isAdult),
+    extra: {
+      anilistId: media.id,
+      malId: media.idMal || undefined,
+      format: media.format || undefined,
+      countryOfOrigin: media.countryOfOrigin || undefined,
+    },
+  };
+
+  const authors: ImportedPersonDraft[] = [];
+  const artists: ImportedPersonDraft[] = [];
+  const staffEdges = media.staff?.edges || [];
+
+  for (const edge of staffEdges) {
+    const node = edge?.node;
+    if (!node || !node.name?.full) continue;
+    const role = (edge.role || '').toLowerCase();
+    const isAuthor = role.includes('story') || role.includes('author') || role.includes('original creator') || role.includes('writer');
+    const isArtist = role.includes('art') || role.includes('illustrator') || role.includes('drawing');
+
+    const personDraft: ImportedPersonDraft = {
+      name: node.name.full,
+      imageUrl: node.image?.large || undefined,
+      description: node.description ? node.description.replace(/<[^>]+>/g, ' ').trim() : undefined,
+      alternativeNames: uniqueStrings([node.name.native, ...(node.name.alternative || [])]),
+      details: { extra: { anilistStaffId: node.id, role: edge.role } },
+      gallery: [],
+      sourceLinks: [{ sourceName: 'anilist', url: `https://anilist.co/staff/${node.id}` }],
+      sourceUrl: `https://anilist.co/staff/${node.id}`,
+    };
+
+    if (isAuthor) authors.push(personDraft);
+    if (isArtist) artists.push(personDraft);
+    if (!isAuthor && !isArtist) {
+      authors.push(personDraft);
+    }
+  }
+
+  preview.authors = uniqueByName(authors);
+  preview.artists = uniqueByName(artists);
+
+  const characters: ImportedCharacterDraft[] = [];
+  const charEdges = media.characters?.edges || [];
+
+  for (const edge of charEdges) {
+    const node = edge?.node;
+    if (!node || !node.name?.full) continue;
+    const roleType: CharacterListingRole = edge.role === 'MAIN' ? 'main' : edge.role === 'SUPPORTING' ? 'supporting' : 'background';
+    const roleLabel = getCharacterListingRoleLabel(roleType);
+
+    characters.push({
+      name: node.name.full,
+      imageUrl: node.image?.large || undefined,
+      description: sanitizeCharacterDescription(node.description ? node.description.replace(/<[^>]+>/g, ' ').trim() : undefined),
+      alternativeNames: uniqueStrings([node.name.native, ...(node.name.alternative || [])]),
+      details: { extra: { anilistCharacterId: node.id } },
+      gallery: [],
+      sourceLinks: [{ sourceName: 'anilist', url: `https://anilist.co/character/${node.id}` }],
+      sourceUrl: `https://anilist.co/character/${node.id}`,
+      roleType,
+      roleLabel,
+    });
+  }
+
+  preview.characters = uniqueByName(characters);
+
+  const related: ImportedRelatedSeriesDraft[] = [];
+  const relEdges = media.relations?.edges || [];
+
+  for (const edge of relEdges) {
+    const node = edge?.node;
+    if (!node || node.type !== 'MANGA') continue;
+    const relTitle = node.title?.english || node.title?.romaji;
+    if (!relTitle) continue;
+
+    related.push({
+      title: relTitle,
+      relationType: edge.relationType || 'Adaptation',
+      sourceUrl: `https://anilist.co/manga/${node.id}`,
+      cover: node.coverImage?.large || undefined,
+    });
+  }
+
+  preview.relatedSeries = related;
+  return preview;
+};
+
+// ---------------------------------------------------------------------------
+// MangaDex REST API Integration
+// ---------------------------------------------------------------------------
+
+interface MangaDexMangaAttributes {
+  title?: Record<string, string>;
+  altTitles?: Array<Record<string, string>>;
+  description?: Record<string, string>;
+  status?: string;
+  year?: number;
+  contentRating?: 'safe' | 'suggestive' | 'erotica' | 'pornographic';
+  tags?: Array<{
+    id: string;
+    attributes?: {
+      name?: Record<string, string>;
+      group?: string;
+    };
+  }>;
+  publicationDemographic?: string;
+}
+
+interface MangaDexRelationship {
+  id: string;
+  type: string;
+  attributes?: {
+    name?: string;
+    fileName?: string;
+    biography?: Record<string, string>;
+  };
+}
+
+interface MangaDexMangaItem {
+  id: string;
+  type: string;
+  attributes: MangaDexMangaAttributes;
+  relationships: MangaDexRelationship[];
+}
+
+const getMangaDexPrimaryTitle = (attributes?: MangaDexMangaAttributes) => {
+  if (!attributes?.title) return 'İsimsiz Manga';
+  return attributes.title.en || attributes.title['ja-ro'] || Object.values(attributes.title)[0] || 'İsimsiz Manga';
+};
+
+const getMangaDexCoverUrl = (mangaId: string, relationships?: MangaDexRelationship[]) => {
+  const coverRel = relationships?.find((r) => r.type === 'cover_art');
+  const fileName = coverRel?.attributes?.fileName;
+  if (!fileName) return undefined;
+  return `https://uploads.mangadex.org/covers/${mangaId}/${fileName}`;
+};
+
+const fetchMangaDexJson = async <T>(url: string): Promise<T> => {
+  try {
+    const res = await fetch(url);
+    if (res.ok) {
+      return (await res.json()) as T;
+    }
+  } catch {
+    // fallback to proxy
+  }
+
+  return await fetchScraperJson<T>({
+    url,
+    method: 'GET',
+    headers: {
+      Accept: 'application/json',
+      'User-Agent': 'ToonParrot/1.0',
+    },
+  });
+};
+
+const searchMangaDexCandidates = async (input: string): Promise<SourceSearchCandidate[]> => {
+  const directMatch = input.match(/mangadex\.org\/title\/([0-9a-fA-F-]{36})/i) || input.match(/^[0-9a-fA-F-]{36}$/);
+
+  if (directMatch) {
+    const mangaId = directMatch[1] || directMatch[0];
+    try {
+      const json = await fetchMangaDexJson<{ data: MangaDexMangaItem }>(`https://api.mangadex.org/manga/${mangaId}?includes[]=cover_art`);
+      const manga = json?.data;
+      if (manga) {
+        const title = getMangaDexPrimaryTitle(manga.attributes);
+        const isAdult = manga.attributes.contentRating === 'erotica' || manga.attributes.contentRating === 'pornographic';
+        const subtitle = `${manga.attributes.publicationDemographic || manga.attributes.status || ''} • ${manga.attributes.contentRating || ''}${isAdult ? ' • +18' : ''}`.trim();
+        return [{
+          id: manga.id,
+          source: 'mangadex',
+          title,
+          subtitle,
+          url: `https://mangadex.org/title/${manga.id}`,
+          imageUrl: getMangaDexCoverUrl(manga.id, manga.relationships),
+        }];
+      }
+    } catch {
+      // devam et
+    }
+  }
+
+  const queryUrl = `https://api.mangadex.org/manga?title=${encodeURIComponent(input.trim())}&limit=12&contentRating[]=safe&contentRating[]=suggestive&contentRating[]=erotica&contentRating[]=pornographic&includes[]=cover_art&includes[]=author&includes[]=artist`;
+  const json = await fetchMangaDexJson<{ data: MangaDexMangaItem[] }>(queryUrl);
+  const mangaList: MangaDexMangaItem[] = json?.data || [];
+
+  return mangaList.map((manga) => {
+    const title = getMangaDexPrimaryTitle(manga.attributes);
+    const isAdult = manga.attributes.contentRating === 'erotica' || manga.attributes.contentRating === 'pornographic';
+    const subtitle = `${manga.attributes.publicationDemographic || manga.attributes.status || ''} • ${manga.attributes.contentRating || ''}${isAdult ? ' • +18' : ''}`.trim();
+
+    return {
+      id: manga.id,
+      source: 'mangadex' as const,
+      title,
+      subtitle,
+      url: `https://mangadex.org/title/${manga.id}`,
+      imageUrl: getMangaDexCoverUrl(manga.id, manga.relationships),
+    };
+  });
+};
+
+const loadMangaDexPreview = async (
+  candidate: SourceSearchCandidate,
+  enabledOptions: Partial<Record<ImportOptionKey, boolean>>,
+): Promise<ImportedMangaPayload> => {
+  const idMatch = candidate.id.match(/[0-9a-fA-F-]{36}/) || candidate.url.match(/mangadex\.org\/title\/([0-9a-fA-F-]{36})/i);
+  const mangaId = idMatch ? idMatch[0] : candidate.id;
+  if (!mangaId) {
+    throw new Error('Geçersiz MangaDex ID');
+  }
+
+  const detailUrl = `https://api.mangadex.org/manga/${mangaId}?includes[]=cover_art&includes[]=author&includes[]=artist&includes[]=tag`;
+  const json = await fetchMangaDexJson<{ data: MangaDexMangaItem }>(detailUrl);
+  const manga: MangaDexMangaItem = json?.data;
+  if (!manga) {
+    throw new Error('MangaDex serisi bulunamadı.');
+  }
+
+  const sourceTitle = getMangaDexPrimaryTitle(manga.attributes);
+  const canonicalUrl = `https://mangadex.org/title/${manga.id}`;
+  const preview = createEmptyPreview('mangadex', canonicalUrl, sourceTitle);
+
+  preview.sourceId = manga.id;
+  const coverUrl = getMangaDexCoverUrl(manga.id, manga.relationships);
+  preview.cover = coverUrl;
+  preview.banner = coverUrl;
+
+  const descObj = manga.attributes.description || {};
+  preview.description = descObj.tr || descObj.en || Object.values(descObj)[0] || undefined;
+
+  const altTitles = new Set<string>();
+  for (const altObj of manga.attributes.altTitles || []) {
+    for (const val of Object.values(altObj)) {
+      if (val && val !== sourceTitle) altTitles.add(val);
+    }
+  }
+  preview.alternativeTitles = Array.from(altTitles);
+
+  const genres: string[] = [];
+  const tags: string[] = [];
+  for (const tag of manga.attributes.tags || []) {
+    const tagName = tag.attributes?.name?.en;
+    if (!tagName) continue;
+    if (tag.attributes?.group === 'genre') {
+      genres.push(tagName);
+    } else {
+      tags.push(tagName);
+    }
+  }
+
+  const isAdult = manga.attributes.contentRating === 'erotica' || manga.attributes.contentRating === 'pornographic';
+  if (isAdult) {
+    tags.push('+18', 'Adult');
+  }
+
+  preview.genres = uniqueStrings(genres);
+  preview.tags = uniqueStrings(tags);
+
+  let status: 'completed' | 'ongoing' | 'hiatus' | 'cancelled' = 'ongoing';
+  if (manga.attributes.status === 'completed') status = 'completed';
+  else if (manga.attributes.status === 'hiatus') status = 'hiatus';
+  else if (manga.attributes.status === 'cancelled') status = 'cancelled';
+
+  preview.details = {
+    status,
+    releaseYear: manga.attributes.year || undefined,
+    isAdult,
+    extra: {
+      mangadexId: manga.id,
+      contentRating: manga.attributes.contentRating,
+      demographic: manga.attributes.publicationDemographic,
+    },
+  };
+
+  const authors: ImportedPersonDraft[] = [];
+  const artists: ImportedPersonDraft[] = [];
+
+  for (const rel of manga.relationships || []) {
+    const name = rel.attributes?.name;
+    if (!name) continue;
+
+    const personDraft: ImportedPersonDraft = {
+      name,
+      description: rel.attributes?.biography?.en || Object.values(rel.attributes?.biography || {})[0] || undefined,
+      alternativeNames: [],
+      details: { extra: { mangadexRelId: rel.id, type: rel.type } },
+      gallery: [],
+      sourceLinks: [{ sourceName: 'mangadex' as unknown as ExternalSourceName, url: `https://mangadex.org/author/${rel.id}` }],
+      sourceUrl: `https://mangadex.org/author/${rel.id}`,
+    };
+
+    if (rel.type === 'author') authors.push(personDraft);
+    if (rel.type === 'artist') artists.push(personDraft);
+  }
+
+  preview.authors = uniqueByName(authors);
+  preview.artists = uniqueByName(artists);
+  preview.characters = [];
+  preview.relatedSeries = [];
+
+  return preview;
+};
+
 export const searchMetadataImportCandidates = async (
   source: MetadataImportSource,
   input: string,
@@ -5105,6 +5731,14 @@ export const searchMetadataImportCandidates = async (
   const query = normalizeText(input);
   if (!query) {
     return [];
+  }
+
+  if (source === 'anilist') {
+    return searchAniListCandidates(query);
+  }
+
+  if (source === 'mangadex') {
+    return searchMangaDexCandidates(query);
   }
 
   if (source === 'anisearch') {
@@ -5137,7 +5771,11 @@ export const loadMetadataImportPreview = async (
 ): Promise<ImportedMangaPayload> => {
   let preview: ImportedMangaPayload;
 
-  if (candidate.source === 'anisearch') {
+  if (candidate.source === 'anilist') {
+    preview = await loadAniListPreview(candidate, enabledOptions);
+  } else if (candidate.source === 'mangadex') {
+    preview = await loadMangaDexPreview(candidate, enabledOptions);
+  } else if (candidate.source === 'anisearch') {
     preview = await loadAniSearchPreview(candidate, enabledOptions);
   } else if (candidate.source === 'myanimelist') {
     preview = await loadMyAnimeListPreview(candidate, enabledOptions);

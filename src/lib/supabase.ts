@@ -1,5 +1,6 @@
 import { createClient, type Session } from '@supabase/supabase-js';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
+import { isR2CatalogRestRequest, handleR2CatalogRestRequest } from './r2CatalogClient';
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -50,6 +51,10 @@ const supabaseFetch: typeof fetch = async (input, init) => {
         : input instanceof URL
             ? input.toString()
             : input.url;
+
+    if (isR2CatalogRestRequest(requestUrl, supabaseUrl)) {
+        return handleR2CatalogRestRequest(requestUrl, init, input);
+    }
 
     const isRestCall = requestUrl.startsWith(`${supabaseUrl}/rest/v1/`);
 
