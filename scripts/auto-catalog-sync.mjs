@@ -614,11 +614,10 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
     }
   } else if (source === 'hattorimanga') {
     for (let page = 1; page <= maxPages; page++) {
-      const pageUrl = page === 1 ? 'https://hattorimanga.net/manga/' : `https://hattorimanga.net/manga/page/${page}/`;
+      const pageUrl = `https://hattorimanga.net/manga/page/${page}/`;
       const res = await fetchUpstream(pageUrl);
       if (!res.ok || !res.content) break;
       const blocks = res.content.split(/class=["'][^"']*(?:page-item-detail|c-tabs-item__content|badge-pos-\d+)[^"']*["']/i).slice(1);
-      if (blocks.length === 0) break;
       for (const b of blocks) {
         const linkMatch = b.match(/href=["'](https:\/\/hattorimanga\.net\/manga\/[^"'\/?#]+(?:\/)?)["']/i);
         const titleMatch = b.match(/title=["']([^"']+)["']/i) || b.match(/<a[^>]+href=["'][^"']+["'][^>]*>([^<]+)<\/a>/i);
@@ -629,6 +628,19 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
         if (link && title && !seen.has(link)) {
           seen.add(link);
           cards.push({ source: 'hattorimanga', title, link, cover, isAdult: true, genres: ['Yetişkin', 'Manhwa'] });
+        }
+      }
+      // Fallback Madara h3.h4 parser
+      const h3Matches = extractRegexMatches(
+        res.content,
+        /<h3[^>]*class=["'][^"']*h4[^"']*["'][^>]*>\s*<a[^>]+href=["'](https:\/\/hattorimanga\.net\/manga\/[^"'\/?#]+(?:\/)?)["'][^>]*>([\s\S]*?)<\/a>\s*<\/h3>/gi
+      );
+      for (const m of h3Matches) {
+        const link = m[1]?.trim();
+        const title = cleanSeriesTitle(stripTags(m[2] || ''));
+        if (link && title && !seen.has(link)) {
+          seen.add(link);
+          cards.push({ source: 'hattorimanga', title, link, cover: '', isAdult: true, genres: ['Yetişkin', 'Manhwa'] });
         }
       }
     }
