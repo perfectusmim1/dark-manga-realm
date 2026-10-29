@@ -1,0 +1,77 @@
+name: 24/7 Smart Auto Scraper & Catalog Sync
+
+on:
+  schedule:
+    # Her 2 saatte bir otomatik çalışır (7/24 kesintisiz yeni bölüm & seri takibi)
+    - cron: '0 */2 * * *'
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: 'Çalışma Modu (smart: Vitrin + Delta Bölüm + Kuyruk | delta-only: Sadece Yeni Bölüm | enrich-only: Sadece Metadata & Türkçe Açıklama)'
+        required: false
+        default: 'smart'
+        type: choice
+        options:
+          - smart
+          - delta-only
+          - enrich-only
+      batch_size:
+        description: 'Kuyruktan çekilecek yeni seri sayısı'
+        required: false
+        default: '6'
+        type: string
+      max_delta_checks:
+        description: 'Mevcut serilerde yeni bölüm kontrol limiti'
+        required: false
+        default: '25'
+        type: string
+      source:
+        description: 'Sadece belirli bir kaynağı tara (boş bırakılırsa 4 ana kaynak: webtoonhatti, okutoon, siyahmelek, hattorimanga)'
+        required: false
+        default: ''
+        type: string
+
+concurrency:
+  group: toonparrot-auto-scraper
+  cancel-in-progress: false
+
+jobs:
+  sync-catalog:
+    name: Smart Delta Scraper & Multi-Source Metadata Sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Restore Local Scraper Cache
+        uses: actions/cache@v4
+        with:
+          path: .cache
+          key: toonparrot-scraper-cache-${{ github.run_id }}
+          restore-keys: |
+            toonparrot-scraper-cache-
+
+      - name: Run Smart Catalog & Delta Chapter Sync
+        env:
+          VITE_CATALOG_WORKER_URL: ${{ secrets.VITE_CATALOG_WORKER_URL }}
+          VITE_SCRAPER_PROXY_URL: ${{ secrets.VITE_SCRAPER_PROXY_URL }}
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
+          CATALOG_ADMIN_TOKEN: ${{ secrets.CATALOG_ADMIN_TOKEN }}
+        run: |
+          SOURCE_ARG=""
+          if [ -n "${{ github.event.inputs.source }}" ]; then
+            SOURCE_ARG="--source ${{ github.event.inputs.source }}"
+          fi
+          node scripts/auto-catalog-sync.mjs \
+            --mode "${{ github.event.inputs.mode || 'smart' }}" \
+            --batch-size "${{ github.event.inputs.batch_size || '6' }}" \
+            --max-delta-checks "${{ github.event.inputs.max_delta_checks || '25' }}" \
+            $SOURCE_ARG

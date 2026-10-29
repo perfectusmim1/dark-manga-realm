@@ -23,7 +23,8 @@ local-scraper.config.json
 # Backend, Infra, Local CLI Scripts & Internal Docs (Not needed on GitHub / Vercel)
 supabase/
 cloudflare/
-scripts/
+scripts/*
+!scripts/auto-catalog-sync.mjs
 docs/
 android/
 
