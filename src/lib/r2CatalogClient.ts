@@ -30,33 +30,61 @@ const CATALOG_WORKER_URL = (
 
 const CATALOG_RPCS = new Set(['increment_manga_views', 'increment_chapter_views']);
 
+const isAnonJwt = (tokenStr?: string | null): boolean => {
+  if (!tokenStr) return true;
+  const token = tokenStr.startsWith('Bearer ') ? tokenStr.slice(7).trim() : tokenStr.trim();
+  const parts = token.split('.');
+  if (parts.length < 2) return false;
+  try {
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const json = typeof atob === 'function' ? atob(base64) : Buffer.from(base64, 'base64').toString('utf-8');
+    const payload = JSON.parse(json);
+    return payload?.role === 'anon';
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Resolves authorization headers dynamically without hardcoded secrets
  */
-export const getCatalogAdminHeaders = async (init?: RequestInit): Promise<Record<string, string>> => {
+export const getCatalogAdminHeaders = async (
+  init?: RequestInit,
+  input?: RequestInfo | URL,
+): Promise<Record<string, string>> => {
   const headers: Record<string, string> = {};
 
-  // 1. From init.headers if provided
-  if (init?.headers) {
-    if (init.headers instanceof Headers) {
-      const auth = init.headers.get('Authorization');
-      const catToken = init.headers.get('X-Catalog-Admin-Token');
-      if (auth) headers['Authorization'] = auth;
+  const extractHeaders = (h?: HeadersInit) => {
+    if (!h) return;
+    if (h instanceof Headers) {
+      const auth = h.get('Authorization');
+      const catToken = h.get('X-Catalog-Admin-Token');
+      if (auth && !isAnonJwt(auth)) headers['Authorization'] = auth;
       if (catToken) headers['X-Catalog-Admin-Token'] = catToken;
-    } else if (Array.isArray(init.headers)) {
-      for (const [k, v] of init.headers) {
-        if (k.toLowerCase() === 'authorization') headers['Authorization'] = v;
+    } else if (Array.isArray(h)) {
+      for (const [k, v] of h) {
+        if (k.toLowerCase() === 'authorization' && !isAnonJwt(v)) headers['Authorization'] = v;
         if (k.toLowerCase() === 'x-catalog-admin-token') headers['X-Catalog-Admin-Token'] = v;
       }
-    } else if (typeof init.headers === 'object') {
-      for (const [k, v] of Object.entries(init.headers as Record<string, string>)) {
-        if (k.toLowerCase() === 'authorization') headers['Authorization'] = v;
+    } else if (typeof h === 'object') {
+      for (const [k, v] of Object.entries(h as Record<string, string>)) {
+        if (k.toLowerCase() === 'authorization' && !isAnonJwt(v)) headers['Authorization'] = v;
         if (k.toLowerCase() === 'x-catalog-admin-token') headers['X-Catalog-Admin-Token'] = v;
       }
     }
+  };
+
+  // 1. From input headers if input is Request
+  if (input instanceof Request) {
+    extractHeaders(input.headers);
   }
 
-  // 2. Node.js / script environment admin token (never expose via VITE_* client bundle)
+  // 2. From init.headers if provided
+  if (init?.headers) {
+    extractHeaders(init.headers);
+  }
+
+  // 3. Node.js / script environment admin token (never expose via VITE_* client bundle)
   const envAdminToken =
     (typeof process !== 'undefined' && process.env?.CATALOG_ADMIN_TOKEN) ||
     '';
@@ -65,7 +93,7 @@ export const getCatalogAdminHeaders = async (init?: RequestInit): Promise<Record
     headers['X-Catalog-Admin-Token'] = envAdminToken;
   }
 
-  // 3. Browser environment: extract Supabase access token from localStorage
+  // 4. Browser environment: extract Supabase access token from localStorage (ignoring anon tokens)
   if (!headers['Authorization'] && typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
     try {
       for (let i = 0; i < window.localStorage.length; i++) {
@@ -74,8 +102,8 @@ export const getCatalogAdminHeaders = async (init?: RequestInit): Promise<Record
           const raw = window.localStorage.getItem(key);
           if (raw) {
             const parsed = JSON.parse(raw);
-            const token = parsed?.access_token || parsed?.currentSession?.access_token;
-            if (token) {
+            const token = parsed?.access_token || parsed?.currentSession?.access_token || parsed?.session?.access_token;
+            if (token && !isAnonJwt(token)) {
               headers['Authorization'] = `Bearer ${token}`;
               break;
             }
@@ -294,6 +322,7 @@ export const ensureCatalogLoaded = async (force = false): Promise<void> => {
   catalogLoadPromise = (async () => {
     try {
       const res = await fetch(`${CATALOG_WORKER_URL}/v1/catalog/tables`, {
+        cache: 'no-store',
         headers: { Accept: 'application/json' },
       });
 
@@ -927,6 +956,49 @@ export const handleR2CatalogRestRequest = async (
       await Promise.all(affectedMangaIds.map((mId) => ensureSeriesChapterPagesHydrated(mId)));
     }
 
+    // Persist to R2 catalog worker with await (send pages: [] for chapters table index)
+    const mutateRows = tableName === 'chapters'
+      ? incomingRows.map((r: any) => ({ ...r, pages: [] }))
+      : incomingRows;
+
+    const adminHeaders = await getCatalogAdminHeaders(init, input);
+    try {
+      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tableName}/mutate`, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json',
+          ...adminHeaders,
+        },
+        body: JSON.stringify({
+          action: isUpsert ? 'upsert' : 'insert',
+          rows: mutateRows,
+          onConflict: conflictCols.join(','),
+        }),
+      });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.error(`R2 catalog insert/upsert worker returned status ${res.status} for ${tableName}:`, errText);
+        return new Response(JSON.stringify({ message: errText || `R2 catalog mutation failed (${res.status})` }), {
+          status: res.status || 500,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      }
+    } catch (err) {
+      console.error(`R2 catalog persist failed for table ${tableName}:`, err);
+      return new Response(JSON.stringify({ message: err instanceof Error ? err.message : `R2 catalog mutation failed for ${tableName}` }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+
     const affectedRows: any[] = [];
 
     for (const item of incomingRows) {
@@ -961,28 +1033,7 @@ export const handleR2CatalogRestRequest = async (
       }
     }
 
-    // Persist to R2 catalog worker with await (send pages: [] for chapters table index)
-    const mutateRows = tableName === 'chapters'
-      ? incomingRows.map((r: any) => ({ ...r, pages: [] }))
-      : incomingRows;
-
-    const adminHeaders = await getCatalogAdminHeaders(init);
-    try {
-      await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tableName}/mutate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...adminHeaders,
-        },
-        body: JSON.stringify({
-          action: isUpsert ? 'upsert' : 'insert',
-          rows: mutateRows,
-          onConflict: conflictCols.join(','),
-        }),
-      });
-    } catch (err) {
-      console.error(`R2 catalog persist failed for table ${tableName}:`, err);
-    }
+    lastLoadedTime = Date.now();
 
     // Dual-sync: update series JSON file with full chapter pages
     if (tableName === 'chapters' && affectedMangaIds.length > 0) {
@@ -1010,19 +1061,18 @@ export const handleR2CatalogRestRequest = async (
     }
 
     const matchedIndices: number[] = [];
-    const affectedRows: any[] = [];
+    const prospectiveAffectedRows: any[] = [];
 
     for (let i = 0; i < tableRows.length; i++) {
       if (filterRow(tableRows[i], url.searchParams)) {
         matchedIndices.push(i);
         const updated = { ...tableRows[i], ...patch, updated_at: now };
-        tableRows[i] = updated;
-        affectedRows.push(updated);
+        prospectiveAffectedRows.push(updated);
       }
     }
 
     // If mutating chapters, hydrate first to preserve existing pages
-    const affectedMangaIds = [...new Set(affectedRows.map((r: any) => r.manga_id).filter(Boolean))];
+    const affectedMangaIds = [...new Set(prospectiveAffectedRows.map((r: any) => r.manga_id).filter(Boolean))];
     if (tableName === 'chapters' && affectedMangaIds.length > 0) {
       await Promise.all(affectedMangaIds.map((mId) => ensureSeriesChapterPagesHydrated(mId)));
     }
@@ -1040,10 +1090,11 @@ export const handleR2CatalogRestRequest = async (
       ? { ...patch, pages: [] }
       : patch;
 
-    const adminHeaders = await getCatalogAdminHeaders(init);
+    const adminHeaders = await getCatalogAdminHeaders(init, input);
     try {
-      await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tableName}/mutate`, {
+      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tableName}/mutate`, {
         method: 'POST',
+        cache: 'no-store',
         headers: {
           'Content-Type': 'application/json',
           ...adminHeaders,
@@ -1054,16 +1105,41 @@ export const handleR2CatalogRestRequest = async (
           patch: mutatePatch,
         }),
       });
+
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.error(`R2 catalog patch worker returned status ${res.status} for ${tableName}:`, errText);
+        return new Response(JSON.stringify({ message: errText || `R2 catalog mutation failed (${res.status})` }), {
+          status: res.status || 500,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      }
     } catch (err) {
       console.error(`R2 catalog patch failed for ${tableName}:`, err);
+      return new Response(JSON.stringify({ message: err instanceof Error ? err.message : `R2 catalog patch failed for ${tableName}` }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
     }
+
+    for (let idx = 0; idx < matchedIndices.length; idx++) {
+      const tableIdx = matchedIndices[idx];
+      tableRows[tableIdx] = prospectiveAffectedRows[idx];
+    }
+    lastLoadedTime = Date.now();
 
     // Dual-sync: update series JSON file with full chapter pages
     if (tableName === 'chapters' && affectedMangaIds.length > 0) {
       await Promise.all(affectedMangaIds.map((mId) => syncSeriesFileToR2(mId, init)));
     }
 
-    return new Response(JSON.stringify(affectedRows), {
+    return new Response(JSON.stringify(prospectiveAffectedRows), {
       status: 200,
       headers: {
         'Content-Type': 'application/json; charset=utf-8',
@@ -1085,13 +1161,59 @@ export const handleR2CatalogRestRequest = async (
       }
     }
 
-    tableStore.set(tableName, remaining);
-
     // If deleting chapters, hydrate remaining first and then dual-sync series JSON
     const affectedMangaIds = [...new Set(deleted.map((r: any) => r.manga_id).filter(Boolean))];
     if (tableName === 'chapters' && affectedMangaIds.length > 0) {
       await Promise.all(affectedMangaIds.map((mId) => ensureSeriesChapterPagesHydrated(mId)));
     }
+
+    const matchObj: Record<string, any> = {};
+    for (const [k, v] of url.searchParams.entries()) {
+      if (!['select', 'order', 'limit', 'offset', 'apikey'].includes(k)) {
+        const dotIdx = v.indexOf('.');
+        matchObj[k] = dotIdx >= 0 ? v.slice(dotIdx + 1) : v;
+      }
+    }
+
+    const adminHeaders = await getCatalogAdminHeaders(init, input);
+    try {
+      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tableName}/mutate`, {
+        method: 'POST',
+        cache: 'no-store',
+        headers: {
+          'Content-Type': 'application/json',
+          ...adminHeaders,
+        },
+        body: JSON.stringify({
+          action: 'delete',
+          match: matchObj,
+          rows: deleted.map((r) => r.id).filter(Boolean),
+        }),
+      });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.error(`R2 catalog delete worker returned status ${res.status} for ${tableName}:`, errText);
+        return new Response(JSON.stringify({ message: errText || `R2 catalog mutation failed (${res.status})` }), {
+          status: res.status || 500,
+          headers: {
+            'Content-Type': 'application/json; charset=utf-8',
+            'Access-Control-Allow-Origin': '*',
+          },
+        });
+      }
+    } catch (err) {
+      console.error(`R2 catalog delete failed for ${tableName}:`, err);
+      return new Response(JSON.stringify({ message: err instanceof Error ? err.message : `R2 catalog delete failed for ${tableName}` }), {
+        status: 500,
+        headers: {
+          'Content-Type': 'application/json; charset=utf-8',
+          'Access-Control-Allow-Origin': '*',
+        },
+      });
+    }
+
+    tableStore.set(tableName, remaining);
+    lastLoadedTime = Date.now();
 
     // Cascade delete related records if deleting a manga
     if (tableName === 'mangas') {
@@ -1109,36 +1231,6 @@ export const handleR2CatalogRestRequest = async (
         const filtered = rows.filter((r) => !deletedMangaIds.has(r.manga_id));
         tableStore.set(cascTbl, filtered);
       }
-    }
-
-    const matchObj: Record<string, any> = {};
-    for (const [k, v] of url.searchParams.entries()) {
-      if (!['select', 'order', 'limit', 'offset', 'apikey'].includes(k)) {
-        const dotIdx = v.indexOf('.');
-        matchObj[k] = dotIdx >= 0 ? v.slice(dotIdx + 1) : v;
-      }
-    }
-
-    const adminHeaders = await getCatalogAdminHeaders(init);
-    try {
-      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tableName}/mutate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...adminHeaders,
-        },
-        body: JSON.stringify({
-          action: 'delete',
-          match: matchObj,
-          rows: deleted.map((r) => r.id).filter(Boolean),
-        }),
-      });
-      if (!res.ok) {
-        const errText = await res.text().catch(() => '');
-        console.error(`R2 catalog delete worker returned status ${res.status} for ${tableName}:`, errText);
-      }
-    } catch (err) {
-      console.error(`R2 catalog delete failed for ${tableName}:`, err);
     }
 
     // Dual-sync: update series JSON file with remaining chapters

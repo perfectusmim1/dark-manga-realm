@@ -12,7 +12,7 @@ export type ScraperSourceKey =
   | 'siyahmelek'
   | 'hattorimanga';
 
-export type LegacyScrapeSource = 'hayalistic' | 'hentaiturk';
+export type LegacyScrapeSource = 'hayalistic';
 export type ScrapeSource = ScraperSourceKey | LegacyScrapeSource;
 
 export const SCRAPER_SOURCES: readonly ScraperSourceKey[] = [
@@ -119,7 +119,7 @@ export const SOURCE_CONFIG: Record<ScraperSourceKey, SourceDefinition> = {
     ],
   },
   siyahmelek: {
-    label: 'SiyahMelek (+18)',
+    label: 'SiyahMelek',
     baseUrl: 'https://siyahmelek.my',
     searchUrl: (query) => `https://siyahmelek.my/?s=${encodeURIComponent(query)}`,
     listUrl: 'https://siyahmelek.my/manga/page/1/',
@@ -128,7 +128,7 @@ export const SOURCE_CONFIG: Record<ScraperSourceKey, SourceDefinition> = {
     ],
   },
   hattorimanga: {
-    label: 'HattoriManga (+18)',
+    label: 'HattoriManga',
     baseUrl: 'https://hattorimanga.net',
     searchUrl: (query) => `https://hattorimanga.net/?s=${encodeURIComponent(query)}&post_type=wp-manga`,
     listUrl: 'https://hattorimanga.net/manga/page/1/',
@@ -146,15 +146,6 @@ const LEGACY_SOURCE_CONFIG: Record<LegacyScrapeSource, SourceDefinition> = {
     listUrl: 'https://hayalistic.com/webtoonlar/',
     directLinkPatterns: [
       /https?:\/\/(?:www\.)?hayalistic\.(?:com|net)\/(?:manga|webtoon)\/[^?#]+/i,
-    ],
-  },
-  hentaiturk: {
-    label: 'HentaiTürk (Eski)',
-    baseUrl: 'https://hentaiturk.com',
-    searchUrl: (query) => `https://hentaiturk.com/ara?q=${encodeURIComponent(query)}`,
-    listUrl: 'https://hentaiturk.com/sayfa/1',
-    directLinkPatterns: [
-      /https?:\/\/(?:www\.)?hentaiturk\.com\/(?:galeri|g)\/[^?#]+/i,
     ],
   },
 };
@@ -343,6 +334,23 @@ const CHAPTER_SHORTCUT_PATTERNS = [
   /^start reading$/i,
 ];
 
+const decodeHtmlEntities = (text: string): string => {
+  return text
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#039;|&apos;|&#8217;|&#8216;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&hearts;|&#9829;/gi, '♥')
+    .replace(/&#([0-9]+);/g, (_, dec) => {
+      try {
+        return String.fromCharCode(parseInt(dec, 10));
+      } catch {
+        return '';
+      }
+    });
+};
+
 const DETAIL_TITLE_PREFIX_PATTERNS = [
   /^g[üu]ncel\s+/i,
   /^tamamland[ıi]\s+/i,
@@ -353,10 +361,18 @@ const DETAIL_TITLE_PREFIX_PATTERNS = [
   /^ai translation\s+/i,
   /^new\s+/i,
   /^hot\s+/i,
+  /^(?:\[\s*yeni\s*\]|\(\s*yeni\s*\)|yeni!*)\s*/i,
+];
+
+const DECORATIVE_SYMBOLS_REGEX = /^[♥♡★☆🔥✨\s,.:;–—\-]+|[♥♡★☆🔥✨\s,.:;–—\-]+$/gu;
+
+const TRAILING_CHAPTER_INFO_PATTERNS = [
+  /[,–—\-]?\s*\(?\s*(?:bölüm|bolum|chapter|ch\.?)\s*[\d.]+(?:\s*[-–—~]\s*[\d.]+)?\s*\)?\s*$/i,
+  /[,–—\-]?\s*\(\s*[\d.]+(?:\s*[-–—~]\s*[\d.]+)?\s*\)\s*$/,
 ];
 
 const sanitizeDetailTitleText = (value?: string | null) => {
-  let nextValue = normalizeScrapedText(value);
+  let nextValue = normalizeScrapedText(decodeHtmlEntities(value || ''));
 
   if (!nextValue) {
     return '';
@@ -369,6 +385,12 @@ const sanitizeDetailTitleText = (value?: string | null) => {
     for (const pattern of DETAIL_TITLE_PREFIX_PATTERNS) {
       nextValue = nextValue.replace(pattern, '').trim();
     }
+
+    for (const pattern of TRAILING_CHAPTER_INFO_PATTERNS) {
+      nextValue = nextValue.replace(pattern, '').trim();
+    }
+
+    nextValue = nextValue.replace(DECORATIVE_SYMBOLS_REGEX, '').trim();
   }
 
   return nextValue;
@@ -778,7 +800,7 @@ const extractSiyahMelekCards = (doc: Document, baseUrl: string): ScrapedMangaCar
       title,
       link,
       cover,
-      genres: ['+18', 'Adult'],
+      genres: [],
       source: 'siyahmelek',
     });
   }

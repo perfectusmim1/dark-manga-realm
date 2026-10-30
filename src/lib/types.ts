@@ -529,7 +529,6 @@ export type ScraperSourceKey =
   | 'golgebahcesi'
   | 'dxdfansub'
   | 'siyahmelek'
-  | 'hentaiturk'
   | 'hattorimanga';
 export type LegacyScrapeSource = 'hayalistic';
 export type ScrapeSource = ScraperSourceKey | LegacyScrapeSource;
@@ -541,7 +540,6 @@ export type ChapterAutomationSource =
   | 'golgebahcesi'
   | 'dxdfansub'
   | 'siyahmelek'
-  | 'hentaiturk'
   | 'hattorimanga'
   | 'hayalistic';
 export type ChapterAutomationProxyProvider = 'cloudflare';

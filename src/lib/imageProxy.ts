@@ -41,27 +41,14 @@ const PROXY_ONLY_HOSTS = [
   'mangaupdates.com',
   'www.mangaupdates.com',
   'cdn.mangaupdates.com',
-  'siyahmelek.my',
-  'www.siyahmelek.my',
-  'siyahmelek.mom',
   'hattorimanga.net',
   'www.hattorimanga.net',
-  'okutoon.com',
-  'om-cdn.okutoon.com',
-  'golgebahcesi.com',
-  'api.golgebahcesi.com',
-  'skycdn.online',
-  'c2.skycdn.online',
   'dxdfansub.com',
   'api.dxdfansub.com',
   'yedek.mangawow.com',
   'kirmizikafa.monster',
   'hayalistic.com',
   'hayalistic.com.tr',
-  's4.anilist.co',
-  'anilist.co',
-  'myanimelist.net',
-  'cdn.myanimelist.net',
   'wikia.nocookie.net',
   'static.wikia.nocookie.net',
 ] as const;
@@ -71,8 +58,6 @@ const PROXY_SUPPORTED_HOSTS = [
   'webtoon-oku.net',
   'cdn-1.webtoon-oku.net',
   'cdn-2.webtoon-oku.net',
-  'hentaiturk.com',
-  'www.hentaiturk.com',
   'cdn.hentaiturk.com',
   'mangacix.net',
   'cdn.mangacix.net',
@@ -110,7 +95,7 @@ const shouldProxyImageUrl = (sourceUrl?: string | null) => {
     return false;
   }
 
-  return PROXY_SUPPORTED_HOSTS.some((host) => matchesHostRule(parsedSourceUrl.hostname, host));
+  return PROXY_ONLY_HOSTS.some((host) => matchesHostRule(parsedSourceUrl.hostname, host));
 };
 
 export const supportsImageProxyTransform = () => Boolean(offlineProxyConfig.url);
