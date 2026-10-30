@@ -35,6 +35,12 @@ if (!existsSync(cacheDir)) {
 
 const CHECKPOINT_PATH = path.join(cacheDir, 'r2-archive-checkpoint.json');
 const EXPORT_DUMP_PATH = path.join(cacheDir, 'r2-full-archive-export.json');
+const SERIES_CACHE_DIR = path.join(cacheDir, 'series');
+if (!existsSync(SERIES_CACHE_DIR)) {
+  try {
+    mkdirSync(SERIES_CACHE_DIR, { recursive: true });
+  } catch {}
+}
 
 // --- Load .env into process.env ---
 const loadEnv = () => {
@@ -157,8 +163,26 @@ const loadCheckpoint = () => {
     const parsed = JSON.parse(raw);
     if (!parsed.seriesQueue) parsed.seriesQueue = {};
     if (parsed.mangas && typeof parsed.mangas === 'object') {
+      let needsPrune = false;
       for (const [id, m] of Object.entries(parsed.mangas)) {
-        if (isBLSeries(m)) delete parsed.mangas[id];
+        if (isBLSeries(m)) {
+          delete parsed.mangas[id];
+          continue;
+        }
+        const hasPages = Array.isArray(m.chapters) && m.chapters.some((ch) => Array.isArray(ch.pages) && ch.pages.length > 0);
+        if (hasPages && m.slug) {
+          needsPrune = true;
+          const sPath = path.join(SERIES_CACHE_DIR, `${m.slug}.json`);
+          if (!existsSync(sPath)) {
+            try { writeFileSync(sPath, JSON.stringify(m, null, 2), 'utf8'); } catch {}
+          }
+          for (const ch of m.chapters) {
+            ch.pages = [];
+          }
+        }
+      }
+      if (needsPrune) {
+        saveCheckpoint(parsed);
       }
     }
     if (parsed.seriesQueue && typeof parsed.seriesQueue === 'object') {
@@ -2571,7 +2595,7 @@ class CatalogArchiveStore {
         manga_id: m.id,
         number: Number(ch.chapterNumber ?? ch.number ?? 0),
         title: ch.title || `Bölüm ${ch.chapterNumber ?? ch.number ?? 0}`,
-        pages: Array.isArray(ch.pages) ? ch.pages : [],
+        pages: [], // Sayfalar series/<slug>.json içinde tutulur
         views: ch.views || 0,
         release_date: ch.releaseDate || now,
         created_at: ch.createdAt || now,
@@ -2665,6 +2689,18 @@ class CatalogArchiveStore {
   }
 }
 
+// --- Full Series Disk Cache Helper ---
+const getFullSeriesPayload = (manga) => {
+  if (!manga?.slug) return manga;
+  const seriesFilePath = path.join(SERIES_CACHE_DIR, `${manga.slug}.json`);
+  if (existsSync(seriesFilePath)) {
+    try {
+      return JSON.parse(readFileSync(seriesFilePath, 'utf8'));
+    } catch {}
+  }
+  return manga;
+};
+
 // --- R2 Upload Engine ---
 const uploadToCatalogWorker = async (store, options = {}) => {
   if (!CATALOG_ADMIN_TOKEN) {
@@ -2754,13 +2790,14 @@ const uploadToCatalogWorker = async (store, options = {}) => {
       await Promise.all(chunk.map(async (m) => {
         if (!m.slug) return;
         try {
+          const payload = getFullSeriesPayload(m);
           await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${m.slug}`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
               'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
             },
-            body: JSON.stringify(m),
+            body: JSON.stringify(payload),
           });
         } catch {}
       }));
@@ -3114,6 +3151,38 @@ const main = async () => {
     card.updatedAt = new Date().toISOString();
     processedCount++;
     logProgress(processedCount, totalInQueue, card.title, `Tamamlandı (${validChapters.length}/${totalChs} bölüm sağlam)`);
+
+    // Diske bağımsız tam seri dosyası olarak kaydet (.cache/series/<slug>.json)
+    if (manga.slug) {
+      const seriesFilePath = path.join(SERIES_CACHE_DIR, `${manga.slug}.json`);
+      try {
+        writeFileSync(seriesFilePath, JSON.stringify(manga, null, 2), 'utf8');
+      } catch {}
+
+      // Doğrudan R2'ye tekil seri detayını tam sayfalarıyla yükle
+      if (!IS_DRY_RUN && CATALOG_ADMIN_TOKEN) {
+        try {
+          await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${manga.slug}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
+            },
+            body: JSON.stringify(manga),
+          });
+        } catch (err) {
+          logWarn(`R2 seri yükleme uyarısı (${manga.slug}): ${err.message}`);
+        }
+      }
+
+      // RAM optimizasyonu: R2 ve diske yazılan serinin sayfa dizilerini RAM'den boşalt
+      for (const ch of manga.chapters || []) {
+        ch.pages = [];
+      }
+      if (store.touchedSlugs) {
+        store.touchedSlugs.delete(manga.slug);
+      }
+    }
   };
 
   // Paralel Seri İndirme Havuzu (Worker Pool)
@@ -3125,12 +3194,13 @@ const main = async () => {
     const chunk = targetToProcess.slice(i, i + SERIES_CONCURRENCY);
     await Promise.all(chunk.map((item) => processSeriesItem(item)));
 
-    // Her grup bitiminde hem diske atomik checkpoint hem de R2'ye canlı senkronizasyon!
+    // Her grup bitiminde hem diske atomik checkpoint kaydedilir
     checkpoint.seriesQueue = seriesQueue;
     const currentState = store.toState();
     saveCheckpoint({ ...checkpoint, ...currentState });
 
-    if (!IS_DRY_RUN && (i % 6 === 0 || i + SERIES_CONCURRENCY >= targetToProcess.length)) {
+    // Veritabanı tabloları ve Supabase senkronizasyonu her 30 seride bir toplu yapılır (Aşırı istek ve yükü önler)
+    if (!IS_DRY_RUN && (i % 30 === 0 || i + SERIES_CONCURRENCY >= targetToProcess.length)) {
       await uploadToCatalogWorker(store);
     }
   }

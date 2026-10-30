@@ -31,16 +31,24 @@ if "%SECIM%"=="3" (
 if "%SECIM%"=="2" (
     echo.
     echo [!] Kuyruk sifirlaniyor ve tum kataloglar taranarak baslatiliyor...
-    node scripts/build-full-r2-archive.mjs --full
+    node --max-old-space-size=8192 scripts/build-full-r2-archive.mjs --full
 ) else (
     echo.
     echo [*] Kaldigi yerden arsivlemeye devam ediliyor...
-    node scripts/build-full-r2-archive.mjs --full --resume
+    node --max-old-space-size=8192 scripts/build-full-r2-archive.mjs --full --resume
 )
 
-echo.
-echo ======================================================================
-echo  Islem tamamlandi veya gunluk Cloudflare Worker kotasina ulasildi.
-echo  Kota dolduysa yarin bu dosyayi tekrar acmaniz yeterlidir.
-echo ======================================================================
+if %ERRORLEVEL% NEQ 0 (
+    echo.
+    echo ======================================================================
+    echo  [UYARI / HATA] Islem %ERRORLEVEL% hata kodu ile durdu.
+    echo  Hata detayi yukaridaki konsol ciktisinda belirtilmistir.
+    echo ======================================================================
+) else (
+    echo.
+    echo ======================================================================
+    echo  Islem basariyla tamamlandi veya gunluk Cloudflare Worker limitine ulasildi.
+    echo  Kaldigi yerden devam etmek icin dosyayi tekrar acabilirsiniz.
+    echo ======================================================================
+)
 pause
