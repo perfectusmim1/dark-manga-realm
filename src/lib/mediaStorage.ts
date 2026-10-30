@@ -33,7 +33,9 @@ interface MaterializeWorkerItem {
 
 
 const configuredMediaBucketUrl = import.meta.env.VITE_MEDIA_BUCKET_URL?.trim() || '';
-const configuredOfflineImageProxyUrl = import.meta.env.VITE_OFFLINE_IMAGE_PROXY_URL?.trim() || '';
+const configuredOfflineImageProxyUrl =
+  import.meta.env.VITE_OFFLINE_IMAGE_PROXY_URL?.trim() ||
+  'https://toonparrot-offline-image-proxy.caganhuseyinerdil.workers.dev';
 const configuredScraperProxyUrl = import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '';
 const MATERIALIZE_WORKER_BATCH_SIZE = 40;
 
@@ -117,12 +119,13 @@ export const buildProxiedImageUrl = (sourceUrl?: string | null, referer?: string
     return '';
   }
 
+  const unwrapped = unwrapProxyUrl(normalized) || normalized;
   const proxyBaseUrl = configuredOfflineImageProxyUrl;
   if (!proxyBaseUrl) {
-    return normalized;
+    return unwrapped;
   }
 
-  const urlParam = encodeURIComponent(normalized);
+  const urlParam = encodeURIComponent(unwrapped);
   const refererParam = referer?.trim() ? `&referer=${encodeURIComponent(referer.trim())}` : '';
   const separator = proxyBaseUrl.includes('?') ? '&' : '?';
   return `${proxyBaseUrl}${separator}url=${urlParam}${refererParam}`;

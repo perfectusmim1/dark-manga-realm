@@ -10,10 +10,9 @@ export type ScraperSourceKey =
   | 'golgebahcesi'
   | 'dxdfansub'
   | 'siyahmelek'
-  | 'hentaiturk'
   | 'hattorimanga';
 
-export type LegacyScrapeSource = 'hayalistic';
+export type LegacyScrapeSource = 'hayalistic' | 'hentaiturk';
 export type ScrapeSource = ScraperSourceKey | LegacyScrapeSource;
 
 export const SCRAPER_SOURCES: readonly ScraperSourceKey[] = [
@@ -23,7 +22,6 @@ export const SCRAPER_SOURCES: readonly ScraperSourceKey[] = [
   'golgebahcesi',
   'dxdfansub',
   'siyahmelek',
-  'hentaiturk',
   'hattorimanga',
 ] as const;
 
@@ -129,15 +127,6 @@ export const SOURCE_CONFIG: Record<ScraperSourceKey, SourceDefinition> = {
       /https?:\/\/(?:www\.)?siyahmelek\.(?:my|mom)\/manga\/[^?#]+/i,
     ],
   },
-  hentaiturk: {
-    label: 'HentaiTürk (+18)',
-    baseUrl: 'https://hentaiturk.com',
-    searchUrl: (query) => `https://hentaiturk.com/ara?q=${encodeURIComponent(query)}`,
-    listUrl: 'https://hentaiturk.com/sayfa/1',
-    directLinkPatterns: [
-      /https?:\/\/(?:www\.)?hentaiturk\.com\/(?:galeri|g)\/[^?#]+/i,
-    ],
-  },
   hattorimanga: {
     label: 'HattoriManga (+18)',
     baseUrl: 'https://hattorimanga.net',
@@ -157,6 +146,15 @@ const LEGACY_SOURCE_CONFIG: Record<LegacyScrapeSource, SourceDefinition> = {
     listUrl: 'https://hayalistic.com/webtoonlar/',
     directLinkPatterns: [
       /https?:\/\/(?:www\.)?hayalistic\.(?:com|net)\/(?:manga|webtoon)\/[^?#]+/i,
+    ],
+  },
+  hentaiturk: {
+    label: 'HentaiTürk (Eski)',
+    baseUrl: 'https://hentaiturk.com',
+    searchUrl: (query) => `https://hentaiturk.com/ara?q=${encodeURIComponent(query)}`,
+    listUrl: 'https://hentaiturk.com/sayfa/1',
+    directLinkPatterns: [
+      /https?:\/\/(?:www\.)?hentaiturk\.com\/(?:galeri|g)\/[^?#]+/i,
     ],
   },
 };
@@ -431,61 +429,133 @@ const extractRawChapterText = (container: Element, anchor: HTMLAnchorElement) =>
   return normalizeScrapedText(clonedContainer.textContent);
 };
 
+export const cleanChapterTitle = (
+  rawTitle?: string | null,
+  chapterNumber?: number | string | null,
+  seriesTitle?: string | null,
+): string => {
+  let text = (rawTitle || '').toString().trim();
+  if (!text) {
+    return chapterNumber != null && Number(chapterNumber) > 0 ? `Bölüm ${chapterNumber}` : 'Bölüm 1';
+  }
+
+  // 1. Remove drop rates & percentages
+  text = text.replace(/\b\d+\s*B[ıi]rakma\s*~?\d*%?/gi, ' ');
+  text = text.replace(/\bB[ıi]rakma\s*~?\d*%?/gi, ' ');
+  text = text.replace(/~?\s*\d+(?:[.,]\d+)?\s*%/g, ' ');
+
+  // 2. Remove relative dates
+  text = text.replace(/\b\d+\s*(?:dakika|dak|dk|min|minute|saat|hour|g[üu]n|day|hafta|week|ay|month|y[ıi]l|sene|year)s?(?:\s*(?:önce|ago))?\b/gi, ' ');
+
+  // 3. Remove view counters and read counts
+  text = text.replace(/\b\d+(?:[.,]\d+)?\s*[kmbKMkMB]\b/g, ' ');
+  text = text.replace(/\b\d+\s*(?:g[öo]r[üu]nt[üu]lenme|okunma|okuma|views?|reads?)\b/gi, ' ');
+  text = text.replace(/\bburadas[ıi]n[ıi]z\b/gi, ' ');
+
+  // 4. If series title is provided, strip it from title
+  if (seriesTitle && typeof seriesTitle === 'string') {
+    const escaped = seriesTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    text = text.replace(new RegExp(`^${escaped}\\s*[-–—:|]?\\s*`, 'i'), ' ');
+    text = text.replace(new RegExp(`\\s*[-–—:|]?\\s*${escaped}$`, 'i'), ' ');
+    text = text.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), ' ');
+  }
+
+  // 5. Determine effective chapter number
+  let effectiveNum = chapterNumber != null && Number(chapterNumber) > 0 ? Number(chapterNumber) : null;
+  if (effectiveNum == null) {
+    const match = text.match(/(?:b[öo]l[üu]m|chapter|ch\.?)\s*(\d+(?:\.\d+)?)/i) || text.match(/(\d+(?:\.\d+)?)/);
+    if (match) effectiveNum = parseFloat(match[1]);
+  }
+
+  // 6. Remove trailing residue numbers if chapter number already established
+  if (effectiveNum != null) {
+    text = text.replace(/\s+\d{1,4}\s*$/, ' ');
+  }
+
+  // 7. Extract subtitle
+  let subtitle = text
+    .replace(/(?:b[öo]l[üu]m|chapter|ch\.?)\s*\.?\s*\d+(?:\.\d+)?/gi, ' ')
+    .replace(/\b\d+(?:\.\d+)?\s*\.?\s*(?:b[öo]l[üu]m|chapter|ch\.?)/gi, ' ')
+    .replace(/\b(?:b[öo]l[üu]m|chapter|ch\.?)\b/gi, ' ')
+    .replace(/[\[({【][.\s…_—–-]+[\])}】]/g, ' ');
+
+  const numStr = effectiveNum != null ? (Number.isInteger(effectiveNum) ? String(effectiveNum) : String(effectiveNum)) : '';
+  if (numStr) {
+    subtitle = subtitle.replace(new RegExp(`\\b${numStr.replace('.', '\\.')}\\b`, 'g'), ' ');
+  }
+
+  subtitle = subtitle.replace(/^[-–—:|.\s]+|[-–—:|.\s]+$/g, '').replace(/\s+/g, ' ').trim();
+
+  // If subtitle has meaningful alphabetic text (not just punctuation, dots or chapter leftover)
+  const hasLetters = /[a-zA-ZçğıöşüÇĞİÖŞÜ]{2,}/.test(subtitle);
+  if (subtitle && hasLetters && !/^(?:b[öo]l[üu]m|chapter|ch|\d+)$/i.test(subtitle) && subtitle.length > 2) {
+    return effectiveNum != null ? `Bölüm ${effectiveNum} - ${subtitle}` : subtitle;
+  }
+
+  return effectiveNum != null ? `Bölüm ${effectiveNum}` : (text || 'Bölüm 1');
+};
+
+const BL_REGEX = /\b(?:yaoi|shounen[\s\-_]*ai|shonen[\s\-_]*ai|boys?[\s\-_]*love|danmei|bara|erkek\s*a[sş]k[ıi]|fujoshi|fudanshi|gay)\b/iu;
+const BL_GENRE_REGEX = /\b(?:bl|yaoi|shounen[\s\-_]*ai|shonen[\s\-_]*ai|boys?[\s\-_]*love|danmei|bara|erkek\s*a[sş]k[ıi]|fujoshi|fudanshi|gay)\b/iu;
+
+export const isBLSeries = (mangaOrMetadata: any): boolean => {
+  if (!mangaOrMetadata || typeof mangaOrMetadata !== 'object') return false;
+
+  const genreList: string[] = [];
+  if (Array.isArray(mangaOrMetadata.genres)) {
+    genreList.push(...mangaOrMetadata.genres.map((g: any) => (typeof g === 'string' ? g : g?.name || g?.genre || '')));
+  }
+  if (Array.isArray(mangaOrMetadata.tags)) {
+    genreList.push(...mangaOrMetadata.tags.map((t: any) => (typeof t === 'string' ? t : t?.name || t?.tag || '')));
+  }
+  if (Array.isArray(mangaOrMetadata.categories)) {
+    genreList.push(...mangaOrMetadata.categories.map((c: any) => (typeof c === 'string' ? c : c?.name || '')));
+  }
+
+  for (const genre of genreList) {
+    if (!genre) continue;
+    const gLower = genre.trim().toLowerCase();
+    if (gLower === 'bl' || BL_GENRE_REGEX.test(gLower)) {
+      return true;
+    }
+  }
+
+  const titleList: string[] = [
+    mangaOrMetadata.title,
+    mangaOrMetadata.name,
+    mangaOrMetadata.original_title,
+    mangaOrMetadata.title_english,
+    mangaOrMetadata.title_japanese,
+    ...(Array.isArray(mangaOrMetadata.alternativeTitles) ? mangaOrMetadata.alternativeTitles : []),
+    ...(Array.isArray(mangaOrMetadata.altTitles) ? mangaOrMetadata.altTitles : []),
+    ...(Array.isArray(mangaOrMetadata.synonyms) ? mangaOrMetadata.synonyms : []),
+  ].filter((t): t is string => typeof t === 'string' && t.trim().length > 0);
+
+  for (const t of titleList) {
+    if (/\bBL\b/i.test(t) || BL_REGEX.test(t)) {
+      return true;
+    }
+  }
+
+  const desc = [
+    mangaOrMetadata.description,
+    mangaOrMetadata.synopsis,
+    mangaOrMetadata.summary,
+  ].filter((d): d is string => typeof d === 'string' && d.trim().length > 0).join(' ');
+
+  if (desc && (BL_REGEX.test(desc) || /\bBL\s*(?:webtoon|manhwa|manhua|manga|seri|hikaye|ili[sş]ki)/iu.test(desc))) {
+    return true;
+  }
+
+  return false;
+};
+
 const sanitizeScrapedChapterName = (
   value?: string | null,
   number?: number,
   seriesTitle?: string | null,
 ) => {
-  let nextValue = normalizeScrapedText(value);
-
-  if (!nextValue) {
-    return '';
-  }
-
-  if (seriesTitle) {
-    const escapedSeriesTitle = seriesTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-    nextValue = nextValue.replace(new RegExp(`^${escapedSeriesTitle}\\s*[-–—:|]?\\s*`, 'i'), '').trim();
-  }
-
-  nextValue = nextValue.replace(/^[-–—:|]+/, '').trim();
-  nextValue = nextValue
-    .replace(/\s+\d+\s*(?:dakika|saat|g[üu]n|hafta|ay|y[ıi]l)(?:\s+\d+(?:[.,]\d+)?\s*[kmb])?(?:\s+\d+)?$/iu, '')
-    .replace(/\s+\d+(?:[.,]\d+)?\s*[kmb]\s+\d+$/iu, '')
-    .trim();
-
-  const chapterMarker = nextValue.match(/(b[öo]l[üu]m\s*\d+(?:\.\d+)?(?:\s*[-–—:]\s*.+)?)$/iu);
-  if (chapterMarker?.[1]) {
-    nextValue = chapterMarker[1].trim();
-  }
-
-  const normalizedChapterMatch = nextValue.match(/(b[öo]l[üu]m\s*\d+(?:\.\d+)?)/iu);
-  if (normalizedChapterMatch?.[1]) {
-    const chapterLabel = normalizedChapterMatch[1].replace(/\s+/g, ' ').trim();
-    const trailingValue = nextValue
-      .slice(nextValue.toLocaleLowerCase('tr-TR').indexOf(normalizedChapterMatch[1].toLocaleLowerCase('tr-TR')) + normalizedChapterMatch[1].length)
-      .trim();
-
-    if (
-      !trailingValue
-      || /^(?:\d+(?:[.,]\d+)?\s*[kmb]?[\s]*)+(?:buradas[ıi]n[ıi]z)?$/iu.test(trailingValue)
-    ) {
-      return chapterLabel;
-    }
-  }
-
-  if (CHAPTER_SHORTCUT_PATTERNS.some((pattern) => pattern.test(nextValue))) {
-    return '';
-  }
-
-  if (!nextValue && typeof number === 'number' && number > 0) {
-    return `Bölüm ${number}`;
-  }
-
-  if (nextValue && !/b[öo]l[üu]m/i.test(nextValue) && typeof number === 'number' && number > 0) {
-    return `Bölüm ${number}`;
-  }
-
-  return nextValue;
+  return cleanChapterTitle(value, number, seriesTitle);
 };
 
 const decodeHtmlValue = (value: string) => {
@@ -510,9 +580,7 @@ export const isScrapeSource = (value: string): value is ScrapeSource => (
   SCRAPER_SOURCES.includes(value as ScraperSourceKey) || value === 'hayalistic'
 );
 
-export const isAdultOnlyScrapeSource = (source: ScrapeSource): boolean => (
-  source === 'hentaiturk'
-);
+export const isAdultOnlyScrapeSource = (_source: ScrapeSource): boolean => false;
 
 export const getScrapeSourceLabel = (source: ScrapeSource): string => getSourceDef(source).label;
 
@@ -573,9 +641,6 @@ export const detectScrapeSourceFromUrl = (value: string): ScrapeSource | null =>
   }
   if (normalized.includes('siyahmelek.my') || normalized.includes('siyahmelek.mom')) {
     return 'siyahmelek';
-  }
-  if (normalized.includes('hentaiturk.com')) {
-    return 'hentaiturk';
   }
   if (normalized.includes('hattorimanga.net')) {
     return 'hattorimanga';
@@ -715,49 +780,6 @@ const extractSiyahMelekCards = (doc: Document, baseUrl: string): ScrapedMangaCar
       cover,
       genres: ['+18', 'Adult'],
       source: 'siyahmelek',
-    });
-  }
-
-  return cards;
-};
-
-// HentaiTürk Cards (SSR Gallery)
-const extractHentaiTurkCards = (doc: Document, baseUrl: string): ScrapedMangaCard[] => {
-  const cards: ScrapedMangaCard[] = [];
-  const seen = new Set<string>();
-
-  const elements = Array.from(doc.querySelectorAll('a[href*="/galeri/"]'));
-  for (const anchor of elements) {
-    const href = anchor.getAttribute('href');
-    if (!href) continue;
-    const link = normalizeUrl(baseUrl, href);
-    if (!link || seen.has(link)) continue;
-
-    const container = anchor.closest('.card, .gallery-item, div') || anchor;
-    const title = normalizeScrapedText(
-      container.querySelector('.title, h2, h3, h4')?.textContent
-      || anchor.getAttribute('title')
-      || anchor.textContent,
-    );
-    if (!title) continue;
-
-    const img = container.querySelector('img') || anchor.querySelector('img');
-    let cover = img?.getAttribute('data-src') || img?.getAttribute('src') || '';
-    if (!cover) {
-      const idMatch = href.match(/\/galeri\/(\d+)/);
-      if (idMatch) {
-        cover = `https://cdn.hentaiturk.com/uploads/mangas/${idMatch[1]}/cover/cover.webp`;
-      }
-    }
-    cover = normalizeUrl(baseUrl, cover);
-
-    seen.add(link);
-    cards.push({
-      title,
-      link,
-      cover,
-      genres: ['+18', 'Hentai'],
-      source: 'hentaiturk',
     });
   }
 
@@ -997,36 +1019,26 @@ export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, ra
 
     if (cards.length === 0 && rawHtml) {
       const htmlCards = extractMadaraCardsFromHtml(rawHtml, baseUrl, source);
-      if (htmlCards.length > 0) return htmlCards;
+      if (htmlCards.length > 0) return htmlCards.filter((c) => !isBLSeries(c));
     }
-    return cards;
+    return cards.filter((c) => !isBLSeries(c));
   }
+
+  let cards: ScrapedMangaCard[] = [];
 
   if (source === 'siyahmelek') {
-    return extractSiyahMelekCards(doc, getSourceDef(source).baseUrl);
+    cards = extractSiyahMelekCards(doc, getSourceDef(source).baseUrl);
+  } else if (source === 'okutoon') {
+    cards = extractOkutoonCards(doc, rawHtml);
+  } else if (source === 'mangacix') {
+    cards = extractMangaCixCards(doc, rawHtml);
+  } else if (source === 'golgebahcesi') {
+    cards = extractGolgeOrDxdCards(doc, 'golgebahcesi', rawHtml);
+  } else if (source === 'dxdfansub') {
+    cards = extractGolgeOrDxdCards(doc, 'dxdfansub', rawHtml);
   }
 
-  if (source === 'hentaiturk') {
-    return extractHentaiTurkCards(doc, getSourceDef(source).baseUrl);
-  }
-
-  if (source === 'okutoon') {
-    return extractOkutoonCards(doc, rawHtml);
-  }
-
-  if (source === 'mangacix') {
-    return extractMangaCixCards(doc, rawHtml);
-  }
-
-  if (source === 'golgebahcesi') {
-    return extractGolgeOrDxdCards(doc, 'golgebahcesi', rawHtml);
-  }
-
-  if (source === 'dxdfansub') {
-    return extractGolgeOrDxdCards(doc, 'dxdfansub', rawHtml);
-  }
-
-  return [];
+  return cards.filter((c) => !isBLSeries(c));
 };
 
 // ---------------------------------------------------------------------------
@@ -1065,16 +1077,6 @@ const extractDetailCover = (doc: Document, source: ScrapeSource) => {
       return normalizeUrl(
         getSourceDef(source).baseUrl,
         img.getAttribute('data-original-src') || img.getAttribute('data-src') || img.getAttribute('src'),
-      );
-    }
-  }
-
-  if (source === 'hentaiturk') {
-    const img = doc.querySelector('img[src*="cover"], .cover img, img[data-src*="cover"]');
-    if (img) {
-      return normalizeUrl(
-        getSourceDef(source).baseUrl,
-        img.getAttribute('data-src') || img.getAttribute('src'),
       );
     }
   }
@@ -1183,7 +1185,7 @@ const extractGenres = (doc: Document, fallbackGenres: string[], source?: ScrapeS
     .filter(Boolean);
 
   const genres = candidateGenres.length > 0 ? candidateGenres : fallbackGenres;
-  if (source === 'siyahmelek' || source === 'hentaiturk' || source === 'hattorimanga') {
+  if (source === 'siyahmelek' || source === 'hattorimanga') {
     if (!genres.includes('+18')) genres.unshift('+18');
   }
   return genres;
@@ -1290,7 +1292,7 @@ export const extractScrapedChapterLinks = (doc: Document, source: ScrapeSource):
       const rawName = extractRawChapterText(item, anchor);
       const numberMatch = `${rawName} ${link}`.match(/(\d+(?:\.\d+)?)/);
       const number = numberMatch ? parseFloat(numberMatch[1]) : 0;
-      const name = sanitizeScrapedChapterName(rawName, number, seriesTitle) || `Bölüm ${number}`;
+      const name = cleanChapterTitle(rawName, number, seriesTitle);
 
       if (!chapters.has(link)) {
         chapters.set(link, { name, link, number });
@@ -1300,20 +1302,6 @@ export const extractScrapedChapterLinks = (doc: Document, source: ScrapeSource):
     if (chapters.size > 0) {
       return [...chapters.values()].sort((a, b) => a.number - b.number);
     }
-  }
-
-  // HentaiTürk: Galeri tek bölüm
-  if (source === 'hentaiturk') {
-    const canonical = doc.querySelector('link[rel="canonical"]')?.getAttribute('href') || '';
-    const idMatch = canonical.match(/\/galeri\/(\d+)/) || (doc.location?.href || '').match(/\/galeri\/(\d+)/);
-    const galleryId = idMatch ? idMatch[1] : '1';
-    const link = `https://hentaiturk.com/g/${galleryId}/1`;
-
-    return [{
-      name: 'Bölüm 1',
-      link,
-      number: 1,
-    }];
   }
 
   // Common chapter link selectors (Madara, OkuToon, etc.)
@@ -1337,7 +1325,7 @@ export const extractScrapedChapterLinks = (doc: Document, source: ScrapeSource):
     const rawName = extractRawChapterText(container, anchor);
     const numberMatch = `${rawName} ${link}`.match(/(\d+(?:\.\d+)?)/);
     const number = numberMatch ? parseFloat(numberMatch[1]) : 0;
-    const name = sanitizeScrapedChapterName(rawName, number, seriesTitle) || `Bölüm ${number}`;
+    const name = cleanChapterTitle(rawName, number, seriesTitle);
 
     if (!chapters.has(link)) {
       chapters.set(link, {
@@ -1376,7 +1364,7 @@ const extractDetailFromJson = (json: Record<string, unknown>, source: ScrapeSour
   for (const ep of episodes) {
     if (!ep || typeof ep !== 'object') continue;
     const num = Number(ep.episode_number || ep.chapter_number || ep.number || 0);
-    const chName = normalizeScrapedText(String(ep.name || ep.title || `Bölüm ${num}`));
+    const chName = cleanChapterTitle(String(ep.name || ep.title || ''), num, title);
     const chId = ep.id || ep.slug || num;
     const link = `${fallbackCard.link}/${chId}`;
     rawChapters.push({
@@ -1462,7 +1450,7 @@ export const extractScrapedMangaDetail = (
 // ---------------------------------------------------------------------------
 
 const WEBTOONHATTI_HIDDEN_STYLE_PATTERN = /(display\s*:\s*none|visibility\s*:\s*hidden)/i;
-const WEBTOONHATTI_JUNK_URL_FRAGMENTS = [
+const JUNK_URL_FRAGMENTS = [
   'whatthe',
   'plase',
   'yaaxa',
@@ -1471,6 +1459,22 @@ const WEBTOONHATTI_JUNK_URL_FRAGMENTS = [
   'banner',
   'discord',
   'donate',
+  'promo',
+  'credit',
+  'credits',
+  'endcard',
+  'end-card',
+  'end_card',
+  'mangadex-card',
+  'read-on-mangadex',
+  'reklam',
+  'tanitim',
+  'duyuru',
+  'recruit',
+  'warning',
+  'no-cover',
+  'placeholder',
+  'default-cover',
 ];
 
 const isElementVisuallyHidden = (element: Element | null) => {
@@ -1496,10 +1500,19 @@ const isElementVisuallyHidden = (element: Element | null) => {
   return false;
 };
 
-const isWebtoonHattiJunkImageUrl = (value: string) => {
-  const normalized = value.toLocaleLowerCase('tr-TR');
-  return WEBTOONHATTI_JUNK_URL_FRAGMENTS.some((fragment) => normalized.includes(fragment));
+export const isJunkImageUrl = (value?: string | null): boolean => {
+  if (!value || typeof value !== 'string') return true;
+  const normalized = value.trim().toLocaleLowerCase('tr-TR');
+  if (!normalized.startsWith('http')) return true;
+  if (/\.(?:svg|ico|gif|enc)(?:\?.*)?$/i.test(normalized)) return true;
+  return JUNK_URL_FRAGMENTS.some((fragment) => normalized.includes(fragment));
 };
+
+export const isJunkCoverUrl = (value?: string | null): boolean => {
+  return isJunkImageUrl(value);
+};
+
+const isWebtoonHattiJunkImageUrl = (value: string) => isJunkImageUrl(value);
 
 export const sanitizeAndDedupePageUrls = (
   urls: string[],
@@ -1584,23 +1597,6 @@ export const extractChapterImageResult = (
   rawContent?: string,
 ): ScrapedChapterImageResult => {
   let images: string[] = [];
-
-  // HentaiTürk: <script> const images = [...];
-  if (source === 'hentaiturk') {
-    const html = rawContent || doc.documentElement?.outerHTML || '';
-    const scriptMatch = html.match(/const\s+images\s*=\s*(\[[\s\S]*?\]);/i)
-      || html.match(/var\s+images\s*=\s*(\[[\s\S]*?\]);/i);
-    if (scriptMatch) {
-      try {
-        const parsed = JSON.parse(scriptMatch[1]);
-        if (Array.isArray(parsed)) {
-          images = parsed.map((item) => (typeof item === 'string' ? item : item?.url || item?.src || '')).filter((u) => u.startsWith('http'));
-        }
-      } catch {
-        // fallback to DOM
-      }
-    }
-  }
 
   // SiyahMelek (init-manga): data-original-src öncelikli oku
   if (source === 'siyahmelek' && images.length === 0) {

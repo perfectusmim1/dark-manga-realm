@@ -56,18 +56,17 @@ export const getCatalogAdminHeaders = async (init?: RequestInit): Promise<Record
     }
   }
 
-  if (headers['Authorization'] || headers['X-Catalog-Admin-Token']) {
-    return headers;
-  }
+  // 2. Node.js / script environment admin token (never expose via VITE_* client bundle)
+  const envAdminToken =
+    (typeof process !== 'undefined' && process.env?.CATALOG_ADMIN_TOKEN) ||
+    '';
 
-  // 2. Node.js / script environment fallback
-  if (typeof process !== 'undefined' && process.env?.CATALOG_ADMIN_TOKEN) {
-    headers['X-Catalog-Admin-Token'] = process.env.CATALOG_ADMIN_TOKEN;
-    return headers;
+  if (envAdminToken && !headers['X-Catalog-Admin-Token']) {
+    headers['X-Catalog-Admin-Token'] = envAdminToken;
   }
 
   // 3. Browser environment: extract Supabase access token from localStorage
-  if (typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
+  if (!headers['Authorization'] && typeof window !== 'undefined' && typeof window.localStorage !== 'undefined') {
     try {
       for (let i = 0; i < window.localStorage.length; i++) {
         const key = window.localStorage.key(i);
@@ -78,7 +77,7 @@ export const getCatalogAdminHeaders = async (init?: RequestInit): Promise<Record
             const token = parsed?.access_token || parsed?.currentSession?.access_token;
             if (token) {
               headers['Authorization'] = `Bearer ${token}`;
-              return headers;
+              break;
             }
           }
         }
@@ -1122,14 +1121,22 @@ export const handleR2CatalogRestRequest = async (
 
     const adminHeaders = await getCatalogAdminHeaders(init);
     try {
-      await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tableName}/mutate`, {
+      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tableName}/mutate`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
           ...adminHeaders,
         },
-        body: JSON.stringify({ action: 'delete', match: matchObj }),
+        body: JSON.stringify({
+          action: 'delete',
+          match: matchObj,
+          rows: deleted.map((r) => r.id).filter(Boolean),
+        }),
       });
+      if (!res.ok) {
+        const errText = await res.text().catch(() => '');
+        console.error(`R2 catalog delete worker returned status ${res.status} for ${tableName}:`, errText);
+      }
     } catch (err) {
       console.error(`R2 catalog delete failed for ${tableName}:`, err);
     }

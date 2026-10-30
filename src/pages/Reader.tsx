@@ -45,6 +45,8 @@ import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
 import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
 import { syncMangaToExternalProviders } from '@/lib/externalSync';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
+import { shouldAvoidRawImageFallback } from '@/lib/imageProxy';
+import { buildProxiedImageUrl } from '@/lib/mediaStorage';
 
 let persistedAutoScrollIntent = false;
 const MIN_READING_SESSION_SECONDS = 1;
@@ -84,6 +86,13 @@ const haveSameReaderPages = (left: string[] = [], right: string[] = []) => (
   left.length === right.length
   && left.every((page, index) => page === right[index])
 );
+
+const toResolvedReaderPage = (rawUrl: string): ResolvedReaderPage => {
+  const normalized = rawUrl?.trim() || '';
+  const needsProxy = shouldAvoidRawImageFallback(normalized);
+  const src = needsProxy ? (buildProxiedImageUrl(normalized) || normalized) : normalized;
+  return { src, source: 'remote' };
+};
 
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
@@ -304,7 +313,9 @@ const Reader: React.FC = () => {
       return;
     }
 
-    const sources = sanitizedChapter.pages.filter(Boolean);
+    const sources = sanitizedChapter.pages
+      .filter(Boolean)
+      .map((page) => (shouldAvoidRawImageFallback(page) ? (buildProxiedImageUrl(page) || page) : page));
     if (sources.length === 0) {
       return;
     }
@@ -327,7 +338,8 @@ const Reader: React.FC = () => {
         return;
       }
 
-      void prefetchImageAsset(page).catch(() => undefined);
+      const targetUrl = shouldAvoidRawImageFallback(page) ? (buildProxiedImageUrl(page) || page) : page;
+      void prefetchImageAsset(targetUrl).catch(() => undefined);
     });
   }, [hydrateChapterWithCachedPages]);
 
@@ -344,7 +356,12 @@ const Reader: React.FC = () => {
     }
 
     const criticalSources = sanitizedChapter.pages.slice(0, Math.min(NEXT_CHAPTER_CRITICAL_PAGES, sanitizedChapter.pages.length));
-    await Promise.allSettled(criticalSources.map((page) => prefetchImageAsset(page)));
+    await Promise.allSettled(
+      criticalSources.map((page) => {
+        const targetUrl = shouldAvoidRawImageFallback(page) ? (buildProxiedImageUrl(page) || page) : page;
+        return prefetchImageAsset(targetUrl);
+      })
+    );
   }, [canUseNetworkReaderFeatures, hydrateChapterWithCachedPages, isOfflineChapter]);
 
   useEffect(() => {
@@ -361,6 +378,38 @@ const Reader: React.FC = () => {
     currentMangaRef.current = manga;
   }, [manga]);
 
+  // Seamless fallback for broken / CORS / blocked reader images
+  useEffect(() => {
+    const handleImageError = (event: Event) => {
+      const target = event.target as HTMLElement | null;
+      if (!target || target.tagName !== 'IMG') {
+        return;
+      }
+
+      const img = target as HTMLImageElement;
+      const rawSrc = img.currentSrc || img.getAttribute('src') || '';
+      if (!rawSrc || !rawSrc.startsWith('http')) {
+        return;
+      }
+
+      // If already routed through worker proxy, don't loop
+      if (rawSrc.includes('toonparrot-offline-image-proxy') || rawSrc.includes('workers.dev')) {
+        return;
+      }
+
+      const proxied = buildProxiedImageUrl(rawSrc);
+      if (proxied && proxied !== rawSrc) {
+        img.src = proxied;
+        setResolvedPages((prevPages) =>
+          prevPages.map((page) => (page.src === rawSrc ? { ...page, src: proxied } : page))
+        );
+      }
+    };
+
+    window.addEventListener('error', handleImageError, true);
+    return () => window.removeEventListener('error', handleImageError, true);
+  }, []);
+
   const prepareChapterTransition = useCallback((targetChapter?: Chapter) => {
     const sanitizedTargetChapter = hydrateChapterWithCachedPages(targetChapter);
     if (
@@ -374,7 +423,7 @@ const Reader: React.FC = () => {
         mangaId: mangaId || '',
         chapterId: sanitizedTargetChapter.id,
         chapter: sanitizedTargetChapter,
-        resolvedPages: sanitizedTargetChapter.pages.map((page) => ({ src: page, source: 'remote' })),
+        resolvedPages: sanitizedTargetChapter.pages.map(toResolvedReaderPage),
       };
       warmCriticalChapterPages(sanitizedTargetChapter);
       prefetchReaderChapter(sanitizedTargetChapter, 'current');
@@ -675,7 +724,7 @@ const Reader: React.FC = () => {
           setOfflineUnavailable(true);
         } else {
           setChapter(resolvedChapter);
-          setResolvedPages(resolvedChapter.pages.map((page) => ({ src: page, source: 'remote' })));
+          setResolvedPages(resolvedChapter.pages.map(toResolvedReaderPage));
           setIsOfflineChapter(false);
           setOfflineUnavailable(false);
         }

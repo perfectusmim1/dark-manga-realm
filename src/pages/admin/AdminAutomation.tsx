@@ -85,12 +85,10 @@ const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> =
   { value: 'golgebahcesi', label: 'Gölge Bahçesi' },
   { value: 'dxdfansub', label: 'DxDFansub' },
   { value: 'siyahmelek', label: 'SiyahMelek' },
-  { value: 'hentaiturk', label: 'HentaiTürk (+18)' },
   { value: 'hattorimanga', label: 'HattoriManga' },
 ];
 
-const isAdultOnlyAutomationSource = (source: ChapterAutomationSource) =>
-  source === 'hentaiturk';
+const isAdultOnlyAutomationSource = (_source: ChapterAutomationSource) => false;
 
 const DEFAULT_TIME_SLOT = '13:00';
 const TURKEY_TIME_PLACEHOLDER = '13:00';
@@ -218,8 +216,6 @@ const getSourceUrlPlaceholder = (source: ChapterAutomationSource) => {
       return 'https://dxdfansub.com/manga/...';
     case 'siyahmelek':
       return 'https://siyahmelek.my/manga/ornek-seri/';
-    case 'hentaiturk':
-      return 'https://hentaiturk.com/galeri/504';
     case 'hattorimanga':
       return 'https://hattorimanga.net/manga/ornek-seri/';
     default:
@@ -247,9 +243,12 @@ const AdminAutomation: React.FC = () => {
   const [isTestingAll, setIsTestingAll] = useState(false);
   const [pendingDeleteAutomation, setPendingDeleteAutomation] = useState<ChapterAutomation | null>(null);
   const [automationSearchQuery, setAutomationSearchQuery] = useState('');
+  const [automationStatusFilter, setAutomationStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [visibleAutomationCount, setVisibleAutomationCount] = useState(AUTOMATION_BATCH_SIZE);
   const [isClearingRecentRuns, setIsClearingRecentRuns] = useState(false);
   const [isClearRecentRunsDialogOpen, setIsClearRecentRunsDialogOpen] = useState(false);
+  const [isClearingInactive, setIsClearingInactive] = useState(false);
+  const [isClearInactiveDialogOpen, setIsClearInactiveDialogOpen] = useState(false);
   const automationListRef = useRef<HTMLDivElement | null>(null);
   const automationLoadMoreRef = useRef<HTMLDivElement | null>(null);
   const requiresAdultManga = isAdultOnlyAutomationSource(form.source);
@@ -285,14 +284,26 @@ const AdminAutomation: React.FC = () => {
     [testingAutomationIds],
   );
 
+  const inactiveAutomations = useMemo(
+    () => automations.filter((a) => !a.isActive),
+    [automations],
+  );
+
   const filteredAutomations = useMemo(() => {
+    let list = automations;
+    if (automationStatusFilter === 'active') {
+      list = list.filter((a) => a.isActive);
+    } else if (automationStatusFilter === 'inactive') {
+      list = list.filter((a) => !a.isActive);
+    }
+
     const query = deferredAutomationSearchQuery.trim().toLocaleLowerCase('tr-TR');
 
     if (!query) {
-      return automations;
+      return list;
     }
 
-    return automations.filter((automation) => {
+    return list.filter((automation) => {
       const sourceLabel = SOURCE_OPTIONS.find((option) => option.value === automation.source)?.label || automation.source;
       const haystack = [
         automation.mangaTitle,
@@ -305,7 +316,7 @@ const AdminAutomation: React.FC = () => {
 
       return haystack.includes(query);
     });
-  }, [automations, deferredAutomationSearchQuery]);
+  }, [automations, automationStatusFilter, deferredAutomationSearchQuery]);
 
   const visibleAutomations = useMemo(
     () => filteredAutomations.slice(0, visibleAutomationCount),
@@ -533,20 +544,49 @@ const AdminAutomation: React.FC = () => {
       return;
     }
 
+    const targetId = pendingDeleteAutomation.id;
     try {
-      setBusyAutomationId(pendingDeleteAutomation.id);
-      await deleteChapterAutomation(pendingDeleteAutomation.id);
+      setBusyAutomationId(targetId);
+      setAutomations((current) => current.filter((a) => a.id !== targetId));
+      await deleteChapterAutomation(targetId);
       await loadPageData();
-      if (editingAutomationId === pendingDeleteAutomation.id) {
+      if (editingAutomationId === targetId) {
         resetForm();
       }
       toast.success('Otomasyon silindi');
     } catch (error) {
       console.error('Chapter automation delete failed:', error);
       toast.error(error instanceof Error ? error.message : 'Otomasyon silinemedi');
+      await loadPageData();
     } finally {
       setBusyAutomationId(null);
       setPendingDeleteAutomation(null);
+    }
+  };
+
+  const handleClearInactiveAutomations = async () => {
+    if (inactiveAutomations.length === 0) {
+      return;
+    }
+
+    try {
+      setIsClearingInactive(true);
+      const targetIds = new Set(inactiveAutomations.map((a) => a.id));
+      setAutomations((current) => current.filter((a) => !targetIds.has(a.id)));
+
+      for (const auto of inactiveAutomations) {
+        await deleteChapterAutomation(auto.id);
+      }
+
+      await loadPageData();
+      toast.success(`${targetIds.size} pasif otomasyon silindi`);
+    } catch (error) {
+      console.error('Chapter automation clear inactive failed:', error);
+      toast.error(error instanceof Error ? error.message : 'Pasif otomasyonlar silinemedi');
+      await loadPageData();
+    } finally {
+      setIsClearingInactive(false);
+      setIsClearInactiveDialogOpen(false);
     }
   };
 
@@ -1119,6 +1159,21 @@ const AdminAutomation: React.FC = () => {
                 </CardDescription>
               </div>
               <div className="flex shrink-0 flex-col gap-2 sm:flex-row">
+                {inactiveAutomations.length > 0 ? (
+                  <Button
+                    variant="outline"
+                    className="w-full text-destructive hover:bg-destructive/10 hover:text-destructive sm:w-auto"
+                    onClick={() => setIsClearInactiveDialogOpen(true)}
+                    disabled={isBootstrapping || isClearingInactive}
+                  >
+                    {isClearingInactive ? (
+                      <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="mr-2 h-4 w-4" />
+                    )}
+                    Pasifleri Temizle ({inactiveAutomations.length})
+                  </Button>
+                ) : null}
                 <Button
                   variant="outline"
                   className="w-full sm:w-auto"
@@ -1145,6 +1200,35 @@ const AdminAutomation: React.FC = () => {
                 placeholder="Seri adı, kaynak linki veya site ara"
                 className="pl-9"
               />
+            </div>
+            <div className="mt-3 flex flex-wrap items-center gap-2">
+              <Button
+                type="button"
+                size="sm"
+                variant={automationStatusFilter === 'all' ? 'default' : 'outline'}
+                className="h-7 text-xs"
+                onClick={() => setAutomationStatusFilter('all')}
+              >
+                Tümü ({automations.length})
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={automationStatusFilter === 'active' ? 'default' : 'outline'}
+                className="h-7 text-xs"
+                onClick={() => setAutomationStatusFilter('active')}
+              >
+                Aktif ({automations.length - inactiveAutomations.length})
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={automationStatusFilter === 'inactive' ? 'default' : 'outline'}
+                className="h-7 text-xs"
+                onClick={() => setAutomationStatusFilter('inactive')}
+              >
+                Pasif ({inactiveAutomations.length})
+              </Button>
             </div>
           </CardHeader>
           <CardContent>
@@ -1350,6 +1434,30 @@ const AdminAutomation: React.FC = () => {
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
             >
               Sil
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog open={isClearInactiveDialogOpen} onOpenChange={setIsClearInactiveDialogOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Pasif Otomasyonları Temizle</AlertDialogTitle>
+            <AlertDialogDescription>
+              {inactiveAutomations.length} adet pasif durumda olan otomasyon kalıcı olarak silinecek. Zamanlama ve çalışma geçmişleri kaldırılır, manga bölümleri silinmez.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={isClearingInactive}>İptal</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => void handleClearInactiveAutomations()}
+              disabled={isClearingInactive}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+            >
+              {isClearingInactive ? (
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              ) : null}
+              Pasifleri Sil
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

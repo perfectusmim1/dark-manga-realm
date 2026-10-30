@@ -1,12 +1,13 @@
 import { supabaseAnonKey, supabaseUrl } from '@/lib/supabase';
 
-export const defaultOfflineImageProxyUrl = `${supabaseUrl}/functions/v1/offline-image-proxy`;
+export const defaultOfflineImageProxyUrl = 'https://toonparrot-offline-image-proxy.caganhuseyinerdil.workers.dev';
 const configuredProxyUrl = import.meta.env.VITE_OFFLINE_IMAGE_PROXY_URL?.trim();
+const activeProxyUrl = configuredProxyUrl || defaultOfflineImageProxyUrl;
 
 export const offlineProxyConfig = {
-  url: configuredProxyUrl || defaultOfflineImageProxyUrl,
+  url: activeProxyUrl,
   defaultUrl: defaultOfflineImageProxyUrl,
-  usesSupabaseAuth: !(configuredProxyUrl && configuredProxyUrl !== defaultOfflineImageProxyUrl),
+  usesSupabaseAuth: Boolean(activeProxyUrl && activeProxyUrl.includes('/functions/v1/')),
   supabaseAnonKey,
 };
 

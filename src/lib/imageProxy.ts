@@ -58,6 +58,12 @@ const PROXY_ONLY_HOSTS = [
   'kirmizikafa.monster',
   'hayalistic.com',
   'hayalistic.com.tr',
+  's4.anilist.co',
+  'anilist.co',
+  'myanimelist.net',
+  'cdn.myanimelist.net',
+  'wikia.nocookie.net',
+  'static.wikia.nocookie.net',
 ] as const;
 
 const PROXY_SUPPORTED_HOSTS = [
@@ -70,10 +76,6 @@ const PROXY_SUPPORTED_HOSTS = [
   'cdn.hentaiturk.com',
   'mangacix.net',
   'cdn.mangacix.net',
-  'anilist.co',
-  's4.anilist.co',
-  'myanimelist.net',
-  'cdn.myanimelist.net',
 ] as const;
 
 const matchesHostRule = (hostname: string, rule: string) => (
