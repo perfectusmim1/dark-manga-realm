@@ -54,3 +54,6 @@ test-*
 *.njsproj
 *.sln
 *.sw?
+
+.vercel
+.env*
