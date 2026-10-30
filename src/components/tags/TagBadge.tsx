@@ -56,15 +56,27 @@ const TagBadge: React.FC<TagBadgeProps> = ({
 
   return (
     <div
+      role={onClick ? 'button' : undefined}
+      tabIndex={onClick ? 0 : undefined}
+      onKeyDown={
+        onClick
+          ? (e) => {
+              if (e.key === 'Enter' || e.key === ' ') {
+                e.preventDefault();
+                onClick();
+              }
+            }
+          : undefined
+      }
       className={cn(
         'group inline-flex max-w-full min-w-0 items-center gap-1.5 overflow-hidden rounded-full border transition-all duration-200',
         size === 'sm' ? 'px-2 py-0.5 text-xs' : 'px-3 py-1 text-sm',
         selected
-          ? 'bg-primary/20 border-primary/40 text-primary shadow-[0_0_8px_rgba(var(--primary),0.15)]'
+          ? 'bg-primary/20 border-primary/40 text-primary shadow-[0_0_8px_rgba(var(--primary),0.15)] hover:bg-primary/30 hover:text-primary'
           : accepted && !tag.isOfficial
             ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
             : `${config.bg} ${config.border} ${config.text}`,
-        onClick && 'cursor-pointer hover:border-primary/50 transition-colors',
+        onClick && 'cursor-pointer hover:border-primary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background transition-colors',
         tag.isOfficial && 'ring-1 ring-primary/10'
       )}
       onClick={onClick}

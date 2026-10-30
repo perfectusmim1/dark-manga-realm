@@ -2,11 +2,11 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { AnimatePresence, motion } from 'framer-motion';
 import {
-  BarChart3,
+  ChevronLeft,
+  ChevronRight,
   Clock3,
   Crown,
   Flame,
-  Lock,
   ShieldCheck,
   Sparkles,
 } from 'lucide-react';
@@ -16,6 +16,7 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
+import { ADULT_MODE_CHANGED_EVENT, AdultModeChangedDetail } from '@/lib/adultModeEvents';
 import { getTopTenPageBuckets } from '@/lib/database';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
@@ -307,10 +308,10 @@ const TopTenCard: React.FC<{
 
         <div className="flex items-center justify-between gap-1.5 border-t border-border/70 px-2.5 py-2 text-[8px] text-muted-foreground sm:gap-3 sm:px-4 sm:py-3 sm:text-xs">
           <span className="min-w-0 truncate">
-            {manga.genres[0] || 'Arşiv Seçkisi'}
+            {manga.genres?.[0] || 'Arşiv Seçkisi'}
           </span>
           <span className={cn('shrink-0 font-medium', chapterCountClassName)}>
-            {manga.chapterCount || manga.chapters.length || 0} bölüm
+            {manga.chapterCount || manga.chapters?.length || 0} bölüm
           </span>
         </div>
       </div>
@@ -352,39 +353,85 @@ const TopTenAudienceBlock: React.FC<{
     ? 'border-rose-400/15 bg-rose-500/5 text-rose-50'
     : 'border-white/15 bg-white/5 text-white/88';
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  const canUseWheelCarousel = !isCoarsePointer;
+  const rafRef = useRef<number | null>(null);
+  const [showLeftArrow, setShowLeftArrow] = useState(false);
+  const [showRightArrow, setShowRightArrow] = useState(false);
 
-  const handleCarouselWheel = useCallback((event: React.WheelEvent<HTMLDivElement>) => {
-    if (!canUseWheelCarousel) {
+  const updateArrows = useCallback(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) {
+      setShowLeftArrow(false);
+      setShowRightArrow(false);
       return;
     }
 
-    const scroller = event.currentTarget;
+    const { scrollLeft, scrollWidth, clientWidth } = scroller;
+    setShowLeftArrow(scrollLeft > 15);
+    setShowRightArrow(scrollWidth > clientWidth + 15 && scrollLeft < scrollWidth - clientWidth - 15);
+  }, []);
 
-    const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
-    if (maxScrollLeft <= 0) {
+  const requestArrowUpdate = useCallback(() => {
+    if (typeof window === 'undefined') {
       return;
     }
-
-    const dominantDelta = Math.abs(event.deltaY) >= Math.abs(event.deltaX)
-      ? event.deltaY
-      : event.deltaX;
-    if (Math.abs(dominantDelta) < 1) {
-      return;
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
     }
+    rafRef.current = window.requestAnimationFrame(() => {
+      rafRef.current = null;
+      updateArrows();
+    });
+  }, [updateArrows]);
 
-    event.preventDefault();
-    event.stopPropagation();
-    scroller.scrollLeft = Math.max(0, Math.min(maxScrollLeft, scroller.scrollLeft + (dominantDelta * 1.1)));
-  }, [canUseWheelCarousel]);
+  const scroll = (direction: 'left' | 'right') => {
+    const scroller = scrollRef.current;
+    if (scroller) {
+      const scrollAmount = Math.max(260, scroller.clientWidth * 0.75);
+      const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      const target = direction === 'left'
+        ? Math.max(0, scroller.scrollLeft - scrollAmount)
+        : Math.min(maxScrollLeft, scroller.scrollLeft + scrollAmount);
+
+      scroller.scrollTo({
+        left: target,
+        behavior: 'smooth',
+      });
+      window.setTimeout(requestArrowUpdate, 450);
+    }
+  };
 
   useEffect(() => {
-    if (!scrollRef.current) {
-      return;
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+
+    scroller.scrollTo({ left: 0, behavior: 'auto' });
+    requestArrowUpdate();
+
+    const handleResize = () => requestArrowUpdate();
+    window.addEventListener('resize', handleResize, { passive: true });
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== 'undefined') {
+      observer = new ResizeObserver(() => {
+        requestArrowUpdate();
+      });
+      observer.observe(scroller);
     }
 
-    scrollRef.current.scrollTo({ left: 0, behavior: 'auto' });
-  }, [timeframe, audience]);
+    const timer = window.setTimeout(requestArrowUpdate, 200);
+
+    return () => {
+      window.removeEventListener('resize', handleResize);
+      observer?.disconnect();
+      window.clearTimeout(timer);
+    };
+  }, [timeframe, audience, manga.length, requestArrowUpdate]);
+
+  useEffect(() => () => {
+    if (rafRef.current !== null) {
+      window.cancelAnimationFrame(rafRef.current);
+    }
+  }, []);
 
   return (
     <section
@@ -400,7 +447,7 @@ const TopTenAudienceBlock: React.FC<{
             }
       }
     >
-      <div className={`relative min-w-0 max-w-full overflow-hidden rounded-[18px] border p-3 shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:rounded-[30px] sm:p-6 lg:p-7 ${isSinglePanel ? 'xl:mx-auto xl:max-w-[68rem]' : ''} ${audienceMeta.frameClassName}`}>
+      <div className={`relative min-w-0 max-w-full overflow-hidden rounded-[18px] border p-3 shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:rounded-[30px] sm:p-6 lg:p-7 ${isSinglePanel ? 'xl:mx-auto xl:max-w-[76rem]' : ''} ${audienceMeta.frameClassName}`}>
         <div className="relative z-10">
           <div className="mb-3 flex flex-col gap-3 border-b border-white/10 pb-3 sm:mb-6 sm:gap-5 sm:pb-6">
             <div className="flex min-w-0 flex-col items-start gap-2.5 xl:flex-row xl:items-start xl:justify-between">
@@ -452,21 +499,57 @@ const TopTenAudienceBlock: React.FC<{
             </AnimatePresence>
           </div>
 
-          <div className="relative min-w-0 overflow-visible">
+          <div className="relative min-w-0 overflow-visible group/carousel">
+            {/* Sola Kaydır Butonu */}
+            <AnimatePresence>
+              {showLeftArrow && (
+                <motion.button
+                  type="button"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={() => scroll('left')}
+                  className="absolute left-1 sm:left-2 top-[55%] -translate-y-1/2 z-30 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/85 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.65)] backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  aria-label="Sola kaydır"
+                >
+                  <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px]" strokeWidth={2.25} />
+                </motion.button>
+              )}
+            </AnimatePresence>
+
+            {/* Sağa Kaydır Butonu */}
+            <AnimatePresence>
+              {showRightArrow && (
+                <motion.button
+                  type="button"
+                  initial={{ opacity: 0, scale: 0.8 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.8 }}
+                  transition={{ duration: 0.15 }}
+                  onClick={() => scroll('right')}
+                  className="absolute right-1 sm:right-2 top-[55%] -translate-y-1/2 z-30 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/85 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.65)] backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  aria-label="Sağa kaydır"
+                >
+                  <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px]" strokeWidth={2.25} />
+                </motion.button>
+              )}
+            </AnimatePresence>
+
             <AnimatePresence mode="wait" initial={false}>
               {isLoading ? (
                 <motion.div
                   key={`${audience}-${timeframe}-loading`}
-                  initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 10 }}
+                  initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -8 }}
-                  transition={{ duration: disableHeavyEffects ? 0.14 : 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
+                  transition={{ duration: disableHeavyEffects ? 0.12 : 0.16 }}
                   className="flex w-full max-w-full min-w-0 gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2"
                 >
-                  {Array.from({ length: 3 }).map((_, index) => (
+                  {Array.from({ length: 4 }).map((_, index) => (
                     <div key={`${audience}-${timeframe}-skeleton-${index}`} className={`shrink-0 ${TOP_TEN_CARD_WIDTH_CLASS} animate-pulse`}>
-                      <div className="mb-3 h-12 w-20 rounded-full bg-white/10" />
-                      <div className="overflow-hidden rounded-[24px] border border-white/10 bg-white/5">
+                      <div className="mb-2 h-10 w-16 rounded-full bg-white/10" />
+                      <div className="overflow-hidden rounded-[20px] border border-white/10 bg-white/5 sm:rounded-[24px]">
                         <div className="aspect-[3/4] bg-white/10" />
                         <div className="space-y-2 border-t border-white/10 px-4 py-3">
                           <div className="h-3 rounded bg-white/10" />
@@ -479,30 +562,23 @@ const TopTenAudienceBlock: React.FC<{
               ) : manga.length > 0 ? (
                 <motion.div
                   key={`${audience}-${timeframe}-content`}
-                  initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 12 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -10 }}
-                  transition={{ duration: disableHeavyEffects ? 0.14 : 0.22, ease: [0.22, 1, 0.36, 1] }}
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  transition={{ duration: 0.16, ease: 'easeOut' }}
                   className="min-w-0"
                 >
                   <div
                     ref={scrollRef}
-                    onWheelCapture={handleCarouselWheel}
-                    className="flex w-full max-w-full min-w-0 snap-x snap-mandatory gap-2 overflow-x-auto overscroll-contain pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2"
-                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
+                    onScroll={updateArrows}
+                    className="flex w-full max-w-full min-w-0 snap-x snap-proximity gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2 scroll-smooth"
+                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
                   >
                     {manga.map((item, index) => (
-                      <motion.div
-                        key={`${audience}-${timeframe}-${item.id}`}
+                      <div
+                        key={`${audience}-${item.id}`}
                         data-top-ten-card
                         className={`shrink-0 snap-start ${TOP_TEN_CARD_WIDTH_CLASS}`}
-                        initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 18, scale: disableHeavyEffects ? 1 : 0.985 }}
-                        animate={{ opacity: 1, y: 0, scale: 1 }}
-                        transition={{
-                          duration: disableHeavyEffects ? 0.14 : 0.22,
-                          delay: disableHeavyEffects ? 0 : Math.min(index * 0.04, 0.16),
-                          ease: [0.22, 1, 0.36, 1],
-                        }}
                       >
                         <TopTenCard
                           manga={item}
@@ -510,17 +586,17 @@ const TopTenAudienceBlock: React.FC<{
                           audience={audience}
                           disableHeavyEffects={disableHeavyEffects}
                         />
-                      </motion.div>
+                      </div>
                     ))}
                   </div>
                 </motion.div>
               ) : (
                 <motion.div
                   key={`${audience}-${timeframe}-empty`}
-                  initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 10 }}
+                  initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
                   animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -8 }}
-                  transition={{ duration: disableHeavyEffects ? 0.14 : 0.2, ease: [0.22, 1, 0.36, 1] }}
+                  exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
+                  transition={{ duration: disableHeavyEffects ? 0.12 : 0.16 }}
                   className="rounded-[24px] border border-dashed border-white/15 bg-black/18 p-6 text-center sm:rounded-[28px] sm:p-8"
                 >
                   <p className="text-[13px] text-white/68 sm:text-sm">
@@ -546,7 +622,27 @@ const TopTen: React.FC = () => {
   });
   const [sections, setSections] = useState<TopTenSections>(() => readCachedTopTenSections());
   const [isLoading, setIsLoading] = useState(true);
-  const adultModeEnabled = user?.preferences?.content?.adult_mode === true;
+  const [adultModeEnabled, setAdultModeEnabled] = useState(
+    () => user?.preferences?.content?.adult_mode === true,
+  );
+
+  useEffect(() => {
+    setAdultModeEnabled(user?.preferences?.content?.adult_mode === true);
+  }, [user?.preferences?.content?.adult_mode]);
+
+  useEffect(() => {
+    const handleAdultModeChanged = (event: Event) => {
+      const customEvent = event as CustomEvent<AdultModeChangedDetail>;
+      if (typeof customEvent.detail?.enabled === 'boolean') {
+        setAdultModeEnabled(customEvent.detail.enabled);
+      }
+    };
+
+    window.addEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
+    return () => {
+      window.removeEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
+    };
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -631,7 +727,7 @@ const TopTen: React.FC = () => {
       <main className="container overflow-x-clip pb-8 pt-[4.5rem] sm:pb-12 sm:pt-24">
         
 
-        <div className={`mt-4 grid min-w-0 gap-4 sm:mt-10 sm:gap-8 ${adultModeEnabled ? 'xl:grid-cols-2' : ''}`}>
+        <div className={`mt-4 grid min-w-0 gap-4 sm:mt-10 sm:gap-8 ${adultModeEnabled ? 'xl:grid-cols-2' : 'max-w-7xl mx-auto'}`}>
           <TopTenAudienceBlock
             audience="safe"
             timeframe={activeTimeframes.safe}
@@ -653,25 +749,7 @@ const TopTen: React.FC = () => {
               disableHeavyEffects={disableHeavyEffects}
               isCoarsePointer={isCoarsePointer}
             />
-          ) : (
-            <section
-              className={`rounded-[30px] border border-dashed border-border bg-card/50 p-6 shadow-[0_18px_40px_rgba(15,23,42,0.12)] ${adultModeEnabled ? 'hidden' : ''}`}
-            >
-              <div className="flex items-start gap-4">
-                <span className="inline-flex h-12 w-12 shrink-0 items-center justify-center rounded-2xl border border-border/70 bg-background/70 text-muted-foreground">
-                  <Lock className="h-5 w-5" />
-                </span>
-                <div>
-                  <h2 className="text-xl font-black tracking-tight">
-                    18+ Top 10 kilitli
-                  </h2>
-                  <p className="mt-2 max-w-xl text-sm leading-6 text-muted-foreground">
-                    Yetişkin modu açık değilse ayrı 18+ sıralama gösterilmez. Ayarı açan kullanıcılar burada yalnızca yetişkin serilere özel Top 10 listesini görür.
-                  </p>
-                </div>
-              </div>
-            </section>
-          )}
+          ) : null}
         </div>
       </main>
     </div>

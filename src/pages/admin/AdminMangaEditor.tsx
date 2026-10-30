@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Textarea } from '@/components/ui/textarea';
 import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
 import { Switch } from '@/components/ui/switch';
 import { Checkbox } from '@/components/ui/checkbox';
 import {
@@ -1366,16 +1367,25 @@ const AdminMangaEditor: React.FC = () => {
                         <div className="space-y-2">
                             <label className="text-sm font-medium">Türler</label>
                             <div className="flex flex-wrap gap-2">
-                                {allGenres.map((genre) => (
-                                    <Badge
-                                        key={genre}
-                                        variant={manga.genres?.includes(genre) ? 'default' : 'outline'}
-                                        className="cursor-pointer"
-                                        onClick={() => toggleGenre(genre)}
-                                    >
-                                        {genre}
-                                    </Badge>
-                                ))}
+                                {allGenres.map((genre) => {
+                                    const isSelected = manga.genres?.includes(genre);
+                                    return (
+                                        <button
+                                            key={genre}
+                                            type="button"
+                                            onClick={() => toggleGenre(genre)}
+                                            aria-pressed={isSelected}
+                                            className={cn(
+                                                "cursor-pointer px-3 py-1 text-xs font-semibold rounded-full border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                                                isSelected
+                                                    ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground hover:border-primary active:bg-primary/90"
+                                                    : "border-border bg-card/40 text-foreground hover:border-primary/50 hover:bg-secondary/70 hover:text-foreground active:bg-secondary/90"
+                                            )}
+                                        >
+                                            {genre}
+                                        </button>
+                                    );
+                                })}
                             </div>
                         </div>
 

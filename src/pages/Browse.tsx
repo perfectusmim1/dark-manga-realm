@@ -2,6 +2,7 @@ import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Filter, X } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import { cn } from '@/lib/utils';
 import VirtualMangaGrid from '@/components/manga/VirtualMangaGrid';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -464,16 +465,25 @@ const Browse: React.FC = () => {
         {/* Genre Filters */}
         {showFilters && (
           <div className="mb-6 flex flex-wrap gap-2.5 rounded-xl border border-border bg-card/50 p-4 sm:p-5">
-            {allGenres.map((genre) => (
-              <Badge
-                key={genre}
-                variant={selectedGenres.includes(genre) ? 'default' : 'outline'}
-                className="cursor-pointer px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors hover:border-primary/50 hover:bg-secondary/70"
-                onClick={() => toggleGenre(genre)}
-              >
-                {genre}
-              </Badge>
-            ))}
+            {allGenres.map((genre) => {
+              const isSelected = selectedGenres.includes(genre);
+              return (
+                <button
+                  key={genre}
+                  type="button"
+                  onClick={() => toggleGenre(genre)}
+                  aria-pressed={isSelected}
+                  className={cn(
+                    "cursor-pointer px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                    isSelected
+                      ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground hover:border-primary active:bg-primary/90"
+                      : "border-border bg-card/40 text-foreground hover:border-primary/50 hover:bg-secondary/70 hover:text-foreground active:bg-secondary/90"
+                  )}
+                >
+                  {genre}
+                </button>
+              );
+            })}
           </div>
         )}
 
