@@ -25,6 +25,7 @@ supabase/
 cloudflare/
 scripts/*
 !scripts/auto-catalog-sync.mjs
+!scripts/build-full-r2-archive.mjs
 docs/
 android/
 
