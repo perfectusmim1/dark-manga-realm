@@ -246,7 +246,14 @@ const cleanSeriesTitle = (title) => {
   // Clean edge decorative punctuation
   text = text.replace(/^[♥★✨🔥⭐\s,:–—\-]+|[♥★✨🔥⭐\s,:–—\-]+$/gu, '');
 
-  return text.replace(/\s+/g, ' ').trim();
+  text = text.replace(/\s+/g, ' ').trim();
+
+  // Tamamı küçük harf olan sitemap slug başlıklarını ("beach goddess" -> "Beach Goddess") Title Case yap
+  if (text && text === text.toLocaleLowerCase('tr-TR') && /[a-zçğıöşü]/i.test(text)) {
+    text = text.split(' ').map((w) => (w ? w.charAt(0).toLocaleUpperCase('tr-TR') + w.slice(1) : '')).join(' ');
+  }
+
+  return text;
 };
 
 const tokenizeComparableTitle = (title) =>
