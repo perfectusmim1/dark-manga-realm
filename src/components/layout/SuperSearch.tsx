@@ -243,7 +243,7 @@ const SuperSearch: React.FC = () => {
                                                             src={manga.cover}
                                                             alt={manga.title}
                                                             className={cn(
-                                                                'h-full w-full object-cover transition-transform duration-500 group-hover:scale-105',
+                                                                'h-full w-full object-cover',
                                                                 blurAdultArtwork && manga.isAdult === true && 'scale-[1.03] blur-sm',
                                                             )}
                                                         />

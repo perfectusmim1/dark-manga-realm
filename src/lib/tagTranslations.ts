@@ -368,8 +368,15 @@ const EN_TO_TR: Record<string, string> = {
  * Translate an English tag slug to Turkish display name.
  * Falls back to the original slug if no translation exists.
  */
-export const getTagDisplayName = (slug: string, fallbackName?: string): string => {
-  const normalizedSlug = slug
+export const getTagDisplayName = (slug?: string | null, fallbackName?: string | null): string => {
+  const rawInput = `${slug || fallbackName || ''}`.trim();
+  if (!rawInput) {
+    return '';
+  }
+
+  const normalizedSlug = rawInput
+    .replace(/\u0130/g, 'I')
+    .replace(/\u0131/g, 'i')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
@@ -384,5 +391,5 @@ export const getTagDisplayName = (slug: string, fallbackName?: string): string =
   }
 
   // Fall back to original name if no translation found
-  return fallbackName || slug;
+  return fallbackName || slug || rawInput;
 };

@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { getCachedImageAsset, prefetchImageAsset } from '@/lib/imagePrefetch';
+import { shouldAvoidRawImageFallback } from '@/lib/imageProxy';
 import { buildProxiedImageUrl } from '@/lib/mediaStorage';
 
 interface ProtectedImageProps {
@@ -25,12 +26,13 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
     const containerRef = useRef<HTMLDivElement>(null);
     const isExternalUrl = src.startsWith('http://') || src.startsWith('https://');
     const shouldBypassCanvas = src.startsWith('blob:') || src.startsWith('data:');
+    const avoidRaw = shouldAvoidRawImageFallback(src);
     const [useFallback, setUseFallback] = useState(shouldBypassCanvas);
     const [isBroken, setIsBroken] = useState(false);
     const [isMediaReady, setIsMediaReady] = useState(false);
-    const [useProxyFallback, setUseProxyFallback] = useState(false);
+    const [useProxyFallback, setUseProxyFallback] = useState(avoidRaw);
 
-    const currentSrc = useProxyFallback && isExternalUrl
+    const currentSrc = (useProxyFallback || avoidRaw) && isExternalUrl
         ? buildProxiedImageUrl(src) || src
         : src;
 
@@ -38,7 +40,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
         setUseFallback(shouldBypassCanvas);
         setIsBroken(false);
         setIsMediaReady(false);
-        setUseProxyFallback(false);
+        setUseProxyFallback(shouldAvoidRawImageFallback(src));
     }, [shouldBypassCanvas, src]);
 
     useEffect(() => {
@@ -145,6 +147,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
                     alt={alt}
                     className="w-full h-auto block select-none pointer-events-none"
                     draggable={false}
+                    referrerPolicy="no-referrer"
                     onContextMenu={(e) => e.preventDefault()}
                     onLoad={() => setIsMediaReady(true)}
                     onError={handleImgError}

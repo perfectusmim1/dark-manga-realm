@@ -68,7 +68,7 @@ const FeaturedManga: React.FC<FeaturedMangaProps> = ({ manga }) => {
         {/* Cover */}
         <Link
           to={`/manga/${manga.id}`}
-          className="group relative shrink-0 overflow-hidden rounded-xl shadow-2xl shadow-primary/10 transition-transform duration-300 hover:scale-[1.02]"
+          className="group relative shrink-0 overflow-hidden rounded-xl shadow-2xl shadow-primary/10 "
         >
           <img
             src={manga.cover}

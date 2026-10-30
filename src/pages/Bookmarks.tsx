@@ -246,7 +246,7 @@ const Bookmarks: React.FC = () => {
                               containerClassName="h-full w-full"
                               placeholderClassName="rounded-none"
                               sizes="(min-width: 1280px) 18vw, (min-width: 1024px) 22vw, (min-width: 640px) 28vw, 48vw"
-                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                              className="h-full w-full object-cover "
                             />
                           ) : (
                             <ProxyImage

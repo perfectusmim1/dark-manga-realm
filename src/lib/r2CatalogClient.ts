@@ -100,6 +100,67 @@ const CACHE_TTL_MS = 60_000; // 60s memory cache TTL for read-heavy operations
 /**
  * Defensive normalization: ensures both snake_case and camelCase column aliases exist
  */
+const slugifyTagClient = (value?: unknown): string =>
+  `${value ?? ''}`
+    .replace(/\u0130/g, 'I')
+    .replace(/\u0131/g, 'i')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]/g, '')
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+
+const normalizeCatalogTableRow = (tableName: string, rawRow: any): any => {
+  const row = normalizeRowFields(rawRow);
+  if (!row || typeof row !== 'object') return row;
+
+  if (tableName === 'tags') {
+    const name = `${row.name || row.slug || 'Genel'}`.trim();
+    const slug = slugifyTagClient(row.slug || name) || 'general';
+    row.name = name;
+    row.slug = slug;
+    if (!row.category) row.category = 'theme';
+    if (row.is_official === undefined && row.isOfficial === undefined) {
+      row.is_official = true;
+      row.isOfficial = true;
+    } else {
+      const official = Boolean(row.is_official ?? row.isOfficial);
+      row.is_official = official;
+      row.isOfficial = official;
+    }
+    if (row.community_approved === undefined && row.communityApproved === undefined) {
+      row.community_approved = true;
+      row.communityApproved = true;
+    } else {
+      const approved = Boolean(row.community_approved ?? row.communityApproved);
+      row.community_approved = approved;
+      row.communityApproved = approved;
+    }
+    const usageCount = Number(row.usage_count ?? row.usageCount ?? 0);
+    row.usage_count = usageCount;
+    row.usageCount = usageCount;
+  } else if (
+    tableName === 'manga_tags' ||
+    tableName === 'character_tags' ||
+    tableName === 'author_tags' ||
+    tableName === 'artist_tags'
+  ) {
+    const discoverable =
+      row.is_discoverable !== undefined
+        ? Boolean(row.is_discoverable)
+        : row.isDiscoverable !== undefined
+        ? Boolean(row.isDiscoverable)
+        : true;
+    row.is_discoverable = discoverable;
+    row.isDiscoverable = discoverable;
+    if (!row.status) row.status = 'accepted';
+  }
+
+  return row;
+};
+
 const normalizeRowFields = (row: any): any => {
   if (!row || typeof row !== 'object') return row;
 
@@ -244,7 +305,7 @@ export const ensureCatalogLoaded = async (force = false): Promise<void> => {
           seriesHydrationPromises.clear();
           for (const tbl of R2_CATALOG_TABLES) {
             const rawRows = Array.isArray(body.tables[tbl]) ? body.tables[tbl] : [];
-            const rows = rawRows.map(normalizeRowFields);
+            const rows = rawRows.map((r: any) => normalizeCatalogTableRow(tbl, r));
             tableStore.set(tbl, rows);
           }
           lastLoadedTime = Date.now();
@@ -795,20 +856,13 @@ export const handleR2CatalogRestRequest = async (
         const manga = mangas.find((m) => m.id === mangaId);
         if (manga) {
           manga.views = (manga.views || 0) + 1;
-          getCatalogAdminHeaders(init).then((adminHeaders) => {
-            fetch(`${CATALOG_WORKER_URL}/v1/admin/table/mangas/mutate`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                ...adminHeaders,
-              },
-              body: JSON.stringify({
-                action: 'update',
-                match: { id: mangaId },
-                patch: { views: manga.views },
-              }),
-            }).catch((err) => console.error('increment_manga_views mutate error:', err));
-          });
+        }
+        if (CATALOG_WORKER_URL) {
+          fetch(`${CATALOG_WORKER_URL}/v1/catalog/views`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'manga', id: mangaId }),
+          }).catch(() => undefined);
         }
       }
       return new Response(JSON.stringify(null), {
@@ -824,20 +878,13 @@ export const handleR2CatalogRestRequest = async (
         const chapter = chapters.find((c) => c.id === chapterId);
         if (chapter) {
           chapter.views = (chapter.views || 0) + 1;
-          getCatalogAdminHeaders(init).then((adminHeaders) => {
-            fetch(`${CATALOG_WORKER_URL}/v1/admin/table/chapters/mutate`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                ...adminHeaders,
-              },
-              body: JSON.stringify({
-                action: 'update',
-                match: { id: chapterId },
-                patch: { views: chapter.views },
-              }),
-            }).catch((err) => console.error('increment_chapter_views mutate error:', err));
-          });
+        }
+        if (CATALOG_WORKER_URL) {
+          fetch(`${CATALOG_WORKER_URL}/v1/catalog/views`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'chapter', id: chapterId }),
+          }).catch(() => undefined);
         }
       }
       return new Response(JSON.stringify(null), {

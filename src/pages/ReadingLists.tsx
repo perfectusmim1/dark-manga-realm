@@ -161,7 +161,7 @@ const ReadingLists: React.FC = () => {
                 <div className="mb-8 flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
                     <div>
                         <h1 className="text-2xl font-bold sm:text-3xl">Okuma Listelerim</h1>
-                        <p className="text-muted-foreground">Oluşturduğunuz tüm manga koleksiyonları</p>
+                        
                     </div>
                     <Button onClick={handleOpenCreateModal} className="w-full gap-2 self-start sm:w-auto sm:self-auto">
                         <Plus className="h-4 w-4" />

@@ -276,7 +276,7 @@ const PreviewPageThumbnail = React.memo(({
               sizes="(min-width: 1280px) 180px, (min-width: 1024px) 16vw, (min-width: 640px) 22vw, 31vw"
               draggable={false}
               referrerPolicy="no-referrer"
-              className="h-full w-full object-cover [transform:translateZ(0)] [backface-visibility:hidden] transition-transform duration-300 group-hover:scale-[1.02]"
+              className="h-full w-full object-cover [transform:translateZ(0)] [backface-visibility:hidden] "
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-secondary/30 text-muted-foreground">
@@ -2448,7 +2448,7 @@ const MangaDetail: React.FC = () => {
                 containerClassName="h-full w-full"
                 className={cn(
                   "h-full w-full object-cover",
-                  disableHeavyEffects ? '' : 'transition-transform duration-300 group-hover:scale-[1.04]',
+                  ''
                 )}
                 referrerPolicy="no-referrer"
               />
@@ -3179,7 +3179,7 @@ const MangaDetail: React.FC = () => {
                         <div className="mb-4 flex items-center justify-between gap-3">
                           <div>
                             <h3 className="text-base font-semibold">Harici Takip</h3>
-                            <p className="text-sm text-muted-foreground">Desteklenen servisler ve cache'li puan bilgileri.</p>
+                            
                           </div>
                           {isRefreshingExternalRatings ? (
                             <RefreshCcw className="h-4 w-4 animate-spin text-muted-foreground" />
@@ -3512,7 +3512,7 @@ const MangaDetail: React.FC = () => {
                                     rootMargin="420px 0px"
                                     containerClassName="h-full w-full"
                                     placeholderClassName="rounded-[inherit]"
-                                    className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                                    className="h-full w-full object-cover "
                                   />
                                 ) : (
                                   <EntityPlaceholderArt

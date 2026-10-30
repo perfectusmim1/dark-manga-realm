@@ -53,6 +53,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   );
 
   const shouldLoad = priority || isNearViewport;
+  const effectiveAllowProxy = allowProxy || avoidRawFallback;
   const resolvedSrc = React.useMemo(() => {
     if (useProxyFallback && isExternalUrl) {
       const proxied = buildProxiedImageUrl(src);
@@ -61,15 +62,15 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
       }
     }
 
-    if (!allowProxy || shouldBypassProxy) {
+    if (!effectiveAllowProxy || shouldBypassProxy) {
       return src;
     }
 
     return buildImageProxyUrl(src, transform, {
       purpose: 'render',
       surface: 'public_render',
-    }) || src;
-  }, [allowProxy, isExternalUrl, shouldBypassProxy, src, transform, transformKey, useProxyFallback]);
+    }) || (avoidRawFallback ? buildProxiedImageUrl(src) : '') || src;
+  }, [avoidRawFallback, effectiveAllowProxy, isExternalUrl, shouldBypassProxy, src, transform, transformKey, useProxyFallback]);
 
   React.useEffect(() => {
     setShouldBypassProxy(false);
@@ -78,7 +79,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
-      if (allowProxy && !avoidRawFallback && !shouldBypassProxy && resolvedSrc !== src && !useProxyFallback) {
+      if (effectiveAllowProxy && !avoidRawFallback && !shouldBypassProxy && resolvedSrc !== src && !useProxyFallback) {
         setShouldBypassProxy(true);
         return;
       }
@@ -93,7 +94,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
 
       onError?.(event);
     },
-    [allowProxy, avoidRawFallback, isExternalUrl, onError, resolvedSrc, shouldBypassProxy, src, useProxyFallback],
+    [avoidRawFallback, effectiveAllowProxy, isExternalUrl, onError, resolvedSrc, shouldBypassProxy, src, useProxyFallback],
   );
 
   return (
@@ -105,6 +106,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
           className={cn('image-downscale-quality', className)}
           loading={priority ? 'eager' : 'lazy'}
           decoding="async"
+          referrerPolicy="no-referrer"
           onError={handleError}
           {...rest}
         />

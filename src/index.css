@@ -62,8 +62,25 @@
 }
 
 @layer base {
-  * {
+  *, ::before, ::after {
     @apply border-border;
+    outline: none !important;
+  }
+
+  *:focus,
+  *:focus-visible,
+  input:focus,
+  input:focus-visible,
+  textarea:focus,
+  textarea:focus-visible,
+  select:focus,
+  select:focus-visible,
+  button:focus,
+  button:focus-visible,
+  a:focus,
+  a:focus-visible {
+    outline: none !important;
+    outline-offset: 0 !important;
   }
 
   html {

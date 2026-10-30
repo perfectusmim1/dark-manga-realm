@@ -26,24 +26,54 @@ const normalizeSourceUrl = (sourceUrl?: string | null) => {
   return normalized;
 };
 
-const PROXY_SUPPORTED_HOSTS = [
+const PROXY_ONLY_HOSTS = [
+  'webtoonhatti.club',
+  'webtoonhatti.com',
+  'webtoonhatti.net',
+  'uploads.mangadex.org',
+  'mangadex.org',
   'cdn.anime-planet.com',
   'anime-planet.com',
   'www.anime-planet.com',
+  'anisearch.com',
+  'www.anisearch.com',
+  'cdn.anisearch.com',
+  'mangaupdates.com',
+  'www.mangaupdates.com',
+  'cdn.mangaupdates.com',
+  'siyahmelek.my',
+  'www.siyahmelek.my',
+  'siyahmelek.mom',
+  'hattorimanga.net',
+  'www.hattorimanga.net',
+  'okutoon.com',
+  'om-cdn.okutoon.com',
+  'golgebahcesi.com',
+  'api.golgebahcesi.com',
+  'skycdn.online',
+  'c2.skycdn.online',
+  'dxdfansub.com',
+  'api.dxdfansub.com',
   'yedek.mangawow.com',
   'kirmizikafa.monster',
+  'hayalistic.com',
+  'hayalistic.com.tr',
 ] as const;
 
-const SUPABASE_PROXY_OVERRIDE_HOSTS = [
-  'cdn.anime-planet.com',
-  'anime-planet.com',
-  'www.anime-planet.com',
-] as const;
-
-const PROXY_ONLY_HOSTS = [
-  'cdn.anime-planet.com',
-  'anime-planet.com',
-  'www.anime-planet.com',
+const PROXY_SUPPORTED_HOSTS = [
+  ...PROXY_ONLY_HOSTS,
+  'webtoon-oku.net',
+  'cdn-1.webtoon-oku.net',
+  'cdn-2.webtoon-oku.net',
+  'hentaiturk.com',
+  'www.hentaiturk.com',
+  'cdn.hentaiturk.com',
+  'mangacix.net',
+  'cdn.mangacix.net',
+  'anilist.co',
+  's4.anilist.co',
+  'myanimelist.net',
+  'cdn.myanimelist.net',
 ] as const;
 
 const matchesHostRule = (hostname: string, rule: string) => (
@@ -67,13 +97,6 @@ const getProxyBaseUrl = (sourceUrl?: string | null) => {
   const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
   if (!parsedSourceUrl) {
     return null;
-  }
-
-  if (
-    offlineProxyConfig.defaultUrl
-    && SUPABASE_PROXY_OVERRIDE_HOSTS.some((host) => matchesHostRule(parsedSourceUrl.hostname, host))
-  ) {
-    return offlineProxyConfig.defaultUrl;
   }
 
   return offlineProxyConfig.url || null;

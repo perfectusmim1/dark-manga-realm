@@ -147,7 +147,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
                     containIntrinsicSize: '220px 380px',
                   }}
                 >
-                  <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-card shadow-lg [transform:translateZ(0)] transition-all duration-300 group-hover:-translate-y-2 group-hover:shadow-2xl group-hover:border-primary/50">
+                  <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-card shadow-lg [transform:translateZ(0)] transition-colors duration-200 group-hover:border-primary/40">
                     {item.imageUrl ? (
                       <OptimizedImage
                         src={item.imageUrl}
@@ -156,7 +156,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
                         rootMargin="560px 0px"
                         containerClassName="h-full w-full"
                         placeholderClassName="rounded-[inherit]"
-                        className="h-full w-full rounded-[inherit] object-cover transform-gpu transition-transform duration-500 group-hover:scale-110"
+                        className="h-full w-full rounded-[inherit] object-cover object-cover"
                       />
                     ) : (
                       <EntityPlaceholderArt

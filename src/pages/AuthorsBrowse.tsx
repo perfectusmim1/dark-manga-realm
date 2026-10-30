@@ -50,7 +50,7 @@ const AuthorsBrowse: React.FC = () => {
       <main className="flex-1 container mx-auto max-w-7xl px-4 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <EntityBrowseGrid
           title="Popüler Yazarlar"
-          description="Manga dünyasının en sevilen yazarları"
+          
           searchPlaceholder="Yazar ara..."
           emptyMessage="Aradığınız yazar bulunamadı."
           countLabel="yazar"

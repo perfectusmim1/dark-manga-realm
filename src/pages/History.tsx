@@ -92,7 +92,7 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
             containerClassName="h-28 w-20"
             placeholderClassName="rounded-[22px]"
             sizes="80px"
-            className="h-28 w-20 rounded-[22px] object-cover shadow-[0_16px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/10 transition-transform duration-300 group-hover:scale-[1.02]"
+            className="h-28 w-20 rounded-[22px] object-cover shadow-[0_16px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/10 "
           />
         ) : (
           <div className="flex h-28 w-20 items-center justify-center rounded-[22px] bg-gradient-to-br from-primary/20 via-secondary/50 to-background text-2xl font-black text-muted-foreground shadow-[0_16px_30px_rgba(0,0,0,0.28)] ring-1 ring-white/10">
@@ -172,7 +172,7 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
           containerClassName="h-full w-full"
           placeholderClassName="rounded-none"
           sizes="(min-width: 1280px) 16vw, (min-width: 1024px) 20vw, (min-width: 640px) 28vw, 45vw"
-          className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+          className="h-full w-full object-cover "
         />
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-gradient-to-br from-primary/20 via-secondary/40 to-background text-4xl font-black text-muted-foreground">

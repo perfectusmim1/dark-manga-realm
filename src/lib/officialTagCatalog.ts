@@ -5,8 +5,10 @@ export interface OfficialTagSeed {
   category: TagCategory;
 }
 
-export const slugifyCatalogTagName = (name: string) => (
-  name
+export const slugifyCatalogTagName = (name?: string | null) => (
+  `${name ?? ''}`
+    .replace(/\u0130/g, 'I')
+    .replace(/\u0131/g, 'i')
     .normalize('NFKD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()

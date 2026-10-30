@@ -578,7 +578,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                   className={cn(
                     'h-full w-full object-cover',
                     shouldBlurFeaturedArtwork && 'scale-[1.03] blur-md',
-                    disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105',
+                    ''
                   )}
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
@@ -615,7 +615,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                 className={cn(
                   'h-full w-full object-cover',
                   blurAdultArtwork && entry.manga.isAdult === true && 'scale-[1.03] blur-sm',
-                  disableHeavyEffects ? '' : 'transition-transform duration-300 group-hover:scale-105',
+                  ''
                 )}
               />
               <div className="min-w-0 flex-1">
@@ -841,7 +841,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               exit={{ opacity: 0 }}
               onClick={() => scroll('left')}
               style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
-              className="group/arrow absolute left-2 sm:left-3 top-[calc((100%-7.25rem)/2)] z-40 flex h-9 w-9 sm:h-10 sm:w-10 -translate-y-1/2 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="group/arrow absolute left-2 sm:left-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-label={`${title} sola kaydır`}
             >
               <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:-translate-x-0.5" strokeWidth={2.25} />
@@ -856,7 +856,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               exit={{ opacity: 0 }}
               onClick={() => scroll('right')}
               style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
-              className="group/arrow absolute right-2 sm:right-3 top-[calc((100%-7.25rem)/2)] z-40 flex h-9 w-9 sm:h-10 sm:w-10 -translate-y-1/2 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="group/arrow absolute right-2 sm:right-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-label={`${title} sağa kaydır`}
             >
               <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:translate-x-0.5" strokeWidth={2.25} />
@@ -876,7 +876,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
         <div
           ref={scrollRef}
           onScroll={requestLayoutMetricsUpdate}
-          className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-0 scrollbar-hide sm:gap-4"
+          className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-0 py-1.5 -my-1.5 scrollbar-hide sm:gap-4"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {visibleManga.map((item, index) => (

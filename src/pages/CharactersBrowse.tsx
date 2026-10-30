@@ -50,7 +50,7 @@ const CharactersBrowse: React.FC = () => {
       <main className="flex-1 container mx-auto max-w-7xl px-4 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <EntityBrowseGrid
           title="Popüler Karakterler"
-          description="Manga dünyasının en sevilen karakterleri ve sıralamaları"
+          
           searchPlaceholder="Karakter ara..."
           emptyMessage="Aradığınız karakter bulunamadı."
           countLabel="karakter"

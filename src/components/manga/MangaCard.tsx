@@ -234,7 +234,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           className={cn(
             'h-full w-full object-cover',
             shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
-            disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-110',
+            ''
           )}
         />
 

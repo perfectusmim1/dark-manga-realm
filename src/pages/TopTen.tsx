@@ -629,28 +629,7 @@ const TopTen: React.FC = () => {
       <Header />
 
       <main className="container overflow-x-clip pb-8 pt-[4.5rem] sm:pb-12 sm:pt-24">
-        <section
-          className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
-          style={disableHeavyEffects ? undefined : { animationDelay: '0.06s', animationFillMode: 'forwards' }}
-        >
-          <div className="relative overflow-hidden rounded-[18px] border border-primary/15 bg-card/75 px-3.5 py-3.5 shadow-[0_28px_70px_rgba(15,23,42,0.16)] sm:rounded-[34px] sm:px-8 sm:py-10 lg:px-10">
-            <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.2),transparent_34%),radial-gradient(circle_at_bottom_right,rgba(168,85,247,0.16),transparent_28%)]" />
-            <div className="relative z-10 flex flex-col gap-4 sm:gap-5">
-              <div className="max-w-3xl">
-                <div className="inline-flex items-center gap-1.5 rounded-full border border-primary/15 bg-primary/10 px-2 py-0.5 text-[9px] font-semibold uppercase tracking-[0.12em] text-primary sm:px-3 sm:py-1 sm:text-[11px] sm:tracking-[0.24em]">
-                  <BarChart3 className="h-3 w-3 sm:h-3.5 sm:w-3.5" />
-                  Top 10 Merkezi
-                </div>
-                <h1 className="mt-2.5 max-w-[11ch] text-[1.2rem] font-black leading-[1] tracking-tight sm:mt-4 sm:max-w-none sm:text-5xl">
-                  Her panel kendi zaman akışını yönetsin.
-                </h1>
-                <p className="mt-2 max-w-2xl text-[10px] leading-4.5 text-muted-foreground sm:mt-4 sm:text-[15px] sm:leading-6">
-                  Genel listeyi ve gerekiyorsa 18+ listesini birbirinden bağımsız filtrele. Butonlar doğrudan kart bloğunun içinde durur, geçişler de daha akıcı akar.
-                </p>
-              </div>
-            </div>
-          </div>
-        </section>
+        
 
         <div className={`mt-4 grid min-w-0 gap-4 sm:mt-10 sm:gap-8 ${adultModeEnabled ? 'xl:grid-cols-2' : ''}`}>
           <TopTenAudienceBlock

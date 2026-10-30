@@ -84,13 +84,13 @@ const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> =
   { value: 'mangacix', label: 'MangaCix' },
   { value: 'golgebahcesi', label: 'Gölge Bahçesi' },
   { value: 'dxdfansub', label: 'DxDFansub' },
-  { value: 'siyahmelek', label: 'SiyahMelek (+18)' },
+  { value: 'siyahmelek', label: 'SiyahMelek' },
   { value: 'hentaiturk', label: 'HentaiTürk (+18)' },
-  { value: 'hattorimanga', label: 'HattoriManga (+18)' },
+  { value: 'hattorimanga', label: 'HattoriManga' },
 ];
 
 const isAdultOnlyAutomationSource = (source: ChapterAutomationSource) =>
-  source === 'siyahmelek' || source === 'hentaiturk' || source === 'hattorimanga';
+  source === 'hentaiturk';
 
 const DEFAULT_TIME_SLOT = '13:00';
 const TURKEY_TIME_PLACEHOLDER = '13:00';

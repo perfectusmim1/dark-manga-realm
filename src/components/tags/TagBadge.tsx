@@ -43,6 +43,15 @@ const TagBadge: React.FC<TagBadgeProps> = ({
   removable,
   onRemove,
 }) => {
+  if (!tag) {
+    return null;
+  }
+
+  const displayName = getTagDisplayName(tag.slug, tag.name);
+  if (!displayName) {
+    return null;
+  }
+
   const config = categoryConfig[tag.category] || categoryConfig.general;
 
   return (
@@ -55,13 +64,13 @@ const TagBadge: React.FC<TagBadgeProps> = ({
           : accepted && !tag.isOfficial
             ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-300'
             : `${config.bg} ${config.border} ${config.text}`,
-        onClick && 'cursor-pointer hover:scale-105 active:scale-95',
+        onClick && 'cursor-pointer hover:border-primary/50 transition-colors',
         tag.isOfficial && 'ring-1 ring-primary/10'
       )}
       onClick={onClick}
     >
       <span className="shrink-0 text-[10px]">{config.icon}</span>
-      <span className="truncate font-medium">{getTagDisplayName(tag.slug, tag.name)}</span>
+      <span className="truncate font-medium">{displayName}</span>
       
       {tag.isOfficial && (
         <Shield className="h-3 w-3 shrink-0 opacity-50" />

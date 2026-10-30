@@ -56,11 +56,11 @@ const EntityGalleryGrid: React.FC<EntityGalleryGridProps> = ({
             <button
               type="button"
               key={`${image.url}-${index}`}
-              className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-all duration-200 hover:-translate-y-1 [transform:translateZ(0)]"
+              className="group overflow-hidden rounded-2xl border border-border bg-card shadow-sm transition-colors duration-200 hover:border-primary/40 [transform:translateZ(0)]"
               onClick={() => setOpenIndex(index)}
             >
               <div className="relative isolate aspect-[4/5] overflow-hidden bg-black/75">
-                <div className="absolute inset-0 transform-gpu transition-transform duration-300 ease-out group-hover:scale-[1.045]">
+                <div className="absolute inset-0 transform-gpu transition-transform duration-300 ease-out ">
                   <OptimizedImage
                     src={image.thumbUrl || image.url}
                     alt={primaryLabel}

@@ -173,7 +173,7 @@ const ArtistDetail: React.FC = () => {
                             <Button
                                 variant={isLiked ? "default" : "outline"}
                                 size="lg"
-                                className="flex-1 rounded-xl shadow-lg hover:scale-[1.02] transition-transform"
+                                className="flex-1 rounded-xl shadow-lg transition-colors"
                                 onClick={handleLike}
                             >
                                 <Heart className={`mr-2 h-5 w-5 ${isLiked ? 'fill-current' : ''}`} />

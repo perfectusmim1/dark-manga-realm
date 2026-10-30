@@ -202,7 +202,7 @@ const Library: React.FC = () => {
             <main className="container pb-12 pt-20">
                 <div className="mb-8">
                     <h1 className="text-2xl font-bold sm:text-3xl">Kütüphanem</h1>
-                    <p className="text-muted-foreground">Favori mangalarınızı kategorilere ayırın</p>
+                    
                 </div>
 
                 <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as LibraryCategory | 'all')}>

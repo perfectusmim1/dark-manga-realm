@@ -308,13 +308,24 @@ const normalizeSourceUrl = (source: ScrapeSource, rawUrl: string) => {
 
 const ADULT_CONTENT_PATTERNS = [
   /\b18\+\b/i,
+  /\+18\b/i,
   /contentrating["'\s:>]+18\+/i,
+  /AdultConsideration/i,
+  /audienceType["'\s:>]+adult/i,
   /b[üu]y[üu]kler i[cç]in/i,
+  /\byeti[şs]kin\b/i,
   /\badult\b/i,
   /\berotik\b/i,
+  /\berotica\b/i,
+  /\bpornographic\b/i,
+  /\bnsfw\b/i,
+  /\bmature\b/i,
+  /\br-?18\b/i,
   /\becchi\b/i,
   /\bsmut\b/i,
   /\bhentai\b/i,
+  /badge-age/i,
+  /badge-adult/i,
 ];
 
 const LOCKED_CHAPTER_PATTERNS = [
@@ -500,7 +511,7 @@ export const isScrapeSource = (value: string): value is ScrapeSource => (
 );
 
 export const isAdultOnlyScrapeSource = (source: ScrapeSource): boolean => (
-  source === 'siyahmelek' || source === 'hentaiturk' || source === 'hattorimanga'
+  source === 'hentaiturk'
 );
 
 export const getScrapeSourceLabel = (source: ScrapeSource): string => getSourceDef(source).label;
@@ -1210,16 +1221,39 @@ const inferAdultContent = (doc: Document, source: ScrapeSource, genres: string[]
     return true;
   }
 
-  const contentToInspect = [
-    genres.join(' '),
-    fallbackGenres.join(' '),
-    normalizeScrapedText(doc.body?.textContent || ''),
-    Array.from(doc.querySelectorAll('script[type="application/ld+json"], script'))
-      .map((script) => script.textContent || '')
-      .join(' '),
+  // 1. Check for explicit 18+ UI badges (Siyahmelek, Madara, Hattori, WebtoonHatti)
+  const hasBadge = Boolean(
+    doc.querySelector('.badge-age, .badge-adult, .badge-18, [class*="badge-age"]')
+    || Array.from(doc.querySelectorAll('.badge, span[class*="badge"], div[class*="badge"]')).some(
+      (el) => /\b18\+\b|\+18\b|yetişkin/i.test(el.textContent || '')
+    )
+  );
+  if (hasBadge) {
+    return true;
+  }
+
+  // 2. Check JSON-LD metadata for adult consideration or adult audience
+  const scriptsText = Array.from(doc.querySelectorAll('script[type="application/ld+json"], script'))
+    .map((script) => script.textContent || '')
+    .join(' ');
+  if (scriptsText && (scriptsText.includes('AdultConsideration') || /audienceType["'\s:>]+adult/i.test(scriptsText))) {
+    return true;
+  }
+
+  // 3. Check genres and explicit tags
+  const combinedGenres = [...genres, ...fallbackGenres].join(' ');
+  if (ADULT_CONTENT_PATTERNS.some((pattern) => pattern.test(combinedGenres))) {
+    return true;
+  }
+
+  // 4. Check title and synopsis for explicit adult flags
+  const titleAndDesc = [
+    extractDetailTitle(doc, source),
+    doc.querySelector('.manga-excerpt, .description-summary, .manga-description, meta[property="og:description"]')?.getAttribute('content') || '',
+    doc.querySelector('.manga-excerpt, .description-summary, .manga-description')?.textContent || '',
   ].join(' ');
 
-  return ADULT_CONTENT_PATTERNS.some((pattern) => pattern.test(contentToInspect));
+  return /\b(?:\+18|18\+|hentai|sansürsüz|uncensored|erotik|smut)\b/i.test(titleAndDesc);
 };
 
 // ---------------------------------------------------------------------------

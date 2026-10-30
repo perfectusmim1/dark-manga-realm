@@ -192,9 +192,7 @@ const Community: React.FC = () => {
             <Trophy className="h-8 w-8 text-yellow-500 sm:h-10 sm:w-10" />
             Topluluk Liderleri
           </h1>
-          <p className="mx-auto mb-6 mt-2 max-w-xl text-muted-foreground sm:mb-8">
-            Platformdaki en aktif okuyucular. Zirveye yerleşmek için daha fazla bölüm oku ve serilere yorum yap.
-          </p>
+          
 
           <div className="grid grid-cols-2 gap-3 sm:flex sm:flex-wrap sm:items-center sm:justify-center sm:gap-4">
             <button

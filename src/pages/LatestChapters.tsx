@@ -187,9 +187,7 @@ const LatestChapters: React.FC = () => {
                         </div>
                         <div>
                             <h1 className="text-3xl font-bold tracking-tight">Son Bölümler</h1>
-                            <p className="mt-1 text-muted-foreground">
-                                Siteye en son eklenen bölümler, seri bilgisi ve eklenme zamanı ile birlikte.
-                            </p>
+                            
                         </div>
                     </div>
                     <div className="mt-4">
@@ -217,7 +215,7 @@ const LatestChapters: React.FC = () => {
                                         alt={chapter.mangaTitle}
                                         loading="lazy"
                                         decoding="async"
-                                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                                        className="h-full w-full object-cover "
                                     />
                                 </div>
 

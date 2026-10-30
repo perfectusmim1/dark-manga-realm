@@ -587,7 +587,7 @@ const Profile: React.FC = () => {
                         {profileData.recentReads.map((read: any) => (
                           <Link key={read.manga_id} to={`/manga/${read.manga_id}`} className="group block rounded-lg overflow-hidden border border-border bg-secondary/30 hover:bg-secondary/50 transition-colors">
                             <div className="relative aspect-[3/4] overflow-hidden">
-                              <img src={read.mangas?.cover} alt={read.mangas?.title} className="image-downscale-quality w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" />
+                              <img src={read.mangas?.cover} alt={read.mangas?.title} className="image-downscale-quality w-full h-full object-cover " />
                               <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-3">
                                 <p className="text-white font-medium text-sm line-clamp-1">{read.mangas?.title}</p>
                                 <p className="text-primary text-xs font-bold mt-0.5">Bölüm {read.chapter_number}</p>
@@ -894,7 +894,7 @@ const Profile: React.FC = () => {
                                    <img
                                      src={review.mangaCover}
                                      alt={review.mangaTitle}
-                                     className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                     className="h-full w-full object-cover "
                                    />
                                  ) : (
                                    <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-center text-xs text-muted-foreground">

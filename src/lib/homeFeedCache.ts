@@ -1,8 +1,8 @@
 import type { HomePageMangaSections } from '@/lib/database';
 import type { Tag } from '@/lib/types';
 
-const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-v1';
-const HOME_FEED_SESSION_CACHE_VERSION = 1;
+const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-v2';
+const HOME_FEED_SESSION_CACHE_VERSION = 2;
 
 export const HOME_SECTIONS_CACHE_TTL_MS = 60_000;
 export const HOME_SECTIONS_MAX_SEED_AGE_MS = 30 * 60_000;
@@ -95,6 +95,17 @@ export const isHomeFeedEntryFresh = (fetchedAt: number, ttlMs: number) => (
   Date.now() - fetchedAt < ttlMs
 );
 
+const hasRenderableChapterCounts = (sections?: HomePageMangaSections | null): boolean => {
+  if (!sections) return false;
+  const all = [
+    ...(sections.popularMangas || []),
+    ...(sections.latestMangas || []),
+    ...(sections.newMangas || []),
+  ];
+  if (all.length === 0) return true;
+  return all.some((m) => (m.chapterCount || 0) > 0 || (m.chapters?.length || 0) > 0);
+};
+
 export const readHomeFeedSeed = (): HomeFeedSeed => {
   const persisted = readPersistedHomeFeedCache();
 
@@ -103,7 +114,10 @@ export const readHomeFeedSeed = (): HomeFeedSeed => {
   const topTenWeekIds = persisted?.topTenWeekIds;
 
   return {
-    sections: sections && isValidFetchedAt(sections.fetchedAt) && isRenderableSeed(sections.fetchedAt, HOME_SECTIONS_MAX_SEED_AGE_MS)
+    sections: sections
+      && isValidFetchedAt(sections.fetchedAt)
+      && isRenderableSeed(sections.fetchedAt, HOME_SECTIONS_MAX_SEED_AGE_MS)
+      && hasRenderableChapterCounts(sections.value)
       ? sections
       : null,
     trendingTags: trendingTags && isValidFetchedAt(trendingTags.fetchedAt) && Array.isArray(trendingTags.value) && isRenderableSeed(trendingTags.fetchedAt, TRENDING_TAGS_MAX_SEED_AGE_MS)
@@ -122,6 +136,10 @@ export const writeHomeSectionsCache = (
   sections: HomePageMangaSections,
   fetchedAt = Date.now(),
 ) => {
+  if (!hasRenderableChapterCounts(sections)) {
+    return;
+  }
+
   writePersistedHomeFeedCache((current) => ({
     ...current,
     sections: {

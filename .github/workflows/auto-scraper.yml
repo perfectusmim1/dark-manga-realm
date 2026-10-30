@@ -65,13 +65,23 @@ jobs:
           VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL }}
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           CATALOG_ADMIN_TOKEN: ${{ secrets.CATALOG_ADMIN_TOKEN }}
+          INPUT_MODE: ${{ github.event.inputs.mode || 'smart' }}
+          INPUT_BATCH_SIZE: ${{ github.event.inputs.batch_size || '6' }}
+          INPUT_MAX_DELTA_CHECKS: ${{ github.event.inputs.max_delta_checks || '25' }}
+          INPUT_SOURCE: ${{ github.event.inputs.source || '' }}
         run: |
-          SOURCE_ARG=""
-          if [ -n "${{ github.event.inputs.source }}" ]; then
-            SOURCE_ARG="--source ${{ github.event.inputs.source }}"
+          if ! [[ "$INPUT_BATCH_SIZE" =~ ^[0-9]+$ ]]; then INPUT_BATCH_SIZE="6"; fi
+          if ! [[ "$INPUT_MAX_DELTA_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_DELTA_CHECKS="25"; fi
+          ARGS=(
+            --mode "$INPUT_MODE"
+            --batch-size "$INPUT_BATCH_SIZE"
+            --max-delta-checks "$INPUT_MAX_DELTA_CHECKS"
+          )
+          if [ -n "$INPUT_SOURCE" ]; then
+            if [[ "$INPUT_SOURCE" =~ ^[a-z0-9_-]+$ ]]; then
+              ARGS+=(--source "$INPUT_SOURCE")
+            else
+              echo "Invalid source input ignored"
+            fi
           fi
-          node scripts/auto-catalog-sync.mjs \
-            --mode "${{ github.event.inputs.mode || 'smart' }}" \
-            --batch-size "${{ github.event.inputs.batch_size || '6' }}" \
-            --max-delta-checks "${{ github.event.inputs.max_delta_checks || '25' }}" \
-            $SOURCE_ARG
+          node scripts/auto-catalog-sync.mjs "${ARGS[@]}"

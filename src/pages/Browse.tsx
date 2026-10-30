@@ -368,7 +368,7 @@ const Browse: React.FC = () => {
       <main className="container pb-12 pt-20">
         <div className="mb-8">
           <h1 className="text-3xl font-bold tracking-tight">Keşfet</h1>
-          <p className="mt-2 text-muted-foreground">Binlerce manga, manhwa, manhua ve webtoon arasından seçim yapın</p>
+          
         </div>
 
         {/* Filters Bar */}
@@ -463,12 +463,12 @@ const Browse: React.FC = () => {
 
         {/* Genre Filters */}
         {showFilters && (
-          <div className="mb-6 flex flex-wrap gap-2 rounded-xl border border-border bg-card/50 p-4 animate-scale-in">
+          <div className="mb-6 flex flex-wrap gap-2.5 rounded-xl border border-border bg-card/50 p-4 sm:p-5">
             {allGenres.map((genre) => (
               <Badge
                 key={genre}
                 variant={selectedGenres.includes(genre) ? 'default' : 'outline'}
-                className="cursor-pointer transition-all hover:scale-105"
+                className="cursor-pointer px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg transition-colors hover:border-primary/50 hover:bg-secondary/70"
                 onClick={() => toggleGenre(genre)}
               >
                 {genre}

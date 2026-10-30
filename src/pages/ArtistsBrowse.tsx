@@ -50,7 +50,7 @@ const ArtistsBrowse: React.FC = () => {
       <main className="flex-1 container mx-auto max-w-7xl px-4 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
         <EntityBrowseGrid
           title="Popüler Çizerler"
-          description="Manga dünyasının en sevilen çizerleri"
+          
           searchPlaceholder="Çizer ara..."
           emptyMessage="Aradığınız çizer bulunamadı."
           countLabel="çizer"
