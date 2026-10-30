@@ -3183,6 +3183,18 @@ const main = async () => {
     // Diske bağımsız tam seri dosyası olarak kaydet (.cache/series/<slug>.json)
     if (manga.slug) {
       const seriesFilePath = path.join(SERIES_CACHE_DIR, `${manga.slug}.json`);
+      if (existsSync(seriesFilePath)) {
+        try {
+          const diskData = JSON.parse(readFileSync(seriesFilePath, 'utf8'));
+          const diskChaptersMap = new Map((diskData.chapters || []).map((ch) => [ch.chapterNumber, ch]));
+          for (const ch of manga.chapters || []) {
+            if ((!ch.pages || ch.pages.length === 0) && diskChaptersMap.has(ch.chapterNumber)) {
+              ch.pages = diskChaptersMap.get(ch.chapterNumber).pages || [];
+            }
+          }
+        } catch {}
+      }
+
       try {
         writeFileSync(seriesFilePath, JSON.stringify(manga, null, 2), 'utf8');
       } catch {}
