@@ -1,6 +1,5 @@
 import { createClient, type Session } from '@supabase/supabase-js';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
-import { isR2CatalogRestRequest, handleR2CatalogRestRequest } from './r2CatalogClient';
 
 export const supabaseUrl = import.meta.env.VITE_SUPABASE_URL;
 export const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY;
@@ -52,9 +51,10 @@ const supabaseFetch: typeof fetch = async (input, init) => {
             ? input.toString()
             : input.url;
 
-    if (isR2CatalogRestRequest(requestUrl, supabaseUrl)) {
-        return handleR2CatalogRestRequest(requestUrl, init, input);
-    }
+    // Use direct Supabase PostgREST for all queries.
+    // In-memory R2 interception has been disabled to eliminate Worker CPU 503 limits,
+    // CORS errors, and excessive worker request consumption.
+    // (r2CatalogClient is retained for site backup/export tools)
 
     const isRestCall = requestUrl.startsWith(`${supabaseUrl}/rest/v1/`);
 

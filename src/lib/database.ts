@@ -1766,7 +1766,50 @@ export const getMangaChapters = async (
         throw error;
     }
 
-    return (data || []).map((row: any) => mapChapterRowToChapter(row, { includePages }));
+    const mapped = (data || []).map((row: any) => mapChapterRowToChapter(row, { includePages }));
+
+    if (includePages && mapped.some((c) => !c.pages || c.pages.length === 0)) {
+        try {
+            const { data: manga } = await supabase
+                .from('mangas')
+                .select('slug')
+                .eq('id', mangaId)
+                .maybeSingle();
+
+            if (manga?.slug) {
+                const workerUrl = (
+                    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_CATALOG_WORKER_URL) ||
+                    ''
+                ).replace(/\/+$/, '');
+
+                if (workerUrl) {
+                    const res = await fetch(`${workerUrl}/v1/catalog/series/${encodeURIComponent(manga.slug)}`);
+                    if (res.ok) {
+                        const seriesData = await res.json();
+                        if (seriesData && Array.isArray(seriesData.chapters)) {
+                            const pagesByChId = new Map<string, string[]>();
+                            const pagesByChNum = new Map<number, string[]>();
+                            for (const sc of seriesData.chapters) {
+                                const p = sanitizeChapterPageUrls(sc.pages || []);
+                                if (sc.id) pagesByChId.set(sc.id, p);
+                                const num = Number(sc.chapterNumber ?? sc.number);
+                                if (!isNaN(num)) pagesByChNum.set(num, p);
+                            }
+                            for (const ch of mapped) {
+                                if (!ch.pages || ch.pages.length === 0) {
+                                    ch.pages = pagesByChId.get(ch.id) || pagesByChNum.get(ch.number) || [];
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e) {
+            console.warn(`Failed to hydrate chapter pages from R2 series for manga ${mangaId}:`, e);
+        }
+    }
+
+    return mapped;
 };
 
 export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record<string, string[]>> => {
@@ -1778,17 +1821,64 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
 
     const { data, error } = await supabase
         .from('chapters')
-        .select('id, pages')
+        .select('id, pages, manga_id')
         .in('id', uniqueIds);
 
     if (error) {
         throw error;
     }
 
-    return (data || []).reduce<Record<string, string[]>>((map, row: any) => {
-        map[row.id] = sanitizeChapterPageUrls(row.pages || []);
-        return map;
-    }, {});
+    const map: Record<string, string[]> = {};
+    const missingMangaIds = new Set<string>();
+
+    for (const row of data || []) {
+        const pages = sanitizeChapterPageUrls(row.pages || []);
+        if (pages.length > 0) {
+            map[row.id] = pages;
+        } else if (row.manga_id) {
+            missingMangaIds.add(row.manga_id);
+        }
+    }
+
+    if (missingMangaIds.size > 0) {
+        await Promise.all(
+            [...missingMangaIds].map(async (mangaId) => {
+                try {
+                    const { data: manga } = await supabase
+                        .from('mangas')
+                        .select('slug')
+                        .eq('id', mangaId)
+                        .maybeSingle();
+
+                    if (!manga?.slug) return;
+
+                    const workerUrl = (
+                        (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_CATALOG_WORKER_URL) ||
+                        ''
+                    ).replace(/\/+$/, '');
+
+                    if (!workerUrl) return;
+
+                    const res = await fetch(`${workerUrl}/v1/catalog/series/${encodeURIComponent(manga.slug)}`);
+                    if (!res.ok) return;
+
+                    const seriesData = await res.json();
+                    if (!seriesData || !Array.isArray(seriesData.chapters)) return;
+
+                    for (const ch of seriesData.chapters) {
+                        const targetId = uniqueIds.find((id) => id === ch.id);
+                        if (targetId && Array.isArray(ch.pages) && ch.pages.length > 0) {
+                            map[targetId] = sanitizeChapterPageUrls(ch.pages);
+                        }
+                    }
+                } catch (e) {
+                    console.warn(`Failed to hydrate chapter pages from R2 series for manga ${mangaId}:`, e);
+                }
+            })
+        );
+    }
+
+    return map;
 };
 
 const normalizeComparableChapterPageUrl = (value?: string | null) => {
