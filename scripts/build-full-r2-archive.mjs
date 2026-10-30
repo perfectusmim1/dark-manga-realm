@@ -64,7 +64,10 @@ loadEnv();
 
 // --- Service Endpoints & Config ---
 const CATALOG_WORKER_URL = (process.env.VITE_CATALOG_WORKER_URL || '').replace(/\/+$/, '');
-const SCRAPER_PROXY_URL = (process.env.VITE_SCRAPER_PROXY_URL || '').replace(/\/+$/, '');
+const SCRAPER_PROXY_URLS = (process.env.VITE_SCRAPER_PROXY_URL || '')
+  .split(',')
+  .map((u) => u.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
 const LOCAL_SCRAPER_URL = 'http://127.0.0.1:41113/fetch';
 const CATALOG_ADMIN_TOKEN = process.env.CATALOG_ADMIN_TOKEN || '';
 
@@ -254,7 +257,24 @@ const saveCheckpoint = (state) => {
 };
 
 let totalWorkerRequests = 0;
-const MAX_WORKER_REQUESTS = 75000;
+let currentWorkerPoolIndex = 0;
+const workerQuotaUsage = new Map();
+const MAX_REQUESTS_PER_WORKER = 85000;
+const MAX_WORKER_REQUESTS = (SCRAPER_PROXY_URLS.length || 1) * MAX_REQUESTS_PER_WORKER;
+
+const getNextHealthyWorker = () => {
+  if (SCRAPER_PROXY_URLS.length === 0) return null;
+  for (let attempt = 0; attempt < SCRAPER_PROXY_URLS.length; attempt++) {
+    const idx = (currentWorkerPoolIndex + attempt) % SCRAPER_PROXY_URLS.length;
+    const url = SCRAPER_PROXY_URLS[idx];
+    const used = workerQuotaUsage.get(url) || 0;
+    if (used < MAX_REQUESTS_PER_WORKER) {
+      currentWorkerPoolIndex = idx;
+      return url;
+    }
+  }
+  return null;
+};
 
 // --- Multi-Tier Network Fetcher (Doğrudan HTTP Öncelikli, Worker Kotası Tasarruflu) ---
 const fetchUpstream = async (targetUrl, options = {}) => {
@@ -313,14 +333,18 @@ const fetchUpstream = async (targetUrl, options = {}) => {
     } catch {}
   }
 
-  // Tier 2: Cloudflare Scraper Proxy Worker (Edge IP bypass)
-  if (SCRAPER_PROXY_URL && totalWorkerRequests < MAX_WORKER_REQUESTS) {
+  // Tier 2: Cloudflare Scraper Proxy Worker (Edge IP bypass with 5-Worker Pool & Failover)
+  const activeWorkerUrl = getNextHealthyWorker();
+  if (activeWorkerUrl && totalWorkerRequests < MAX_WORKER_REQUESTS) {
     totalWorkerRequests++;
+    const currentCount = (workerQuotaUsage.get(activeWorkerUrl) || 0) + 1;
+    workerQuotaUsage.set(activeWorkerUrl, currentCount);
+
     try {
       const controller = new AbortController();
       const timer = setTimeout(() => controller.abort(), timeoutMs);
 
-      const proxyRes = await fetch(SCRAPER_PROXY_URL, {
+      const proxyRes = await fetch(activeWorkerUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -333,7 +357,11 @@ const fetchUpstream = async (targetUrl, options = {}) => {
       });
       clearTimeout(timer);
 
-      if (proxyRes.ok) {
+      if (proxyRes.status === 429) {
+        logWarn(`[Worker Failover] ${activeWorkerUrl} kotası doldu (HTTP 429). Sıradaki Cloudflare Worker'a geçiliyor...`);
+        workerQuotaUsage.set(activeWorkerUrl, MAX_REQUESTS_PER_WORKER);
+        currentWorkerPoolIndex = (currentWorkerPoolIndex + 1) % SCRAPER_PROXY_URLS.length;
+      } else if (proxyRes.ok) {
         const rawText = await proxyRes.text();
         let parsed = null;
         try {
@@ -352,7 +380,7 @@ const fetchUpstream = async (targetUrl, options = {}) => {
       }
     } catch {}
   } else if (totalWorkerRequests >= MAX_WORKER_REQUESTS) {
-    logWarn(`[Worker Quota Guard] Günlük ${MAX_WORKER_REQUESTS} Worker istek limitine ulaşıldı. Doğrudan proxy istekleri durduruldu.`);
+    logWarn(`[Worker Quota Guard] Günlük ${MAX_WORKER_REQUESTS} Worker havuz limitine ulaşıldı. Doğrudan proxy istekleri durduruldu.`);
   }
 
   // Tier 3: Yerel Scraper Sunucusu (Fallback)

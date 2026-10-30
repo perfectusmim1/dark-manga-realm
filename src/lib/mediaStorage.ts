@@ -33,10 +33,29 @@ interface MaterializeWorkerItem {
 
 
 const configuredMediaBucketUrl = import.meta.env.VITE_MEDIA_BUCKET_URL?.trim() || '';
-const configuredOfflineImageProxyUrl =
+const configuredOfflineImageProxyUrls = (
   import.meta.env.VITE_OFFLINE_IMAGE_PROXY_URL?.trim() ||
-  'https://toonparrot-offline-image-proxy.caganhuseyinerdil.workers.dev';
-const configuredScraperProxyUrl = import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '';
+  'https://toonparrot-offline-image-proxy.caganhuseyinerdil.workers.dev'
+)
+  .split(',')
+  .map((u) => u.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const configuredScraperProxyUrls = (import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '')
+  .split(',')
+  .map((u) => u.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const configuredOfflineImageProxyUrl = configuredOfflineImageProxyUrls[0] || '';
+const configuredScraperProxyUrl = configuredScraperProxyUrls[0] || '';
+
+let imageProxyRoundRobinIndex = 0;
+export const getNextOfflineImageProxyUrl = (): string => {
+  if (configuredOfflineImageProxyUrls.length === 0) return configuredOfflineImageProxyUrl;
+  const url = configuredOfflineImageProxyUrls[imageProxyRoundRobinIndex % configuredOfflineImageProxyUrls.length];
+  imageProxyRoundRobinIndex = (imageProxyRoundRobinIndex + 1) % configuredOfflineImageProxyUrls.length;
+  return url;
+};
 const MATERIALIZE_WORKER_BATCH_SIZE = 40;
 
 const MEDIA_HOST_PATTERNS = ['.r2.dev', 'toonparrot-media'];
@@ -87,8 +106,8 @@ const unwrapProxyUrl = (sourceUrl?: string | null) => {
   try {
     const parsed = new URL(normalized);
     const knownProxyUrls = [
-      configuredOfflineImageProxyUrl,
-      configuredScraperProxyUrl,
+      ...configuredOfflineImageProxyUrls,
+      ...configuredScraperProxyUrls,
     ]
       .map((value) => normalizeText(value))
       .filter(Boolean);
@@ -120,7 +139,7 @@ export const buildProxiedImageUrl = (sourceUrl?: string | null, referer?: string
   }
 
   const unwrapped = unwrapProxyUrl(normalized) || normalized;
-  const proxyBaseUrl = configuredOfflineImageProxyUrl;
+  const proxyBaseUrl = getNextOfflineImageProxyUrl();
   if (!proxyBaseUrl) {
     return unwrapped;
   }

@@ -1,7 +1,20 @@
 import { getCurrentAccessToken, supabaseUrl } from '@/lib/supabase';
 import { type ScrapeSource, getDefaultScrapeSource } from '@/lib/scraper/scrapeSources';
 
-const configuredCloudflareScraperUrl = import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '';
+const configuredCloudflareScraperUrls = (import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '')
+  .split(',')
+  .map((u) => u.trim().replace(/\/+$/, ''))
+  .filter(Boolean);
+
+const configuredCloudflareScraperUrl = configuredCloudflareScraperUrls[0] || '';
+
+let clientScraperRoundRobin = 0;
+export const getNextScraperProxyUrl = (): string => {
+  if (configuredCloudflareScraperUrls.length === 0) return configuredCloudflareScraperUrl;
+  const url = configuredCloudflareScraperUrls[clientScraperRoundRobin % configuredCloudflareScraperUrls.length];
+  clientScraperRoundRobin = (clientScraperRoundRobin + 1) % configuredCloudflareScraperUrls.length;
+  return url;
+};
 const configuredSupabaseScraperUrl = supabaseUrl
   ? `${supabaseUrl}/functions/v1/proxy-scraper`
   : '';
@@ -182,7 +195,7 @@ const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
     return {
       label: 'Cloudflare scraper proxy',
       request: (targetUrl) =>
-        fetch(configuredCloudflareScraperUrl, {
+        fetch(getNextScraperProxyUrl(), {
           method: 'POST',
           headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
           body: targetUrl,
@@ -244,7 +257,7 @@ const createStructuredProxyAttempt = (provider: ScraperProvider): StructuredProx
     return {
       label: 'Cloudflare scraper proxy',
       request: (payload) =>
-        fetch(configuredCloudflareScraperUrl, {
+        fetch(getNextScraperProxyUrl(), {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
