@@ -254,10 +254,10 @@ const TopTenSection: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => scroll('left')}
-              className="absolute left-0 top-0 bottom-[80px] z-50 flex w-12 items-center justify-center bg-black/30 text-white opacity-70 transition-all duration-300 hover:bg-black/60 hover:opacity-100 focus-visible:opacity-100 sm:w-16"
-              aria-label="Scroll left"
+              className="group/arrow absolute left-2 sm:left-4 top-16 bottom-20 my-auto z-50 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-label="Sola kaydır"
             >
-              <ChevronLeft className="h-10 w-10 transition-transform duration-300 group-hover/arrow:scale-125 group-active/arrow:scale-90" />
+              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:-translate-x-0.5" strokeWidth={2.25} />
             </motion.button>
           )}
 
@@ -268,10 +268,10 @@ const TopTenSection: React.FC = () => {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => scroll('right')}
-              className="absolute right-0 top-0 bottom-[80px] z-50 flex w-12 items-center justify-center bg-black/30 text-white opacity-70 transition-all duration-300 hover:bg-black/60 hover:opacity-100 focus-visible:opacity-100 sm:w-16"
-              aria-label="Scroll right"
+              className="group/arrow absolute right-2 sm:right-4 top-16 bottom-20 my-auto z-50 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-label="Sağa kaydır"
             >
-              <ChevronRight className="h-10 w-10 transition-transform duration-300 group-hover/arrow:scale-125 group-active/arrow:scale-90" />
+              <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:translate-x-0.5" strokeWidth={2.25} />
             </motion.button>
           )}
         </AnimatePresence>}

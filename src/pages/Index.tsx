@@ -780,6 +780,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     ? itemWidth
     : getEstimatedHomeCarouselItemWidth(scrollMetrics.viewportWidth, scrollMetrics.clientWidth);
   const itemStride = effectiveItemWidth > 0 ? effectiveItemWidth + gapPx : 0;
+  const posterCenterY = effectiveItemWidth > 0 ? Math.round(effectiveItemWidth * 0.75) : undefined;
 
   const scroll = useCallback((direction: 'left' | 'right') => {
     const scroller = scrollRef.current;
@@ -839,10 +840,11 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => scroll('left')}
-              className="group/arrow absolute left-4 top-1/2 z-40 flex h-[3.25rem] w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-full bg-[linear-gradient(180deg,rgba(59,130,246,0.96),rgba(37,99,235,0.92))] text-white shadow-[0_16px_34px_rgba(37,99,235,0.34)] ring-1 ring-white/12 backdrop-blur-md transition-all duration-200 hover:scale-[1.04] hover:shadow-[0_18px_38px_rgba(37,99,235,0.42)] active:scale-[0.9] active:shadow-[0_10px_20px_rgba(37,99,235,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:left-5 sm:h-[3.6rem] sm:w-[3.6rem]"
+              style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
+              className="group/arrow absolute left-2 sm:left-3 top-[calc((100%-7.25rem)/2)] z-40 flex h-9 w-9 sm:h-10 sm:w-10 -translate-y-1/2 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-label={`${title} sola kaydır`}
             >
-              <ChevronLeft className="h-7 w-7 -translate-x-[1px] transition-transform duration-200 group-active/arrow:-translate-x-[3px] sm:h-8 sm:w-8" />
+              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:-translate-x-0.5" strokeWidth={2.25} />
             </motion.button>
           )}
 
@@ -853,10 +855,11 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               onClick={() => scroll('right')}
-              className="group/arrow absolute right-4 top-1/2 z-40 flex h-[3.25rem] w-[3.25rem] -translate-y-1/2 items-center justify-center rounded-full bg-[linear-gradient(180deg,rgba(59,130,246,0.96),rgba(37,99,235,0.92))] text-white shadow-[0_16px_34px_rgba(37,99,235,0.34)] ring-1 ring-white/12 backdrop-blur-md transition-all duration-200 hover:scale-[1.04] hover:shadow-[0_18px_38px_rgba(37,99,235,0.42)] active:scale-[0.9] active:shadow-[0_10px_20px_rgba(37,99,235,0.28)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:right-5 sm:h-[3.6rem] sm:w-[3.6rem]"
+              style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
+              className="group/arrow absolute right-2 sm:right-3 top-[calc((100%-7.25rem)/2)] z-40 flex h-9 w-9 sm:h-10 sm:w-10 -translate-y-1/2 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
               aria-label={`${title} sağa kaydır`}
             >
-              <ChevronRight className="h-7 w-7 translate-x-[1px] transition-transform duration-200 group-active/arrow:translate-x-[3px] sm:h-8 sm:w-8" />
+              <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:translate-x-0.5" strokeWidth={2.25} />
             </motion.button>
           )}
         </AnimatePresence>}

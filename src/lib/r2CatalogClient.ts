@@ -118,10 +118,26 @@ const normalizeRowFields = (row: any): any => {
   // isAdult <-> is_adult
   if (row.isAdult !== undefined && row.is_adult === undefined) row.is_adult = row.isAdult;
   else if (row.is_adult !== undefined && row.isAdult === undefined) row.isAdult = row.is_adult;
+  else if (row.is_adult === undefined && row.isAdult === undefined && row.slug !== undefined && row.title !== undefined) {
+    row.is_adult = false;
+    row.isAdult = false;
+  }
 
   // isPublic <-> is_public
   if (row.isPublic !== undefined && row.is_public === undefined) row.is_public = row.isPublic;
   else if (row.is_public !== undefined && row.isPublic === undefined) row.isPublic = row.is_public;
+  else if (row.is_public === undefined && row.isPublic === undefined && (row.slug !== undefined || row.name !== undefined)) {
+    row.is_public = true;
+    row.isPublic = true;
+  }
+
+  // releaseYear <-> release_year
+  if (row.releaseYear !== undefined && row.release_year === undefined) row.release_year = row.releaseYear;
+  else if (row.release_year !== undefined && row.releaseYear === undefined) row.releaseYear = row.release_year;
+
+  // sourceLinks <-> source_links
+  if (row.sourceLinks !== undefined && row.source_links === undefined) row.source_links = row.sourceLinks;
+  else if (row.source_links !== undefined && row.sourceLinks === undefined) row.sourceLinks = row.source_links;
 
   // last_updated <-> updatedAt / updated_at
   const updated = row.last_updated ?? row.updatedAt ?? row.updated_at;

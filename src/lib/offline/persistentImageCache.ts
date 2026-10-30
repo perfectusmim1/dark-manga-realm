@@ -166,7 +166,21 @@ const fetchImageViaProxy = async (sourceUrl: string): Promise<Blob> => {
 };
 
 const fetchImageWithFallback = async (sourceUrl: string): Promise<Blob> => {
-  // 1. Try direct fetch
+  const isCrossOrigin =
+    typeof window !== 'undefined' &&
+    sourceUrl.startsWith('http') &&
+    !sourceUrl.startsWith(window.location.origin);
+
+  // 1. For cross-origin URLs, try Cloudflare Offline Image Proxy first to avoid noisy browser CORS errors
+  if (isCrossOrigin && getOfflineImageProxyUrl()) {
+    try {
+      return await fetchImageViaProxy(sourceUrl);
+    } catch {
+      // Fallback to direct fetch if proxy fails
+    }
+  }
+
+  // 2. Direct fetch
   try {
     const response = await fetch(sourceUrl, {
       mode: 'cors',
@@ -180,7 +194,7 @@ const fetchImageWithFallback = async (sourceUrl: string): Promise<Blob> => {
     // Direct fetch failed (likely CORS or network), fallback to proxy
   }
 
-  // 2. Fallback to Cloudflare Offline Image Proxy
+  // 3. Fallback to Cloudflare Offline Image Proxy
   return await fetchImageViaProxy(sourceUrl);
 };
 

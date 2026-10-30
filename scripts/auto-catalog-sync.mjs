@@ -1984,10 +1984,25 @@ class SmartCatalogStore {
   }
 
   toSnapshotPayload() {
+    const now = new Date().toISOString();
     const lightweightMangas = Array.from(this.mangas.values()).map((m) => {
       const { chapters, ...rest } = m;
+      const isAdult = Boolean(m.isAdult ?? m.is_adult ?? false);
+      const createdAt = m.createdAt || m.created_at || now;
+      const updatedAt = m.updatedAt || m.last_updated || now;
       return {
         ...rest,
+        is_public: true,
+        isPublic: true,
+        is_adult: isAdult,
+        isAdult,
+        created_at: createdAt,
+        createdAt,
+        last_updated: updatedAt,
+        updatedAt,
+        release_year: m.releaseYear ?? m.release_year ?? null,
+        alternative_titles: Array.isArray(m.alternativeTitles) ? m.alternativeTitles : [],
+        source_links: Array.isArray(m.sourceLinks) ? m.sourceLinks : [],
         chapters: (chapters || []).map((ch) => ({
           id: ch.id,
           chapterNumber: Number(ch.chapterNumber ?? ch.number ?? 0),
@@ -2170,7 +2185,7 @@ const saveLocalCheckpoint = (state) => {
 const uploadSeriesFileToR2 = async (manga) => {
   if (!CATALOG_WORKER_URL || !CATALOG_ADMIN_TOKEN || !manga?.slug || IS_DRY_RUN) return;
   try {
-    await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${manga.slug}`, {
+    await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${manga.slug}?onlySeries=1`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
