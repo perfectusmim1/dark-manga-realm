@@ -1861,6 +1861,7 @@ class CatalogArchiveStore {
     this.slugIndex = new Map();
     this.anilistIdIndex = new Map();
     this.malIdIndex = new Map();
+    this.touchedSlugs = new Set();
 
     for (const [id, m] of this.mangas.entries()) {
       if (isBLSeries(m)) {
@@ -2091,6 +2092,7 @@ class CatalogArchiveStore {
 
       existing.chapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
       existing.updatedAt = new Date().toISOString();
+      if (existing.slug) this.touchedSlugs.add(existing.slug);
       this.syncScrapedMetadata(existing.id, scraped);
       return existing;
     }
@@ -2148,6 +2150,7 @@ class CatalogArchiveStore {
 
     this.mangas.set(mangaId, newManga);
     this.slugIndex.set(finalSlug, mangaId);
+    if (finalSlug) this.touchedSlugs.add(finalSlug);
 
     const titleKey = normalizeTitleKey(scraped.title);
     if (titleKey) this.titleKeyIndex.set(titleKey, mangaId);
@@ -2626,7 +2629,7 @@ class CatalogArchiveStore {
 }
 
 // --- R2 Upload Engine ---
-const uploadToCatalogWorker = async (store) => {
+const uploadToCatalogWorker = async (store, options = {}) => {
   if (!CATALOG_ADMIN_TOKEN) {
     logWarn('CATALOG_ADMIN_TOKEN .env içinde tanımlı değil, R2 yüklemesi atlanıyor.');
     return;
@@ -2701,24 +2704,33 @@ const uploadToCatalogWorker = async (store) => {
     }
   }
 
-  // 3. Tekil Serileri (/v1/admin/series/:slug) doğrudan tam sayfalarıyla R2'ye yükle (3'erli paralel)
-  const mangas = Array.from(store.mangas.values());
-  logInfo(`Seri detayları R2'ye yükleniyor (${mangas.length} seri)...`);
-  for (let i = 0; i < mangas.length; i += 3) {
-    const chunk = mangas.slice(i, i + 3);
-    await Promise.all(chunk.map(async (m) => {
-      if (!m.slug) return;
-      try {
-        await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${m.slug}`, {
-          method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
-          },
-          body: JSON.stringify(m),
-        });
-      } catch {}
-    }));
+  // 3. Tekil Serileri (/v1/admin/series/:slug) doğrudan tam sayfalarıyla R2'ye yükle (SADECE yeni/güncellenenler)
+  const allMangas = Array.from(store.mangas.values());
+  const mangasToUpload = options.all
+    ? allMangas
+    : allMangas.filter((m) => store.touchedSlugs?.has(m.slug));
+
+  if (mangasToUpload.length > 0) {
+    logInfo(`Yeni/güncellenen seri detayları R2'ye yükleniyor (${mangasToUpload.length} seri)...`);
+    for (let i = 0; i < mangasToUpload.length; i += 6) {
+      const chunk = mangasToUpload.slice(i, i + 6);
+      await Promise.all(chunk.map(async (m) => {
+        if (!m.slug) return;
+        try {
+          await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${m.slug}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
+            },
+            body: JSON.stringify(m),
+          });
+        } catch {}
+      }));
+    }
+    if (!options.all && store.touchedSlugs) {
+      store.touchedSlugs.clear();
+    }
   }
 
   // 4. Snapshot R2 yüklemesi
@@ -3090,7 +3102,7 @@ const main = async () => {
   logInfo(`Yerel arşiv dump kaydedildi: ${EXPORT_DUMP_PATH}`);
 
   if (!IS_DRY_RUN) {
-    await uploadToCatalogWorker(store);
+    await uploadToCatalogWorker(store, { all: true });
   }
 
   console.log('='.repeat(70));
