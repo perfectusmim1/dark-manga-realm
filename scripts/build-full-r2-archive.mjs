@@ -638,6 +638,7 @@ const isJunkCoverUrl = (url) => {
 
 // --- Live Image Verification Cache (Domain Hızlandırmalı - 20x Hızlı) ---
 const verifiedDomainSuccessCounts = new Map();
+const verifiedDomainFailureCounts = new Map();
 const verifiedDomainCache = new Map();
 const verifiedUrlCache = new Map();
 
@@ -665,6 +666,11 @@ const verifyImageUrl = async (url) => {
   try {
     domain = new URL(cleanUrl).hostname;
   } catch {
+    return false;
+  }
+
+  // Domain başarısız olarak işaretlendiyse doğrudan atla (Circuit Breaker)
+  if (verifiedDomainCache.get(domain) === false) {
     return false;
   }
 
@@ -704,10 +710,21 @@ const verifyImageUrl = async (url) => {
       if (count >= 2) {
         verifiedDomainCache.set(domain, true);
       }
+    } else {
+      const failCount = (verifiedDomainFailureCounts.get(domain) || 0) + 1;
+      verifiedDomainFailureCounts.set(domain, failCount);
+      if (failCount >= 3) {
+        verifiedDomainCache.set(domain, false);
+      }
     }
     return isImage;
   } catch {
     verifiedUrlCache.set(cleanUrl, false);
+    const failCount = (verifiedDomainFailureCounts.get(domain) || 0) + 1;
+    verifiedDomainFailureCounts.set(domain, failCount);
+    if (failCount >= 3) {
+      verifiedDomainCache.set(domain, false);
+    }
     return false;
   }
 };
@@ -718,8 +735,24 @@ const verifyAndFilterImageUrls = async (urls) => {
   }
 
   const unique = Array.from(new Set(urls.map((u) => u.trim()).filter((u) => !isJunkImageUrl(u))));
-  const valid = [];
+  if (unique.length === 0) return [];
 
+  // Fast sample check: İlk 2 görseli kontrol et, çalışmıyorsa bölüm ölüdür
+  const sample = unique.slice(0, 2);
+  const sampleResults = await Promise.all(sample.map((u) => verifyImageUrl(u)));
+  if (!sampleResults.some(Boolean)) {
+    return [];
+  }
+
+  // İlk görselin domain'i doğrulanmışsa kalan görseller aynı domainde doğrudan geçerli kabul edilir
+  try {
+    const firstDomain = new URL(unique[0]).hostname;
+    if (verifiedDomainCache.get(firstDomain) === true) {
+      return unique;
+    }
+  } catch {}
+
+  const valid = [];
   const chunkSize = 10;
   for (let i = 0; i < unique.length; i += chunkSize) {
     const chunk = unique.slice(i, i + chunkSize);
@@ -2788,7 +2821,7 @@ const main = async () => {
   };
 
   const hasExistingQueue = Object.keys(seriesQueue).length > 0;
-  if (RESUME && hasExistingQueue) {
+  if (IS_RESUME && hasExistingQueue) {
     logInfo(`Resume modu: Mevcut kuyruk (${Object.keys(seriesQueue).length} seri) kullanılıyor, tam katalog taraması atlandı.`);
     try {
       const smCards = await harvestSiyahMelekCatalog(LIMIT);
