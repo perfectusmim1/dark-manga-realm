@@ -187,6 +187,36 @@ const loadCheckpoint = () => {
   }
 };
 
+const PID_FILE = path.join(cacheDir, 'archive-harvester.pid');
+const acquirePidLock = () => {
+  if (existsSync(PID_FILE)) {
+    try {
+      const existingPid = parseInt(readFileSync(PID_FILE, 'utf8').trim(), 10);
+      if (existingPid && existingPid !== process.pid) {
+        try {
+          process.kill(existingPid, 0);
+          logWarn(`Motor zaten arka planda aktif çalışıyor (PID: ${existingPid}). İkinci bir süreç başlatılamaz.`);
+          process.exit(0);
+        } catch {}
+      }
+    } catch {}
+  }
+  writeFileSync(PID_FILE, String(process.pid), 'utf8');
+};
+
+const releasePidLock = () => {
+  try {
+    if (existsSync(PID_FILE)) {
+      const stored = parseInt(readFileSync(PID_FILE, 'utf8').trim(), 10);
+      if (stored === process.pid) unlinkSync(PID_FILE);
+    }
+  } catch {}
+};
+
+process.on('exit', releasePidLock);
+process.on('SIGINT', () => { releasePidLock(); process.exit(0); });
+process.on('SIGTERM', () => { releasePidLock(); process.exit(0); });
+
 const saveCheckpoint = (state) => {
   try {
     state.lastUpdatedAt = new Date().toISOString();
@@ -2781,6 +2811,7 @@ const uploadToCatalogWorker = async (store, options = {}) => {
 // MAIN RUNNER (2 Aşamalı Kalıcı Kuyruk Motoru)
 // ============================================================================
 const main = async () => {
+  acquirePidLock();
   console.log('='.repeat(70));
   console.log('   TOONPARROT - PERSISTENT ARCHIVE HARVESTER & SPEED ENGINE   ');
   console.log('='.repeat(70));
