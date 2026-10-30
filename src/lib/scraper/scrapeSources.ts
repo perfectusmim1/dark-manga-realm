@@ -1189,7 +1189,7 @@ const extractDetailAuthors = (doc: Document, labels: string[], fallback: string)
   return isScrapedPlaceholderValue(extractedName) ? '' : extractedName;
 };
 
-const extractGenres = (doc: Document, fallbackGenres: string[], source?: ScrapeSource) => {
+const extractGenres = (doc: Document, fallbackGenres: string[], _source?: ScrapeSource) => {
   const genreElements = doc.querySelectorAll([
     '.genres-content a',
     '.post-content_item .summary-content a',
@@ -1200,17 +1200,12 @@ const extractGenres = (doc: Document, fallbackGenres: string[], source?: ScrapeS
     'a[href*="/kategoriler/"]',
     'a[href*="/etiket/"]',
     '.tagcloud a',
-    '.badge',
   ].join(', '));
   const candidateGenres = Array.from(genreElements)
     .map((genre) => normalizeScrapedText(genre.textContent))
     .filter(Boolean);
 
-  const genres = candidateGenres.length > 0 ? candidateGenres : fallbackGenres;
-  if (source === 'siyahmelek' || source === 'hattorimanga') {
-    if (!genres.includes('+18')) genres.unshift('+18');
-  }
-  return genres;
+  return candidateGenres.length > 0 ? candidateGenres : fallbackGenres;
 };
 
 const extractReleaseYear = (doc: Document) => {
@@ -1245,35 +1240,42 @@ const inferAdultContent = (doc: Document, source: ScrapeSource, genres: string[]
     return true;
   }
 
-  // 1. Check for explicit 18+ UI badges (Siyahmelek, Madara, Hattori, WebtoonHatti)
-  const hasBadge = Boolean(
-    doc.querySelector('.badge-age, .badge-adult, .badge-18, [class*="badge-age"]')
-    || Array.from(doc.querySelectorAll('.badge, span[class*="badge"], div[class*="badge"]')).some(
-      (el) => /\b18\+\b|\+18\b|yetişkin/i.test(el.textContent || '')
-    )
-  );
-  if (hasBadge) {
-    return true;
+  // 1. Check for explicit 18+ UI badges (Skip for siyahmelek as their site theme renders 18+ badge on all pages)
+  if (source !== 'siyahmelek') {
+    const hasBadge = Boolean(
+      doc.querySelector('.badge-age, .badge-adult, .badge-18, [class*="badge-age"]')
+      || Array.from(doc.querySelectorAll('.badge, span[class*="badge"], div[class*="badge"]')).some(
+        (el) => /\b18\+\b|\+18\b|yetişkin/i.test(el.textContent || '')
+      )
+    );
+    if (hasBadge) {
+      return true;
+    }
+
+    // 2. Check JSON-LD metadata for adult consideration or adult audience (Skip for siyahmelek)
+    const scriptsText = Array.from(doc.querySelectorAll('script[type="application/ld+json"], script'))
+      .map((script) => script.textContent || '')
+      .join(' ');
+    if (scriptsText && (scriptsText.includes('AdultConsideration') || /audienceType["'\s:>]+adult/i.test(scriptsText) || /contentRating["'\s:>]+18\+/i.test(scriptsText))) {
+      return true;
+    }
   }
 
-  // 2. Check JSON-LD metadata for adult consideration or adult audience
-  const scriptsText = Array.from(doc.querySelectorAll('script[type="application/ld+json"], script'))
-    .map((script) => script.textContent || '')
-    .join(' ');
-  if (scriptsText && (scriptsText.includes('AdultConsideration') || /audienceType["'\s:>]+adult/i.test(scriptsText))) {
-    return true;
-  }
-
-  // 3. Check genres and explicit tags
+  // 3. Check genres and explicit tags (SiyahMelek uses /tur/yetiskin/ for actual 18+ series)
   const combinedGenres = [...genres, ...fallbackGenres].join(' ');
   if (ADULT_CONTENT_PATTERNS.some((pattern) => pattern.test(combinedGenres))) {
     return true;
   }
 
   // 4. Check title and synopsis for explicit adult flags
+  // Note: For siyahmelek, skip og:description since site-wide meta contains "Hentai oku"
+  const ogDescription = source === 'siyahmelek'
+    ? ''
+    : doc.querySelector('meta[property="og:description"]')?.getAttribute('content') || '';
+
   const titleAndDesc = [
     extractDetailTitle(doc, source),
-    doc.querySelector('.manga-excerpt, .description-summary, .manga-description, meta[property="og:description"]')?.getAttribute('content') || '',
+    ogDescription,
     doc.querySelector('.manga-excerpt, .description-summary, .manga-description')?.textContent || '',
   ].join(' ');
 
