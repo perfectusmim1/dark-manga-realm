@@ -56,15 +56,7 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             return;
         }
 
-        const infiniteDebugger = () => {
-            // eslint-disable-next-line no-debugger
-            debugger;
-        };
-
-        let debuggerInterval: number | undefined;
         let extensionInterval: number | undefined;
-
-        debuggerInterval = window.setInterval(infiniteDebugger, 2000);
 
         const handleContextMenu = (e: MouseEvent) => {
             e.preventDefault();
@@ -104,21 +96,6 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             extensionInterval = window.setInterval(checkExtensions, 3000);
         };
 
-        const observer = new MutationObserver((mutations) => {
-            mutations.forEach((mutation) => {
-                if (mutation.type === 'childList') {
-                    const wrapper = document.getElementById('app-security-wrapper');
-                    if (!wrapper) window.location.reload();
-                }
-            });
-        });
-
-        observer.observe(document.documentElement, {
-            attributes: false,
-            childList: true,
-            subtree: true
-        });
-
         const handleDragStart = (e: DragEvent) => {
             const target = e.target;
             if (target instanceof Element && target.closest('[data-allow-image-interaction="true"]')) {
@@ -138,8 +115,6 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
             document.removeEventListener('contextmenu', handleContextMenu, true);
             document.removeEventListener('keydown', handleKeyDown, true);
             document.removeEventListener('dragstart', handleDragStart);
-            observer.disconnect();
-            if (debuggerInterval) window.clearInterval(debuggerInterval);
             if (extensionInterval) window.clearInterval(extensionInterval);
         };
     }, [shouldEnforce]);
