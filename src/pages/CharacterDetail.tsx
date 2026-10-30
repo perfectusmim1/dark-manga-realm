@@ -247,6 +247,7 @@ const CharacterDetail: React.FC = () => {
                                     <OptimizedImage
                                         src={character.imageUrl}
                                         alt={character.name}
+                                        allowProxy
                                         priority
                                         containerClassName="h-full w-full"
                                         placeholderClassName="rounded-none"

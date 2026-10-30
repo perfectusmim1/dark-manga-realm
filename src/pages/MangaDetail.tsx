@@ -3509,6 +3509,7 @@ const MangaDetail: React.FC = () => {
                                   <OptimizedImage
                                     src={char.imageUrl}
                                     alt={char.name}
+                                    allowProxy
                                     rootMargin="420px 0px"
                                     containerClassName="h-full w-full"
                                     placeholderClassName="rounded-[inherit]"

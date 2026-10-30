@@ -139,7 +139,7 @@ const findNamedEntityRowByName = async <TRow extends { name: string }>(
 
 const mapAuthorRow = (row: any): Author => ({
     ...row,
-    imageUrl: sanitizeEntityImageUrl(row.image_url),
+    imageUrl: sanitizeEntityImageUrl(row.image_url || row.imageUrl || row.image),
     likesCount: row.likes_count ?? 0,
     isPublic: row.is_public ?? true,
     alternativeNames: row.alternative_names || [],
@@ -150,7 +150,7 @@ const mapAuthorRow = (row: any): Author => ({
 
 const mapArtistRow = (row: any): Artist => ({
     ...row,
-    imageUrl: sanitizeEntityImageUrl(row.image_url),
+    imageUrl: sanitizeEntityImageUrl(row.image_url || row.imageUrl || row.image),
     likesCount: row.likes_count ?? 0,
     isPublic: row.is_public ?? true,
     alternativeNames: row.alternative_names || [],
@@ -165,7 +165,7 @@ const mapCharacterRow = (
 ): Character => ({
     id: row.id,
     name: row.name,
-    imageUrl: sanitizeEntityImageUrl(row.image_url),
+    imageUrl: sanitizeEntityImageUrl(row.image_url || row.imageUrl || row.image),
     description: sanitizeCharacterDescription(row.description),
     likesCount: row.likes_count ?? 0,
     createdAt: row.created_at,
@@ -247,7 +247,7 @@ const normalizeSeriesGalleryUrls = (details?: EntityMetadata | Record<string, un
 
 const createRichEntityPayload = (entity: Partial<Character | Author | Artist>) => ({
     name: normalizeNamedEntityValue(entity.name),
-    image_url: sanitizeEntityImageUrl(entity.imageUrl),
+    image_url: sanitizeEntityImageUrl(entity.imageUrl || (entity as any).image_url || (entity as any).image),
     description: entity.description,
     is_public: entity.isPublic ?? true,
     alternative_names: entity.alternativeNames || [],
@@ -5013,7 +5013,7 @@ export const getCharacterMediaRecords = async (): Promise<NamedEntityMediaRecord
     return (data || []).map((row) => ({
         id: row.id,
         name: row.name,
-        imageUrl: sanitizeEntityImageUrl(row.image_url),
+        imageUrl: sanitizeEntityImageUrl(row.image_url || (row as any).imageUrl || (row as any).image),
         gallery: normalizeEntityGallery(row.gallery),
     }));
 };
@@ -5316,7 +5316,7 @@ export const getAuthorMediaRecords = async (): Promise<NamedEntityMediaRecord[]>
     return (data || []).map((row) => ({
         id: row.id,
         name: row.name,
-        imageUrl: sanitizeEntityImageUrl(row.image_url),
+        imageUrl: sanitizeEntityImageUrl(row.image_url || (row as any).imageUrl || (row as any).image),
         gallery: normalizeEntityGallery(row.gallery),
     }));
 };
@@ -5347,7 +5347,7 @@ export const getArtistMediaRecords = async (): Promise<NamedEntityMediaRecord[]>
     return (data || []).map((row) => ({
         id: row.id,
         name: row.name,
-        imageUrl: sanitizeEntityImageUrl(row.image_url),
+        imageUrl: sanitizeEntityImageUrl(row.image_url || (row as any).imageUrl || (row as any).image),
         gallery: normalizeEntityGallery(row.gallery),
     }));
 };

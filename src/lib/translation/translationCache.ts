@@ -1,18 +1,37 @@
 import { supabase } from '@/lib/supabase';
 import { TranslationBlock } from './types';
 
+let translationTableUnavailable = false;
+
+const isMissingTableError = (error: { code?: string; message?: string; status?: number } | null) =>
+  Boolean(
+    error &&
+      (error.code === 'PGRST205' ||
+        error.code === '42P01' ||
+        error.status === 404 ||
+        /page_translations/i.test(error.message || '')),
+  );
+
 // Bölümün seçili dildeki tüm sayfa çevirilerini tek sorguda getirir.
 export const getCachedChapterTranslations = async (
   chapterId: string,
   lang: string,
 ): Promise<Map<number, TranslationBlock[]>> => {
+  if (translationTableUnavailable) return new Map();
+
   const { data, error } = await supabase
     .from('page_translations')
     .select('page_index, blocks')
     .eq('chapter_id', chapterId)
     .eq('lang', lang);
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingTableError(error)) {
+      translationTableUnavailable = true;
+      return new Map();
+    }
+    throw error;
+  }
 
   const result = new Map<number, TranslationBlock[]>();
   ((data ?? []) as Array<{ page_index: number; blocks: unknown }>).forEach((row) => {
@@ -30,6 +49,8 @@ export const upsertPageTranslation = async (
   lang: string,
   blocks: TranslationBlock[],
 ): Promise<void> => {
+  if (translationTableUnavailable) return;
+
   const { error } = await supabase
     .from('page_translations')
     .upsert(
@@ -43,5 +64,11 @@ export const upsertPageTranslation = async (
       { onConflict: 'chapter_id,page_index,lang' },
     );
 
-  if (error) throw error;
+  if (error) {
+    if (isMissingTableError(error)) {
+      translationTableUnavailable = true;
+      return;
+    }
+    throw error;
+  }
 };

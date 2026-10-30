@@ -152,6 +152,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
                       <OptimizedImage
                         src={item.imageUrl}
                         alt={item.name}
+                        allowProxy
                         priority={index < 6}
                         rootMargin="560px 0px"
                         containerClassName="h-full w-full"

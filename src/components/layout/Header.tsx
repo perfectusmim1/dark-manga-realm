@@ -33,6 +33,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import { Artist, Author, Character, Manga } from '@/lib/types';
+import { resolveDisplayImageUrl } from '@/lib/imageProxy';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -887,7 +888,7 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                               className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
                             >
                               <Avatar className="h-8 w-8">
-                                <AvatarImage src={char.imageUrl} />
+                                <AvatarImage src={resolveDisplayImageUrl(char.imageUrl)} />
                                 <AvatarFallback className="text-[10px]">{char.name[0]}</AvatarFallback>
                               </Avatar>
                               <div className="flex-1 min-w-0">
@@ -913,7 +914,7 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                               className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
                             >
                               <Avatar className="h-8 w-8">
-                                <AvatarImage src={author.imageUrl} />
+                                <AvatarImage src={resolveDisplayImageUrl(author.imageUrl)} />
                                 <AvatarFallback className="text-[10px]">{author.name[0]}</AvatarFallback>
                               </Avatar>
                               <div className="min-w-0 flex-1">
@@ -943,7 +944,7 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                               className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
                             >
                               <Avatar className="h-8 w-8">
-                                <AvatarImage src={artist.imageUrl} />
+                                <AvatarImage src={resolveDisplayImageUrl(artist.imageUrl)} />
                                 <AvatarFallback className="text-[10px]">{artist.name[0]}</AvatarFallback>
                               </Avatar>
                               <div className="min-w-0 flex-1">

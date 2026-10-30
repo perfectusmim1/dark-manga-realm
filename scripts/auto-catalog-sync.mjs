@@ -406,13 +406,17 @@ const cleanChapterTitle = (rawTitle, chapterNumber, seriesTitle) => {
 const isLowResThumbnailUrl = (url) =>
   typeof url === 'string' &&
   (/(?:-\d{2,3}x\d{2,3})\.(?:jpe?g|png|webp)(?:\?.*)?$/i.test(url.trim()) ||
-    /\/cover-230\.webp(?:\?.*)?$/i.test(url.trim()));
+    /\/cover-230\.webp(?:\?.*)?$/i.test(url.trim()) ||
+    /s4\.anilist\.co\/file\/anilistcdn\/media\/manga\/cover\/medium\//i.test(url.trim()));
 
 const upgradeSourceImageUrl = (url) => {
   if (!url || typeof url !== 'string') return '';
   const trimmed = url.trim();
   if (/cdn\.hentaiturk\.com\/uploads\/mangas\/\d+\/cover\/cover-230\.webp/i.test(trimmed)) {
     return trimmed.replace(/\/cover-230\.webp/i, '/cover.webp');
+  }
+  if (/s4\.anilist\.co\/file\/anilistcdn\/media\/manga\/cover\/medium\//i.test(trimmed)) {
+    return trimmed.replace(/\/cover\/medium\//i, '/cover/large/');
   }
   if (/(?:webtoonhatti|siyahmelek|hattorimanga)/i.test(trimmed)) {
     return trimmed.replace(/-\d{2,3}x\d{2,3}(\.(?:jpe?g|png|webp))(?:\?.*)?$/i, '$1');
@@ -675,7 +679,8 @@ const isJunkImageUrl = (url) => {
 };
 
 const isJunkCoverUrl = (url) => {
-  return isJunkImageUrl(url);
+  if (isJunkImageUrl(url)) return true;
+  return /uploads\.mangadex\.org/i.test(url);
 };
 
 const verifiedDomainSuccessCounts = new Map();
@@ -1275,22 +1280,29 @@ const queryAniList = async (searchTerms = [], options = {}) => {
 };
 
 const queryJikanMal = async (searchTerms = [], directMalId = null) => {
+  const fetchJikanJson = async (url) => {
+    const res = await fetchUpstream(url, {
+      timeoutMs: 7000,
+      headers: { Accept: 'application/json' },
+    });
+    if (!res.ok || !res.content) return { status: res.status || 0, json: null };
+    try {
+      return { status: res.status, json: JSON.parse(res.content) };
+    } catch {
+      return { status: res.status, json: null };
+    }
+  };
+
   const fetchMalCharacters = async (malId) => {
     try {
       await sleep(350);
-      const charRes = await fetch(`${JIKAN_API_URL}/${malId}/characters`, {
-        headers: { 'User-Agent': DEFAULT_USER_AGENT },
-        signal: AbortSignal.timeout(7000),
-      });
-      if (charRes.ok) {
-        const charJson = await charRes.json();
-        if (Array.isArray(charJson?.data)) {
-          return charJson.data.slice(0, 12).map((c) => ({
-            name: c.character?.name ? c.character.name.replace(/^([^,]+),\s*(.+)$/, '$2 $1').trim() : '',
-            image: c.character?.images?.jpg?.image_url,
-            role: c.role === 'Main' ? 'main' : 'supporting',
-          })).filter((c) => c.name);
-        }
+      const { json: charJson } = await fetchJikanJson(`${JIKAN_API_URL}/${malId}/characters`);
+      if (Array.isArray(charJson?.data)) {
+        return charJson.data.slice(0, 12).map((c) => ({
+          name: c.character?.name ? c.character.name.replace(/^([^,]+),\s*(.+)$/, '$2 $1').trim() : '',
+          image: c.character?.images?.jpg?.image_url,
+          role: c.role === 'Main' ? 'main' : 'supporting',
+        })).filter((c) => c.name);
       }
     } catch {}
     return [];
@@ -1298,26 +1310,20 @@ const queryJikanMal = async (searchTerms = [], directMalId = null) => {
 
   if (directMalId) {
     try {
-      const res = await fetch(`${JIKAN_API_URL}/${directMalId}`, {
-        headers: { 'User-Agent': DEFAULT_USER_AGENT },
-        signal: AbortSignal.timeout(7000),
-      });
-      if (res.ok) {
-        const json = await res.json();
-        const manga = json?.data;
-        if (manga && manga.mal_id) {
-          const characters = await fetchMalCharacters(manga.mal_id);
-          return {
-            idMal: manga.mal_id,
-            url: `https://myanimelist.net/manga/${manga.mal_id}`,
-            title: manga.title,
-            altTitles: [manga.title_english, manga.title_japanese, ...(manga.titles || []).map((t) => t.title)].filter(Boolean),
-            description: manga.synopsis || '',
-            cover: manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || '',
-            authors: (manga.authors || []).map((a) => a.name).filter(Boolean),
-            characters,
-          };
-        }
+      const { json } = await fetchJikanJson(`${JIKAN_API_URL}/${directMalId}`);
+      const manga = json?.data;
+      if (manga && manga.mal_id) {
+        const characters = await fetchMalCharacters(manga.mal_id);
+        return {
+          idMal: manga.mal_id,
+          url: `https://myanimelist.net/manga/${manga.mal_id}`,
+          title: manga.title,
+          altTitles: [manga.title_english, manga.title_japanese, ...(manga.titles || []).map((t) => t.title)].filter(Boolean),
+          description: manga.synopsis || '',
+          cover: manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || '',
+          authors: (manga.authors || []).map((a) => a.name).filter(Boolean),
+          characters,
+        };
       }
     } catch {}
   }
@@ -1325,16 +1331,11 @@ const queryJikanMal = async (searchTerms = [], directMalId = null) => {
   for (const term of searchTerms) {
     if (!term || term.length < 2 || /^\d+$/.test(term.trim())) continue;
     try {
-      const res = await fetch(`${JIKAN_API_URL}?q=${encodeURIComponent(term)}&limit=5`, {
-        headers: { 'User-Agent': DEFAULT_USER_AGENT },
-        signal: AbortSignal.timeout(7000),
-      });
-      if (res.status === 429) {
+      const { status, json } = await fetchJikanJson(`${JIKAN_API_URL}?q=${encodeURIComponent(term)}&limit=5`);
+      if (status === 429) {
         await sleep(1800);
         continue;
       }
-      if (!res.ok) continue;
-      const json = await res.json();
       const items = json?.data;
       if (Array.isArray(items) && items.length > 0) {
         const manga = items.find((item) => {
@@ -1392,10 +1393,8 @@ const queryMangaDex = async (searchTerms = [], options = {}) => {
           return !/promo|credit|endcard|end_card|discord|recruit|mangadex|reklam|tanitim|warning|card/i.test(fn)
             && !/promo|credit|endcard|end_card|discord|recruit|mangadex|reklam|tanitim|warning/i.test(desc);
         }) || coverRels[0];
-        const coverFileName = cleanCoverRel?.attributes?.fileName;
-        const coverUrl = (coverFileName && !isJunkCoverUrl(coverFileName))
-          ? `https://uploads.mangadex.org/covers/${manga.id}/${coverFileName}`
-          : '';
+        // Never use uploads.mangadex.org directly as cover/banner (hotlink protection returns "Read on MangaDex" banner)
+        const coverUrl = '';
         const authors = (manga.relationships || [])
           .filter((r) => r.type === 'author' && r.attributes?.name)
           .map((r) => r.attributes.name);
@@ -1566,16 +1565,35 @@ class SmartCatalogStore {
       }
 
       m.title = cleanSeriesTitle(m.title);
+      if (m.slug && /-manga-kapagi$/i.test(m.slug)) {
+        m.slug = m.slug.replace(/-manga-kapagi$/i, '');
+      }
 
-      // 2. Bölüm başlıklarını temizle
+      // 2. Bölüm başlıklarını ve bozuk (.enc) sayfaları temizle
       if (Array.isArray(m.chapters)) {
+        const validChapters = [];
         for (const ch of m.chapters) {
           const num = Number(ch.chapterNumber ?? ch.number ?? 0);
           ch.title = cleanChapterTitle(ch.title, num, m.title);
+          if (Array.isArray(ch.pages) && ch.pages.length > 0) {
+            const cleanPages = ch.pages.filter((p) => !isJunkImageUrl(p));
+            if (cleanPages.length === 0) {
+              continue; // Tamamı .enc / bozuk olan bölümü atla
+            }
+            ch.pages = cleanPages;
+          }
+          validChapters.push(ch);
         }
+        m.chapters = validChapters;
       }
 
-      // 3. MangaDex promo/credit veya çöp kapakları temizle
+      // 3. MangaDex promo/credit veya çöp kapakları temizle ve düşük çözünürlüklü kapakları yükselt
+      if (m.cover && isLowResThumbnailUrl(m.cover)) {
+        m.cover = upgradeSourceImageUrl(m.cover);
+      }
+      if (m.banner && isLowResThumbnailUrl(m.banner)) {
+        m.banner = upgradeSourceImageUrl(m.banner);
+      }
       if (m.cover && isJunkCoverUrl(m.cover)) {
         m.cover = '';
       }
@@ -1604,31 +1622,70 @@ class SmartCatalogStore {
         this.malIdIndex.set(Number(malId), id);
       }
 
-      // Sanitize false-positive adult flags from previous runs
-      const titleAdult = ADULT_TITLE_REGEX.test(
-        [m.title, ...(m.alternativeTitles || [])].join(' ')
-      );
-      const genresClean = (m.genres || []).filter(
-        (g) => !/^(?:\+18|18\+|yeti[şs]kin|adult|hentai|erotik|smut)$/i.test(g.trim())
-      );
-      if (!titleAdult && (m.anilistId || genresClean.length > 0)) {
-        const hasRealAdultGenre = (m.genres || []).some((g) =>
-          /^(?:hentai|erotik|erotica|pornographic|nsfw|smut)$/i.test(g.trim())
+      // Preserve adult status on explicit hentai / +18 sources, sanitize false-positives elsewhere
+      const adultSourceSet = new Set(['hentaiturk', 'siyahmelek', 'hattorimanga']);
+      const isFromAdultSource =
+        m.type === 'hentai' ||
+        m.type === 'webtoon_hentai' ||
+        adultSourceSet.has(m.details?.primarySource) ||
+        (m.sourceLinks || []).some((l) => l && adultSourceSet.has(l.source));
+
+      if (isFromAdultSource) {
+        if (m.type === 'hentai' || m.type === 'webtoon_hentai' || m.details?.primarySource === 'hentaiturk') {
+          m.isAdult = true;
+          m.is_adult = true;
+        }
+      } else {
+        const titleAdult = ADULT_TITLE_REGEX.test(
+          [m.title, ...(m.alternativeTitles || [])].join(' ')
         );
-        if (!hasRealAdultGenre) {
-          m.isAdult = false;
-          m.is_adult = false;
-          m.genres = genresClean;
+        const genresClean = (m.genres || []).filter(
+          (g) => !/^(?:\+18|18\+|yeti[şs]kin|adult|hentai|erotik|smut)$/i.test(g.trim())
+        );
+        if (!titleAdult && (m.anilistId || genresClean.length > 0)) {
+          const hasRealAdultGenre = (m.genres || []).some((g) =>
+            /^(?:hentai|erotik|erotica|pornographic|nsfw|smut)$/i.test(g.trim())
+          );
+          if (!hasRealAdultGenre) {
+            m.isAdult = false;
+            m.is_adult = false;
+            m.genres = genresClean;
+          }
         }
       }
     }
   }
 
   hydrateFromR2(snapshot, tables = null) {
-    if (snapshot && Array.isArray(snapshot.mangas)) {
-      for (const m of snapshot.mangas) {
+    const r2Mangas =
+      Array.isArray(tables?.mangas) && tables.mangas.length > 0
+        ? tables.mangas
+        : Array.isArray(snapshot?.mangas)
+        ? snapshot.mangas
+        : null;
+
+    if (r2Mangas) {
+      const r2Ids = new Set(r2Mangas.map((m) => m?.id).filter(Boolean));
+      // Prune stale local checkpoint series that were deleted from R2
+      for (const localId of Array.from(this.mangas.keys())) {
+        if (!r2Ids.has(localId)) {
+          this.mangas.delete(localId);
+        }
+      }
+
+      const snapshotMangaMap = new Map(
+        (Array.isArray(snapshot?.mangas) ? snapshot.mangas : []).filter((m) => m?.id).map((m) => [m.id, m])
+      );
+
+      for (const m of r2Mangas) {
         if (!m || !m.id || isBLSeries(m)) continue;
-        const cleanChs = (Array.isArray(m.chapters) ? m.chapters : []).map((ch) => ({
+        const snapM = snapshotMangaMap.get(m.id);
+        const rawIncomingChs = Array.isArray(m.chapters) && m.chapters.length > 0
+          ? m.chapters
+          : Array.isArray(snapM?.chapters)
+          ? snapM.chapters
+          : [];
+        const cleanChs = rawIncomingChs.map((ch) => ({
           ...ch,
           title: cleanChapterTitle(ch.title, ch.chapterNumber ?? ch.number, m.title),
         }));
@@ -1636,22 +1693,32 @@ class SmartCatalogStore {
         if (!existing) {
           this.mangas.set(m.id, {
             ...m,
+            isAdult: Boolean(m.isAdult ?? m.is_adult ?? false),
+            releaseYear: m.releaseYear ?? m.release_year ?? undefined,
             alternativeTitles: m.alternativeTitles || m.alternative_titles || [],
             sourceLinks: m.sourceLinks || m.source_links || [],
             details: m.details || {},
             chapters: cleanChs,
           });
         } else {
-          // Preserve full chapter pages if local checkpoint has them
-          const existingHasPages = (existing.chapters || []).some((ch) => Array.isArray(ch.pages) && ch.pages.length > 0);
-          const incomingHasPages = cleanChs.some((ch) => Array.isArray(ch.pages) && ch.pages.length > 0);
-          const selectedChs = incomingHasPages || !existingHasPages ? cleanChs : (existing.chapters || []).map((ch) => ({
-            ...ch,
-            title: cleanChapterTitle(ch.title, ch.chapterNumber ?? ch.number, m.title),
-          }));
+          const existingValidChs = (existing.chapters || [])
+            .map((ch) => {
+              const filteredPages = Array.isArray(ch.pages) ? ch.pages.filter((p) => !isJunkImageUrl(p)) : [];
+              return {
+                ...ch,
+                title: cleanChapterTitle(ch.title, ch.chapterNumber ?? ch.number, m.title),
+                pages: filteredPages,
+              };
+            })
+            .filter((ch) => Array.isArray(ch.pages) && ch.pages.length > 0);
+
+          const incomingHasPages = cleanChs.some((ch) => Array.isArray(ch.pages) && ch.pages.some((p) => !isJunkImageUrl(p)));
+          const selectedChs = incomingHasPages || existingValidChs.length === 0 ? cleanChs : existingValidChs;
           this.mangas.set(m.id, {
             ...existing,
             ...m,
+            isAdult: Boolean(m.isAdult ?? m.is_adult ?? existing.isAdult ?? false),
+            releaseYear: m.releaseYear ?? m.release_year ?? existing.releaseYear ?? undefined,
             alternativeTitles: Array.from(
               new Set([...(existing.alternativeTitles || []), ...(m.alternativeTitles || m.alternative_titles || [])])
             ),
@@ -1663,48 +1730,28 @@ class SmartCatalogStore {
       }
     }
 
-    if (snapshot?.characters) {
-      for (const c of snapshot.characters) {
-        if (c?.id && !this.characters.has(c.id)) this.characters.set(c.id, c);
-      }
+    const r2Chars = Array.isArray(tables?.characters) && tables.characters.length > 0 ? tables.characters : snapshot?.characters || [];
+    for (const c of r2Chars) {
+      if (c?.id) this.characters.set(c.id, { ...(this.characters.get(c.id) || {}), ...c, image: c.image || c.image_url });
     }
-    if (snapshot?.authors) {
-      for (const a of snapshot.authors) {
-        if (a?.id && !this.authors.has(a.id)) this.authors.set(a.id, a);
-      }
+    const r2Authors = Array.isArray(tables?.authors) && tables.authors.length > 0 ? tables.authors : snapshot?.authors || [];
+    for (const a of r2Authors) {
+      if (a?.id) this.authors.set(a.id, { ...(this.authors.get(a.id) || {}), ...a });
     }
-    if (snapshot?.artists) {
-      for (const a of snapshot.artists) {
-        if (a?.id && !this.artists.has(a.id)) this.artists.set(a.id, a);
-      }
+    const r2Artists = Array.isArray(tables?.artists) && tables.artists.length > 0 ? tables.artists : snapshot?.artists || [];
+    for (const a of r2Artists) {
+      if (a?.id) this.artists.set(a.id, { ...(this.artists.get(a.id) || {}), ...a });
     }
-    if (snapshot?.tags) {
-      for (const t of snapshot.tags) {
-        if (t?.id && !this.tags.has(t.id)) this.tags.set(t.id, t);
-      }
+    const r2Tags = Array.isArray(tables?.tags) && tables.tags.length > 0 ? tables.tags : snapshot?.tags || [];
+    for (const t of r2Tags) {
+      if (t?.id) this.tags.set(t.id, { ...(this.tags.get(t.id) || {}), ...t });
     }
 
     if (tables) {
-      for (const r of tables.manga_characters || []) {
-        if (!this.mangaCharacters.some((mc) => mc.manga_id === r.manga_id && mc.character_id === r.character_id)) {
-          this.mangaCharacters.push(r);
-        }
-      }
-      for (const r of tables.manga_authors || []) {
-        if (!this.mangaAuthors.some((ma) => ma.manga_id === r.manga_id && ma.author_id === r.author_id)) {
-          this.mangaAuthors.push(r);
-        }
-      }
-      for (const r of tables.manga_artists || []) {
-        if (!this.mangaArtists.some((mar) => mar.manga_id === r.manga_id && mar.artist_id === r.artist_id)) {
-          this.mangaArtists.push(r);
-        }
-      }
-      for (const r of tables.manga_tags || []) {
-        if (!this.mangaTags.some((mt) => mt.manga_id === r.manga_id && mt.tag_id === r.tag_id)) {
-          this.mangaTags.push(r);
-        }
-      }
+      if (Array.isArray(tables.manga_characters)) this.mangaCharacters = [...tables.manga_characters];
+      if (Array.isArray(tables.manga_authors)) this.mangaAuthors = [...tables.manga_authors];
+      if (Array.isArray(tables.manga_artists)) this.mangaArtists = [...tables.manga_artists];
+      if (Array.isArray(tables.manga_tags)) this.mangaTags = [...tables.manga_tags];
     }
 
     this.rebuildIndexes();
@@ -1747,14 +1794,18 @@ class SmartCatalogStore {
 
   getLockedPrimarySource(manga) {
     if (!manga) return null;
-    if (manga.details?.primarySource && manga.details?.primarySourceUrl) {
+    const activeScraperSources = ['webtoonhatti', 'okutoon', 'siyahmelek', 'hattorimanga', 'hentaiturk'];
+    if (
+      manga.details?.primarySource &&
+      manga.details?.primarySourceUrl &&
+      activeScraperSources.includes(manga.details.primarySource)
+    ) {
       return {
         source: manga.details.primarySource,
         url: manga.details.primarySourceUrl,
       };
     }
-    const scraperSources = ['webtoonhatti', 'okutoon', 'siyahmelek', 'hattorimanga', 'golgebahcesi', 'dxdfansub', 'mangacix'];
-    const found = (manga.sourceLinks || []).find((l) => l && scraperSources.includes(l.source) && l.url);
+    const found = (manga.sourceLinks || []).find((l) => l && activeScraperSources.includes(l.source) && l.url);
     if (found) {
       if (!manga.details) manga.details = {};
       manga.details.primarySource = found.source;
@@ -2525,7 +2576,7 @@ class SmartCatalogStore {
     const charactersRows = Array.from(this.characters.values()).map((entity) => ({
       id: entity.id,
       name: entity.name,
-      image_url: entity.image || entity.image_url || null,
+      image_url: entity.image_url || entity.imageUrl || entity.image || null,
       description: entity.description || '',
       likes_count: 0,
       is_public: true,
@@ -2539,7 +2590,7 @@ class SmartCatalogStore {
     const authorsRows = Array.from(this.authors.values()).map((entity) => ({
       id: entity.id,
       name: entity.name,
-      image_url: entity.image || entity.image_url || null,
+      image_url: entity.image_url || entity.imageUrl || entity.image || null,
       description: entity.description || '',
       likes_count: 0,
       is_public: true,
@@ -2553,7 +2604,7 @@ class SmartCatalogStore {
     const artistsRows = Array.from(this.artists.values()).map((entity) => ({
       id: entity.id,
       name: entity.name,
-      image_url: entity.image || entity.image_url || null,
+      image_url: entity.image_url || entity.imageUrl || entity.image || null,
       description: entity.description || '',
       likes_count: 0,
       is_public: true,
@@ -2870,14 +2921,12 @@ const main = async () => {
         }
       }
 
-      // Hydrate chapter pages for existing series from R2 if missing locally
-      const mangasMissingPages = Array.from(store.mangas.values()).filter(
-        (m) => m.slug && (m.chapters || []).length > 0 && !(m.chapters || []).some((ch) => Array.isArray(ch.pages) && ch.pages.length > 0)
-      );
-      if (mangasMissingPages.length > 0) {
-        logInfo(`R2'den ${mangasMissingPages.length} serinin tam bölüm sayfaları eşitleniyor...`);
-        for (let i = 0; i < mangasMissingPages.length; i += 5) {
-          const chunk = mangasMissingPages.slice(i, i + 5);
+      // Always hydrate authoritative chapter lists & clean page URLs from R2 series JSON
+      const mangasToHydrate = Array.from(store.mangas.values()).filter((m) => Boolean(m.slug));
+      if (mangasToHydrate.length > 0) {
+        logInfo(`R2'den ${mangasToHydrate.length} serinin tam bölüm sayfaları eşitleniyor...`);
+        for (let i = 0; i < mangasToHydrate.length; i += 6) {
+          const chunk = mangasToHydrate.slice(i, i + 6);
           await Promise.all(
             chunk.map(async (m) => {
               try {
@@ -2894,6 +2943,7 @@ const main = async () => {
             })
           );
         }
+        store.rebuildIndexes();
       }
 
       logInfo(

@@ -71,7 +71,7 @@ export const useChapterTranslation = ({
     statesRef.current = {};
     setPageStates({});
     setCacheReady(false);
-    if (!chapterId || !networkEnabled) {
+    if (!chapterId || !networkEnabled || !settings.apiKey.trim()) {
       setCacheReady(true);
       return;
     }
@@ -95,7 +95,7 @@ export const useChapterTranslation = ({
     return () => {
       cancelled = true;
     };
-  }, [chapterId, settings.targetLang, networkEnabled]);
+  }, [chapterId, settings.targetLang, settings.apiKey, networkEnabled]);
 
   const runQueue = useCallback(() => {
     while (runningRef.current < MAX_CONCURRENT_TRANSLATIONS && queueRef.current.length > 0) {

@@ -1,3 +1,6 @@
+import { shouldAvoidRawImageFallback } from '@/lib/imageProxy';
+import { buildProxiedImageUrl } from '@/lib/mediaStorage';
+
 interface PrefetchChapterOptions {
     concurrency?: number;
 }
@@ -11,6 +14,12 @@ interface CachedImageEntry {
 const imageCache = new Map<string, CachedImageEntry>();
 const chapterSources = new Map<string, string[]>();
 const chapterPrefetchPromises = new Map<string, Promise<void>>();
+
+const normalizePrefetchSrc = (src: string) => {
+    const trimmed = src?.trim() || '';
+    if (!trimmed) return '';
+    return shouldAvoidRawImageFallback(trimmed) ? (buildProxiedImageUrl(trimmed) || trimmed) : trimmed;
+};
 
 const createImagePromise = (src: string) => {
     const image = new Image();
@@ -62,7 +71,8 @@ const createImagePromise = (src: string) => {
     return entry;
 };
 
-export const prefetchImageAsset = async (src: string): Promise<HTMLImageElement> => {
+export const prefetchImageAsset = async (rawSrc: string): Promise<HTMLImageElement> => {
+    const src = normalizePrefetchSrc(rawSrc);
     const existing = imageCache.get(src);
     if (existing) {
         return existing.loaded ? existing.image : existing.promise;
@@ -72,7 +82,8 @@ export const prefetchImageAsset = async (src: string): Promise<HTMLImageElement>
     return entry.promise;
 };
 
-export const getCachedImageAsset = (src: string): HTMLImageElement | null => {
+export const getCachedImageAsset = (rawSrc: string): HTMLImageElement | null => {
+    const src = normalizePrefetchSrc(rawSrc);
     const entry = imageCache.get(src);
     if (!entry || !entry.loaded || !entry.image.complete || entry.image.naturalWidth === 0) {
         return null;
@@ -136,7 +147,7 @@ export const retainPrefetchedChapters = (chapterIds: string[]) => {
         chapterPrefetchPromises.delete(chapterId);
 
         for (const source of sources) {
-            imageCache.delete(source);
+            imageCache.delete(normalizePrefetchSrc(source));
         }
     }
 };
