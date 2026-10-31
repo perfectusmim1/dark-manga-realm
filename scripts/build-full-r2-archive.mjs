@@ -2343,6 +2343,10 @@ class CatalogArchiveStore {
     const manga = this.mangas.get(finalId);
     if (!manga) return finalId;
     manga.anilistId = anilistData.id;
+    if (anilistData.idMal) {
+      manga.malId = anilistData.idMal;
+      this.malIdIndex.set(anilistData.idMal, finalId);
+    }
 
     const titles = [
       anilistData.title?.romaji,
@@ -2611,7 +2615,11 @@ class CatalogArchiveStore {
       views: m.views || 0,
       release_year: m.releaseYear || null,
       alternative_titles: Array.isArray(m.alternativeTitles) ? m.alternativeTitles : [],
-      details: m.details || {},
+      details: {
+        ...(m.details || {}),
+        ...(m.anilistId ? { anilist_id: m.anilistId } : {}),
+        ...(m.malId ? { mal_id: m.malId } : {}),
+      },
       source_links: Array.isArray(m.sourceLinks) ? m.sourceLinks : [],
       last_updated: m.updatedAt || now,
       created_at: m.createdAt || now,
