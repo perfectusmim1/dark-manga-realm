@@ -20,3 +20,20 @@ export const sanitizeCharacterDescription = (value?: string | null) => {
   sanitized = normalizeDescriptionSpacing(sanitized);
   return sanitized || undefined;
 };
+
+export const sanitizeMangaDescription = (value?: string | null): string => {
+  if (!value) return '';
+  let cleaned = value
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/br>/gi, '\n')
+    .replace(/&quot;/g, '"')
+    .replace(/&amp;/g, '&')
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&#39;/g, "'")
+    .replace(/&nbsp;/g, ' ');
+
+  cleaned = cleaned.replace(/<[^>]+>/g, '');
+  return normalizeDescriptionSpacing(cleaned);
+};
+

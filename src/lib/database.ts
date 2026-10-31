@@ -73,7 +73,7 @@ import {
     normalizeCharacterListingRole,
     type CharacterListingRole,
 } from '@/lib/characterRoles';
-import { sanitizeCharacterDescription } from '@/lib/descriptionSanitizers';
+import { sanitizeCharacterDescription, sanitizeMangaDescription } from '@/lib/descriptionSanitizers';
 import { sanitizeEntityImageUrl } from '@/lib/entityImages';
 import { normalizeComparableText } from '@/lib/textMatching';
 import { getReactionScore, type ReactionType } from './reactions';
@@ -100,7 +100,39 @@ const buildNamedEntityLookupVariants = (value: string) => {
     );
 };
 
-const PERSON_PLACEHOLDER_KEYS = new Set(['', 'bilinmiyor', 'unknown', 'n/a', '-']);
+const PERSON_PLACEHOLDER_KEYS = new Set([
+    '',
+    'bilinmiyor',
+    'unknown',
+    'n/a',
+    '-',
+    'girilmedi',
+    'girilmedi..',
+    'girilmedi.',
+    'girilmemis',
+    'yok',
+    'none',
+    'null',
+    'undefined',
+]);
+
+export const cleanPlaceholderNamedEntityString = (value?: string | null): string => {
+    if (!value) return '';
+    const parts = value.split(',').map((p) => normalizeNamedEntityValue(p)).filter(Boolean);
+    const meaningful = parts.filter((p) => isMeaningfulNamedEntity(p));
+    if (meaningful.length > 0) return meaningful.join(', ');
+    if (parts.some((p) => !isMeaningfulNamedEntity(p))) return '';
+    return value.trim();
+};
+
+export const chunkArray = <T>(items: T[], size: number): T[][] => {
+    if (!items || items.length === 0) return [];
+    const chunks: T[][] = [];
+    for (let index = 0; index < items.length; index += size) {
+        chunks.push(items.slice(index, index + size));
+    }
+    return chunks;
+};
 
 const isMeaningfulNamedEntity = (value?: string | null) =>
     !PERSON_PLACEHOLDER_KEYS.has(normalizeNamedEntityKey(value));
@@ -462,16 +494,19 @@ const fetchAllMangaRowsPaginated = async (
     return rows;
 };
 
-const joinNamedEntityValues = (values: Array<string | null | undefined>) => (
-    Array.from(
+const joinNamedEntityValues = (values: Array<string | null | undefined>) => {
+    const rawList = Array.from(
         new Set(
             values
                 .map((value) => normalizeNamedEntityValue(value))
                 .filter(Boolean)
                 .map((value) => `${value}`),
         ),
-    ).join(', ')
-);
+    );
+    const meaningful = rawList.filter((value) => isMeaningfulNamedEntity(value));
+    const finalList = meaningful.length > 0 ? meaningful : rawList.filter((value) => isMeaningfulNamedEntity(value));
+    return finalList.join(', ');
+};
 
 const mapMangaVisibilityFields = (row: any) => ({
     isPublic: row?.is_public ?? true,
@@ -484,6 +519,7 @@ const mapMangaBaseFields = (row: any) => ({
     lastUpdated: row?.last_updated,
     createdAt: row?.created_at,
     releaseYear: row?.release_year,
+    description: sanitizeMangaDescription(row?.description),
 });
 
 const LEGACY_MANGA_PERSON_LABEL_LIMIT = 100;
@@ -1183,6 +1219,19 @@ const fetchAllChapterMetaRows = async (
 ) => {
     const uniqueMangaIds = [...new Set((options?.mangaIds || []).filter(Boolean))];
 
+    if (uniqueMangaIds.length > 100) {
+        const chunks = chunkArray(uniqueMangaIds, 100);
+        const nestedResults = await Promise.all(
+            chunks.map((chunk) =>
+                fetchAllChapterMetaRows(selectColumns, {
+                    ...options,
+                    mangaIds: chunk,
+                })
+            )
+        );
+        return nestedResults.flat();
+    }
+
     let countQuery = supabase
         .from('chapters')
         .select('id', { count: 'exact', head: true });
@@ -1447,8 +1496,8 @@ export const getMangaSummaries = async (
 
                 return {
                     ...manga,
-                    author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || manga.author,
-                    artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || manga.artist,
+                    author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || cleanPlaceholderNamedEntityString(manga.author) || manga.author,
+                    artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
                     ...mapMangaBaseFields(manga),
                     chapters: latestChapterPreviewsByMangaId.get(manga.id) || [],
                     ratings: [],
@@ -1515,12 +1564,41 @@ export const getMangaSummariesByIds = async (
         summarySelectColumns,
     } = await resolveMangaVisibilityAccess(options?.includePrivate);
     const audienceCacheKey = getMangaAudienceCacheKey(includeAdult);
+    const fetchMangaRowsForIds = async (ids: string[], filterOptions: any) => {
+        if (ids.length === 0) return { data: [], error: null };
+        if (ids.length <= 100) {
+            return applyPublicMangaFilter(
+                supabase
+                    .from('mangas')
+                    .select(summarySelectColumns)
+                    .in('id', ids),
+                filterOptions,
+            );
+        }
+        const chunks = chunkArray(ids, 100);
+        const results = await Promise.all(
+            chunks.map((chunk) =>
+                applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select(summarySelectColumns)
+                        .in('id', chunk),
+                    filterOptions,
+                )
+            )
+        );
+        const allData: any[] = [];
+        let firstErr: any = null;
+        for (const res of results) {
+            if (res.error) firstErr = res.error;
+            if (res.data) allData.push(...res.data);
+        }
+        return { data: allData, error: firstErr };
+    };
+
     if (includePrivate) {
-        const { data: mangaRows, error: mangaError } = await applyPublicMangaFilter(
-            supabase
-                .from('mangas')
-                .select(summarySelectColumns)
-                .in('id', uniqueMangaIds),
+        const { data: mangaRows, error: mangaError } = await fetchMangaRowsForIds(
+            uniqueMangaIds,
             { includePrivate: true, includeAdult: true, visibilityColumnAvailable, adultColumnAvailable },
         );
 
@@ -1567,11 +1645,8 @@ export const getMangaSummariesByIds = async (
 
     const missingIds = uniqueMangaIds.filter((mangaId) => !summaryMap.has(mangaId));
     if (missingIds.length > 0) {
-        const { data: mangaRows, error: mangaError } = await applyPublicMangaFilter(
-            supabase
-                .from('mangas')
-                .select(summarySelectColumns)
-                .in('id', missingIds),
+        const { data: mangaRows, error: mangaError } = await fetchMangaRowsForIds(
+            missingIds,
             { includePrivate: false, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
         );
 
@@ -1849,13 +1924,20 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
         return {};
     }
 
-    const { data, error } = await supabase
-        .from('chapters')
-        .select('id, pages, manga_id')
-        .in('id', uniqueIds);
+    const chunks = chunkArray(uniqueIds, 100);
+    const chunkResults = await Promise.all(
+        chunks.map((chunk) =>
+            supabase
+                .from('chapters')
+                .select('id, pages, manga_id')
+                .in('id', chunk)
+        )
+    );
 
-    if (error) {
-        throw error;
+    const data: any[] = [];
+    for (const res of chunkResults) {
+        if (res.error) throw res.error;
+        if (res.data) data.push(...res.data);
     }
 
     const map: Record<string, string[]> = {};
@@ -2008,8 +2090,8 @@ export const getMangaById = async (
 
     return {
         ...data,
-        author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || data.author,
-        artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || data.artist,
+        author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || cleanPlaceholderNamedEntityString(data.author) || data.author,
+        artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || cleanPlaceholderNamedEntityString(data.artist) || data.artist,
         ...mapMangaBaseFields(data),
         details: data.details || {},
         sourceLinks: data.source_links || [],
@@ -5801,30 +5883,37 @@ const getMangaAuthorsByIds = async (
         return new Map();
     }
 
-    const { data, error } = await supabase
-        .from('manga_authors')
-        .select('manga_id, author:authors(*)')
-        .in('manga_id', mangaIds);
-
-    if (error) {
-        console.error('Manga authors batch fetch error:', error);
-        return new Map();
-    }
+    const chunks = chunkArray(mangaIds, 100);
+    const chunkResults = await Promise.all(
+        chunks.map((chunk) =>
+            supabase
+                .from('manga_authors')
+                .select('manga_id, author:authors(*)')
+                .in('manga_id', chunk)
+        )
+    );
 
     const authorsByMangaId = new Map<string, Author[]>();
 
-    (data || []).forEach((entry: any) => {
-        const author = entry.author;
-        const mangaId = entry.manga_id;
-
-        if (!mangaId || !author || (!options?.includePrivate && author.is_public === false)) {
-            return;
+    for (const { data, error } of chunkResults) {
+        if (error) {
+            console.error('Manga authors batch fetch error:', error);
+            continue;
         }
 
-        const current = authorsByMangaId.get(mangaId) || [];
-        current.push(mapAuthorRow(author));
-        authorsByMangaId.set(mangaId, current);
-    });
+        (data || []).forEach((entry: any) => {
+            const author = entry.author;
+            const mangaId = entry.manga_id;
+
+            if (!mangaId || !author || (!options?.includePrivate && author.is_public === false)) {
+                return;
+            }
+
+            const current = authorsByMangaId.get(mangaId) || [];
+            current.push(mapAuthorRow(author));
+            authorsByMangaId.set(mangaId, current);
+        });
+    }
 
     return authorsByMangaId;
 };
@@ -5857,30 +5946,37 @@ const getMangaArtistsByIds = async (
         return new Map();
     }
 
-    const { data, error } = await supabase
-        .from('manga_artists')
-        .select('manga_id, artist:artists(*)')
-        .in('manga_id', mangaIds);
-
-    if (error) {
-        console.error('Manga artists batch fetch error:', error);
-        return new Map();
-    }
+    const chunks = chunkArray(mangaIds, 100);
+    const chunkResults = await Promise.all(
+        chunks.map((chunk) =>
+            supabase
+                .from('manga_artists')
+                .select('manga_id, artist:artists(*)')
+                .in('manga_id', chunk)
+        )
+    );
 
     const artistsByMangaId = new Map<string, Artist[]>();
 
-    (data || []).forEach((entry: any) => {
-        const artist = entry.artist;
-        const mangaId = entry.manga_id;
-
-        if (!mangaId || !artist || (!options?.includePrivate && artist.is_public === false)) {
-            return;
+    for (const { data, error } of chunkResults) {
+        if (error) {
+            console.error('Manga artists batch fetch error:', error);
+            continue;
         }
 
-        const current = artistsByMangaId.get(mangaId) || [];
-        current.push(mapArtistRow(artist));
-        artistsByMangaId.set(mangaId, current);
-    });
+        (data || []).forEach((entry: any) => {
+            const artist = entry.artist;
+            const mangaId = entry.manga_id;
+
+            if (!mangaId || !artist || (!options?.includePrivate && artist.is_public === false)) {
+                return;
+            }
+
+            const current = artistsByMangaId.get(mangaId) || [];
+            current.push(mapArtistRow(artist));
+            artistsByMangaId.set(mangaId, current);
+        });
+    }
 
     return artistsByMangaId;
 };
@@ -5930,16 +6026,39 @@ const buildMangaSummariesForRows = async (
     }
 
     const mangaIds = visibleRows.map((manga: any) => manga.id).filter(Boolean);
+    const fetchReviewsForIds = async (ids: string[]) => {
+        if (ids.length === 0) return { data: [], error: null };
+        if (ids.length <= 100) {
+            return supabase
+                .from('reviews')
+                .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
+                .in('manga_id', ids);
+        }
+        const chunks = chunkArray(ids, 100);
+        const results = await Promise.all(
+            chunks.map((chunk) =>
+                supabase
+                    .from('reviews')
+                    .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
+                    .in('manga_id', chunk)
+            )
+        );
+        const data: any[] = [];
+        let firstError: any = null;
+        for (const res of results) {
+            if (res.error) firstError = res.error;
+            if (res.data) data.push(...res.data);
+        }
+        return { data, error: firstError };
+    };
+
     const [
         { data: reviewRows, error: reviewError },
         chapterRows,
         nextAuthorsByMangaId,
         nextArtistsByMangaId,
     ] = await Promise.all([
-        supabase
-            .from('reviews')
-            .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
-            .in('manga_id', mangaIds),
+        fetchReviewsForIds(mangaIds),
         fetchAllChapterMetaRows('id, manga_id, number', {
             mangaIds,
             orderByNumberAscending: false,
@@ -5968,8 +6087,8 @@ const buildMangaSummariesForRows = async (
 
         return {
             ...manga,
-            author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || manga.author,
-            artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || manga.artist,
+            author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || cleanPlaceholderNamedEntityString(manga.author) || manga.author,
+            artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
             ...mapMangaBaseFields(manga),
             chapters: latestChapterPreviewsByMangaId.get(manga.id) || [],
             ratings: [],
