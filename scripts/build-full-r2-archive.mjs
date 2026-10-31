@@ -2850,7 +2850,7 @@ const uploadToCatalogWorker = async (store, options = {}) => {
   // 5. Supabase PostgreSQL Aynası
   if (process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY && CATALOG_ADMIN_TOKEN) {
     try {
-      await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
+      const res = await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -2868,14 +2868,40 @@ const uploadToCatalogWorker = async (store, options = {}) => {
             manga_characters: tablesPayload.manga_characters,
             manga_authors: tablesPayload.manga_authors,
             manga_artists: tablesPayload.manga_artists,
-            manga_tags: tablesPayload.manga_tags,
             chapter_automations: tablesPayload.chapter_automations || [],
             chapter_automation_runs: tablesPayload.chapter_automation_runs || [],
             replace_chapter_automations: true,
           },
         }),
       });
-    } catch {}
+
+      if (res.ok) {
+        logInfo(`Supabase aynası senkronize edildi (${tablesPayload.mangas.length} seri)`);
+      } else {
+        const errText = await res.text();
+        logWarn(`Supabase senkronizasyonu hata verdi (HTTP ${res.status}): ${errText.slice(0, 150)}`);
+      }
+
+      // manga_tags 2500'lük parçalar halinde senkronize edilir (statement timeout önleyici)
+      const allMangaTags = tablesPayload.manga_tags || [];
+      for (let mtIdx = 0; mtIdx < allMangaTags.length; mtIdx += 2500) {
+        const mtChunk = allMangaTags.slice(mtIdx, mtIdx + 2500);
+        await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: process.env.VITE_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${process.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            p_admin_token: CATALOG_ADMIN_TOKEN,
+            p_payload: { manga_tags: mtChunk },
+          }),
+        }).catch(() => {});
+      }
+    } catch (err) {
+      logWarn(`Supabase senkronizasyonu atlandı: ${err.message}`);
+    }
   }
 };
 
