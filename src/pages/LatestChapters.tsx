@@ -1,5 +1,5 @@
 import React from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useSearchParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
 import { BookOpen, Clock } from 'lucide-react';
@@ -7,25 +7,12 @@ import Header from '@/components/layout/Header';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
-import { getLatestChapters, getLatestChaptersCountLast24Hours, LatestChapterFeedItem } from '@/lib/database';
+import { getLatestChapters, getLatestChaptersCountLast24Hours, getTotalLatestChaptersCount, LatestChapterFeedItem } from '@/lib/database';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import AppPagination from '@/components/ui/AppPagination';
 
-const PAGE_SIZE = 60;
-
-const mergeLatestChapterPages = (
-    current: LatestChapterFeedItem[],
-    incoming: LatestChapterFeedItem[],
-) => {
-    if (current.length === 0) {
-        return incoming;
-    }
-
-    const seenChapterIds = new Set(current.map((chapter) => chapter.chapterId));
-    const nextItems = incoming.filter((chapter) => !seenChapterIds.has(chapter.chapterId));
-
-    return nextItems.length > 0 ? [...current, ...nextItems] : current;
-};
+const PAGE_SIZE = 30;
 
 const LatestChaptersSkeleton: React.FC = () => (
     <div className="min-h-screen bg-background">
@@ -81,15 +68,16 @@ const LatestChaptersSkeleton: React.FC = () => (
 
 const LatestChapters: React.FC = () => {
     const { isOnline } = useEffectiveOnlineStatus();
+    const [searchParams, setSearchParams] = useSearchParams();
+    const pageParam = parseInt(searchParams.get('page') || '1', 10);
+    const currentPage = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
+
     const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>([]);
     const [isLoading, setIsLoading] = React.useState(true);
-    const [isLoadingMore, setIsLoadingMore] = React.useState(false);
-    const [hasMore, setHasMore] = React.useState(true);
     const [recentChapterCount, setRecentChapterCount] = React.useState(0);
-    const loaderRef = React.useRef<HTMLDivElement | null>(null);
-    const requestedOffsetsRef = React.useRef<Set<number>>(new Set());
-    const nextOffsetRef = React.useRef(0);
-    const isLoadingMoreRef = React.useRef(false);
+    const [totalChaptersCount, setTotalChaptersCount] = React.useState(0);
+
+    const totalPages = Math.max(1, Math.ceil(totalChaptersCount / PAGE_SIZE));
 
     if (!isOnline) {
         return (
@@ -101,77 +89,35 @@ const LatestChapters: React.FC = () => {
         );
     }
 
-    const loadChapters = React.useCallback(async (offset: number, append: boolean) => {
-        if (append) {
-            if (isLoadingMoreRef.current || requestedOffsetsRef.current.has(offset)) {
-                return;
-            }
-
-            isLoadingMoreRef.current = true;
-            setIsLoadingMore(true);
-        } else {
-            requestedOffsetsRef.current.clear();
-            nextOffsetRef.current = 0;
-            setIsLoading(true);
-        }
-
+    const loadChapters = React.useCallback(async (page: number) => {
+        setIsLoading(true);
         try {
-            if (append) {
-                const data = await getLatestChapters(PAGE_SIZE, offset);
-                requestedOffsetsRef.current.add(offset);
-                nextOffsetRef.current = offset + data.length;
-                setChapters((prev) => mergeLatestChapterPages(prev, data));
-                setHasMore(data.length === PAGE_SIZE);
-            } else {
-                const [data, countLast24Hours] = await Promise.all([
-                    getLatestChapters(PAGE_SIZE, offset),
-                    getLatestChaptersCountLast24Hours(),
-                ]);
+            const offset = (page - 1) * PAGE_SIZE;
+            const [data, countLast24Hours, totalCount] = await Promise.all([
+                getLatestChapters(PAGE_SIZE, offset),
+                getLatestChaptersCountLast24Hours(),
+                getTotalLatestChaptersCount(),
+            ]);
 
-                requestedOffsetsRef.current.add(offset);
-                nextOffsetRef.current = offset + data.length;
-                setChapters(data);
-                setRecentChapterCount(countLast24Hours);
-                setHasMore(data.length === PAGE_SIZE);
-            }
+            setChapters(data);
+            setRecentChapterCount(countLast24Hours);
+            setTotalChaptersCount(totalCount);
         } catch (error) {
-            if (append) {
-                requestedOffsetsRef.current.delete(offset);
-            }
             console.error('Latest chapters page error:', error);
         } finally {
             setIsLoading(false);
-            if (append) {
-                isLoadingMoreRef.current = false;
-            }
-            setIsLoadingMore(false);
         }
     }, []);
 
     React.useEffect(() => {
-        loadChapters(0, false);
-    }, [loadChapters]);
+        loadChapters(currentPage);
+    }, [currentPage, loadChapters]);
 
-    React.useEffect(() => {
-        if (!loaderRef.current || !hasMore || isLoading || isLoadingMore) {
-            return;
-        }
+    const handlePageChange = (newPage: number) => {
+        setSearchParams(newPage > 1 ? { page: String(newPage) } : {});
+    };
 
-        const observer = new IntersectionObserver(
-            (entries) => {
-                if (entries[0]?.isIntersecting) {
-                    loadChapters(nextOffsetRef.current, true);
-                }
-            },
-            { rootMargin: '320px 0px' }
-        );
-
-        observer.observe(loaderRef.current);
-
-        return () => observer.disconnect();
-    }, [hasMore, isLoading, isLoadingMore, loadChapters]);
-
-    if (isLoading) {
+    if (isLoading && chapters.length === 0) {
         return <LatestChaptersSkeleton />;
     }
 
@@ -275,27 +221,12 @@ const LatestChapters: React.FC = () => {
                     </div>
                 )}
 
-                {chapters.length > 0 && (
-                    <div ref={loaderRef} className="py-6 [overflow-anchor:none]">
-                        {isLoadingMore ? (
-                            <div className="grid gap-4 xl:grid-cols-3">
-                                {Array.from({ length: 6 }).map((_, index) => (
-                                    <div
-                                        key={`latest-chapter-loader-${index}`}
-                                        className="h-[128px] animate-pulse rounded-[24px] border border-border bg-card/40 sm:h-[152px] lg:h-[176px]"
-                                    />
-                                ))}
-                            </div>
-                        ) : hasMore ? (
-                            <div className="text-center text-sm text-muted-foreground">
-                                Aşağı kaydırdıkça yeni bölümler yüklenecek
-                            </div>
-                        ) : (
-                            <div className="text-center text-sm text-muted-foreground">
-                                Tüm son bölümler yüklendi
-                            </div>
-                        )}
-                    </div>
+                {chapters.length > 0 && totalPages > 1 && (
+                    <AppPagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={handlePageChange}
+                    />
                 )}
             </main>
         </div>

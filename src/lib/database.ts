@@ -421,6 +421,47 @@ const applyPublicMangaFilter = <TQuery extends { eq: (column: string, value: any
     return nextQuery;
 };
 
+const fetchAllMangaRowsPaginated = async (
+    selectColumns: string,
+    options?: {
+        includePrivate?: boolean;
+        includeAdult?: boolean;
+        visibilityColumnAvailable?: boolean;
+        adultColumnAvailable?: boolean;
+    },
+) => {
+    const rows: any[] = [];
+    let from = 0;
+    const CHUNK_SIZE = 1000;
+
+    while (true) {
+        const to = from + CHUNK_SIZE - 1;
+        const query = applyPublicMangaFilter(
+            supabase
+                .from('mangas')
+                .select(selectColumns)
+                .order('last_updated', { ascending: false })
+                .range(from, to),
+            options,
+        );
+        const { data, error } = await query;
+        if (error) {
+            throw error;
+        }
+
+        const pageRows = data || [];
+        rows.push(...pageRows);
+
+        if (pageRows.length < CHUNK_SIZE) {
+            break;
+        }
+
+        from += CHUNK_SIZE;
+    }
+
+    return rows;
+};
+
 const joinNamedEntityValues = (values: Array<string | null | undefined>) => (
     Array.from(
         new Set(
@@ -1225,15 +1266,12 @@ export const getAllMangas = async (
     try {
         const fetchManga = async () => {
             const [
-                { data, error },
+                data,
                 { data: revData, error: reviewsError },
                 chapterRows,
             ] = await Promise.all([
-                applyPublicMangaFilter(
-                    supabase
-                        .from('mangas')
-                        .select('*')
-                        .order('last_updated', { ascending: false }),
+                fetchAllMangaRowsPaginated(
+                    '*',
                     { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
                 ),
                 supabase
@@ -1246,7 +1284,6 @@ export const getAllMangas = async (
                     }),
             ]);
 
-            if (error) throw error;
             if (reviewsError) console.error('Manga list review aggregate fetch error:', reviewsError);
 
             const chaptersByMangaId = new Map<string, { id: string; number: number }[]>();
@@ -1370,15 +1407,12 @@ export const getMangaSummaries = async (
     try {
         const fetchSummaries = async () => {
             const [
-                { data: mangaRows, error: mangaError },
+                mangaRows,
                 { data: reviewRows, error: reviewError },
                 chapterRows,
             ] = await Promise.all([
-                applyPublicMangaFilter(
-                    supabase
-                        .from('mangas')
-                        .select(summarySelectColumns)
-                        .order('last_updated', { ascending: false }),
+                fetchAllMangaRowsPaginated(
+                    summarySelectColumns,
                     { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
                 ),
                 supabase
@@ -1392,10 +1426,6 @@ export const getMangaSummaries = async (
                         return [];
                     }),
             ]);
-
-            if (mangaError) {
-                throw mangaError;
-            }
 
             if (reviewError) {
                 console.error('Manga summary review aggregate fetch error:', reviewError);
@@ -2426,6 +2456,41 @@ export const getLatestChaptersCountLast24Hours = async (): Promise<number> => {
 
     if (error) {
         console.error('Latest chapters 24h count error:', error);
+        return 0;
+    }
+
+    return count || 0;
+};
+
+export const getTotalLatestChaptersCount = async (): Promise<number> => {
+    const {
+        includePrivate,
+        includeAdult,
+        visibilityColumnAvailable,
+        adultColumnAvailable,
+    } = await resolveMangaVisibilityAccess();
+
+    let query = supabase
+        .from('chapters')
+        .select(
+            visibilityColumnAvailable && !includePrivate
+                ? `id, mangas:manga_id!inner(id, is_public${adultColumnAvailable ? ', is_adult' : ''})`
+                : 'id',
+            { count: 'exact', head: true },
+        );
+
+    if (visibilityColumnAvailable && !includePrivate) {
+        query = query.eq('mangas.is_public', true);
+    }
+
+    if (adultColumnAvailable && !includePrivate && !includeAdult) {
+        query = query.eq('mangas.is_adult', false);
+    }
+
+    const { count, error } = await query;
+
+    if (error) {
+        console.error('Total latest chapters count error:', error);
         return 0;
     }
 

@@ -5,6 +5,7 @@ import { Input } from '@/components/ui/input';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/textMatching';
+import AppPagination from '@/components/ui/AppPagination';
 
 interface EntityBrowseGridItem {
   id: string;
@@ -26,7 +27,7 @@ interface EntityBrowseGridProps {
   resolveRank?: (item: EntityBrowseGridItem, index: number) => number | undefined;
 }
 
-const PAGE_SIZE = 20;
+const PAGE_SIZE = 24;
 
 const normalizeSearchValue = (value: string) => normalizeComparableText(value);
 
@@ -47,8 +48,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
   resolveRank,
 }) => {
   const [searchQuery, setSearchQuery] = React.useState('');
-  const [visibleCount, setVisibleCount] = React.useState(PAGE_SIZE);
-  const loadMoreRef = React.useRef<HTMLDivElement | null>(null);
+  const [currentPage, setCurrentPage] = React.useState(1);
   const deferredSearchQuery = React.useDeferredValue(normalizeSearchValue(searchQuery));
 
   const filteredItems = React.useMemo(() => {
@@ -59,35 +59,22 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
     return items.filter((item) => matchesGridSearch(item.name, deferredSearchQuery));
   }, [deferredSearchQuery, items]);
 
-  const visibleItems = React.useMemo(
-    () => filteredItems.slice(0, visibleCount),
-    [filteredItems, visibleCount],
-  );
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / PAGE_SIZE));
 
   React.useEffect(() => {
-    setVisibleCount(PAGE_SIZE);
+    setCurrentPage(1);
   }, [deferredSearchQuery, items.length]);
 
   React.useEffect(() => {
-    const sentinel = loadMoreRef.current;
-    if (!sentinel || visibleCount >= filteredItems.length) {
-      return;
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
     }
+  }, [currentPage, totalPages]);
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        if (!entries[0]?.isIntersecting) {
-          return;
-        }
-
-        setVisibleCount((current) => Math.min(current + PAGE_SIZE, filteredItems.length));
-      },
-      { rootMargin: '320px 0px', threshold: 0.01 },
-    );
-
-    observer.observe(sentinel);
-    return () => observer.disconnect();
-  }, [filteredItems.length, visibleCount]);
+  const visibleItems = React.useMemo(() => {
+    const start = (currentPage - 1) * PAGE_SIZE;
+    return filteredItems.slice(start, start + PAGE_SIZE);
+  }, [filteredItems, currentPage]);
 
   return (
     <>
@@ -119,7 +106,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
       ) : filteredItems.length > 0 ? (
         <>
           <div className="mb-5 flex items-center justify-between gap-3 text-sm text-muted-foreground">
-            <span>{visibleItems.length} / {filteredItems.length} {countLabel} gösteriliyor</span>
+            <span>Toplam {filteredItems.length} {countLabel}{totalPages > 1 ? ` • Sayfa ${currentPage} / ${totalPages}` : ''}</span>
             {searchQuery.trim() && (
               <button
                 type="button"
@@ -190,10 +177,12 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
             })}
           </div>
 
-          {visibleCount < filteredItems.length && (
-            <div ref={loadMoreRef} className="flex justify-center py-8 text-sm text-muted-foreground">
-              Daha fazla sonuç yükleniyor...
-            </div>
+          {totalPages > 1 && (
+            <AppPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
+            />
           )}
         </>
       ) : (

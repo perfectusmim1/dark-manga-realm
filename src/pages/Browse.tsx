@@ -3,7 +3,8 @@ import { useSearchParams } from 'react-router-dom';
 import { Filter, X } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { cn } from '@/lib/utils';
-import VirtualMangaGrid from '@/components/manga/VirtualMangaGrid';
+import MangaCard from '@/components/manga/MangaCard';
+import AppPagination from '@/components/ui/AppPagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -94,13 +95,6 @@ const BrowseGridSkeleton: React.FC = () => (
   </div>
 );
 
-const getSixColumnDesktopCount = (width: number) => {
-  if (width >= 1024) return 6;
-  if (width >= 768) return 5;
-  if (width >= 640) return 4;
-  if (width >= 430) return 3;
-  return 2;
-};
 
 const Browse: React.FC = () => {
   const { user } = useAuth();
@@ -128,6 +122,10 @@ const Browse: React.FC = () => {
   const [selectedTagSlugs, setSelectedTagSlugs] = useState<string[]>(
     searchParams.get('tags') ? searchParams.get('tags')!.split(',') : []
   );
+  const [currentPage, setCurrentPage] = useState(() => {
+    const p = parseInt(searchParams.get('page') || '1', 10);
+    return isNaN(p) || p < 1 ? 1 : p;
+  });
   const [mangas, setMangas] = useState<Manga[]>(() => browsePageCache[browseAudienceKey] ?? []);
   const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
   const [isLoading, setIsLoading] = useState(() => !browsePageCache[browseAudienceKey]);
@@ -230,9 +228,10 @@ const Browse: React.FC = () => {
     if (contentFilter !== 'all') params.content = contentFilter;
     if (selectedGenres.length > 0) params.genre = selectedGenres.join(',');
     if (selectedTagSlugs.length > 0) params.tags = selectedTagSlugs.join(',');
+    if (currentPage > 1) params.page = String(currentPage);
 
     setSearchParams(params);
-  }, [contentFilter, searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, setSearchParams]);
+  }, [contentFilter, searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, currentPage, setSearchParams]);
 
   const filteredManga = useMemo(() => {
     let result = [...mangas];
@@ -341,6 +340,7 @@ const Browse: React.FC = () => {
         ? prev.filter(g => g !== genre)
         : [...prev, genre]
     );
+    setCurrentPage(1);
   };
 
   const clearFilters = () => {
@@ -351,16 +351,34 @@ const Browse: React.FC = () => {
     setStatusFilter('all');
     setContentFilter('all');
     setSortBy('popular');
+    setCurrentPage(1);
     setSearchParams({});
   };
 
   const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all' || contentFilter !== 'all';
   const isInitialResultsPending = isLoading && mangas.length === 0;
+
+  const BROWSE_PAGE_SIZE = 36;
+  const totalPages = Math.max(1, Math.ceil(filteredManga.length / BROWSE_PAGE_SIZE));
+
+  useEffect(() => {
+    if (currentPage > totalPages && totalPages > 0) {
+      setCurrentPage(1);
+    }
+  }, [currentPage, totalPages]);
+
+  const paginatedManga = useMemo(() => {
+    const start = (currentPage - 1) * BROWSE_PAGE_SIZE;
+    return filteredManga.slice(start, start + BROWSE_PAGE_SIZE);
+  }, [filteredManga, currentPage]);
+
   const resultsLabel = isInitialResultsPending
     ? 'Seriler hazırlanıyor...'
     : isHydratingFullCollection
       ? `${filteredManga.length} seri gösteriliyor, tam liste yükleniyor...`
-      : `${filteredManga.length} sonuç bulundu`;
+      : totalPages > 1
+        ? `${filteredManga.length} sonuç bulundu • Sayfa ${currentPage} / ${totalPages}`
+        : `${filteredManga.length} sonuç bulundu`;
 
   return (
     <div className="min-h-screen bg-background">
@@ -379,13 +397,22 @@ const Browse: React.FC = () => {
               type="search"
               placeholder="Ara..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={(e) => {
+                setSearchQuery(e.target.value);
+                setCurrentPage(1);
+              }}
               className="w-full"
             />
           </div>
 
           <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-32">
-            <Select value={typeFilter} onValueChange={(value) => setTypeFilter(normalizeBrowseTypeFilter(value))}>
+            <Select
+              value={typeFilter}
+              onValueChange={(value) => {
+                setTypeFilter(normalizeBrowseTypeFilter(value));
+                setCurrentPage(1);
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Tür" />
               </SelectTrigger>
@@ -401,7 +428,13 @@ const Browse: React.FC = () => {
           </div>
 
           <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-36">
-            <Select value={statusFilter} onValueChange={setStatusFilter}>
+            <Select
+              value={statusFilter}
+              onValueChange={(value) => {
+                setStatusFilter(value);
+                setCurrentPage(1);
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Durum" />
               </SelectTrigger>
@@ -415,7 +448,13 @@ const Browse: React.FC = () => {
           </div>
 
           <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-40">
-            <Select value={contentFilter} onValueChange={(value) => setContentFilter(value as BrowseContentFilter)}>
+            <Select
+              value={contentFilter}
+              onValueChange={(value) => {
+                setContentFilter(value as BrowseContentFilter);
+                setCurrentPage(1);
+              }}
+            >
               <SelectTrigger className={`w-full ${contentFilter === 'adult' ? 'border-rose-500/40 bg-rose-500/10 text-rose-500' : ''}`}>
                 <SelectValue placeholder="İçerik" />
               </SelectTrigger>
@@ -430,7 +469,13 @@ const Browse: React.FC = () => {
           </div>
 
           <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-36">
-            <Select value={sortBy} onValueChange={setSortBy}>
+            <Select
+              value={sortBy}
+              onValueChange={(value) => {
+                setSortBy(value);
+                setCurrentPage(1);
+              }}
+            >
               <SelectTrigger className="w-full">
                 <SelectValue placeholder="Sırala" />
               </SelectTrigger>
@@ -491,7 +536,10 @@ const Browse: React.FC = () => {
         <div className="mb-6">
           <TagFilterPanel
             selectedTags={selectedTagSlugs}
-            onSelectedTagsChange={setSelectedTagSlugs}
+            onSelectedTagsChange={(tags) => {
+              setSelectedTagSlugs(tags);
+              setCurrentPage(1);
+            }}
           />
         </div>
 
@@ -502,17 +550,35 @@ const Browse: React.FC = () => {
         {/* Manga Grid */}
         {isInitialResultsPending ? (
           <BrowseGridSkeleton />
+        ) : filteredManga.length === 0 ? (
+          <div className="py-16 text-center">
+            <p className="text-base text-muted-foreground">Arama kriterlerinize uygun manga bulunamadı.</p>
+            {hasActiveFilters && (
+              <Button variant="outline" onClick={clearFilters} className="mt-4">
+                Filtreleri Temizle
+              </Button>
+            )}
+          </div>
         ) : (
-          <div>
-            <VirtualMangaGrid
-              manga={filteredManga}
-              getColumnCount={getSixColumnDesktopCount}
-              emptyMessage="Arama kriterlerinize uygun manga bulunamadı"
-              enableEntryAnimation
-              showTopTenWeekBadges={false}
-              entryAnimationClassName="animate-card-reveal-fast"
-              entryAnimationDelayStepMs={10}
-              entryAnimationDurationMs={170}
+          <div className="space-y-8">
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+              {paginatedManga.map((item, idx) => (
+                <MangaCard
+                  key={item.id}
+                  manga={item}
+                  index={idx}
+                  enableEntryAnimation
+                  entryAnimationClassName="animate-card-reveal-fast"
+                  entryAnimationDelayStepMs={10}
+                  entryAnimationDurationMs={170}
+                />
+              ))}
+            </div>
+
+            <AppPagination
+              currentPage={currentPage}
+              totalPages={totalPages}
+              onPageChange={setCurrentPage}
             />
           </div>
         )}
