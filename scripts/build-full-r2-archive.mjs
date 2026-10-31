@@ -2907,6 +2907,32 @@ const uploadToCatalogWorker = async (store, options = {}) => {
           }),
         }).catch(() => {});
       }
+
+      // chapters 1000'lik parçalar halinde Supabase'e senkronize edilir (hafif metadata: id, manga_id, number, title, release_date, created_at)
+      const allChapters = (tablesPayload.chapters || []).map((ch) => ({
+        id: ch.id,
+        manga_id: ch.manga_id,
+        number: ch.number,
+        title: ch.title,
+        release_date: ch.release_date,
+        created_at: ch.created_at,
+        views: ch.views || 0,
+      }));
+      for (let chIdx = 0; chIdx < allChapters.length; chIdx += 1000) {
+        const chChunk = allChapters.slice(chIdx, chIdx + 1000);
+        await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: process.env.VITE_SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${process.env.VITE_SUPABASE_ANON_KEY}`,
+          },
+          body: JSON.stringify({
+            p_admin_token: CATALOG_ADMIN_TOKEN,
+            p_payload: { chapters: chChunk },
+          }),
+        }).catch(() => {});
+      }
     } catch (err) {
       logWarn(`Supabase senkronizasyonu atlandı: ${err.message}`);
     }
