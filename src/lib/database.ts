@@ -762,9 +762,9 @@ let adminAccessContextCache:
     | { authUserId: string | null; value: AdminAccessContext }
     | null = null;
 let adminAccessContextPromise: Promise<AdminAccessContext> | null = null;
-const ALL_MANGAS_CACHE_TTL_MS = 60_000;
-const TOP_TEN_IDS_CACHE_TTL_MS = 60_000;
-const STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS = 60_000;
+const ALL_MANGAS_CACHE_TTL_MS = 5 * 60_000;
+const TOP_TEN_IDS_CACHE_TTL_MS = 5 * 60_000;
+const STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS = 5 * 60_000;
 const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, description, views, last_updated, created_at, type, release_year';
 const HOME_PAGE_SECTION_LIMITS = Object.freeze({
     trending: 8,

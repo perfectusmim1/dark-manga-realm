@@ -76,6 +76,7 @@ const LatestChapters: React.FC = () => {
     const [isLoading, setIsLoading] = React.useState(true);
     const [recentChapterCount, setRecentChapterCount] = React.useState(0);
     const [totalChaptersCount, setTotalChaptersCount] = React.useState(0);
+    const countsLoadedRef = React.useRef(false);
 
     const totalPages = Math.max(1, Math.ceil(totalChaptersCount / PAGE_SIZE));
 
@@ -93,15 +94,23 @@ const LatestChapters: React.FC = () => {
         setIsLoading(true);
         try {
             const offset = (page - 1) * PAGE_SIZE;
-            const [data, countLast24Hours, totalCount] = await Promise.all([
+            const promises: [Promise<LatestChapterFeedItem[]>, Promise<number>?, Promise<number>?] = [
                 getLatestChapters(PAGE_SIZE, offset),
-                getLatestChaptersCountLast24Hours(),
-                getTotalLatestChaptersCount(),
-            ]);
+            ];
+
+            if (!countsLoadedRef.current) {
+                promises.push(getLatestChaptersCountLast24Hours());
+                promises.push(getTotalLatestChaptersCount());
+            }
+
+            const [data, countLast24Hours, totalCount] = await Promise.all(promises);
 
             setChapters(data);
-            setRecentChapterCount(countLast24Hours);
-            setTotalChaptersCount(totalCount);
+            if (!countsLoadedRef.current && typeof countLast24Hours === 'number' && typeof totalCount === 'number') {
+                setRecentChapterCount(countLast24Hours);
+                setTotalChaptersCount(totalCount);
+                countsLoadedRef.current = true;
+            }
         } catch (error) {
             console.error('Latest chapters page error:', error);
         } finally {

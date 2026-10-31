@@ -4,12 +4,12 @@ import type { Tag } from '@/lib/types';
 const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-v2';
 const HOME_FEED_SESSION_CACHE_VERSION = 2;
 
-export const HOME_SECTIONS_CACHE_TTL_MS = 60_000;
-export const HOME_SECTIONS_MAX_SEED_AGE_MS = 30 * 60_000;
-export const TRENDING_TAGS_CACHE_TTL_MS = 5 * 60_000;
-export const TRENDING_TAGS_MAX_SEED_AGE_MS = 30 * 60_000;
-export const TOP_TEN_WEEK_CACHE_TTL_MS = 2 * 60_000;
-export const TOP_TEN_WEEK_MAX_SEED_AGE_MS = 10 * 60_000;
+export const HOME_SECTIONS_CACHE_TTL_MS = 5 * 60_000;
+export const HOME_SECTIONS_MAX_SEED_AGE_MS = 60 * 60_000;
+export const TRENDING_TAGS_CACHE_TTL_MS = 15 * 60_000;
+export const TRENDING_TAGS_MAX_SEED_AGE_MS = 60 * 60_000;
+export const TOP_TEN_WEEK_CACHE_TTL_MS = 5 * 60_000;
+export const TOP_TEN_WEEK_MAX_SEED_AGE_MS = 30 * 60_000;
 
 interface PersistedHomeFeedEntry<T> {
   fetchedAt: number;

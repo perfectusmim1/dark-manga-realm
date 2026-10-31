@@ -33,6 +33,35 @@ type BrowseTypeFilter = 'all' | 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'adu
 
 const browsePageCache: Partial<Record<BrowseAudienceCacheKey, Manga[]>> = {};
 const ADULT_GENRE_EQUIVALENTS = new Set(['Yetişkin', 'Hentai', 'Webtoon Hentai']);
+const BROWSE_PERSISTED_CACHE_PREFIX = 'toonparrot-browse-cache-v2:';
+const BROWSE_PERSISTED_MAX_AGE_MS = 30 * 60_000;
+
+const readPersistedBrowseCache = (audienceKey: BrowseAudienceCacheKey): Manga[] | null => {
+  if (typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(`${BROWSE_PERSISTED_CACHE_PREFIX}${audienceKey}`);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed.fetchedAt !== 'number' || Date.now() - parsed.fetchedAt > BROWSE_PERSISTED_MAX_AGE_MS) {
+      return null;
+    }
+    return Array.isArray(parsed.data) && parsed.data.length > 0 ? parsed.data : null;
+  } catch {
+    return null;
+  }
+};
+
+const writePersistedBrowseCache = (audienceKey: BrowseAudienceCacheKey, data: Manga[]) => {
+  if (typeof window === 'undefined' || !data || data.length === 0) return;
+  try {
+    window.sessionStorage.setItem(
+      `${BROWSE_PERSISTED_CACHE_PREFIX}${audienceKey}`,
+      JSON.stringify({ fetchedAt: Date.now(), data })
+    );
+  } catch {
+    // QuotaExceededError protection
+  }
+};
 
 const normalizeBrowseTypeFilter = (value: string | null): BrowseTypeFilter => {
   switch (value) {
@@ -158,6 +187,10 @@ const Browse: React.FC = () => {
     const handleAdultModeChanged = () => {
       browsePageCache.safe = undefined;
       browsePageCache.adult = undefined;
+      try {
+        window.sessionStorage.removeItem(`${BROWSE_PERSISTED_CACHE_PREFIX}safe`);
+        window.sessionStorage.removeItem(`${BROWSE_PERSISTED_CACHE_PREFIX}adult`);
+      } catch {}
       setMangas([]);
       setIsLoading(true);
       setIsHydratingFullCollection(true);
@@ -174,9 +207,18 @@ const Browse: React.FC = () => {
 
     const fetchMangas = async () => {
       try {
-        const cachedMangas = browsePageCache[browseAudienceKey];
-        if (cachedMangas) {
-          setMangas(cachedMangas);
+        const memoryCache = browsePageCache[browseAudienceKey];
+        if (memoryCache && memoryCache.length > 0) {
+          setMangas(memoryCache);
+          setIsLoading(false);
+          setIsHydratingFullCollection(false);
+          return;
+        }
+
+        const persistedCache = readPersistedBrowseCache(browseAudienceKey);
+        if (persistedCache && persistedCache.length > 0) {
+          browsePageCache[browseAudienceKey] = persistedCache;
+          setMangas(persistedCache);
           setIsLoading(false);
           setIsHydratingFullCollection(false);
           return;
@@ -192,6 +234,7 @@ const Browse: React.FC = () => {
         }
 
         browsePageCache[browseAudienceKey] = data;
+        writePersistedBrowseCache(browseAudienceKey, data);
         setMangas(data);
       } finally {
         if (active) {
