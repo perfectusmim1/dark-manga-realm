@@ -3,12 +3,14 @@ import { defaultOfflineImageProxyUrl } from '@/lib/offline/proxyConfig';
 import { isStoredMediaUrl } from '@/lib/mediaStorage';
 import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
+import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 
 const MODEL = 'gemini-flash-lite-latest';
 const RETRY_DELAYS_MS = [3000, 8000];
 const SLICE_HEIGHT = 1300;
-const SLICE_OVERLAP = 200;
-const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1100
+const SLICE_OVERLAP = 220;
+const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1080
+const SLICE_CONCURRENCY = 3;
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -18,7 +20,7 @@ const RESPONSE_SCHEMA = {
       items: {
         type: Type.OBJECT,
         properties: {
-          box_2d: { type: Type.ARRAY, items: { type: Type.INTEGER } },
+          box_2d: { type: Type.ARRAY, items: { type: Type.NUMBER } },
           text: { type: Type.STRING },
         },
         required: ['box_2d', 'text'],
@@ -31,7 +33,6 @@ const RESPONSE_SCHEMA = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const fetchImageBlobViaProxy = async (src: string): Promise<Blob> => {
-  // Doğrudan güncel ve mangadass destekleyen ana proxy'yi kullan
   const response = await fetch(defaultOfflineImageProxyUrl, {
     method: 'POST',
     body: src,
@@ -43,13 +44,11 @@ const fetchImageBlobViaProxy = async (src: string): Promise<Blob> => {
 };
 
 const fetchImageBlob = async (src: string): Promise<Blob> => {
-  // blob:/data: URL'leri doğrudan okunur.
   if (src.startsWith('blob:') || src.startsWith('data:')) {
     const response = await fetch(src);
     return response.blob();
   }
 
-  // Aynı origin veya public R2 kaynakları doğrudan CORS ile indirilebilir.
   const isSameOrigin = typeof window !== 'undefined' && src.startsWith(window.location.origin);
   if (isSameOrigin || isStoredMediaUrl(src)) {
     try {
@@ -60,8 +59,6 @@ const fetchImageBlob = async (src: string): Promise<Blob> => {
     }
   }
 
-  // Harici üçüncü taraf siteler (mangadass, webtoonhatti vb.) için doğrudan proxy'den çek.
-  // Bu sayede tarayıcı konsolunda kırmızı CORS hatası asla tetiklenmez.
   return fetchImageBlobViaProxy(src);
 };
 
@@ -94,26 +91,53 @@ const isRateLimitError = (error: unknown) => {
   return message.includes('429') || message.includes('resource_exhausted') || message.includes('quota');
 };
 
-const VOCAL_FILLER_REGEX = /^(a+h+|o+h+|u+h+|u+g+h+|a+a+h+|o+o+h+|n+g+h+|m+m+h*|h+m+m*|h+a+a*|h+e+h+|t+s+k+|p+f+f+|e+h+|h+a+h+|a+r+g+h+|o+o+f+|g+a+s+p|s+i+g+h|w+o+w|h+u+h+|y+a+h+|k+y+a+h*|g+k+h*|u+r+k)[!?.~*^_\-\s]*$/i;
-const SFX_WRAP_REGEX = /^[*({\[][^\n*)}\]]+[*)}\]][!?.~*^_\-\s]*$/;
-const PURE_PUNCT_REGEX = /^[\s.,!?:;\-_~*^'"/\\()[\]{}]+$/;
-const CREDITS_REGEX = /^(çizer|yazar|editör|editor|çeviri|artist|author|typesetter|scanlation|fansub|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|ep(isode)?\.?\s*\d+|vol(ume)?\.?\s*\d+)\b/i;
-const HANGUL_ONLY_REGEX = /^[\uAC00-\uD7AF\s.,!?:;\-_~*^'"()]+$/;
+const VOCAL_TOKEN_REGEX =
+  /^(?:a+h+|o+h+|u+h+|u+g+h+|e+u+g+h+|a+a+h*|o+o+h*|n+g+h+|m+m+h*|h+m+m*|h+m+p+h*|h+a+a+|h+e+h+|t+s+k+|t+c+h+|p+f+f+t*|e+h+|h+a+h+|a+r+g+h+|a+g+h+|o+o+f+|u+a*f+|p+u+f+|o+f+|ö+f+|g+a+s+p+|s+i+g+h+|w+o+w+|h+u+h+|y+a+h+|k+y+a+h*|g+k+h+|u+r+k+|a+c+k+|e+e+p+|s+h+h+|h+ı+h*|ı+h+|b+a+h+|o+u+c+h+)$/i;
 
-// Ses efektlerini (SFX), inlemeleri (ah/oh/uh/ugh vb.), jenerik/çizer/yazar/editör bilgilerini ve anlamsız gürültüleri eler.
-export const shouldSkipBlock = (text: string): boolean => {
+const SFX_WRAP_REGEX = /^[*({\[][^\n*)}\]]+[*)}\]][!?.~*^_\-\s]*$/;
+const PURE_PUNCT_REGEX = /^[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•]+$/;
+const CREDITS_START_REGEX =
+  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on))\b/i;
+const CREDITS_INLINE_REGEX =
+  /(?:^|[\/|•<\[])\s*(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|written\s+by|art\s+by|story\s+by|original\s+work|traducción|traduccion|edición|edicion|limpieza|typeset|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))\s*[:\-]/i;
+const WATERMARK_DOMAIN_REGEX =
+  /(?:https?:\/\/|discord\.gg\/|\b[a-z0-9-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site)\b)/i;
+
+// Ses efektlerini (SFX), inlemeleri (ah/oh/uh/ugh/uaf vb.), seri başlıklarını ve çizer/yazar/editör jeneriklerini eler.
+export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   const t = text.trim();
   if (t.length <= 1) return true;
   if (PURE_PUNCT_REGEX.test(t)) return true;
-  if (VOCAL_FILLER_REGEX.test(t)) return true;
   if (SFX_WRAP_REGEX.test(t)) return true;
-  if (CREDITS_REGEX.test(t)) return true;
-  if (HANGUL_ONLY_REGEX.test(t)) return true;
-  if (/(https?:\/\/|\.com|\.net|\.org|\.club|\.me|\.online)\b/i.test(t)) return true;
+  if (WATERMARK_DOMAIN_REGEX.test(t)) return true;
+
+  // Hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları (logo, SFX, jenerik) atla
+  if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
+  if (targetLang !== 'ja' && /[\u3040-\u30FF]/.test(t)) return true;
+  if (targetLang !== 'zh' && targetLang !== 'ja' && /[\u4E00-\u9FFF]/.test(t)) return true;
+
+  // Dekoratif başlık parantezlerini temizleyip jenerik/bölüm kontrolü yap
+  const stripped = t.replace(/^[<\[({◁▷◀▶★☆•\-~\s]+|[>\])}◁▷◀▶★☆•\-~\s]+$/g, '').trim();
+  if (!stripped || stripped.length <= 1) return true;
+  if (CREDITS_START_REGEX.test(stripped) || CREDITS_INLINE_REGEX.test(t)) return true;
+  if (/^[◁▷◀▶].*[◁▷◀▶]$/.test(t)) return true;
+
+  // Tekli veya tekrarlı saf inleme / nefes / ünlem seslerini ("Ah... haa!", "Ughhh", "¡Uaf!") atla
+  const wordTokens = stripped
+    .split(/[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>]+/)
+    .filter(Boolean);
+  if (
+    wordTokens.length >= 1 &&
+    wordTokens.length <= 4 &&
+    wordTokens.every((tok) => VOCAL_TOKEN_REGEX.test(tok))
+  ) {
+    return true;
+  }
+
   return false;
 };
 
-const parseBlocks = (raw: string): TranslationBlock[] => {
+const parseBlocks = (raw: string, targetLang: string): TranslationBlock[] => {
   let parsed: { blocks?: unknown };
   try {
     parsed = JSON.parse(raw) as { blocks?: unknown };
@@ -130,7 +154,7 @@ const parseBlocks = (raw: string): TranslationBlock[] => {
       return;
     }
     const cleanText = text.trim();
-    if (shouldSkipBlock(cleanText)) {
+    if (shouldSkipBlock(cleanText, targetLang)) {
       return;
     }
     const box = rawBox.map(Number);
@@ -141,8 +165,7 @@ const parseBlocks = (raw: string): TranslationBlock[] => {
     if (ymin >= ymax || xmin >= xmax) {
       return;
     }
-    // Çok ufak kutuları veya tek noktalama işaretlerini atla
-    if (ymax - ymin < 8 || xmax - xmin < 8) {
+    if (ymax - ymin < 6 || xmax - xmin < 8) {
       return;
     }
     result.push({ box: [ymin, xmin, ymax, xmax], text: cleanText });
@@ -150,81 +173,10 @@ const parseBlocks = (raw: string): TranslationBlock[] => {
   return result;
 };
 
-// Balonun içindeki gerçek arka plan rengini ve yazı kontrastını örnekler.
-const sampleBlockColors = (
-  ctx: CanvasRenderingContext2D,
-  box: [number, number, number, number],
-  width: number,
-  height: number
-): { bgColor: string; textColor: string; isDark: boolean } => {
-  const [ymin, xmin, ymax, xmax] = box;
-  const x0 = Math.max(0, Math.floor((xmin / 1000) * width));
-  const x1 = Math.min(width, Math.ceil((xmax / 1000) * width));
-  const y0 = Math.max(0, Math.floor((ymin / 1000) * height));
-  const y1 = Math.min(height, Math.ceil((ymax / 1000) * height));
-  const bw = x1 - x0;
-  const bh = y1 - y0;
-
-  if (bw <= 0 || bh <= 0) {
-    return { bgColor: '#ffffff', textColor: '#0a0a0a', isDark: false };
-  }
-
-  try {
-    const imgData = ctx.getImageData(x0, y0, bw, bh);
-    const data = imgData.data;
-
-    // Balonun metin olmayan kenar marjinlerini örnekle
-    const marginX = Math.max(1, Math.floor(bw * 0.1));
-    const marginY = Math.max(1, Math.floor(bh * 0.1));
-
-    let rSum = 0;
-    let gSum = 0;
-    let bSum = 0;
-    let count = 0;
-
-    for (let py = 0; py < bh; py += 2) {
-      for (let px = 0; px < bw; px += 2) {
-        const isPerimeter = px < marginX || px >= bw - marginX || py < marginY || py >= bh - marginY;
-        if (!isPerimeter) continue;
-
-        const idx = (py * bw + px) * 4;
-        const a = data[idx + 3];
-        if (a < 128) continue;
-
-        rSum += data[idx];
-        gSum += data[idx + 1];
-        bSum += data[idx + 2];
-        count += 1;
-      }
-    }
-
-    if (count === 0) {
-      return { bgColor: '#ffffff', textColor: '#0a0a0a', isDark: false };
-    }
-
-    const rAvg = Math.round(rSum / count);
-    const gAvg = Math.round(gSum / count);
-    const bAvg = Math.round(bSum / count);
-
-    // Algılanan parlaklık (luminance)
-    const luminance = 0.299 * rAvg + 0.587 * gAvg + 0.114 * bAvg;
-    const isDark = luminance < 128;
-
-    return {
-      bgColor: `rgb(${rAvg}, ${gAvg}, ${bAvg})`,
-      textColor: isDark ? '#ffffff' : '#0a0a0a',
-      isDark,
-    };
-  } catch {
-    return { bgColor: '#ffffff', textColor: '#0a0a0a', isDark: false };
-  }
-};
-
-// Seam deduplication (iki dilim arasındaki ortak balonları tekilleştir)
-const computeIoU = (
+const computeOverlapMetrics = (
   boxA: [number, number, number, number],
-  boxB: [number, number, number, number]
-): number => {
+  boxB: [number, number, number, number],
+): { iou: number; containment: number } => {
   const [yA0, xA0, yA1, xA1] = boxA;
   const [yB0, xB0, yB1, xB1] = boxB;
 
@@ -233,26 +185,32 @@ const computeIoU = (
   const interY1 = Math.min(yA1, yB1);
   const interX1 = Math.min(xA1, xB1);
 
-  if (interY1 <= interY0 || interX1 <= interX0) return 0;
+  if (interY1 <= interY0 || interX1 <= interX0) {
+    return { iou: 0, containment: 0 };
+  }
 
   const interArea = (interY1 - interY0) * (interX1 - interX0);
   const areaA = (yA1 - yA0) * (xA1 - xA0);
   const areaB = (yB1 - yB0) * (xB1 - xB0);
   const unionArea = areaA + areaB - interArea;
+  const minArea = Math.min(areaA, areaB);
 
-  return unionArea > 0 ? interArea / unionArea : 0;
+  return {
+    iou: unionArea > 0 ? interArea / unionArea : 0,
+    containment: minArea > 0 ? interArea / minArea : 0,
+  };
 };
 
 const buildPrompt = (targetLang: string) => [
-  'You are an expert manga/webtoon translator and typesetter.',
-  'Detect ONLY genuine dialogue speech bubbles and character story narration boxes in this image slice.',
-  `Translate each dialogue and narration into natural, clean ${getLanguageName(targetLang)} (ISO 639-1 code: "${targetLang}").`,
-  'For box_2d: return [ymin, xmin, ymax, xmax] normalized to 0-1000 covering strictly the text area inside the bubble.',
-  'CRITICAL EXCLUSION & FILTERING RULES:',
-  '1. DO NOT translate or output blocks for sound effects (SFX), onomatopoeia, screams, moans, gasps, groans, sighing, or vocal filler utterances (e.g. "ah", "oh", "uh", "ugh", "ughhh", "ahhh", "haaa", "ngh", "mm", "gasp", "sigh", "*thump*", "*step*", "부스슥", "쿵", "쾅"). SKIP THEM ENTIRELY.',
-  '2. DO NOT translate or output metadata, credits, or titles: series titles, author names, artist names, editor/typesetter names, scanlation team credits, chapter numbers, website URLs, or watermarks. SKIP THEM ENTIRELY.',
-  '3. STRICT PROPER NOUN / CHARACTER NAME RULE: Character names and personal names MUST remain in their exact original form (e.g. "Seo-jun", "Elena", "Jack", "Eunwoo", "Yeon-woo"). NEVER localize, alter, or translate personal names into Turkish literal dictionary words.',
-  '4. Translate full dialogue sentences naturally and conversationally.',
+  'You are an expert manga/webtoon translator and scanlation typesetter.',
+  'Detect ONLY genuine character dialogue inside drawn speech/thought bubbles and story narration inside narration boxes.',
+  `Translate each dialogue and narration into natural, fluent, idiomatic ${getLanguageName(targetLang)} (ISO 639-1 code: "${targetLang}").`,
+  'For box_2d: return [ymin, xmin, ymax, xmax] normalized to 0-1000 tightly enclosing ALL letters of that single bubble\'s text (never merge two separate bubbles into one box).',
+  'STRICT EXCLUSION RULES (DO NOT OUTPUT THESE AT ALL):',
+  '1. SKIP ALL sound effects (SFX), background onomatopoeia, and drawn action text (e.g. "부스슥", "번뜩", "저벅", "쿵", "*step*", "*thump*").',
+  '2. SKIP ALL moans, groans, sighs, gasps, screams, and pure vocal filler bubbles (e.g. "ah", "oh", "uh", "ugh", "ughhh", "aah", "haa", "ngh", "mm", "uaf", "uf", "puf", "eh", "huh", "tsk").',
+  '3. SKIP ALL series title logos, decorative cover/episode banners, chapter numbers, author/artist/editor credits (e.g. "글 : ... / 그림 : ...", "Story / Art"), website URLs, and scanlation watermarks (e.g. "LEE ANTES EN..."). NEVER output floating title graphics.',
+  '4. STRICT CHARACTER NAME & HONORIFIC RULE: Keep all personal names, character names, and Korean/Japanese honorifics (e.g. "Oppa", "Hyung", "Noona", "Unnie", "Sunbae", "Seo-jun", "Elena") in their exact original spelling. NEVER translate or localize names.',
   'Return ONLY valid JSON matching the schema.',
 ].join(' ');
 
@@ -260,7 +218,7 @@ const callGeminiVision = async (
   ai: GoogleGenAI,
   data: string,
   mimeType: string,
-  targetLang: string
+  targetLang: string,
 ): Promise<TranslationBlock[]> => {
   const prompt = buildPrompt(targetLang);
   let lastError: unknown;
@@ -284,7 +242,7 @@ const callGeminiVision = async (
           },
         ],
       });
-      return parseBlocks(response.text ?? '');
+      return parseBlocks(response.text ?? '', targetLang);
     } catch (error) {
       lastError = error;
       if (isRateLimitError(error) && attempt < RETRY_DELAYS_MS.length) {
@@ -308,7 +266,10 @@ export const translatePageImage = async ({
   imageSrc,
   targetLang,
 }: TranslatePageOptions): Promise<TranslationBlock[]> => {
-  const blob = await fetchImageBlob(imageSrc);
+  const [blob] = await Promise.all([
+    fetchImageBlob(imageSrc),
+    ensureScanlationFontReady(),
+  ]);
   const img = await loadImageElement(blob);
   const fullWidth = img.naturalWidth || img.width;
   const fullHeight = img.naturalHeight || img.height;
@@ -319,7 +280,6 @@ export const translatePageImage = async ({
 
   const ai = new GoogleGenAI({ apiKey });
 
-  // Tam çözünürlüklü offscreen canvas
   const fullCanvas = document.createElement('canvas');
   fullCanvas.width = fullWidth;
   fullCanvas.height = fullHeight;
@@ -329,20 +289,17 @@ export const translatePageImage = async ({
   }
   fullCtx.drawImage(img, 0, 0);
 
-  // Standart / kısa görseller (height <= 1600): tek seferde gönder
+  // Kısa/standart sayfalar (height <= 1600): tek seferde işle
   if (fullHeight <= 1600) {
     const { data, mimeType } = canvasToBase64(fullCanvas);
     const rawBlocks = await callGeminiVision(ai, data, mimeType, targetLang);
     return rawBlocks
-      .filter((block) => !shouldSkipBlock(block.text))
-      .map((block) => ({
-        ...block,
-        ...sampleBlockColors(fullCtx, block.box, fullWidth, fullHeight),
-      }));
+      .sort((a, b) => a.box[0] - b.box[0])
+      .map((block) => inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, block, targetLang))
+      .filter((block): block is TranslationBlock => block !== null);
   }
 
-  // Uzun webtoon şeritleri (height > 1600): aspect-ratio bozulmasını önlemek için
-  // örtüşen dikey pencerelere bölerek 1:1 piksel hassasiyetiyle tara.
+  // Uzun webtoon şeritleri: örtüşen dikey pencerelere bölerek 1:1 piksel doğruluğuyla tara
   const slices: Array<{ y: number; h: number }> = [];
   for (let y = 0; y < fullHeight; y += SLICE_STEP) {
     const h = Math.min(SLICE_HEIGHT, fullHeight - y);
@@ -350,64 +307,88 @@ export const translatePageImage = async ({
     if (y + h >= fullHeight) break;
   }
 
-  const sliceCanvas = document.createElement('canvas');
-  sliceCanvas.width = fullWidth;
-  const sliceCtx = sliceCanvas.getContext('2d', { willReadFrequently: true });
-  if (!sliceCtx) {
-    throw new Error('Dilim canvas bağlamı oluşturulamadı');
+  interface CandidateBlock {
+    box: [number, number, number, number];
+    text: string;
+    nearSliceSeam: boolean;
   }
 
-  const allBlocks: TranslationBlock[] = [];
-
-  // Dilimleri işle (hız ve rate limit dengesi için sıralı/paralel)
-  for (const slice of slices) {
+  const slicePayloads = slices.map((slice) => {
+    const sliceCanvas = document.createElement('canvas');
+    sliceCanvas.width = fullWidth;
     sliceCanvas.height = slice.h;
-    sliceCtx.clearRect(0, 0, fullWidth, slice.h);
-    sliceCtx.drawImage(fullCanvas, 0, slice.y, fullWidth, slice.h, 0, 0, fullWidth, slice.h);
-
-    const { data, mimeType } = canvasToBase64(sliceCanvas);
-    let tileBlocks: TranslationBlock[] = [];
-    try {
-      tileBlocks = await callGeminiVision(ai, data, mimeType, targetLang);
-    } catch {
-      // Dilim hatası tüm sayfayı patlatmasın
-      tileBlocks = [];
+    const sliceCtx = sliceCanvas.getContext('2d');
+    if (!sliceCtx) {
+      throw new Error('Dilim canvas bağlamı oluşturulamadı');
     }
+    sliceCtx.drawImage(fullCanvas, 0, slice.y, fullWidth, slice.h, 0, 0, fullWidth, slice.h);
+    const { data, mimeType } = canvasToBase64(sliceCanvas);
+    return { ...slice, data, mimeType };
+  });
 
-    tileBlocks.forEach((block) => {
+  const sliceResults: Array<{ y: number; h: number; blocks: TranslationBlock[] }> = [];
+  for (let i = 0; i < slicePayloads.length; i += SLICE_CONCURRENCY) {
+    const batch = slicePayloads.slice(i, i + SLICE_CONCURRENCY);
+    const batchOut = await Promise.all(
+      batch.map(async (s) => {
+        try {
+          const blocks = await callGeminiVision(ai, s.data, s.mimeType, targetLang);
+          return { y: s.y, h: s.h, blocks };
+        } catch {
+          return { y: s.y, h: s.h, blocks: [] };
+        }
+      }),
+    );
+    sliceResults.push(...batchOut);
+  }
+
+  const mergedCandidates: CandidateBlock[] = [];
+
+  sliceResults.forEach((slice, sliceIdx) => {
+    const hasTopSeam = sliceIdx > 0;
+    const hasBottomSeam = sliceIdx < sliceResults.length - 1;
+
+    slice.blocks.forEach((block) => {
       const [tileYmin, tileXmin, tileYmax, tileXmax] = block.box;
-      // Dilim içi 0-1000 koordinatlarını tüm sayfanın 0-1000 koordinatlarına çevir
-      const pageYmin = Math.max(0, Math.min(1000, Math.round(((slice.y + (tileYmin / 1000) * slice.h) / fullHeight) * 1000)));
-      const pageYmax = Math.max(0, Math.min(1000, Math.round(((slice.y + (tileYmax / 1000) * slice.h) / fullHeight) * 1000)));
-
+      const pageYmin = Number(
+        Math.max(0, Math.min(1000, ((slice.y + (tileYmin / 1000) * slice.h) / fullHeight) * 1000)).toFixed(4),
+      );
+      const pageYmax = Number(
+        Math.max(0, Math.min(1000, ((slice.y + (tileYmax / 1000) * slice.h) / fullHeight) * 1000)).toFixed(4),
+      );
       if (pageYmin >= pageYmax) return;
 
-      const mappedBox: [number, number, number, number] = [pageYmin, tileXmin, pageYmax, tileXmax];
+      const mappedBox: [number, number, number, number] = [
+        pageYmin,
+        Number(tileXmin.toFixed(4)),
+        pageYmax,
+        Number(tileXmax.toFixed(4)),
+      ];
+      const nearSliceSeam = (hasTopSeam && tileYmin <= 18) || (hasBottomSeam && tileYmax >= 982);
 
-      // Örtüşen dikiş bölgesindeki mükerrer balonları ele
-      const duplicateIndex = allBlocks.findIndex((existing) => computeIoU(existing.box, mappedBox) > 0.45);
-      if (duplicateIndex >= 0) {
-        // Daha uzun/eksiksiz çeviriyi koru
-        if (block.text.length > allBlocks[duplicateIndex].text.length) {
-          allBlocks[duplicateIndex] = {
-            box: mappedBox,
-            text: block.text,
-          };
+      const dupIdx = mergedCandidates.findIndex((existing) => {
+        const { iou, containment } = computeOverlapMetrics(existing.box, mappedBox);
+        return iou > 0.4 || containment > 0.65;
+      });
+
+      if (dupIdx >= 0) {
+        const prev = mergedCandidates[dupIdx];
+        const preferNew =
+          (prev.nearSliceSeam && !nearSliceSeam) ||
+          (prev.nearSliceSeam === nearSliceSeam && block.text.length > prev.text.length);
+        if (preferNew) {
+          mergedCandidates[dupIdx] = { box: mappedBox, text: block.text, nearSliceSeam };
         }
       } else {
-        allBlocks.push({
-          box: mappedBox,
-          text: block.text,
-        });
+        mergedCandidates.push({ box: mappedBox, text: block.text, nearSliceSeam });
       }
     });
-  }
+  });
 
-  // Her blok için tam çözünürlüklü arka plan ve metin rengini örnekle
-  return allBlocks
+  return mergedCandidates
     .sort((a, b) => a.box[0] - b.box[0])
-    .map((block) => ({
-      ...block,
-      ...sampleBlockColors(fullCtx, block.box, fullWidth, fullHeight),
-    }));
+    .map((cand) =>
+      inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, { box: cand.box, text: cand.text }, targetLang),
+    )
+    .filter((block): block is TranslationBlock => block !== null);
 };

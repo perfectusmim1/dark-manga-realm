@@ -1,65 +1,81 @@
 import React from 'react';
 import { AlertTriangle, Eye, EyeOff, Languages, Loader2, RefreshCw } from 'lucide-react';
 import { PageTranslationState, TranslationBlock } from '@/lib/translation/types';
+import { formatScanlationText, SCANLATION_FONT_FAMILY } from '@/lib/translation/bubbleInpainter';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 
-// Profesyonel webtoon/manga editleme katmanı:
-// 1. Orijinal metni balonun kendi arka plan rengiyle (ve yumuşak kenar geçişiyle) siler (Inpaint Mask).
-// 2. Çevrilen metni balonun tam ortasına scanlation fontu ve kontrast renkle dizgiler (Typeset).
-export const TranslationOverlay: React.FC<{ blocks: TranslationBlock[] }> = ({ blocks }) => (
-  <div className="pointer-events-none absolute inset-0 z-20">
+// Piksel-Inpaint + Vektör Scanlation Dizgi Katmanı:
+// 1. Orijinal metni balonun kendi pikselleriyle pürüzsüz onaran WebP yamayı (patchDataUrl) 1:1 oturtur.
+// 2. Çevrilen metni sayfa genişliğine (cqw) kilitli Shantell Sans çizgi roman fontuyla balon içine dizgiler.
+export const TranslationOverlay: React.FC<{
+  blocks: TranslationBlock[];
+  targetLang?: string;
+}> = ({ blocks, targetLang = 'tr' }) => (
+  <div
+    className="pointer-events-none absolute inset-0 z-20 select-none"
+    style={{ containerType: 'inline-size' } as React.CSSProperties}
+  >
+    {/* 1. Katman: Tüm balonların lekesiz piksel-inpaint arka plan yamaları */}
+    {blocks.map((block, index) => {
+      if (!block.patchDataUrl || !block.patchBox) return null;
+      const [pYmin, pXmin, pYmax, pXmax] = block.patchBox;
+      return (
+        <img
+          key={`patch-${index}`}
+          src={block.patchDataUrl}
+          alt=""
+          aria-hidden="true"
+          draggable={false}
+          className="pointer-events-none absolute block max-w-none select-none"
+          style={{
+            top: `${pYmin / 10}%`,
+            left: `${pXmin / 10}%`,
+            width: `${(pXmax - pXmin) / 10}%`,
+            height: `${(pYmax - pYmin) / 10}%`,
+          }}
+        />
+      );
+    })}
+
+    {/* 2. Katman: Vektörel Retina webtoon/manga dizgisi */}
     {blocks.map((block, index) => {
       const [ymin, xmin, ymax, xmax] = block.box;
-      const bgColor = block.bgColor || '#ffffff';
-      const textColor = block.textColor || (block.isDark ? '#ffffff' : '#0a0a0a');
+      const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
+      const fontSizeCqw = block.fontSizeCqw ?? 2.85;
+      const displayText = formatScanlationText(block.text, targetLang);
 
       return (
         <div
-          key={index}
-          className="absolute flex items-center justify-center pointer-events-none select-none"
+          key={`text-${index}`}
+          className="pointer-events-none absolute flex items-center justify-center select-none"
           style={{
             top: `${ymin / 10}%`,
             left: `${xmin / 10}%`,
             width: `${(xmax - xmin) / 10}%`,
             height: `${(ymax - ymin) / 10}%`,
-            containerType: 'size',
-          } as React.CSSProperties}
+          }}
         >
-          {/* Orijinal yazıyı lekesiz örten yumuşak inpaint arka plan yaması (kutu veya gölge içermez) */}
-          <div
-            className="absolute inset-0 pointer-events-none"
-            style={{
-              backgroundColor: bgColor,
-              borderRadius: '45%',
-              filter: 'blur(1.5px)',
-              transform: 'scale(1.04)',
-              opacity: 0.98,
-            }}
-          />
-
-          {/* Webtoon/manga scanlation dizgisi */}
-          <div
-            className="relative z-10 flex h-full w-full items-center justify-center p-1 text-center font-bold tracking-tight"
+          <span
+            className="block w-full text-center font-bold"
             style={{
               color: textColor,
-              fontFamily: '"Nunito", "Rubik", "Comic Sans MS", system-ui, -apple-system, sans-serif',
-              lineHeight: 1.15,
-              wordBreak: 'break-word',
+              fontFamily: SCANLATION_FONT_FAMILY,
+              fontSize: `${fontSizeCqw}cqw`,
+              lineHeight: 1.22,
+              letterSpacing: '0.01em',
               overflowWrap: 'break-word',
-            }}
+              wordBreak: 'normal',
+              ...(block.hasTextStroke
+                ? {
+                    WebkitTextStroke: '0.22em #ffffff',
+                    paintOrder: 'stroke fill',
+                  }
+                : undefined),
+            } as React.CSSProperties}
           >
-            <span
-              style={{
-                fontSize: 'clamp(8px, min(14cqw, 24cqh), 22px)',
-                textShadow: block.isDark
-                  ? '0 1px 2px rgba(0,0,0,0.6)'
-                  : '0 0 1px rgba(255,255,255,0.4)',
-              }}
-            >
-              {block.text}
-            </span>
-          </div>
+            {displayText}
+          </span>
         </div>
       );
     })}

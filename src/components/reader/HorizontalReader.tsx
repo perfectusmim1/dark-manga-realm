@@ -45,7 +45,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
   const translationOverlayNode = translation && translation.enabled ? (
     <>
       {showTranslationOverlay && translationState?.blocks && (
-        <TranslationOverlay blocks={translationState.blocks} />
+        <TranslationOverlay blocks={translationState.blocks} targetLang={translation?.settings.targetLang} />
       )}
       <PageTranslateButton
         state={translationState}
@@ -58,7 +58,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
     </>
   ) : (
     showTranslationOverlay && translationState?.blocks
-      ? <TranslationOverlay blocks={translationState.blocks} />
+      ? <TranslationOverlay blocks={translationState.blocks} targetLang={translation?.settings.targetLang} />
       : undefined
   );
 

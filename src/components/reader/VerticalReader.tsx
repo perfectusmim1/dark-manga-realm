@@ -40,7 +40,9 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
 
   const overlayNode = translation && translation.enabled ? (
     <>
-      {showOverlay && state?.blocks && <TranslationOverlay blocks={state.blocks} />}
+      {showOverlay && state?.blocks && (
+        <TranslationOverlay blocks={state.blocks} targetLang={translation.settings.targetLang} />
+      )}
       <PageTranslateButton
         state={state}
         showIdleButton={!translation.settings.autoTranslate}
@@ -51,7 +53,9 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
       />
     </>
   ) : (
-    showOverlay && state?.blocks ? <TranslationOverlay blocks={state.blocks} /> : undefined
+    showOverlay && state?.blocks ? (
+      <TranslationOverlay blocks={state.blocks} targetLang={translation?.settings.targetLang} />
+    ) : undefined
   );
 
   return (
