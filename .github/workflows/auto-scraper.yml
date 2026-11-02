@@ -25,6 +25,11 @@ on:
         required: false
         default: '25'
         type: string
+      max_enrich_checks:
+        description: 'Çalışma başına maksimum metadata zenginleştirme limiti'
+        required: false
+        default: '12'
+        type: string
       source:
         description: 'Sadece belirli bir kaynağı tara (boş bırakılırsa 4 ana kaynak: webtoonhatti, okutoon, siyahmelek, hattorimanga)'
         required: false
@@ -39,7 +44,7 @@ jobs:
   sync-catalog:
     name: Smart Delta Scraper & Multi-Source Metadata Sync
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 110
 
     steps:
       - name: Checkout Repository
@@ -68,14 +73,17 @@ jobs:
           INPUT_MODE: ${{ github.event.inputs.mode || 'smart' }}
           INPUT_BATCH_SIZE: ${{ github.event.inputs.batch_size || '6' }}
           INPUT_MAX_DELTA_CHECKS: ${{ github.event.inputs.max_delta_checks || '25' }}
+          INPUT_MAX_ENRICH_CHECKS: ${{ github.event.inputs.max_enrich_checks || '12' }}
           INPUT_SOURCE: ${{ github.event.inputs.source || '' }}
         run: |
           if ! [[ "$INPUT_BATCH_SIZE" =~ ^[0-9]+$ ]]; then INPUT_BATCH_SIZE="6"; fi
           if ! [[ "$INPUT_MAX_DELTA_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_DELTA_CHECKS="25"; fi
+          if ! [[ "$INPUT_MAX_ENRICH_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_ENRICH_CHECKS="12"; fi
           ARGS=(
             --mode "$INPUT_MODE"
             --batch-size "$INPUT_BATCH_SIZE"
             --max-delta-checks "$INPUT_MAX_DELTA_CHECKS"
+            --max-enrich-checks "$INPUT_MAX_ENRICH_CHECKS"
           )
           if [ -n "$INPUT_SOURCE" ]; then
             if [[ "$INPUT_SOURCE" =~ ^[a-z0-9_-]+$ ]]; then

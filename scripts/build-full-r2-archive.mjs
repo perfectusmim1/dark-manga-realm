@@ -2781,7 +2781,7 @@ const uploadToCatalogWorker = async (store, options = {}) => {
   for (const tbl of metaTables) {
     const rows = tablesPayload[tbl] || [];
     try {
-      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tbl}`, {
+      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/${tbl}?raw=1`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -2813,7 +2813,7 @@ const uploadToCatalogWorker = async (store, options = {}) => {
         created_at: ch.created_at,
       }));
 
-      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/chapters`, {
+      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/table/chapters?raw=1`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
@@ -2845,7 +2845,7 @@ const uploadToCatalogWorker = async (store, options = {}) => {
         if (!m.slug) return;
         try {
           const payload = getFullSeriesPayload(m);
-          await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${m.slug}`, {
+          await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${m.slug}?onlySeries=1&raw=1`, {
             method: 'PUT',
             headers: {
               'Content-Type': 'application/json',
@@ -2863,7 +2863,7 @@ const uploadToCatalogWorker = async (store, options = {}) => {
 
   // 4. Snapshot R2 yüklemesi
   try {
-    await fetch(`${CATALOG_WORKER_URL}/v1/admin/catalog/snapshot`, {
+    await fetch(`${CATALOG_WORKER_URL}/v1/admin/catalog/snapshot?raw=1`, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
