@@ -2,6 +2,9 @@
 export interface TranslationBlock {
   box: [number, number, number, number];
   text: string;
+  bgColor?: string;
+  textColor?: string;
+  isDark?: boolean;
 }
 
 export type PageTranslationStatus = 'idle' | 'queued' | 'translating' | 'done' | 'error';

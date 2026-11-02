@@ -1,6 +1,6 @@
 export interface TranslationSettings {
   apiKey: string;
-  targetLang: string; // ISO 639-1 kodu, örn. 'en'
+  targetLang: string; // ISO 639-1 kodu, örn. 'tr'
   autoTranslate: boolean;
   overlayVisible: boolean;
 }
@@ -9,7 +9,7 @@ const STORAGE_KEY = 'toonparrot:translation-settings';
 
 const DEFAULT_SETTINGS: TranslationSettings = {
   apiKey: '',
-  targetLang: 'en',
+  targetLang: 'tr',
   autoTranslate: false,
   overlayVisible: true,
 };

@@ -4,16 +4,20 @@ import { PageTranslationState, TranslationBlock } from '@/lib/translation/types'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 
-// Balon çevirilerini görselin üzerine %-tabanlı konumla basar.
-// Koordinatlar 0-1000 normalize geldiği için zoom/ekran boyutundan bağımsızdır.
+// Profesyonel webtoon/manga editleme katmanı:
+// 1. Orijinal metni balonun kendi arka plan rengiyle (ve yumuşak kenar geçişiyle) siler (Inpaint Mask).
+// 2. Çevrilen metni balonun tam ortasına scanlation fontu ve kontrast renkle dizgiler (Typeset).
 export const TranslationOverlay: React.FC<{ blocks: TranslationBlock[] }> = ({ blocks }) => (
   <div className="pointer-events-none absolute inset-0 z-20">
     {blocks.map((block, index) => {
       const [ymin, xmin, ymax, xmax] = block.box;
+      const bgColor = block.bgColor || '#ffffff';
+      const textColor = block.textColor || (block.isDark ? '#ffffff' : '#0a0a0a');
+
       return (
         <div
           key={index}
-          className="absolute flex items-center justify-center overflow-hidden rounded-md bg-white/95 px-1 py-0.5 text-center text-black shadow-sm"
+          className="absolute flex items-center justify-center pointer-events-none select-none"
           style={{
             top: `${ymin / 10}%`,
             left: `${xmin / 10}%`,
@@ -22,12 +26,40 @@ export const TranslationOverlay: React.FC<{ blocks: TranslationBlock[] }> = ({ b
             containerType: 'size',
           } as React.CSSProperties}
         >
-          <span
-            className="leading-tight"
-            style={{ fontSize: 'clamp(8px, 13cqw, 22px)', wordBreak: 'break-word' }}
+          {/* Orijinal yazıyı lekesiz örten yumuşak inpaint arka plan yaması (kutu veya gölge içermez) */}
+          <div
+            className="absolute inset-0 pointer-events-none"
+            style={{
+              backgroundColor: bgColor,
+              borderRadius: '45%',
+              filter: 'blur(1.5px)',
+              transform: 'scale(1.04)',
+              opacity: 0.98,
+            }}
+          />
+
+          {/* Webtoon/manga scanlation dizgisi */}
+          <div
+            className="relative z-10 flex h-full w-full items-center justify-center p-1 text-center font-bold tracking-tight"
+            style={{
+              color: textColor,
+              fontFamily: '"Nunito", "Rubik", "Comic Sans MS", system-ui, -apple-system, sans-serif',
+              lineHeight: 1.15,
+              wordBreak: 'break-word',
+              overflowWrap: 'break-word',
+            }}
           >
-            {block.text}
-          </span>
+            <span
+              style={{
+                fontSize: 'clamp(8px, min(14cqw, 24cqh), 22px)',
+                textShadow: block.isDark
+                  ? '0 1px 2px rgba(0,0,0,0.6)'
+                  : '0 0 1px rgba(255,255,255,0.4)',
+              }}
+            >
+              {block.text}
+            </span>
+          </div>
         </div>
       );
     })}

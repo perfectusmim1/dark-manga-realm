@@ -1,10 +1,14 @@
 import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
 import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
+import { isStoredMediaUrl } from '@/lib/mediaStorage';
 import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
 
-const MODEL = 'gemini-3.5-flash-lite';
-const RETRY_DELAYS_MS = [5000, 15000];
+const MODEL = 'gemini-flash-lite-latest';
+const RETRY_DELAYS_MS = [3000, 8000];
+const SLICE_HEIGHT = 1300;
+const SLICE_OVERLAP = 200;
+const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1100
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -26,8 +30,6 @@ const RESPONSE_SCHEMA = {
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
-// R2 gibi CORS başlığı vermeyen kaynaklar için mevcut offline görsel
-// proxy'si üzerinden indirir (downloadManager ile aynı kalıp).
 const fetchImageBlobViaProxy = async (src: string): Promise<Blob> => {
   if (offlineProxyConfig.usesSupabaseAuth) {
     const response = await fetch(offlineProxyConfig.url, {
@@ -57,37 +59,50 @@ const fetchImageBlobViaProxy = async (src: string): Promise<Blob> => {
 };
 
 const fetchImageBlob = async (src: string): Promise<Blob> => {
-  // blob:/data: URL'leri (offline sayfalar) doğrudan okunur.
+  // blob:/data: URL'leri doğrudan okunur.
   if (src.startsWith('blob:') || src.startsWith('data:')) {
     const response = await fetch(src);
     return response.blob();
   }
 
-  try {
-    const direct = await fetch(src);
-    if (!direct.ok) {
-      throw new Error(`HTTP ${direct.status}`);
+  // Aynı origin veya public R2 kaynakları doğrudan CORS ile indirilebilir.
+  const isSameOrigin = typeof window !== 'undefined' && src.startsWith(window.location.origin);
+  if (isSameOrigin || isStoredMediaUrl(src)) {
+    try {
+      const direct = await fetch(src);
+      if (direct.ok) return await direct.blob();
+    } catch {
+      // Doğrudan istek başarısızsa proxy'ye geç
     }
-    return await direct.blob();
-  } catch {
-    // CORS engeli vb. — proxy'den dene.
-    return fetchImageBlobViaProxy(src);
   }
+
+  // Harici üçüncü taraf siteler (mangadass, webtoonhatti vb.) için doğrudan proxy'den çek.
+  // Bu sayede tarayıcı konsolunda kırmızı CORS hatası asla tetiklenmez.
+  return fetchImageBlobViaProxy(src);
 };
 
-const fetchImageAsBase64 = async (src: string): Promise<{ data: string; mimeType: string }> => {
-  const blob = await fetchImageBlob(src);
-  const dataUrl = await new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
-    reader.onerror = () => reject(new Error('Görsel okunamadı'));
-    reader.readAsDataURL(blob);
+const loadImageElement = (blob: Blob): Promise<HTMLImageElement> =>
+  new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(blob);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      resolve(img);
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('Görsel çözümlenemedi'));
+    };
+    img.src = url;
   });
+
+const canvasToBase64 = (canvas: HTMLCanvasElement): { data: string; mimeType: string } => {
+  const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
   const base64 = dataUrl.split(',')[1];
   if (!base64) {
     throw new Error('Görsel base64 dönüşümü başarısız');
   }
-  return { data: base64, mimeType: blob.type || 'image/webp' };
+  return { data: base64, mimeType: 'image/jpeg' };
 };
 
 const isRateLimitError = (error: unknown) => {
@@ -95,61 +110,157 @@ const isRateLimitError = (error: unknown) => {
   return message.includes('429') || message.includes('resource_exhausted') || message.includes('quota');
 };
 
-// Halüsinasyon koruması: şemaya uymayan, koordinatı taşan veya boş yanıtlar reddedilir.
 const parseBlocks = (raw: string): TranslationBlock[] => {
   let parsed: { blocks?: unknown };
   try {
     parsed = JSON.parse(raw) as { blocks?: unknown };
   } catch {
-    throw new Error('Çeviri yanıtı JSON olarak çözümlenemedi');
+    return [];
   }
   if (!parsed || !Array.isArray(parsed.blocks) || parsed.blocks.length === 0) {
-    throw new Error('Çeviri yanıtında balon bulunamadı');
+    return [];
   }
-  return parsed.blocks.map((entry) => {
-    const { box_2d: rawBox, text } = entry as { box_2d?: unknown; text?: unknown };
+  const result: TranslationBlock[] = [];
+  parsed.blocks.forEach((entry) => {
+    const { box_2d: rawBox, text } = (entry || {}) as { box_2d?: unknown; text?: unknown };
     if (!Array.isArray(rawBox) || rawBox.length !== 4 || typeof text !== 'string' || !text.trim()) {
-      throw new Error('Çeviri yanıtı beklenen şemaya uymuyor');
+      return;
     }
     const box = rawBox.map(Number);
     if (box.some((value) => !Number.isFinite(value) || value < 0 || value > 1000)) {
-      throw new Error('Çeviri koordinatları 0-1000 aralığının dışında');
+      return;
     }
     const [ymin, xmin, ymax, xmax] = box;
     if (ymin >= ymax || xmin >= xmax) {
-      throw new Error('Çeviri koordinatları geçersiz (min >= max)');
+      return;
     }
-    return { box: [ymin, xmin, ymax, xmax] as [number, number, number, number], text: text.trim() };
+    // Çok ufak kutuları veya tek noktalama işaretlerini atla
+    if (ymax - ymin < 8 || xmax - xmin < 8) {
+      return;
+    }
+    result.push({ box: [ymin, xmin, ymax, xmax], text: text.trim() });
   });
+  return result;
 };
 
-interface TranslatePageOptions {
-  apiKey: string;
-  imageSrc: string;
-  targetLang: string;
-}
+// Balonun içindeki gerçek arka plan rengini ve yazı kontrastını örnekler.
+const sampleBlockColors = (
+  ctx: CanvasRenderingContext2D,
+  box: [number, number, number, number],
+  width: number,
+  height: number
+): { bgColor: string; textColor: string; isDark: boolean } => {
+  const [ymin, xmin, ymax, xmax] = box;
+  const x0 = Math.max(0, Math.floor((xmin / 1000) * width));
+  const x1 = Math.min(width, Math.ceil((xmax / 1000) * width));
+  const y0 = Math.max(0, Math.floor((ymin / 1000) * height));
+  const y1 = Math.min(height, Math.ceil((ymax / 1000) * height));
+  const bw = x1 - x0;
+  const bh = y1 - y0;
 
-export const translatePageImage = async ({ apiKey, imageSrc, targetLang }: TranslatePageOptions): Promise<TranslationBlock[]> => {
-  const { data, mimeType } = await fetchImageAsBase64(imageSrc);
-  const ai = new GoogleGenAI({ apiKey });
-  const prompt = [
-    'You are a professional comic/webtoon translator.',
-    'Detect every speech bubble, caption box and narration text in this comic page image.',
-    `Translate each one into ${getLanguageName(targetLang)} (ISO 639-1 code: "${targetLang}").`,
-    'Translate the FULL meaning of each sentence — never omit, shorten or summarize any part of it. Keep the tone natural and conversational.',
-    'Do NOT translate proper nouns — keep person names, city/place names and brand names exactly as they are.',
-    'Return ONLY JSON matching the schema: blocks = array of { box_2d: [ymin, xmin, ymax, xmax] normalized to 0-1000 covering the text area, text: the translated text }.',
-    'Keep reading order (top to bottom).',
-    'Skip blocks with no translatable content: watermarks, logos, bare punctuation like "..." and standalone numbers.',
-  ].join(' ');
+  if (bw <= 0 || bh <= 0) {
+    return { bgColor: '#ffffff', textColor: '#0a0a0a', isDark: false };
+  }
 
+  try {
+    const imgData = ctx.getImageData(x0, y0, bw, bh);
+    const data = imgData.data;
+
+    // Balonun metin olmayan kenar marjinlerini örnekle
+    const marginX = Math.max(1, Math.floor(bw * 0.1));
+    const marginY = Math.max(1, Math.floor(bh * 0.1));
+
+    let rSum = 0;
+    let gSum = 0;
+    let bSum = 0;
+    let count = 0;
+
+    for (let py = 0; py < bh; py += 2) {
+      for (let px = 0; px < bw; px += 2) {
+        const isPerimeter = px < marginX || px >= bw - marginX || py < marginY || py >= bh - marginY;
+        if (!isPerimeter) continue;
+
+        const idx = (py * bw + px) * 4;
+        const a = data[idx + 3];
+        if (a < 128) continue;
+
+        rSum += data[idx];
+        gSum += data[idx + 1];
+        bSum += data[idx + 2];
+        count += 1;
+      }
+    }
+
+    if (count === 0) {
+      return { bgColor: '#ffffff', textColor: '#0a0a0a', isDark: false };
+    }
+
+    const rAvg = Math.round(rSum / count);
+    const gAvg = Math.round(gSum / count);
+    const bAvg = Math.round(bSum / count);
+
+    // Algılanan parlaklık (luminance)
+    const luminance = 0.299 * rAvg + 0.587 * gAvg + 0.114 * bAvg;
+    const isDark = luminance < 128;
+
+    return {
+      bgColor: `rgb(${rAvg}, ${gAvg}, ${bAvg})`,
+      textColor: isDark ? '#ffffff' : '#0a0a0a',
+      isDark,
+    };
+  } catch {
+    return { bgColor: '#ffffff', textColor: '#0a0a0a', isDark: false };
+  }
+};
+
+// Seam deduplication (iki dilim arasındaki ortak balonları tekilleştir)
+const computeIoU = (
+  boxA: [number, number, number, number],
+  boxB: [number, number, number, number]
+): number => {
+  const [yA0, xA0, yA1, xA1] = boxA;
+  const [yB0, xB0, yB1, xB1] = boxB;
+
+  const interY0 = Math.max(yA0, yB0);
+  const interX0 = Math.max(xA0, xB0);
+  const interY1 = Math.min(yA1, yB1);
+  const interX1 = Math.min(xA1, xB1);
+
+  if (interY1 <= interY0 || interX1 <= interX0) return 0;
+
+  const interArea = (interY1 - interY0) * (interX1 - interX0);
+  const areaA = (yA1 - yA0) * (xA1 - xA0);
+  const areaB = (yB1 - yB0) * (xB1 - xB0);
+  const unionArea = areaA + areaB - interArea;
+
+  return unionArea > 0 ? interArea / unionArea : 0;
+};
+
+const buildPrompt = (targetLang: string) => [
+  'You are a professional comic/manga/webtoon translator.',
+  'Detect speech bubbles and caption/narration boxes in this comic page image slice.',
+  `Translate each dialogue and narration into natural ${getLanguageName(targetLang)} (ISO 639-1 code: "${targetLang}").`,
+  'For box_2d: return [ymin, xmin, ymax, xmax] normalized to 0-1000 covering strictly the text area inside the bubble.',
+  'Translate the FULL meaning of each sentence naturally and conversationally. Keep proper nouns and character names intact.',
+  'Skip watermarks, logos, website URLs, and raw sound effects (SFX) that do not contain character dialogue.',
+  'Return ONLY valid JSON matching the schema.',
+].join(' ');
+
+const callGeminiVision = async (
+  ai: GoogleGenAI,
+  data: string,
+  mimeType: string,
+  targetLang: string
+): Promise<TranslationBlock[]> => {
+  const prompt = buildPrompt(targetLang);
   let lastError: unknown;
+
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
     try {
       const response = await ai.models.generateContent({
         model: MODEL,
         config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MEDIUM },
+          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
           responseMimeType: 'application/json',
           responseSchema: RESPONSE_SCHEMA,
         },
@@ -174,4 +285,117 @@ export const translatePageImage = async ({ apiKey, imageSrc, targetLang }: Trans
     }
   }
   throw lastError;
+};
+
+interface TranslatePageOptions {
+  apiKey: string;
+  imageSrc: string;
+  targetLang: string;
+}
+
+export const translatePageImage = async ({
+  apiKey,
+  imageSrc,
+  targetLang,
+}: TranslatePageOptions): Promise<TranslationBlock[]> => {
+  const blob = await fetchImageBlob(imageSrc);
+  const img = await loadImageElement(blob);
+  const fullWidth = img.naturalWidth || img.width;
+  const fullHeight = img.naturalHeight || img.height;
+
+  if (fullWidth <= 0 || fullHeight <= 0) {
+    throw new Error('Görsel boyutları geçersiz');
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  // Tam çözünürlüklü offscreen canvas
+  const fullCanvas = document.createElement('canvas');
+  fullCanvas.width = fullWidth;
+  fullCanvas.height = fullHeight;
+  const fullCtx = fullCanvas.getContext('2d', { willReadFrequently: true });
+  if (!fullCtx) {
+    throw new Error('Canvas bağlamı oluşturulamadı');
+  }
+  fullCtx.drawImage(img, 0, 0);
+
+  // Standart / kısa görseller (height <= 1600): tek seferde gönder
+  if (fullHeight <= 1600) {
+    const { data, mimeType } = canvasToBase64(fullCanvas);
+    const rawBlocks = await callGeminiVision(ai, data, mimeType, targetLang);
+    return rawBlocks.map((block) => ({
+      ...block,
+      ...sampleBlockColors(fullCtx, block.box, fullWidth, fullHeight),
+    }));
+  }
+
+  // Uzun webtoon şeritleri (height > 1600): aspect-ratio bozulmasını önlemek için
+  // örtüşen dikey pencerelere bölerek 1:1 piksel hassasiyetiyle tara.
+  const slices: Array<{ y: number; h: number }> = [];
+  for (let y = 0; y < fullHeight; y += SLICE_STEP) {
+    const h = Math.min(SLICE_HEIGHT, fullHeight - y);
+    slices.push({ y, h });
+    if (y + h >= fullHeight) break;
+  }
+
+  const sliceCanvas = document.createElement('canvas');
+  sliceCanvas.width = fullWidth;
+  const sliceCtx = sliceCanvas.getContext('2d', { willReadFrequently: true });
+  if (!sliceCtx) {
+    throw new Error('Dilim canvas bağlamı oluşturulamadı');
+  }
+
+  const allBlocks: TranslationBlock[] = [];
+
+  // Dilimleri işle (hız ve rate limit dengesi için sıralı/paralel)
+  for (const slice of slices) {
+    sliceCanvas.height = slice.h;
+    sliceCtx.clearRect(0, 0, fullWidth, slice.h);
+    sliceCtx.drawImage(fullCanvas, 0, slice.y, fullWidth, slice.h, 0, 0, fullWidth, slice.h);
+
+    const { data, mimeType } = canvasToBase64(sliceCanvas);
+    let tileBlocks: TranslationBlock[] = [];
+    try {
+      tileBlocks = await callGeminiVision(ai, data, mimeType, targetLang);
+    } catch {
+      // Dilim hatası tüm sayfayı patlatmasın
+      tileBlocks = [];
+    }
+
+    tileBlocks.forEach((block) => {
+      const [tileYmin, tileXmin, tileYmax, tileXmax] = block.box;
+      // Dilim içi 0-1000 koordinatlarını tüm sayfanın 0-1000 koordinatlarına çevir
+      const pageYmin = Math.max(0, Math.min(1000, Math.round(((slice.y + (tileYmin / 1000) * slice.h) / fullHeight) * 1000)));
+      const pageYmax = Math.max(0, Math.min(1000, Math.round(((slice.y + (tileYmax / 1000) * slice.h) / fullHeight) * 1000)));
+
+      if (pageYmin >= pageYmax) return;
+
+      const mappedBox: [number, number, number, number] = [pageYmin, tileXmin, pageYmax, tileXmax];
+
+      // Örtüşen dikiş bölgesindeki mükerrer balonları ele
+      const duplicateIndex = allBlocks.findIndex((existing) => computeIoU(existing.box, mappedBox) > 0.45);
+      if (duplicateIndex >= 0) {
+        // Daha uzun/eksiksiz çeviriyi koru
+        if (block.text.length > allBlocks[duplicateIndex].text.length) {
+          allBlocks[duplicateIndex] = {
+            box: mappedBox,
+            text: block.text,
+          };
+        }
+      } else {
+        allBlocks.push({
+          box: mappedBox,
+          text: block.text,
+        });
+      }
+    });
+  }
+
+  // Her blok için tam çözünürlüklü arka plan ve metin rengini örnekle
+  return allBlocks
+    .sort((a, b) => a.box[0] - b.box[0])
+    .map((block) => ({
+      ...block,
+      ...sampleBlockColors(fullCtx, block.box, fullWidth, fullHeight),
+    }));
 };
