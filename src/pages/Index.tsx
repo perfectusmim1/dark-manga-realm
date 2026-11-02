@@ -1034,8 +1034,12 @@ const Index: React.FC = () => {
       return;
     }
 
-    if (authLoading && hasPersistedAuthSession) {
-      return;
+    if (HOME_PAGE_CACHE.sections) {
+      setHomeSections(HOME_PAGE_CACHE.sections);
+    }
+
+    if (HOME_PAGE_CACHE.topTenWeekIds) {
+      setTopTenWeekIds(HOME_PAGE_CACHE.topTenWeekIds);
     }
 
     let active = true;
@@ -1044,14 +1048,6 @@ const Index: React.FC = () => {
       && isHomeFeedEntryFresh(HOME_PAGE_CACHE.sectionsFetchedAt, HOME_SECTIONS_CACHE_TTL_MS);
     const topTenIdsAreFresh = HOME_PAGE_CACHE.topTenWeekIds !== null
       && isHomeFeedEntryFresh(HOME_PAGE_CACHE.topTenWeekIdsFetchedAt, TOP_TEN_WEEK_CACHE_TTL_MS);
-
-    if (HOME_PAGE_CACHE.sections) {
-      setHomeSections(HOME_PAGE_CACHE.sections);
-    }
-
-    if (HOME_PAGE_CACHE.topTenWeekIds) {
-      setTopTenWeekIds(HOME_PAGE_CACHE.topTenWeekIds);
-    }
 
     const loadMainContent = async () => {
       if (sectionsAreFresh) {

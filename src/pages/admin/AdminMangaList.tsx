@@ -30,7 +30,7 @@ import {
     AlertDialogHeader,
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { getAllMangas, deleteManga } from '@/lib/database';
+import { getMangaSummaries, deleteManga } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -56,7 +56,7 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
     const loadMangas = async () => {
         try {
             setIsLoading(true);
-            const data = await getAllMangas({ includePrivate: true });
+            const data = await getMangaSummaries({ includePrivate: true });
             setMangas(data);
         } catch (err) {
             toast.error('Mangalar yüklenemedi');

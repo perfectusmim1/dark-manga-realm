@@ -504,44 +504,36 @@ const fetchAllMangaRowsPaginated = async (
     },
 ) => {
     const CHUNK_SIZE = 1000;
-    const firstQuery = applyPublicMangaFilter(
-        supabase
-            .from('mangas')
-            .select(selectColumns, { count: 'exact' })
-            .order('last_updated', { ascending: false })
-            .range(0, CHUNK_SIZE - 1),
-        options,
-    );
-    const { data: firstData, count, error: firstError } = await firstQuery;
-    if (firstError) {
-        throw firstError;
-    }
+    const rows: any[] = [];
+    let pageIndex = 0;
+    let hasMore = true;
 
-    const rows: any[] = [...(firstData || [])];
-    const totalCount = typeof count === 'number' ? count : rows.length;
+    while (hasMore) {
+        const from = pageIndex * CHUNK_SIZE;
+        const to = from + CHUNK_SIZE - 1;
+        const query = applyPublicMangaFilter(
+            supabase
+                .from('mangas')
+                .select(selectColumns)
+                .order('last_updated', { ascending: false })
+                .range(from, to),
+            options,
+        );
 
-    if (rows.length >= CHUNK_SIZE && totalCount > CHUNK_SIZE) {
-        const extraPages = Math.ceil((totalCount - CHUNK_SIZE) / CHUNK_SIZE);
-        const pagePromises = Array.from({ length: extraPages }, (_, idx) => {
-            const from = (idx + 1) * CHUNK_SIZE;
-            const to = from + CHUNK_SIZE - 1;
-            return applyPublicMangaFilter(
-                supabase
-                    .from('mangas')
-                    .select(selectColumns)
-                    .order('last_updated', { ascending: false })
-                    .range(from, to),
-                options,
-            );
-        });
-        const responses = await Promise.all(pagePromises);
-        for (const res of responses) {
-            if (res.error) {
-                throw res.error;
+        const { data, error } = await query;
+        if (error) {
+            throw error;
+        }
+
+        if (Array.isArray(data) && data.length > 0) {
+            rows.push(...data);
+            if (data.length < CHUNK_SIZE) {
+                hasMore = false;
+            } else {
+                pageIndex++;
             }
-            if (Array.isArray(res.data)) {
-                rows.push(...res.data);
-            }
+        } else {
+            hasMore = false;
         }
     }
 

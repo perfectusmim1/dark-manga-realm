@@ -32,7 +32,7 @@ export const listChapterAutomations = async (): Promise<{
 }> => {
   const { data: autoRows, error: autoErr } = await supabase
     .from('chapter_automations')
-    .select('*')
+    .select('*, manga:mangas(id, title, cover)')
     .order('created_at', { ascending: false });
 
   if (autoErr) {
@@ -40,37 +40,21 @@ export const listChapterAutomations = async (): Promise<{
   }
 
   const automationList = (autoRows || []) as any[];
-  const mangaIds = Array.from(new Set(automationList.map((r) => r.manga_id).filter(Boolean)));
-  const mangaMap = new Map<string, { id: string; title: string; cover?: string | null }>();
+  const autoMap = new Map<string, any>(automationList.map((r) => [r.id, r]));
 
-  if (mangaIds.length > 0) {
-    const { data: mangaRows } = await supabase
-      .from('mangas')
-      .select('id, title, cover')
-      .in('id', mangaIds);
-
-    for (const m of (mangaRows || []) as any[]) {
-      mangaMap.set(m.id, m);
-    }
-  }
-
-  const automationIds = automationList.map((r) => r.id);
   let recentRuns: ChapterAutomationRunSummary[] = [];
   const latestRunMap = new Map<string, ChapterAutomationRunSummary>();
 
-  if (automationIds.length > 0) {
+  if (automationList.length > 0) {
     const { data: runRows } = await supabase
       .from('chapter_automation_runs')
       .select('*')
-      .in('automation_id', automationIds)
       .order('started_at', { ascending: false })
       .limit(50);
 
-    const autoMap = new Map<string, any>(automationList.map((r) => [r.id, r]));
-
     recentRuns = ((runRows || []) as any[]).map((r) => {
       const auto = autoMap.get(r.automation_id);
-      const manga = auto ? mangaMap.get(auto.manga_id) : null;
+      const manga = auto?.manga || null;
       return {
         id: r.id,
         automationId: r.automation_id,
@@ -97,7 +81,7 @@ export const listChapterAutomations = async (): Promise<{
   }
 
   const automations: ChapterAutomation[] = automationList.map((row) => {
-    const manga = mangaMap.get(row.manga_id);
+    const manga = row.manga;
     const latestRun = latestRunMap.get(row.id) || null;
     return {
       id: row.id,

@@ -359,14 +359,22 @@ const AdminAutomation: React.FC = () => {
   };
 
   const loadPageData = async () => {
-    const [nextMangas, automationData] = await Promise.all([
-      getMangaSummaries({ includePrivate: true }),
-      listChapterAutomations(),
-    ]);
+    listChapterAutomations()
+      .then((automationData) => {
+        setAutomations(automationData.automations);
+        setRecentRuns(automationData.recentRuns);
+      })
+      .catch((err) => {
+        console.error('Chapter automations load failed:', err);
+      });
 
-    setMangas(nextMangas);
-    setAutomations(automationData.automations);
-    setRecentRuns(automationData.recentRuns);
+    getMangaSummaries({ includePrivate: true })
+      .then((nextMangas) => {
+        setMangas(nextMangas);
+      })
+      .catch((err) => {
+        console.error('Manga picker summaries load failed:', err);
+      });
   };
 
   useEffect(() => {
