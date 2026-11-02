@@ -363,7 +363,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
             </div>
           ) : (
             <Badge variant="outline" className="min-h-7 w-full justify-center rounded-lg border-primary/20 bg-primary/5 px-2 py-1.5 text-[10px] font-semibold text-primary">
-              {chapterCount} Bölüm
+              {chapterCount > 0 ? `${chapterCount} Bölüm` : 'Bölümler Yakında'}
             </Badge>
           )}
         </div>
@@ -435,7 +435,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
                   </span>
                   <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
                     <BookOpen className="h-3 w-3" />
-                    {chapterCount} Bölüm
+                    {chapterCount > 0 ? `${chapterCount} Bölüm` : 'Bölümler Yakında'}
                   </span>
                 </div>
                 <div className="mt-2 flex flex-wrap gap-1">
