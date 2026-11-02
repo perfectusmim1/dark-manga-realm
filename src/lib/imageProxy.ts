@@ -51,7 +51,6 @@ const PROXY_ONLY_HOSTS = [
   'hayalistic.com.tr',
   'wikia.nocookie.net',
   'static.wikia.nocookie.net',
-  'mangadass.com',
 ] as const;
 
 const PROXY_SUPPORTED_HOSTS = [

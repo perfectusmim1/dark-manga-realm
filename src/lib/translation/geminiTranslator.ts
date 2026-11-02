@@ -1,5 +1,5 @@
 import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
-import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
+import { defaultOfflineImageProxyUrl } from '@/lib/offline/proxyConfig';
 import { isStoredMediaUrl } from '@/lib/mediaStorage';
 import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
@@ -31,24 +31,8 @@ const RESPONSE_SCHEMA = {
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 const fetchImageBlobViaProxy = async (src: string): Promise<Blob> => {
-  if (offlineProxyConfig.usesSupabaseAuth) {
-    const response = await fetch(offlineProxyConfig.url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        apikey: offlineProxyConfig.supabaseAnonKey,
-        Authorization: `Bearer ${offlineProxyConfig.supabaseAnonKey}`,
-      },
-      body: JSON.stringify({ url: src }),
-    });
-    if (!response.ok) {
-      throw new Error(`Görsel proxy hatası (${response.status})`);
-    }
-    return response.blob();
-  }
-
-  // Özel proxy'de text/plain POST — CORS preflight'ı atlanır.
-  const response = await fetch(offlineProxyConfig.url, {
+  // Doğrudan güncel ve mangadass destekleyen ana proxy'yi kullan
+  const response = await fetch(defaultOfflineImageProxyUrl, {
     method: 'POST',
     body: src,
   });

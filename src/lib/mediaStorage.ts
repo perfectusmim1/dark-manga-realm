@@ -49,6 +49,17 @@ const configuredScraperProxyUrls = (import.meta.env.VITE_SCRAPER_PROXY_URL?.trim
 const configuredOfflineImageProxyUrl = configuredOfflineImageProxyUrls[0] || '';
 const configuredScraperProxyUrl = configuredScraperProxyUrls[0] || '';
 
+export const getOfflineImageProxyUrlForSource = (sourceUrl: string): string => {
+  if (configuredOfflineImageProxyUrls.length === 0) return configuredOfflineImageProxyUrl;
+  let hash = 0;
+  for (let i = 0; i < sourceUrl.length; i += 1) {
+    hash = (hash << 5) - hash + sourceUrl.charCodeAt(i);
+    hash |= 0;
+  }
+  const index = Math.abs(hash) % configuredOfflineImageProxyUrls.length;
+  return configuredOfflineImageProxyUrls[index];
+};
+
 let imageProxyRoundRobinIndex = 0;
 export const getNextOfflineImageProxyUrl = (): string => {
   if (configuredOfflineImageProxyUrls.length === 0) return configuredOfflineImageProxyUrl;
@@ -139,7 +150,7 @@ export const buildProxiedImageUrl = (sourceUrl?: string | null, referer?: string
   }
 
   const unwrapped = unwrapProxyUrl(normalized) || normalized;
-  const proxyBaseUrl = getNextOfflineImageProxyUrl();
+  const proxyBaseUrl = getOfflineImageProxyUrlForSource(unwrapped);
   if (!proxyBaseUrl) {
     return unwrapped;
   }
