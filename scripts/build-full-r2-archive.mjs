@@ -2597,16 +2597,34 @@ class CatalogArchiveStore {
 
   toTablesPayload() {
     const now = new Date().toISOString();
+    const cleanPerson = (val, fallback = 'Bilinmiyor') => {
+      if (!val || typeof val !== 'string') return fallback;
+      const parts = val
+        .split(/[,;/|]+/)
+        .map((p) => p.replace(/\s+/g, ' ').trim())
+        .filter((p) => p && !/^(?:girilmedi\.{0,3}|bilinmiyor|unknown|n\/a|-+)$/i.test(p));
+      return parts.length > 0 ? [...new Set(parts)].join(', ').slice(0, 95) : fallback;
+    };
+    const cleanDesc = (val) =>
+      String(val || '')
+        .replace(/<\s*\/?\s*br\s*\/?\s*>/gi, '\n')
+        .replace(/<[^>]+>/g, ' ')
+        .replace(/&quot;/gi, '"')
+        .replace(/&#0*39;|&apos;/gi, "'")
+        .replace(/&amp;/gi, '&')
+        .replace(/&nbsp;/gi, ' ')
+        .replace(/\(\s*(?:source|kaynak)\s*:[^)]+\)/gi, '')
+        .trim();
 
     const mangasRows = Array.from(this.mangas.values()).map((m) => ({
       id: m.id,
       title: m.title,
       slug: m.slug,
-      author: m.author || 'Bilinmiyor',
-      artist: m.artist || m.author || 'Bilinmiyor',
+      author: cleanPerson(m.author, 'Bilinmiyor'),
+      artist: cleanPerson(m.artist, cleanPerson(m.author, 'Bilinmiyor')),
       is_public: true,
       is_adult: Boolean(m.isAdult),
-      description: m.description || '',
+      description: cleanDesc(m.description),
       cover: m.cover || '',
       banner: m.banner || m.cover || '',
       genres: Array.isArray(m.genres) ? m.genres : [],
@@ -2855,46 +2873,11 @@ const uploadToCatalogWorker = async (store, options = {}) => {
     });
   } catch {}
 
-  // 5. Supabase PostgreSQL Aynası
+  // 5. Supabase PostgreSQL Aynası (Parçalı & Zero-Timeout)
   if (process.env.VITE_SUPABASE_URL && process.env.VITE_SUPABASE_ANON_KEY && CATALOG_ADMIN_TOKEN) {
     try {
-      const res = await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          apikey: process.env.VITE_SUPABASE_ANON_KEY,
-          Authorization: `Bearer ${process.env.VITE_SUPABASE_ANON_KEY}`,
-        },
-        body: JSON.stringify({
-          p_admin_token: CATALOG_ADMIN_TOKEN,
-          p_payload: {
-            mangas: tablesPayload.mangas,
-            characters: tablesPayload.characters,
-            authors: tablesPayload.authors,
-            artists: tablesPayload.artists,
-            tags: tablesPayload.tags,
-            manga_characters: tablesPayload.manga_characters,
-            manga_authors: tablesPayload.manga_authors,
-            manga_artists: tablesPayload.manga_artists,
-            chapter_automations: tablesPayload.chapter_automations || [],
-            chapter_automation_runs: tablesPayload.chapter_automation_runs || [],
-            replace_chapter_automations: true,
-          },
-        }),
-      });
-
-      if (res.ok) {
-        logInfo(`Supabase aynası senkronize edildi (${tablesPayload.mangas.length} seri)`);
-      } else {
-        const errText = await res.text();
-        logWarn(`Supabase senkronizasyonu hata verdi (HTTP ${res.status}): ${errText.slice(0, 150)}`);
-      }
-
-      // manga_tags 2500'lük parçalar halinde senkronize edilir (statement timeout önleyici)
-      const allMangaTags = tablesPayload.manga_tags || [];
-      for (let mtIdx = 0; mtIdx < allMangaTags.length; mtIdx += 2500) {
-        const mtChunk = allMangaTags.slice(mtIdx, mtIdx + 2500);
-        await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
+      const sendSupabaseBatch = async (payloadObj) => {
+        const res = await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
@@ -2903,13 +2886,45 @@ const uploadToCatalogWorker = async (store, options = {}) => {
           },
           body: JSON.stringify({
             p_admin_token: CATALOG_ADMIN_TOKEN,
-            p_payload: { manga_tags: mtChunk },
+            p_payload: payloadObj,
           }),
-        }).catch(() => {});
-      }
+        });
+        return res;
+      };
 
-      // chapters 1000'lik parçalar halinde Supabase'e senkronize edilir (hafif metadata: id, manga_id, number, title, release_date, created_at)
-      const allChapters = (tablesPayload.chapters || []).map((ch) => ({
+      const chunkSend = async (key, arr, size = 500) => {
+        if (!Array.isArray(arr) || arr.length === 0) return;
+        for (let idx = 0; idx < arr.length; idx += size) {
+          await sendSupabaseBatch({ [key]: arr.slice(idx, idx + size) }).catch(() => {});
+        }
+      };
+
+      await chunkSend('mangas', tablesPayload.mangas, 400);
+      await chunkSend('characters', tablesPayload.characters, 500);
+      await chunkSend('authors', tablesPayload.authors, 500);
+      await chunkSend('artists', tablesPayload.artists, 500);
+      await chunkSend('tags', tablesPayload.tags, 500);
+      await chunkSend('manga_characters', tablesPayload.manga_characters, 1500);
+      await chunkSend('manga_authors', tablesPayload.manga_authors, 1500);
+      await chunkSend('manga_artists', tablesPayload.manga_artists, 1500);
+      await chunkSend('manga_tags', tablesPayload.manga_tags, 2000);
+
+      logInfo(`Supabase aynası senkronize edildi (${tablesPayload.mangas.length} seri)`);
+
+      // chapters 2000'lik parçalar halinde Supabase'e senkronize edilir (sadece değişen serilerin bölümleri veya tümü)
+      const touchedMangaIds = options.all
+        ? null
+        : new Set(
+            Array.from(store.mangas.values())
+              .filter((m) => store.touchedSlugs?.has(m.slug))
+              .map((m) => m.id)
+          );
+
+      const rawChapters = touchedMangaIds
+        ? (tablesPayload.chapters || []).filter((ch) => touchedMangaIds.has(ch.manga_id))
+        : tablesPayload.chapters || [];
+
+      const allChapters = rawChapters.map((ch) => ({
         id: ch.id,
         manga_id: ch.manga_id,
         number: ch.number,
@@ -2918,21 +2933,7 @@ const uploadToCatalogWorker = async (store, options = {}) => {
         created_at: ch.created_at,
         views: ch.views || 0,
       }));
-      for (let chIdx = 0; chIdx < allChapters.length; chIdx += 1000) {
-        const chChunk = allChapters.slice(chIdx, chIdx + 1000);
-        await fetch(`${process.env.VITE_SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: process.env.VITE_SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${process.env.VITE_SUPABASE_ANON_KEY}`,
-          },
-          body: JSON.stringify({
-            p_admin_token: CATALOG_ADMIN_TOKEN,
-            p_payload: { chapters: chChunk },
-          }),
-        }).catch(() => {});
-      }
+      await chunkSend('chapters', allChapters, 2000);
     } catch (err) {
       logWarn(`Supabase senkronizasyonu atlandı: ${err.message}`);
     }
