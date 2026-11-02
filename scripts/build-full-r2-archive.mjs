@@ -2683,32 +2683,42 @@ class CatalogArchiveStore {
         .replace(/\(\s*(?:source|kaynak)\s*:[^)]+\)/gi, '')
         .trim();
 
-    const mangasRows = Array.from(this.mangas.values()).map((m) => ({
-      id: m.id,
-      title: m.title,
-      slug: m.slug,
-      author: cleanPerson(m.author, 'Bilinmiyor'),
-      artist: cleanPerson(m.artist, cleanPerson(m.author, 'Bilinmiyor')),
-      is_public: true,
-      is_adult: Boolean(m.isAdult),
-      description: cleanDesc(m.description),
-      cover: m.cover || '',
-      banner: m.banner || m.cover || '',
-      genres: Array.isArray(m.genres) ? m.genres : [],
-      status: m.status || 'ongoing',
-      type: m.type || 'webtoon',
-      views: m.views || 0,
-      release_year: m.releaseYear || null,
-      alternative_titles: Array.isArray(m.alternativeTitles) ? m.alternativeTitles : [],
-      details: {
-        ...(m.details || {}),
-        ...(m.anilistId ? { anilist_id: m.anilistId } : {}),
-        ...(m.malId ? { mal_id: m.malId } : {}),
-      },
-      source_links: Array.isArray(m.sourceLinks) ? m.sourceLinks : [],
-      last_updated: m.updatedAt || now,
-      created_at: m.createdAt || now,
-    }));
+    const mangasRows = Array.from(this.mangas.values()).map((m) => {
+      const sortedCh = [...(m.chapters || [])].sort(
+        (a, b) => Number(b.chapterNumber ?? b.number ?? 0) - Number(a.chapterNumber ?? a.number ?? 0)
+      );
+      return {
+        id: m.id,
+        title: m.title,
+        slug: m.slug,
+        author: cleanPerson(m.author, 'Bilinmiyor'),
+        artist: cleanPerson(m.artist, cleanPerson(m.author, 'Bilinmiyor')),
+        is_public: true,
+        is_adult: Boolean(m.isAdult),
+        description: cleanDesc(m.description),
+        cover: m.cover || '',
+        banner: m.banner || m.cover || '',
+        genres: Array.isArray(m.genres) ? m.genres : [],
+        status: m.status || 'ongoing',
+        type: m.type || 'webtoon',
+        views: m.views || 0,
+        release_year: m.releaseYear || null,
+        alternative_titles: Array.isArray(m.alternativeTitles) ? m.alternativeTitles : [],
+        details: {
+          ...(m.details || {}),
+          ...(m.anilistId ? { anilist_id: m.anilistId } : {}),
+          ...(m.malId ? { mal_id: m.malId } : {}),
+        },
+        source_links: Array.isArray(m.sourceLinks) ? m.sourceLinks : [],
+        chapter_count: sortedCh.length,
+        latest_chapters: sortedCh.slice(0, 2).map((ch) => ({
+          id: ch.id,
+          number: Number(ch.chapterNumber ?? ch.number ?? 0),
+        })),
+        last_updated: m.updatedAt || m.createdAt || now,
+        created_at: m.createdAt || now,
+      };
+    });
 
     const chaptersRows = Array.from(this.mangas.values()).flatMap((m) =>
       (m.chapters || []).map((ch) => ({
@@ -2901,8 +2911,8 @@ const uploadToCatalogWorker = async (store, options = {}) => {
   // 3. Tekil Serileri (/v1/admin/series/:slug) doğrudan tam sayfalarıyla R2'ye yükle (SADECE yeni/güncellenenler)
   const allMangas = Array.from(store.mangas.values());
   const mangasToUpload = options.all
-    ? allMangas
-    : allMangas.filter((m) => store.touchedSlugs?.has(m.slug));
+    ? allMangas.filter((m) => !m._r2Uploaded)
+    : allMangas.filter((m) => store.touchedSlugs?.has(m.slug) && !m._r2Uploaded);
 
   if (mangasToUpload.length > 0) {
     logInfo(`Yeni/güncellenen seri detayları R2'ye yükleniyor (${mangasToUpload.length} seri)...`);
@@ -2920,11 +2930,9 @@ const uploadToCatalogWorker = async (store, options = {}) => {
             },
             body: JSON.stringify(payload),
           });
+          m._r2Uploaded = true;
         } catch {}
       }));
-    }
-    if (!options.all && store.touchedSlugs) {
-      store.touchedSlugs.clear();
     }
   }
 
@@ -2956,13 +2964,19 @@ const uploadToCatalogWorker = async (store, options = {}) => {
             p_payload: payloadObj,
           }),
         });
+        if (!res.ok) {
+          const errText = await res.text().catch(() => '');
+          throw new Error(`Supabase RPC HTTP ${res.status}: ${errText.slice(0, 200)}`);
+        }
         return res;
       };
 
       const chunkSend = async (key, arr, size = 500) => {
         if (!Array.isArray(arr) || arr.length === 0) return;
         for (let idx = 0; idx < arr.length; idx += size) {
-          await sendSupabaseBatch({ [key]: arr.slice(idx, idx + size) }).catch(() => {});
+          await sendSupabaseBatch({ [key]: arr.slice(idx, idx + size) }).catch((err) => {
+            logWarn(`Supabase chunk (${key}[${idx}]) uyarısı: ${err.message}`);
+          });
         }
       };
 
@@ -3001,6 +3015,9 @@ const uploadToCatalogWorker = async (store, options = {}) => {
         views: ch.views || 0,
       }));
       await chunkSend('chapters', allChapters, 2000);
+      if (store.touchedSlugs) {
+        store.touchedSlugs.clear();
+      }
     } catch (err) {
       logWarn(`Supabase senkronizasyonu atlandı: ${err.message}`);
     }
@@ -3379,9 +3396,7 @@ const main = async () => {
       for (const ch of manga.chapters || []) {
         ch.pages = [];
       }
-      if (store.touchedSlugs) {
-        store.touchedSlugs.delete(manga.slug);
-      }
+      manga._r2Uploaded = true;
     }
   };
 

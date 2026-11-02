@@ -11,7 +11,7 @@ import {
     Users as UsersIcon,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { getStatistics, getAllMangas } from '@/lib/database';
+import { getStatistics, getRecentAdminMangas } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
 import { getMangaTypeLabel } from '@/lib/mangaType';
@@ -25,16 +25,13 @@ const AdminDashboard: React.FC = () => {
         const loadData = async () => {
             try {
                 setIsLoading(true);
-                const [statistics, allMangas] = await Promise.all([
+                const [statistics, latestMangas] = await Promise.all([
                     getStatistics(),
-                    getAllMangas({ includePrivate: true })
+                    getRecentAdminMangas(5)
                 ]);
 
                 setStats(statistics);
-                setRecentMangas(allMangas
-                    .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
-                    .slice(0, 5)
-                );
+                setRecentMangas(latestMangas);
             } catch (err) {
                 toast.error('İstatistikler yüklenemedi');
             } finally {
@@ -216,7 +213,7 @@ const AdminDashboard: React.FC = () => {
                             <div className="w-full min-w-0 flex-1">
                                 <h3 className="font-medium">{manga.title}</h3>
                                 <p className="text-sm text-muted-foreground">
-                                    {manga.chapters.length} bölüm • {manga.type}
+                                    {manga.chapterCount ?? manga.chapters.length} bölüm • {getMangaTypeLabel(manga.type)}
                                 </p>
                             </div>
                             <div className="flex items-center gap-1 text-sm text-muted-foreground sm:ml-auto">

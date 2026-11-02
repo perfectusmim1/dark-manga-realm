@@ -11,6 +11,7 @@ import { getLatestChapters, getLatestChaptersFeedStats, LatestChapterFeedItem } 
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
+import OptimizedImage from '@/components/media/OptimizedImage';
 
 const PAGE_SIZE = 30;
 
@@ -164,12 +165,14 @@ const LatestChapters: React.FC = () => {
                                 }}
                             >
                                 <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-secondary/40 shadow-sm sm:h-28 sm:w-28 lg:h-32 lg:w-32">
-                                    <img
+                                    <OptimizedImage
                                         src={chapter.mangaCover}
                                         alt={chapter.mangaTitle}
-                                        loading="lazy"
-                                        decoding="async"
-                                        className="h-full w-full object-cover "
+                                        width={128}
+                                        height={128}
+                                        allowProxy
+                                        containerClassName="h-full w-full"
+                                        className="h-full w-full object-cover"
                                     />
                                 </div>
 

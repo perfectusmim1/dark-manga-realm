@@ -746,6 +746,8 @@ const verifiedDomainCache = new Map([
   ['cdn.mangacix.net', true],
   ['cdn.myanimelist.net', true],
   ['uploads.mangadex.org', true],
+  ['cdn.okutoon.com', true],
+  ['om-cdn.okutoon.com', true],
 ]);
 const verifiedUrlCache = new Map();
 
@@ -897,20 +899,33 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
     }
   } else if (source === 'okutoon') {
     for (let page = 1; page <= maxPages; page++) {
-      const res = await fetchUpstream(`https://okutoon.com/tur?sayfa=${page}`);
+      const apiUrl = `https://okutoon.com/api/v1/series?page=${page}&limit=36&sort=newest`;
+      const res = await fetchUpstream(apiUrl, { headers: { Accept: 'application/json' } });
       if (!res.ok || !res.content) break;
-      const matches = extractRegexMatches(
-        res.content,
-        /<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]*covers[^"]*)"[^>]*>[\s\S]*?<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi
-      );
-      if (matches.length === 0) break;
-      for (const m of matches) {
-        const link = m[1]?.startsWith('http') ? m[1] : `https://okutoon.com${m[1]}`;
-        const cover = m[2]?.startsWith('http') ? m[2] : `https://okutoon.com${m[2]}`;
-        const title = stripTags(m[3]);
+      let json = null;
+      try {
+        json = JSON.parse(res.content);
+      } catch {
+        break;
+      }
+      const items = json?.data || [];
+      if (items.length === 0) break;
+      for (const item of items) {
+        if (!item?.slug || !item?.title) continue;
+        const link = `https://okutoon.com/${item.slug}`;
+        const cover = item.cover_url || item.headline_url || '';
+        const title = cleanSeriesTitle(item.title);
         if (link && title && !seen.has(link)) {
           seen.add(link);
-          cards.push({ source: 'okutoon', title, link, cover, isAdult: false, genres: [] });
+          cards.push({
+            source: 'okutoon',
+            title,
+            link,
+            slug: item.slug,
+            cover,
+            isAdult: false,
+            genres: (item.categories || []).map((c) => normalizeGenreToTurkish(c.name)).filter(Boolean),
+          });
         }
       }
     }
@@ -974,6 +989,94 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
 };
 
 const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = '', fallbackCover = '', fallbackIsAdult = false) => {
+  if (source === 'okutoon') {
+    const slug = String(seriesUrl || '')
+      .replace(/^https?:\/\/(?:www\.)?okutoon\.com\/?/i, '')
+      .replace(/^seri\//i, '')
+      .split('/')[0]
+      ?.trim();
+    if (!slug) return null;
+
+    let seriesMeta = null;
+    try {
+      const metaRes = await fetchUpstream(`https://okutoon.com/api/v1/series/${slug}`, {
+        headers: { Accept: 'application/json' },
+        timeoutMs: 12000,
+      });
+      if (metaRes.ok && metaRes.content) {
+        seriesMeta = JSON.parse(metaRes.content)?.data || null;
+      }
+    } catch {}
+
+    const rawChapters = [];
+    const seenCh = new Set();
+    let startOffset = 0;
+    let hasMore = true;
+
+    while (hasMore) {
+      const chaptersUrl = `https://okutoon.com/api/v1/series/${slug}/chapters?limit=100&offset=${startOffset}`;
+      const chRes = await fetchUpstream(chaptersUrl, {
+        headers: { Accept: 'application/json' },
+        timeoutMs: 15000,
+      });
+      if (!chRes.ok || !chRes.content) break;
+
+      let json = null;
+      try {
+        json = JSON.parse(chRes.content);
+      } catch {
+        break;
+      }
+
+      const items = json?.data || [];
+      if (items.length === 0) break;
+
+      for (const ch of items) {
+        if (!ch.slug || seenCh.has(ch.slug)) continue;
+        seenCh.add(ch.slug);
+        const num = Number(ch.display_number || ch.number) || 0;
+        rawChapters.push({
+          title: cleanChapterTitle(ch.title || `Bölüm ${num}`, num, seriesMeta?.title || fallbackTitle),
+          link: ch.url || `https://okutoon.com/${slug}/${ch.slug}`,
+          slug: ch.slug,
+          seriesSlug: slug,
+          chapterNumber: num,
+          releaseDate: ch.published_at || ch.created_at,
+        });
+      }
+
+      if (!json.meta?.has_more) {
+        hasMore = false;
+      } else {
+        startOffset += items.length;
+      }
+    }
+
+    rawChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
+
+    const altTitles = seriesMeta?.alt_title
+      ? String(seriesMeta.alt_title).split(',').map((t) => t.trim()).filter(Boolean)
+      : [];
+    const genres = Array.isArray(seriesMeta?.categories)
+      ? seriesMeta.categories.map((c) => normalizeGenreToTurkish(c.name)).filter(Boolean)
+      : ['Webtoon'];
+
+    return {
+      source: 'okutoon',
+      title: cleanSeriesTitle(seriesMeta?.title || fallbackTitle || slug),
+      link: `https://okutoon.com/${slug}`,
+      cover: seriesMeta?.cover_url || seriesMeta?.headline_url || fallbackCover,
+      description: seriesMeta?.description_text || '',
+      alternativeTitles: altTitles,
+      author: seriesMeta?.author || 'Bilinmiyor',
+      artist: seriesMeta?.artist || undefined,
+      status: seriesMeta?.status === 'completed' ? 'completed' : 'ongoing',
+      genres: genres.length > 0 ? genres : ['Webtoon'],
+      isAdult: false,
+      chapters: rawChapters,
+    };
+  }
+
   const res = await fetchUpstream(seriesUrl, { timeoutMs: 15000 });
   if (!res.ok || !res.content) return null;
   const html = res.content;
@@ -1174,6 +1277,35 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
 };
 
 const fetchChapterPagesFromSource = async (source, chapterLink) => {
+  if (source === 'okutoon') {
+    let seriesSlug = '';
+    let chapterSlug = '';
+    try {
+      const parsed = new URL(chapterLink);
+      const parts = parsed.pathname.split('/').filter(Boolean).filter((p) => p !== 'seri' && p !== 'bolum');
+      seriesSlug = parts[0] || '';
+      chapterSlug = parts[1] || '';
+    } catch {}
+    if (!seriesSlug || !chapterSlug) return [];
+
+    const apiUrl = `https://okutoon.com/api/v1/series/${seriesSlug}/chapters/${chapterSlug}`;
+    const apiRes = await fetchUpstream(apiUrl, {
+      headers: { Accept: 'application/json' },
+      timeoutMs: 15000,
+    });
+    if (!apiRes.ok || !apiRes.content) return [];
+    try {
+      const json = JSON.parse(apiRes.content);
+      const pages = json?.data?.pages || [];
+      const rawUrls = pages
+        .map((p) => p?.image_url)
+        .filter((u) => u && typeof u === 'string' && !isJunkImageUrl(u));
+      return await verifyAndFilterImageUrls(rawUrls);
+    } catch {
+      return [];
+    }
+  }
+
   const res = await fetchUpstream(chapterLink, { timeoutMs: 15000 });
   if (!res.ok || !res.content) return [];
   const html = res.content;
@@ -2485,7 +2617,7 @@ class SmartCatalogStore {
       // Skip completed series, login-walled / cf-challenged sources, and deleted automations
       const isCompleted = m.status === 'completed';
       if (isCompleted) continue;
-      if (locked.source === 'hentaiturk' || locked.source === 'hattorimanga' || locked.source === 'okutoon') continue;
+      if (locked.source === 'hentaiturk' || locked.source === 'hattorimanga') continue;
       if (m.details?.automationDisabled === true) continue;
       if (this.deletedAutomationMangaIds && this.deletedAutomationMangaIds.has(m.id)) continue;
 
@@ -2616,6 +2748,9 @@ class SmartCatalogStore {
     const mangasRows = Array.from(this.mangas.values()).map((m) => {
       const cleanAuthor = sanitizePersonField(m.author, 'Bilinmiyor');
       const cleanArtist = sanitizePersonField(m.artist || cleanAuthor, cleanAuthor);
+      const sortedCh = [...(m.chapters || [])].sort(
+        (a, b) => Number(b.chapterNumber ?? b.number ?? 0) - Number(a.chapterNumber ?? a.number ?? 0)
+      );
       return {
         id: m.id,
         title: m.title,
@@ -2635,7 +2770,12 @@ class SmartCatalogStore {
         alternative_titles: Array.isArray(m.alternativeTitles) ? m.alternativeTitles : [],
         details: m.details || {},
         source_links: Array.isArray(m.sourceLinks) ? m.sourceLinks : [],
-        last_updated: m.updatedAt || now,
+        chapter_count: sortedCh.length,
+        latest_chapters: sortedCh.slice(0, 2).map((ch) => ({
+          id: ch.id,
+          number: Number(ch.chapterNumber ?? ch.number ?? 0),
+        })),
+        last_updated: m.updatedAt || m.createdAt || now,
         created_at: m.createdAt || now,
       };
     });

@@ -1,8 +1,8 @@
 import type { HomePageMangaSections } from '@/lib/database';
 import type { Tag } from '@/lib/types';
 
-const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-v3';
-const HOME_FEED_SESSION_CACHE_VERSION = 3;
+const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-v4';
+const HOME_FEED_SESSION_CACHE_VERSION = 4;
 
 export const HOME_SECTIONS_CACHE_TTL_MS = 5 * 60_000;
 export const HOME_SECTIONS_MAX_SEED_AGE_MS = 60 * 60_000;
@@ -97,13 +97,12 @@ export const isHomeFeedEntryFresh = (fetchedAt: number, ttlMs: number) => (
 
 const hasRenderableChapterCounts = (sections?: HomePageMangaSections | null): boolean => {
   if (!sections) return false;
-  const all = [
-    ...(sections.trendingManga || []),
-    ...(sections.recentlyUpdated || []),
-    ...(sections.newlyAddedSeries || []),
-  ];
+  const newlyAdded = sections.newlyAddedSeries || [];
+  const recentlyUpdated = sections.recentlyUpdated || [];
+  const trending = sections.trendingManga || [];
+  const all = [...trending, ...recentlyUpdated, ...newlyAdded];
   if (all.length === 0) return false;
-  return all.some((m) => (m.chapterCount || 0) > 0 || (m.chapters?.length || 0) > 0);
+  return all.every((m) => (m.chapterCount || 0) > 0 || (m.chapters?.length || 0) > 0);
 };
 
 export const readHomeFeedSeed = (): HomeFeedSeed => {

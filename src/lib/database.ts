@@ -867,9 +867,9 @@ let mangaSummariesCache: Partial<Record<MangaAudienceCacheKey, { fetchedAt: numb
 let mangaSummariesPromise: Partial<Record<MangaAudienceCacheKey, Promise<Manga[]>>> = {};
 let homePageMangaSectionsCache: Partial<Record<MangaAudienceCacheKey, { fetchedAt: number; value: HomePageMangaSections }>> = {};
 let homePageMangaSectionsPromise: Partial<Record<MangaAudienceCacheKey, Promise<HomePageMangaSections>>> = {};
-let mangaVisibilityColumnAvailableCache: boolean | null = null;
+let mangaVisibilityColumnAvailableCache: boolean | null = true;
 let mangaVisibilityColumnAvailablePromise: Promise<boolean> | null = null;
-let mangaAdultColumnAvailableCache: boolean | null = null;
+let mangaAdultColumnAvailableCache: boolean | null = true;
 let mangaAdultColumnAvailablePromise: Promise<boolean> | null = null;
 let currentViewerRoleCache:
     | { authUserId: string | null; fetchedAt: number; role?: User['role'] }
@@ -1021,10 +1021,16 @@ const getCurrentViewerAdultModePreference = async (): Promise<boolean> => {
         return cachedPreferences.content?.adult_mode === true;
     }
 
-    const { data: profile, error } = await supabase.rpc('sync_current_auth_profile', {
-        p_avatar: null,
-        p_base_username: null,
-    });
+    const metaPrefs = sessionData.session?.user?.user_metadata?.preferences as any;
+    if (metaPrefs && typeof metaPrefs?.content?.adult_mode === 'boolean') {
+        return metaPrefs.content.adult_mode === true;
+    }
+
+    const { data: profileRow, error } = await supabase
+        .from('users')
+        .select('preferences')
+        .eq('id', authUserId)
+        .maybeSingle();
 
     if (error) {
         if (!isExpectedAccessControlError(error)) {
@@ -1033,8 +1039,7 @@ const getCurrentViewerAdultModePreference = async (): Promise<boolean> => {
         return false;
     }
 
-    const profileRow = Array.isArray(profile) ? profile[0] : profile;
-    return profileRow?.preferences?.content?.adult_mode === true;
+    return (profileRow as any)?.preferences?.content?.adult_mode === true;
 };
 
 const getCurrentViewerRole = async (): Promise<User['role'] | undefined> => {
@@ -1108,11 +1113,7 @@ const resolveMangaVisibilityAccess = async (includePrivateOverride?: boolean) =>
         getCurrentViewerAdultModePreference(),
     ]);
     const isStaff = role === 'admin' || role === 'moderator';
-    const includePrivate = includePrivateOverride === true
-        ? true
-        : includePrivateOverride === false
-            ? false
-            : isStaff;
+    const includePrivate = includePrivateOverride === true;
     const includeAdult = includePrivate || isStaff || adultModeEnabled;
 
     return {
@@ -1766,6 +1767,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
                     supabase
                         .from('mangas')
                         .select(summarySelectColumns)
+                        .gt('chapter_count', 0)
                         .order('created_at', { ascending: false })
                         .limit(HOME_PAGE_SECTION_LIMITS.newlyAdded),
                     { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
@@ -1774,6 +1776,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
                     supabase
                         .from('mangas')
                         .select(summarySelectColumns)
+                        .gt('chapter_count', 0)
                         .order('last_updated', { ascending: false })
                         .limit(HOME_PAGE_SECTION_LIMITS.recentlyUpdated),
                     { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
@@ -1782,6 +1785,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
                     supabase
                         .from('mangas')
                         .select(summarySelectColumns)
+                        .gt('chapter_count', 0)
                         .order('views', { ascending: false })
                         .limit(HOME_PAGE_SECTION_LIMITS.trending),
                     { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
@@ -3333,15 +3337,79 @@ export const authenticateAdmin = async (email: string, password: string): Promis
 
 // ==================== STATISTICS ====================
 
+export const getRecentAdminMangas = async (limit = 5): Promise<Manga[]> => {
+    const { data, error } = await supabase
+        .from('mangas')
+        .select(`${MANGA_SUMMARY_BASE_SELECT_COLUMNS}, is_public, is_adult`)
+        .order('last_updated', { ascending: false })
+        .limit(limit);
+
+    if (error) {
+        throw error;
+    }
+
+    return (data || []).map((m: any) => {
+        const precomputedChapters = Array.isArray(m.latest_chapters)
+            ? m.latest_chapters
+                .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
+                .filter((ch: any) => ch.id)
+            : [];
+        return {
+            ...m,
+            author: cleanPlaceholderNamedEntityString(m.author) || m.author,
+            artist: cleanPlaceholderNamedEntityString(m.artist) || m.artist,
+            ...mapMangaBaseFields(m),
+            chapters: precomputedChapters,
+            chapterCount: Number(m.chapter_count ?? m.chapterCount) || precomputedChapters.length || 0,
+            ratings: [],
+            averageRating: 0,
+            reviewCount: 0,
+        } as Manga;
+    });
+};
+
 export const getStatistics = async () => {
-    const { count: mangaCount } = await supabase.from('mangas').select('*', { count: 'exact', head: true });
-    const { count: chapterCount } = await supabase.from('chapters').select('*', { count: 'exact', head: true });
-    const { count: commentCount } = await supabase.from('comments').select('*', { count: 'exact', head: true });
-    const { count: userCount } = await supabase.from('users').select('id', { count: 'exact', head: true });
+    const { data: rpcStats, error: rpcError } = await supabase.rpc('get_admin_dashboard_stats');
+    if (!rpcError && rpcStats && typeof rpcStats === 'object') {
+        const s = rpcStats as Record<string, any>;
+        const byType = (s.mangasByType || {}) as Record<string, number>;
+        const byStatus = (s.mangasByStatus || {}) as Record<string, number>;
+        return {
+            totalMangas: Number(s.totalMangas) || 0,
+            totalChapters: Number(s.totalChapters) || 0,
+            totalViews: Number(s.totalViews) || 0,
+            totalComments: Number(s.totalComments) || 0,
+            totalUsers: Number(s.totalUsers) || 0,
+            mangasByType: {
+                manga: Number(byType.manga) || 0,
+                manhwa: Number(byType.manhwa) || 0,
+                manhua: Number(byType.manhua) || 0,
+                webtoon: Number(byType.webtoon) || 0,
+                hentai: Number(byType.hentai) || 0,
+                webtoon_hentai: Number(byType.webtoon_hentai) || 0,
+            },
+            mangasByStatus: {
+                ongoing: Number(byStatus.ongoing) || 0,
+                completed: Number(byStatus.completed) || 0,
+                hiatus: Number(byStatus.hiatus) || 0,
+            },
+        };
+    }
 
-    const { data: mangaData } = await supabase.from('mangas').select('type, status, views');
+    const [
+        { count: mangaCount },
+        { count: commentCount },
+        { count: userCount },
+        { data: mangaData },
+    ] = await Promise.all([
+        supabase.from('mangas').select('id', { count: 'exact', head: true }),
+        supabase.from('comments').select('id', { count: 'exact', head: true }),
+        supabase.from('users').select('id', { count: 'exact', head: true }),
+        supabase.from('mangas').select('type, status, views, chapter_count'),
+    ]);
 
-    const totalViews = mangaData?.reduce((sum, m) => sum + (m.views || 0), 0) || 0;
+    const totalViews = mangaData?.reduce((sum, m: any) => sum + (m.views || 0), 0) || 0;
+    const chapterCount = mangaData?.reduce((sum, m: any) => sum + (m.chapter_count || 0), 0) || 0;
 
     const mangasByType = {
         manga: mangaData?.filter(m => m.type === 'manga').length || 0,
@@ -6019,17 +6087,21 @@ const hasHomePageSectionData = (sections: HomePageMangaSections) => (
     || sections.recentlyUpdated.length > 0
 );
 
-const buildHomePageSectionsFromCollection = (mangas: Manga[]): HomePageMangaSections => ({
-    trendingManga: [...mangas]
-        .sort((a, b) => (b.views || 0) - (a.views || 0))
-        .slice(0, HOME_PAGE_SECTION_LIMITS.trending),
-    newlyAddedSeries: [...mangas]
-        .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
-        .slice(0, HOME_PAGE_SECTION_LIMITS.newlyAdded),
-    recentlyUpdated: [...mangas]
-        .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
-        .slice(0, HOME_PAGE_SECTION_LIMITS.recentlyUpdated),
-});
+const buildHomePageSectionsFromCollection = (mangas: Manga[]): HomePageMangaSections => {
+    const active = mangas.filter((m) => (m.chapterCount || 0) > 0 || (m.chapters?.length || 0) > 0);
+    const pool = active.length > 0 ? active : mangas;
+    return {
+        trendingManga: [...pool]
+            .sort((a, b) => (b.views || 0) - (a.views || 0))
+            .slice(0, HOME_PAGE_SECTION_LIMITS.trending),
+        newlyAddedSeries: [...pool]
+            .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+            .slice(0, HOME_PAGE_SECTION_LIMITS.newlyAdded),
+        recentlyUpdated: [...pool]
+            .sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime())
+            .slice(0, HOME_PAGE_SECTION_LIMITS.recentlyUpdated),
+    };
+};
 
 const buildMangaSummariesForRows = async (
     mangaRows: any[],
