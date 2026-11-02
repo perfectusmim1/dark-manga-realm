@@ -94,8 +94,8 @@ const LIMIT = RAW_LIMIT ? parseInt(RAW_LIMIT, 10) : (IS_FULL ? Infinity : Infini
 const TARGET_SOURCE = getArgValue('--source'); // webtoonhatti, siyahmelek, hattorimanga, golgebahcesi, dxdfansub, mangacix, okutoon
 
 // --- Concurrency Settings ---
-const SERIES_CONCURRENCY = 3;
-const CHAPTER_CONCURRENCY = 6;
+const SERIES_CONCURRENCY = 8;
+const CHAPTER_CONCURRENCY = 15;
 
 // --- Live Terminal Progress Logger ---
 const formatTime = () => {
@@ -737,6 +737,8 @@ const TRUSTED_DOMAINS = [
   'cdn.mangacix.net',
   'api.golgebahcesi.com',
   'api.dxdfansub.com',
+  'cdn.okutoon.com',
+  'om-cdn.okutoon.com',
 ];
 
 for (const d of TRUSTED_DOMAINS) {
@@ -3309,7 +3311,9 @@ const main = async () => {
       manga.title,
     ].filter((t) => t && t.length > 2);
 
-    // AniList / MangaDex / MAL Zenginleştirme
+    // AniList / MangaDex / MAL Zenginleştirme (Yalnızca yeni seriler veya meta verisi eksik seriler için)
+    const needsEnrichment = !existing || (!existing.anilistId && !existing.malId && !store.mangaCharacters.some((mc) => mc.manga_id === manga.id));
+    if (needsEnrichment) {
     try {
       const anilistMedia = await queryAniList(searchTerms);
       if (anilistMedia) {
@@ -3329,6 +3333,7 @@ const main = async () => {
         if (jikanMedia) store.enrichWithJikan(manga.id, jikanMedia);
       }
     } catch {}
+    }
 
     card.status = 'completed';
     card.updatedAt = new Date().toISOString();
