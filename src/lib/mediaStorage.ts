@@ -1,4 +1,8 @@
 import type { Chapter, ExternalSourceName } from '@/lib/types';
+import {
+  configuredOfflineImageProxyUrls,
+  getPreferredOfflineProxyUrlForSource,
+} from '@/lib/offline/proxyConfig';
 
 export type MediaEntityType = 'manga' | 'character' | 'author' | 'artist' | 'chapter';
 export type MediaVariant = 'cover' | 'banner' | 'profile' | 'gallery' | 'page';
@@ -33,13 +37,6 @@ interface MaterializeWorkerItem {
 
 
 const configuredMediaBucketUrl = import.meta.env.VITE_MEDIA_BUCKET_URL?.trim() || '';
-const configuredOfflineImageProxyUrls = (
-  import.meta.env.VITE_OFFLINE_IMAGE_PROXY_URL?.trim() ||
-  'https://toonparrot-offline-image-proxy.caganhuseyinerdil.workers.dev'
-)
-  .split(',')
-  .map((u) => u.trim().replace(/\/+$/, ''))
-  .filter(Boolean);
 
 const configuredScraperProxyUrls = (import.meta.env.VITE_SCRAPER_PROXY_URL?.trim() || '')
   .split(',')
@@ -51,13 +48,7 @@ const configuredScraperProxyUrl = configuredScraperProxyUrls[0] || '';
 
 export const getOfflineImageProxyUrlForSource = (sourceUrl: string): string => {
   if (configuredOfflineImageProxyUrls.length === 0) return configuredOfflineImageProxyUrl;
-  let hash = 0;
-  for (let i = 0; i < sourceUrl.length; i += 1) {
-    hash = (hash << 5) - hash + sourceUrl.charCodeAt(i);
-    hash |= 0;
-  }
-  const index = Math.abs(hash) % configuredOfflineImageProxyUrls.length;
-  return configuredOfflineImageProxyUrls[index];
+  return getPreferredOfflineProxyUrlForSource(sourceUrl, configuredOfflineImageProxyUrls);
 };
 
 let imageProxyRoundRobinIndex = 0;

@@ -3,14 +3,16 @@ import { downloadPageBlob } from '@/lib/offline/downloadManager';
 import { isStoredMediaUrl, unwrapManagedMediaUrl } from '@/lib/mediaStorage';
 import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
+import { normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 
 const MODEL = 'gemini-flash-lite-latest';
-const RETRY_DELAYS_MS = [3000, 8000];
+const FALLBACK_RETRY_DELAYS_MS = [3500, 8000];
+const DEFAULT_KEY_COOLDOWN_MS = 18_000;
+const INVALID_KEY_ISOLATION_MS = 5 * 60_000;
 const SLICE_HEIGHT = 1300;
 const SLICE_OVERLAP = 220;
 const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1080
-const SLICE_CONCURRENCY = 3;
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -110,16 +112,21 @@ const canvasToBase64 = (canvas: HTMLCanvasElement): { data: string; mimeType: st
   return { data: base64, mimeType: 'image/jpeg' };
 };
 
-const isRateLimitError = (error: unknown) => {
+export const isRateLimitError = (error: unknown) => {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
-  return message.includes('429') || message.includes('resource_exhausted') || message.includes('quota');
+  return (
+    message.includes('429') ||
+    message.includes('resource_exhausted') ||
+    message.includes('quota') ||
+    message.includes('too many requests')
+  );
 };
 
 export const isAbortTranslationError = (error: unknown): boolean =>
   (error instanceof DOMException && error.name === 'AbortError') ||
   (error instanceof Error && error.name === 'AbortError');
 
-const isFatalAuthOrKeyError = (error: unknown): boolean => {
+export const isFatalAuthOrKeyError = (error: unknown): boolean => {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   return (
     message.includes('api_key_invalid') ||
@@ -135,13 +142,172 @@ export const classifyTranslationError = (error: unknown): string => {
     return 'Gemini API anahtarı geçersiz veya yetkisiz.';
   }
   if (isRateLimitError(error)) {
-    return 'Gemini kota sınırı doldu (429). Biraz bekleyip tekrar deneyin.';
+    return 'Gemini kota sınırı doldu (429). Ek API anahtarı ekleyebilir veya biraz bekleyebilirsiniz.';
   }
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   if (message.includes('görsel') || message.includes('failed to fetch') || message.includes('network')) {
     return 'Sayfa görseli alınamadı. Bağlantınızı kontrol edin.';
   }
   return 'Çeviri tamamlanamadı. Tekrar deneyin.';
+};
+
+interface KeyPoolSlot {
+  key: string;
+  client: GoogleGenAI | null;
+  inFlight: number;
+  cooldownUntil: number;
+  invalidUntil: number;
+  nextDispatchAt: number;
+  lastPickedSeq: number;
+}
+
+const keyPoolSlots = new Map<string, KeyPoolSlot>();
+let pickSequence = 0;
+
+const getOrCreateSlot = (key: string): KeyPoolSlot => {
+  let slot = keyPoolSlots.get(key);
+  if (!slot) {
+    slot = {
+      key,
+      client: null,
+      inFlight: 0,
+      cooldownUntil: 0,
+      invalidUntil: 0,
+      nextDispatchAt: 0,
+      lastPickedSeq: 0,
+    };
+    keyPoolSlots.set(key, slot);
+  }
+  return slot;
+};
+
+const parseRetryDelayMs = (error: unknown): number => {
+  const message = error instanceof Error ? error.message : String(error);
+  const secMatch = message.match(/retry\s+in\s+(\d+(?:\.\d+)?)\s*s/i);
+  if (secMatch) {
+    const parsedMs = Math.ceil(Number(secMatch[1]) * 1000);
+    if (Number.isFinite(parsedMs) && parsedMs > 0) {
+      return Math.min(Math.max(parsedMs, 8_000), 35_000);
+    }
+  }
+  return DEFAULT_KEY_COOLDOWN_MS;
+};
+
+export const resetGeminiKeyPoolForTests = (): void => {
+  keyPoolSlots.clear();
+  pickSequence = 0;
+};
+
+export const executeWithGeminiKeyPool = async <T>(
+  keys: readonly string[],
+  parallelMode: boolean,
+  task: (apiKey: string, getClient: () => GoogleGenAI) => Promise<T>,
+  signal?: AbortSignal,
+): Promise<T> => {
+  const normalizedKeys = normalizeApiKeysList(keys);
+  if (normalizedKeys.length === 0) {
+    throw new Error('API_KEY_INVALID: Geçerli bir Gemini API anahtarı bulunamadı.');
+  }
+
+  const maxAttempts = Math.max(normalizedKeys.length + FALLBACK_RETRY_DELAYS_MS.length, 3);
+  let lastError: unknown = null;
+  let allCoolingRetries = 0;
+
+  for (let attempt = 0; attempt < maxAttempts; attempt += 1) {
+    if (signal?.aborted) {
+      throw new DOMException('İptal edildi', 'AbortError');
+    }
+
+    const now = Date.now();
+    const slots = normalizedKeys.map(getOrCreateSlot);
+    const validSlots = slots.filter((slot) => slot.invalidUntil <= now);
+
+    if (validSlots.length === 0) {
+      throw lastError || new Error('API_KEY_INVALID: Tüm Gemini API anahtarları geçersiz.');
+    }
+
+    let readySlots = validSlots.filter((slot) => slot.cooldownUntil <= now);
+
+    if (readySlots.length === 0) {
+      if (allCoolingRetries >= FALLBACK_RETRY_DELAYS_MS.length) {
+        throw lastError || new Error('429 RESOURCE_EXHAUSTED: Tüm anahtarlar kota beklemesinde.');
+      }
+      const earliestCooldown = Math.min(...validSlots.map((slot) => slot.cooldownUntil));
+      const waitMs = Math.min(
+        Math.max(earliestCooldown - now, FALLBACK_RETRY_DELAYS_MS[allCoolingRetries] || 4000),
+        22_000,
+      );
+      allCoolingRetries += 1;
+      await sleep(waitMs, signal);
+      readySlots = validSlots.filter((slot) => slot.cooldownUntil <= Date.now());
+      if (readySlots.length === 0) {
+        readySlots = [
+          validSlots.reduce((best, cur) => (cur.cooldownUntil < best.cooldownUntil ? cur : best)),
+        ];
+      }
+    }
+
+    // En az aktif isteği olan ve en uzun süredir seçilmeyen anahtarı seç (round-robin + least-loaded)
+    readySlots.sort((a, b) => {
+      if (a.inFlight !== b.inFlight) return a.inFlight - b.inFlight;
+      if (a.nextDispatchAt !== b.nextDispatchAt) return a.nextDispatchAt - b.nextDispatchAt;
+      return a.lastPickedSeq - b.lastPickedSeq;
+    });
+
+    const chosen = readySlots[0];
+    pickSequence += 1;
+    chosen.lastPickedSeq = pickSequence;
+    chosen.inFlight += 1;
+
+    // Tek anahtarda ücretsiz katman ani patlama (burst 429) yememek için sanal zaman dilimi rezervasyonu
+    const minIntervalMs =
+      normalizedKeys.length === 1 ? (parallelMode ? 700 : 1100) : 300;
+    const dispatchNow = Date.now();
+    const scheduledAt = Math.max(dispatchNow, chosen.nextDispatchAt);
+    chosen.nextDispatchAt = scheduledAt + minIntervalMs;
+
+    try {
+      if (scheduledAt > dispatchNow) {
+        await sleep(scheduledAt - dispatchNow, signal);
+      }
+
+      const getClient = () => {
+        if (!chosen.client) {
+          chosen.client = new GoogleGenAI({ apiKey: chosen.key });
+        }
+        return chosen.client;
+      };
+
+      return await task(chosen.key, getClient);
+    } catch (error) {
+      if (isAbortTranslationError(error) || signal?.aborted) {
+        throw new DOMException('İptal edildi', 'AbortError');
+      }
+
+      lastError = error;
+
+      if (isFatalAuthOrKeyError(error)) {
+        chosen.invalidUntil = Date.now() + INVALID_KEY_ISOLATION_MS;
+        // Başka geçerli anahtar varsa 0ms gecikmeyle anında ona geç
+        continue;
+      }
+
+      if (isRateLimitError(error)) {
+        const cooldownMs = parseRetryDelayMs(error);
+        const until = Date.now() + cooldownMs;
+        chosen.cooldownUntil = Math.max(chosen.cooldownUntil, until);
+        chosen.nextDispatchAt = Math.max(chosen.nextDispatchAt, until);
+        // Başka sağlıklı anahtar varsa beklemeden (0ms) diğer anahtara geç
+        continue;
+      }
+
+      throw error;
+    } finally {
+      chosen.inFlight = Math.max(0, chosen.inFlight - 1);
+    }
+  }
+
+  throw lastError || new Error('Çeviri isteği tamamlanamadı.');
 };
 
 const VOCAL_TOKEN_REGEX =
@@ -268,20 +434,20 @@ const buildPrompt = (targetLang: string) => [
 ].join(' ');
 
 const callGeminiVision = async (
-  ai: GoogleGenAI,
+  keys: readonly string[],
+  parallelMode: boolean,
   data: string,
   mimeType: string,
   targetLang: string,
   signal?: AbortSignal,
 ): Promise<TranslationBlock[]> => {
   const prompt = buildPrompt(targetLang);
-  let lastError: unknown;
 
-  for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
-    if (signal?.aborted) {
-      throw new DOMException('İptal edildi', 'AbortError');
-    }
-    try {
+  return executeWithGeminiKeyPool(
+    keys,
+    parallelMode,
+    async (_apiKey, getClient) => {
+      const ai = getClient();
       const response = await ai.models.generateContent({
         model: MODEL,
         config: {
@@ -301,23 +467,15 @@ const callGeminiVision = async (
         ],
       });
       return parseBlocks(response.text ?? '', targetLang);
-    } catch (error) {
-      if (isAbortTranslationError(error) || signal?.aborted) {
-        throw new DOMException('İptal edildi', 'AbortError');
-      }
-      lastError = error;
-      if (isRateLimitError(error) && attempt < RETRY_DELAYS_MS.length) {
-        await sleep(RETRY_DELAYS_MS[attempt], signal);
-        continue;
-      }
-      throw error;
-    }
-  }
-  throw lastError;
+    },
+    signal,
+  );
 };
 
-interface TranslatePageOptions {
-  apiKey: string;
+export interface TranslatePageOptions {
+  apiKey?: string;
+  apiKeys?: readonly string[];
+  parallelMode?: boolean;
   imageSrc: string;
   targetLang: string;
   signal?: AbortSignal;
@@ -325,10 +483,17 @@ interface TranslatePageOptions {
 
 export const translatePageImage = async ({
   apiKey,
+  apiKeys,
+  parallelMode = false,
   imageSrc,
   targetLang,
   signal,
 }: TranslatePageOptions): Promise<TranslationBlock[]> => {
+  const effectiveKeys = normalizeApiKeysList(apiKeys, apiKey);
+  if (effectiveKeys.length === 0) {
+    throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
+  }
+
   const [blob] = await Promise.all([
     fetchTranslatableImageBlob(imageSrc, signal),
     ensureScanlationFontReady(),
@@ -344,8 +509,6 @@ export const translatePageImage = async ({
     throw new Error('Görsel boyutları geçersiz');
   }
 
-  const ai = new GoogleGenAI({ apiKey });
-
   const fullCanvas = document.createElement('canvas');
   fullCanvas.width = fullWidth;
   fullCanvas.height = fullHeight;
@@ -358,7 +521,7 @@ export const translatePageImage = async ({
   // Kısa/standart sayfalar (height <= 1600): tek seferde işle
   if (fullHeight <= 1600) {
     const { data, mimeType } = canvasToBase64(fullCanvas);
-    const rawBlocks = await callGeminiVision(ai, data, mimeType, targetLang, signal);
+    const rawBlocks = await callGeminiVision(effectiveKeys, parallelMode, data, mimeType, targetLang, signal);
     return rawBlocks
       .sort((a, b) => a.box[0] - b.box[0])
       .map((block) => inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, block, targetLang))
@@ -392,19 +555,34 @@ export const translatePageImage = async ({
     return { ...slice, data, mimeType };
   });
 
+  // Tek anahtar + sıralı modda dilimleri teker teker göndererek ücretsiz katman 429 patlamasını önle;
+  // çoklu anahtarda veya paralel modda anahtar sayısına göre ölçekle.
+  const sliceConcurrency = parallelMode
+    ? Math.min(Math.max(2, effectiveKeys.length * 2), 6)
+    : effectiveKeys.length > 1
+      ? Math.min(effectiveKeys.length, 3)
+      : 1;
+
   const sliceResults: Array<{ y: number; h: number; blocks: TranslationBlock[] }> = [];
   let succeededSlices = 0;
   let firstSliceError: unknown = null;
 
-  for (let i = 0; i < slicePayloads.length; i += SLICE_CONCURRENCY) {
+  for (let i = 0; i < slicePayloads.length; i += sliceConcurrency) {
     if (signal?.aborted) {
       throw new DOMException('İptal edildi', 'AbortError');
     }
-    const batch = slicePayloads.slice(i, i + SLICE_CONCURRENCY);
+    const batch = slicePayloads.slice(i, i + sliceConcurrency);
     const batchOut = await Promise.all(
       batch.map(async (s) => {
         try {
-          const blocks = await callGeminiVision(ai, s.data, s.mimeType, targetLang, signal);
+          const blocks = await callGeminiVision(
+            effectiveKeys,
+            parallelMode,
+            s.data,
+            s.mimeType,
+            targetLang,
+            signal,
+          );
           succeededSlices += 1;
           return { y: s.y, h: s.h, blocks };
         } catch (err) {

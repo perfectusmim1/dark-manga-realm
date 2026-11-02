@@ -59,6 +59,7 @@ import {
   clearChapterAutomationRuns,
   createChapterAutomation,
   deleteChapterAutomation,
+  deleteChapterAutomationsBulk,
   listChapterAutomations,
   setChapterAutomationActive,
   testChapterAutomations,
@@ -579,15 +580,14 @@ const AdminAutomation: React.FC = () => {
 
     try {
       setIsClearingInactive(true);
-      const targetIds = new Set(inactiveAutomations.map((a) => a.id));
-      setAutomations((current) => current.filter((a) => !targetIds.has(a.id)));
+      const targetIds = inactiveAutomations.map((a) => a.id);
+      const targetSet = new Set(targetIds);
+      setAutomations((current) => current.filter((a) => !targetSet.has(a.id)));
 
-      for (const auto of inactiveAutomations) {
-        await deleteChapterAutomation(auto.id);
-      }
+      await deleteChapterAutomationsBulk(targetIds);
 
       await loadPageData();
-      toast.success(`${targetIds.size} pasif otomasyon silindi`);
+      toast.success(`${targetSet.size} pasif otomasyon silindi`);
     } catch (error) {
       console.error('Chapter automation clear inactive failed:', error);
       toast.error(error instanceof Error ? error.message : 'Pasif otomasyonlar silinemedi');
@@ -723,8 +723,8 @@ const AdminAutomation: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold sm:text-3xl">Otomasyon</h1>
             <p className="text-sm leading-6 text-muted-foreground sm:text-base">
-              Admin panelinden manga bazlı bölüm kontrol zamanları tanımla. Sistem belirlediğin saatlerde arka planda
-              yeni bölümleri kontrol edip sadece eksik olanları ekler.
+              GitHub Actions 2 saatlik döngülerde yalnızca aktif ve devam eden serileri tarar; tamamlanan seriler elenir,
+              uzun süredir bölüm gelmeyenler pasife alınır ve buradaki düzenlemelerle çift yönlü senkron çalışır.
             </p>
           </div>
         </div>

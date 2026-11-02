@@ -1061,6 +1061,16 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       ? seriesMeta.categories.map((c) => normalizeGenreToTurkish(c.name)).filter(Boolean)
       : ['Webtoon'];
 
+    const rawOkuStatus = String(seriesMeta?.status || '').toLowerCase();
+    const mappedOkuStatus =
+      rawOkuStatus === 'completed' || rawOkuStatus === 'finished'
+        ? 'completed'
+        : rawOkuStatus === 'cancelled' || rawOkuStatus === 'canceled' || rawOkuStatus === 'dropped'
+        ? 'cancelled'
+        : rawOkuStatus === 'hiatus' || rawOkuStatus === 'paused'
+        ? 'hiatus'
+        : 'ongoing';
+
     return {
       source: 'okutoon',
       title: cleanSeriesTitle(seriesMeta?.title || fallbackTitle || slug),
@@ -1070,7 +1080,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       alternativeTitles: altTitles,
       author: seriesMeta?.author || 'Bilinmiyor',
       artist: seriesMeta?.artist || undefined,
-      status: seriesMeta?.status === 'completed' ? 'completed' : 'ongoing',
+      status: mappedOkuStatus,
       genres: genres.length > 0 ? genres : ['Webtoon'],
       isAdult: false,
       chapters: rawChapters,
@@ -1116,6 +1126,16 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
         const lower = contentText.toLowerCase();
         if (lower.includes('tamam') || lower.includes('bitti') || lower.includes('completed') || lower.includes('final')) {
           status = 'completed';
+        } else if (
+          lower.includes('iptal') ||
+          lower.includes('bırak') ||
+          lower.includes('birak') ||
+          lower.includes('cancel') ||
+          lower.includes('drop')
+        ) {
+          status = 'cancelled';
+        } else if (lower.includes('ara') || lower.includes('hiatus')) {
+          status = 'hiatus';
         }
       }
     }
@@ -1187,6 +1207,27 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     const authorMatch = /<a[^>]+href="https:\/\/siyahmelek\.my\/yazar\/[^"]*"[^>]*>([\s\S]*?)<\/a>/i.exec(html);
     const author = authorMatch ? stripTags(authorMatch[1]).trim() : 'Bilinmiyor';
 
+    let smStatus = 'ongoing';
+    const smStatusMatch =
+      /(?:Durum|Status)\s*:?\s*<\/[^>]+>\s*<[^>]+>([\s\S]*?)<\//i.exec(html) ||
+      /class="[^"]*(?:manga-status|post-status|status-badge|ribbon)[^"]*"[^>]*>([\s\S]*?)<\//i.exec(html);
+    if (smStatusMatch) {
+      const smLower = stripTags(smStatusMatch[1]).toLowerCase();
+      if (smLower.includes('tamam') || smLower.includes('bitti') || smLower.includes('completed') || smLower.includes('final')) {
+        smStatus = 'completed';
+      } else if (
+        smLower.includes('iptal') ||
+        smLower.includes('bırak') ||
+        smLower.includes('birak') ||
+        smLower.includes('cancel') ||
+        smLower.includes('drop')
+      ) {
+        smStatus = 'cancelled';
+      } else if (smLower.includes('ara') || smLower.includes('hiatus')) {
+        smStatus = 'hiatus';
+      }
+    }
+
     const isAdult = detectIsAdult({
       source: 'siyahmelek',
       url: seriesUrl,
@@ -1225,7 +1266,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       alternativeTitles,
       author,
       artist: undefined,
-      status: 'ongoing',
+      status: smStatus,
       genres,
       isAdult,
       chapters: rawChapters,
@@ -1374,6 +1415,7 @@ const queryAniList = async (searchTerms = [], options = {}) => {
           id
           idMal
           status
+          chapters
           countryOfOrigin
           startDate { year }
           title {
@@ -1600,6 +1642,8 @@ const queryMangaDex = async (searchTerms = [], options = {}) => {
           title: manga.attributes?.title?.en || Object.values(manga.attributes?.title || {})[0] || '',
           description: manga.attributes?.description?.tr || manga.attributes?.description?.en || '',
           altTitles: (manga.attributes?.altTitles || []).flatMap((t) => Object.values(t)).filter(Boolean),
+          status: manga.attributes?.status || null,
+          lastChapter: manga.attributes?.lastChapter || null,
           authors,
           artists,
         };
@@ -1731,6 +1775,8 @@ class SmartCatalogStore {
     this.mangaTags = [...(initialState.mangaTags || [])];
     this.chapterAutomations = new Map();
     this.chapterAutomationRuns = [];
+    this.existingAutomationsByMangaId = new Map();
+    this.deletedAutomationMangaIds = new Set(initialState.deletedAutomationMangaIds || []);
 
     this.titleKeyIndex = new Map();
     this.slugIndex = new Map();
@@ -2071,7 +2117,9 @@ class SmartCatalogStore {
         existing.description = scraped.description;
       }
       if (!existing.cover && scraped.cover && !isJunkCoverUrl(scraped.cover)) existing.cover = scraped.cover;
-      if (scraped.status === 'completed') existing.status = 'completed';
+      if (scraped.status === 'completed' || scraped.status === 'cancelled' || scraped.status === 'hiatus') {
+        existing.status = scraped.status;
+      }
       if (scraped.isAdult) existing.isAdult = true;
 
       if (scraped.link && scraped.source) {
@@ -2101,7 +2149,7 @@ class SmartCatalogStore {
               chapterNumber: chNum,
               title: chTitle,
               pages: ch.pages || [],
-              releaseDate: now,
+              releaseDate: ch.releaseDate || ch.release_date || now,
               views: 0,
               _sourceLink: ch.link,
             });
@@ -2164,7 +2212,7 @@ class SmartCatalogStore {
         chapterNumber: Number(ch.chapterNumber ?? ch.number ?? 0),
         title: cleanChapterTitle(ch.title, Number(ch.chapterNumber ?? ch.number ?? 0), cleanedTitle),
         pages: ch.pages || [],
-        releaseDate: now,
+        releaseDate: ch.releaseDate || ch.release_date || now,
         views: 0,
         _sourceLink: ch.link,
       })),
@@ -2358,6 +2406,18 @@ class SmartCatalogStore {
         if (anilistData.startDate?.year && !target.releaseYear) target.releaseYear = anilistData.startDate.year;
         if (anilistData.description) englishSynopsisCandidate = anilistData.description;
 
+        if (anilistData.status === 'CANCELLED' && target.status !== 'completed') {
+          target.status = 'cancelled';
+        } else if (anilistData.status === 'HIATUS' && target.status === 'ongoing') {
+          target.status = 'hiatus';
+        } else if (
+          anilistData.status === 'FINISHED' &&
+          Number(anilistData.chapters) > 0 &&
+          (target.chapters || []).length >= Number(anilistData.chapters)
+        ) {
+          target.status = 'completed';
+        }
+
         if (anilistData.isAdult !== undefined && anilistData.isAdult !== null) {
           if (anilistData.isAdult === true) {
             target.isAdult = true;
@@ -2520,6 +2580,15 @@ class SmartCatalogStore {
       if (!englishSynopsisCandidate && mdData.description) {
         englishSynopsisCandidate = mdData.description;
       }
+      if (mdData.status === 'cancelled' && currentManga.status === 'ongoing') {
+        currentManga.status = 'cancelled';
+      } else if (
+        mdData.status === 'completed' &&
+        Number(mdData.lastChapter) > 0 &&
+        (currentManga.chapters || []).length >= Number(mdData.lastChapter)
+      ) {
+        currentManga.status = 'completed';
+      }
       if (isLowResThumbnailUrl(currentManga.cover)) {
         const upgraded = upgradeSourceImageUrl(currentManga.cover);
         if (upgraded && upgraded !== currentManga.cover && (await verifyImageUrl(upgraded, { isCover: true }))) {
@@ -2607,75 +2676,111 @@ class SmartCatalogStore {
 
   buildAutomationsPayload() {
     const now = new Date().toISOString();
+    const nowMs = Date.now();
+    const dormantLimitMs = DORMANT_DAYS_LIMIT * 24 * 3600 * 1000;
     const automations = [];
     const runs = [];
+    const pruneAutomationIds = [];
 
     for (const m of this.mangas.values()) {
+      const existingAuto = this.existingAutomationsByMangaId?.get(m.id) || null;
+      const isAdminOwned = Boolean(existingAuto && (existingAuto.created_by || existingAuto.updated_by));
       const locked = this.getLockedPrimarySource(m);
-      if (!locked || !locked.source || !locked.url) continue;
+      const effectiveSource = (isAdminOwned && existingAuto.source) ? existingAuto.source : locked?.source;
+      const effectiveUrl = (isAdminOwned && existingAuto.source_url) ? existingAuto.source_url : locked?.url;
 
-      // Skip completed series, login-walled / cf-challenged sources, and deleted automations
-      const isCompleted = m.status === 'completed';
-      if (isCompleted) continue;
-      if (locked.source === 'hentaiturk' || locked.source === 'hattorimanga') continue;
-      if (m.details?.automationDisabled === true) continue;
-      if (this.deletedAutomationMangaIds && this.deletedAutomationMangaIds.has(m.id)) continue;
+      const isCompletedOrCancelled = m.status === 'completed' || m.status === 'cancelled';
+      const isUnsupportedSource = !effectiveSource || !effectiveUrl || effectiveSource === 'hentaiturk' || effectiveSource === 'hattorimanga';
+      const isDisabled =
+        m.details?.automationDisabled === true ||
+        Boolean(this.deletedAutomationMangaIds && this.deletedAutomationMangaIds.has(m.id));
 
-      const autoId = deterministicUuid(`automation:${m.id}`);
-      const lastCheck = m.details?.lastDeltaCheckAt || m.updatedAt || now;
-      const lastAddedCount = Number(m.details?.lastAddedChapterCount || 0);
-      const lastStatus = m.details?.lastRunStatus || ((m.chapters || []).length > 0 ? 'success' : 'no_changes');
+      if (isDisabled || (!isAdminOwned && (isCompletedOrCancelled || isUnsupportedSource))) {
+        if (existingAuto?.id && (!isAdminOwned || isDisabled)) {
+          pruneAutomationIds.push(existingAuto.id);
+        }
+        continue;
+      }
+
+      if (!effectiveSource || !effectiveUrl) continue;
+
+      const autoId = existingAuto?.id || deterministicUuid(`automation:${m.id}`);
+      const latestChapterDates = (m.chapters || [])
+        .map((c) => Date.parse(c.releaseDate || c.release_date || ''))
+        .filter((ts) => Number.isFinite(ts));
+      const lastActivityTs =
+        latestChapterDates.length > 0
+          ? Math.max(...latestChapterDates)
+          : Date.parse(m.details?.lastChapterAddedAt || m.updatedAt || m.createdAt || '') || nowMs;
+      const isDormant = nowMs - lastActivityTs > dormantLimitMs;
+
+      const isActive = isAdminOwned
+        ? Boolean(existingAuto.is_active)
+        : m.details?.automationPausedByAdmin === true || m.status === 'hiatus' || isDormant
+        ? false
+        : true;
+
+      const realDeltaCheckAt = m.details?.lastDeltaCheckAt || null;
+      const lastAddedCount = Number(
+        realDeltaCheckAt ? m.details?.lastAddedChapterCount || 0 : existingAuto?.last_added_chapter_count || 0
+      );
+      const lastStatus = realDeltaCheckAt ? m.details?.lastRunStatus || 'no_changes' : 'idle';
 
       automations.push({
         id: autoId,
         automation_type: 'chapter',
         manga_id: m.id,
-        source: locked.source,
-        source_url: locked.url,
-        proxy_provider: 'cloudflare',
-        check_times: ['13:00'],
-        schedule_timezone: 'Europe/Istanbul',
-        is_active: true,
+        source: effectiveSource,
+        source_url: effectiveUrl,
+        proxy_provider: existingAuto?.proxy_provider || 'cloudflare',
+        check_times:
+          Array.isArray(existingAuto?.check_times) && existingAuto.check_times.length > 0
+            ? existingAuto.check_times
+            : ['13:00'],
+        schedule_timezone: existingAuto?.schedule_timezone || 'Europe/Istanbul',
+        is_active: isActive,
         validation_snapshot: {
-          source: locked.source,
+          source: effectiveSource,
           sourceTitle: m.title,
-          normalizedUrl: locked.url,
+          normalizedUrl: effectiveUrl,
           cover: m.cover || null,
           chapterCount: (m.chapters || []).length,
           latestChapterNumber:
             (m.chapters || []).length > 0
               ? Math.max(...m.chapters.map((c) => Number(c.chapterNumber ?? c.number ?? 0)))
               : null,
-          checkedAt: lastCheck,
+          checkedAt: realDeltaCheckAt || m.updatedAt || now,
         },
-        next_run_at: new Date(Date.now() + 2 * 3600 * 1000).toISOString(),
+        next_run_at: isActive ? new Date(nowMs + 2 * 3600 * 1000).toISOString() : null,
         last_run_status: lastStatus,
-        last_run_started_at: lastCheck,
-        last_run_finished_at: lastCheck,
+        last_run_started_at: realDeltaCheckAt,
+        last_run_finished_at: realDeltaCheckAt,
         last_run_error: null,
         last_added_chapter_count: lastAddedCount,
-        created_at: m.createdAt || now,
-        updated_at: lastCheck,
+        created_at: existingAuto?.created_at || m.createdAt || now,
+        updated_at: realDeltaCheckAt || existingAuto?.updated_at || m.updatedAt || now,
       });
 
-      runs.push({
-        id: deterministicUuid(`automation_run:${m.id}`),
-        automation_id: autoId,
-        status: lastStatus === 'idle' ? 'no_changes' : lastStatus,
-        started_at: lastCheck,
-        finished_at: lastCheck,
-        chapters_added: lastAddedCount,
-        source_chapter_count: (m.chapters || []).length,
-        new_chapter_count: lastAddedCount,
-        error_message: null,
-        details: {
-          primarySource: locked.source,
-          mode: 'github_actions_smart_sync',
-        },
-      });
+      if (realDeltaCheckAt) {
+        runs.push({
+          id: deterministicUuid(`automation_run:${m.id}:${realDeltaCheckAt.slice(0, 13)}`),
+          automation_id: autoId,
+          status: lastStatus === 'idle' ? 'no_changes' : lastStatus,
+          started_at: realDeltaCheckAt,
+          finished_at: realDeltaCheckAt,
+          chapters_added: lastAddedCount,
+          source_chapter_count: (m.chapters || []).length,
+          new_chapter_count: lastAddedCount,
+          error_message: null,
+          details: {
+            primarySource: effectiveSource,
+            mode: 'github_actions_smart_sync',
+          },
+        });
+      }
     }
 
-    return { automations, runs };
+    return { automations, runs, pruneAutomationIds };
   }
 
   toSnapshotPayload() {
@@ -2723,7 +2828,7 @@ class SmartCatalogStore {
 
   toTablesPayload() {
     const now = new Date().toISOString();
-    const { automations, runs } = this.buildAutomationsPayload();
+    const { automations, runs, pruneAutomationIds } = this.buildAutomationsPayload();
 
     const sanitizePersonField = (val, fallback = 'Bilinmiyor') => {
       if (!val || typeof val !== 'string') return fallback;
@@ -2885,6 +2990,7 @@ class SmartCatalogStore {
       artist_tags: [],
       chapter_automations: automations,
       chapter_automation_runs: runs,
+      prune_automation_ids: pruneAutomationIds,
     };
   }
 
@@ -3278,13 +3384,52 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
       await syncTableInChunks('manga_authors', tablesPayload.manga_authors, 1500);
       await syncTableInChunks('manga_artists', tablesPayload.manga_artists, 1500);
       await syncTableInChunks('manga_tags', tablesPayload.manga_tags, 1500);
-      await syncTableInChunks('chapter_automations', tablesPayload.chapter_automations, 500, {
-        replace_chapter_automations: true,
-      });
-      await syncTableInChunks('chapter_automation_runs', tablesPayload.chapter_automation_runs, 500);
+
+      const callAutomationBatchRpc = async (payloadChunk) => {
+        for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+            const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/sync_chapter_automations_batch`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                apikey: SUPABASE_ANON_KEY,
+                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+              },
+              body: JSON.stringify({
+                p_admin_token: CATALOG_ADMIN_TOKEN,
+                p_payload: payloadChunk,
+              }),
+              signal: AbortSignal.timeout(60000),
+            });
+            if (!res.ok) {
+              const errText = await res.text().catch(() => '');
+              throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
+            }
+            return await res.json();
+          } catch (err) {
+            if (attempt === 3) throw err;
+            await sleep(1500 * attempt);
+          }
+        }
+      };
+
+      const pruneIds = tablesPayload.prune_automation_ids || [];
+      for (let i = 0; i < pruneIds.length; i += 400) {
+        await callSupabaseRpc({ delete_automation_ids: pruneIds.slice(i, i + 400) });
+      }
+
+      const autoRows = tablesPayload.chapter_automations || [];
+      for (let i = 0; i < autoRows.length; i += 500) {
+        await callAutomationBatchRpc({ chapter_automations: autoRows.slice(i, i + 500) });
+      }
+
+      const runRows = tablesPayload.chapter_automation_runs || [];
+      for (let i = 0; i < runRows.length; i += 500) {
+        await callAutomationBatchRpc({ chapter_automation_runs: runRows.slice(i, i + 500) });
+      }
 
       logInfo(
-        `Supabase ana tablolar senkronize edildi: ${mangasToSync.length} manga, ${tablesPayload.characters.length} karakter, ${tablesPayload.chapter_automations.length} otomasyon.`
+        `Supabase ana tablolar senkronize edildi: ${mangasToSync.length} manga, ${tablesPayload.characters.length} karakter, ${autoRows.length} otomasyon (${pruneIds.length} tamamlanan/silinen temizlendi).`
       );
 
       // Step B: Sync chapters (incremental for touchedMangaIds by default, or full if --full-chapters-sync)
@@ -3374,6 +3519,45 @@ const main = async () => {
     }
   }
 
+  // 1b. Hydrate Admin Panel automation overrides from Supabase so manual edits/pauses are 100% respected
+  if (!SKIP_SUPABASE_SYNC && SUPABASE_URL && SUPABASE_ANON_KEY && CATALOG_ADMIN_TOKEN) {
+    try {
+      const autoRes = await fetch(`${SUPABASE_URL}/rest/v1/rpc/list_chapter_automations_for_sync`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          apikey: SUPABASE_ANON_KEY,
+          Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+        },
+        body: JSON.stringify({ p_admin_token: CATALOG_ADMIN_TOKEN }),
+        signal: AbortSignal.timeout(25000),
+      });
+      if (autoRes.ok) {
+        const autoRows = await autoRes.json();
+        if (Array.isArray(autoRows)) {
+          for (const row of autoRows) {
+            if (!row?.manga_id) continue;
+            if (!store.existingAutomationsByMangaId.has(row.manga_id)) {
+              store.existingAutomationsByMangaId.set(row.manga_id, row);
+            }
+            if ((row.created_by || row.updated_by) && store.mangas.has(row.manga_id)) {
+              const targetManga = store.mangas.get(row.manga_id);
+              if (!targetManga.details) targetManga.details = {};
+              if (row.source && row.source_url) {
+                targetManga.details.primarySource = row.source;
+                targetManga.details.primarySourceUrl = row.source_url;
+              }
+              targetManga.details.automationPausedByAdmin = !row.is_active;
+            }
+          }
+          logInfo(`Supabase otomasyon tablosu yüklendi: ${store.existingAutomationsByMangaId.size} kayıt.`);
+        }
+      }
+    } catch (err) {
+      logWarn(`Supabase otomasyon yükleme uyarısı: ${err.message}`);
+    }
+  }
+
   // ==========================================================================
   // FAZ 1: 4 Ana Kaynakta Vitrin (Son Güncellenenler) Taraması
   // ==========================================================================
@@ -3422,6 +3606,7 @@ const main = async () => {
     logInfo('--- FAZ 2: Akıllı Filtreli Delta Bölüm Kontrolü ---');
     let skippedCompleted = 0;
     let skippedDormant = 0;
+    let skippedPaused = 0;
     let skippedCooldown = 0;
     let skippedUnsupported = 0;
 
@@ -3432,13 +3617,40 @@ const main = async () => {
 
     for (const manga of store.mangas.values()) {
       const isHot = hotUpdatedMangaIds.has(manga.id);
+      const existingAuto = store.existingAutomationsByMangaId.get(manga.id) || null;
+      const isAdminOwned = Boolean(existingAuto && (existingAuto.created_by || existingAuto.updated_by));
 
-      if (manga.status === 'completed' && (manga.chapters || []).length > 0 && !FORCE_DELTA) {
+      if (
+        manga.details?.automationDisabled === true ||
+        (store.deletedAutomationMangaIds && store.deletedAutomationMangaIds.has(manga.id))
+      ) {
+        skippedPaused++;
+        continue;
+      }
+
+      if (
+        !FORCE_DELTA &&
+        (manga.details?.automationPausedByAdmin === true || (isAdminOwned && existingAuto.is_active === false))
+      ) {
+        skippedPaused++;
+        continue;
+      }
+
+      if (
+        (manga.status === 'completed' || manga.status === 'cancelled') &&
+        (manga.chapters || []).length > 0 &&
+        !isAdminOwned &&
+        !FORCE_DELTA
+      ) {
         skippedCompleted++;
         continue;
       }
 
-      const locked = store.getLockedPrimarySource(manga);
+      const rawLocked = store.getLockedPrimarySource(manga);
+      const locked =
+        isAdminOwned && existingAuto.source && existingAuto.source_url
+          ? { source: existingAuto.source, url: existingAuto.source_url }
+          : rawLocked;
       if (!locked || !PRIMARY_SOURCES.includes(locked.source)) {
         skippedUnsupported++;
         continue;
@@ -3456,7 +3668,7 @@ const main = async () => {
           ? Math.max(...latestChapterDates)
           : Date.parse(manga.details?.lastChapterAddedAt || manga.updatedAt || manga.createdAt || '') || nowMs;
 
-      if (!isHot && !FORCE_DELTA && nowMs - lastActivityTs > dormantLimitMs) {
+      if (!isHot && !isAdminOwned && !FORCE_DELTA && (manga.status === 'hiatus' || nowMs - lastActivityTs > dormantLimitMs)) {
         skippedDormant++;
         continue;
       }
@@ -3482,7 +3694,7 @@ const main = async () => {
 
     const targetDeltaList = eligibleForDelta.slice(0, MAX_DELTA_CHECKS);
     logInfo(
-      `Filtreleme Raporu -> Atlanan Tamamlanmış: ${skippedCompleted} | Atlanan >4 Ay İnaktif: ${skippedDormant} | Cooldown: ${skippedCooldown} | Şimdi Kontrol Edilecek: ${targetDeltaList.length}`
+      `Filtreleme Raporu -> Atlanan Tamamlanmış/İptal: ${skippedCompleted} | Atlanan >4 Ay İnaktif: ${skippedDormant} | Duraklatılan: ${skippedPaused} | Cooldown: ${skippedCooldown} | Şimdi Kontrol Edilecek: ${targetDeltaList.length}`
     );
 
     let deltaIdx = 0;
@@ -3505,8 +3717,8 @@ const main = async () => {
         continue;
       }
 
-      if (detail.status === 'completed') {
-        manga.status = 'completed';
+      if (detail.status === 'completed' || detail.status === 'cancelled' || detail.status === 'hiatus') {
+        manga.status = detail.status;
       }
 
       const existingNums = new Set((manga.chapters || []).map((c) => Number(c.chapterNumber ?? c.number ?? 0)));
@@ -3541,7 +3753,7 @@ const main = async () => {
               chapterNumber: Number(ch.chapterNumber),
               title: cleanChapterTitle(ch.title, Number(ch.chapterNumber), manga.title),
               pages,
-              releaseDate: checkTimeIso,
+              releaseDate: ch.releaseDate || ch.release_date || checkTimeIso,
               views: 0,
               _sourceLink: ch.link,
             };

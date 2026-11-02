@@ -22,7 +22,12 @@ import {
 } from '@/lib/offline/types';
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
-import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
+import {
+  getCandidateOfflineProxyUrls,
+  isSupabaseFunctionsProxyUrl,
+  markOfflineProxyRejectedForHost,
+  offlineProxyConfig,
+} from '@/lib/offline/proxyConfig';
 import { buildProxiedImageUrl, isStoredMediaUrl, unwrapManagedMediaUrl } from '@/lib/mediaStorage';
 import { syncChapterTranslationsForOffline } from '@/lib/translation/translationCache';
 import { supabase } from '@/lib/supabase';
@@ -199,7 +204,11 @@ const readStreamToBlob = async (
   onChunk: (delta: number) => void,
 ): Promise<DownloadedPageResult> => {
   if (!response.ok) {
-    throw new Error(`Gorsel indirme basarisiz oldu (${response.status})`);
+    const err = new Error(`Gorsel indirme basarisiz oldu (${response.status})`) as Error & {
+      status?: number;
+    };
+    err.status = response.status;
+    throw err;
   }
 
   const reader = response.body?.getReader();
@@ -304,20 +313,28 @@ const downloadImageDirect = async (
   return readStreamToBlob(response, signal, onChunk);
 };
 
+const isProxyForbiddenError = (error: unknown): boolean => {
+  const status = (error as { status?: number } | null)?.status;
+  if (status === 401 || status === 403) return true;
+  const msg = error instanceof Error ? error.message : String(error);
+  return /\((?:401|403)\)/.test(msg);
+};
+
 const downloadImageViaProxy = async (
   sourceUrl: string,
   signal: AbortSignal,
   onChunk: (delta: number) => void,
   referer?: string,
+  explicitProxyUrl?: string,
 ) => {
-  const proxyUrl = offlineProxyConfig.url;
+  const proxyUrl = explicitProxyUrl || offlineProxyConfig.url;
   if (!proxyUrl) {
     throw new Error('Offline image proxy URL is not configured');
   }
 
   const inferredReferer = inferRefererForImageUrl(sourceUrl, referer);
 
-  if (offlineProxyConfig.usesSupabaseAuth) {
+  if (isSupabaseFunctionsProxyUrl(proxyUrl)) {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       apikey: offlineProxyConfig.supabaseAnonKey,
@@ -346,6 +363,21 @@ const downloadImageViaProxy = async (
   return readStreamToBlob(response, signal, onChunk);
 };
 
+const downloadImageViaCorsRelay = async (
+  sourceUrl: string,
+  signal: AbortSignal,
+  onChunk: (delta: number) => void,
+) => {
+  const relayUrl = `https://wsrv.nl/?url=${encodeURIComponent(sourceUrl)}&output=webp`;
+  const response = await fetch(relayUrl, {
+    method: 'GET',
+    mode: 'cors',
+    credentials: 'omit',
+    signal,
+  });
+  return readStreamToBlob(response, signal, onChunk);
+};
+
 export const downloadPageBlob = async (
   pageUrl: string,
   signal: AbortSignal,
@@ -364,44 +396,49 @@ export const downloadPageBlob = async (
   const inferredReferer = inferRefererForImageUrl(targetUrl, effectiveReferer);
   let lastError: unknown = null;
 
-  for (let attempt = 0; attempt <= 2; attempt += 1) {
+  for (let attempt = 0; attempt <= 1; attempt += 1) {
     if (signal.aborted) {
       throw new DOMException('Iptal edildi', 'AbortError');
     }
 
     if (attempt > 0) {
-      const delayMs = Math.min(1000 * Math.pow(2, attempt - 1), 3000);
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      await new Promise((resolve) => setTimeout(resolve, 900));
       if (signal.aborted) {
         throw new DOMException('Iptal edildi', 'AbortError');
       }
     }
 
-    // 1. Cloudflare Offline Image Proxy POST
-    if (offlineProxyConfig.url) {
+    // 1. Cloudflare Offline Image Proxy POST (tüm aday havuzunu dener; 403 veren worker'ı o host için bellekte devre dışı bırakır)
+    const candidateProxies = getCandidateOfflineProxyUrls(targetUrl);
+    for (const candidateProxyUrl of candidateProxies) {
+      if (signal.aborted) {
+        throw new DOMException('Iptal edildi', 'AbortError');
+      }
       try {
-        return await downloadImageViaProxy(targetUrl, signal, onChunk, inferredReferer);
+        return await downloadImageViaProxy(targetUrl, signal, onChunk, inferredReferer, candidateProxyUrl);
       } catch (proxyError) {
         if (signal.aborted) throw proxyError;
         lastError = proxyError;
-        console.warn(`[OfflineDownload] Proxy POST failed for ${targetUrl} (attempt ${attempt + 1}):`, proxyError);
-      }
-
-      // 2. GET Proxy URL fallback
-      try {
-        const getProxyUrl = buildProxiedImageUrl(targetUrl, inferredReferer);
-        if (getProxyUrl && getProxyUrl !== targetUrl) {
-          const response = await fetch(getProxyUrl, {
-            method: 'GET',
-            signal,
-          });
-          return await readStreamToBlob(response, signal, onChunk);
+        if (isProxyForbiddenError(proxyError)) {
+          markOfflineProxyRejectedForHost(candidateProxyUrl, targetUrl);
+          continue;
         }
-      } catch (getProxyError) {
-        if (signal.aborted) throw getProxyError;
-        lastError = getProxyError;
-        console.warn(`[OfflineDownload] Proxy GET fallback failed for ${targetUrl}:`, getProxyError);
       }
+    }
+
+    // 2. GET Proxy URL fallback (reddedilmeyen worker üzerinden)
+    try {
+      const getProxyUrl = buildProxiedImageUrl(targetUrl, inferredReferer);
+      if (getProxyUrl && getProxyUrl !== targetUrl) {
+        const response = await fetch(getProxyUrl, {
+          method: 'GET',
+          signal,
+        });
+        return await readStreamToBlob(response, signal, onChunk);
+      }
+    } catch (getProxyError) {
+      if (signal.aborted) throw getProxyError;
+      lastError = getProxyError;
     }
 
     // 3. Direct fetch fallback with CORS omit
@@ -410,7 +447,16 @@ export const downloadPageBlob = async (
     } catch (directError) {
       if (signal.aborted) throw directError;
       lastError = directError;
-      console.warn(`[OfflineDownload] Direct fetch fallback failed for ${targetUrl}:`, directError);
+    }
+
+    // 4. Harici yeni CDN domainleri için CORS uyumlu yedek görsel rölesi
+    if (/^https?:\/\//i.test(targetUrl) && !isStoredMediaUrl(targetUrl)) {
+      try {
+        return await downloadImageViaCorsRelay(targetUrl, signal, onChunk);
+      } catch (relayError) {
+        if (signal.aborted) throw relayError;
+        lastError = relayError;
+      }
     }
   }
 

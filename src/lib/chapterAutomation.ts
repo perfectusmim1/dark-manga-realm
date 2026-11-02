@@ -26,20 +26,120 @@ export interface ChapterAutomationUpsertInput {
   isActive: boolean;
 }
 
+const AUTOMATION_PAGE_SIZE = 1000;
+
+const mapAutomationRowToModel = (
+  row: any,
+  latestRun: ChapterAutomationRunSummary | null = null,
+): ChapterAutomation => {
+  const manga = row.manga;
+  return {
+    id: row.id,
+    automationType: 'chapter',
+    mangaId: row.manga_id,
+    mangaTitle: manga?.title || 'Bilinmeyen Seri',
+    mangaCover: manga?.cover || null,
+    source: row.source,
+    sourceUrl: row.source_url,
+    proxyProvider: row.proxy_provider || 'cloudflare',
+    checkTimes: Array.isArray(row.check_times) ? row.check_times : [],
+    scheduleTimezone: row.schedule_timezone || 'Europe/Istanbul',
+    isActive: Boolean(row.is_active),
+    validation: row.validation_snapshot || {
+      source: row.source,
+      sourceTitle: manga?.title || '',
+      normalizedUrl: row.source_url,
+      chapterCount: 0,
+      checkedAt: row.created_at,
+    },
+    nextRunAt: row.next_run_at || null,
+    lastRunStatus: row.last_run_status || 'idle',
+    lastRunStartedAt: row.last_run_started_at || null,
+    lastRunFinishedAt: row.last_run_finished_at || null,
+    lastRunError: row.last_run_error || null,
+    lastAddedChapterCount: Number(row.last_added_chapter_count || 0),
+    lastTestStatus: row.last_test_status || 'idle',
+    lastTestedAt: row.last_tested_at || null,
+    lastTestError: row.last_test_error || null,
+    lastTestDetails: row.last_test_details || {},
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdBy: row.created_by || null,
+    updatedBy: row.updated_by || null,
+    latestRun,
+  };
+};
+
+const getCurrentActorUserId = async (): Promise<string | null> => {
+  try {
+    const { data } = await supabase.auth.getUser();
+    return data.user?.id || null;
+  } catch {
+    return null;
+  }
+};
+
+const patchMangaAutomationDetails = async (
+  mangaId: string,
+  patch: Record<string, unknown>,
+): Promise<void> => {
+  if (!mangaId) return;
+  try {
+    const { data: mangaRow } = await supabase
+      .from('mangas')
+      .select('details')
+      .eq('id', mangaId)
+      .maybeSingle();
+    const existingDetails =
+      mangaRow?.details && typeof mangaRow.details === 'object' ? mangaRow.details : {};
+    await supabase
+      .from('mangas')
+      .update({
+        details: {
+          ...existingDetails,
+          ...patch,
+        },
+      })
+      .eq('id', mangaId);
+  } catch {
+    // Manga detayı güncellenemese bile ana otomasyon işlemi engellenmez
+  }
+};
+
 export const listChapterAutomations = async (): Promise<{
   automations: ChapterAutomation[];
   recentRuns: ChapterAutomationRunSummary[];
 }> => {
-  const { data: autoRows, error: autoErr } = await supabase
-    .from('chapter_automations')
-    .select('*, manga:mangas(id, title, cover)')
-    .order('created_at', { ascending: false });
+  const automationList: any[] = [];
+  const seenIds = new Set<string>();
+  let offset = 0;
 
-  if (autoErr) {
-    throw new Error(autoErr.message || 'CHAPTER_AUTOMATIONS_LIST_FAILED');
+  while (true) {
+    const { data: autoRows, error: autoErr } = await supabase
+      .from('chapter_automations')
+      .select('*, manga:mangas(id, title, cover)')
+      .order('created_at', { ascending: false })
+      .order('id', { ascending: true })
+      .range(offset, offset + AUTOMATION_PAGE_SIZE - 1);
+
+    if (autoErr) {
+      throw new Error(autoErr.message || 'CHAPTER_AUTOMATIONS_LIST_FAILED');
+    }
+
+    const batch = (autoRows || []) as any[];
+    for (const row of batch) {
+      if (row?.id && !seenIds.has(row.id)) {
+        seenIds.add(row.id);
+        automationList.push(row);
+      }
+    }
+
+    if (batch.length < AUTOMATION_PAGE_SIZE) {
+      break;
+    }
+    offset += AUTOMATION_PAGE_SIZE;
   }
 
-  const automationList = (autoRows || []) as any[];
   const autoMap = new Map<string, any>(automationList.map((r) => [r.id, r]));
 
   let recentRuns: ChapterAutomationRunSummary[] = [];
@@ -80,45 +180,9 @@ export const listChapterAutomations = async (): Promise<{
     }
   }
 
-  const automations: ChapterAutomation[] = automationList.map((row) => {
-    const manga = row.manga;
-    const latestRun = latestRunMap.get(row.id) || null;
-    return {
-      id: row.id,
-      automationType: 'chapter',
-      mangaId: row.manga_id,
-      mangaTitle: manga?.title || 'Bilinmeyen Seri',
-      mangaCover: manga?.cover || null,
-      source: row.source,
-      sourceUrl: row.source_url,
-      proxyProvider: row.proxy_provider || 'cloudflare',
-      checkTimes: Array.isArray(row.check_times) ? row.check_times : [],
-      scheduleTimezone: row.schedule_timezone || 'Europe/Istanbul',
-      isActive: Boolean(row.is_active),
-      validation: row.validation_snapshot || {
-        source: row.source,
-        sourceTitle: manga?.title || '',
-        normalizedUrl: row.source_url,
-        chapterCount: 0,
-        checkedAt: row.created_at,
-      },
-      nextRunAt: row.next_run_at || null,
-      lastRunStatus: row.last_run_status || 'idle',
-      lastRunStartedAt: row.last_run_started_at || null,
-      lastRunFinishedAt: row.last_run_finished_at || null,
-      lastRunError: row.last_run_error || null,
-      lastAddedChapterCount: Number(row.last_added_chapter_count || 0),
-      lastTestStatus: row.last_test_status || 'idle',
-      lastTestedAt: row.last_tested_at || null,
-      lastTestError: row.last_test_error || null,
-      lastTestDetails: row.last_test_details || {},
-      createdAt: row.created_at,
-      updatedAt: row.updated_at,
-      createdBy: row.created_by || null,
-      updatedBy: row.updated_by || null,
-      latestRun,
-    };
-  });
+  const automations: ChapterAutomation[] = automationList.map((row) =>
+    mapAutomationRowToModel(row, latestRunMap.get(row.id) || null),
+  );
 
   return { automations, recentRuns };
 };
@@ -316,6 +380,7 @@ export const createChapterAutomation = async (
   payload: ChapterAutomationUpsertInput,
 ): Promise<ChapterAutomation> => {
   const validation = await validateChapterAutomation(payload.source, payload.sourceUrl);
+  const actorUserId = await getCurrentActorUserId();
   const now = new Date().toISOString();
   const id = crypto.randomUUID();
 
@@ -335,12 +400,20 @@ export const createChapterAutomation = async (
     last_test_status: 'idle',
     created_at: now,
     updated_at: now,
+    ...(actorUserId ? { created_by: actorUserId, updated_by: actorUserId } : {}),
   };
 
   const { error } = await supabase.from('chapter_automations').insert(row);
   if (error) {
     throw new Error(error.message || 'CHAPTER_AUTOMATION_CREATE_FAILED');
   }
+
+  await patchMangaAutomationDetails(payload.mangaId, {
+    primarySource: payload.source,
+    primarySourceUrl: validation.normalizedUrl,
+    automationDisabled: false,
+    automationPausedByAdmin: !payload.isActive,
+  });
 
   const manga = await getMangaById(payload.mangaId);
 
@@ -362,6 +435,8 @@ export const createChapterAutomation = async (
     lastTestStatus: 'idle',
     createdAt: now,
     updatedAt: now,
+    createdBy: actorUserId,
+    updatedBy: actorUserId,
     latestRun: null,
   };
 };
@@ -371,6 +446,7 @@ export const updateChapterAutomation = async (
   payload: ChapterAutomationUpsertInput,
 ): Promise<ChapterAutomation> => {
   const validation = await validateChapterAutomation(payload.source, payload.sourceUrl);
+  const actorUserId = await getCurrentActorUserId();
   const now = new Date().toISOString();
 
   const updatePayload = {
@@ -381,6 +457,7 @@ export const updateChapterAutomation = async (
     is_active: payload.isActive,
     validation_snapshot: validation,
     updated_at: now,
+    ...(actorUserId ? { updated_by: actorUserId } : {}),
   };
 
   const { error } = await supabase
@@ -391,6 +468,13 @@ export const updateChapterAutomation = async (
   if (error) {
     throw new Error(error.message || 'CHAPTER_AUTOMATION_UPDATE_FAILED');
   }
+
+  await patchMangaAutomationDetails(payload.mangaId, {
+    primarySource: payload.source,
+    primarySourceUrl: validation.normalizedUrl,
+    automationDisabled: false,
+    automationPausedByAdmin: !payload.isActive,
+  });
 
   const manga = await getMangaById(payload.mangaId);
   const { data: row } = await supabase
@@ -424,19 +508,64 @@ export const updateChapterAutomation = async (
     lastTestDetails: row?.last_test_details || {},
     createdAt: row?.created_at || now,
     updatedAt: now,
+    createdBy: row?.created_by || null,
+    updatedBy: row?.updated_by || actorUserId || null,
     latestRun: null,
   };
 };
 
-export const deleteChapterAutomation = async (automationId: string): Promise<void> => {
-  const { error } = await supabase
-    .from('chapter_automations')
-    .delete()
-    .eq('id', automationId);
+export const deleteChapterAutomationsBulk = async (automationIds: string[]): Promise<void> => {
+  const uniqueIds = Array.from(new Set(automationIds.map((id) => id.trim()).filter(Boolean)));
+  if (uniqueIds.length === 0) return;
 
-  if (error) {
-    throw new Error(error.message || 'CHAPTER_AUTOMATION_DELETE_FAILED');
+  const CHUNK_SIZE = 200;
+  const affectedMangaIds = new Set<string>();
+
+  for (let i = 0; i < uniqueIds.length; i += CHUNK_SIZE) {
+    const chunk = uniqueIds.slice(i, i + CHUNK_SIZE);
+    const { data: targetRows } = await supabase
+      .from('chapter_automations')
+      .select('manga_id')
+      .in('id', chunk);
+
+    for (const r of targetRows || []) {
+      if (r?.manga_id) affectedMangaIds.add(r.manga_id);
+    }
+
+    const { error } = await supabase
+      .from('chapter_automations')
+      .delete()
+      .in('id', chunk);
+
+    if (error) {
+      throw new Error(error.message || 'CHAPTER_AUTOMATION_DELETE_FAILED');
+    }
   }
+
+  const mangaIdList = Array.from(affectedMangaIds);
+  for (let i = 0; i < mangaIdList.length; i += CHUNK_SIZE) {
+    const mangaChunk = mangaIdList.slice(i, i + CHUNK_SIZE);
+    const { data: remainingRows } = await supabase
+      .from('chapter_automations')
+      .select('manga_id')
+      .in('manga_id', mangaChunk);
+    const stillHasAutomation = new Set((remainingRows || []).map((r: any) => r?.manga_id));
+
+    await Promise.all(
+      mangaChunk
+        .filter((mId) => !stillHasAutomation.has(mId))
+        .map((mId) =>
+          patchMangaAutomationDetails(mId, {
+            automationDisabled: true,
+            automationPausedByAdmin: false,
+          }),
+        ),
+    );
+  }
+};
+
+export const deleteChapterAutomation = async (automationId: string): Promise<void> => {
+  await deleteChapterAutomationsBulk([automationId]);
 };
 
 export const clearChapterAutomationRuns = async (): Promise<void> => {
@@ -454,20 +583,56 @@ export const setChapterAutomationActive = async (
   automationId: string,
   isActive: boolean,
 ): Promise<ChapterAutomation> => {
+  const actorUserId = await getCurrentActorUserId();
   const now = new Date().toISOString();
-  const { error } = await supabase
+  const { data: updatedRow, error } = await supabase
     .from('chapter_automations')
-    .update({ is_active: isActive, updated_at: now })
-    .eq('id', automationId);
+    .update({
+      is_active: isActive,
+      updated_at: now,
+      ...(actorUserId ? { updated_by: actorUserId } : {}),
+    })
+    .eq('id', automationId)
+    .select('*, manga:mangas(id, title, cover)')
+    .single();
 
-  if (error) {
-    throw new Error(error.message || 'CHAPTER_AUTOMATION_STATUS_FAILED');
+  if (error || !updatedRow) {
+    throw new Error(error?.message || 'CHAPTER_AUTOMATION_STATUS_FAILED');
   }
 
-  const listRes = await listChapterAutomations();
-  const updated = listRes.automations.find((a) => a.id === automationId);
-  if (!updated) {
-    throw new Error('Automation not found after status update');
+  if (updatedRow.manga_id) {
+    await patchMangaAutomationDetails(updatedRow.manga_id, {
+      automationDisabled: false,
+      automationPausedByAdmin: !isActive,
+    });
   }
-  return updated;
+
+  const { data: latestRunRow } = await supabase
+    .from('chapter_automation_runs')
+    .select('*')
+    .eq('automation_id', automationId)
+    .order('started_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const latestRun: ChapterAutomationRunSummary | null = latestRunRow
+    ? {
+        id: latestRunRow.id,
+        automationId: latestRunRow.automation_id,
+        mangaId: updatedRow.manga_id || '',
+        mangaTitle: updatedRow.manga?.title || 'Bilinmeyen Seri',
+        mangaCover: updatedRow.manga?.cover || null,
+        source: updatedRow.source,
+        status: latestRunRow.status,
+        startedAt: latestRunRow.started_at,
+        finishedAt: latestRunRow.finished_at || null,
+        chaptersAdded: Number(latestRunRow.chapters_added || 0),
+        sourceChapterCount: Number(latestRunRow.source_chapter_count || 0),
+        newChapterCount: Number(latestRunRow.new_chapter_count || 0),
+        errorMessage: latestRunRow.error_message || null,
+        details: latestRunRow.details || {},
+      }
+    : null;
+
+  return mapAutomationRowToModel(updatedRow, latestRun);
 };

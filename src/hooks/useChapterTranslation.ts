@@ -4,7 +4,9 @@ import { ResolvedReaderPage } from '@/lib/types';
 import { PageTranslationState, TranslationBlock } from '@/lib/translation/types';
 import {
   TranslationSettings,
+  getEffectiveApiKeys,
   loadTranslationSettings,
+  normalizeApiKeysList,
   saveTranslationSettings,
 } from '@/lib/translation/translationSettings';
 import {
@@ -22,7 +24,11 @@ import {
   upsertPageTranslation,
 } from '@/lib/translation/translationCache';
 
-const MAX_CONCURRENT_TRANSLATIONS = 2;
+const getMaxConcurrentTranslations = (settings: TranslationSettings): number => {
+  if (!settings.parallelMode) return 1;
+  const keyCount = Math.max(1, getEffectiveApiKeys(settings).length);
+  return Math.min(Math.max(2, keyCount * 2), 6);
+};
 
 export interface TranslationSummary {
   totalPages: number;
@@ -100,7 +106,17 @@ export const useChapterTranslation = ({
 
   const updateSettings = useCallback((patch: Partial<TranslationSettings>) => {
     setSettings((prev) => {
-      const next = { ...prev, ...patch };
+      const next: TranslationSettings = { ...prev, ...patch };
+      if ('apiKeys' in patch && !('apiKey' in patch)) {
+        const normalized = normalizeApiKeysList(patch.apiKeys);
+        next.apiKeys = normalized;
+        next.apiKey = normalized[0] || '';
+      } else if ('apiKey' in patch && !('apiKeys' in patch)) {
+        const normalized = normalizeApiKeysList(undefined, patch.apiKey);
+        next.apiKeys = normalized;
+        next.apiKey = normalized[0] || '';
+      }
+      settingsRef.current = next;
       saveTranslationSettings(next);
       return next;
     });
@@ -216,7 +232,10 @@ export const useChapterTranslation = ({
   }, []);
 
   const runQueue = useCallback(() => {
-    while (runningRef.current < MAX_CONCURRENT_TRANSLATIONS && queueRef.current.length > 0) {
+    while (
+      runningRef.current < getMaxConcurrentTranslations(settingsRef.current) &&
+      queueRef.current.length > 0
+    ) {
       const index = queueRef.current.shift() as number;
       const state = statesRef.current[index];
       if (state && (state.status === 'translating' || state.status === 'done')) continue;
@@ -231,13 +250,17 @@ export const useChapterTranslation = ({
 
       const chapterAtStart = chapterRef.current;
       const langAtStart = settingsRef.current.targetLang;
+      const activeKeys = getEffectiveApiKeys(settingsRef.current);
+      const parallelAtStart = settingsRef.current.parallelMode;
       const signal = abortControllerRef.current.signal;
 
       runningRef.current += 1;
       setPageState(index, { status: 'translating' });
 
       translatePageImage({
-        apiKey: settingsRef.current.apiKey,
+        apiKey: activeKeys[0] || settingsRef.current.apiKey,
+        apiKeys: activeKeys,
+        parallelMode: parallelAtStart,
         imageSrc: src,
         targetLang: langAtStart,
         signal,
@@ -298,8 +321,8 @@ export const useChapterTranslation = ({
       toast.error('Yeni sayfa çevirmek için internet bağlantısı gerekiyor.');
       return false;
     }
-    if (!settingsRef.current.apiKey.trim()) {
-      toast.error('Önce Görsel Çeviri ayarlarından Gemini API anahtarını girin.');
+    if (getEffectiveApiKeys(settingsRef.current).length === 0) {
+      toast.error('Önce Görsel Çeviri ayarlarından en az bir Gemini API anahtarı ekleyin.');
       return false;
     }
     return true;
@@ -458,11 +481,20 @@ export const useChapterTranslation = ({
     setLastFinishedPageNumber(null);
   }, [cancelTranslation]);
 
+  const effectiveKeyCount = getEffectiveApiKeys(settings).length;
+
+  // Paralel mod açıldığında veya yeni anahtar eklendiğinde bekleyen kuyruğu yeni eşzamanlılık sınırı ile besle.
+  useEffect(() => {
+    if (queueRef.current.length > 0) {
+      runQueue();
+    }
+  }, [settings.parallelMode, effectiveKeyCount, runQueue]);
+
   // Otomatik çeviri: önbellek yüklendikten sonra çevrilmemiş sayfaları aktif sayfadan başlayarak kuyruğa alır.
   useEffect(() => {
     if (
       !settings.autoTranslate ||
-      !settings.apiKey.trim() ||
+      effectiveKeyCount === 0 ||
       !networkEnabled ||
       !cacheReady ||
       !chapterId ||
@@ -487,7 +519,7 @@ export const useChapterTranslation = ({
     enqueueIndices(additions);
   }, [
     settings.autoTranslate,
-    settings.apiKey,
+    effectiveKeyCount,
     settings.targetLang,
     networkEnabled,
     cacheReady,
