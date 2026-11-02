@@ -1175,7 +1175,7 @@ const buildReadingHistoryEntriesFromRows = async (
                 .from('chapters')
                 .select('id, title')
                 .in('id', chapterIds),
-            timeoutMs: 5000,
+            timeoutMs: 15000,
             timeoutMessage: 'Reading history chapter title fetch timeout',
             shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
         });

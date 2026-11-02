@@ -1434,7 +1434,7 @@ export const getAllMangas = async (
 
         const pendingRequest = runWithSupabaseBootstrapRetry({
             run: fetchManga,
-            timeoutMs: 9000,
+            timeoutMs: 25000,
             timeoutMessage: 'Manga fetch timeout',
             shouldRetryResult: (result) => Array.isArray(result) && result.length === 0,
         });
@@ -1548,7 +1548,7 @@ export const getMangaSummaries = async (
 
         const pendingRequest = runWithSupabaseBootstrapRetry({
             run: fetchSummaries,
-            timeoutMs: 9000,
+            timeoutMs: 25000,
             timeoutMessage: 'Manga summary fetch timeout',
             shouldRetryResult: (result) => Array.isArray(result) && result.length === 0,
         });
@@ -1816,7 +1816,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
 
         const pendingRequest = runWithSupabaseBootstrapRetry({
             run: fetchSections,
-            timeoutMs: 9000,
+            timeoutMs: 20000,
             timeoutMessage: 'Homepage manga fetch timeout',
             shouldRetryResult: (result) => !hasHomePageSectionData(result),
         });
@@ -6088,7 +6088,7 @@ const buildMangaSummariesForRows = async (
     const hasPrecomputedChapters = visibleRows.every(
         (row: any) => Array.isArray(row?.latest_chapters) || typeof row?.chapter_count === 'number',
     );
-    const shouldFetchEntityRelations = mangaIds.length <= 36;
+    const shouldFetchEntityRelations = Boolean((options as any)?.includeEntityRelations);
 
     const [
         { data: reviewRows, error: reviewError },

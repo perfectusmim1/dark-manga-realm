@@ -39,6 +39,7 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
+  cleanPlaceholderNamedEntityString,
   getChapterPagesByIds,
   getMangaById,
   getMangaChapters,
@@ -948,19 +949,31 @@ const MangaDetail: React.FC = () => {
     'Diğer',
   ];
   const descriptionPreviewLimit = 185;
+  const cleanDescriptionText = (text?: string | null): string => {
+    if (!text) return '';
+    return text
+      .replace(/<br\s*\/?>/gi, '\n')
+      .replace(/<\/p>/gi, '\n\n')
+      .replace(/<[^>]+>/g, '')
+      .replace(/&nbsp;/gi, ' ')
+      .replace(/&quot;/gi, '"')
+      .replace(/&apos;/gi, "'")
+      .replace(/&amp;/gi, '&')
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+  };
+  const cleanedDescription = React.useMemo(() => cleanDescriptionText(manga?.description), [manga?.description]);
   const descriptionPreview = React.useMemo(() => {
-    const rawDescription = manga?.description?.trim() || '';
-
-    if (rawDescription.length <= descriptionPreviewLimit) {
-      return rawDescription;
+    if (cleanedDescription.length <= descriptionPreviewLimit) {
+      return cleanedDescription;
     }
 
-    const sliced = rawDescription.slice(0, descriptionPreviewLimit);
+    const sliced = cleanedDescription.slice(0, descriptionPreviewLimit);
     const lastSpaceIndex = sliced.lastIndexOf(' ');
 
     return `${(lastSpaceIndex > 120 ? sliced.slice(0, lastSpaceIndex) : sliced).trimEnd()}...`;
-  }, [manga?.description]);
-  const shouldShowDescriptionToggle = Boolean(manga?.description && descriptionPreview !== manga.description.trim());
+  }, [cleanedDescription]);
+  const shouldShowDescriptionToggle = Boolean(cleanedDescription && descriptionPreview !== cleanedDescription);
   const alternativeTitlesText = React.useMemo(() => (
     manga?.alternativeTitles?.filter(Boolean).join(', ').trim() || ''
   ), [manga?.alternativeTitles]);
@@ -2692,16 +2705,20 @@ const MangaDetail: React.FC = () => {
                 <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
                   <div className="flex flex-wrap items-center gap-2">
                     {(() => {
-                      const authorItems = manga.authorsDetails?.length
+                      const authorItems = (manga.authorsDetails?.length
                         ? manga.authorsDetails
                         : manga.authorDetails
                           ? [manga.authorDetails]
-                          : [];
-                      const artistItems = manga.artistsDetails?.length
+                          : []
+                      ).filter((item) => cleanPlaceholderNamedEntityString(item?.name));
+                      const artistItems = (manga.artistsDetails?.length
                         ? manga.artistsDetails
                         : manga.artistDetails
                           ? [manga.artistDetails]
-                          : [];
+                          : []
+                      ).filter((item) => cleanPlaceholderNamedEntityString(item?.name));
+                      const displayAuthor = cleanPlaceholderNamedEntityString(manga.author);
+                      const displayArtist = cleanPlaceholderNamedEntityString(manga.artist);
 
                       return (
                         <>
@@ -2716,11 +2733,11 @@ const MangaDetail: React.FC = () => {
                                 </React.Fragment>
                               ))}
                             </div>
-                          ) : (
-                            <span>{manga.author}</span>
-                          )}
+                          ) : displayAuthor ? (
+                            <span>{displayAuthor}</span>
+                          ) : null}
 
-                          {artistItems.length > 0 || manga.artist ? (
+                          {displayAuthor && (artistItems.length > 0 || displayArtist) ? (
                             <span className="mx-1">•</span>
                           ) : null}
 
@@ -2735,8 +2752,8 @@ const MangaDetail: React.FC = () => {
                                 </React.Fragment>
                               ))}
                             </div>
-                          ) : manga.artist ? (
-                            <span>{manga.artist}</span>
+                          ) : displayArtist ? (
+                            <span>{displayArtist}</span>
                           ) : null}
                         </>
                       );
@@ -2788,13 +2805,13 @@ const MangaDetail: React.FC = () => {
                     type="button"
                     onClick={() => shouldShowDescriptionToggle && setIsDescriptionExpanded((previous) => !previous)}
                     className={cn(
-                      'w-full text-left text-base leading-relaxed text-foreground/80 transition-colors sm:text-[1.0625rem]',
+                      'w-full text-left text-base leading-relaxed text-foreground/80 transition-colors sm:text-[1.0625rem] whitespace-pre-line',
                       shouldShowDescriptionToggle && 'cursor-pointer hover:text-foreground/90',
                     )}
                     aria-expanded={isDescriptionExpanded}
                     title={shouldShowDescriptionToggle ? 'Seri özetini göster/gizle' : undefined}
                   >
-                    {shouldShowDescriptionToggle && !isDescriptionExpanded ? descriptionPreview : manga.description}
+                    {shouldShowDescriptionToggle && !isDescriptionExpanded ? descriptionPreview : cleanedDescription}
                   </button>
                   {shouldShowDescriptionToggle && (
                     <Button
