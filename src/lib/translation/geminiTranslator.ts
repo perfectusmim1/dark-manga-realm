@@ -94,6 +94,25 @@ const isRateLimitError = (error: unknown) => {
   return message.includes('429') || message.includes('resource_exhausted') || message.includes('quota');
 };
 
+const VOCAL_FILLER_REGEX = /^(a+h+|o+h+|u+h+|u+g+h+|a+a+h+|o+o+h+|n+g+h+|m+m+h*|h+m+m*|h+a+a*|h+e+h+|t+s+k+|p+f+f+|e+h+|h+a+h+|a+r+g+h+|o+o+f+|g+a+s+p|s+i+g+h|w+o+w|h+u+h+|y+a+h+|k+y+a+h*|g+k+h*|u+r+k)[!?.~*^_\-\s]*$/i;
+const SFX_WRAP_REGEX = /^[*({\[][^\n*)}\]]+[*)}\]][!?.~*^_\-\s]*$/;
+const PURE_PUNCT_REGEX = /^[\s.,!?:;\-_~*^'"/\\()[\]{}]+$/;
+const CREDITS_REGEX = /^(çizer|yazar|editör|editor|çeviri|artist|author|typesetter|scanlation|fansub|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|ep(isode)?\.?\s*\d+|vol(ume)?\.?\s*\d+)\b/i;
+const HANGUL_ONLY_REGEX = /^[\uAC00-\uD7AF\s.,!?:;\-_~*^'"()]+$/;
+
+// Ses efektlerini (SFX), inlemeleri (ah/oh/uh/ugh vb.), jenerik/çizer/yazar/editör bilgilerini ve anlamsız gürültüleri eler.
+export const shouldSkipBlock = (text: string): boolean => {
+  const t = text.trim();
+  if (t.length <= 1) return true;
+  if (PURE_PUNCT_REGEX.test(t)) return true;
+  if (VOCAL_FILLER_REGEX.test(t)) return true;
+  if (SFX_WRAP_REGEX.test(t)) return true;
+  if (CREDITS_REGEX.test(t)) return true;
+  if (HANGUL_ONLY_REGEX.test(t)) return true;
+  if (/(https?:\/\/|\.com|\.net|\.org|\.club|\.me|\.online)\b/i.test(t)) return true;
+  return false;
+};
+
 const parseBlocks = (raw: string): TranslationBlock[] => {
   let parsed: { blocks?: unknown };
   try {
@@ -110,6 +129,10 @@ const parseBlocks = (raw: string): TranslationBlock[] => {
     if (!Array.isArray(rawBox) || rawBox.length !== 4 || typeof text !== 'string' || !text.trim()) {
       return;
     }
+    const cleanText = text.trim();
+    if (shouldSkipBlock(cleanText)) {
+      return;
+    }
     const box = rawBox.map(Number);
     if (box.some((value) => !Number.isFinite(value) || value < 0 || value > 1000)) {
       return;
@@ -122,7 +145,7 @@ const parseBlocks = (raw: string): TranslationBlock[] => {
     if (ymax - ymin < 8 || xmax - xmin < 8) {
       return;
     }
-    result.push({ box: [ymin, xmin, ymax, xmax], text: text.trim() });
+    result.push({ box: [ymin, xmin, ymax, xmax], text: cleanText });
   });
   return result;
 };
@@ -221,12 +244,15 @@ const computeIoU = (
 };
 
 const buildPrompt = (targetLang: string) => [
-  'You are a professional comic/manga/webtoon translator.',
-  'Detect speech bubbles and caption/narration boxes in this comic page image slice.',
-  `Translate each dialogue and narration into natural ${getLanguageName(targetLang)} (ISO 639-1 code: "${targetLang}").`,
+  'You are an expert manga/webtoon translator and typesetter.',
+  'Detect ONLY genuine dialogue speech bubbles and character story narration boxes in this image slice.',
+  `Translate each dialogue and narration into natural, clean ${getLanguageName(targetLang)} (ISO 639-1 code: "${targetLang}").`,
   'For box_2d: return [ymin, xmin, ymax, xmax] normalized to 0-1000 covering strictly the text area inside the bubble.',
-  'Translate the FULL meaning of each sentence naturally and conversationally. Keep proper nouns and character names intact.',
-  'Skip watermarks, logos, website URLs, and raw sound effects (SFX) that do not contain character dialogue.',
+  'CRITICAL EXCLUSION & FILTERING RULES:',
+  '1. DO NOT translate or output blocks for sound effects (SFX), onomatopoeia, screams, moans, gasps, groans, sighing, or vocal filler utterances (e.g. "ah", "oh", "uh", "ugh", "ughhh", "ahhh", "haaa", "ngh", "mm", "gasp", "sigh", "*thump*", "*step*", "부스슥", "쿵", "쾅"). SKIP THEM ENTIRELY.',
+  '2. DO NOT translate or output metadata, credits, or titles: series titles, author names, artist names, editor/typesetter names, scanlation team credits, chapter numbers, website URLs, or watermarks. SKIP THEM ENTIRELY.',
+  '3. STRICT PROPER NOUN / CHARACTER NAME RULE: Character names and personal names MUST remain in their exact original form (e.g. "Seo-jun", "Elena", "Jack", "Eunwoo", "Yeon-woo"). NEVER localize, alter, or translate personal names into Turkish literal dictionary words.',
+  '4. Translate full dialogue sentences naturally and conversationally.',
   'Return ONLY valid JSON matching the schema.',
 ].join(' ');
 
@@ -307,10 +333,12 @@ export const translatePageImage = async ({
   if (fullHeight <= 1600) {
     const { data, mimeType } = canvasToBase64(fullCanvas);
     const rawBlocks = await callGeminiVision(ai, data, mimeType, targetLang);
-    return rawBlocks.map((block) => ({
-      ...block,
-      ...sampleBlockColors(fullCtx, block.box, fullWidth, fullHeight),
-    }));
+    return rawBlocks
+      .filter((block) => !shouldSkipBlock(block.text))
+      .map((block) => ({
+        ...block,
+        ...sampleBlockColors(fullCtx, block.box, fullWidth, fullHeight),
+      }));
   }
 
   // Uzun webtoon şeritleri (height > 1600): aspect-ratio bozulmasını önlemek için
