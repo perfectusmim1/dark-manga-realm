@@ -23,7 +23,8 @@ import {
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { compressOfflineImage } from '@/lib/offline/imageCompression';
 import { offlineProxyConfig } from '@/lib/offline/proxyConfig';
-import { buildProxiedImageUrl, isStoredMediaUrl } from '@/lib/mediaStorage';
+import { buildProxiedImageUrl, isStoredMediaUrl, unwrapManagedMediaUrl } from '@/lib/mediaStorage';
+import { syncChapterTranslationsForOffline } from '@/lib/translation/translationCache';
 import { supabase } from '@/lib/supabase';
 
 const PAGE_DOWNLOAD_CONCURRENCY = 3;
@@ -274,6 +275,9 @@ export const inferRefererForImageUrl = (imageUrl: string, fallbackReferer?: stri
     if (host === 'uploads.mangadex.org' || host.endsWith('.mangadex.org')) {
       return 'https://mangadex.org/';
     }
+    if (host === 'mangadass.com' || host.endsWith('.mangadass.com')) {
+      return 'https://mangadass.com/';
+    }
 
     if (fallbackReferer?.trim()) {
       return fallbackReferer.trim();
@@ -348,7 +352,16 @@ export const downloadPageBlob = async (
   onChunk: (delta: number) => void = () => {},
   referer?: string,
 ): Promise<DownloadedPageResult> => {
-  const inferredReferer = inferRefererForImageUrl(pageUrl, referer);
+  let effectiveReferer = referer;
+  if (!effectiveReferer && pageUrl.includes('referer=')) {
+    try {
+      effectiveReferer = new URL(pageUrl).searchParams.get('referer') || undefined;
+    } catch {
+      // Yoksay
+    }
+  }
+  const targetUrl = unwrapManagedMediaUrl(pageUrl) || pageUrl;
+  const inferredReferer = inferRefererForImageUrl(targetUrl, effectiveReferer);
   let lastError: unknown = null;
 
   for (let attempt = 0; attempt <= 2; attempt += 1) {
@@ -367,17 +380,17 @@ export const downloadPageBlob = async (
     // 1. Cloudflare Offline Image Proxy POST
     if (offlineProxyConfig.url) {
       try {
-        return await downloadImageViaProxy(pageUrl, signal, onChunk, inferredReferer);
+        return await downloadImageViaProxy(targetUrl, signal, onChunk, inferredReferer);
       } catch (proxyError) {
         if (signal.aborted) throw proxyError;
         lastError = proxyError;
-        console.warn(`[OfflineDownload] Proxy POST failed for ${pageUrl} (attempt ${attempt + 1}):`, proxyError);
+        console.warn(`[OfflineDownload] Proxy POST failed for ${targetUrl} (attempt ${attempt + 1}):`, proxyError);
       }
 
       // 2. GET Proxy URL fallback
       try {
-        const getProxyUrl = buildProxiedImageUrl(pageUrl, inferredReferer);
-        if (getProxyUrl && getProxyUrl !== pageUrl) {
+        const getProxyUrl = buildProxiedImageUrl(targetUrl, inferredReferer);
+        if (getProxyUrl && getProxyUrl !== targetUrl) {
           const response = await fetch(getProxyUrl, {
             method: 'GET',
             signal,
@@ -387,21 +400,21 @@ export const downloadPageBlob = async (
       } catch (getProxyError) {
         if (signal.aborted) throw getProxyError;
         lastError = getProxyError;
-        console.warn(`[OfflineDownload] Proxy GET fallback failed for ${pageUrl}:`, getProxyError);
+        console.warn(`[OfflineDownload] Proxy GET fallback failed for ${targetUrl}:`, getProxyError);
       }
     }
 
     // 3. Direct fetch fallback with CORS omit
     try {
-      return await downloadImageDirect(pageUrl, signal, onChunk);
+      return await downloadImageDirect(targetUrl, signal, onChunk);
     } catch (directError) {
       if (signal.aborted) throw directError;
       lastError = directError;
-      console.warn(`[OfflineDownload] Direct fetch fallback failed for ${pageUrl}:`, directError);
+      console.warn(`[OfflineDownload] Direct fetch fallback failed for ${targetUrl}:`, directError);
     }
   }
 
-  throw lastError || new Error(`Görsel indirilemedi: ${pageUrl}`);
+  throw lastError || new Error(`Görsel indirilemedi: ${targetUrl}`);
 };
 
 const downloadChapterPageImage = async (
@@ -459,6 +472,7 @@ class OfflineDownloadManager {
     await ensureAuthenticatedDownloadAccess();
     await cacheOfflineManga(manga);
     const offlineChapter = await cacheOfflineChapterMetadata(manga.id, chapter, 'queued');
+    void syncChapterTranslationsForOffline(chapter.id);
 
     if (offlineChapter.downloadStatus === 'completed') {
       return null;
@@ -939,6 +953,7 @@ class OfflineDownloadManager {
 
     if (currentChapter) {
       chapterState.set(currentChapter.chapterId, currentChapter);
+      void syncChapterTranslationsForOffline(currentChapter.chapterId);
     }
 
     job = buildJobStateFromChapters(job, Array.from(chapterState.values()), {

@@ -18,7 +18,10 @@ import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff } from 'lucide-react'
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
+import TranslationStatusPill from '@/components/reader/TranslationStatusPill';
 import { useChapterTranslation } from '@/hooks/useChapterTranslation';
+import { offlineDownloadManager } from '@/lib/offline/downloadManager';
+import { syncChapterTranslationsForOffline } from '@/lib/translation/translationCache';
 import PageCommentRail from '@/components/reader/PageCommentRail';
 import PageCommentModal from '@/components/reader/PageCommentModal';
 import CommentSection from '@/components/comments/CommentSection';
@@ -1310,6 +1313,44 @@ const Reader: React.FC = () => {
     }
   }, [chapter, chapterId, currentPage, isOnlineNow, manga, mangaId, resolvedPages, user]);
 
+  const handleQueueCurrentChapterOffline = useCallback(async () => {
+    if (!manga || !chapter) return;
+    if (!user) {
+      toast.error('Çevrimdışı kütüphaneye kaydetmek için giriş yapmalısınız.');
+      return;
+    }
+    if (!canUseNetworkReaderFeatures) {
+      toast.error('Çevrimdışı kaydetmek için internet bağlantısı gerekiyor.');
+      return;
+    }
+
+    const remotePageUrls =
+      chapter.pages && chapter.pages.length > 0
+        ? chapter.pages
+        : resolvedPages.filter((p) => p.source === 'remote').map((p) => p.src);
+
+    if (remotePageUrls.length === 0) {
+      toast.error('Bu bölümün sayfa adresleri henüz hazır değil.');
+      return;
+    }
+
+    try {
+      const job = await offlineDownloadManager.queueChapterDownload(manga, {
+        ...chapter,
+        pages: remotePageUrls,
+        pageCount: remotePageUrls.length,
+      });
+      await syncChapterTranslationsForOffline(chapter.id, translation.settings.targetLang);
+      toast.success(
+        job
+          ? 'Bölüm ve çevirileri İndirilenler kuyruğuna eklendi.'
+          : 'Bölüm zaten indirilmiş; çeviriler çevrimdışı önbellekle eşitlendi.',
+      );
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : 'Çevrimdışı kaydetme başarısız oldu.');
+    }
+  }, [canUseNetworkReaderFeatures, chapter, manga, resolvedPages, translation.settings.targetLang, user]);
+
   const toggleControls = useCallback(() => {
     setControlsVisible(prev => !prev);
   }, []);
@@ -1437,14 +1478,15 @@ const Reader: React.FC = () => {
         mangaTitle={manga.title}
         currentChapter={chapter}
         chapters={manga.chapters}
+        pages={resolvedPages}
         settings={settings}
         onSettingsChange={handleSettingsChange}
         onAddBookmark={handleAddBookmark}
         currentPage={currentPage}
         totalPages={totalPageCount}
         visible={controlsVisible}
-        translationSettings={translation.settings}
-        onTranslationSettingsChange={translation.updateSettings}
+        translation={translation}
+        onQueueOfflineChapter={handleQueueCurrentChapterOffline}
         onPageChange={scrollToPage}
         isIncognito={isIncognito}
         onIncognitoToggle={toggleIncognito}
@@ -1499,20 +1541,38 @@ const Reader: React.FC = () => {
         </div>
       </div>
 
-      {/* Scroll controls */}
+      {/* Sağ alt çeviri durumu ve yukarı çıkma kontrolü (tek yığında, çakışmasız) */}
       <div
-        className={`fixed right-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 6rem)' }}
+        className="pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2.5 transition-[bottom] duration-300"
+        style={{
+          bottom: controlsVisible
+            ? 'calc(env(safe-area-inset-bottom) + 6rem)'
+            : 'calc(env(safe-area-inset-bottom) + 1.25rem)',
+        }}
       >
-        <Button 
-          variant="secondary" 
-          size="icon" 
-          className="rounded-full shadow-lg h-10 w-10 opacity-70 hover:opacity-100 pointer-events-auto transition-opacity border border-border bg-background/80 backdrop-blur-md"
-          onClick={(e) => { e.stopPropagation(); scrollToTop(); }}
-          title="En Üste Git"
+        <TranslationStatusPill
+          summary={translation.summary}
+          onCancel={translation.cancelTranslation}
+          onRetry={translation.retryFailedPages}
+          onDismiss={translation.dismissStatusFeedback}
+        />
+
+        <div
+          className={`transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'pointer-events-none h-0 overflow-hidden opacity-0'}`}
         >
-          <ArrowUpToLine className="h-5 w-5" />
-        </Button>
+          <Button
+            variant="secondary"
+            size="icon"
+            className="pointer-events-auto h-10 w-10 rounded-full border border-border bg-background/80 opacity-70 shadow-lg backdrop-blur-md transition-opacity hover:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation();
+              scrollToTop();
+            }}
+            title="En Üste Git"
+          >
+            <ArrowUpToLine className="h-5 w-5" />
+          </Button>
+        </div>
       </div>
 
       <div

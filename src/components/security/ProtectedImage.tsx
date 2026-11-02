@@ -143,6 +143,11 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
         >
             {useFallback ? (
                 <img
+                    ref={(el) => {
+                        if (el && el.complete && el.naturalWidth > 0 && !isMediaReady) {
+                            setIsMediaReady(true);
+                        }
+                    }}
                     src={currentSrc}
                     alt={alt}
                     className="w-full h-auto block select-none pointer-events-none"
@@ -174,7 +179,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
                 style={{ pointerEvents: 'auto' }}
             />
 
-            {overlay}
+            {isMediaReady ? overlay : null}
         </div>
     );
 };

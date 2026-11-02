@@ -176,6 +176,70 @@
     backface-visibility: hidden;
     transform: translateZ(0);
   }
+
+  .tp-progress {
+    appearance: none;
+    border: 0 solid;
+    overflow: clip;
+    container-type: inline-size;
+    --progress-bar-radius: 1e5px;
+    --progress-bar-track: hsl(var(--secondary));
+    --progress-bar-fill: hsl(var(--primary));
+    --progress-bar-indeterminate-size: 32%;
+    --progress-bar-indeterminate-animation-duration: 1.4s;
+    border-radius: var(--progress-bar-radius);
+    background: var(--progress-bar-track);
+    box-shadow: inset 0 1px 2px rgb(0 0 0 / 0.25);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .tp-progress {
+      --progress-bar-indeterminate-animation-duration: 10s;
+    }
+  }
+
+  .tp-progress:indeterminate {
+    --progress-bar-animation: var(
+      --progress-bar-indeterminate-animation,
+      tp-progress-indeterminate var(--progress-bar-indeterminate-animation-duration) infinite linear
+    );
+  }
+
+  .tp-progress:dir(rtl) {
+    --progress-bar-indeterminate-animation: tp-progress-indeterminate var(--progress-bar-indeterminate-animation-duration) infinite linear reverse;
+  }
+
+  .tp-progress::-webkit-progress-bar {
+    background: transparent;
+  }
+
+  .tp-progress::-webkit-progress-value {
+    background: var(--progress-bar-fill);
+    border-radius: var(--progress-bar-radius);
+    transition: inline-size 0.25s ease-out;
+    animation: var(--progress-bar-animation, revert-rule);
+  }
+
+  .tp-progress::-moz-progress-bar {
+    background: var(--progress-bar-fill);
+    border-radius: var(--progress-bar-radius);
+    transition: inline-size 0.25s ease-out;
+    animation: var(--progress-bar-animation, revert-rule);
+  }
+}
+
+@keyframes tp-progress-indeterminate {
+  from,
+  to {
+    inline-size: var(--progress-bar-indeterminate-size);
+    margin-right: auto;
+  }
+  from {
+    translate: -100%;
+  }
+  to {
+    translate: 100cqi;
+  }
 }
 
 @layer utilities {
@@ -276,5 +340,32 @@
 
   .stagger-5 {
     animation-delay: 0.5s;
+  }
+
+  .reader-scroll-thin {
+    --scrollbar-thumb: hsl(var(--muted-foreground) / 0.35);
+    --scrollbar-track: transparent;
+    scrollbar-width: thin;
+    scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+  }
+
+  .reader-scroll-thin:hover {
+    --scrollbar-thumb: hsl(var(--primary) / 0.55);
+  }
+
+  @supports not (scrollbar-color: auto) {
+    .reader-scroll-thin::-webkit-scrollbar {
+      width: 6px;
+      height: 6px;
+    }
+
+    .reader-scroll-thin::-webkit-scrollbar-thumb {
+      background: var(--scrollbar-thumb);
+      border-radius: 9999px;
+    }
+
+    .reader-scroll-thin::-webkit-scrollbar-track {
+      background: var(--scrollbar-track);
+    }
   }
 }

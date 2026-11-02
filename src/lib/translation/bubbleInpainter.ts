@@ -80,7 +80,7 @@ const measureWordWidth = (
   return word.length * fontPx * 0.61;
 };
 
-const simulateWrappedLines = (
+export const simulateWrappedLines = (
   ctx: CanvasRenderingContext2D | null,
   text: string,
   maxWidthPx: number,

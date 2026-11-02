@@ -38,13 +38,14 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
     && pageOverlayShown,
   );
 
-  const overlayNode = translation && translation.enabled ? (
+  const overlayNode = translation ? (
     <>
-      {showOverlay && state?.blocks && (
+      {showOverlay && state?.blocks && state.blocks.length > 0 && (
         <TranslationOverlay blocks={state.blocks} targetLang={translation.settings.targetLang} />
       )}
       <PageTranslateButton
         state={state}
+        canRequestTranslation={translation.enabled}
         showIdleButton={!translation.settings.autoTranslate}
         overlayShown={translation.settings.overlayVisible && pageOverlayShown}
         onTranslate={() => translation.translatePage(index)}
@@ -52,11 +53,7 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
         onToggleOverlay={() => setPageOverlayShown((prev) => !prev)}
       />
     </>
-  ) : (
-    showOverlay && state?.blocks ? (
-      <TranslationOverlay blocks={state.blocks} targetLang={translation?.settings.targetLang} />
-    ) : undefined
-  );
+  ) : undefined;
 
   return (
     <div

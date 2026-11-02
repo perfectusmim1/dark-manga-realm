@@ -42,13 +42,14 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
     setPageOverlayShown(true);
   }, [currentPage]);
 
-  const translationOverlayNode = translation && translation.enabled ? (
+  const translationOverlayNode = translation ? (
     <>
-      {showTranslationOverlay && translationState?.blocks && (
-        <TranslationOverlay blocks={translationState.blocks} targetLang={translation?.settings.targetLang} />
+      {showTranslationOverlay && translationState?.blocks && translationState.blocks.length > 0 && (
+        <TranslationOverlay blocks={translationState.blocks} targetLang={translation.settings.targetLang} />
       )}
       <PageTranslateButton
         state={translationState}
+        canRequestTranslation={translation.enabled}
         showIdleButton={!translation.settings.autoTranslate}
         overlayShown={translation.settings.overlayVisible && pageOverlayShown}
         onTranslate={() => translation.translatePage(pageIndex)}
@@ -56,11 +57,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
         onToggleOverlay={() => setPageOverlayShown((prev) => !prev)}
       />
     </>
-  ) : (
-    showTranslationOverlay && translationState?.blocks
-      ? <TranslationOverlay blocks={translationState.blocks} targetLang={translation?.settings.targetLang} />
-      : undefined
-  );
+  ) : undefined;
 
   useEffect(() => {
     const handleResize = () => setIsMobileViewport(window.innerWidth < 640);

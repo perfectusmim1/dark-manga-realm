@@ -1,4 +1,4 @@
-import React, { useCallback, useDeferredValue, useMemo, useState } from 'react';
+import React, { useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import {
   ChevronLeft,
@@ -17,8 +17,12 @@ import {
   Languages,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { ReaderSettings, Chapter } from '@/lib/types';
-import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
+import { ReaderSettings, Chapter, ResolvedReaderPage } from '@/lib/types';
+import {
+  formatChapterDisplayTitle,
+  formatChapterNumberLabel,
+  sanitizeChapterTitle,
+} from '@/lib/chapterTitle';
 import { Input } from '@/components/ui/input';
 import {
   Popover,
@@ -40,7 +44,7 @@ import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollResto
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import TranslationPanel from '@/components/reader/TranslationPanel';
-import { TranslationSettings } from '@/lib/translation/translationSettings';
+import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
 
 const READER_TOP_SAFE_AREA = 'calc(env(safe-area-inset-top) + 0px)';
 const READER_BOTTOM_SAFE_AREA = 'calc(env(safe-area-inset-bottom) + 0px)';
@@ -50,6 +54,7 @@ interface ReaderControlsProps {
   mangaTitle: string;
   currentChapter: Chapter;
   chapters: Chapter[];
+  pages: ResolvedReaderPage[];
   settings: ReaderSettings;
   onSettingsChange: (settings: ReaderSettings) => void;
   onAddBookmark: () => void;
@@ -68,19 +73,19 @@ interface ReaderControlsProps {
   isOnline?: boolean;
   forceOfflineRead?: boolean;
   onBeforeChapterChange?: (chapter?: Chapter) => Promise<void> | void;
-  translationSettings: TranslationSettings;
-  onTranslationSettingsChange: (patch: Partial<TranslationSettings>) => void;
+  translation: ReaderTranslationApi;
+  onQueueOfflineChapter?: () => Promise<void>;
 }
 
-const normalizeChapterSearchValue = (value?: string | null) => (
-  value?.trim().toLocaleLowerCase('tr-TR') || ''
-);
+const normalizeChapterSearchValue = (value?: string | null) =>
+  value?.trim().toLocaleLowerCase('tr-TR') || '';
 
 const ReaderControls: React.FC<ReaderControlsProps> = ({
   mangaId,
   mangaTitle,
   currentChapter,
   chapters,
+  pages,
   settings,
   onSettingsChange,
   onAddBookmark,
@@ -99,12 +104,12 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   isOnline = true,
   forceOfflineRead = false,
   onBeforeChapterChange,
-  translationSettings,
-  onTranslationSettingsChange,
+  translation,
+  onQueueOfflineChapter,
 }) => {
   const navigate = useNavigate();
   const { isMobile } = useDeviceProfile();
-  const currentIndex = chapters.findIndex(ch => ch.id === currentChapter.id);
+  const currentIndex = chapters.findIndex((ch) => ch.id === currentChapter.id);
   const prevChapter = chapters[currentIndex + 1];
   const nextChapter = chapters[currentIndex - 1];
 
@@ -112,6 +117,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const [navigatingChapterId, setNavigatingChapterId] = useState<string | null>(null);
   const [chapterSearch, setChapterSearch] = useState('');
   const [chapterPanelOpen, setChapterPanelOpen] = useState(false);
+  const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
+  const activeChapterItemRef = useRef<HTMLButtonElement | null>(null);
+
   const seriesRouteKey = buildRouteKey(`/manga/${mangaId}`);
   const deferredChapterSearch = useDeferredValue(normalizeChapterSearchValue(chapterSearch));
 
@@ -124,72 +132,91 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
     return chapterItems.filter((chapterItem) => {
       const searchTarget = normalizeChapterSearchValue(
-        `${chapterItem.number} ${chapterItem.title || ''} ${formatChapterDisplayTitle(chapterItem.number, chapterItem.title)}`
+        `${chapterItem.number} ${chapterItem.title || ''} ${formatChapterDisplayTitle(chapterItem.number, chapterItem.title)}`,
       );
       return searchTarget.includes(deferredChapterSearch);
     });
   }, [chapterItems, deferredChapterSearch]);
 
-  const handleBarClick = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    e.stopPropagation();
-    const bar = e.currentTarget;
-    const rect = bar.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const ratio = Math.max(0, Math.min(1, x / rect.width));
-    const page = Math.round(ratio * (totalPages - 1)) + 1;
-    onPageChange?.(Math.max(1, Math.min(totalPages, page)), false);
-  }, [totalPages, onPageChange]);
+  useEffect(() => {
+    if (!chapterPanelOpen) return;
+    const frameId = window.requestAnimationFrame(() => {
+      activeChapterItemRef.current?.scrollIntoView({ block: 'nearest' });
+    });
+    return () => window.cancelAnimationFrame(frameId);
+  }, [chapterPanelOpen]);
 
-  const handleBarHover = useCallback((e: React.MouseEvent<HTMLDivElement>) => {
-    const bar = e.currentTarget;
-    const rect = bar.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const ratio = Math.max(0, Math.min(1, x / rect.width));
-    const page = Math.round(ratio * (totalPages - 1)) + 1;
-    setHoverPage(Math.max(1, Math.min(totalPages, page)));
-  }, [totalPages]);
+  const handleBarClick = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      e.stopPropagation();
+      const bar = e.currentTarget;
+      const rect = bar.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const ratio = Math.max(0, Math.min(1, x / rect.width));
+      const page = Math.round(ratio * (totalPages - 1)) + 1;
+      onPageChange?.(Math.max(1, Math.min(totalPages, page)), false);
+    },
+    [totalPages, onPageChange],
+  );
+
+  const handleBarHover = useCallback(
+    (e: React.MouseEvent<HTMLDivElement>) => {
+      const bar = e.currentTarget;
+      const rect = bar.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const ratio = Math.max(0, Math.min(1, x / rect.width));
+      const page = Math.round(ratio * (totalPages - 1)) + 1;
+      setHoverPage(Math.max(1, Math.min(totalPages, page)));
+    },
+    [totalPages],
+  );
 
   const handleBarLeave = useCallback(() => {
     setHoverPage(null);
   }, []);
 
-  const handleChapterNavigation = useCallback(async (chapter?: Chapter) => {
-    if (!chapter || navigatingChapterId) {
-      return;
-    }
-
-    setNavigatingChapterId(chapter.id);
-
-    try {
-      await onBeforeChapterChange?.(chapter);
-      setChapterPanelOpen(false);
-      const nextParams = new URLSearchParams();
-      nextParams.set('page', '1');
-      if (forceOfflineRead) {
-        nextParams.set('offline', '1');
+  const handleChapterNavigation = useCallback(
+    async (chapter?: Chapter) => {
+      if (!chapter || navigatingChapterId) {
+        return;
       }
-      navigate(`/manga/${mangaId}/chapter/${chapter.id}?${nextParams.toString()}`);
-    } finally {
-      setNavigatingChapterId(null);
-    }
-  }, [forceOfflineRead, mangaId, navigate, navigatingChapterId, onBeforeChapterChange]);
+
+      setNavigatingChapterId(chapter.id);
+
+      try {
+        await onBeforeChapterChange?.(chapter);
+        setChapterPanelOpen(false);
+        const nextParams = new URLSearchParams();
+        nextParams.set('page', '1');
+        if (forceOfflineRead) {
+          nextParams.set('offline', '1');
+        }
+        navigate(`/manga/${mangaId}/chapter/${chapter.id}?${nextParams.toString()}`);
+      } finally {
+        setNavigatingChapterId(null);
+      }
+    },
+    [forceOfflineRead, mangaId, navigate, navigatingChapterId, onBeforeChapterChange],
+  );
 
   const handleSeriesPageNavigation = useCallback(() => {
     markRouteToForceTopOnNextVisit(seriesRouteKey);
   }, [seriesRouteKey]);
 
   const chapterPanelContent = (
-    <div className="space-y-3">
-      <div className="flex items-center justify-between gap-3">
-        <div className="min-w-0">
-          <h4 className="text-sm font-semibold sm:text-base">Bölümler</h4>
-          <p className="text-[11px] text-muted-foreground sm:text-xs">
-            {filteredChapters.length} bölüm
-          </p>
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <h4 className="text-sm font-semibold tracking-tight text-foreground sm:text-base">
+            Bölümler
+          </h4>
+          <span className="rounded-md bg-secondary/80 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
+            {filteredChapters.length}
+          </span>
         </div>
         {isOfflineChapter && (
-          <span className="rounded-full border border-border bg-secondary/80 px-2 py-1 text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-            Offline
+          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+            Çevrimdışı
           </span>
         )}
       </div>
@@ -201,53 +228,77 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           value={chapterSearch}
           onChange={(event) => setChapterSearch(event.target.value)}
           placeholder="Bölüm ara..."
-          className="h-9 rounded-xl border-border/70 bg-background/70 pl-9 text-sm"
+          className="h-9 rounded-xl border-border/60 bg-secondary/50 pl-9 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:bg-secondary/80 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
         />
       </div>
 
       <div
         className={cn(
-          'overflow-y-auto pr-1',
-          isMobile ? 'max-h-[min(58svh,25rem)] space-y-2' : 'max-h-[min(60vh,28rem)] space-y-2.5'
+          'reader-scroll-thin overflow-y-auto pr-1 space-y-1.5',
+          isMobile ? 'max-h-[min(56svh,24rem)]' : 'max-h-[min(58vh,26rem)]',
         )}
       >
         {filteredChapters.map((ch) => {
           const isCurrentChapter = ch.id === currentChapter.id;
+          const chapterLabel = `Bölüm ${formatChapterNumberLabel(ch.number)}`;
+          const subtitle = sanitizeChapterTitle(ch.number, ch.title);
+          const knownPageCount = ch.pageCount || ch.pages?.length || 0;
+
           return (
             <button
               key={ch.id}
+              ref={isCurrentChapter ? activeChapterItemRef : undefined}
               type="button"
               onClick={() => void handleChapterNavigation(ch)}
               disabled={navigatingChapterId === ch.id}
               className={cn(
-                'w-full rounded-2xl border px-3 text-left shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] transition-all duration-200',
-                isMobile ? 'py-2.5' : 'py-3',
+                'group flex w-full items-center justify-between gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:border-primary/60 focus-visible:ring-1 focus-visible:ring-primary/30',
                 isCurrentChapter
-                  ? 'border-emerald-500/35 bg-emerald-500/[0.12] text-foreground shadow-[0_0_0_1px_rgba(16,185,129,0.12),0_10px_30px_rgba(6,95,70,0.16)]'
-                  : 'border-border/60 bg-card/60 text-foreground hover:border-border hover:bg-card/85',
-                navigatingChapterId === ch.id && 'opacity-60'
+                  ? 'border-primary/45 bg-primary/[0.11] text-foreground shadow-[0_0_20px_hsl(var(--primary)/0.12)]'
+                  : 'border-border/50 bg-secondary/35 text-foreground/90 hover:border-primary/30 hover:bg-secondary/65 hover:text-foreground',
+                navigatingChapterId === ch.id && 'opacity-60',
               )}
             >
-              <div className="flex items-center justify-between gap-3">
-                <div className="min-w-0">
-                  <p className={cn(
-                    'truncate font-semibold',
-                    isMobile ? 'text-[0.95rem]' : 'text-sm',
-                    isCurrentChapter && 'text-emerald-50'
-                  )}>
-                    {formatChapterDisplayTitle(ch.number, ch.title)}
-                  </p>
-                  <p className={cn(
-                    'mt-1 text-[11px] text-muted-foreground',
-                    isCurrentChapter && 'text-emerald-100/75'
-                  )}>
-                    Bölüm {ch.number}
-                  </p>
-                </div>
+              <div className="flex min-w-0 items-center gap-2.5">
                 {isCurrentChapter && (
-                  <span className="rounded-full border border-emerald-400/20 bg-emerald-500/15 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-emerald-100">
-                    Aktif
+                  <span
+                    aria-hidden="true"
+                    className="h-4 w-1 shrink-0 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary)/0.85)]"
+                  />
+                )}
+                <div className="min-w-0">
+                  <p
+                    className={cn(
+                      'truncate text-sm font-semibold leading-snug',
+                      isCurrentChapter
+                        ? 'text-primary'
+                        : 'text-foreground group-hover:text-foreground',
+                    )}
+                  >
+                    {chapterLabel}
+                  </p>
+                  {subtitle && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitle}</p>
+                  )}
+                </div>
+              </div>
+
+              <div className="flex shrink-0 items-center gap-2">
+                {knownPageCount > 0 && (
+                  <span
+                    className={cn(
+                      'text-[11px] tabular-nums',
+                      isCurrentChapter ? 'text-primary/80' : 'text-muted-foreground',
+                    )}
+                  >
+                    {knownPageCount} s.
                   </span>
+                )}
+                {isCurrentChapter && (
+                  <span
+                    aria-hidden="true"
+                    className="h-2 w-2 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary))]"
+                  />
                 )}
               </div>
             </button>
@@ -255,13 +306,28 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         })}
 
         {filteredChapters.length === 0 && (
-          <div className="rounded-2xl border border-dashed border-border/70 px-4 py-6 text-center text-sm text-muted-foreground">
+          <div className="rounded-xl border border-dashed border-border/70 px-4 py-6 text-center text-xs text-muted-foreground">
             Eşleşen bölüm bulunamadı.
           </div>
         )}
       </div>
     </div>
   );
+
+  const translationPanelBody = (
+    <TranslationPanel
+      chapterId={currentChapter.id}
+      mangaTitle={mangaTitle}
+      chapterNumber={currentChapter.number}
+      pages={pages}
+      translation={translation}
+      isOnline={isOnline}
+      isOfflineMode={forceOfflineRead}
+      onQueueOfflineChapter={onQueueOfflineChapter}
+    />
+  );
+
+  const hasTranslationDot = translation.summary.isBusy || translation.hasTranslatedPages;
 
   return (
     <>
@@ -272,16 +338,28 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div
-          className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-2 py-2 sm:h-14 sm:gap-4 sm:px-4 sm:py-0"
-        >
+        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-2 py-2 sm:h-14 sm:gap-4 sm:px-4 sm:py-0">
           <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
-            <Button asChild variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" title="Ana Sayfa" aria-label="Ana sayfaya git">
+            <Button
+              asChild
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-10 sm:w-10"
+              title="Ana Sayfa"
+              aria-label="Ana sayfaya git"
+            >
               <Link to="/">
                 <Home className="h-4 w-4 sm:h-5 sm:w-5" />
               </Link>
             </Button>
-            <Button asChild variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" title="Seri Sayfası" aria-label="Seri sayfasına git">
+            <Button
+              asChild
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-10 sm:w-10"
+              title="Seri Sayfası"
+              aria-label="Seri sayfasına git"
+            >
               <Link to={`/manga/${mangaId}`} onClick={handleSeriesPageNavigation}>
                 <BookOpen className="h-4 w-4 sm:h-5 sm:w-5" />
               </Link>
@@ -297,7 +375,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           </div>
 
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" onClick={onAddBookmark} title="Yer İmlerime Ekle">
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 sm:h-10 sm:w-10"
+              onClick={onAddBookmark}
+              title="Yer İmlerime Ekle"
+            >
               <BookmarkPlus className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
 
@@ -311,7 +395,15 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 autoFocus={false}
               >
                 <DrawerTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" aria-label="Bölüm listesini aç">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'h-8 w-8 sm:h-10 sm:w-10',
+                      chapterPanelOpen && 'bg-primary/15 text-primary',
+                    )}
+                    aria-label="Bölüm listesini aç"
+                  >
                     <List className="h-4 w-4 sm:h-5 sm:w-5" />
                   </Button>
                 </DrawerTrigger>
@@ -325,51 +417,139 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   onInteractOutside={() => {
                     setChapterPanelOpen(false);
                   }}
-                  className="max-h-[min(74svh,33rem)] rounded-t-[1.75rem] border-border/70 bg-background px-0 shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                  className="max-h-[min(74svh,33rem)] rounded-t-[1.75rem] border-border/70 bg-popover px-0 shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                 >
-                  <DrawerHeader className="px-4 pb-2 pt-2 text-left">
+                  <DrawerHeader className="px-4 pb-1 pt-2 text-left">
                     <DrawerTitle className="sr-only">Bölümler</DrawerTitle>
                     <DrawerDescription className="sr-only">
                       Okumak istediğiniz bölümü seçin.
                     </DrawerDescription>
                   </DrawerHeader>
-                  <div className="px-4 pb-2">
-                    {chapterPanelContent}
-                  </div>
+                  <div className="px-4 pb-2">{chapterPanelContent}</div>
                 </DrawerContent>
               </Drawer>
             ) : (
               <Popover open={chapterPanelOpen} onOpenChange={setChapterPanelOpen}>
                 <PopoverTrigger asChild>
-                  <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" aria-label="Bölüm listesini aç">
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'h-8 w-8 sm:h-10 sm:w-10',
+                      chapterPanelOpen && 'bg-primary/15 text-primary',
+                    )}
+                    aria-label="Bölüm listesini aç"
+                  >
                     <List className="h-4 w-4 sm:h-5 sm:w-5" />
                   </Button>
                 </PopoverTrigger>
-                <PopoverContent align="end" className="w-[min(24rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:p-4">
+                <PopoverContent
+                  align="end"
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  className="w-[min(22.5rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:p-3.5"
+                >
                   {chapterPanelContent}
+                </PopoverContent>
+              </Popover>
+            )}
+
+            {isMobile ? (
+              <Drawer
+                open={translationPanelOpen}
+                onOpenChange={setTranslationPanelOpen}
+                modal
+                dismissible
+                shouldScaleBackground={false}
+                autoFocus={false}
+              >
+                <DrawerTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'relative h-8 w-8 sm:h-10 sm:w-10',
+                      (translationPanelOpen || translation.summary.isBusy) && 'text-primary',
+                    )}
+                    aria-label="Görsel çeviri ayarları"
+                  >
+                    <Languages className="h-4 w-4 sm:h-5 sm:w-5" />
+                    {hasTranslationDot && (
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]',
+                          translation.summary.isBusy && 'animate-pulse',
+                        )}
+                      />
+                    )}
+                  </Button>
+                </DrawerTrigger>
+                <DrawerContent
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  onPointerDownOutside={() => setTranslationPanelOpen(false)}
+                  onInteractOutside={() => setTranslationPanelOpen(false)}
+                  className="max-h-[min(82svh,38rem)] rounded-t-[1.75rem] border-border/70 bg-popover px-0 shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                >
+                  <DrawerHeader className="px-4 pb-2 pt-2 text-left">
+                    <DrawerTitle className="text-base font-semibold">Görsel Çeviri</DrawerTitle>
+                    <DrawerDescription className="sr-only">
+                      Görsel çeviri, dil ve önbellek ayarları.
+                    </DrawerDescription>
+                  </DrawerHeader>
+                  <div className="reader-scroll-thin overflow-y-auto px-4 pb-3">
+                    {translationPanelBody}
+                  </div>
+                </DrawerContent>
+              </Drawer>
+            ) : (
+              <Popover open={translationPanelOpen} onOpenChange={setTranslationPanelOpen}>
+                <PopoverTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className={cn(
+                      'relative h-8 w-8 sm:h-10 sm:w-10',
+                      translationPanelOpen && 'bg-primary/15 text-primary',
+                      !translationPanelOpen && translation.summary.isBusy && 'text-primary',
+                    )}
+                    aria-label="Görsel çeviri ayarları"
+                  >
+                    <Languages className="h-4 w-4 sm:h-5 sm:w-5" />
+                    {hasTranslationDot && (
+                      <span
+                        aria-hidden="true"
+                        className={cn(
+                          'absolute right-2 top-2 h-2 w-2 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]',
+                          translation.summary.isBusy && 'animate-pulse',
+                        )}
+                      />
+                    )}
+                  </Button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  onOpenAutoFocus={(event) => event.preventDefault()}
+                  className="reader-scroll-thin max-h-[min(80vh,38rem)] w-[min(21.5rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:p-4"
+                >
+                  <h4 className="mb-3 text-sm font-semibold tracking-tight sm:text-base">
+                    Görsel Çeviri
+                  </h4>
+                  {translationPanelBody}
                 </PopoverContent>
               </Popover>
             )}
 
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" aria-label="Çeviri ayarları">
-                  <Languages className="h-4 w-4 sm:h-5 sm:w-5" />
-                </Button>
-              </PopoverTrigger>
-              <PopoverContent align="end" className="w-[min(20rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:w-80 sm:p-4">
-                <h4 className="mb-3 text-sm font-semibold sm:mb-4 sm:text-base">Görsel Çeviri</h4>
-                <TranslationPanel settings={translationSettings} onChange={onTranslationSettingsChange} />
-              </PopoverContent>
-            </Popover>
-
-            <Popover>
-              <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10">
+                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" aria-label="Okuyucu ayarları">
                   <Settings className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
               </PopoverTrigger>
-              <PopoverContent align="end" className="w-[min(20rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:w-72 sm:p-4">
+              <PopoverContent
+                align="end"
+                onOpenAutoFocus={(event) => event.preventDefault()}
+                className="w-[min(20rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:w-72 sm:p-4"
+              >
                 <h4 className="mb-3 text-sm font-semibold sm:mb-4 sm:text-base">Okuyucu Ayarları</h4>
                 <div className="flex flex-col gap-3 sm:gap-4">
                   <div className="flex items-center justify-between">
@@ -435,10 +615,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                           Okuma verileri kaydedilmez.
                         </p>
                       </div>
-                      <Switch
-                        checked={isIncognito}
-                        onCheckedChange={onIncognitoToggle}
-                      />
+                      <Switch checked={isIncognito} onCheckedChange={onIncognitoToggle} />
                     </div>
                   )}
                   <div className="flex items-center justify-between gap-4">
@@ -453,14 +630,18 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     </div>
                     <Switch
                       checked={settings.showPageComments}
-                      onCheckedChange={(checked) => onSettingsChange({ ...settings, showPageComments: checked })}
+                      onCheckedChange={(checked) =>
+                        onSettingsChange({ ...settings, showPageComments: checked })
+                      }
                     />
                   </div>
                   <div className="flex items-center justify-between gap-4">
                     <Label className="text-sm">Sonraki Bölümü Önbelleğe Al</Label>
                     <Switch
                       checked={settings.prefetchNextChapter}
-                      onCheckedChange={(checked) => onSettingsChange({ ...settings, prefetchNextChapter: checked })}
+                      onCheckedChange={(checked) =>
+                        onSettingsChange({ ...settings, prefetchNextChapter: checked })
+                      }
                     />
                   </div>
                 </div>
@@ -477,9 +658,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div
-          className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-2 sm:gap-4 sm:px-4"
-        >
+        <div className="mx-auto flex h-14 w-full max-w-7xl items-center justify-between gap-3 px-2 sm:gap-4 sm:px-4">
           <Button
             variant="ghost"
             disabled={!prevChapter || navigatingChapterId !== null}
@@ -551,9 +730,17 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     size="icon"
                     className="h-7 w-7 rounded-full"
                     onClick={onAutoScrollToggle}
-                    title={isAutoScrolling ? 'Otomatik kaydırmayı duraklat' : 'Otomatik kaydırmayı başlat'}
+                    title={
+                      isAutoScrolling
+                        ? 'Otomatik kaydırmayı duraklat'
+                        : 'Otomatik kaydırmayı başlat'
+                    }
                   >
-                    {isAutoScrolling ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                    {isAutoScrolling ? (
+                      <Pause className="h-3.5 w-3.5" />
+                    ) : (
+                      <Play className="h-3.5 w-3.5" />
+                    )}
                   </Button>
 
                   <Popover>
@@ -594,7 +781,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                           <Slider
                             value={[autoScrollSpeed]}
                             min={10}
-                        max={500}
+                            max={500}
                             step={5}
                             onValueChange={([val]) => onAutoScrollSpeedChange(val)}
                           />

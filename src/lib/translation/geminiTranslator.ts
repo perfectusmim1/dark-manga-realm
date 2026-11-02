@@ -1,6 +1,6 @@
 import { GoogleGenAI, Type, ThinkingLevel } from '@google/genai';
-import { defaultOfflineImageProxyUrl } from '@/lib/offline/proxyConfig';
-import { isStoredMediaUrl } from '@/lib/mediaStorage';
+import { downloadPageBlob } from '@/lib/offline/downloadManager';
+import { isStoredMediaUrl, unwrapManagedMediaUrl } from '@/lib/mediaStorage';
 import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
@@ -30,39 +30,63 @@ const RESPONSE_SCHEMA = {
   required: ['blocks'],
 };
 
-const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
-
-const fetchImageBlobViaProxy = async (src: string): Promise<Blob> => {
-  const response = await fetch(defaultOfflineImageProxyUrl, {
-    method: 'POST',
-    body: src,
+const sleep = (ms: number, signal?: AbortSignal) =>
+  new Promise<void>((resolve, reject) => {
+    if (signal?.aborted) {
+      reject(new DOMException('İptal edildi', 'AbortError'));
+      return;
+    }
+    const timer = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+    const onAbort = () => {
+      clearTimeout(timer);
+      reject(new DOMException('İptal edildi', 'AbortError'));
+    };
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
-  if (!response.ok) {
-    throw new Error(`Görsel proxy hatası (${response.status})`);
-  }
-  return response.blob();
-};
 
-const fetchImageBlob = async (src: string): Promise<Blob> => {
+export const fetchTranslatableImageBlob = async (
+  src: string,
+  signal?: AbortSignal,
+): Promise<Blob> => {
+  if (signal?.aborted) {
+    throw new DOMException('İptal edildi', 'AbortError');
+  }
+
   if (src.startsWith('blob:') || src.startsWith('data:')) {
-    const response = await fetch(src);
+    const response = await fetch(src, { signal });
+    if (!response.ok) throw new Error('Yerel görsel okunamadı');
     return response.blob();
   }
 
-  const isSameOrigin = typeof window !== 'undefined' && src.startsWith(window.location.origin);
-  if (isSameOrigin || isStoredMediaUrl(src)) {
+  const unwrapped = unwrapManagedMediaUrl(src) || src;
+  const isSameOrigin = typeof window !== 'undefined' && unwrapped.startsWith(window.location.origin);
+  if (isSameOrigin || isStoredMediaUrl(unwrapped)) {
     try {
-      const direct = await fetch(src);
+      const direct = await fetch(unwrapped, { signal });
       if (direct.ok) return await direct.blob();
-    } catch {
-      // Doğrudan istek başarısızsa proxy'ye geç
+    } catch (err) {
+      if (signal?.aborted) throw err;
     }
   }
 
-  return fetchImageBlobViaProxy(src);
+  const controller = new AbortController();
+  const forwardAbort = () => controller.abort();
+  if (signal) {
+    if (signal.aborted) controller.abort();
+    else signal.addEventListener('abort', forwardAbort, { once: true });
+  }
+  try {
+    const result = await downloadPageBlob(src, controller.signal);
+    return result.blob;
+  } finally {
+    signal?.removeEventListener('abort', forwardAbort);
+  }
 };
 
-const loadImageElement = (blob: Blob): Promise<HTMLImageElement> =>
+export const loadImageElementFromBlob = (blob: Blob): Promise<HTMLImageElement> =>
   new Promise((resolve, reject) => {
     const img = new Image();
     const url = URL.createObjectURL(blob);
@@ -89,6 +113,35 @@ const canvasToBase64 = (canvas: HTMLCanvasElement): { data: string; mimeType: st
 const isRateLimitError = (error: unknown) => {
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   return message.includes('429') || message.includes('resource_exhausted') || message.includes('quota');
+};
+
+export const isAbortTranslationError = (error: unknown): boolean =>
+  (error instanceof DOMException && error.name === 'AbortError') ||
+  (error instanceof Error && error.name === 'AbortError');
+
+const isFatalAuthOrKeyError = (error: unknown): boolean => {
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    message.includes('api_key_invalid') ||
+    message.includes('api key not valid') ||
+    message.includes('permission_denied') ||
+    message.includes('unauthenticated') ||
+    message.includes('invalid api key')
+  );
+};
+
+export const classifyTranslationError = (error: unknown): string => {
+  if (isFatalAuthOrKeyError(error)) {
+    return 'Gemini API anahtarı geçersiz veya yetkisiz.';
+  }
+  if (isRateLimitError(error)) {
+    return 'Gemini kota sınırı doldu (429). Biraz bekleyip tekrar deneyin.';
+  }
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (message.includes('görsel') || message.includes('failed to fetch') || message.includes('network')) {
+    return 'Sayfa görseli alınamadı. Bağlantınızı kontrol edin.';
+  }
+  return 'Çeviri tamamlanamadı. Tekrar deneyin.';
 };
 
 const VOCAL_TOKEN_REGEX =
@@ -219,11 +272,15 @@ const callGeminiVision = async (
   data: string,
   mimeType: string,
   targetLang: string,
+  signal?: AbortSignal,
 ): Promise<TranslationBlock[]> => {
   const prompt = buildPrompt(targetLang);
   let lastError: unknown;
 
   for (let attempt = 0; attempt <= RETRY_DELAYS_MS.length; attempt += 1) {
+    if (signal?.aborted) {
+      throw new DOMException('İptal edildi', 'AbortError');
+    }
     try {
       const response = await ai.models.generateContent({
         model: MODEL,
@@ -231,6 +288,7 @@ const callGeminiVision = async (
           thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
           responseMimeType: 'application/json',
           responseSchema: RESPONSE_SCHEMA,
+          abortSignal: signal,
         },
         contents: [
           {
@@ -244,9 +302,12 @@ const callGeminiVision = async (
       });
       return parseBlocks(response.text ?? '', targetLang);
     } catch (error) {
+      if (isAbortTranslationError(error) || signal?.aborted) {
+        throw new DOMException('İptal edildi', 'AbortError');
+      }
       lastError = error;
       if (isRateLimitError(error) && attempt < RETRY_DELAYS_MS.length) {
-        await sleep(RETRY_DELAYS_MS[attempt]);
+        await sleep(RETRY_DELAYS_MS[attempt], signal);
         continue;
       }
       throw error;
@@ -259,18 +320,23 @@ interface TranslatePageOptions {
   apiKey: string;
   imageSrc: string;
   targetLang: string;
+  signal?: AbortSignal;
 }
 
 export const translatePageImage = async ({
   apiKey,
   imageSrc,
   targetLang,
+  signal,
 }: TranslatePageOptions): Promise<TranslationBlock[]> => {
   const [blob] = await Promise.all([
-    fetchImageBlob(imageSrc),
+    fetchTranslatableImageBlob(imageSrc, signal),
     ensureScanlationFontReady(),
   ]);
-  const img = await loadImageElement(blob);
+  if (signal?.aborted) {
+    throw new DOMException('İptal edildi', 'AbortError');
+  }
+  const img = await loadImageElementFromBlob(blob);
   const fullWidth = img.naturalWidth || img.width;
   const fullHeight = img.naturalHeight || img.height;
 
@@ -292,7 +358,7 @@ export const translatePageImage = async ({
   // Kısa/standart sayfalar (height <= 1600): tek seferde işle
   if (fullHeight <= 1600) {
     const { data, mimeType } = canvasToBase64(fullCanvas);
-    const rawBlocks = await callGeminiVision(ai, data, mimeType, targetLang);
+    const rawBlocks = await callGeminiVision(ai, data, mimeType, targetLang, signal);
     return rawBlocks
       .sort((a, b) => a.box[0] - b.box[0])
       .map((block) => inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, block, targetLang))
@@ -327,19 +393,34 @@ export const translatePageImage = async ({
   });
 
   const sliceResults: Array<{ y: number; h: number; blocks: TranslationBlock[] }> = [];
+  let succeededSlices = 0;
+  let firstSliceError: unknown = null;
+
   for (let i = 0; i < slicePayloads.length; i += SLICE_CONCURRENCY) {
+    if (signal?.aborted) {
+      throw new DOMException('İptal edildi', 'AbortError');
+    }
     const batch = slicePayloads.slice(i, i + SLICE_CONCURRENCY);
     const batchOut = await Promise.all(
       batch.map(async (s) => {
         try {
-          const blocks = await callGeminiVision(ai, s.data, s.mimeType, targetLang);
+          const blocks = await callGeminiVision(ai, s.data, s.mimeType, targetLang, signal);
+          succeededSlices += 1;
           return { y: s.y, h: s.h, blocks };
-        } catch {
+        } catch (err) {
+          if (isAbortTranslationError(err) || signal?.aborted || isFatalAuthOrKeyError(err)) {
+            throw err;
+          }
+          if (!firstSliceError) firstSliceError = err;
           return { y: s.y, h: s.h, blocks: [] };
         }
       }),
     );
     sliceResults.push(...batchOut);
+  }
+
+  if (succeededSlices === 0 && firstSliceError) {
+    throw firstSliceError;
   }
 
   const mergedCandidates: CandidateBlock[] = [];

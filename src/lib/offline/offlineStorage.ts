@@ -61,38 +61,43 @@ interface OfflineDbSchema extends DBSchema {
   };
 }
 
-const dbPromise = openDB<OfflineDbSchema>(OFFLINE_DB_NAME, OFFLINE_DB_VERSION, {
-  upgrade(db) {
-    if (!db.objectStoreNames.contains('mangas')) {
-      db.createObjectStore('mangas', { keyPath: 'mangaId' });
-    }
+let dbPromise: ReturnType<typeof openDB<OfflineDbSchema>> | null = null;
 
-    if (!db.objectStoreNames.contains('chapters')) {
-      const chaptersStore = db.createObjectStore('chapters', { keyPath: 'chapterId' });
-      chaptersStore.createIndex('by-mangaId', 'mangaId');
-      chaptersStore.createIndex('by-status', 'downloadStatus');
-    }
+const getDb = () => {
+  if (!dbPromise) {
+    dbPromise = openDB<OfflineDbSchema>(OFFLINE_DB_NAME, OFFLINE_DB_VERSION, {
+      upgrade(db) {
+        if (!db.objectStoreNames.contains('mangas')) {
+          db.createObjectStore('mangas', { keyPath: 'mangaId' });
+        }
 
-    if (!db.objectStoreNames.contains('pages')) {
-      const pagesStore = db.createObjectStore('pages', { keyPath: 'id' });
-      pagesStore.createIndex('by-chapterId', 'chapterId');
-      pagesStore.createIndex('by-mangaId', 'mangaId');
-    }
+        if (!db.objectStoreNames.contains('chapters')) {
+          const chaptersStore = db.createObjectStore('chapters', { keyPath: 'chapterId' });
+          chaptersStore.createIndex('by-mangaId', 'mangaId');
+          chaptersStore.createIndex('by-status', 'downloadStatus');
+        }
 
-    if (!db.objectStoreNames.contains('jobs')) {
-      const jobsStore = db.createObjectStore('jobs', { keyPath: 'id' });
-      jobsStore.createIndex('by-status', 'status');
-      jobsStore.createIndex('by-mangaId', 'mangaId');
-    }
+        if (!db.objectStoreNames.contains('pages')) {
+          const pagesStore = db.createObjectStore('pages', { keyPath: 'id' });
+          pagesStore.createIndex('by-chapterId', 'chapterId');
+          pagesStore.createIndex('by-mangaId', 'mangaId');
+        }
 
-    if (!db.objectStoreNames.contains('pendingSync')) {
-      const syncStore = db.createObjectStore('pendingSync', { keyPath: 'id' });
-      syncStore.createIndex('by-type', 'type');
-    }
-  },
-});
+        if (!db.objectStoreNames.contains('jobs')) {
+          const jobsStore = db.createObjectStore('jobs', { keyPath: 'id' });
+          jobsStore.createIndex('by-status', 'status');
+          jobsStore.createIndex('by-mangaId', 'mangaId');
+        }
 
-const getDb = () => dbPromise;
+        if (!db.objectStoreNames.contains('pendingSync')) {
+          const syncStore = db.createObjectStore('pendingSync', { keyPath: 'id' });
+          syncStore.createIndex('by-type', 'type');
+        }
+      },
+    });
+  }
+  return dbPromise;
+};
 const mangaArtworkRepairQueue = new Map<string, Promise<void>>();
 
 const isNonEmptyString = (value?: string | null): value is string =>
