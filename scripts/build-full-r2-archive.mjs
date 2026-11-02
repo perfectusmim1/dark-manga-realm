@@ -490,7 +490,7 @@ const cleanSeriesTitle = (title) => {
   let text = (title || '')
     .toString()
     .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&#0*39;|&apos;/gi, "'")
     .replace(/&amp;/gi, '&')
     .replace(/&#8211;|&ndash;/gi, '-')
     .replace(/&#8212;|&mdash;/gi, '-')
@@ -1657,105 +1657,156 @@ const harvestMangaCixDetail = async (seriesItem) => {
 };
 
 const harvestOkutoonCatalog = async (maxMangas) => {
-  logInfo('OkuToon taranıyor...');
+  logInfo('OkuToon API taranıyor...');
   const seriesList = [];
   const seen = new Set();
   let page = 1;
+  const pageSize = 50;
 
-  while (page <= 20 && seriesList.length < maxMangas) {
-    const url = `https://okutoon.com/tur?sayfa=${page}`;
-    const res = await fetchUpstream(url);
+  while (seriesList.length < maxMangas) {
+    const url = `https://okutoon.com/api/v1/series?page=${page}&limit=${pageSize}&sort=newest`;
+    const res = await fetchUpstream(url, { headers: { Accept: 'application/json' } });
     if (!res.ok || !res.content) break;
 
-    const html = res.content;
-    const cardPattern = /<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?<img[^>]+src="([^"]*covers[^"]*)"[^>]*>[\s\S]*?<h[23][^>]*>([\s\S]*?)<\/h[23]>/gi;
-    const matches = extractRegexMatches(html, cardPattern);
-
-    if (matches.length === 0) break;
-
-    for (const match of matches) {
-      const link = match[1]?.startsWith('http') ? match[1] : `https://okutoon.com${match[1]}`;
-      const cover = match[2]?.startsWith('http') ? match[2] : `https://okutoon.com${match[2]}`;
-      const title = stripTags(match[3]);
-
-      if (link && title && !seen.has(link)) {
-        seen.add(link);
-        seriesList.push({
-          source: 'okutoon',
-          title,
-          link,
-          cover,
-          genres: [],
-          isAdult: false,
-        });
-        if (seriesList.length >= maxMangas) break;
-      }
+    let json = null;
+    try {
+      json = JSON.parse(res.content);
+    } catch {
+      break;
     }
 
+    const items = json?.data || [];
+    if (items.length === 0) break;
+
+    for (const item of items) {
+      if (!item.slug || !item.title) continue;
+      const link = `https://okutoon.com/${item.slug}`;
+      if (seen.has(link)) continue;
+      seen.add(link);
+
+      const altTitles = item.alt_title
+        ? item.alt_title.split(',').map((t) => t.trim()).filter(Boolean)
+        : [];
+
+      seriesList.push({
+        source: 'okutoon',
+        title: item.title,
+        link,
+        slug: item.slug,
+        cover: item.cover_url || item.headline_url,
+        genres: (item.categories || []).map((c) => c.name).filter(Boolean),
+        isAdult: false,
+        alternativeTitles: altTitles,
+        author: item.author || '',
+        description: item.description_text || '',
+        totalChapters: item.chapter_count || 0,
+      });
+
+      if (seriesList.length >= maxMangas) break;
+    }
+
+    if (json.meta && page >= json.meta.total_pages) break;
     page++;
-    await sleep(250);
+    await sleep(150);
   }
 
+  logInfo(`OkuToon API: Toplam ${seriesList.length} seri keşfedildi.`);
   return seriesList;
 };
 
 const harvestOkutoonDetail = async (seriesItem) => {
-  const res = await fetchUpstream(seriesItem.link);
-  if (!res.ok || !res.content) return null;
+  const slug = seriesItem.slug || seriesItem.link.split('/').filter(Boolean).pop();
+  if (!slug) return null;
 
-  const html = res.content;
-  const descMatch = /<div class="summary__content[^"]*">([\s\S]*?)<\/div>/i.exec(html) ||
-    /<meta property="og:description" content="([^"]+)"/i.exec(html);
-  const description = descMatch ? stripTags(descMatch[1]) : '';
-
-  const chapterRegex = /<a[^>]+href="([^"]*\/bolum-[^"]*)"[^>]*>([\s\S]*?)<\/a>/gi;
-  const chMatches = extractRegexMatches(html, chapterRegex);
   const chapters = [];
   const seenCh = new Set();
+  let startOffset = 0;
+  let hasMore = true;
 
-  for (const ch of chMatches) {
-    const chLink = ch[1]?.startsWith('http') ? ch[1] : `https://okutoon.com${ch[1]}`;
-    const chText = stripTags(ch[2]);
-    if (seenCh.has(chLink)) continue;
-    seenCh.add(chLink);
+  while (hasMore) {
+    const chaptersUrl = `https://okutoon.com/api/v1/series/${slug}/chapters?limit=100&offset=${startOffset}`;
+    const res = await fetchUpstream(chaptersUrl, { headers: { Accept: 'application/json' } });
+    if (!res.ok || !res.content) break;
 
-    const numMatch = `${chText} ${chLink}`.match(/(\d+(?:\.\d+)?)/);
-    const num = numMatch ? parseFloat(numMatch[1]) : 0;
-    chapters.push({
-      title: chText || `Bölüm ${num}`,
-      link: chLink,
-      chapterNumber: num,
-    });
+    let json = null;
+    try {
+      json = JSON.parse(res.content);
+    } catch {
+      break;
+    }
+
+    const items = json?.data || [];
+    if (items.length === 0) break;
+
+    for (const ch of items) {
+      if (!ch.slug || seenCh.has(ch.slug)) continue;
+      seenCh.add(ch.slug);
+
+      const num = Number(ch.display_number || ch.number) || 0;
+      chapters.push({
+        title: ch.title || `Bölüm ${num}`,
+        link: ch.url || `https://okutoon.com/${slug}/${ch.slug}`,
+        slug: ch.slug,
+        seriesSlug: slug,
+        chapterNumber: num,
+        createdAt: ch.created_at,
+      });
+    }
+
+    if (!json.meta?.has_more) {
+      hasMore = false;
+    } else {
+      startOffset += items.length;
+    }
   }
 
   chapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
 
   return {
     ...seriesItem,
-    description,
-    status: 'ongoing',
-    alternativeTitles: [],
-    author: '',
-    artist: '',
+    status: seriesItem.status || 'ongoing',
     chapters,
   };
 };
 
 // ============================================================================
-const harvestOkutoonChapterImages = async (chapterUrl) => {
-  const res = await fetchUpstream(chapterUrl);
-  if (!res.ok || !res.content) return [];
-  const html = res.content;
-  const imgs = [];
-  for (const m of extractRegexMatches(html, /<img[^>]+(?:data-src|src)="([^"]+)"/gi)) {
-    const u = m[1]?.trim();
-    if (u && (u.includes('/uploads/') || u.includes('/chapters/') || u.includes('cdn')) && !isJunkImageUrl(u)) {
-      imgs.push(u.startsWith('http') ? u : `https://okutoon.com${u}`);
-    }
+const harvestOkutoonChapterImages = async (chapterInput) => {
+  let seriesSlug = typeof chapterInput === 'object' ? chapterInput.seriesSlug : '';
+  let chapterSlug = typeof chapterInput === 'object' ? chapterInput.slug : '';
+
+  if (!seriesSlug || !chapterSlug) {
+    const rawUrl = typeof chapterInput === 'string' ? chapterInput : (chapterInput?.link || '');
+    try {
+      const parsed = new URL(rawUrl);
+      const parts = parsed.pathname.split('/').filter(Boolean);
+      seriesSlug = parts[0];
+      chapterSlug = parts[1];
+    } catch {}
   }
-  return await verifyAndFilterImageUrls(imgs);
+
+  if (!seriesSlug || !chapterSlug) return [];
+
+  const apiUrl = `https://okutoon.com/api/v1/series/${seriesSlug}/chapters/${chapterSlug}`;
+  const res = await fetchUpstream(apiUrl, {
+    headers: { Accept: 'application/json' },
+    timeoutMs: 15000,
+  });
+
+  if (!res.ok || !res.content) return [];
+
+  try {
+    const json = JSON.parse(res.content);
+    const pages = json?.data?.pages || [];
+    const rawUrls = pages
+      .map((p) => p.image_url)
+      .filter((u) => u && typeof u === 'string' && !isJunkImageUrl(u));
+    return await verifyAndFilterImageUrls(rawUrls);
+  } catch {
+    return [];
+  }
 };
 
+// ============================================================================
 // METADATA ENRICHMENT (AniList + MangaDex + MyAnimeList/Jikan)
 // ============================================================================
 const queryAniList = async (searchTerms = []) => {
@@ -3048,6 +3099,24 @@ const main = async () => {
     await Promise.all(discoveryTasks);
   }
 
+  // Reset status for target source if specified
+  if (TARGET_SOURCE) {
+    let resetCount = 0;
+    for (const key of Object.keys(seriesQueue)) {
+      if (seriesQueue[key].source === TARGET_SOURCE) {
+        if (TARGET_SOURCE === 'okutoon' && (key === 'https://okutoon.com/' || seriesQueue[key].link === 'https://okutoon.com/')) {
+          delete seriesQueue[key];
+          continue;
+        }
+        seriesQueue[key].status = 'pending';
+        resetCount++;
+      }
+    }
+    if (resetCount > 0) {
+      logInfo(`[Hedef Kaynak: ${TARGET_SOURCE}] ${resetCount} serinin kuyruk durumu 'pending' olarak sıfırlandı.`);
+    }
+  }
+
   // Kuyruk durumunu kaydet
   checkpoint.seriesQueue = seriesQueue;
   saveCheckpoint({ ...checkpoint, ...store.toState() });
@@ -3097,17 +3166,8 @@ const main = async () => {
 
     card.title = cleanSeriesTitle(card.title);
     const titleKey = normalizeTitleKey(card.title);
-    const existingId = store.titleKeyIndex.get(titleKey);
-    if (existingId && store.mangas.has(existingId)) {
-      const existing = store.mangas.get(existingId);
-      if (Array.isArray(existing.chapters) && existing.chapters.length > 0) {
-        logProgress(processedCount + 1, totalInQueue, card.title, `Mevcut (${existing.chapters.length} bölüm) - Atlandı`);
-        card.status = 'completed';
-        delete seriesQueue[card.link];
-        processedCount++;
-        return;
-      }
-    }
+    const existingId = (store.findMatchingMangaId ? store.findMatchingMangaId(card.title, card.alternativeTitles || []) : null) || store.titleKeyIndex.get(titleKey);
+    const existing = existingId && store.mangas.has(existingId) ? store.mangas.get(existingId) : null;
 
     logProgress(processedCount + 1, totalInQueue, card.title, `Detay çekiliyor [${card.source}${card.isAdult ? ' / +18' : ''}]`);
 
@@ -3145,13 +3205,31 @@ const main = async () => {
 
     detail.title = cleanSeriesTitle(detail.title);
 
-    const totalChs = detail.chapters.length;
+    // DELTA BÖLÜM KONTROLÜ: Seri zaten arşivde varsa, sadece eksik bölümleri indir
+    let chaptersToDownload = detail.chapters || [];
+    if (existing && Array.isArray(existing.chapters) && existing.chapters.length > 0) {
+      const existingChapterNumbers = new Set(existing.chapters.map((ch) => Number(ch.chapterNumber)));
+      const deltaChapters = chaptersToDownload.filter((ch) => !existingChapterNumbers.has(Number(ch.chapterNumber)));
+
+      if (deltaChapters.length === 0) {
+        logProgress(processedCount + 1, totalInQueue, card.title, `Mevcut (${existing.chapters.length} bölüm, tüm bölümler güncel) - Atlandı`);
+        card.status = 'completed';
+        delete seriesQueue[card.link];
+        processedCount++;
+        return;
+      }
+
+      logProgress(processedCount + 1, totalInQueue, card.title, `Mevcut (${existing.chapters.length} bölüm) -> +${deltaChapters.length} eksik delta bölüm çekiliyor [${card.source}]`);
+      chaptersToDownload = deltaChapters;
+    }
+
+    const totalChs = chaptersToDownload.length;
     card.totalChaptersFound = totalChs;
     const validChapters = [];
 
     // Bölümleri 6'lı paralel gruplarla çek
     for (let i = 0; i < totalChs; i += CHAPTER_CONCURRENCY) {
-      const chunk = detail.chapters.slice(i, i + CHAPTER_CONCURRENCY);
+      const chunk = chaptersToDownload.slice(i, i + CHAPTER_CONCURRENCY);
       const results = await Promise.all(chunk.map(async (ch) => {
         let imageUrls = [];
         try {
@@ -3159,8 +3237,8 @@ const main = async () => {
             imageUrls = await harvestWebtoonHattiChapterImages(ch.link);
           } else if (card.source === 'siyahmelek' && ch.link && !SKIP_IMAGES) {
             imageUrls = await harvestSiyahMelekChapterImages(ch.link);
-          } else if (card.source === 'okutoon' && ch.link && !SKIP_IMAGES) {
-            imageUrls = await harvestOkutoonChapterImages(ch.link);
+          } else if (card.source === 'okutoon' && !SKIP_IMAGES) {
+            imageUrls = await harvestOkutoonChapterImages(ch);
           } else if ((card.source === 'golgebahcesi' || card.source === 'dxdfansub') && ch.chapterId && !SKIP_IMAGES) {
             const apiDomain = card.source === 'golgebahcesi' ? 'api.golgebahcesi.com' : 'api.dxdfansub.com';
             const chRes = await fetchUpstream(`https://${apiDomain}/api/chapters/${ch.chapterId}`);
@@ -3192,8 +3270,8 @@ const main = async () => {
       }
     }
 
-    // Hiçbir çalışan bölüm kalmadıysa seriyi kaydetme
-    if (!SKIP_IMAGES && validChapters.length === 0) {
+    // Hiçbir çalışan bölüm kalmadıysa: eğer seri daha önce yoksa kaydetme
+    if (!existing && !SKIP_IMAGES && validChapters.length === 0) {
       logWarn(`Seri elendi (0 çalışan bölüm): ${card.title}`);
       card.status = 'failed';
       return;
@@ -3327,7 +3405,7 @@ const main = async () => {
   logInfo(`Yerel arşiv dump kaydedildi: ${EXPORT_DUMP_PATH}`);
 
   if (!IS_DRY_RUN) {
-    await uploadToCatalogWorker(store, { all: true });
+    await uploadToCatalogWorker(store, { all: Boolean(IS_FULL && !RAW_LIMIT) });
   }
 
   console.log('='.repeat(70));
