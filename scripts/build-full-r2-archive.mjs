@@ -1742,6 +1742,20 @@ const harvestOkutoonDetail = async (seriesItem) => {
 };
 
 // ============================================================================
+const harvestOkutoonChapterImages = async (chapterUrl) => {
+  const res = await fetchUpstream(chapterUrl);
+  if (!res.ok || !res.content) return [];
+  const html = res.content;
+  const imgs = [];
+  for (const m of extractRegexMatches(html, /<img[^>]+(?:data-src|src)="([^"]+)"/gi)) {
+    const u = m[1]?.trim();
+    if (u && (u.includes('/uploads/') || u.includes('/chapters/') || u.includes('cdn')) && !isJunkImageUrl(u)) {
+      imgs.push(u.startsWith('http') ? u : `https://okutoon.com${u}`);
+    }
+  }
+  return await verifyAndFilterImageUrls(imgs);
+};
+
 // METADATA ENRICHMENT (AniList + MangaDex + MyAnimeList/Jikan)
 // ============================================================================
 const queryAniList = async (searchTerms = []) => {
@@ -3145,6 +3159,8 @@ const main = async () => {
             imageUrls = await harvestWebtoonHattiChapterImages(ch.link);
           } else if (card.source === 'siyahmelek' && ch.link && !SKIP_IMAGES) {
             imageUrls = await harvestSiyahMelekChapterImages(ch.link);
+          } else if (card.source === 'okutoon' && ch.link && !SKIP_IMAGES) {
+            imageUrls = await harvestOkutoonChapterImages(ch.link);
           } else if ((card.source === 'golgebahcesi' || card.source === 'dxdfansub') && ch.chapterId && !SKIP_IMAGES) {
             const apiDomain = card.source === 'golgebahcesi' ? 'api.golgebahcesi.com' : 'api.dxdfansub.com';
             const chRes = await fetchUpstream(`https://${apiDomain}/api/chapters/${ch.chapterId}`);

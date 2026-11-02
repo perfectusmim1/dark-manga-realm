@@ -464,17 +464,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
   const shouldBlurFeaturedArtwork = blurAdultArtwork && featured.manga.isAdult === true;
 
   return (
-    <section
-      className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
-      style={
-        disableHeavyEffects
-          ? undefined
-          : {
-              animationDelay: '0.12s',
-              animationFillMode: 'forwards',
-            }
-      }
-    >
+    <section>
       <div className="mb-4 flex items-center justify-between gap-3">
         <div className="min-w-0 flex items-center gap-2">
           <Play className="h-5 w-5 text-primary" />

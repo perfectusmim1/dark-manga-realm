@@ -350,12 +350,12 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           </div>
 
           {latestChapterLinks.length > 0 ? (
-            <div className="pointer-events-auto relative z-20 grid grid-cols-2 gap-1.5">
+            <div className={`pointer-events-auto relative z-20 gap-1.5 ${latestChapterLinks.length === 1 ? 'grid grid-cols-1' : 'grid grid-cols-2'}`}>
               {latestChapterLinks.map((chapter) => (
                 <Link
                   key={chapter.id}
                   to={`/manga/${manga.id}/chapter/${chapter.id}`}
-                  className="relative z-10 inline-flex min-h-7 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 px-2 py-1.5 text-[10px] font-bold text-primary shadow-[0_8px_18px_rgba(37,99,235,0.12)] transition-all duration-200 hover:-translate-y-px hover:border-primary/45 hover:bg-primary/18 hover:shadow-[0_12px_24px_rgba(37,99,235,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/55 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:translate-y-0 active:scale-[0.98]"
+                  className="relative z-10 inline-flex min-h-7 items-center justify-center rounded-lg border border-primary/30 bg-primary/10 px-2 py-1.5 text-[10px] font-bold text-primary shadow-[0_8px_18px_rgba(37,99,235,0.12)] hover:border-primary/45 hover:bg-primary/18 focus:outline-none focus-visible:outline-none"
                 >
                   <span className="truncate">Bölüm {formatChapterNumberLabel(chapter.number)}</span>
                 </Link>
