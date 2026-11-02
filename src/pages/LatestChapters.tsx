@@ -7,7 +7,7 @@ import Header from '@/components/layout/Header';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
-import { getLatestChapters, getLatestChaptersCountLast24Hours, getTotalLatestChaptersCount, LatestChapterFeedItem } from '@/lib/database';
+import { getLatestChapters, getLatestChaptersFeedStats, LatestChapterFeedItem } from '@/lib/database';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
@@ -94,21 +94,20 @@ const LatestChapters: React.FC = () => {
         setIsLoading(true);
         try {
             const offset = (page - 1) * PAGE_SIZE;
-            const promises: [Promise<LatestChapterFeedItem[]>, Promise<number>?, Promise<number>?] = [
+            const promises: [Promise<LatestChapterFeedItem[]>, Promise<{ recentChapterCount: number; totalChaptersCount: number }>?] = [
                 getLatestChapters(PAGE_SIZE, offset),
             ];
 
             if (!countsLoadedRef.current) {
-                promises.push(getLatestChaptersCountLast24Hours());
-                promises.push(getTotalLatestChaptersCount());
+                promises.push(getLatestChaptersFeedStats());
             }
 
-            const [data, countLast24Hours, totalCount] = await Promise.all(promises);
+            const [data, stats] = await Promise.all(promises);
 
             setChapters(data);
-            if (!countsLoadedRef.current && typeof countLast24Hours === 'number' && typeof totalCount === 'number') {
-                setRecentChapterCount(countLast24Hours);
-                setTotalChaptersCount(totalCount);
+            if (stats && !countsLoadedRef.current) {
+                setRecentChapterCount(stats.recentChapterCount);
+                setTotalChaptersCount(stats.totalChaptersCount);
                 countsLoadedRef.current = true;
             }
         } catch (error) {

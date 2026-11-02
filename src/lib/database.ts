@@ -2490,10 +2490,7 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
                 mangas:manga_id(id, title, cover, type)
             `
         )
-        .order('created_at', { ascending: false })
-        .order('manga_id', { ascending: true })
-        .order('number', { ascending: false })
-        .order('id', { ascending: true });
+        .order('created_at', { ascending: false });
 
     if (visibilityColumnAvailable && !includePrivate) {
         query = query.eq('mangas.is_public', true);
@@ -2541,76 +2538,47 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
     );
 };
 
+let latestChaptersFeedStatsCache: { fetchedAt: number; data: { recent_count: number; total_count: number } } | null = null;
+
+export const getLatestChaptersFeedStats = async (): Promise<{ recentChapterCount: number; totalChaptersCount: number }> => {
+    if (latestChaptersFeedStatsCache && Date.now() - latestChaptersFeedStatsCache.fetchedAt < 60_000) {
+        return {
+            recentChapterCount: latestChaptersFeedStatsCache.data.recent_count,
+            totalChaptersCount: latestChaptersFeedStatsCache.data.total_count,
+        };
+    }
+
+    try {
+        const { data, error } = await supabase.rpc('get_latest_chapters_feed_stats', { p_hours: 24 });
+        if (!error && data) {
+            const result = {
+                recent_count: Number(data.recent_count) || 0,
+                total_count: Number(data.total_count) || 0,
+            };
+            latestChaptersFeedStatsCache = {
+                fetchedAt: Date.now(),
+                data: result,
+            };
+            return {
+                recentChapterCount: result.recent_count,
+                totalChaptersCount: result.total_count,
+            };
+        }
+    } catch (e) {
+        console.error('get_latest_chapters_feed_stats error:', e);
+    }
+
+    return { recentChapterCount: 0, totalChaptersCount: 0 };
+};
+
 export const getLatestChaptersCountLast24Hours = async (): Promise<number> => {
-    const since = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
-    const {
-        includePrivate,
-        includeAdult,
-        visibilityColumnAvailable,
-        adultColumnAvailable,
-    } = await resolveMangaVisibilityAccess();
-
-    let query = supabase
-        .from('chapters')
-        .select(
-            visibilityColumnAvailable && !includePrivate
-                ? `id, mangas:manga_id!inner(id, is_public${adultColumnAvailable ? ', is_adult' : ''})`
-                : 'id',
-            { count: 'exact', head: true },
-        )
-        .gte('created_at', since);
-
-    if (visibilityColumnAvailable && !includePrivate) {
-        query = query.eq('mangas.is_public', true);
-    }
-
-    if (adultColumnAvailable && !includePrivate && !includeAdult) {
-        query = query.eq('mangas.is_adult', false);
-    }
-
-    const { count, error } = await query;
-
-    if (error) {
-        console.error('Latest chapters 24h count error:', error);
-        return 0;
-    }
-
-    return count || 0;
+    const stats = await getLatestChaptersFeedStats();
+    return stats.recentChapterCount;
 };
 
 export const getTotalLatestChaptersCount = async (): Promise<number> => {
-    const {
-        includePrivate,
-        includeAdult,
-        visibilityColumnAvailable,
-        adultColumnAvailable,
-    } = await resolveMangaVisibilityAccess();
-
-    let query = supabase
-        .from('chapters')
-        .select(
-            visibilityColumnAvailable && !includePrivate
-                ? `id, mangas:manga_id!inner(id, is_public${adultColumnAvailable ? ', is_adult' : ''})`
-                : 'id',
-            { count: 'exact', head: true },
-        );
-
-    if (visibilityColumnAvailable && !includePrivate) {
-        query = query.eq('mangas.is_public', true);
-    }
-
-    if (adultColumnAvailable && !includePrivate && !includeAdult) {
-        query = query.eq('mangas.is_adult', false);
-    }
-
-    const { count, error } = await query;
-
-    if (error) {
-        console.error('Total latest chapters count error:', error);
-        return 0;
-    }
-
-    return count || 0;
+    const stats = await getLatestChaptersFeedStats();
+    return stats.totalChaptersCount;
 };
 
 // ==================== REVIEW & RATING OPERATIONS ====================
