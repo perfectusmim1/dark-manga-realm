@@ -3033,12 +3033,69 @@ const uploadSeriesFileToR2 = async (manga) => {
   }
 };
 
+const HOTLINK_BLOCKED_COVER_REGEX = /(?:webtoonhatti|workers\.dev|mangadex\.org|mangaupdates\.com|siyahmelek)/i;
+const IMAGE_PROXY_FALLBACK_URL = 'https://toonparrot-offline-image-proxy.caganhuseyinerdil.workers.dev';
+
+const ensureStaticR2Covers = async (store, touchedSlugs = new Set(), touchedMangaIds = new Set()) => {
+  if (!CATALOG_WORKER_URL || !CATALOG_ADMIN_TOKEN) return;
+  let updatedCount = 0;
+
+  for (const m of store.mangas.values()) {
+    if (m.cover && HOTLINK_BLOCKED_COVER_REGEX.test(m.cover)) {
+      const rawCover = m.cover.includes('?url=')
+        ? decodeURIComponent(m.cover.split('?url=')[1].split('&')[0])
+        : m.cover;
+      const fetchUrl = rawCover.startsWith('http')
+        ? `${IMAGE_PROXY_FALLBACK_URL}/?url=${encodeURIComponent(rawCover)}`
+        : m.cover;
+      try {
+        const imgRes = await fetch(fetchUrl, { signal: AbortSignal.timeout(10000) });
+        if (imgRes.ok) {
+          const contentType = imgRes.headers.get('content-type') || 'image/jpeg';
+          const ext = contentType.includes('webp') ? 'webp' : contentType.includes('png') ? 'png' : 'jpg';
+          const buffer = await imgRes.arrayBuffer();
+          const upRes = await fetch(`${CATALOG_WORKER_URL}/v1/admin/cover/${m.id}.${ext}`, {
+            method: 'PUT',
+            headers: {
+              'Content-Type': contentType,
+              'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
+            },
+            body: buffer,
+            signal: AbortSignal.timeout(10000),
+          });
+          if (upRes.ok) {
+            const upJson = await upRes.json();
+            if (upJson?.publicUrl) {
+              m.cover = upJson.publicUrl;
+              touchedSlugs.add(m.slug);
+              touchedMangaIds.add(m.id);
+              updatedCount++;
+            }
+          }
+        }
+      } catch (err) {
+        logWarn(`Kapak R2 CDN'e taşınamadı (${m.title}): ${err.message}`);
+      }
+    }
+    if (m.banner && HOTLINK_BLOCKED_COVER_REGEX.test(m.banner)) {
+      m.banner = m.cover || '';
+      touchedSlugs.add(m.slug);
+      touchedMangaIds.add(m.id);
+    }
+  }
+
+  if (updatedCount > 0) {
+    logInfo(`${updatedCount} hotlink korumalı kapak statik R2 CDN (.r2.dev/covers/) üzerine taşındı.`);
+  }
+};
+
 const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set(), touchedMangaIds = new Set()) => {
   if (IS_DRY_RUN) {
     logInfo('[DryRun] R2 ve Supabase senkronizasyonu atlandı.');
     return;
   }
 
+  await ensureStaticR2Covers(store, touchedSlugs, touchedMangaIds);
   const tablesPayload = store.toTablesPayload();
   const snapshotPayload = store.toSnapshotPayload();
 

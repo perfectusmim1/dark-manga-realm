@@ -652,6 +652,27 @@ export default {
         return jsonResponse({ ok: true, updatedAt: now });
       }
 
+      if (pathname.startsWith('/v1/admin/cover/') && method === 'PUT') {
+        const fileName = pathname.replace('/v1/admin/cover/', '').trim();
+        if (!fileName || !/^[a-z0-9_.-]+$/i.test(fileName) || fileName.includes('..')) {
+          return errorResponse('Invalid cover file name', 400);
+        }
+        const contentType = request.headers.get('Content-Type') || 'image/jpeg';
+        const objectKey = `covers/${fileName}`;
+        await bucket.put(objectKey, request.body, {
+          httpMetadata: {
+            contentType,
+            cacheControl: 'public, max-age=31536000, immutable',
+          },
+        });
+        return jsonResponse({
+          ok: true,
+          key: objectKey,
+          publicUrl: `https://pub-07935d827f4c4ba1995ed590a345b88a.r2.dev/${objectKey}`,
+          updatedAt: now,
+        });
+      }
+
       if (pathname.startsWith('/v1/admin/table/') && !pathname.endsWith('/mutate') && method === 'PUT') {
         const tableName = pathname.replace('/v1/admin/table/', '').trim().toLowerCase();
         if (!CATALOG_TABLES.includes(tableName)) {
