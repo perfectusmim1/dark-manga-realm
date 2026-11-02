@@ -1170,22 +1170,26 @@ const buildReadingHistoryEntriesFromRows = async (
     const chapterTitleMap = new Map<string, string>();
 
     if (chapterIds.length > 0) {
-        const { data: chapterRows, error: chapterError } = await runWithSupabaseBootstrapRetry({
-            run: async () => await supabase
-                .from('chapters')
-                .select('id, title')
-                .in('id', chapterIds),
-            timeoutMs: 15000,
-            timeoutMessage: 'Reading history chapter title fetch timeout',
-            shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
-        });
-
-        if (chapterError) {
-            console.error('Reading history chapter title fetch error:', chapterError);
-        } else {
-            (chapterRows || []).forEach((chapter: any) => {
-                chapterTitleMap.set(chapter.id, chapter.title);
+        try {
+            const { data: chapterRows, error: chapterError } = await runWithSupabaseBootstrapRetry({
+                run: async () => await supabase
+                    .from('chapters')
+                    .select('id, title')
+                    .in('id', chapterIds),
+                timeoutMs: 4000,
+                timeoutMessage: 'Reading history chapter title fetch timeout',
+                shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
             });
+
+            if (chapterError) {
+                console.warn('Reading history chapter title fetch warning (soft fallback):', chapterError);
+            } else {
+                (chapterRows || []).forEach((chapter: any) => {
+                    chapterTitleMap.set(chapter.id, chapter.title);
+                });
+            }
+        } catch (e) {
+            console.warn('Reading history chapter title fetch skipped (soft fallback):', e);
         }
     }
 

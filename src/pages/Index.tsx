@@ -1319,7 +1319,7 @@ const Index: React.FC = () => {
           : null;
         const manga = liveManga
           || snapshotManga
-          || (canSeeAdultContent ? buildContinueReadingFallbackManga(entry) : null);
+          || buildContinueReadingFallbackManga(entry);
 
         if (!canSeeAdultContent) {
           if (liveManga?.isAdult === true || entry.mangaSnapshot?.isAdult === true) {

@@ -2468,6 +2468,31 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
         adultColumnAvailable,
     } = await resolveMangaVisibilityAccess();
 
+    // Fast path: use optimized RPC for instant response (<10ms) without statement timeout
+    try {
+        const { data: rpcData, error: rpcError } = await supabase.rpc('get_latest_chapters_feed', {
+            p_limit: limit || 30,
+            p_offset: offset || 0,
+            p_include_adult: Boolean(includeAdult),
+        });
+
+        if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
+            return rpcData.map((row: any) => ({
+                chapterId: String(row.chapter_id),
+                mangaId: String(row.manga_id),
+                mangaTitle: String(row.manga_title || ''),
+                mangaCover: String(row.manga_cover || ''),
+                mangaType: row.manga_type || 'manga',
+                chapterNumber: Number(row.chapter_number),
+                chapterTitle: row.chapter_title || undefined,
+                addedAt: row.added_at,
+                releaseDate: row.release_date || undefined,
+            } satisfies LatestChapterFeedItem));
+        }
+    } catch (rpcErr) {
+        console.warn('get_latest_chapters_feed rpc error, falling back to direct query:', rpcErr);
+    }
+
     let query = supabase
         .from('chapters')
         .select(visibilityColumnAvailable && !includePrivate
