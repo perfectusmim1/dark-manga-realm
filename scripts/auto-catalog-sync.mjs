@@ -245,6 +245,8 @@ const normalizeGenreToTurkish = (genre) => {
   return cleaned;
 };
 
+const escapeRegex = (str) => (str || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
 const cleanSeriesTitle = (title) => {
   let text = (title || '')
     .toString()
@@ -1494,7 +1496,12 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     const description = descMatch ? stripTags(descMatch[1]).trim() : '';
     const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
     const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
-    const chRegex = /href=["'](\/manga\/[^"']+\/chapter-(\d+(?:\.\d+)?))["'][^>]*>([\s\S]*?)<\/a>/gi;
+
+    // Yalnızca BU seriye ait bölüm linklerini eşle (sidebar/popüler yabancı serilerin sızmasını %100 engelle)
+    const slugMatch = seriesUrl.match(/mangadass\.com\/manga\/([^/?#]+)/i);
+    const seriesSlug = slugMatch ? slugMatch[1] : '';
+    const escapedSlug = escapeRegex(seriesSlug);
+    const chRegex = new RegExp(`href=["'](\\/manga\\/${escapedSlug}\\/chapter-(\\d+(?:\\.\\d+)?))["'][^>]*>([\\s\\S]*?)<\\/a>`, 'gi');
     const chMatches = extractRegexMatches(html, chRegex);
     const chapterMap = new Map();
     for (const ch of chMatches) {
@@ -1554,9 +1561,12 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     const genres = genreMatches.map((m) => normalizeGenreToTurkish(decodeURIComponent(m[1]).trim())).filter(Boolean);
     if (genres.length === 0) genres.push('Webtoon', 'Aksiyon');
 
-    // Chapters (Deduplicated with Chapter 0 / Prologue support)
+    // Chapters (Yalnızca BU seriye ait bölüm linklerini eşle, 0/Prologue destekli)
+    const slugMatch = seriesUrl.match(/asurascans\.com\/comics\/([^/?#]+)/i);
+    const seriesSlug = slugMatch ? slugMatch[1] : '';
+    const escapedSlug = escapeRegex(seriesSlug);
     const chapterMap = new Map();
-    const chRegex = /href=["'](\/comics\/[^"']+\/chapter\/(\d+(?:\.\d+)?))["']/gi;
+    const chRegex = new RegExp(`href=["'](\\/comics\\/${escapedSlug}\\/chapter\\/(\\d+(?:\\.\\d+)?))["']`, 'gi');
     const chMatches = extractRegexMatches(html, chRegex);
     for (const ch of chMatches) {
       const chPath = ch[1].trim();
@@ -1570,7 +1580,8 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
         });
       }
     }
-    const prologueMatches = extractRegexMatches(html, /href=["'](\/comics\/[^"']+\/chapter\/(?:prologue|0))["']/gi);
+    const prologueRegex = new RegExp(`href=["'](\\/comics\\/${escapedSlug}\\/chapter\\/(?:prologue|0))["']`, 'gi');
+    const prologueMatches = extractRegexMatches(html, prologueRegex);
     for (const pm of prologueMatches) {
       const pLink = `https://asurascans.com${pm[1].trim()}`;
       if (!chapterMap.has(0)) {
