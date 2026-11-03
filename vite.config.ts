@@ -54,7 +54,11 @@ export default defineConfig(({ mode }) => ({
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
-          // 1. Seri kapakları ve tüm medya görselleri (R2, Cloudflare Workers Proxy, Supabase Storage ve Harici CDN'ler)
+          // 1. Yalnızca gerçek görseller: R2 medyası, harici CDN görselleri ve
+          //    <img> (destination=image) üzerinden gelen proxied görseller.
+          //    ÖNEMLİ: Supabase REST/auth yanıtları ve worker JSON API'leri ASLA
+          //    cache'lenmez (eski kural tüm supabase.co/workers.dev isteklerini
+          //    30 gün cache'liyordu; bayat veri/hata tekrarına yol açıyordu).
           {
             urlPattern: ({ request, url }: any) => {
               if (request.destination === "image") {
@@ -62,17 +66,13 @@ export default defineConfig(({ mode }) => ({
               }
               const pathname = url.pathname.toLowerCase();
               return (
-                /\.(?:png|jpg|jpeg|webp|avif|svg|gif)$/i.test(pathname) ||
-                url.hostname.includes("r2.dev") ||
-                url.hostname.includes("supabase.co") ||
-                url.hostname.includes("workers.dev") ||
-                pathname.includes("/image") ||
-                pathname.includes("/media")
+                /\.(?:png|jpe?g|webp|avif|svg|gif)$/i.test(pathname) ||
+                url.hostname.includes("r2.dev")
               );
             },
             handler: "StaleWhileRevalidate",
             options: {
-              cacheName: "toonparrot-manga-covers-v1",
+              cacheName: "toonparrot-media-v2",
               cacheableResponse: {
                 statuses: [0, 200],
               },

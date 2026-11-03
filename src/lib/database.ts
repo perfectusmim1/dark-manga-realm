@@ -96,10 +96,10 @@ const buildNamedEntityLookupVariants = (value: string) => {
         new Set(
             [
                 normalized,
-                normalized.replace(/[İIıi]/g, 'i'),
-                normalized.replace(/[İIıi]/g, 'I'),
-                normalized.replace(/[İIıi]/g, 'İ'),
-                normalized.replace(/[İIıi]/g, 'ı'),
+                normalized.replace(/[Ä°IÄ±i]/g, 'i'),
+                normalized.replace(/[Ä°IÄ±i]/g, 'I'),
+                normalized.replace(/[Ä°IÄ±i]/g, 'Ä°'),
+                normalized.replace(/[Ä°IÄ±i]/g, 'Ä±'),
             ].map((item) => normalizeNamedEntityValue(item)).filter(Boolean),
         ),
     );
@@ -393,7 +393,7 @@ const fetchNamedEntityRows = async (
         return pending;
     }
 
-    // IDB kalıcı cache: Header/SuperSearch araması yeni sekmede de ağa çıkmadan çalışsın.
+    // IDB kalÄ±cÄ± cache: Header/SuperSearch aramasÄ± yeni sekmede de aÄŸa Ã§Ä±kmadan Ã§alÄ±ÅŸsÄ±n.
     const persistedEntityKey = `named-entities-v1:${cacheKey}`;
     if (!includePrivate) {
         const persistedEntityRows = await readPersistedQueryCache<any[]>(persistedEntityKey);
@@ -411,9 +411,9 @@ const fetchNamedEntityRows = async (
         }
     }
 
-    // NOT: count:'exact' kaldırıldı — PostgREST her sayfa için tüm tabloya count(*)
-    // çalıştırıyordu (bkz. performans raporu). Bunun yerine kısa sayfa gelene kadar
-    // batch'li paralel sayfalama yapılır.
+    // NOT: count:'exact' kaldÄ±rÄ±ldÄ± â€” PostgREST her sayfa iÃ§in tÃ¼m tabloya count(*)
+    // Ã§alÄ±ÅŸtÄ±rÄ±yordu (bkz. performans raporu). Bunun yerine kÄ±sa sayfa gelene kadar
+    // batch'li paralel sayfalama yapÄ±lÄ±r.
     const ENTITY_PAGE_FETCH_BATCH = 4;
     const ENTITY_MAX_PAGES = 50;
 
@@ -526,8 +526,8 @@ const fetchAllMangaRowsPaginated = async (
     },
 ) => {
     const CHUNK_SIZE = 1000;
-    // NOT: 1000'lik sayfalar sıralı çekiliyordu (4-6 s). Sıralı yerine 4'lü batch'lerle
-    // paralel çekilir; kısa sayfa gelince durur. Sıra korunur.
+    // NOT: 1000'lik sayfalar sÄ±ralÄ± Ã§ekiliyordu (4-6 s). SÄ±ralÄ± yerine 4'lÃ¼ batch'lerle
+    // paralel Ã§ekilir; kÄ±sa sayfa gelince durur. SÄ±ra korunur.
     const PAGE_FETCH_BATCH = 4;
     const MAX_ROWS_SAFETY = 100_000;
     const rows: any[] = [];
@@ -878,18 +878,18 @@ let adminAccessContextPromise: Promise<AdminAccessContext> | null = null;
 const ALL_MANGAS_CACHE_TTL_MS = 5 * 60_000;
 const TOP_TEN_IDS_CACHE_TTL_MS = 15 * 60_000;
 const STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS = 5 * 60_000;
-// IDB kalıcı katalog önbelleği: sayfa yenilense bile bu süre içinde ağa çıkmadan döner.
+// IDB kalÄ±cÄ± katalog Ã¶nbelleÄŸi: sayfa yenilense bile bu sÃ¼re iÃ§inde aÄŸa Ã§Ä±kmadan dÃ¶ner.
 const PERSISTED_CATALOG_CACHE_TTL_MS = 15 * 60_000;
 const PERSISTED_MANGA_SUMMARIES_KEY_PREFIX = 'manga-summaries-v1:';
 const PERSISTED_HOME_SECTIONS_KEY_PREFIX = 'home-sections-v1:';
-// Manga detayı kısa süreli bellek cache'i: MangaDetail -> Reader geçişinde aynı ağır
-// sorguların tekrar edilmesini engeller (yazma işlemlerinde invalidate edilir).
+// Manga detayÄ± kÄ±sa sÃ¼reli bellek cache'i: MangaDetail -> Reader geÃ§iÅŸinde aynÄ± aÄŸÄ±r
+// sorgularÄ±n tekrar edilmesini engeller (yazma iÅŸlemlerinde invalidate edilir).
 const MANGA_DETAIL_CACHE_TTL_MS = 60_000;
 const mangaDetailCache = new Map<string, { fetchedAt: number; value: Manga }>();
-// SWR: bayat IDB verisi döndürülürken arka plan yenilemesinin tekrar tetiklenmesini önler.
+// SWR: bayat IDB verisi dÃ¶ndÃ¼rÃ¼lÃ¼rken arka plan yenilemesinin tekrar tetiklenmesini Ã¶nler.
 const persistedSummariesRefreshInFlight = new Set<MangaAudienceCacheKey>();
 
-// Cache'ten dönen nesnenin UI state'inde paylaşılıp mutasyona uğramaması için klonlanır.
+// Cache'ten dÃ¶nen nesnenin UI state'inde paylaÅŸÄ±lÄ±p mutasyona uÄŸramamasÄ± iÃ§in klonlanÄ±r.
 function cloneMangaForCache(manga: Manga): Manga {
     return {
         ...manga,
@@ -922,8 +922,8 @@ const clearPersistedCatalogCache = () => {
     ]);
 };
 const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, description, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
-// Liste/picker sorguları için hafif kolon seti: description/details/source_links gibi ağır
-// alanlar çekilmez (bkz. performans raporu: select('*') payload'ı 1.8 KB/satır).
+// Liste/picker sorgularÄ± iÃ§in hafif kolon seti: description/details/source_links gibi aÄŸÄ±r
+// alanlar Ã§ekilmez (bkz. performans raporu: select('*') payload'Ä± 1.8 KB/satÄ±r).
 const MANGA_LIST_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
 const HOME_PAGE_SECTION_LIMITS = Object.freeze({
     trending: 8,
@@ -1220,7 +1220,7 @@ const hasUserBlockRelationship = async (viewerId?: string, ownerId?: string): Pr
         return false;
     }
 
-    // NOT: count:'exact' yerine limit(1) varlık kontrolü — sadece boolean gerekiyor.
+    // NOT: count:'exact' yerine limit(1) varlÄ±k kontrolÃ¼ â€” sadece boolean gerekiyor.
     const [
         { data: viewerBlocksOwner, error: viewerBlocksOwnerError },
         { data: ownerBlocksViewer, error: ownerBlocksViewerError },
@@ -1374,9 +1374,9 @@ const fetchAllChapterMetaRows = async (
         return nestedResults.flat();
     }
 
-    // NOT: count:'exact' kaldırıldı (317k satırlık chapters tablosunda count(*) 3 sn
-    // statement_timeout'a takılıyordu). Sayfalar kısa sayfa gelene kadar batch'li
-    // paralel çekilir.
+    // NOT: count:'exact' kaldÄ±rÄ±ldÄ± (317k satÄ±rlÄ±k chapters tablosunda count(*) 3 sn
+    // statement_timeout'a takÄ±lÄ±yordu). Sayfalar kÄ±sa sayfa gelene kadar batch'li
+    // paralel Ã§ekilir.
     const pageFetchBatchSize = 8;
     const maxPages = 500;
     const rows: any[] = [];
@@ -1589,8 +1589,8 @@ export const getMangaSummaries = async (
         return pendingMangaSummaries;
     }
 
-    // IDB kalıcı önbellek: taze ise ağa hiç çıkmadan dön (Keşfet / arama / TopTen açılışı).
-    // Bayat ise: eldeki veriyi ANINDA döndür + arka planda sessizce yenile (SWR).
+    // IDB kalÄ±cÄ± Ã¶nbellek: taze ise aÄŸa hiÃ§ Ã§Ä±kmadan dÃ¶n (KeÅŸfet / arama / TopTen aÃ§Ä±lÄ±ÅŸÄ±).
+    // Bayat ise: eldeki veriyi ANINDA dÃ¶ndÃ¼r + arka planda sessizce yenile (SWR).
     let persistedSummaries: Manga[] | null = null;
     if (!includePrivate && !options?.forceRefresh) {
         const persistedKey = getPersistedMangaSummariesKey(audienceCacheKey);
@@ -1690,7 +1690,7 @@ export const getMangaSummaries = async (
             delete mangaSummariesCache[audienceCacheKey];
             delete mangaSummariesPromise[audienceCacheKey];
         }
-        // Ağ hatasında elimizde bayat da olsa kalıcı önbellek varsa onu kullan.
+        // AÄŸ hatasÄ±nda elimizde bayat da olsa kalÄ±cÄ± Ã¶nbellek varsa onu kullan.
         if (persistedSummaries) {
             return persistedSummaries;
         }
@@ -1873,7 +1873,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return pendingHomeSections;
     }
 
-    // IDB kalıcı önbellek: taze ise ağa çıkmadan dön (ana sayfa açılışı).
+    // IDB kalÄ±cÄ± Ã¶nbellek: taze ise aÄŸa Ã§Ä±kmadan dÃ¶n (ana sayfa aÃ§Ä±lÄ±ÅŸÄ±).
     let persistedHomeSections: HomePageMangaSections | null = null;
     if (!includePrivate) {
         const persistedKey = getPersistedHomeSectionsKey(audienceCacheKey);
@@ -2043,8 +2043,8 @@ export const getMangaChapters = async (
         ? 'id, manga_id, number, title, pages, release_date, views'
         : 'id, manga_id, number, title, release_date, views';
 
-    // PostgREST max-rows=1000: 1000+ bölümlü serilerde (ör. Martial Peak 3.842)
-    // bölüm listesi sessizce kırpılmasın diye sayfalı çekilir.
+    // PostgREST max-rows=1000: 1000+ bÃ¶lÃ¼mlÃ¼ serilerde (Ã¶r. Martial Peak 3.842)
+    // bÃ¶lÃ¼m listesi sessizce kÄ±rpÄ±lmasÄ±n diye sayfalÄ± Ã§ekilir.
     const CHAPTER_FETCH_PAGE_SIZE = 1000;
     const CHAPTER_FETCH_MAX_PAGES = 30;
     const data: any[] = [];
@@ -3144,21 +3144,20 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
     }
 
     adminAccessContextPromise = (async () => {
-        const { data: authData, error: authError } = await runWithSupabaseBootstrapRetry({
-            run: () => supabase.auth.getUser(),
-            timeoutMs: 5000,
-            timeoutMessage: 'Admin auth user fetch timeout',
-            shouldRetryResult: (response) => Boolean(response.error) && isRetryableSupabaseBootstrapError(response.error),
-        });
+        // NOT: admin eriÅŸim kontrolÃ¼ local session'dan baÅŸlar. AÄŸdaki /auth/v1/user
+        // Ã§aÄŸrÄ±sÄ± yavaÅŸ olduÄŸunda 5 sn timeout alÄ±p yÃ¶neticiyi panelden atÄ±yordu.
+        // Yetkinin gerÃ§ek doÄŸrulamasÄ± aÅŸaÄŸÄ±daki admin-user-directory edge Ã§aÄŸrÄ±sÄ±nda yapÄ±lÄ±r.
+        const { data: sessionData, error: authError } = await supabase.auth.getSession();
+        const authUser = sessionData.session?.user ?? null;
 
-        if (authError || !authData.user) {
+        if (authError || !authUser) {
             return {
                 canAccessAdminPanel: false,
                 isPrimaryAdmin: false,
             };
         }
 
-        const authUserId = authData.user.id;
+        const authUserId = authUser.id;
 
         if (adminAccessContextCache?.authUserId === authUserId) {
             return adminAccessContextCache.value;
@@ -3212,7 +3211,7 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
                 userId: authUserId,
                 role,
                 canAccessAdminPanel: true,
-                isPrimaryAdmin: buildPrimaryAdminFallback(authData.user.email, role),
+                isPrimaryAdmin: buildPrimaryAdminFallback(authUser.email, role),
             });
         } catch (edgeError) {
             console.warn('Admin access context edge fallback error:', edgeError);
@@ -3226,7 +3225,7 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
                     userId: authUserId,
                     role,
                     canAccessAdminPanel: true,
-                    isPrimaryAdmin: buildPrimaryAdminFallback(authData.user.email, role),
+                    isPrimaryAdmin: buildPrimaryAdminFallback(authUser.email, role),
                 });
             }
 
@@ -3438,7 +3437,7 @@ export const banUserAccess = async (
         : reasonOrOptions;
 
     const mode = options.mode ?? 'hard';
-    const reason = options.reason ?? 'Yönetici tarafından banlandı.';
+    const reason = options.reason ?? 'YÃ¶netici tarafÄ±ndan banlandÄ±.';
 
     const { data, error } = await supabase.functions.invoke('admin-ban-user', {
         body: {
@@ -3570,8 +3569,8 @@ export const getStatistics = async () => {
         };
     }
 
-    // NOT: bu istatistikler gösterim amaçlı; count:'exact' tüm tabloyu sayıyordu.
-    // 'planned' (planner tahmini) ile hızlı dönüyor.
+    // NOT: bu istatistikler gÃ¶sterim amaÃ§lÄ±; count:'exact' tÃ¼m tabloyu sayÄ±yordu.
+    // 'planned' (planner tahmini) ile hÄ±zlÄ± dÃ¶nÃ¼yor.
     const [
         { count: mangaCount },
         { count: commentCount },
@@ -3887,13 +3886,13 @@ export const updateComment = async (
         .single();
 
     if (existingCommentError) {
-        console.error('Yorum düzenleme ön kontrol hatası:', existingCommentError);
+        console.error('Yorum dÃ¼zenleme Ã¶n kontrol hatasÄ±:', existingCommentError);
         throw existingCommentError;
     }
 
     const editDeadline = new Date(existingComment.created_at).getTime() + (24 * 60 * 60 * 1000);
     if (Date.now() > editDeadline) {
-        throw new Error('Yorumlar yalnızca ilk 24 saat içinde düzenlenebilir');
+        throw new Error('Yorumlar yalnÄ±zca ilk 24 saat iÃ§inde dÃ¼zenlenebilir');
     }
 
     const { error } = await supabase.from(tableName as any).update({
@@ -3910,7 +3909,7 @@ export const updateComment = async (
     }).eq('id', id);
 
     if (error) {
-        console.error('Yorum güncelleme hatası:', error);
+        console.error('Yorum gÃ¼ncelleme hatasÄ±:', error);
         throw error;
     }
 };
@@ -3919,7 +3918,7 @@ export const deleteComment = async (id: string, entityType: string = 'manga'): P
     const tableName = entityType === 'manga' ? 'comments' : `${entityType}_comments`;
     const { error } = await supabase.from(tableName as any).delete().eq('id', id);
     if (error) {
-        console.error('Yorum silme hatası:', error);
+        console.error('Yorum silme hatasÄ±:', error);
         throw error;
     }
 };
@@ -4184,7 +4183,7 @@ export const setCommentPinned = async (id: string, isPinned: boolean, entityType
     }
 
     if (!isMissingSetCommentPinnedRpcError(error)) {
-        console.error('Yorum sabitleme hatası:', error);
+        console.error('Yorum sabitleme hatasÄ±:', error);
         throw error;
     }
 
@@ -4195,7 +4194,7 @@ export const setCommentPinned = async (id: string, isPinned: boolean, entityType
         .eq('id', id);
 
     if (fallbackError) {
-        console.error('Yorum sabitleme hatası:', fallbackError);
+        console.error('Yorum sabitleme hatasÄ±:', fallbackError);
         throw fallbackError;
     }
 };
@@ -4276,7 +4275,7 @@ export const createReviewReport = async (payload: {
     }
 
     if (!review) {
-        throw new Error('İnceleme bulunamadı');
+        throw new Error('Ä°nceleme bulunamadÄ±');
     }
 
     if (review.user_id === payload.reporterId) {
@@ -4298,7 +4297,7 @@ export const createReviewReport = async (payload: {
 
     if (error) {
         if (isMissingTableInSchemaCache(error, 'review_reports')) {
-            throw new Error('İnceleme bildirme sistemi birkaç saniye içinde aktif olacak. Sayfayı yenileyip tekrar deneyin.');
+            throw new Error('Ä°nceleme bildirme sistemi birkaÃ§ saniye iÃ§inde aktif olacak. SayfayÄ± yenileyip tekrar deneyin.');
         }
         console.error('Review report create error:', error);
         throw error;
@@ -5426,8 +5425,8 @@ export const getSimilarMangas = async (
             adultColumnAvailable,
         } = await resolveMangaVisibilityAccess();
 
-        // NOT: select('*') yerine hafif kolon seti + limitsiz tablo çekimine karşı limit.
-        // chapter sayıları ayrıca tüm chapters tablosundan değil, mangas.chapter_count'tan gelir.
+        // NOT: select('*') yerine hafif kolon seti + limitsiz tablo Ã§ekimine karÅŸÄ± limit.
+        // chapter sayÄ±larÄ± ayrÄ±ca tÃ¼m chapters tablosundan deÄŸil, mangas.chapter_count'tan gelir.
         const { data, error } = await applyPublicMangaFilter(
             supabase
                 .from('mangas')
@@ -7207,8 +7206,8 @@ export const getTopTenPageBuckets = async (
     timeframe: 'today' | 'week' | 'all' = 'today',
 ): Promise<{ safe: Manga[]; adult: Manga[] }> => {
     try {
-        // NOT: önce yalnızca 20 satırlık RPC sonuçları alınır; tam katalog (4-6 MB)
-        // yerine sadece bu ID'lerin özetleri çekilir.
+        // NOT: Ã¶nce yalnÄ±zca 20 satÄ±rlÄ±k RPC sonuÃ§larÄ± alÄ±nÄ±r; tam katalog (4-6 MB)
+        // yerine sadece bu ID'lerin Ã¶zetleri Ã§ekilir.
         const [
             { data: safeRawData, error: safeError },
             { data: adultRawData, error: adultError },

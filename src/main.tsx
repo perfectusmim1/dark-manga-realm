@@ -31,6 +31,38 @@ if (typeof window !== "undefined") {
       event.stopImmediatePropagation();
     }
   });
+
+  // Yeni deploy sonrası eski lazy chunk'lar 404 verirse (PWA cache'li kullanıcılarda
+  // sayfa/bölüm açılamaması olarak görünür) bir kez sayfayı yenile.
+  window.addEventListener("vite:preloadError", (event) => {
+    event.preventDefault();
+    const recoveryKey = "toonparrot-preload-recovery-at";
+    try {
+      const lastRecoveryAt = Number(window.sessionStorage.getItem(recoveryKey) || 0);
+      if (Date.now() - lastRecoveryAt < 15_000) {
+        return;
+      }
+      window.sessionStorage.setItem(recoveryKey, String(Date.now()));
+    } catch {
+      // sessionStorage yoksa yine de devam et
+    }
+    window.location.reload();
+  });
+}
+
+// Yeni service worker devreye girdiğinde (deploy sonrası) eski chunk uyumsuzluğunu
+// önlemek için, sayfa daha önce bir SW tarafından kontrol ediliyorsa bir kez yenile.
+if (typeof window !== "undefined" && "serviceWorker" in navigator) {
+  const hadServiceWorkerController = Boolean(navigator.serviceWorker.controller);
+  let hasReloadedForNewWorker = false;
+
+  navigator.serviceWorker.addEventListener("controllerchange", () => {
+    if (!hadServiceWorkerController || hasReloadedForNewWorker) {
+      return;
+    }
+    hasReloadedForNewWorker = true;
+    window.location.reload();
+  });
 }
 
 const registerServiceWorkerWhenIdle = () => {
