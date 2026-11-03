@@ -543,8 +543,7 @@ export type ChapterAutomationSource =
   | 'hattorimanga'
   | 'hayalistic'
   | 'mangadass'
-  | 'asurascans'
-  | 'madaradex';
+  | 'asurascans';
 export type ChapterAutomationProxyProvider = 'cloudflare';
 export type ChapterAutomationRunStatus = 'idle' | 'running' | 'success' | 'no_changes' | 'error';
 export type ChapterAutomationTestStatus = 'idle' | 'running' | 'success' | 'error';

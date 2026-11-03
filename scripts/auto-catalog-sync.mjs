@@ -1132,34 +1132,6 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
       logInfo(`[Asura Arşiv] Sayfa ${page} tarandı (+${newOnPage} yeni seri, toplam: ${cards.length})`);
       if (page >= 20) break;
     }
-  } else if (source === 'madaradex') {
-    // +18 Yetişkin İngilizce Manhwa/Manga
-    for (let page = 1; page <= effectiveMaxPages; page++) {
-      const pageUrl = page === 1 ? 'https://madaradex.org/?m_orderby=latest' : `https://madaradex.org/page/${page}/?m_orderby=latest`;
-      const res = await fetchUpstream(pageUrl);
-      if (!res.ok || !res.content) break;
-      const blocks = res.content.split(/class=["'][^"']*(?:page-item-detail|c-tabs-item__content)[^"']*["']/i).slice(1);
-      for (const b of blocks) {
-        const linkMatch = b.match(/href=["'](https?:\/\/madaradex\.org\/(?:title|manga)\/[^"'\/?#]+(?:\/)?)["']/i);
-        const titleMatch = b.match(/title=["']([^"']+)["']/i) || b.match(/<a[^>]+href=["'][^"']+["'][^>]*>([^<]+)<\/a>/i);
-        const imgMatch = b.match(/(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:webp|jpg|jpeg|png)[^"']*)["']/i);
-        const link = linkMatch?.[1]?.trim();
-        const title = titleMatch?.[1] ? cleanSeriesTitle(stripTags(titleMatch[1])) : '';
-        const cover = imgMatch?.[1]?.trim() || '';
-        if (link && title && !seen.has(link)) {
-          seen.add(link);
-          cards.push({
-            source: 'madaradex',
-            title,
-            link,
-            cover,
-            isAdult: true,
-            genres: ['+18', 'Mature', 'İngilizce'],
-            details: { language: 'en' },
-          });
-        }
-      }
-    }
   }
 
   return cards.filter((c) => !isBLSeries(c));
@@ -1268,7 +1240,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
   if (!res.ok || !res.content) return null;
   const html = res.content;
 
-  if (source === 'webtoonhatti' || source === 'hattorimanga' || source === 'madaradex') {
+  if (source === 'webtoonhatti' || source === 'hattorimanga') {
     const descMatch =
       /<div class="manga-excerpt[\s\S]*?<p>([\s\S]*?)<\/p>/i.exec(html) ||
       /<div class="description-summary[\s\S]*?<p>([\s\S]*?)<\/p>/i.exec(html) ||
@@ -1658,74 +1630,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     };
   }
 
-  if (source === 'madaradex') {
-    const ogTitle = /<meta property="og:title" content="([^"]+)"/i.exec(html)?.[1];
-    const h1Match = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
-    const title = ogTitle ? cleanSeriesTitle(ogTitle.trim()) : (h1Match ? cleanSeriesTitle(stripTags(h1Match[1]).trim()) : fallbackTitle);
-    const descMatch = /<div class="[^"]*description-summary[^"]*">[\s\S]*?<p>([\s\S]*?)<\/p>/i.exec(html) ||
-                      /<meta property="og:description" content="([^"]+)"/i.exec(html);
-    let description = descMatch ? stripTags(descMatch[1]).trim() : '';
-    if (description && !isLikelyTurkish(description)) {
-      try {
-        description = (await translateTextGtx(description)) || description;
-      } catch {}
-    }
-    // Mangadass
-    const mdCoverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
-    const cover = mdCoverMatch ? mdCoverMatch[1].trim() : fallbackCover;
-
-    // Alternative Titles
-    const altMatch = html.match(/class=["']summary-heading["'][^>]*>\s*<h5>\s*Alternative\s*<\/h5>\s*<\/div>\s*<div class=["']summary-content["'][^>]*>([\s\S]*?)<\/div>/i);
-    const alternativeTitles = altMatch
-      ? stripTags(altMatch[1]).split(/[,;\n/|•]/).map((t) => t.trim()).filter((t) => t.length > 1)
-      : [];
-
-    // Author
-    const authorMatch = html.match(/href=["']https?:\/\/madaradex\.org\/manga-author\/[^"'\/?#]+\/["'][^>]*>([^<]+)<\/a>/i);
-    const author = authorMatch ? stripTags(authorMatch[1]).trim() : 'Bilinmiyor';
-
-    // Genres
-    const genres = ['+18', 'Mature'];
-    const genreMatches = extractRegexMatches(html, /href=["']https?:\/\/madaradex\.org\/manga-genre\/[^"'\/?#]+\/["'][^>]*>([^<]+)<\/a>/gi);
-    for (const gm of genreMatches) {
-      const gName = normalizeGenreToTurkish(stripTags(gm[1]).trim());
-      if (gName && !genres.includes(gName)) genres.push(gName);
-    }
-
-    // Chapters
-    const chapterMap = new Map();
-    const chRegex = /href=["'](https?:\/\/madaradex\.org\/(?:title|manga)\/[^"']+\/chapter-(\d+(?:\.\d+)?)[^"']*)["'][^>]*>([\s\S]*?)<\/a>/gi;
-    const chMatches = extractRegexMatches(html, chRegex);
-    for (const ch of chMatches) {
-      const chUrl = ch[1].trim();
-      const num = parseFloat(ch[2]);
-      if (!chapterMap.has(num)) {
-        chapterMap.set(num, {
-          title: `Bölüm ${num}`,
-          link: chUrl,
-          chapterNumber: num,
-        });
-      }
-    }
-    const rawChapters = Array.from(chapterMap.values()).sort((a, b) => a.chapterNumber - b.chapterNumber);
-
-    return {
-      source: 'madaradex',
-      title,
-      link: seriesUrl,
-      cover,
-      description,
-      alternativeTitles,
-      author,
-      artist: undefined,
-      status: 'ongoing',
-      genres,
-      isAdult: true,
-      chapters: rawChapters,
-      details: { language: 'en' },
-    };
-  }
-
   return null;
 };
 
@@ -1763,7 +1667,7 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
   if (!res.ok || !res.content) return [];
   const html = res.content;
 
-  if (source === 'webtoonhatti' || source === 'hattorimanga' || source === 'madaradex') {
+  if (source === 'webtoonhatti' || source === 'hattorimanga') {
     let matches = [];
     const pageBreakRegex = /<div class="[^"]*page-break[^"]*"[\s\S]*?<\/div>/gi;
     const pageBreaks = extractRegexMatches(html, pageBreakRegex);
@@ -1823,14 +1727,6 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
   if (source === 'asurascans') {
     const imgs = [];
     for (const m of extractRegexMatches(html, /src=["'](https:\/\/cdn\.asurascans\.com\/asura-images\/chapters\/[^"']+)["']/gi)) {
-      if (m[1] && !isJunkImageUrl(m[1])) imgs.push(m[1].trim());
-    }
-    return await verifyAndFilterImageUrls(imgs);
-  }
-
-  if (source === 'madaradex') {
-    const imgs = [];
-    for (const m of extractRegexMatches(html, /(?:data-src|data-lazy-src|src)=["']\s*(https?:\/\/cdn\.madaradex\.org\/[^"']+)["']/gi)) {
       if (m[1] && !isJunkImageUrl(m[1])) imgs.push(m[1].trim());
     }
     return await verifyAndFilterImageUrls(imgs);

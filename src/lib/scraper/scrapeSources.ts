@@ -12,8 +12,7 @@ export type ScraperSourceKey =
   | 'siyahmelek'
   | 'hattorimanga'
   | 'mangadass'
-  | 'asurascans'
-  | 'madaradex';
+  | 'asurascans';
 
 export type LegacyScrapeSource = 'hayalistic';
 export type ScrapeSource = ScraperSourceKey | LegacyScrapeSource;
@@ -28,7 +27,6 @@ export const SCRAPER_SOURCES: readonly ScraperSourceKey[] = [
   'hattorimanga',
   'mangadass',
   'asurascans',
-  'madaradex',
 ] as const;
 
 export interface ScrapedMangaCard {
@@ -158,15 +156,6 @@ export const SOURCE_CONFIG: Record<ScraperSourceKey, SourceDefinition> = {
     listUrl: 'https://asurascans.com/comics',
     directLinkPatterns: [
       /https?:\/\/(?:www\.)?(?:asurascans\.com|asuracomic\.net)\/comics\/[^?#]+/i,
-    ],
-  },
-  madaradex: {
-    label: 'MadaraDex (+18)',
-    baseUrl: 'https://madaradex.org',
-    searchUrl: (query) => `https://madaradex.org/?s=${encodeURIComponent(query)}&post_type=wp-manga`,
-    listUrl: 'https://madaradex.org/?m_orderby=latest',
-    directLinkPatterns: [
-      /https?:\/\/(?:www\.)?madaradex\.org\/(?:title|manga)\/[^?#]+/i,
     ],
   },
 };
@@ -1058,7 +1047,7 @@ const extractGolgeOrDxdCards = (doc: Document, source: 'golgebahcesi' | 'dxdfans
 };
 
 export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, rawHtml?: string): ScrapedMangaCard[] => {
-  if (source === 'webtoonhatti' || source === 'hattorimanga' || source === 'madaradex') {
+  if (source === 'webtoonhatti' || source === 'hattorimanga') {
     const baseUrl = getSourceDef(source).baseUrl;
     const cards: ScrapedMangaCard[] = [];
     const seenKeys = new Set<string>();
@@ -1763,7 +1752,7 @@ export const extractChapterImageResult = (
   }
 
   if (images.length === 0) {
-    if (source === 'webtoonhatti' || source === 'hattorimanga' || source === 'madaradex') {
+    if (source === 'webtoonhatti' || source === 'hattorimanga') {
       images = extractWebtoonHattiImageUrls(doc);
     } else if (source === 'mangadass') {
       const dassImgs = Array.from(doc.querySelectorAll('img[src*="mangadass.com/chapters/"], #chapter-container img, .chapter-content img, .reading-content img'));

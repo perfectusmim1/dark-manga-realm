@@ -90,7 +90,6 @@ const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> =
   { value: 'okutoon', label: 'OkuToon' },
   { value: 'mangadass', label: 'Mangadass (+18 & Raw)' },
   { value: 'asurascans', label: 'Asura Scans (EN)' },
-  { value: 'madaradex', label: 'MadaraDex (+18 EN)' },
   { value: 'siyahmelek', label: 'SiyahMelek' },
   { value: 'hattorimanga', label: 'HattoriManga' },
   { value: 'mangacix', label: 'MangaCix' },
@@ -99,7 +98,7 @@ const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> =
 ];
 
 const isAdultOnlyAutomationSource = (source: ChapterAutomationSource) =>
-  source === 'mangadass' || source === 'madaradex' || source === 'siyahmelek' || source === 'hattorimanga';
+  source === 'mangadass' || source === 'siyahmelek' || source === 'hattorimanga';
 
 const DEFAULT_TIME_SLOT = '13:00';
 const TURKEY_TIME_PLACEHOLDER = '13:00';
@@ -223,8 +222,6 @@ const getSourceUrlPlaceholder = (source: ChapterAutomationSource) => {
       return 'https://mangadass.com/manga/ornek-seri-raw';
     case 'asurascans':
       return 'https://asurascans.com/comics/ornek-seri-12345';
-    case 'madaradex':
-      return 'https://madaradex.org/title/ornek-seri/';
     case 'mangacix':
       return 'https://mangacix.net/books/...';
     case 'golgebahcesi':
