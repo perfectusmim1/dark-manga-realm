@@ -103,6 +103,7 @@ const COOLDOWN_HOURS = Math.max(0, parseFloat(getArgValue('--cooldown-hours', '6
 const DORMANT_DAYS_LIMIT = Math.max(30, parseInt(getArgValue('--dormant-days', '90'), 10) || 90); // 3 months = 90 days
 const FRONT_PAGES_TO_SCAN = Math.max(1, parseInt(getArgValue('--front-pages', '2'), 10) || 2);
 const TARGET_SOURCE = getArgValue('--source', null);
+const ARCHIVE_MODE = hasFlag('--archive-mode') || hasFlag('--deep') || MODE === 'archive';
 const FORCE_ENRICH = hasFlag('--force-enrich');
 const FORCE_DELTA = hasFlag('--force-delta');
 const FULL_CHAPTERS_SYNC = hasFlag('--full-chapters-sync');
@@ -923,11 +924,12 @@ const detectIsAdult = ({
 // 4 PRIMARY SOURCE SCRAPERS (WebtoonHattı, OkuToon, SiyahMelek, HattoriManga)
 // ============================================================================
 const scanFrontPageFeed = async (source, maxPages = 2) => {
+  const effectiveMaxPages = ARCHIVE_MODE ? Math.max(maxPages, 50) : maxPages;
   const cards = [];
   const seen = new Set();
 
   if (source === 'webtoonhatti') {
-    for (let page = 1; page <= maxPages; page++) {
+    for (let page = 1; page <= effectiveMaxPages; page++) {
       const pageUrl = `https://webtoonhatti.club/manga/page/${page}/?m_orderby=latest`;
       const res = await fetchUpstream(pageUrl);
       if (!res.ok || !res.content) break;
@@ -1043,7 +1045,7 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
       { url: 'https://mangadass.com/manga-genre/mature', isRaw: false },
     ];
     for (const feed of matureFeeds) {
-      for (let page = 1; page <= maxPages; page++) {
+      for (let page = 1; page <= effectiveMaxPages; page++) {
         const pageUrl = `${feed.url}/${page}?orderby=latest`;
         const res = await fetchUpstream(pageUrl);
         if (!res.ok || !res.content) break;
@@ -1079,7 +1081,7 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
     }
   } else if (source === 'asurascans') {
     // Normal İngilizce Webtoonlar
-    for (let page = 1; page <= maxPages; page++) {
+    for (let page = 1; page <= effectiveMaxPages; page++) {
       const pageUrl = page === 1 ? 'https://asurascans.com/comics' : `https://asurascans.com/comics?page=${page}`;
       const res = await fetchUpstream(pageUrl);
       if (!res.ok || !res.content) break;
@@ -1112,7 +1114,7 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
     }
   } else if (source === 'madaradex') {
     // +18 Yetişkin İngilizce Manhwa/Manga
-    for (let page = 1; page <= maxPages; page++) {
+    for (let page = 1; page <= effectiveMaxPages; page++) {
       const pageUrl = page === 1 ? 'https://madaradex.org/?m_orderby=latest' : `https://madaradex.org/page/${page}/?m_orderby=latest`;
       const res = await fetchUpstream(pageUrl);
       if (!res.ok || !res.content) break;
@@ -4440,6 +4442,17 @@ const main = async () => {
             enrichedManga.title,
             `Tamamlandı (${validChapters.length} bölüm, Türkçe açıklama & AniList/MAL eşleşti)`
           );
+
+          // Toplu / Arşiv çekiminde her 5 seride bir veritabanı & R2 ara kaydı yap
+          if (bIdx % 5 === 0 && touchedMangaIds.size > 0 && !SKIP_SUPABASE_SYNC) {
+            try {
+              logInfo(`[Checkpoint] ${bIdx}. seri tamamlandı, R2 ve Supabase ara kaydı yapılıyor...`);
+              saveLocalCheckpoint({ ...checkpoint, seriesQueue, ...store.toState() });
+              await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds);
+            } catch (cpErr) {
+              logWarn(`[Checkpoint] Ara kayıt sırasında hata (işlem devam ediyor): ${cpErr.message}`);
+            }
+          }
         }
       }
     }
