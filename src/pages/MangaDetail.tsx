@@ -2802,7 +2802,8 @@ const MangaDetail: React.FC = () => {
   const continueChapter = latestProgress
     ? manga.chapters.find(ch => ch.id === latestProgress.chapterId)
     : null;
-  const heroArtwork = manga.banner || manga.cover;
+  const hasValidBanner = Boolean(manga.banner && !manga.banner.includes('og/comics'));
+  const heroArtwork = hasValidBanner ? manga.banner : manga.cover;
   const shouldBlurAdultArtwork = appearancePreferences.adult_cover_blur && user?.preferences?.content?.adult_mode === true && manga.isAdult === true;
 
   return (

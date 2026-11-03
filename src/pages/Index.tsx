@@ -454,14 +454,16 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
     return null;
   }
 
-  const featuredBannerSrcSet = getManagedArtworkSrcSet(featured.manga.banner);
+  const hasValidBanner = Boolean(featured.manga.banner && !featured.manga.banner.includes('og/comics'));
+  const continueReadingArtwork = hasValidBanner ? featured.manga.banner : featured.manga.cover;
+  const featuredBannerSrcSet = getManagedArtworkSrcSet(continueReadingArtwork);
   const featuredCoverSrcSet = getManagedArtworkSrcSet(featured.manga.cover);
 
   const secondary = secondaryEntries.slice(0, 3);
   const continueHref = `/manga/${featured.manga.id}/chapter/${featured.chapterId}`;
   const detailsHref = `/manga/${featured.manga.id}`;
   const featuredDescription = truncateContinueReadingDescription(featured.manga.description);
-  const shouldBlurFeaturedArtwork = blurAdultArtwork && featured.manga.isAdult === true;
+  const shouldBlurFeaturedArtwork = (blurAdultArtwork && featured.manga.isAdult === true) || !hasValidBanner;
 
   return (
     <section>
@@ -479,10 +481,10 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
       </div>
 
       <div className="relative overflow-hidden rounded-[30px] border border-primary/15 bg-card shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
-        {featured.manga.banner && (
+        {continueReadingArtwork && (
           <div className="absolute inset-0">
             <OptimizedImage
-              src={featured.manga.banner}
+              src={continueReadingArtwork}
               alt=""
               priority
               srcSet={featuredBannerSrcSet}
