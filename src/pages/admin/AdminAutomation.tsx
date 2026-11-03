@@ -82,14 +82,18 @@ import { cn } from '@/lib/utils';
 const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> = [
   { value: 'webtoonhatti', label: 'WebtoonHattı' },
   { value: 'okutoon', label: 'OkuToon' },
+  { value: 'mangadass', label: 'Mangadass (+18 & Raw)' },
+  { value: 'asurascans', label: 'Asura Scans (EN)' },
+  { value: 'madaradex', label: 'MadaraDex (+18 EN)' },
+  { value: 'siyahmelek', label: 'SiyahMelek' },
+  { value: 'hattorimanga', label: 'HattoriManga' },
   { value: 'mangacix', label: 'MangaCix' },
   { value: 'golgebahcesi', label: 'Gölge Bahçesi' },
   { value: 'dxdfansub', label: 'DxDFansub' },
-  { value: 'siyahmelek', label: 'SiyahMelek' },
-  { value: 'hattorimanga', label: 'HattoriManga' },
 ];
 
-const isAdultOnlyAutomationSource = (_source: ChapterAutomationSource) => false;
+const isAdultOnlyAutomationSource = (source: ChapterAutomationSource) =>
+  source === 'mangadass' || source === 'madaradex' || source === 'siyahmelek' || source === 'hattorimanga';
 
 const DEFAULT_TIME_SLOT = '13:00';
 const TURKEY_TIME_PLACEHOLDER = '13:00';
@@ -209,6 +213,12 @@ const getSourceUrlPlaceholder = (source: ChapterAutomationSource) => {
       return 'https://webtoonhatti.club/manga/...';
     case 'okutoon':
       return 'https://okutoon.com/...';
+    case 'mangadass':
+      return 'https://mangadass.com/manga/ornek-seri-raw';
+    case 'asurascans':
+      return 'https://asurascans.com/comics/ornek-seri-12345';
+    case 'madaradex':
+      return 'https://madaradex.org/title/ornek-seri/';
     case 'mangacix':
       return 'https://mangacix.net/books/...';
     case 'golgebahcesi':

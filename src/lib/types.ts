@@ -541,7 +541,10 @@ export type ChapterAutomationSource =
   | 'dxdfansub'
   | 'siyahmelek'
   | 'hattorimanga'
-  | 'hayalistic';
+  | 'hayalistic'
+  | 'mangadass'
+  | 'asurascans'
+  | 'madaradex';
 export type ChapterAutomationProxyProvider = 'cloudflare';
 export type ChapterAutomationRunStatus = 'idle' | 'running' | 'success' | 'no_changes' | 'error';
 export type ChapterAutomationTestStatus = 'idle' | 'running' | 'success' | 'error';
