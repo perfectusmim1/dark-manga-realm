@@ -6,6 +6,7 @@ import { Badge } from '@/components/ui/badge';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
 import { toast } from 'sonner';
 import TagBadge from '@/components/tags/TagBadge';
+import { AppPagination } from '@/components/ui/AppPagination';
 import { Tag, TagCategory } from '@/lib/types';
 import { OFFICIAL_TAG_CATALOG, OFFICIAL_TAG_SLUGS, slugifyCatalogTagName } from '@/lib/officialTagCatalog';
 import {
@@ -37,6 +38,12 @@ const AdminTags: React.FC = () => {
   const [tagToDelete, setTagToDelete] = useState<Tag | null>(null);
   const [newTag, setNewTag] = useState({ name: '', category: 'general' as TagCategory, description: '' });
   const [saving, setSaving] = useState(false);
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(40);
+
+  useEffect(() => {
+    setPage(1);
+  }, [searchQuery, filterCategory, filterSource, filterApproval]);
 
   useEffect(() => {
     loadTags();
@@ -149,6 +156,12 @@ const AdminTags: React.FC = () => {
 
     return matchesSearch && matchesCategory && matchesSource && matchesApproval;
   });
+
+  const totalPages = Math.max(1, Math.ceil(filteredTags.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
+  const paginatedTags = filteredTags.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  const startIndex = filteredTags.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endIndex = Math.min(currentPage * pageSize, filteredTags.length);
 
   const tagStats = {
     total: tags.length,
@@ -350,6 +363,41 @@ const AdminTags: React.FC = () => {
         </div>
       </div>
 
+      {/* Summary & Page Size */}
+      {!loading && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground px-1">
+          <div>
+            Toplam <span className="font-semibold text-foreground">{filteredTags.length.toLocaleString('tr-TR')}</span> etiketten{' '}
+            {filteredTags.length > 0 ? (
+              <>
+                <span className="font-medium text-foreground">{startIndex}</span> - <span className="font-medium text-foreground">{endIndex}</span> arası gösteriliyor
+              </>
+            ) : (
+              'eşleşen sonuç yok'
+            )}
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-xs">Sayfa başı:</span>
+            <div className="flex items-center gap-1">
+              {[30, 50, 100].map((size) => (
+                <Button
+                  key={size}
+                  variant={pageSize === size ? 'default' : 'outline'}
+                  size="sm"
+                  className="h-7 px-2.5 text-xs"
+                  onClick={() => {
+                    setPageSize(size);
+                    setPage(1);
+                  }}
+                >
+                  {size}
+                </Button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="space-y-2">
           {[1, 2, 3, 4, 5].map(i => (
@@ -362,7 +410,7 @@ const AdminTags: React.FC = () => {
             {filteredTags.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">Hiç etiket bulunamadı</div>
             ) : (
-              filteredTags.map((tag) => (
+              paginatedTags.map((tag) => (
                 <div key={tag.id} className="space-y-4 p-4">
                   <div className="space-y-2">
                     {editingTag?.id === tag.id ? (
@@ -462,7 +510,7 @@ const AdminTags: React.FC = () => {
             {filteredTags.length === 0 ? (
               <div className="p-8 text-center text-muted-foreground">Hiç etiket bulunamadı</div>
             ) : (
-              filteredTags.map(tag => (
+              paginatedTags.map(tag => (
                 <div key={tag.id} className="grid grid-cols-[minmax(0,1fr)_auto_auto_auto_auto_auto] gap-4 px-4 py-3 items-center hover:bg-secondary/20 transition-colors">
                   {editingTag?.id === tag.id ? (
                     <Input
@@ -533,6 +581,17 @@ const AdminTags: React.FC = () => {
               ))
             )}
           </div>
+        </div>
+      )}
+
+      {totalPages > 1 && (
+        <div className="flex flex-col items-center gap-2 pt-2">
+          <AppPagination
+            currentPage={currentPage}
+            totalPages={totalPages}
+            onPageChange={(p) => setPage(p)}
+            scrollToTop={true}
+          />
         </div>
       )}
 

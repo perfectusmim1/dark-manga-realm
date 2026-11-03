@@ -35,6 +35,11 @@ import {
 } from './chapterCardImages';
 import { encodeCommentContent, parseCommentContent } from './commentContent';
 import {
+    readPersistedQueryCache,
+    removePersistedQueryCache,
+    writePersistedQueryCache,
+} from './persistedQueryCache';
+import {
     isStoredMediaUrl,
     materializeChapterPages,
     materializeRemoteImages,
@@ -388,6 +393,24 @@ const fetchNamedEntityRows = async (
         return pending;
     }
 
+    // IDB kalıcı cache: Header/SuperSearch araması yeni sekmede de ağa çıkmadan çalışsın.
+    const persistedEntityKey = `named-entities-v1:${cacheKey}`;
+    if (!includePrivate) {
+        const persistedEntityRows = await readPersistedQueryCache<any[]>(persistedEntityKey);
+        if (
+            persistedEntityRows
+            && Array.isArray(persistedEntityRows.value)
+            && persistedEntityRows.value.length > 0
+            && Date.now() - persistedEntityRows.fetchedAt < PERSISTED_CATALOG_CACHE_TTL_MS
+        ) {
+            namedEntityRowsCache.set(cacheKey, {
+                fetchedAt: persistedEntityRows.fetchedAt,
+                rows: persistedEntityRows.value,
+            });
+            return persistedEntityRows.value;
+        }
+    }
+
     // NOT: count:'exact' kaldırıldı — PostgREST her sayfa için tüm tabloya count(*)
     // çalıştırıyordu (bkz. performans raporu). Bunun yerine kısa sayfa gelene kadar
     // batch'li paralel sayfalama yapılır.
@@ -430,6 +453,9 @@ const fetchNamedEntityRows = async (
         }
 
         namedEntityRowsCache.set(cacheKey, { fetchedAt: Date.now(), rows });
+        if (!includePrivate) {
+            void writePersistedQueryCache(persistedEntityKey, rows);
+        }
         return rows;
     })().finally(() => {
         namedEntityRowsPromises.delete(cacheKey);
@@ -500,37 +526,46 @@ const fetchAllMangaRowsPaginated = async (
     },
 ) => {
     const CHUNK_SIZE = 1000;
+    // NOT: 1000'lik sayfalar sıralı çekiliyordu (4-6 s). Sıralı yerine 4'lü batch'lerle
+    // paralel çekilir; kısa sayfa gelince durur. Sıra korunur.
+    const PAGE_FETCH_BATCH = 4;
+    const MAX_ROWS_SAFETY = 100_000;
     const rows: any[] = [];
     let pageIndex = 0;
-    let hasMore = true;
+    let reachedEnd = false;
 
-    while (hasMore) {
-        const from = pageIndex * CHUNK_SIZE;
-        const to = from + CHUNK_SIZE - 1;
-        const query = applyPublicMangaFilter(
-            supabase
-                .from('mangas')
-                .select(selectColumns)
-                .order('last_updated', { ascending: false })
-                .range(from, to),
-            options,
-        );
+    while (!reachedEnd && rows.length < MAX_ROWS_SAFETY) {
+        const pageRequests = Array.from({ length: PAGE_FETCH_BATCH }, (_, offsetIndex) => {
+            const currentPageIndex = pageIndex + offsetIndex;
+            const from = currentPageIndex * CHUNK_SIZE;
+            const to = from + CHUNK_SIZE - 1;
+            return applyPublicMangaFilter(
+                supabase
+                    .from('mangas')
+                    .select(selectColumns)
+                    .order('last_updated', { ascending: false })
+                    .range(from, to),
+                options,
+            );
+        });
 
-        const { data, error } = await query;
-        if (error) {
-            throw error;
-        }
+        const responses = await Promise.all(pageRequests);
 
-        if (Array.isArray(data) && data.length > 0) {
-            rows.push(...data);
-            if (data.length < CHUNK_SIZE) {
-                hasMore = false;
-            } else {
-                pageIndex++;
+        for (const response of responses) {
+            if (response.error) {
+                throw response.error;
             }
-        } else {
-            hasMore = false;
+
+            const pageRows = Array.isArray(response.data) ? response.data : [];
+            rows.push(...pageRows);
+
+            if (pageRows.length < CHUNK_SIZE) {
+                reachedEnd = true;
+                break;
+            }
         }
+
+        pageIndex += PAGE_FETCH_BATCH;
     }
 
     return rows;
@@ -841,8 +876,49 @@ let adminAccessContextCache:
     | null = null;
 let adminAccessContextPromise: Promise<AdminAccessContext> | null = null;
 const ALL_MANGAS_CACHE_TTL_MS = 5 * 60_000;
-const TOP_TEN_IDS_CACHE_TTL_MS = 5 * 60_000;
+const TOP_TEN_IDS_CACHE_TTL_MS = 15 * 60_000;
 const STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS = 5 * 60_000;
+// IDB kalıcı katalog önbelleği: sayfa yenilense bile bu süre içinde ağa çıkmadan döner.
+const PERSISTED_CATALOG_CACHE_TTL_MS = 15 * 60_000;
+const PERSISTED_MANGA_SUMMARIES_KEY_PREFIX = 'manga-summaries-v1:';
+const PERSISTED_HOME_SECTIONS_KEY_PREFIX = 'home-sections-v1:';
+// Manga detayı kısa süreli bellek cache'i: MangaDetail -> Reader geçişinde aynı ağır
+// sorguların tekrar edilmesini engeller (yazma işlemlerinde invalidate edilir).
+const MANGA_DETAIL_CACHE_TTL_MS = 60_000;
+const mangaDetailCache = new Map<string, { fetchedAt: number; value: Manga }>();
+
+// Cache'ten dönen nesnenin UI state'inde paylaşılıp mutasyona uğramaması için klonlanır.
+function cloneMangaForCache(manga: Manga): Manga {
+    return {
+        ...manga,
+        chapters: Array.isArray(manga.chapters)
+            ? manga.chapters.map((chapter) => ({
+                ...chapter,
+                pages: Array.isArray(chapter.pages) ? [...chapter.pages] : [],
+            }))
+            : [],
+    } as Manga;
+}
+
+const getPersistedMangaSummariesKey = (audienceCacheKey: MangaAudienceCacheKey) => (
+    `${PERSISTED_MANGA_SUMMARIES_KEY_PREFIX}${audienceCacheKey}`
+);
+
+const getPersistedHomeSectionsKey = (audienceCacheKey: MangaAudienceCacheKey) => (
+    `${PERSISTED_HOME_SECTIONS_KEY_PREFIX}${audienceCacheKey}`
+);
+
+const clearPersistedCatalogCache = () => {
+    void removePersistedQueryCache([
+        getPersistedMangaSummariesKey('safe'),
+        getPersistedMangaSummariesKey('adult'),
+        getPersistedHomeSectionsKey('safe'),
+        getPersistedHomeSectionsKey('adult'),
+        'named-entities-v1:characters:public',
+        'named-entities-v1:authors:public',
+        'named-entities-v1:artists:public',
+    ]);
+};
 const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, description, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
 // Liste/picker sorguları için hafif kolon seti: description/details/source_links gibi ağır
 // alanlar çekilmez (bkz. performans raporu: select('*') payload'ı 1.8 KB/satır).
@@ -889,6 +965,8 @@ const invalidateAllMangasCache = () => {
     mangaSummariesPromise = {};
     homePageMangaSectionsCache = {};
     homePageMangaSectionsPromise = {};
+    mangaDetailCache.clear();
+    clearPersistedCatalogCache();
     namedEntityRowsCache.clear();
     namedEntityRowsPromises.clear();
     topTenMangaIdsCache.today = null;
@@ -1509,6 +1587,23 @@ export const getMangaSummaries = async (
         return pendingMangaSummaries;
     }
 
+    // IDB kalıcı önbellek: taze ise ağa hiç çıkmadan dön (Keşfet / arama / TopTen açılışı).
+    let persistedSummaries: Manga[] | null = null;
+    if (!includePrivate) {
+        const persistedKey = getPersistedMangaSummariesKey(audienceCacheKey);
+        const persisted = await readPersistedQueryCache<Manga[]>(persistedKey);
+        if (persisted && Array.isArray(persisted.value) && persisted.value.length > 0) {
+            if (Date.now() - persisted.fetchedAt < PERSISTED_CATALOG_CACHE_TTL_MS) {
+                mangaSummariesCache[audienceCacheKey] = {
+                    fetchedAt: persisted.fetchedAt,
+                    value: persisted.value,
+                };
+                return persisted.value;
+            }
+            persistedSummaries = persisted.value;
+        }
+    }
+
     try {
         const fetchSummaries = async () => {
             const [
@@ -1568,6 +1663,7 @@ export const getMangaSummaries = async (
                 fetchedAt: Date.now(),
                 value: summaries,
             };
+            void writePersistedQueryCache(getPersistedMangaSummariesKey(audienceCacheKey), summaries);
         }
 
         return summaries;
@@ -1575,6 +1671,10 @@ export const getMangaSummaries = async (
         if (!includePrivate) {
             delete mangaSummariesCache[audienceCacheKey];
             delete mangaSummariesPromise[audienceCacheKey];
+        }
+        // Ağ hatasında elimizde bayat da olsa kalıcı önbellek varsa onu kullan.
+        if (persistedSummaries) {
+            return persistedSummaries;
         }
         if (!isExpectedAccessControlError(error)) {
             console.error('Manga summary fetch global error:', error);
@@ -1755,6 +1855,23 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return pendingHomeSections;
     }
 
+    // IDB kalıcı önbellek: taze ise ağa çıkmadan dön (ana sayfa açılışı).
+    let persistedHomeSections: HomePageMangaSections | null = null;
+    if (!includePrivate) {
+        const persistedKey = getPersistedHomeSectionsKey(audienceCacheKey);
+        const persisted = await readPersistedQueryCache<HomePageMangaSections>(persistedKey);
+        if (persisted && hasHomePageSectionData(persisted.value)) {
+            if (Date.now() - persisted.fetchedAt < PERSISTED_CATALOG_CACHE_TTL_MS) {
+                homePageMangaSectionsCache[audienceCacheKey] = {
+                    fetchedAt: persisted.fetchedAt,
+                    value: persisted.value,
+                };
+                return persisted.value;
+            }
+            persistedHomeSections = persisted.value;
+        }
+    }
+
     const mapRowsToSummaries = (rows: any[], summaryMap: Map<string, Manga>) => (
         rows
             .map((row) => summaryMap.get(row.id))
@@ -1839,12 +1956,16 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
                 fetchedAt: Date.now(),
                 value: sections,
             };
+            void writePersistedQueryCache(getPersistedHomeSectionsKey(audienceCacheKey), sections);
         }
 
         return sections;
     } catch (error) {
         delete homePageMangaSectionsCache[audienceCacheKey];
         delete homePageMangaSectionsPromise[audienceCacheKey];
+        if (persistedHomeSections) {
+            return persistedHomeSections;
+        }
         if (!isExpectedAccessControlError(error)) {
             console.error('Homepage manga fetch error:', error);
         }
@@ -1904,17 +2025,33 @@ export const getMangaChapters = async (
         ? 'id, manga_id, number, title, pages, release_date, views'
         : 'id, manga_id, number, title, release_date, views';
 
-    const { data, error } = await supabase
-        .from('chapters')
-        .select(selectColumns)
-        .eq('manga_id', mangaId)
-        .order('number', { ascending: false });
+    // PostgREST max-rows=1000: 1000+ bölümlü serilerde (ör. Martial Peak 3.842)
+    // bölüm listesi sessizce kırpılmasın diye sayfalı çekilir.
+    const CHAPTER_FETCH_PAGE_SIZE = 1000;
+    const CHAPTER_FETCH_MAX_PAGES = 30;
+    const data: any[] = [];
+    for (let pageIndex = 0; pageIndex < CHAPTER_FETCH_MAX_PAGES; pageIndex += 1) {
+        const from = pageIndex * CHAPTER_FETCH_PAGE_SIZE;
+        const to = from + CHAPTER_FETCH_PAGE_SIZE - 1;
+        const { data: pageData, error: pageError } = await supabase
+            .from('chapters')
+            .select(selectColumns)
+            .eq('manga_id', mangaId)
+            .order('number', { ascending: false })
+            .range(from, to);
 
-    if (error) {
-        throw error;
+        if (pageError) {
+            throw pageError;
+        }
+
+        const pageRows = pageData || [];
+        data.push(...pageRows);
+        if (pageRows.length < CHAPTER_FETCH_PAGE_SIZE) {
+            break;
+        }
     }
 
-    const mapped = (data || []).map((row: any) => mapChapterRowToChapter(row, { includePages }));
+    const mapped = data.map((row: any) => mapChapterRowToChapter(row, { includePages }));
 
     if (includePages && mapped.some((c) => !c.pages || c.pages.length === 0)) {
         try {
@@ -2064,6 +2201,11 @@ export const getMangaById = async (
     options?: GetMangaByIdOptions
 ): Promise<Manga | undefined> => {
     const { includePrivate, includeAdult } = await resolveMangaVisibilityAccess(options?.includePrivate);
+    const mangaDetailCacheKey = `${mangaId}:${includePrivate ? 'private' : 'public'}:${includeAdult ? 'adult' : 'safe'}:${options?.includePages === true ? 'pages' : 'meta'}`;
+    const cachedMangaDetail = mangaDetailCache.get(mangaDetailCacheKey);
+    if (cachedMangaDetail && Date.now() - cachedMangaDetail.fetchedAt < MANGA_DETAIL_CACHE_TTL_MS) {
+        return cloneMangaForCache(cachedMangaDetail.value);
+    }
 
     const { data, error } = await supabase
         .from('mangas')
@@ -2131,7 +2273,7 @@ export const getMangaById = async (
 
     const hydratedChapters = hydrateChaptersWithCardImageState(chapterRows, data.details);
 
-    return {
+    const mangaDetail = {
         ...data,
         author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || cleanPlaceholderNamedEntityString(data.author) || data.author,
         artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || cleanPlaceholderNamedEntityString(data.artist) || data.artist,
@@ -2154,6 +2296,13 @@ export const getMangaById = async (
         authorsDetails,
         artistsDetails,
     } as any;
+
+    mangaDetailCache.set(mangaDetailCacheKey, {
+        fetchedAt: Date.now(),
+        value: cloneMangaForCache(mangaDetail as Manga),
+    });
+
+    return mangaDetail as Manga;
 };
 
 /**
@@ -7040,7 +7189,8 @@ export const getTopTenPageBuckets = async (
     timeframe: 'today' | 'week' | 'all' = 'today',
 ): Promise<{ safe: Manga[]; adult: Manga[] }> => {
     try {
-        const summaries = await getMangaSummaries();
+        // NOT: önce yalnızca 20 satırlık RPC sonuçları alınır; tam katalog (4-6 MB)
+        // yerine sadece bu ID'lerin özetleri çekilir.
         const [
             { data: safeRawData, error: safeError },
             { data: adultRawData, error: adultError },
@@ -7064,6 +7214,16 @@ export const getTopTenPageBuckets = async (
         if (adultError) {
             console.error('getTopTenPageBuckets adult error:', adultError);
         }
+
+        const topMangaIds = [...new Set(
+            [...(safeRawData || []), ...(adultRawData || [])]
+                .map((item: any) => item?.id)
+                .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0),
+        )];
+
+        const summaries = topMangaIds.length > 0
+            ? await getMangaSummariesByIds(topMangaIds)
+            : [];
 
         return {
             safe: buildAudienceTopTen(summaries, safeRawData, 'safe'),

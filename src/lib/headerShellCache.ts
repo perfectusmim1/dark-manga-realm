@@ -42,12 +42,21 @@ const writeSnapshot = (snapshot: HeaderShellSnapshot | null) => {
   }
 
   if (!snapshot?.user) {
-    window.sessionStorage.removeItem(HEADER_SHELL_STORAGE_KEY);
+    try {
+      window.localStorage.removeItem(HEADER_SHELL_STORAGE_KEY);
+    } catch {
+      // yoksay
+    }
     emitHeaderShellChange();
     return;
   }
 
-  window.sessionStorage.setItem(HEADER_SHELL_STORAGE_KEY, JSON.stringify(snapshot));
+  try {
+    // localStorage: yeni sekmede header kullanıcı bilgisi anında gelsin.
+    window.localStorage.setItem(HEADER_SHELL_STORAGE_KEY, JSON.stringify(snapshot));
+  } catch {
+    // kota/erişim hatası — header auth sonucunu bekler
+  }
   emitHeaderShellChange();
 };
 
@@ -56,7 +65,7 @@ export const readHeaderShellSnapshot = (): HeaderShellSnapshot | null => {
     return null;
   }
 
-  const raw = window.sessionStorage.getItem(HEADER_SHELL_STORAGE_KEY);
+  const raw = window.localStorage.getItem(HEADER_SHELL_STORAGE_KEY);
   if (!raw) {
     return null;
   }

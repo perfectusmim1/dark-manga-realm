@@ -41,6 +41,7 @@ import {
 import { Textarea } from '@/components/ui/textarea';
 import { Switch } from '@/components/ui/switch';
 import ConfirmDialog from '@/components/ui/confirm-dialog';
+import { AppPagination } from '@/components/ui/AppPagination';
 import {
   getCharacters,
   getAuthors,
@@ -179,7 +180,8 @@ const AdminEntities: React.FC = () => {
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [showBulkDeleteConfirm, setShowBulkDeleteConfirm] = useState(false);
   const [formData, setFormData] = useState<EntityDialogFormState>(createEmptyFormState());
-  const [showAllResults, setShowAllResults] = useState(false);
+  const [page, setPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(30);
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const loadData = async () => {
@@ -211,7 +213,7 @@ const AdminEntities: React.FC = () => {
   }, [activeTab]);
 
   useEffect(() => {
-    setShowAllResults(false);
+    setPage(1);
   }, [activeTab, deferredSearchQuery]);
 
   const handleOpenDialog = (entity?: EditableEntity) => {
@@ -405,13 +407,13 @@ const AdminEntities: React.FC = () => {
 
   const isSearchActive = deferredSearchQuery.trim().length > 0;
 
+  const totalPages = Math.max(1, Math.ceil(filteredItems.length / pageSize));
+  const currentPage = Math.min(page, totalPages);
   const visibleItems = useMemo(() => {
-    if (isSearchActive || showAllResults) {
-      return filteredItems;
-    }
-
-    return filteredItems.slice(0, ADMIN_ENTITY_PREVIEW_LIMIT);
-  }, [filteredItems, isSearchActive, showAllResults]);
+    return filteredItems.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+  }, [filteredItems, currentPage, pageSize]);
+  const startIndex = filteredItems.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const endIndex = Math.min(currentPage * pageSize, filteredItems.length);
 
   const selectedIdSet = useMemo(() => new Set(selectedIds), [selectedIds]);
 
@@ -551,24 +553,36 @@ const AdminEntities: React.FC = () => {
           </div>
 
           {!loading ? (
-            <div className="flex flex-col gap-3 rounded-2xl border border-dashed border-border/70 bg-background/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-col gap-2 rounded-2xl border border-dashed border-border/70 bg-background/20 p-3 sm:flex-row sm:items-center sm:justify-between">
               <p className="text-sm text-muted-foreground">
-                {isSearchActive
-                  ? `${filteredItems.length} arama sonucu gösteriliyor.`
-                  : filteredItems.length > visibleItems.length
-                    ? `${filteredItems.length} kaydın ilk ${visibleItems.length} tanesi gösteriliyor.`
-                    : `${filteredItems.length} kayıt gösteriliyor.`}
+                Toplam <span className="font-semibold text-foreground">{filteredItems.length.toLocaleString('tr-TR')}</span> kayıttan{' '}
+                {filteredItems.length > 0 ? (
+                  <>
+                    <span className="font-medium text-foreground">{startIndex}</span> - <span className="font-medium text-foreground">{endIndex}</span> arası gösteriliyor
+                  </>
+                ) : (
+                  'eşleşen sonuç yok'
+                )}
               </p>
-              {!isSearchActive && filteredItems.length > visibleItems.length ? (
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="w-full sm:w-auto"
-                  onClick={() => setShowAllResults(true)}
-                >
-                  Tümünü Göster ({filteredItems.length})
-                </Button>
-              ) : null}
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-muted-foreground">Sayfa başı:</span>
+                <div className="flex items-center gap-1">
+                  {[25, 50, 100].map((size) => (
+                    <Button
+                      key={size}
+                      variant={pageSize === size ? 'default' : 'outline'}
+                      size="sm"
+                      className="h-7 px-2.5 text-xs"
+                      onClick={() => {
+                        setPageSize(size);
+                        setPage(1);
+                      }}
+                    >
+                      {size}
+                    </Button>
+                  ))}
+                </div>
+              </div>
             </div>
           ) : null}
 
@@ -741,6 +755,17 @@ const AdminEntities: React.FC = () => {
                   </TableBody>
                 </Table>
               </div>
+            </div>
+          )}
+
+          {totalPages > 1 && !loading && (
+            <div className="flex flex-col items-center gap-2 pt-4">
+              <AppPagination
+                currentPage={currentPage}
+                totalPages={totalPages}
+                onPageChange={(p) => setPage(p)}
+                scrollToTop={true}
+              />
             </div>
           )}
         </CardContent>

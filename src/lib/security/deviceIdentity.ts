@@ -19,9 +19,12 @@ export interface AccessCheckResult {
 }
 
 const ACCESS_CHECK_RETRY_DELAYS_MS = [0, 900, 1800];
-const ACCESS_CHECK_ALLOWED_CACHE_TTL_MS = 8_000;
-const ACCESS_CHECK_BLOCKED_CACHE_TTL_MS = 3_000;
-const ACCESS_CHECK_FAILURE_CACHE_TTL_MS = 2_000;
+// NOT: Erişim kontrolü kullanıcı/cihaz seviyesinde; route'a bağlı değil. Bu yüzden
+// cache anahtarı path içermez ve TTL daha uzundur — her sayfa geçişinde Edge Function
+// çağrısı yapılmasını engeller.
+const ACCESS_CHECK_ALLOWED_CACHE_TTL_MS = 60_000;
+const ACCESS_CHECK_BLOCKED_CACHE_TTL_MS = 10_000;
+const ACCESS_CHECK_FAILURE_CACHE_TTL_MS = 5_000;
 const accessCheckInflightRequests = new Map<string, Promise<AccessCheckResult>>();
 const accessCheckResultCache = new Map<string, {
     fetchedAt: number;
@@ -123,13 +126,13 @@ const writeAccessCheckResultCache = (cacheKey: string, result: AccessCheckResult
 };
 
 const getAccessCheckCacheKey = async (
-    path: string,
+    _path: string,
     preferredAccessToken?: string | null,
 ) => {
     const tokenKey = preferredAccessToken?.trim()
         ? preferredAccessToken.trim().slice(-24)
         : (await supabase.auth.getSession()).data.session?.access_token?.slice(-24) || 'anon';
-    return `${tokenKey}:${path}`;
+    return tokenKey;
 };
 
 export const checkCurrentAccess = async (

@@ -20,7 +20,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
-import { addFavorite, removeFavorite, isFavorite } from '@/lib/storage';
+import { addFavorite, removeFavorite, getFavorites } from '@/lib/storage';
 import { toast } from 'sonner';
 import { matchesMangaSearch } from '@/lib/searchMatching';
 import { getMangaTypeLabel } from '@/lib/mangaType';
@@ -71,10 +71,14 @@ const SuperSearch: React.FC = () => {
                     setRandomShowcase(randomCards);
 
                     if (user) {
+                        // NOT: her manga için ayrı isFavorite çağrısı (N+1, 3.500+ istek)
+                        // yerine tek getFavorites çağrısı + Set.
+                        const favoriteEntries = await getFavorites(user.id);
+                        const favoriteIds = new Set(favoriteEntries.map((entry) => entry.mangaId));
                         const favStatus: Record<string, boolean> = {};
-                        await Promise.all(data.map(async (m) => {
-                            favStatus[m.id] = await isFavorite(user.id, m.id);
-                        }));
+                        for (const manga of data) {
+                            favStatus[manga.id] = favoriteIds.has(manga.id);
+                        }
                         setFavorites(favStatus);
                     }
                 } catch (err) {

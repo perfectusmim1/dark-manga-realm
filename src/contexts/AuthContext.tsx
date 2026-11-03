@@ -813,7 +813,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           ) {
             setMfaState((prev) => ({ ...prev, isLoading: false }));
           } else {
-            await refreshMfaState();
+            // NOT: MFA durumu kritik render yolunu bloklamasın; arka planda çözülür.
+            // (MfaGate mfaState.isLoading / needsVerification'a göre yönlendirmeyi yapar.)
+            void refreshMfaState();
           }
         } else {
           setSession(null);

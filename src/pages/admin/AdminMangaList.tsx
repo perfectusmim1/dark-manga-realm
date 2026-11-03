@@ -33,6 +33,7 @@ import {
 import { getMangaSummaries, deleteManga } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
+import { AppPagination } from '@/components/ui/AppPagination';
 
 interface AdminMangaListProps {
     section?: 'standard' | 'adult';
@@ -45,9 +46,16 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
     const [statusFilter, setStatusFilter] = useState<string>('all');
     const [visibilityFilter, setVisibilityFilter] = useState<string>('all');
     const [deleteId, setDeleteId] = useState<string | null>(null);
+    const [page, setPage] = useState<number>(1);
+    const [pageSize, setPageSize] = useState<number>(30);
 
     const [isLoading, setIsLoading] = useState(true);
     const isAdultSection = section === 'adult';
+
+    // Filtre veya arama değiştiğinde 1. sayfaya dön
+    useEffect(() => {
+        setPage(1);
+    }, [searchQuery, typeFilter, statusFilter, visibilityFilter]);
 
     useEffect(() => {
         loadMangas();
@@ -91,6 +99,12 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
             || (visibilityFilter === 'private' && manga.isPublic === false);
         return matchesSection && matchesSearch && matchesType && matchesStatus && matchesVisibility;
     });
+
+    const totalPages = Math.max(1, Math.ceil(filteredMangas.length / pageSize));
+    const currentPage = Math.min(page, totalPages);
+    const paginatedMangas = filteredMangas.slice((currentPage - 1) * pageSize, currentPage * pageSize);
+    const startIndex = filteredMangas.length === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+    const endIndex = Math.min(currentPage * pageSize, filteredMangas.length);
 
     const getStatusBadge = (status: string) => {
         switch (status) {
@@ -224,10 +238,43 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                 </DropdownMenu>
             </div>
 
+            {/* Summary & Page Size */}
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground px-1">
+                <div>
+                    Toplam <span className="font-semibold text-foreground">{filteredMangas.length.toLocaleString('tr-TR')}</span> seriden{' '}
+                    {filteredMangas.length > 0 ? (
+                        <>
+                            <span className="font-medium text-foreground">{startIndex}</span> - <span className="font-medium text-foreground">{endIndex}</span> arası gösteriliyor
+                        </>
+                    ) : (
+                        'eşleşen sonuç yok'
+                    )}
+                </div>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs">Sayfa başı:</span>
+                    <div className="flex items-center gap-1">
+                        {[25, 50, 100].map((size) => (
+                            <Button
+                                key={size}
+                                variant={pageSize === size ? 'default' : 'outline'}
+                                size="sm"
+                                className="h-7 px-2.5 text-xs"
+                                onClick={() => {
+                                    setPageSize(size);
+                                    setPage(1);
+                                }}
+                            >
+                                {size}
+                            </Button>
+                        ))}
+                    </div>
+                </div>
+            </div>
+
             {/* Manga List */}
             <div className="rounded-xl border border-border bg-card">
                 <div className="divide-y divide-border md:hidden">
-                    {filteredMangas.map((manga) => (
+                    {paginatedMangas.map((manga) => (
                         <div key={manga.id} className="space-y-4 p-4">
                             <div className="flex items-start gap-3">
                                 <img
@@ -293,7 +340,7 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                             </tr>
                         </thead>
                         <tbody className="divide-y divide-border">
-                            {filteredMangas.map((manga) => (
+                            {paginatedMangas.map((manga) => (
                                 <tr key={manga.id} className="hover:bg-secondary/50">
                                     <td className="px-4 py-3">
                                         <div className="flex items-center gap-3">
@@ -351,6 +398,18 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                     </div>
                 )}
             </div>
+
+            {/* Pagination Controls */}
+            {totalPages > 1 && (
+                <div className="flex flex-col items-center gap-2 pt-2">
+                    <AppPagination
+                        currentPage={currentPage}
+                        totalPages={totalPages}
+                        onPageChange={(p) => setPage(p)}
+                        scrollToTop={true}
+                    />
+                </div>
+            )}
 
             {/* Delete Confirmation Dialog */}
             <AlertDialog open={!!deleteId} onOpenChange={() => setDeleteId(null)}>

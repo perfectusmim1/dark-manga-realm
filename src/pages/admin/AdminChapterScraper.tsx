@@ -41,7 +41,7 @@ import {
     SelectValue,
 } from "@/components/ui/select";
 import { toast } from 'sonner';
-import { getAllMangas, getMangaById, saveManga } from '@/lib/database';
+import { getMangaById, getMangaSummaries, saveManga } from '@/lib/database';
 import { createNotificationForFollowers } from '@/lib/storage';
 import { Manga, Chapter } from '@/lib/types';
 import {
@@ -280,7 +280,7 @@ const AdminChapterScraper: React.FC = () => {
     const loadLocalMangas = async () => {
         setLoadingLocal(true);
         try {
-            const data = await getAllMangas({ includePrivate: true });
+            const data = await getMangaSummaries({ includePrivate: true });
             setLocalMangas(data);
         } catch {
             toast.error('Mangalar yüklenemedi');
@@ -703,7 +703,7 @@ const AdminChapterScraper: React.FC = () => {
                                         <CommandGroup>
                                             <ScrollArea className="h-[min(62vh,420px)]">
                                                 <div className="p-2">
-                                                    {filteredLocalMangas.map((manga) => (
+                                                    {filteredLocalMangas.slice(0, 50).map((manga) => (
                                                         <CommandItem
                                                             key={manga.id}
                                                             value={manga.id}
@@ -727,7 +727,7 @@ const AdminChapterScraper: React.FC = () => {
                                                                         {getMangaTypeLabel(manga.type)}
                                                                     </Badge>
                                                                     <Badge variant="outline" className="h-5 border-border px-1.5 text-[10px] text-muted-foreground">
-                                                                        {manga.chapters.length} bölüm
+                                                                        {manga.chapters?.length || 0} bölüm
                                                                     </Badge>
                                                                     {manga.isAdult ? (
                                                                         <Badge variant="outline" className="h-5 border-rose-500/20 bg-rose-500/10 px-1.5 text-[10px] text-rose-500">
@@ -744,6 +744,11 @@ const AdminChapterScraper: React.FC = () => {
                                                             />
                                                         </CommandItem>
                                                     ))}
+                                                    {filteredLocalMangas.length > 50 && (
+                                                        <div className="py-2 text-center text-xs text-muted-foreground">
+                                                            İlk 50 / {filteredLocalMangas.length} manga gösteriliyor.
+                                                        </div>
+                                                    )}
                                                 </div>
                                             </ScrollArea>
                                         </CommandGroup>

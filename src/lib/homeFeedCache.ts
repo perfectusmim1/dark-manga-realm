@@ -1,8 +1,8 @@
 import type { HomePageMangaSections } from '@/lib/database';
 import type { Tag } from '@/lib/types';
 
-const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-v5';
-const HOME_FEED_SESSION_CACHE_VERSION = 5;
+const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-local-v6';
+const HOME_FEED_SESSION_CACHE_VERSION = 6;
 
 export const HOME_SECTIONS_CACHE_TTL_MS = 5 * 60_000;
 export const HOME_SECTIONS_MAX_SEED_AGE_MS = 60 * 60_000;
@@ -50,7 +50,8 @@ const readPersistedHomeFeedCache = (): PersistedHomeFeedCache | null => {
   }
 
   try {
-    const raw = window.sessionStorage.getItem(HOME_FEED_SESSION_CACHE_KEY);
+    // localStorage: yeni sekme/soğuk açılışta da ana sayfa anında dolu gelsin.
+    const raw = window.localStorage.getItem(HOME_FEED_SESSION_CACHE_KEY);
     if (!raw) {
       return null;
     }
@@ -82,13 +83,17 @@ const writePersistedHomeFeedCache = (
     version: HOME_FEED_SESSION_CACHE_VERSION,
   });
 
-  window.sessionStorage.setItem(
-    HOME_FEED_SESSION_CACHE_KEY,
-    JSON.stringify({
-      ...next,
-      version: HOME_FEED_SESSION_CACHE_VERSION,
-    }),
-  );
+  try {
+    window.localStorage.setItem(
+      HOME_FEED_SESSION_CACHE_KEY,
+      JSON.stringify({
+        ...next,
+        version: HOME_FEED_SESSION_CACHE_VERSION,
+      }),
+    );
+  } catch {
+    // Kota dolu olabilir; cache yazılamazsa uygulama ağdan devam eder.
+  }
 };
 
 export const isHomeFeedEntryFresh = (fetchedAt: number, ttlMs: number) => (
@@ -179,7 +184,11 @@ export const clearHomeFeedCache = () => {
     return;
   }
 
-  window.sessionStorage.removeItem(HOME_FEED_SESSION_CACHE_KEY);
-  window.sessionStorage.removeItem('toonparrot-home-feed-v2');
-  window.sessionStorage.removeItem('toonparrot-home-feed-v1');
+  try {
+    window.localStorage.removeItem(HOME_FEED_SESSION_CACHE_KEY);
+    window.sessionStorage.removeItem('toonparrot-home-feed-v2');
+    window.sessionStorage.removeItem('toonparrot-home-feed-v1');
+  } catch {
+    // yoksay
+  }
 };
