@@ -73,8 +73,10 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ userId }) =
                 getUnreadNotificationCount(resolvedUserId),
             ]);
             setNotifications(allNotifications.slice(0, 8)); // Show max 8 in dropdown
-            setUnreadCount(count);
-            updateHeaderShellCounts(resolvedUserId, { unreadNotificationCount: count });
+            const actualUnreadFromList = allNotifications.filter((n) => !n.read).length;
+            const finalCount = allNotifications.length === 0 ? 0 : Math.min(count, actualUnreadFromList);
+            setUnreadCount(finalCount);
+            updateHeaderShellCounts(resolvedUserId, { unreadNotificationCount: finalCount });
         } catch (error) {
             if (!isExpectedAccessControlError(error)) {
                 console.error('Error loading notifications:', error);

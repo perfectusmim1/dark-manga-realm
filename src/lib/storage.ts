@@ -1962,7 +1962,7 @@ export const getUnreadNotificationCount = async (userId: string): Promise<number
     // sayıyordu. 'planned' planner tahmini ile hızlı dönüyor.
     const { count, error } = await supabase
         .from('notifications')
-        .select('id', { count: 'planned', head: true })
+        .select('id', { count: 'exact', head: true })
         .eq('user_id', userId)
         .eq('read', false);
 

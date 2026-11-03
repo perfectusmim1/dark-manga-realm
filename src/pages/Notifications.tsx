@@ -27,6 +27,7 @@ import {
 import { Notification } from '@/lib/types';
 import { normalizeCommentNavigationLink } from '@/lib/commentNavigation';
 import { toast } from 'sonner';
+import { updateHeaderShellCounts } from '@/lib/headerShellCache';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 
@@ -46,7 +47,10 @@ const Notifications: React.FC = () => {
             const allNotifications = await getNotifications(user.id);
             setNotifications(allNotifications);
             const count = await getUnreadNotificationCount(user.id);
-            setUnreadCount(count);
+            const actualUnreadFromList = allNotifications.filter((n) => !n.read).length;
+            const finalCount = allNotifications.length === 0 ? 0 : Math.min(count, actualUnreadFromList);
+            setUnreadCount(finalCount);
+            updateHeaderShellCounts(user.id, { unreadNotificationCount: finalCount });
         } catch (error) {
             console.error('Error loading notifications:', error);
         }
