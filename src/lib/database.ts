@@ -886,6 +886,8 @@ const PERSISTED_HOME_SECTIONS_KEY_PREFIX = 'home-sections-v1:';
 // sorguların tekrar edilmesini engeller (yazma işlemlerinde invalidate edilir).
 const MANGA_DETAIL_CACHE_TTL_MS = 60_000;
 const mangaDetailCache = new Map<string, { fetchedAt: number; value: Manga }>();
+// SWR: bayat IDB verisi döndürülürken arka plan yenilemesinin tekrar tetiklenmesini önler.
+const persistedSummariesRefreshInFlight = new Set<MangaAudienceCacheKey>();
 
 // Cache'ten dönen nesnenin UI state'inde paylaşılıp mutasyona uğramaması için klonlanır.
 function cloneMangaForCache(manga: Manga): Manga {
@@ -1549,7 +1551,7 @@ export const getAllMangas = async (
 };
 
 export const getMangaSummaries = async (
-    options?: { includePrivate?: boolean }
+    options?: { includePrivate?: boolean; forceRefresh?: boolean }
 ): Promise<Manga[]> => {
     const {
         includePrivate,
@@ -1588,8 +1590,9 @@ export const getMangaSummaries = async (
     }
 
     // IDB kalıcı önbellek: taze ise ağa hiç çıkmadan dön (Keşfet / arama / TopTen açılışı).
+    // Bayat ise: eldeki veriyi ANINDA döndür + arka planda sessizce yenile (SWR).
     let persistedSummaries: Manga[] | null = null;
-    if (!includePrivate) {
+    if (!includePrivate && !options?.forceRefresh) {
         const persistedKey = getPersistedMangaSummariesKey(audienceCacheKey);
         const persisted = await readPersistedQueryCache<Manga[]>(persistedKey);
         if (persisted && Array.isArray(persisted.value) && persisted.value.length > 0) {
@@ -1600,7 +1603,22 @@ export const getMangaSummaries = async (
                 };
                 return persisted.value;
             }
-            persistedSummaries = persisted.value;
+
+            mangaSummariesCache[audienceCacheKey] = {
+                fetchedAt: persisted.fetchedAt,
+                value: persisted.value,
+            };
+
+            if (!persistedSummariesRefreshInFlight.has(audienceCacheKey)) {
+                persistedSummariesRefreshInFlight.add(audienceCacheKey);
+                void getMangaSummaries({ includePrivate, forceRefresh: true })
+                    .catch(() => undefined)
+                    .finally(() => {
+                        persistedSummariesRefreshInFlight.delete(audienceCacheKey);
+                    });
+            }
+
+            return persisted.value;
         }
     }
 

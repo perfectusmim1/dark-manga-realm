@@ -25,7 +25,7 @@ interface UserAccessSnapshotRequestOptions {
 
 const USER_ACCESS_SNAPSHOT_RETRY_BACKOFF_MS = 3 * 60 * 1000;
 const USER_ACCESS_AUTH_RETRY_BACKOFF_MS = 45 * 1000;
-const USER_ACCESS_SNAPSHOT_CACHE_TTL_MS = 8_000;
+const USER_ACCESS_SNAPSHOT_CACHE_TTL_MS = 60_000;
 let nextUserAccessSnapshotRetryAt = 0;
 const userAccessSnapshotCache = new Map<string, {
   fetchedAt: number;

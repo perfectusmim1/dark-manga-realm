@@ -1,4 +1,4 @@
-# Logs
+# Logs & Diagnostics
 logs
 *.log
 npm-debug.log*
@@ -8,11 +8,11 @@ pnpm-debug.log*
 lerna-debug.log*
 
 # Dependencies & Build Output
-node_modules
-dist
-dist-ssr
+node_modules/
+dist/
+dist-ssr/
 *.local
-.vercel
+.vercel/
 
 # Environment variables & Secrets
 .env
@@ -20,15 +20,24 @@ dist-ssr
 !.env.example
 local-scraper.config.json
 
-# Backend, Infra, Local CLI Scripts & Internal Docs (Not needed on GitHub / Vercel)
-supabase/
+# Local Batch & Shell Scripts (Masaüstü / Yerel Otomasyon Scriptleri)
+*.bat
+*.cmd
+*.ps1
+*.sh
+
+# Cloudflare Workers, Wrangler & Infra (GitHub / Vercel'e gitmesi gereksizdir)
 cloudflare/
-scripts/*
-!scripts/auto-catalog-sync.mjs
-!scripts/build-full-r2-archive.mjs
-!scripts/archive-status.mjs
+.wrangler/
+
+# Backend, Supabase, Local Android & Internal Docs
+supabase/
 docs/
 android/
+
+# Scripts: Sadece GitHub Actions delta sync için auto-catalog-sync.mjs gereklidir
+scripts/*
+!scripts/auto-catalog-sync.mjs
 
 # Tests, Cache, Dumps & Temporary Files
 .cache/
@@ -45,17 +54,29 @@ test-*
 *.dump
 *-export.json
 *-checkpoint.json
+.task_checklist.md
 
-# Editor directories and files
+# Python Cache & Databases
+__pycache__/
+*.py[cod]
+*$py.class
+*.sqlite
+*.sqlite3
+*.db
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+ehthumbs.db
+[Dd]esktop.ini
+$RECYCLE.BIN/
+
+# Editor & IDE Files
 .vscode/*
 !.vscode/extensions.json
-.idea
-.DS_Store
+.idea/
 *.suo
 *.ntvs*
 *.njsproj
 *.sln
 *.sw?
-
-.vercel
-.env*
