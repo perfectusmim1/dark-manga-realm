@@ -217,6 +217,30 @@ const CHARACTER_BATCH_SIZE = 20;
 const MangaDetailGalleryPanel = lazy(() => import('@/components/manga/MangaDetailGalleryPanel'));
 const MangaDetailDiscoverPanel = lazy(() => import('@/components/manga/MangaDetailDiscoverPanel'));
 
+type PreviewCardSize = 'small' | 'medium' | 'large';
+
+const PREVIEW_CARD_SIZE_STORAGE_KEY = 'toonparrot_preview_card_size';
+
+const MANGA_DETAIL_COVER_TRANSFORM = Object.freeze({
+  width: 720,
+  quality: 78,
+  format: 'webp' as const,
+  fit: 'cover' as const,
+});
+
+const MANGA_DETAIL_HERO_BG_TRANSFORM = Object.freeze({
+  width: 144,
+  quality: 32,
+  format: 'webp' as const,
+  fit: 'cover' as const,
+});
+
+const PREVIEW_GRID_CLASSES: Record<PreviewCardSize, string> = {
+  small: 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2 sm:gap-2.5',
+  medium: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2.5 sm:gap-3',
+  large: 'grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3.5 sm:gap-4',
+};
+
 const PreviewPageThumbnail = React.memo(({
   page,
   pageIndex,
@@ -224,6 +248,7 @@ const PreviewPageThumbnail = React.memo(({
   chapterId,
   mangaId,
   isChapterMounted,
+  cardSize = 'medium',
 }: {
   page: string;
   pageIndex: number;
@@ -231,6 +256,7 @@ const PreviewPageThumbnail = React.memo(({
   chapterId: string;
   mangaId: string;
   isChapterMounted: boolean;
+  cardSize?: PreviewCardSize;
 }) => {
   const cardRef = React.useRef<HTMLDivElement>(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
@@ -264,7 +290,10 @@ const PreviewPageThumbnail = React.memo(({
       <div
         ref={cardRef}
         className="relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-secondary shadow-sm transition-transform duration-200 group-hover:-translate-y-0.5 isolate"
-        style={{ contentVisibility: 'auto', containIntrinsicSize: '144px 192px' }}
+        style={{
+          contentVisibility: 'auto',
+          containIntrinsicSize: cardSize === 'small' ? '120px 160px' : cardSize === 'large' ? '280px 370px' : '180px 240px',
+        }}
       >
         <div className="absolute inset-0 overflow-hidden rounded-[inherit]">
           {shouldMountImage ? (
@@ -273,12 +302,18 @@ const PreviewPageThumbnail = React.memo(({
               alt={`Bölüm ${chapterNumber} Sayfa ${pageIndex + 1}`}
               loading="lazy"
               decoding="async"
-              width={240}
-              height={320}
-              sizes="(min-width: 1280px) 180px, (min-width: 1024px) 16vw, (min-width: 640px) 22vw, 31vw"
+              width={cardSize === 'small' ? 160 : cardSize === 'large' ? 420 : 240}
+              height={cardSize === 'small' ? 213 : cardSize === 'large' ? 560 : 320}
+              sizes={
+                cardSize === 'small'
+                  ? '(min-width: 1280px) 160px, (min-width: 1024px) 140px, (min-width: 640px) 20vw, 32vw'
+                  : cardSize === 'large'
+                    ? '(min-width: 1280px) 450px, (min-width: 1024px) 400px, (min-width: 640px) 45vw, 90vw'
+                    : '(min-width: 1280px) 240px, (min-width: 1024px) 22vw, (min-width: 640px) 30vw, 45vw'
+              }
               draggable={false}
               referrerPolicy="no-referrer"
-              className="h-full w-full object-cover [transform:translateZ(0)] [backface-visibility:hidden] "
+              className="h-full w-full object-cover [transform:translateZ(0)] [backface-visibility:hidden]"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-secondary/30 text-muted-foreground">
@@ -289,13 +324,19 @@ const PreviewPageThumbnail = React.memo(({
         </div>
 
         <div className="absolute inset-0 flex items-center justify-center rounded-[inherit] bg-black/45 opacity-0 transition-opacity duration-200 group-hover:opacity-100 group-focus-visible:opacity-100">
-          <span className="flex items-center gap-1.5 text-sm font-medium text-white">
-            <Eye className="h-4 w-4" />
+          <span className={cn(
+            "flex items-center gap-1.5 font-medium text-white",
+            cardSize === 'small' ? 'text-xs' : 'text-sm'
+          )}>
+            <Eye className={cardSize === 'small' ? "h-3.5 w-3.5" : "h-4 w-4"} />
             Sayfaya Git
           </span>
         </div>
 
-        <div className="absolute bottom-2 right-2 rounded-md bg-black/70 px-2 py-1 font-mono text-xs text-white shadow">
+        <div className={cn(
+          "absolute bottom-2 right-2 rounded-md bg-black/70 font-mono text-white shadow",
+          cardSize === 'small' ? 'px-1.5 py-0.5 text-[10px]' : 'px-2 py-1 text-xs'
+        )}>
           {pageIndex + 1}
         </div>
       </div>
@@ -309,6 +350,7 @@ const PreviewChapter = React.memo(({
   index, 
   mangaId, 
   isImageMounted, 
+  cardSize = 'medium',
   onInView,
   onNearBottom,
 }: { 
@@ -317,6 +359,7 @@ const PreviewChapter = React.memo(({
   index: number; 
   mangaId: string; 
   isImageMounted: boolean;
+  cardSize?: PreviewCardSize;
   onInView: (index: number) => void;
   onNearBottom: (index: number) => void;
 }) => {
@@ -370,7 +413,7 @@ const PreviewChapter = React.memo(({
         </Button>
       </div>
       
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+      <div className={PREVIEW_GRID_CLASSES[cardSize] || PREVIEW_GRID_CLASSES.medium}>
         {pages.length > 0 ? (
           pages.map((page: string, pageIndex: number) => (
             <PreviewPageThumbnail
@@ -381,6 +424,7 @@ const PreviewChapter = React.memo(({
               chapterId={chapter.id}
               mangaId={mangaId}
               isChapterMounted={isImageMounted}
+              cardSize={cardSize}
             />
           ))
         ) : (
@@ -489,6 +533,26 @@ const MangaDetail: React.FC = () => {
   const [currentViewedIndex, setCurrentViewedIndex] = useState(0);
   const [previewStartIndex, setPreviewStartIndex] = useState(0);
   const [previewChapterPagesById, setPreviewChapterPagesById] = useState<Record<string, string[]>>({});
+  const [previewCardSize, setPreviewCardSize] = useState<PreviewCardSize>(() => {
+    try {
+      const stored = localStorage.getItem(PREVIEW_CARD_SIZE_STORAGE_KEY);
+      if (stored === 'small' || stored === 'medium' || stored === 'large') {
+        return stored;
+      }
+    } catch {
+      // ignore
+    }
+    return 'medium';
+  });
+
+  const handlePreviewCardSizeChange = (size: PreviewCardSize) => {
+    setPreviewCardSize(size);
+    try {
+      localStorage.setItem(PREVIEW_CARD_SIZE_STORAGE_KEY, size);
+    } catch {
+      // ignore
+    }
+  };
   const [overviewVisibleCount, setOverviewVisibleCount] = useState(OVERVIEW_CHAPTER_BATCH_SIZE);
   const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
   const [revealedBlockedReviews, setRevealedBlockedReviews] = useState<Record<string, boolean>>({});
@@ -2607,6 +2671,7 @@ const MangaDetail: React.FC = () => {
               alt=""
               aria-hidden
               priority
+              transform={MANGA_DETAIL_HERO_BG_TRANSFORM}
               containerClassName="h-full w-full"
               className={cn(
                 'h-full w-full object-cover [mask-image:linear-gradient(to_bottom,rgba(0,0,0,0.98)_0%,rgba(0,0,0,0.88)_48%,rgba(0,0,0,0.55)_72%,transparent_100%)]',
@@ -2632,6 +2697,7 @@ const MangaDetail: React.FC = () => {
                   src={manga.cover}
                   alt={manga.title}
                   priority
+                  transform={MANGA_DETAIL_COVER_TRANSFORM}
                   containerClassName="mx-auto"
                   className={cn(
                     'mx-auto h-auto w-full rounded-xl object-cover shadow-2xl shadow-primary/10 md:h-96',
@@ -3335,7 +3401,54 @@ const MangaDetail: React.FC = () => {
                   actionLabel="Genel Bakışa Dön"
                 />
               ) : (
-                <div className="mx-auto max-w-4xl space-y-6 sm:space-y-8">
+                <div className="mx-auto max-w-5xl space-y-6 sm:space-y-8">
+                  {/* Önizleme Boyut Kontrol Çubuğu */}
+                  {sortedPreviewChapters.length > 0 && (
+                    <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border bg-card/60 p-3 shadow-sm backdrop-blur-sm sm:px-4 sm:py-3">
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-semibold text-foreground sm:text-sm">Önizleme Kart Boyutu:</span>
+                      </div>
+                      <div className="inline-flex items-center rounded-lg border border-border bg-secondary/50 p-1">
+                        <button
+                          type="button"
+                          onClick={() => handlePreviewCardSizeChange('small')}
+                          className={cn(
+                            'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                            previewCardSize === 'small'
+                              ? 'bg-primary text-primary-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          Küçük
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePreviewCardSizeChange('medium')}
+                          className={cn(
+                            'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                            previewCardSize === 'medium'
+                              ? 'bg-primary text-primary-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          Orta
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handlePreviewCardSizeChange('large')}
+                          className={cn(
+                            'rounded-md px-3 py-1 text-xs font-medium transition-colors',
+                            previewCardSize === 'large'
+                              ? 'bg-primary text-primary-foreground shadow-sm'
+                              : 'text-muted-foreground hover:text-foreground'
+                          )}
+                        >
+                          Büyük
+                        </button>
+                      </div>
+                    </div>
+                  )}
+
                   {sortedPreviewChapters.length === 0 ? (
                     <div className="text-center rounded-xl border border-border bg-card/50 text-muted-foreground p-8">Henüz bölüm eklenmemiş</div>
                   ) : (
@@ -3365,6 +3478,7 @@ const MangaDetail: React.FC = () => {
                             index={index}
                             mangaId={manga.id}
                             isImageMounted={isImageMounted}
+                            cardSize={previewCardSize}
                             onInView={handlePreviewInView}
                             onNearBottom={handlePreviewNearBottom}
                           />
