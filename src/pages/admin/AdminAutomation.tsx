@@ -1313,7 +1313,12 @@ const AdminAutomation: React.FC = () => {
 
                               <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
                                 <span>{SOURCE_OPTIONS.find((option) => option.value === automation.source)?.label}</span>
-                                <span>Kontrol: {automation.checkTimes.map(normalizeTimeDisplay).join(' • ')}</span>
+                                <span>
+                                  Kontrol:{' '}
+                                  {automation.checkTimes.length >= 10
+                                    ? '7/24 (Her 2 Saatte Bir - GitHub Actions)'
+                                    : automation.checkTimes.map(normalizeTimeDisplay).join(' • ')}
+                                </span>
                               </div>
 
                               <p className="line-clamp-2 break-all text-xs text-muted-foreground">
