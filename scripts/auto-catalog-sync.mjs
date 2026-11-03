@@ -124,6 +124,8 @@ const PRIMARY_SOURCES = [
   'asurascans',
 ];
 const CHAPTER_CONCURRENCY = 6;
+const SERIES_CONCURRENCY = Math.max(1, parseNonNegInt(getArgValue('--series-concurrency', '4'), 4));
+const FAST_INGEST = hasFlag('--fast') || hasFlag('--skip-enrich') || hasFlag('--archive-mode');
 
 // Global anti-hang safety timeout
 const globalTimeoutTimer = setTimeout(() => {
@@ -4284,20 +4286,18 @@ const main = async () => {
 
     const batchToProcess = isProcessAll ? pendingItems : pendingItems.slice(0, BATCH_SIZE);
     if (batchToProcess.length > 0) {
-      logInfo(`--- FAZ 3: Kuyruktan ${batchToProcess.length} Yeni Seri Çekiliyor (Toplam Bekleyen: ${pendingItems.length}) ---`);
-      let bIdx = 0;
-      for (const card of batchToProcess) {
-        if (isTimeBudgetExceeded()) {
-          logInfo('Çalışma süresi bütçesi doldu, yeni seri çekim döngüsü güvenli sonlandırılıyor...');
-          break;
-        }
-        bIdx++;
+      logInfo(
+        `--- FAZ 3: Kuyruktan ${batchToProcess.length} Yeni Seri Paralel (${SERIES_CONCURRENCY}x) Çekiliyor (Toplam Bekleyen: ${pendingItems.length}) ---`
+      );
+
+      const processSingleSeries = async (card, bIdx, totalCount) => {
+        if (isTimeBudgetExceeded()) return;
         if (isBLSeries(card)) {
           card.status = 'skipped_bl';
           card.updatedAt = new Date().toISOString();
           delete seriesQueue[card.link];
           logInfo(`[BL Filtresi] BL serisi kuyruktan atlandı: ${card.title}`);
-          continue;
+          return;
         }
 
         const existingId = store.findMatchingMangaId(card.title);
@@ -4311,7 +4311,7 @@ const main = async () => {
             const existingNums = new Set((existing.chapters || []).map((c) => Number(c.chapterNumber ?? c.number ?? 0)));
             const missingChapters = detail.chapters.filter((ch) => !existingNums.has(Number(ch.chapterNumber)));
             if (missingChapters.length > 0) {
-              logProgress(bIdx, batchToProcess.length, existing.title, `${missingChapters.length} eksik bölüm kaynaktan (${card.source}) tamamlanıyor...`);
+              logProgress(bIdx, totalCount, existing.title, `${missingChapters.length} eksik bölüm kaynaktan (${card.source}) tamamlanıyor...`);
               await ensureSingleSeriesHydratedFromR2(existing);
               for (let i = 0; i < missingChapters.length; i += CHAPTER_CONCURRENCY) {
                 const chunk = missingChapters.slice(i, i + CHAPTER_CONCURRENCY);
@@ -4338,17 +4338,17 @@ const main = async () => {
           card.status = 'completed';
           card.updatedAt = new Date().toISOString();
           touchedMangaIds.add(existing.id);
-          logProgress(bIdx, batchToProcess.length, card.title, `Mevcut seriyle eşleşti (${existing.title}), eksik bölümler tamamlandı.`);
-          continue;
+          logProgress(bIdx, totalCount, card.title, `Mevcut seriyle eşleşti (${existing.title}), eksik bölümler tamamlandı.`);
+          return;
         }
 
-        logProgress(bIdx, batchToProcess.length, card.title, `Detay ve bölümler çekiliyor [${card.source}]...`);
+        logProgress(bIdx, totalCount, card.title, `Detay ve bölümler çekiliyor [${card.source}]...`);
         const detail = await fetchSeriesDetailFromSource(card.source, card.link, card.title, card.cover, card.isAdult);
         if (!detail || !Array.isArray(detail.chapters) || detail.chapters.length === 0) {
           card.status = 'failed';
           card.updatedAt = new Date().toISOString();
           logWarn(`Seri atlandı (bölüm bulunamadı): ${card.title}`);
-          continue;
+          return;
         }
 
         if (isBLSeries(detail)) {
@@ -4356,7 +4356,7 @@ const main = async () => {
           card.updatedAt = new Date().toISOString();
           delete seriesQueue[card.link];
           logInfo(`[BL Filtresi] BL serisi detaydan atlandı: ${detail.title}`);
-          continue;
+          return;
         }
 
         const existingByAltId = store.findMatchingMangaId(detail.title, detail.alternativeTitles);
@@ -4368,7 +4368,7 @@ const main = async () => {
           const existingNums = new Set((existing.chapters || []).map((c) => Number(c.chapterNumber ?? c.number ?? 0)));
           const missingChapters = (detail.chapters || []).filter((ch) => !existingNums.has(Number(ch.chapterNumber)));
           if (missingChapters.length > 0) {
-            logProgress(bIdx, batchToProcess.length, existing.title, `${missingChapters.length} eksik bölüm kaynaktan (${card.source}) tamamlanıyor...`);
+            logProgress(bIdx, totalCount, existing.title, `${missingChapters.length} eksik bölüm kaynaktan (${card.source}) tamamlanıyor...`);
             await ensureSingleSeriesHydratedFromR2(existing);
             for (let i = 0; i < missingChapters.length; i += CHAPTER_CONCURRENCY) {
               const chunk = missingChapters.slice(i, i + CHAPTER_CONCURRENCY);
@@ -4394,8 +4394,8 @@ const main = async () => {
           card.status = 'completed';
           card.updatedAt = new Date().toISOString();
           touchedMangaIds.add(existing.id);
-          logProgress(bIdx, batchToProcess.length, card.title, `Alternatif isimle mevcut seriye bağlandı (${existing.title}), eksik bölümler tamamlandı.`);
-          continue;
+          logProgress(bIdx, totalCount, card.title, `Alternatif isimle mevcut seriye bağlandı (${existing.title}), eksik bölümler tamamlandı.`);
+          return;
         }
 
         const validChapters = [];
@@ -4417,14 +4417,16 @@ const main = async () => {
           card.status = 'failed';
           card.updatedAt = new Date().toISOString();
           logWarn(`Seri elendi (0 çalışan bölüm): ${card.title}`);
-          continue;
+          return;
         }
 
         detail.chapters = validChapters;
         const addedManga = store.addOrMergeSeries(detail);
         if (addedManga) {
           addedManga._hydratedFullChapters = true;
-          const enrichedManga = (await store.enrichSeriesAllProviders(addedManga.id)) || addedManga;
+          const enrichedManga = !FAST_INGEST
+            ? (await store.enrichSeriesAllProviders(addedManga.id)) || addedManga
+            : addedManga;
 
           if (enrichedManga?.slug) {
             touchedSlugs.add(enrichedManga.slug);
@@ -4438,20 +4440,38 @@ const main = async () => {
           card.updatedAt = new Date().toISOString();
           logProgress(
             bIdx,
-            batchToProcess.length,
+            totalCount,
             enrichedManga.title,
-            `Tamamlandı (${validChapters.length} bölüm, Türkçe açıklama & AniList/MAL eşleşti)`
+            `Tamamlandı (${validChapters.length} bölüm${!FAST_INGEST ? ', Türkçe açıklama & AniList/MAL eşleşti' : ''})`
           );
+        }
+      };
 
-          // Toplu / Arşiv çekiminde her 5 seride bir veritabanı & R2 ara kaydı yap
-          if (bIdx % 5 === 0 && touchedMangaIds.size > 0 && !SKIP_SUPABASE_SYNC) {
-            try {
-              logInfo(`[Checkpoint] ${bIdx}. seri tamamlandı, R2 ve Supabase ara kaydı yapılıyor...`);
-              saveLocalCheckpoint({ ...checkpoint, seriesQueue, ...store.toState() });
-              await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds);
-            } catch (cpErr) {
-              logWarn(`[Checkpoint] Ara kayıt sırasında hata (işlem devam ediyor): ${cpErr.message}`);
-            }
+      // Paralel Seri Havuzu (SERIES_CONCURRENCY x Paralel Çekim)
+      let processedCount = 0;
+      for (let i = 0; i < batchToProcess.length; i += SERIES_CONCURRENCY) {
+        if (isTimeBudgetExceeded()) {
+          logInfo('Çalışma süresi bütçesi doldu, yeni seri çekim döngüsü güvenli sonlandırılıyor...');
+          break;
+        }
+        const currentChunk = batchToProcess.slice(i, i + SERIES_CONCURRENCY);
+        await Promise.all(
+          currentChunk.map((card, cOffset) =>
+            processSingleSeries(card, i + cOffset + 1, batchToProcess.length).catch((err) => {
+              logWarn(`[Hata Atlandı] ${card.title}: ${err.message}`);
+            })
+          )
+        );
+        processedCount += currentChunk.length;
+
+        // Her 10 seride bir güvenli R2 + Supabase checkpoint kaydı yap
+        if (processedCount % 10 === 0 && touchedMangaIds.size > 0 && !SKIP_SUPABASE_SYNC) {
+          try {
+            logInfo(`[Checkpoint] ${processedCount}/${batchToProcess.length} seri tamamlandı, R2 ve Supabase ara kaydı yapılıyor...`);
+            saveLocalCheckpoint({ ...checkpoint, seriesQueue, ...store.toState() });
+            await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds);
+          } catch (cpErr) {
+            logWarn(`[Checkpoint] Ara kayıt sırasında hata (işlem devam ediyor): ${cpErr.message}`);
           }
         }
       }
