@@ -1726,8 +1726,12 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
 
   if (source === 'asurascans') {
     const imgs = [];
-    for (const m of extractRegexMatches(html, /src=["'](https:\/\/cdn\.asurascans\.com\/asura-images\/chapters\/[^"']+)["']/gi)) {
-      if (m[1] && !isJunkImageUrl(m[1])) imgs.push(m[1].trim());
+    const asuraRegex = /https:\/\/cdn\.asurascans\.com\/asura-images\/(?:chapters|chapters-merged)\/[^"'\s&<>,\\]+/gi;
+    for (const m of html.matchAll(asuraRegex)) {
+      const url = m[0]?.trim();
+      if (url && !isJunkImageUrl(url) && !imgs.includes(url)) {
+        imgs.push(url);
+      }
     }
     return await verifyAndFilterImageUrls(imgs);
   }

@@ -247,11 +247,20 @@ const Browse: React.FC = () => {
 
     // Type filter
     if (typeFilter !== 'all') {
-      result = result.filter((manga) => (
-        typeFilter === 'adult'
-          ? (manga.isAdult === true || manga.type === 'hentai' || manga.type === 'webtoon_hentai')
-          : manga.type === typeFilter
-      ));
+      result = result.filter((manga) => {
+        if (typeFilter === 'adult') {
+          return manga.isAdult === true || manga.type === 'hentai' || manga.type === 'webtoon_hentai';
+        }
+        if (manga.type === typeFilter) {
+          return true;
+        }
+        const lowerGenres = (manga.genres || []).map((g) => g.toLowerCase());
+        if (typeFilter === 'manga') return lowerGenres.includes('manga');
+        if (typeFilter === 'manhwa') return lowerGenres.includes('manhwa');
+        if (typeFilter === 'manhua') return lowerGenres.includes('manhua');
+        if (typeFilter === 'webtoon') return lowerGenres.includes('webtoon');
+        return false;
+      });
     }
 
     // Status filter

@@ -113,6 +113,16 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ userId }) =
         };
     }, [isOnline, isOpen, loadNotifications, loadUnreadCount, resolvedUserId]);
 
+    // Hayalet bildirim rozeti koruması: Liste boşsa rozet ve sayaç asla 0'dan büyük kalamaz
+    useEffect(() => {
+        if (isOpen && notifications.length === 0 && unreadCount > 0) {
+            setUnreadCount(0);
+            if (resolvedUserId) {
+                updateHeaderShellCounts(resolvedUserId, { unreadNotificationCount: 0 });
+            }
+        }
+    }, [isOpen, notifications.length, unreadCount, resolvedUserId]);
+
     const handleNotificationClick = async (notification: Notification) => {
         if (!notification.read && resolvedUserId) {
             await markNotificationAsRead(resolvedUserId, notification.id);
@@ -194,7 +204,7 @@ const NotificationDropdown: React.FC<NotificationDropdownProps> = ({ userId }) =
                         <Bell className="h-4 w-4 text-primary" />
                         <h3 className="font-semibold">Bildirimler</h3>
                     </div>
-                    {unreadCount > 0 ? (
+                    {unreadCount > 0 && notifications.length > 0 ? (
                         <Button
                             variant="ghost"
                             size="sm"
