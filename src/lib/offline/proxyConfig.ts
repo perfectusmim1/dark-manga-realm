@@ -39,6 +39,21 @@ export const configuredOfflineImageProxyUrls: string[] = buildConfiguredProxyPoo
 // Per-session memory of proxy origins that rejected (401/403) a specific upstream image hostname.
 const rejectedProxiesByHost = new Map<string, Set<string>>();
 
+// Hosts that are only whitelisted on the primary (latest) worker deployment.
+const PRIMARY_WORKER_ONLY_HOST_SUFFIXES = [
+  'asurascans.com',
+  'asuracomic.net',
+  'mangadass.com',
+  'madaradex.org',
+];
+
+const isPrimaryWorkerOnlyHost = (host: string): boolean => {
+  if (!host) return false;
+  return PRIMARY_WORKER_ONLY_HOST_SUFFIXES.some(
+    (suffix) => host === suffix || host.endsWith(`.${suffix}`),
+  );
+};
+
 const extractHostname = (targetUrl: string): string => {
   try {
     return new URL(targetUrl).hostname.toLowerCase();
@@ -87,6 +102,10 @@ const getNonRejectedPoolForTarget = (targetUrl: string, pool: readonly string[] 
   const host = extractHostname(targetUrl);
   if (!host) return [...pool];
 
+  if (isPrimaryWorkerOnlyHost(host)) {
+    return [defaultOfflineImageProxyUrl];
+  }
+
   const rejected = rejectedProxiesByHost.get(host);
   if (!rejected || rejected.size === 0) return [...pool];
 
@@ -111,6 +130,13 @@ export const getCandidateOfflineProxyUrls = (
 ): string[] => {
   const available = getNonRejectedPoolForTarget(targetUrl, pool);
   if (available.length <= 1) return available;
+
+  const primaryKey = extractProxyKey(defaultOfflineImageProxyUrl);
+  const primaryIdx = available.findIndex((u) => extractProxyKey(u) === primaryKey);
+  if (primaryIdx >= 0) {
+    const rest = available.filter((_, idx) => idx !== primaryIdx);
+    return [available[primaryIdx], ...rest];
+  }
 
   const start = proxyIndex % available.length;
   proxyIndex = (proxyIndex + 1) % available.length;

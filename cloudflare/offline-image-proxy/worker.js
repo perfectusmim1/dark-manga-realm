@@ -73,6 +73,8 @@ const DEFAULT_ALLOWED_HOSTS = [
   'asurascans.com',
   'cdn.asurascans.com',
   'www.asurascans.com',
+  'asuracomic.net',
+  'gg.asuracomic.net',
   'madaradex.org',
   'cdn.madaradex.org',
   'www.madaradex.org',

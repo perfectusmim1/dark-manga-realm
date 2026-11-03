@@ -287,6 +287,17 @@ export const inferRefererForImageUrl = (imageUrl: string, fallbackReferer?: stri
     if (host === 'mangadass.com' || host.endsWith('.mangadass.com')) {
       return 'https://mangadass.com/';
     }
+    if (
+      host === 'asurascans.com' ||
+      host.endsWith('.asurascans.com') ||
+      host === 'asuracomic.net' ||
+      host.endsWith('.asuracomic.net')
+    ) {
+      return 'https://asurascans.com/';
+    }
+    if (host === 'madaradex.org' || host.endsWith('.madaradex.org')) {
+      return 'https://madaradex.org/';
+    }
 
     if (fallbackReferer?.trim()) {
       return fallbackReferer.trim();

@@ -6,13 +6,39 @@ import { getLanguageName } from './languages';
 import { normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 
-const MODEL = 'gemini-flash-lite-latest';
-const FALLBACK_RETRY_DELAYS_MS = [3500, 8000];
-const DEFAULT_KEY_COOLDOWN_MS = 18_000;
+const VISION_MODELS = [
+  'gemini-2.5-flash-lite',
+  'gemini-2.0-flash',
+  'gemini-2.0-flash-lite',
+  'gemini-flash-lite-latest',
+] as const;
+const FALLBACK_RETRY_DELAYS_MS = [1800, 4500];
+const DEFAULT_KEY_COOLDOWN_MS = 14_000;
 const INVALID_KEY_ISOLATION_MS = 5 * 60_000;
-const SLICE_HEIGHT = 1300;
+const PER_REQUEST_TIMEOUT_MS = 9_500;
+const MODEL_DEGRADED_COOLDOWN_MS = 45_000;
+const SLICE_HEIGHT = 2200;
 const SLICE_OVERLAP = 220;
-const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1080
+const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1980
+const VISION_MAX_WIDTH = 720;
+const DEFAULT_TRANSLATE_PROXY_URL =
+  'https://toonparrot-scraper-proxy.caganhuseyinerdil.workers.dev/translate';
+
+const modelCooldownUntil = new Map<string, number>();
+
+const pickVisionModelForAttempt = (attemptIndex: number): string => {
+  const now = Date.now();
+  const healthy = VISION_MODELS.filter((m) => (modelCooldownUntil.get(m) || 0) <= now);
+  const pool = healthy.length > 0 ? healthy : VISION_MODELS;
+  return pool[attemptIndex % pool.length];
+};
+
+const markVisionModelDegraded = (model: string): void => {
+  modelCooldownUntil.set(model, Date.now() + MODEL_DEGRADED_COOLDOWN_MS);
+};
+
+const supportsThinkingConfig = (model: string): boolean =>
+  model.includes('2.5') || model === 'gemini-flash-lite-latest';
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -104,12 +130,76 @@ export const loadImageElementFromBlob = (blob: Blob): Promise<HTMLImageElement> 
   });
 
 const canvasToBase64 = (canvas: HTMLCanvasElement): { data: string; mimeType: string } => {
-  const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+  let targetCanvas = canvas;
+  if (canvas.width > VISION_MAX_WIDTH && canvas.height > 0) {
+    const scale = VISION_MAX_WIDTH / canvas.width;
+    const scaledWidth = VISION_MAX_WIDTH;
+    const scaledHeight = Math.max(1, Math.round(canvas.height * scale));
+    const resized = document.createElement('canvas');
+    resized.width = scaledWidth;
+    resized.height = scaledHeight;
+    const rCtx = resized.getContext('2d');
+    if (rCtx) {
+      rCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, scaledWidth, scaledHeight);
+      targetCanvas = resized;
+    }
+  }
+  const dataUrl = targetCanvas.toDataURL('image/jpeg', 0.80);
   const base64 = dataUrl.split(',')[1];
   if (!base64) {
     throw new Error('Görsel base64 dönüşümü başarısız');
   }
   return { data: base64, mimeType: 'image/jpeg' };
+};
+
+// Saf beyaz, saf siyah veya yazı içermesi imkansız düz geçiş şeritlerini <1ms'de tespit edip boşuna API çağrısı yapmayı önler.
+const hasSliceTextPotential = (
+  ctx: CanvasRenderingContext2D,
+  width: number,
+  height: number,
+): boolean => {
+  try {
+    if (width <= 0 || height <= 0) return false;
+    const data = ctx.getImageData(0, 0, width, height).data;
+    const stepX = 4;
+    const stepY = 6;
+    let sharpTransitions = 0;
+
+    for (let y = 0; y < height; y += stepY) {
+      const rowOffset = y * width * 4;
+      let prevLum = -1;
+      for (let x = 0; x < width; x += stepX) {
+        const idx = rowOffset + x * 4;
+        const lum = (data[idx] * 77 + data[idx + 1] * 150 + data[idx + 2] * 29) >> 8;
+        if (prevLum >= 0 && Math.abs(lum - prevLum) > 38) {
+          sharpTransitions += 1;
+          if (sharpTransitions >= 12) return true;
+        }
+        prevLum = lum;
+      }
+    }
+    return false;
+  } catch {
+    return true;
+  }
+};
+
+export const isTransientServerOrTimeoutError = (error: unknown): boolean => {
+  if (error instanceof DOMException && error.name === 'TimeoutError') return true;
+  if (error instanceof Error && error.name === 'TimeoutError') return true;
+  const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  return (
+    message.includes('503') ||
+    message.includes('502') ||
+    message.includes('504') ||
+    message.includes('500') ||
+    message.includes('unavailable') ||
+    message.includes('overloaded') ||
+    message.includes('deadline_exceeded') ||
+    message.includes('timed out') ||
+    message.includes('timeout') ||
+    message.includes('internal error')
+  );
 };
 
 export const isRateLimitError = (error: unknown) => {
@@ -195,13 +285,14 @@ const parseRetryDelayMs = (error: unknown): number => {
 
 export const resetGeminiKeyPoolForTests = (): void => {
   keyPoolSlots.clear();
+  modelCooldownUntil.clear();
   pickSequence = 0;
 };
 
 export const executeWithGeminiKeyPool = async <T>(
   keys: readonly string[],
   parallelMode: boolean,
-  task: (apiKey: string, getClient: () => GoogleGenAI) => Promise<T>,
+  task: (apiKey: string, getClient: () => GoogleGenAI, attemptIndex: number) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> => {
   const normalizedKeys = normalizeApiKeysList(keys);
@@ -209,7 +300,7 @@ export const executeWithGeminiKeyPool = async <T>(
     throw new Error('API_KEY_INVALID: Geçerli bir Gemini API anahtarı bulunamadı.');
   }
 
-  const maxAttempts = Math.max(normalizedKeys.length + FALLBACK_RETRY_DELAYS_MS.length, 3);
+  const maxAttempts = Math.max(normalizedKeys.length + VISION_MODELS.length, 4);
   let lastError: unknown = null;
   let allCoolingRetries = 0;
 
@@ -234,8 +325,8 @@ export const executeWithGeminiKeyPool = async <T>(
       }
       const earliestCooldown = Math.min(...validSlots.map((slot) => slot.cooldownUntil));
       const waitMs = Math.min(
-        Math.max(earliestCooldown - now, FALLBACK_RETRY_DELAYS_MS[allCoolingRetries] || 4000),
-        22_000,
+        Math.max(earliestCooldown - now, FALLBACK_RETRY_DELAYS_MS[allCoolingRetries] || 2000),
+        15_000,
       );
       allCoolingRetries += 1;
       await sleep(waitMs, signal);
@@ -259,9 +350,9 @@ export const executeWithGeminiKeyPool = async <T>(
     chosen.lastPickedSeq = pickSequence;
     chosen.inFlight += 1;
 
-    // Tek anahtarda ücretsiz katman ani patlama (burst 429) yememek için sanal zaman dilimi rezervasyonu
+    // Dilimler arası yapay gecikmeyi minimumda tut (180ms–250ms)
     const minIntervalMs =
-      normalizedKeys.length === 1 ? (parallelMode ? 700 : 1100) : 300;
+      normalizedKeys.length === 1 ? (parallelMode ? 180 : 250) : 120;
     const dispatchNow = Date.now();
     const scheduledAt = Math.max(dispatchNow, chosen.nextDispatchAt);
     chosen.nextDispatchAt = scheduledAt + minIntervalMs;
@@ -278,9 +369,12 @@ export const executeWithGeminiKeyPool = async <T>(
         return chosen.client;
       };
 
-      return await task(chosen.key, getClient);
+      return await task(chosen.key, getClient, attempt);
     } catch (error) {
-      if (isAbortTranslationError(error) || signal?.aborted) {
+      if (signal?.aborted) {
+        throw new DOMException('İptal edildi', 'AbortError');
+      }
+      if (isAbortTranslationError(error) && !isTransientServerOrTimeoutError(error)) {
         throw new DOMException('İptal edildi', 'AbortError');
       }
 
@@ -288,7 +382,6 @@ export const executeWithGeminiKeyPool = async <T>(
 
       if (isFatalAuthOrKeyError(error)) {
         chosen.invalidUntil = Date.now() + INVALID_KEY_ISOLATION_MS;
-        // Başka geçerli anahtar varsa 0ms gecikmeyle anında ona geç
         continue;
       }
 
@@ -297,7 +390,12 @@ export const executeWithGeminiKeyPool = async <T>(
         const until = Date.now() + cooldownMs;
         chosen.cooldownUntil = Math.max(chosen.cooldownUntil, until);
         chosen.nextDispatchAt = Math.max(chosen.nextDispatchAt, until);
-        // Başka sağlıklı anahtar varsa beklemeden (0ms) diğer anahtara geç
+        continue;
+      }
+
+      if (isTransientServerOrTimeoutError(error)) {
+        // 503 / 502 / 504 / Timeout durumunda beklemeden bir sonraki modele/denemeye geç
+        await sleep(250, signal);
         continue;
       }
 
@@ -446,30 +544,127 @@ const callGeminiVision = async (
   return executeWithGeminiKeyPool(
     keys,
     parallelMode,
-    async (_apiKey, getClient) => {
+    async (_apiKey, getClient, attemptIndex) => {
       const ai = getClient();
-      const response = await ai.models.generateContent({
-        model: MODEL,
-        config: {
-          thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL },
-          responseMimeType: 'application/json',
-          responseSchema: RESPONSE_SCHEMA,
-          abortSignal: signal,
-        },
-        contents: [
-          {
-            role: 'user',
-            parts: [
-              { inlineData: { data, mimeType } },
-              { text: prompt },
-            ],
+      const model = pickVisionModelForAttempt(attemptIndex);
+      const timeoutSignal = AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS);
+      const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
+      try {
+        const response = await ai.models.generateContent({
+          model,
+          config: {
+            ...(supportsThinkingConfig(model)
+              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
+              : {}),
+            responseMimeType: 'application/json',
+            responseSchema: RESPONSE_SCHEMA,
+            abortSignal: combinedSignal,
           },
-        ],
-      });
-      return parseBlocks(response.text ?? '', targetLang);
+          contents: [
+            {
+              role: 'user',
+              parts: [
+                { inlineData: { data, mimeType } },
+                { text: prompt },
+              ],
+            },
+          ],
+        });
+        return parseBlocks(response.text ?? '', targetLang);
+      } catch (err) {
+        if (signal?.aborted) {
+          throw new DOMException('İptal edildi', 'AbortError');
+        }
+        if (timeoutSignal.aborted || isTransientServerOrTimeoutError(err)) {
+          markVisionModelDegraded(model);
+          throw new Error(`503 Vision model timeout or overload (${model})`);
+        }
+        throw err;
+      }
     },
     signal,
   );
+};
+
+const getTranslateProxyEndpoint = (): string => {
+  const raw =
+    typeof import.meta !== 'undefined' && import.meta.env
+      ? String(import.meta.env.VITE_SCRAPER_PROXY_URL || '').trim()
+      : '';
+  const firstProxy = raw
+    .split(',')
+    .map((u) => u.trim().replace(/\/+$/, ''))
+    .find(Boolean);
+  return firstProxy ? `${firstProxy}/translate` : DEFAULT_TRANSLATE_PROXY_URL;
+};
+
+const TURKISH_CHAR_REGEX = /[çğıöşüÇĞİÖŞÜ]/;
+const TURKISH_WORD_REGEX =
+  /\b(?:bir|ve|bu|için|ama|fakat|ancak|ben|sen|biz|siz|onlar|değil|var|yok|gibi|kadar|sonra|önce|daha|çok|hiç|ne|nasıl|neden|niye|kim|nerede|benim|senin|onun|bizim|sizin|evet|hayır|tamam|lütfen|teşekkür|merhaba|oldu|olacak|mi|mı|mu|mü|de|da|ki)\b/i;
+const ENGLISH_STOPWORD_REGEX =
+  /\b(?:the|and|you|your|are|was|were|have|has|had|with|this|that|what|when|where|why|how|from|they|them|their|there|here|would|could|should|will|can't|don't|didn't|isn't|aren't|wasn't|I'm|you're|he's|she's|it's|we're|they're)\b/i;
+
+const isLikelyAlreadyTranslated = (text: string, targetLang: string): boolean => {
+  const t = text.trim();
+  if (!t) return true;
+  if (targetLang === 'tr') {
+    if (ENGLISH_STOPWORD_REGEX.test(t)) return false;
+    if (TURKISH_CHAR_REGEX.test(t) || TURKISH_WORD_REGEX.test(t)) return true;
+  }
+  return false;
+};
+
+export const translateBatchWithGoogleFree = async (
+  texts: readonly string[],
+  targetLang: string,
+  signal?: AbortSignal,
+): Promise<string[]> => {
+  if (texts.length === 0) return [];
+  const trimmedList = texts.map((t) => (t || '').trim());
+  const nonEmptyIndices: number[] = [];
+  const payloadTexts: string[] = [];
+
+  trimmedList.forEach((t, idx) => {
+    if (t.length > 1) {
+      nonEmptyIndices.push(idx);
+      payloadTexts.push(t);
+    }
+  });
+
+  if (payloadTexts.length === 0) return trimmedList;
+
+  const endpoint = getTranslateProxyEndpoint();
+  try {
+    const reqSignal = signal
+      ? AbortSignal.any([signal, AbortSignal.timeout(6000)])
+      : AbortSignal.timeout(6000);
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        sl: 'auto',
+        tl: targetLang,
+        texts: payloadTexts,
+      }),
+      signal: reqSignal,
+    });
+    if (res.ok) {
+      const json = (await res.json()) as { translations?: unknown };
+      if (Array.isArray(json?.translations) && json.translations.length === payloadTexts.length) {
+        const out = [...trimmedList];
+        nonEmptyIndices.forEach((origIdx, i) => {
+          const cand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
+          if (cand) out[origIdx] = cand;
+        });
+        return out;
+      }
+    }
+  } catch {
+    // Proxy erişilemezse mevcut (Gemini tarafından çevrilmiş) metinleri koru; konsola CORS hatası basma.
+  }
+
+  return trimmedList;
 };
 
 export const translateWithGoogleFree = async (
@@ -479,21 +674,8 @@ export const translateWithGoogleFree = async (
 ): Promise<string> => {
   const trimmed = text?.trim();
   if (!trimmed) return '';
-  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(trimmed)}`;
-  try {
-    const res = await fetch(url, {
-      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000),
-    });
-    if (!res.ok) return trimmed;
-    const json = await res.json();
-    if (Array.isArray(json?.[0])) {
-      const translated = json[0].map((part: any) => part?.[0] || '').join('');
-      return translated.trim() || trimmed;
-    }
-  } catch (err) {
-    console.warn('Google Translate free fallback failed:', err);
-  }
-  return trimmed;
+  const [translated] = await translateBatchWithGoogleFree([trimmed], targetLang, signal);
+  return translated || trimmed;
 };
 
 export interface TranslationTimings {
@@ -559,27 +741,42 @@ export const translatePageImage = async ({
   }
   fullCtx.drawImage(img, 0, 0);
 
-  const applyGoogleTranslateIfNeeded = async (blocks: TranslationBlock[]) => {
-    if (provider !== 'google') return;
-    await Promise.all(
-      blocks.map(async (b) => {
-        try {
-          const gText = await translateWithGoogleFree(b.text, targetLang, signal);
-          if (gText) b.text = gText;
-        } catch {}
-      }),
-    );
+  const applyGoogleTranslateBatchIfNeeded = async (items: Array<{ text: string }>) => {
+    if (provider !== 'google' || items.length === 0) return;
+    const pendingIndices: number[] = [];
+    const pendingTexts: string[] = [];
+
+    items.forEach((item, idx) => {
+      if (!isLikelyAlreadyTranslated(item.text, targetLang)) {
+        pendingIndices.push(idx);
+        pendingTexts.push(item.text);
+      }
+    });
+
+    if (pendingTexts.length === 0) return;
+
+    const translated = await translateBatchWithGoogleFree(pendingTexts, targetLang, signal);
+    translated.forEach((t, i) => {
+      if (t) items[pendingIndices[i]].text = t;
+    });
   };
 
-  // Kısa/standart sayfalar (height <= 1600): tek seferde işle
-  if (fullHeight <= 1600) {
+  // Kısa/standart sayfalar (height <= 2300): tek seferde işle
+  if (fullHeight <= 2300) {
+    if (!hasSliceTextPotential(fullCtx, fullWidth, fullHeight)) {
+      return {
+        blocks: [],
+        timings: { ocrMs: 0, transMs: 0, totalMs: Math.round(performance.now() - tStart) },
+      };
+    }
+
     const { data, mimeType } = canvasToBase64(fullCanvas);
     const tOcrStart = performance.now();
     const rawBlocks = await callGeminiVision(effectiveKeys, parallelMode, data, mimeType, targetLang, signal);
     ocrMs = Math.round(performance.now() - tOcrStart);
 
     const tTransStart = performance.now();
-    await applyGoogleTranslateIfNeeded(rawBlocks);
+    await applyGoogleTranslateBatchIfNeeded(rawBlocks);
     transMs = Math.round(performance.now() - tTransStart);
 
     const blocks = rawBlocks
@@ -615,22 +812,23 @@ export const translatePageImage = async ({
     const sliceCanvas = document.createElement('canvas');
     sliceCanvas.width = fullWidth;
     sliceCanvas.height = slice.h;
-    const sliceCtx = sliceCanvas.getContext('2d');
+    const sliceCtx = sliceCanvas.getContext('2d', { willReadFrequently: true });
     if (!sliceCtx) {
       throw new Error('Dilim canvas bağlamı oluşturulamadı');
     }
     sliceCtx.drawImage(fullCanvas, 0, slice.y, fullWidth, slice.h, 0, 0, fullWidth, slice.h);
+    const hasText = hasSliceTextPotential(sliceCtx, fullWidth, slice.h);
+    if (!hasText) {
+      return { ...slice, data: '', mimeType: 'image/jpeg', skip: true };
+    }
     const { data, mimeType } = canvasToBase64(sliceCanvas);
-    return { ...slice, data, mimeType };
+    return { ...slice, data, mimeType, skip: false };
   });
 
-  // Tek anahtar + sıralı modda dilimleri teker teker göndererek ücretsiz katman 429 patlamasını önle;
-  // çoklu anahtarda veya paralel modda anahtar sayısına göre ölçekle.
+  // Tek anahtarda bile 3–4 dilimi eşzamanlı göndererek 10.000px'lik şeritleri tek dalgada (~2.5-4sn) bitir.
   const sliceConcurrency = parallelMode
-    ? Math.min(Math.max(2, effectiveKeys.length * 2), 6)
-    : effectiveKeys.length > 1
-      ? Math.min(effectiveKeys.length, 3)
-      : 1;
+    ? Math.min(Math.max(4, effectiveKeys.length * 3), 6)
+    : Math.min(Math.max(3, effectiveKeys.length * 2), 5);
 
   const sliceResults: Array<{ y: number; h: number; blocks: TranslationBlock[] }> = [];
   let succeededSlices = 0;
@@ -644,6 +842,10 @@ export const translatePageImage = async ({
     const batch = slicePayloads.slice(i, i + sliceConcurrency);
     const batchOut = await Promise.all(
       batch.map(async (s) => {
+        if (s.skip) {
+          succeededSlices += 1;
+          return { y: s.y, h: s.h, blocks: [] };
+        }
         try {
           const blocks = await callGeminiVision(
             effectiveKeys,
@@ -716,16 +918,7 @@ export const translatePageImage = async ({
   });
 
   const tTransStart = performance.now();
-  if (provider === 'google') {
-    await Promise.all(
-      mergedCandidates.map(async (cand) => {
-        try {
-          const gText = await translateWithGoogleFree(cand.text, targetLang, signal);
-          if (gText) cand.text = gText;
-        } catch {}
-      }),
-    );
-  }
+  await applyGoogleTranslateBatchIfNeeded(mergedCandidates);
   transMs = Math.round(performance.now() - tTransStart);
 
   const blocks = mergedCandidates
