@@ -22,6 +22,8 @@ import {
   formatChapterDisplayTitle,
   formatChapterNumberLabel,
   sanitizeChapterTitle,
+  isChapterEnglish,
+  isChapterRaw,
 } from '@/lib/chapterTitle';
 import { Input } from '@/components/ui/input';
 import {
@@ -345,14 +347,26 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   />
                 )}
                 <div className="min-w-0 flex-1">
-                  <p
-                    className={cn(
-                      'truncate text-sm leading-snug',
-                      isCurrentChapter ? 'text-primary font-semibold' : 'text-foreground/90 font-medium',
+                  <div className="flex items-center gap-1.5">
+                    <p
+                      className={cn(
+                        'truncate text-sm leading-snug',
+                        isCurrentChapter ? 'text-primary font-semibold' : 'text-foreground/90 font-medium',
+                      )}
+                    >
+                      {chapterLabel}
+                    </p>
+                    {isChapterRaw(ch) && (
+                      <span className="shrink-0 rounded border border-purple-500/40 bg-purple-500/15 px-1 py-0 text-[9px] font-black text-purple-400">
+                        RAW
+                      </span>
                     )}
-                  >
-                    {chapterLabel}
-                  </p>
+                    {isChapterEnglish(ch) && (
+                      <span className="shrink-0 rounded border border-sky-500/40 bg-sky-500/15 px-1 py-0 text-[9px] font-black text-sky-400">
+                        EN
+                      </span>
+                    )}
+                  </div>
                   {cleanSubtitle && (
                     <p className="mt-0.5 truncate text-xs text-muted-foreground font-normal">
                       {cleanSubtitle}

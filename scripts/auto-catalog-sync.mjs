@@ -123,6 +123,14 @@ const PRIMARY_SOURCES = [
   'mangadass',
   'asurascans',
 ];
+const SOURCE_PRIORITIES = {
+  webtoonhatti: 100,
+  okutoon: 100,
+  siyahmelek: 90,
+  hattorimanga: 80,
+  mangadass: 50,
+  asurascans: 10,
+};
 const CHAPTER_CONCURRENCY = 6;
 const SERIES_CONCURRENCY = Math.max(1, parseNonNegInt(getArgValue('--series-concurrency', '4'), 4));
 const FAST_INGEST = hasFlag('--fast') || hasFlag('--skip-enrich') || hasFlag('--archive-mode');
@@ -1593,7 +1601,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       const fullLink = `https://asurascans.com${chPath}`;
       if (!chapterMap.has(num)) {
         chapterMap.set(num, {
-          title: num === 0 ? 'Bölüm 0' : `Bölüm ${num}`,
+          title: num === 0 ? 'Bölüm 0 [EN]' : `Bölüm ${num} [EN]`,
           link: fullLink,
           chapterNumber: num,
         });
@@ -1605,7 +1613,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       const pLink = `https://asurascans.com${pm[1].trim()}`;
       if (!chapterMap.has(0)) {
         chapterMap.set(0, {
-          title: 'Bölüm 0',
+          title: 'Bölüm 0 [EN]',
           link: pLink,
           chapterNumber: 0,
         });
@@ -1663,18 +1671,34 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
     }
   }
 
-  const res = await fetchUpstream(chapterLink, { timeoutMs: 15000 });
+  let targetChapterUrl = chapterLink;
+  if ((source === 'webtoonhatti' || source === 'hattorimanga') && !targetChapterUrl.includes('style=')) {
+    targetChapterUrl = targetChapterUrl.includes('?') ? `${targetChapterUrl}&style=list` : `${targetChapterUrl.replace(/\/+$/, '')}/?style=list`;
+  }
+
+  const res = await fetchUpstream(targetChapterUrl, { timeoutMs: 15000 });
   if (!res.ok || !res.content) return [];
   const html = res.content;
 
   if (source === 'webtoonhatti' || source === 'hattorimanga') {
     let matches = [];
-    const pageBreakRegex = /<div class="[^"]*page-break[^"]*"[\s\S]*?<\/div>/gi;
-    const pageBreaks = extractRegexMatches(html, pageBreakRegex);
-    if (pageBreaks.length > 0) {
-      for (const pb of pageBreaks) {
-        const imgs = extractRegexMatches(pb[0], /<img[^>]+(?:data-src|data-lazy-src|src)="([^"]+)"/gi);
-        matches.push(...imgs);
+    const wpImgs = extractRegexMatches(html, /<img[^>]+class=["'][^"']*wp-manga-chapter-img[^"']*["'][^>]*>/gi);
+    if (wpImgs.length > 0) {
+      for (const [tag] of wpImgs) {
+        const src = /src=["']([^"']+)["']/i.exec(tag)?.[1]?.trim() ||
+                    /data-src=["']([^"']+)["']/i.exec(tag)?.[1]?.trim() ||
+                    /data-lazy-src=["']([^"']+)["']/i.exec(tag)?.[1]?.trim();
+        if (src) matches.push([tag, src]);
+      }
+    }
+    if (matches.length === 0) {
+      const pageBreakRegex = /<div class="[^"]*page-break[^"]*"[\s\S]*?<\/div>/gi;
+      const pageBreaks = extractRegexMatches(html, pageBreakRegex);
+      if (pageBreaks.length > 0) {
+        for (const pb of pageBreaks) {
+          const imgs = extractRegexMatches(pb[0], /<img[^>]+(?:data-src|data-lazy-src|src)="([^"]+)"/gi);
+          matches.push(...imgs);
+        }
       }
     }
     if (matches.length === 0) {
@@ -4038,7 +4062,7 @@ const main = async () => {
         } else if (!seriesQueue[card.link]) {
           seriesQueue[card.link] = {
             ...card,
-            priority: 1,
+            priority: SOURCE_PRIORITIES[card.source] || 1,
             status: 'pending',
             totalChaptersFound: 0,
             completedChaptersCount: 0,
@@ -4247,7 +4271,7 @@ const main = async () => {
     const pendingItems = Object.values(seriesQueue)
       .filter((s) => (s.status === 'pending' || s.status === 'partial') && PRIMARY_SOURCES.includes(s.source))
       .filter((s) => !TARGET_SOURCE || s.source === TARGET_SOURCE)
-      .sort((a, b) => (b.priority || 0) - (a.priority || 0));
+      .sort((a, b) => (SOURCE_PRIORITIES[b.source] || b.priority || 0) - (SOURCE_PRIORITIES[a.source] || a.priority || 0));
 
     const batchToProcess = isProcessAll ? pendingItems : pendingItems.slice(0, BATCH_SIZE);
     if (batchToProcess.length > 0) {
@@ -4270,10 +4294,23 @@ const main = async () => {
           const existing = store.mangas.get(existingId);
           store.upsertSourceLink(existing, { source: card.source, url: card.link });
 
-          // Eksik bölümleri kontrol et ve tamamla (Backfill)
+          // Eksik bölümleri kontrol et ve tamamla (Backfill - Türkçe kaynaklar İngilizce [EN] bölümlerin üzerine yazabilir)
           const detail = await fetchSeriesDetailFromSource(card.source, card.link, card.title, card.cover, card.isAdult);
           if (detail && Array.isArray(detail.chapters) && detail.chapters.length > 0) {
-            const existingNums = new Set((existing.chapters || []).map((c) => Number(c.chapterNumber ?? c.number ?? 0)));
+            const isTurkishSource = card.source !== 'asurascans' && card.source !== 'madaradex';
+            const existingNums = new Set(
+              (existing.chapters || [])
+                .filter((c) => {
+                  if (isTurkishSource) {
+                    const isEnglishChapter =
+                      (c.title || '').includes('[EN]') ||
+                      (Array.isArray(c.pages) && c.pages.some((p) => typeof p === 'string' && (p.includes('asurascans') || p.includes('asura-images'))));
+                    return !isEnglishChapter;
+                  }
+                  return true;
+                })
+                .map((c) => Number(c.chapterNumber ?? c.number ?? 0))
+            );
             const missingChapters = detail.chapters.filter((ch) => !existingNums.has(Number(ch.chapterNumber)));
             if (missingChapters.length > 0) {
               logProgress(bIdx, totalCount, existing.title, `${missingChapters.length} eksik bölüm kaynaktan (${card.source}) tamamlanıyor...`);
@@ -4342,8 +4379,21 @@ const main = async () => {
           const existing = store.mangas.get(existingByAltId);
           store.upsertSourceLink(existing, { source: card.source, url: card.link });
 
-          // Eksik bölümleri kontrol et ve tamamla (Backfill)
-          const existingNums = new Set((existing.chapters || []).map((c) => Number(c.chapterNumber ?? c.number ?? 0)));
+          // Eksik bölümleri kontrol et ve tamamla (Backfill - Türkçe kaynaklar İngilizce [EN] bölümlerin üzerine yazabilir)
+          const isTurkishSource = card.source !== 'asurascans' && card.source !== 'madaradex';
+          const existingNums = new Set(
+            (existing.chapters || [])
+              .filter((c) => {
+                if (isTurkishSource) {
+                  const isEnglishChapter =
+                    (c.title || '').includes('[EN]') ||
+                    (Array.isArray(c.pages) && c.pages.some((p) => typeof p === 'string' && (p.includes('asurascans') || p.includes('asura-images'))));
+                  return !isEnglishChapter;
+                }
+                return true;
+              })
+              .map((c) => Number(c.chapterNumber ?? c.number ?? 0))
+          );
           const missingChapters = (detail.chapters || []).filter((ch) => !existingNums.has(Number(ch.chapterNumber)));
           if (missingChapters.length > 0) {
             logProgress(bIdx, totalCount, existing.title, `${missingChapters.length} eksik bölüm kaynaktan (${card.source}) tamamlanıyor...`);
@@ -4358,9 +4408,14 @@ const main = async () => {
               );
               for (const r of results) {
                 if (r.pages && r.pages.length > 0) {
+                  const isEnglishSource = card.source === 'asurascans' || (card.source === 'mangadass' && !card.genres?.includes('RAW'));
+                  const isRawSource = card.source === 'mangadass' && card.genres?.includes('RAW');
+                  let chTitle = r.title;
+                  if (isEnglishSource && !chTitle.includes('[EN]')) chTitle = `${chTitle} [EN]`;
+                  if (isRawSource && !chTitle.includes('[RAW]')) chTitle = `${chTitle} [RAW]`;
                   store.upsertChapter(existing, {
                     number: r.chapterNumber,
-                    title: r.title,
+                    title: chTitle,
                     pages: r.pages,
                     releaseDate: r.releaseDate || new Date().toISOString(),
                   });

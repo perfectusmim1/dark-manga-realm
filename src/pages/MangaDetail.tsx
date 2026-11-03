@@ -60,7 +60,7 @@ import {
   createMangaReport,
   createReviewReport,
 } from '@/lib/database';
-import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
+import { formatChapterDisplayTitle, isChapterEnglish, isChapterRaw } from '@/lib/chapterTitle';
 import {
   getChapterCardImageMode,
   getChapterCardListImageTransform,
@@ -2642,15 +2642,14 @@ const MangaDetail: React.FC = () => {
                   {formatChapterDisplayTitle(chapter.number, chapter.title)}
                 </Link>
                 {(() => {
-                  const chTitle = (chapter.title || '').toLowerCase();
-                  if (chTitle.includes('[raw]') || chTitle.includes('(raw)')) {
+                  if (isChapterRaw(chapter)) {
                     return (
                       <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-purple-500/40 bg-purple-500/15 text-purple-400">
                         RAW
                       </Badge>
                     );
                   }
-                  if (chTitle.includes('[en]') || chTitle.includes('(en)') || getSeriesLanguage(manga) === 'en') {
+                  if (isChapterEnglish(chapter, getSeriesLanguage(manga))) {
                     return (
                       <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-sky-500/40 bg-sky-500/15 text-sky-400">
                         EN

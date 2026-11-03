@@ -1,6 +1,32 @@
 const CHAPTER_PREFIXES = ['bölüm', 'bolum', 'chapter', 'chap', 'episode', 'ep'];
 const CHAPTER_SEPARATOR_CHARS = new Set([':', '：', '-', '–', '—', '|', '.', '_']);
 
+export const isChapterEnglish = (
+    chapter?: { title?: string | null; pages?: string[] } | null,
+    mangaLanguage?: string | null
+): boolean => {
+    if (!chapter) return false;
+    const title = (chapter.title || '').toLowerCase();
+    if (title.includes('[en]') || title.includes('(en)') || title.includes('[english]')) {
+        return true;
+    }
+    if (mangaLanguage === 'en' || mangaLanguage === 'english') {
+        return true;
+    }
+    if (Array.isArray(chapter.pages) && chapter.pages.some((p) => typeof p === 'string' && (p.includes('asurascans') || p.includes('asura-images')))) {
+        return true;
+    }
+    return false;
+};
+
+export const isChapterRaw = (
+    chapter?: { title?: string | null } | null
+): boolean => {
+    if (!chapter) return false;
+    const title = (chapter.title || '').toLowerCase();
+    return title.includes('[raw]') || title.includes('(raw)');
+};
+
 export const formatChapterNumberLabel = (value: number | string) => {
     if (typeof value === 'number') {
         if (Number.isInteger(value)) {
@@ -13,8 +39,15 @@ export const formatChapterNumberLabel = (value: number | string) => {
     return value.trim();
 };
 
+const stripLanguageTags = (value: string) => {
+    return value
+        .replace(/\s*\[(?:en|raw|tr|english)\]\s*/gi, ' ')
+        .replace(/\s*\((?:en|raw|tr|english)\)\s*/gi, ' ')
+        .trim();
+};
+
 const stripRepeatedChapterPrefix = (title: string, chapterNumberLabel: string) => {
-    const trimmedTitle = title.trim();
+    const trimmedTitle = stripLanguageTags(title.trim());
     const normalizedTitle = trimmedTitle.toLocaleLowerCase('tr-TR');
     const normalizedChapterNumber = chapterNumberLabel.trim().toLocaleLowerCase('tr-TR');
 
@@ -83,7 +116,7 @@ export const sanitizeChapterTitle = (chapterNumber: number | string, title?: str
         cleanedTitle = nextTitle;
     }
 
-    return cleanedTitle;
+    return stripLanguageTags(cleanedTitle);
 };
 
 export const formatChapterDisplayTitle = (chapterNumber: number | string, title?: string | null) => {
