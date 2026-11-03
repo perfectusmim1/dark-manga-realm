@@ -1085,7 +1085,7 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
   } else if (source === 'asurascans') {
     // Normal İngilizce Webtoonlar
     for (let page = 1; page <= effectiveMaxPages; page++) {
-      const pageUrl = page === 1 ? 'https://asurascans.com/comics' : `https://asurascans.com/comics?page=${page}`;
+      const pageUrl = `https://asurascans.com/browse/comics?page=${page}`;
       const res = await fetchUpstream(pageUrl);
       if (!res.ok || !res.content) break;
       const blocks = res.content.split(/href=["'](\/comics\/[^"'\/?#]+(?:-[a-f0-9]+))["']/gi);
@@ -1110,7 +1110,7 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
           link,
           cover,
           isAdult: false,
-          genres: ['Webtoon', 'Action'],
+          genres: ['Webtoon', 'Aksiyon', 'İngilizce'],
           details: { language: 'en' },
         });
       }
