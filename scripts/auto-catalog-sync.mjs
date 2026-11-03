@@ -1086,9 +1086,22 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
     // Normal İngilizce Webtoonlar
     for (let page = 1; page <= effectiveMaxPages; page++) {
       const pageUrl = `https://asurascans.com/browse/comics?page=${page}`;
-      const res = await fetchUpstream(pageUrl);
-      if (!res.ok || !res.content) break;
+      let res = null;
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        res = await fetchUpstream(pageUrl, { timeoutMs: 25000 });
+        if (res.ok && res.content) break;
+        if (attempt < 3) await sleep(1500 * attempt);
+      }
+      if (!res || !res.ok || !res.content) {
+        logWarn(`[Asura Arşiv] Sayfa ${page} çekilemedi, bir sonraki sayfaya geçiliyor.`);
+        continue;
+      }
       const blocks = res.content.split(/href=["'](\/comics\/[^"'\/?#]+(?:-[a-f0-9]+))["']/gi);
+      if (blocks.length <= 1) {
+        logInfo(`[Asura Arşiv] Sayfa ${page} boş (arşiv sonuna ulaşıldı).`);
+        break;
+      }
+      let newOnPage = 0;
       for (let i = 1; i < blocks.length; i += 2) {
         const path = blocks[i]?.trim();
         const blockHtml = blocks[i + 1] || '';
@@ -1096,6 +1109,7 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
         const link = `https://asurascans.com${path}`;
         if (seen.has(link)) continue;
         seen.add(link);
+        newOnPage++;
         const titleMatch = blockHtml.match(/<span[^>]*class=["'][^"']*font-bold[^"']*["'][^>]*>([^<]+)<\/span>/i) ||
                            blockHtml.match(/title=["']([^"']+)["']/i);
         const imgMatch = blockHtml.match(/(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:webp|jpg|jpeg|png)[^"']*)["']/i);
@@ -1114,6 +1128,8 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
           details: { language: 'en' },
         });
       }
+      logInfo(`[Asura Arşiv] Sayfa ${page} tarandı (+${newOnPage} yeni seri, toplam: ${cards.length})`);
+      if (page >= 20) break;
     }
   } else if (source === 'madaradex') {
     // +18 Yetişkin İngilizce Manhwa/Manga
