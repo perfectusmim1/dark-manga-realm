@@ -25,6 +25,8 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
   allowProxy = false,
   onError,
   fetchPriority: _fetchPriority,
+  loading = 'lazy',
+  decoding = 'async',
   ...rest
 }) => {
   const transformKey = React.useMemo(() => getTransformKey(transform), [transform]);
@@ -77,6 +79,8 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
   return (
     <img
       referrerPolicy="no-referrer"
+      loading={loading}
+      decoding={decoding}
       {...rest}
       src={proxiedSrc}
       alt={alt}

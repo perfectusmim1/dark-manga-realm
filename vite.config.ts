@@ -54,20 +54,52 @@ export default defineConfig(({ mode }) => ({
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
+          // 1. Seri kapakları ve tüm medya görselleri (R2, Cloudflare Workers Proxy, Supabase Storage ve Harici CDN'ler)
           {
             urlPattern: ({ request, url }: any) => {
-              // @ts-ignore: self is available in Service Worker scope
-              return request.destination === "image" && url.origin === self.location.origin;
+              if (request.destination === "image") {
+                return true;
+              }
+              const pathname = url.pathname.toLowerCase();
+              return (
+                /\.(?:png|jpg|jpeg|webp|avif|svg|gif)$/i.test(pathname) ||
+                url.hostname.includes("r2.dev") ||
+                url.hostname.includes("supabase.co") ||
+                url.hostname.includes("workers.dev") ||
+                pathname.includes("/image") ||
+                pathname.includes("/media")
+              );
             },
-            handler: "CacheFirst",
+            handler: "StaleWhileRevalidate",
             options: {
-              cacheName: "toonparrot-image-cache",
+              cacheName: "toonparrot-manga-covers-v1",
               cacheableResponse: {
                 statuses: [0, 200],
               },
               expiration: {
-                maxEntries: 400,
-                maxAgeSeconds: 60 * 60 * 24 * 30,
+                maxEntries: 3000,
+                maxAgeSeconds: 60 * 60 * 24 * 30, // 30 gün kalıcı önbellek
+                purgeOnQuotaError: true,
+              },
+            },
+          },
+          // 2. Google Fonts & Web Fontları
+          {
+            urlPattern: ({ url }: any) => {
+              return (
+                url.origin === "https://fonts.googleapis.com" ||
+                url.origin === "https://fonts.gstatic.com"
+              );
+            },
+            handler: "CacheFirst",
+            options: {
+              cacheName: "google-fonts-cache",
+              cacheableResponse: {
+                statuses: [0, 200],
+              },
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 60 * 60 * 24 * 365, // 1 yıl
               },
             },
           },
