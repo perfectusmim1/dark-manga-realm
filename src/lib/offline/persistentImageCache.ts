@@ -121,11 +121,24 @@ const blobToDataUrl = (blob: Blob) =>
   });
 
 const fetchImageViaProxy = async (sourceUrl: string): Promise<Blob> => {
-  const proxyUrl = getOfflineImageProxyUrl();
   const referer = inferRefererForImageUrl(sourceUrl);
 
+  // 1. GET Proxy (Cloudflare CDN Edge Cache enabled, fast <50ms, works on all 5 proxies)
+  try {
+    const getUrl = buildProxiedImageUrl(sourceUrl, referer);
+    if (getUrl && getUrl !== sourceUrl) {
+      const getResponse = await fetch(getUrl);
+      if (getResponse.ok) {
+        return await getResponse.blob();
+      }
+    }
+  } catch {
+    // Ignore and fallback to POST
+  }
+
+  // 2. POST Proxy fallback
+  const proxyUrl = getOfflineImageProxyUrl();
   if (proxyUrl) {
-    // 1. POST via Proxy
     try {
       const headers: Record<string, string> = {
         'Content-Type': 'application/json',
@@ -143,19 +156,6 @@ const fetchImageViaProxy = async (sourceUrl: string): Promise<Blob> => {
 
       if (postResponse.ok) {
         return await postResponse.blob();
-      }
-    } catch {
-      // Ignore and fallback to GET proxy
-    }
-
-    // 2. GET Proxy fallback
-    try {
-      const getUrl = buildProxiedImageUrl(sourceUrl, referer);
-      if (getUrl && getUrl !== sourceUrl) {
-        const getResponse = await fetch(getUrl);
-        if (getResponse.ok) {
-          return await getResponse.blob();
-        }
       }
     } catch {
       // Ignore

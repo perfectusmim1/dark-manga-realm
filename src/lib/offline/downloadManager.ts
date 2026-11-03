@@ -362,7 +362,7 @@ const downloadImageViaProxy = async (
     return readStreamToBlob(response, signal, onChunk);
   }
 
-  const response = await fetch(proxyUrl, {
+  let response = await fetch(proxyUrl, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -370,6 +370,16 @@ const downloadImageViaProxy = async (
     body: JSON.stringify({ url: sourceUrl, referer: inferredReferer }),
     signal,
   });
+
+  if (response.status === 405) {
+    const getUrl = new URL(proxyUrl);
+    getUrl.searchParams.set('url', sourceUrl);
+    if (inferredReferer) getUrl.searchParams.set('referer', inferredReferer);
+    response = await fetch(getUrl.toString(), {
+      method: 'GET',
+      signal,
+    });
+  }
 
   return readStreamToBlob(response, signal, onChunk);
 };

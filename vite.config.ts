@@ -79,6 +79,7 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      "tesseract.js": path.resolve(__dirname, "./node_modules/tesseract.js/dist/tesseract.esm.min.js"),
     },
   },
   build: {
@@ -132,8 +133,24 @@ export default defineConfig(({ mode }) => ({
             return "calendar";
           }
 
+          if (normalizedId.includes("@google/genai")) {
+            return "gemini-sdk";
+          }
+
+          if (normalizedId.includes("onnxruntime-web")) {
+            return "onnx-runtime";
+          }
+
+          if (normalizedId.includes("@capacitor")) {
+            return "capacitor";
+          }
+
           if (normalizedId.includes("idb")) {
             return "offline-storage";
+          }
+
+          if (normalizedId.includes("tesseract.js")) {
+            return "ocr-engine";
           }
 
           return "vendor";

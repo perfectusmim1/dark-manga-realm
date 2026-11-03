@@ -343,7 +343,7 @@ export const useChapterTranslation = ({
       toast.error('Yeni sayfa çevirmek için internet bağlantısı gerekiyor.');
       return false;
     }
-    if (getEffectiveApiKeys(settingsRef.current).length === 0) {
+    if (settingsRef.current.provider === 'gemini' && getEffectiveApiKeys(settingsRef.current).length === 0) {
       toast.error('Önce Görsel Çeviri ayarlarından en az bir Gemini API anahtarı ekleyin.');
       return false;
     }
@@ -354,7 +354,9 @@ export const useChapterTranslation = ({
     (indices: number[], options?: { force?: boolean; prioritize?: boolean }) => {
       if (indices.length === 0) return;
       wasCancelledManuallyRef.current = false;
-      setIsPillDismissed(false);
+      if (!isBusy) {
+        setIsPillDismissed(false);
+      }
       setLastErrorMessage(null);
       setCompletedPulseAt(null);
 

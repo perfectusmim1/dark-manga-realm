@@ -5,18 +5,14 @@ import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
 import { normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
+import { runFastWebtoonOcr } from './fastOcr';
 
-const VISION_MODELS = [
-  'gemini-2.5-flash-lite',
-  'gemini-2.0-flash',
-  'gemini-2.0-flash-lite',
-  'gemini-flash-lite-latest',
-] as const;
+const GEMINI_FLASH_MODEL = 'gemini-flash-latest';
+
 const FALLBACK_RETRY_DELAYS_MS = [1800, 4500];
 const DEFAULT_KEY_COOLDOWN_MS = 14_000;
 const INVALID_KEY_ISOLATION_MS = 5 * 60_000;
 const PER_REQUEST_TIMEOUT_MS = 9_500;
-const MODEL_DEGRADED_COOLDOWN_MS = 45_000;
 const SLICE_HEIGHT = 2200;
 const SLICE_OVERLAP = 220;
 const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1980
@@ -24,21 +20,8 @@ const VISION_MAX_WIDTH = 720;
 const DEFAULT_TRANSLATE_PROXY_URL =
   'https://toonparrot-scraper-proxy.caganhuseyinerdil.workers.dev/translate';
 
-const modelCooldownUntil = new Map<string, number>();
-
-const pickVisionModelForAttempt = (attemptIndex: number): string => {
-  const now = Date.now();
-  const healthy = VISION_MODELS.filter((m) => (modelCooldownUntil.get(m) || 0) <= now);
-  const pool = healthy.length > 0 ? healthy : VISION_MODELS;
-  return pool[attemptIndex % pool.length];
-};
-
-const markVisionModelDegraded = (model: string): void => {
-  modelCooldownUntil.set(model, Date.now() + MODEL_DEGRADED_COOLDOWN_MS);
-};
-
 const supportsThinkingConfig = (model: string): boolean =>
-  model.includes('2.5') || model === 'gemini-flash-lite-latest';
+  model.includes('2.5');
 
 const RESPONSE_SCHEMA = {
   type: Type.OBJECT,
@@ -193,6 +176,8 @@ export const isTransientServerOrTimeoutError = (error: unknown): boolean => {
     message.includes('502') ||
     message.includes('504') ||
     message.includes('500') ||
+    message.includes('404') ||
+    message.includes('not found') ||
     message.includes('unavailable') ||
     message.includes('overloaded') ||
     message.includes('deadline_exceeded') ||
@@ -544,9 +529,9 @@ const callGeminiVision = async (
   return executeWithGeminiKeyPool(
     keys,
     parallelMode,
-    async (_apiKey, getClient, attemptIndex) => {
+    async (_apiKey, getClient) => {
       const ai = getClient();
-      const model = pickVisionModelForAttempt(attemptIndex);
+      const model = GEMINI_FLASH_MODEL;
       const timeoutSignal = AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS);
       const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
@@ -577,7 +562,6 @@ const callGeminiVision = async (
           throw new DOMException('İptal edildi', 'AbortError');
         }
         if (timeoutSignal.aborted || isTransientServerOrTimeoutError(err)) {
-          markVisionModelDegraded(model);
           throw new Error(`503 Vision model timeout or overload (${model})`);
         }
         throw err;
@@ -761,6 +745,63 @@ export const translatePageImage = async ({
     });
   };
 
+  // Google Çeviri (Ücretsiz) Modu: Tamamen yerel, ultra hızlı Web Worker WASM OCR + Ücretsiz Google Çeviri
+  // Gemini API çağrısı yapmaz, kota/ücret yemez, webtoon ve uzun şerit sayfalarla %100 uyumludur.
+  if (provider === 'google') {
+    const tOcrStart = performance.now();
+    const rawBlocks: Array<{ box: [number, number, number, number]; text: string }> = [];
+
+    if (fullHeight <= 2500) {
+      if (hasSliceTextPotential(fullCtx, fullWidth, fullHeight)) {
+        const detected = await runFastWebtoonOcr(fullCanvas, signal);
+        rawBlocks.push(...detected);
+      }
+    } else {
+      // Uzun webtoon şeritlerini 2000px dilimler halinde tara
+      for (let y = 0; y < fullHeight; y += 2000) {
+        if (signal?.aborted) throw new DOMException('İptal edildi', 'AbortError');
+        const h = Math.min(2000, fullHeight - y);
+        const sliceCanvas = document.createElement('canvas');
+        sliceCanvas.width = fullWidth;
+        sliceCanvas.height = h;
+        const sliceCtx = sliceCanvas.getContext('2d', { willReadFrequently: true });
+        if (sliceCtx) {
+          sliceCtx.drawImage(fullCanvas, 0, y, fullWidth, h, 0, 0, fullWidth, h);
+          if (hasSliceTextPotential(sliceCtx, fullWidth, h)) {
+            const sliceBlocks = await runFastWebtoonOcr(sliceCanvas, signal);
+            for (const b of sliceBlocks) {
+              const ymin = Math.round(((y + (b.box[0] / 1000) * h) / fullHeight) * 1000);
+              const ymax = Math.round(((y + (b.box[2] / 1000) * h) / fullHeight) * 1000);
+              rawBlocks.push({
+                box: [ymin, b.box[1], ymax, b.box[3]],
+                text: b.text,
+              });
+            }
+          }
+        }
+      }
+    }
+    ocrMs = Math.round(performance.now() - tOcrStart);
+
+    const tTransStart = performance.now();
+    await applyGoogleTranslateBatchIfNeeded(rawBlocks);
+    transMs = Math.round(performance.now() - tTransStart);
+
+    const blocks = rawBlocks
+      .sort((a, b) => a.box[0] - b.box[0])
+      .map((block) => inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, block, targetLang))
+      .filter((block): block is TranslationBlock => block !== null);
+
+    return {
+      blocks,
+      timings: {
+        ocrMs,
+        transMs,
+        totalMs: Math.round(performance.now() - tStart),
+      },
+    };
+  }
+
   // Kısa/standart sayfalar (height <= 2300): tek seferde işle
   if (fullHeight <= 2300) {
     if (!hasSliceTextPotential(fullCtx, fullWidth, fullHeight)) {
@@ -772,7 +813,14 @@ export const translatePageImage = async ({
 
     const { data, mimeType } = canvasToBase64(fullCanvas);
     const tOcrStart = performance.now();
-    const rawBlocks = await callGeminiVision(effectiveKeys, parallelMode, data, mimeType, targetLang, signal);
+    const rawBlocks = await callGeminiVision(
+      effectiveKeys,
+      parallelMode,
+      data,
+      mimeType,
+      targetLang,
+      signal,
+    );
     ocrMs = Math.round(performance.now() - tOcrStart);
 
     const tTransStart = performance.now();
