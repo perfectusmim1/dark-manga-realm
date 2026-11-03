@@ -122,7 +122,6 @@ const PRIMARY_SOURCES = [
   'hattorimanga',
   'mangadass',
   'asurascans',
-  'madaradex',
 ];
 const CHAPTER_CONCURRENCY = 6;
 
