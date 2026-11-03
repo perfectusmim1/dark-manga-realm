@@ -18,17 +18,17 @@ on:
       batch_size:
         description: 'Kuyruktan çekilecek yeni seri sayısı'
         required: false
-        default: '6'
+        default: '50'
         type: string
       max_delta_checks:
         description: 'Mevcut serilerde yeni bölüm kontrol limiti'
         required: false
-        default: '40'
+        default: '200'
         type: string
       max_enrich_checks:
         description: 'Çalışma başına maksimum metadata zenginleştirme limiti'
         required: false
-        default: '12'
+        default: '80'
         type: string
       source:
         description: 'Sadece belirli bir kaynağı tara (boş bırakılırsa tüm ana kaynaklar: webtoonhatti, okutoon, siyahmelek, hattorimanga, mangadass, asurascans)'
@@ -71,19 +71,20 @@ jobs:
           VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY }}
           CATALOG_ADMIN_TOKEN: ${{ secrets.CATALOG_ADMIN_TOKEN }}
           INPUT_MODE: ${{ github.event.inputs.mode || 'smart' }}
-          INPUT_BATCH_SIZE: ${{ github.event.inputs.batch_size || '6' }}
-          INPUT_MAX_DELTA_CHECKS: ${{ github.event.inputs.max_delta_checks || '40' }}
-          INPUT_MAX_ENRICH_CHECKS: ${{ github.event.inputs.max_enrich_checks || '12' }}
+          INPUT_BATCH_SIZE: ${{ github.event.inputs.batch_size || '50' }}
+          INPUT_MAX_DELTA_CHECKS: ${{ github.event.inputs.max_delta_checks || '200' }}
+          INPUT_MAX_ENRICH_CHECKS: ${{ github.event.inputs.max_enrich_checks || '80' }}
           INPUT_SOURCE: ${{ github.event.inputs.source || '' }}
         run: |
-          if ! [[ "$INPUT_BATCH_SIZE" =~ ^[0-9]+$ ]]; then INPUT_BATCH_SIZE="6"; fi
-          if ! [[ "$INPUT_MAX_DELTA_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_DELTA_CHECKS="40"; fi
-          if ! [[ "$INPUT_MAX_ENRICH_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_ENRICH_CHECKS="12"; fi
+          if ! [[ "$INPUT_BATCH_SIZE" =~ ^[0-9]+$ ]]; then INPUT_BATCH_SIZE="50"; fi
+          if ! [[ "$INPUT_MAX_DELTA_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_DELTA_CHECKS="200"; fi
+          if ! [[ "$INPUT_MAX_ENRICH_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_ENRICH_CHECKS="80"; fi
           ARGS=(
             --mode "$INPUT_MODE"
             --batch-size "$INPUT_BATCH_SIZE"
             --max-delta-checks "$INPUT_MAX_DELTA_CHECKS"
             --max-enrich-checks "$INPUT_MAX_ENRICH_CHECKS"
+            --front-pages "5"
           )
           if [ -n "$INPUT_SOURCE" ]; then
             if [[ "$INPUT_SOURCE" =~ ^[a-z0-9_-]+$ ]]; then

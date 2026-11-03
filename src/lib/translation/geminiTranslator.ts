@@ -496,6 +496,17 @@ export const translateWithGoogleFree = async (
   return trimmed;
 };
 
+export interface TranslationTimings {
+  ocrMs: number;
+  transMs: number;
+  totalMs: number;
+}
+
+export interface TranslatePageResult {
+  blocks: TranslationBlock[];
+  timings: TranslationTimings;
+}
+
 export interface TranslatePageOptions {
   apiKey?: string;
   apiKeys?: readonly string[];
@@ -514,7 +525,11 @@ export const translatePageImage = async ({
   imageSrc,
   targetLang,
   signal,
-}: TranslatePageOptions): Promise<TranslationBlock[]> => {
+}: TranslatePageOptions): Promise<TranslatePageResult> => {
+  const tStart = performance.now();
+  let ocrMs = 0;
+  let transMs = 0;
+
   const effectiveKeys = normalizeApiKeysList(apiKeys, apiKey);
   if (effectiveKeys.length === 0) {
     throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
@@ -559,12 +574,27 @@ export const translatePageImage = async ({
   // Kısa/standart sayfalar (height <= 1600): tek seferde işle
   if (fullHeight <= 1600) {
     const { data, mimeType } = canvasToBase64(fullCanvas);
+    const tOcrStart = performance.now();
     const rawBlocks = await callGeminiVision(effectiveKeys, parallelMode, data, mimeType, targetLang, signal);
+    ocrMs = Math.round(performance.now() - tOcrStart);
+
+    const tTransStart = performance.now();
     await applyGoogleTranslateIfNeeded(rawBlocks);
-    return rawBlocks
+    transMs = Math.round(performance.now() - tTransStart);
+
+    const blocks = rawBlocks
       .sort((a, b) => a.box[0] - b.box[0])
       .map((block) => inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, block, targetLang))
       .filter((block): block is TranslationBlock => block !== null);
+
+    return {
+      blocks,
+      timings: {
+        ocrMs,
+        transMs,
+        totalMs: Math.round(performance.now() - tStart),
+      },
+    };
   }
 
   // Uzun webtoon şeritleri: örtüşen dikey pencerelere bölerek 1:1 piksel doğruluğuyla tara
@@ -606,6 +636,7 @@ export const translatePageImage = async ({
   let succeededSlices = 0;
   let firstSliceError: unknown = null;
 
+  const tOcrStart = performance.now();
   for (let i = 0; i < slicePayloads.length; i += sliceConcurrency) {
     if (signal?.aborted) {
       throw new DOMException('İptal edildi', 'AbortError');
@@ -635,6 +666,7 @@ export const translatePageImage = async ({
     );
     sliceResults.push(...batchOut);
   }
+  ocrMs = Math.round(performance.now() - tOcrStart);
 
   if (succeededSlices === 0 && firstSliceError) {
     throw firstSliceError;
@@ -683,6 +715,7 @@ export const translatePageImage = async ({
     });
   });
 
+  const tTransStart = performance.now();
   if (provider === 'google') {
     await Promise.all(
       mergedCandidates.map(async (cand) => {
@@ -693,11 +726,21 @@ export const translatePageImage = async ({
       }),
     );
   }
+  transMs = Math.round(performance.now() - tTransStart);
 
-  return mergedCandidates
+  const blocks = mergedCandidates
     .sort((a, b) => a.box[0] - b.box[0])
     .map((cand) =>
       inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, { box: cand.box, text: cand.text }, targetLang),
     )
     .filter((block): block is TranslationBlock => block !== null);
+
+  return {
+    blocks,
+    timings: {
+      ocrMs,
+      transMs,
+      totalMs: Math.round(performance.now() - tStart),
+    },
+  };
 };

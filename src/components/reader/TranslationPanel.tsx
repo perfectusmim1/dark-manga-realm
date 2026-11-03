@@ -250,6 +250,27 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
           </span>
         </div>
 
+        {summary.lastTimings && (
+          <div className="flex items-center justify-between rounded-lg border border-border/50 bg-background/50 px-2 py-1 text-[11px] font-mono text-muted-foreground">
+            <span className="font-sans font-medium text-foreground/80">
+              Sayfa {summary.lastTimings.pageNumber}
+            </span>
+            <div className="flex items-center gap-1.5">
+              <span>OCR: {(summary.lastTimings.ocrMs / 1000).toFixed(1)}s</span>
+              {summary.lastTimings.provider === 'google' && (
+                <>
+                  <span className="opacity-40">·</span>
+                  <span>Çeviri: {(summary.lastTimings.transMs / 1000).toFixed(1)}s</span>
+                </>
+              )}
+              <span className="opacity-40">·</span>
+              <span className="font-semibold text-primary">
+                {(summary.lastTimings.totalMs / 1000).toFixed(1)}s
+              </span>
+            </div>
+          </div>
+        )}
+
         {summary.isBusy ? (
           <Button
             type="button"
@@ -357,23 +378,8 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
             )}
           >
             <span>Google Çeviri</span>
-            <span
-              className={cn(
-                'rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide transition-colors',
-                settings.provider === 'google'
-                  ? 'bg-black/35 text-white border border-white/25 shadow-xs'
-                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
-              )}
-            >
-              Ücretsiz
-            </span>
           </button>
         </div>
-        {settings.provider === 'google' && (
-          <p className="text-[11px] leading-tight text-muted-foreground">
-            Balonlar taranır, metinler Google Çeviri ile ücretsiz ve hızlı aktarılır.
-          </p>
-        )}
       </div>
 
       {/* Mod Seçenekleri */}
@@ -394,15 +400,10 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
           />
         </div>
 
-        <div className="flex items-center justify-between gap-2">
-          <div className="min-w-0">
-            <Label htmlFor="parallel-translate" className="text-sm">
-              Paralel çeviri
-            </Label>
-            <p className="text-[11px] leading-tight text-muted-foreground">
-              Sayfaları sırayla değil eşzamanlı çevirir
-            </p>
-          </div>
+        <div className="flex items-center justify-between">
+          <Label htmlFor="parallel-translate" className="text-sm">
+            Paralel çeviri
+          </Label>
           <Switch
             id="parallel-translate"
             checked={settings.parallelMode}

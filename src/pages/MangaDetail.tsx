@@ -18,6 +18,8 @@ import {
   Flag,
   Clock3,
   Download,
+  FolderDown,
+  Loader2,
   Trash2,
   WifiOff,
   Link2,
@@ -118,6 +120,15 @@ import { areBookmarksInitialized, getCachedBookmarksState } from '@/lib/offline/
 import { flushPendingReaderSync, initializeOfflineReaderSync } from '@/lib/offline/offlineReaderSync';
 import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
+import {
+  getMangaChaptersTranslationStats,
+  clearChapterTranslationCache,
+  getLocalChapterTranslations,
+  subscribeTranslationCache,
+} from '@/lib/translation/localTranslationCache';
+import { downloadTranslatedChapterAsZip } from '@/lib/translation/bakeTranslatedPage';
+import { PageTranslationState } from '@/lib/translation/types';
+import { ResolvedReaderPage } from '@/lib/types';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import DeferredMount from '@/components/performance/DeferredMount';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
@@ -567,6 +578,9 @@ const MangaDetail: React.FC = () => {
   const [isSubmittingReport, setIsSubmittingReport] = useState(false);
   const [isSubmittingReviewReport, setIsSubmittingReviewReport] = useState(false);
   const [seriesReadingSeconds, setSeriesReadingSeconds] = useState(0);
+  const [chapterTranslationMap, setChapterTranslationMap] = useState<Map<string, number>>(new Map());
+  const [downloadingChapterId, setDownloadingChapterId] = useState<string | null>(null);
+  const [clearingTranslationChapterId, setClearingTranslationChapterId] = useState<string | null>(null);
   const [isSeriesReadingTimeLoading, setIsSeriesReadingTimeLoading] = useState(false);
   const [isOfflineView, setIsOfflineView] = useState(false);
   const [isSeriesDownloadDialogOpen, setIsSeriesDownloadDialogOpen] = useState(false);
@@ -1521,6 +1535,25 @@ const MangaDetail: React.FC = () => {
   }, [activeTab, hasLoadedSimilar, isLoading, isOfflineView, isOnline, loadSimilarMangas, manga, mangaId]);
 
   useEffect(() => {
+    if (!manga?.chapters || manga.chapters.length === 0) return;
+    const chapterIds = manga.chapters.map((c) => c.id);
+
+    const loadTranslations = async () => {
+      try {
+        const stats = await getMangaChaptersTranslationStats(chapterIds);
+        setChapterTranslationMap(stats);
+      } catch {
+        // ignore
+      }
+    };
+
+    void loadTranslations();
+    return subscribeTranslationCache(() => {
+      void loadTranslations();
+    });
+  }, [manga?.chapters]);
+
+  useEffect(() => {
     if (!mangaId || authLoading) {
       return;
     }
@@ -1886,6 +1919,67 @@ const MangaDetail: React.FC = () => {
   const handleDeleteOfflineChapter = async (chapterId: string) => {
     await offlineDownloadManager.deleteChapterDownload(chapterId);
     toast.success('Bölüm indirilenlerden kaldırıldı');
+  };
+
+  const handleDownloadTranslatedChapter = async (chapter: Chapter) => {
+    if (!manga) return;
+    if (downloadingChapterId) return;
+
+    setDownloadingChapterId(chapter.id);
+    const toastId = toast.loading(`${chapter.number}. bölüm çevirili indiriliyor...`);
+    try {
+      const chapterPages = chapter.pages.length > 0
+        ? chapter.pages
+        : (await getChapterPagesByIds([chapter.id]))[chapter.id] || [];
+
+      if (chapterPages.length === 0) {
+        toast.error('Bölüm sayfaları alınamadı', { id: toastId });
+        return;
+      }
+
+      const cachedBlocksMap = await getLocalChapterTranslations(chapter.id, 'tr');
+      const pageStates: Record<number, PageTranslationState> = {};
+      const resolvedPages: ResolvedReaderPage[] = chapterPages.map((src, idx) => {
+        const blocks = cachedBlocksMap.get(idx);
+        if (blocks && blocks.length > 0) {
+          pageStates[idx] = { status: 'done', blocks };
+        } else {
+          pageStates[idx] = { status: 'idle' };
+        }
+        return {
+          pageNumber: idx + 1,
+          src,
+          pageKey: `p-${idx + 1}`,
+        };
+      });
+
+      await downloadTranslatedChapterAsZip({
+        mangaTitle: manga.title,
+        chapterNumber: chapter.number,
+        targetLang: 'tr',
+        pages: resolvedPages,
+        pageStates,
+      });
+
+      toast.success(`${chapter.number}. bölüm çevirili ZIP olarak indirildi.`, { id: toastId });
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Çevirili indirme başarısız oldu', { id: toastId });
+    } finally {
+      setDownloadingChapterId(null);
+    }
+  };
+
+  const handleClearChapterTranslation = async (chapterId: string, chapterNumber: number | string) => {
+    if (clearingTranslationChapterId) return;
+    setClearingTranslationChapterId(chapterId);
+    try {
+      await clearChapterTranslationCache(chapterId);
+      toast.success(`${chapterNumber}. bölüm çevirisi temizlendi.`);
+    } catch {
+      toast.error('Çeviri temizlenirken bir hata oluştu.');
+    } finally {
+      setClearingTranslationChapterId(null);
+    }
   };
 
   const openReportDialog = () => {
@@ -2565,6 +2659,11 @@ const MangaDetail: React.FC = () => {
                   }
                   return null;
                 })()}
+                {chapterTranslationMap.has(chapter.id) && (chapterTranslationMap.get(chapter.id) || 0) > 0 && (
+                  <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-bold border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
+                    Çevrildi
+                  </Badge>
+                )}
               </div>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground sm:text-xs">
                 <span className="flex items-center gap-1">
@@ -2589,6 +2688,35 @@ const MangaDetail: React.FC = () => {
             </div>
 
             <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0 md:justify-end">
+              {chapterTranslationMap.has(chapter.id) && (chapterTranslationMap.get(chapter.id) || 0) > 0 && (
+                <div className="flex items-center gap-1.5">
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    className="h-9 gap-1.5 border-emerald-500/40 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+                    onClick={() => void handleDownloadTranslatedChapter(chapter)}
+                    disabled={downloadingChapterId === chapter.id}
+                    title="Çevrilen sayfaları ZIP olarak indir"
+                  >
+                    {downloadingChapterId === chapter.id ? (
+                      <Loader2 className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                    ) : (
+                      <FolderDown className="h-3.5 w-3.5 text-emerald-400" />
+                    )}
+                    <span>Çevirili İndir</span>
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-9 w-9 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                    onClick={() => void handleClearChapterTranslation(chapter.id, chapter.number)}
+                    disabled={clearingTranslationChapterId === chapter.id}
+                    title="Bu bölümün çevirisini temizle"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </Button>
+                </div>
+              )}
               {offlineChapterMap[chapter.id]?.downloadStatus === 'completed' ? (
                 <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
                   {pageCountBadge}

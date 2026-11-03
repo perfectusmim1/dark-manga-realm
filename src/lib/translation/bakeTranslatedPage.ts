@@ -126,6 +126,26 @@ const canvasToJpegBlob = (canvas: HTMLCanvasElement, quality = 0.93): Promise<Bl
     );
   });
 
+const isWhiteOrLight = (color: string, isDarkBubble?: boolean): boolean => {
+  if (isDarkBubble) return true;
+  const c = color.trim().toLowerCase();
+  if (c === '#fff' || c === '#ffffff' || c === '#fafafa' || c === 'white') return true;
+  if (c.startsWith('#') && (c.length === 7 || c.length === 4)) {
+    let r = 0, g = 0, b = 0;
+    if (c.length === 7) {
+      r = parseInt(c.slice(1, 3), 16);
+      g = parseInt(c.slice(3, 5), 16);
+      b = parseInt(c.slice(5, 7), 16);
+    } else {
+      r = parseInt(c[1] + c[1], 16);
+      g = parseInt(c[2] + c[2], 16);
+      b = parseInt(c[3] + c[3], 16);
+    }
+    return 0.299 * r + 0.587 * g + 0.114 * b > 175;
+  }
+  return false;
+};
+
 // Sayfa görselinin tam çözünürlüklü kopyası üzerine piksel-inpaint yamalarını ve Shantell Sans
 // scanlation dizgisini doğrudan işleyerek indirilebilir görsel üretir.
 export const bakeTranslatedPageToBlob = async (
@@ -215,6 +235,7 @@ export const bakeTranslatedPageToBlob = async (
     const centerX = boxX + boxW * 0.5;
     const startY = boxY + (boxH - totalTextH) * 0.5 + lineHeight * 0.5;
     const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
+    const isLight = isWhiteOrLight(textColor, block.isDark);
 
     for (let i = 0; i < lines.length; i += 1) {
       const lineY = startY + i * lineHeight;
@@ -223,8 +244,18 @@ export const bakeTranslatedPageToBlob = async (
         ctx.lineWidth = Math.max(2.5, fontPx * 0.22);
         ctx.strokeText(lines[i], centerX, lineY);
       }
+      if (isLight) {
+        ctx.save();
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
+        ctx.shadowBlur = Math.max(3, fontPx * 0.18);
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = Math.max(1.5, fontPx * 0.08);
+      }
       ctx.fillStyle = textColor;
       ctx.fillText(lines[i], centerX, lineY);
+      if (isLight) {
+        ctx.restore();
+      }
     }
   }
 

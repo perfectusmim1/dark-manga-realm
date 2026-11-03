@@ -350,6 +350,28 @@ export const getTranslationCacheStats = async (
   };
 };
 
+export const getMangaChaptersTranslationStats = async (
+  chapterIds: string[],
+  lang?: string,
+): Promise<Map<string, number>> => {
+  const result = new Map<string, number>();
+  if (chapterIds.length === 0) return result;
+  const targetIds = new Set(chapterIds);
+
+  const db = await getDb();
+  const records = db ? await db.getAll('pages') : Array.from(memoryFallbackStore.values());
+
+  for (const record of records) {
+    if (!targetIds.has(record.chapterId)) continue;
+    if (lang && record.lang !== lang) continue;
+    if (!isValidCachedBlockList(record.blocks) || record.blocks.length === 0) continue;
+
+    const count = result.get(record.chapterId) || 0;
+    result.set(record.chapterId, count + 1);
+  }
+  return result;
+};
+
 export const subscribeTranslationCache = (listener: () => void): (() => void) => {
   if (typeof window === 'undefined') return () => undefined;
   window.addEventListener(TRANSLATION_CACHE_EVENT, listener);

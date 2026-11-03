@@ -1,11 +1,11 @@
 import React from 'react';
-import { AlertTriangle, CheckCircle2, Languages, Loader2, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Languages, Loader2, RefreshCw, Square, X } from 'lucide-react';
 import { TranslationSummary } from '@/hooks/useChapterTranslation';
 import { cn } from '@/lib/utils';
 
 interface TranslationStatusPillProps {
   summary: TranslationSummary;
-  onCancel: () => void;
+  onCancel?: () => void;
   onRetry: () => void;
   onDismiss: () => void;
 }
@@ -25,12 +25,14 @@ const TranslationStatusPill: React.FC<TranslationStatusPillProps> = ({
     lastFinishedPageNumber,
     lastErrorMessage,
     completedPulseAt,
+    lastTimings,
+    isPillDismissed,
   } = summary;
 
   const showError = !isBusy && Boolean(lastErrorMessage);
   const showCompleted = !isBusy && !showError && Boolean(completedPulseAt);
 
-  if (!isBusy && !showError && !showCompleted) {
+  if (isPillDismissed || (!isBusy && !showError && !showCompleted)) {
     return null;
   }
 
@@ -45,7 +47,7 @@ const TranslationStatusPill: React.FC<TranslationStatusPillProps> = ({
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       className={cn(
-        'pointer-events-auto w-[min(17.5rem,calc(100vw-6.5rem))] overflow-hidden rounded-2xl border bg-card/90 p-2.5 text-foreground shadow-[0_10px_32px_rgb(0,0,0,0.5)] backdrop-blur-xl animate-fade-in',
+        'pointer-events-auto w-[min(18.5rem,calc(100vw-6.5rem))] overflow-hidden rounded-2xl border bg-card/90 p-2.5 text-foreground shadow-[0_10px_32px_rgb(0,0,0,0.5)] backdrop-blur-xl animate-fade-in',
         showError
           ? 'border-destructive/45'
           : 'border-primary/35 shadow-[0_10px_32px_rgb(0,0,0,0.5),0_0_22px_hsl(var(--primary)/0.14)]',
@@ -66,23 +68,41 @@ const TranslationStatusPill: React.FC<TranslationStatusPillProps> = ({
                       ? `Çevriliyor · ${activePageText}`
                       : 'Çevriliyor...'}
                 </p>
-                {isMultiPageBatch && activePageText && (
+                {lastTimings ? (
+                  <p className="truncate text-[10px] font-mono leading-tight text-muted-foreground">
+                    OCR: {(lastTimings.ocrMs / 1000).toFixed(1)}s
+                    {lastTimings.provider === 'google' && ` · Çeviri: ${(lastTimings.transMs / 1000).toFixed(1)}s`}
+                  </p>
+                ) : isMultiPageBatch && activePageText ? (
                   <p className="truncate text-[11px] leading-tight text-muted-foreground">
                     {activePageText}
                   </p>
-                )}
+                ) : null}
               </div>
             </div>
 
-            <button
-              type="button"
-              onClick={onCancel}
-              title="Çeviriyi durdur"
-              aria-label="Çeviriyi durdur"
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-            >
-              <X className="h-3.5 w-3.5" />
-            </button>
+            <div className="flex items-center gap-1">
+              {onCancel && (
+                <button
+                  type="button"
+                  onClick={onCancel}
+                  title="Çeviriyi durdur"
+                  aria-label="Çeviriyi durdur"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onDismiss}
+                title="Kutuyu kapat (Çeviri arka planda devam eder)"
+                aria-label="Kutuyu kapat"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
           </div>
 
           <progress

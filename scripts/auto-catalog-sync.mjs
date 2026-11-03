@@ -93,15 +93,15 @@ const parseNonNegInt = (val, fallback) => {
 };
 
 const MODE = getArgValue('--mode', 'smart'); // 'smart' | 'delta-only' | 'enrich-only' | 'discover'
-const BATCH_SIZE = parseNonNegInt(getArgValue('--batch-size', '6'), 6);
-const MAX_DELTA_CHECKS = parseNonNegInt(getArgValue('--max-delta-checks', '40'), 40);
+const BATCH_SIZE = parseNonNegInt(getArgValue('--batch-size', '50'), 50);
+const MAX_DELTA_CHECKS = parseNonNegInt(getArgValue('--max-delta-checks', '200'), 200);
 const MAX_ENRICH_CHECKS = parseNonNegInt(
-  getArgValue('--max-enrich-checks', MODE === 'enrich-only' ? '35' : MODE === 'delta-only' ? '0' : '12'),
-  MODE === 'enrich-only' ? 35 : MODE === 'delta-only' ? 0 : 12
+  getArgValue('--max-enrich-checks', MODE === 'enrich-only' ? '120' : MODE === 'delta-only' ? '0' : '80'),
+  MODE === 'enrich-only' ? 120 : MODE === 'delta-only' ? 0 : 80
 );
 const COOLDOWN_HOURS = Math.max(0, parseFloat(getArgValue('--cooldown-hours', '6')) || 6);
 const DORMANT_DAYS_LIMIT = Math.max(30, parseInt(getArgValue('--dormant-days', '90'), 10) || 90); // 3 months = 90 days
-const FRONT_PAGES_TO_SCAN = Math.max(1, parseInt(getArgValue('--front-pages', '2'), 10) || 2);
+const FRONT_PAGES_TO_SCAN = Math.max(1, parseInt(getArgValue('--front-pages', '5'), 10) || 5);
 const TARGET_SOURCE = getArgValue('--source', null);
 const ARCHIVE_MODE = hasFlag('--archive-mode') || hasFlag('--deep') || MODE === 'archive';
 const FORCE_ENRICH = hasFlag('--force-enrich');
@@ -786,6 +786,7 @@ const isJunkImageUrl = (url) => {
 
 const isJunkCoverUrl = (url) => {
   if (isJunkImageUrl(url)) return true;
+  if (/asurascans\.com\/og\/comics/i.test(url)) return true;
   return /uploads\.mangadex\.org/i.test(url);
 };
 
@@ -1083,9 +1084,9 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
       }
     }
   } else if (source === 'asurascans') {
-    // Normal İngilizce Webtoonlar
+    // Normal İngilizce Webtoonlar (Sayfa 1: Ana Sayfa güncel vitrin, Sayfa 2+: Browse arşivi)
     for (let page = 1; page <= effectiveMaxPages; page++) {
-      const pageUrl = `https://asurascans.com/browse/comics?page=${page}`;
+      const pageUrl = page === 1 ? 'https://asurascans.com/' : `https://asurascans.com/browse/comics?page=${page}`;
       let res = null;
       for (let attempt = 1; attempt <= 3; attempt++) {
         res = await fetchUpstream(pageUrl, { timeoutMs: 25000 });
@@ -1526,8 +1527,9 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
         description = (await translateTextGtx(description)) || description;
       } catch {}
     }
-    const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
-    const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
+    // Mangadass
+    const mdCoverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
+    const cover = mdCoverMatch ? mdCoverMatch[1].trim() : fallbackCover;
 
     // Yalnızca BU seriye ait bölüm linklerini eşle (sidebar/popüler yabancı serilerin sızmasını %100 engelle)
     const slugMatch = seriesUrl.match(/mangadass\.com\/manga\/([^/?#]+)/i);
@@ -1578,8 +1580,15 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
         description = (await translateTextGtx(description)) || description;
       } catch {}
     }
-    const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
-    const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
+    const cleanAsuraCover =
+      html.match(/data-full-src=["']([^"']*asura-images\/covers\/[^"']+)["']/i) ||
+      html.match(/src=["']([^"']*asura-images\/covers\/[^"']+)["']/i);
+    const asuraOgCover = /<meta property="og:image" content="([^"]+)"/i.exec(html);
+    const cover = cleanAsuraCover
+      ? cleanAsuraCover[1].trim()
+      : asuraOgCover && !isJunkCoverUrl(asuraOgCover[1])
+      ? asuraOgCover[1].trim()
+      : fallbackCover;
 
     // Alternative Titles
     const altMatch = html.match(/id=["']alt-titles["'][^>]*>([\s\S]*?)<\/p>/i);
@@ -1661,8 +1670,9 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
         description = (await translateTextGtx(description)) || description;
       } catch {}
     }
-    const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
-    const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
+    // Mangadass
+    const mdCoverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
+    const cover = mdCoverMatch ? mdCoverMatch[1].trim() : fallbackCover;
 
     // Alternative Titles
     const altMatch = html.match(/class=["']summary-heading["'][^>]*>\s*<h5>\s*Alternative\s*<\/h5>\s*<\/div>\s*<div class=["']summary-content["'][^>]*>([\s\S]*?)<\/div>/i);
@@ -3221,9 +3231,9 @@ class SmartCatalogStore {
         source_url: effectiveUrl,
         proxy_provider: existingAuto?.proxy_provider || 'cloudflare',
         check_times:
-          Array.isArray(existingAuto?.check_times) && existingAuto.check_times.length > 0
+          isAdminOwned && Array.isArray(existingAuto?.check_times) && existingAuto.check_times.length > 0
             ? existingAuto.check_times
-            : ['13:00'],
+            : ['00:00', '02:00', '04:00', '06:00', '08:00', '10:00', '12:00', '14:00', '16:00', '18:00', '20:00', '22:00'],
         schedule_timezone: existingAuto?.schedule_timezone || 'Europe/Istanbul',
         is_active: isActive,
         validation_snapshot: {

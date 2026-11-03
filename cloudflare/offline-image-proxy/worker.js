@@ -69,6 +69,13 @@ const DEFAULT_ALLOWED_HOSTS = [
   'i.postimg.cc',
   'b-cdn.net',
   'mangadass.com',
+  'www.mangadass.com',
+  'asurascans.com',
+  'cdn.asurascans.com',
+  'www.asurascans.com',
+  'madaradex.org',
+  'cdn.madaradex.org',
+  'www.madaradex.org',
 ];
 
 const BROWSER_LIKE_USER_AGENT =

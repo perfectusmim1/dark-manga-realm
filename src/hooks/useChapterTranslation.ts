@@ -30,6 +30,14 @@ const getMaxConcurrentTranslations = (settings: TranslationSettings): number => 
   return Math.min(Math.max(2, keyCount * 2), 6);
 };
 
+export interface TranslationTimingsLog {
+  ocrMs: number;
+  transMs: number;
+  totalMs: number;
+  pageNumber: number;
+  provider: 'gemini' | 'google';
+}
+
 export interface TranslationSummary {
   totalPages: number;
   doneCount: number;
@@ -43,6 +51,8 @@ export interface TranslationSummary {
   lastFinishedPageNumber: number | null;
   lastErrorMessage: string | null;
   completedPulseAt: number | null;
+  lastTimings: TranslationTimingsLog | null;
+  isPillDismissed: boolean;
 }
 
 export interface ReaderTranslationApi {
@@ -80,6 +90,8 @@ export const useChapterTranslation = ({
   const [lastErrorMessage, setLastErrorMessage] = useState<string | null>(null);
   const [completedPulseAt, setCompletedPulseAt] = useState<number | null>(null);
   const [lastFinishedPageNumber, setLastFinishedPageNumber] = useState<number | null>(null);
+  const [lastTimings, setLastTimings] = useState<TranslationTimingsLog | null>(null);
+  const [isPillDismissed, setIsPillDismissed] = useState(false);
   const [batchTracker, setBatchTracker] = useState<{ done: number; total: number }>({
     done: 0,
     total: 0,
@@ -136,6 +148,8 @@ export const useChapterTranslation = ({
     setLastErrorMessage(null);
     setCompletedPulseAt(null);
     setLastFinishedPageNumber(null);
+    setLastTimings(null);
+    setIsPillDismissed(false);
     setBatchTracker({ done: 0, total: 0 });
 
     if (!chapterId) {
@@ -266,7 +280,7 @@ export const useChapterTranslation = ({
         targetLang: langAtStart,
         signal,
       })
-        .then(async (blocks: TranslationBlock[]) => {
+        .then(async ({ blocks, timings }) => {
           if (
             signal.aborted ||
             chapterRef.current !== chapterAtStart ||
@@ -276,6 +290,13 @@ export const useChapterTranslation = ({
           }
           setPageState(index, { status: 'done', blocks });
           setLastFinishedPageNumber(index + 1);
+          setLastTimings({
+            ocrMs: timings.ocrMs,
+            transMs: timings.transMs,
+            totalMs: timings.totalMs,
+            pageNumber: index + 1,
+            provider: settingsRef.current.provider,
+          });
           setBatchTracker((prev) => ({
             total: Math.max(prev.total, prev.done + 1),
             done: prev.done + 1,
@@ -333,6 +354,7 @@ export const useChapterTranslation = ({
     (indices: number[], options?: { force?: boolean; prioritize?: boolean }) => {
       if (indices.length === 0) return;
       wasCancelledManuallyRef.current = false;
+      setIsPillDismissed(false);
       setLastErrorMessage(null);
       setCompletedPulseAt(null);
 
@@ -460,6 +482,7 @@ export const useChapterTranslation = ({
   }, [updateSettings]);
 
   const dismissStatusFeedback = useCallback(() => {
+    setIsPillDismissed(true);
     setLastErrorMessage(null);
     setCompletedPulseAt(null);
   }, []);
@@ -590,13 +613,17 @@ export const useChapterTranslation = ({
       lastFinishedPageNumber,
       lastErrorMessage,
       completedPulseAt,
+      lastTimings,
+      isPillDismissed,
     };
   }, [
     batchTracker.done,
     batchTracker.total,
     completedPulseAt,
+    isPillDismissed,
     lastErrorMessage,
     lastFinishedPageNumber,
+    lastTimings,
     pageStates,
     pages.length,
   ]);

@@ -6,6 +6,26 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
+const isWhiteOrLight = (color: string, isDarkBubble?: boolean): boolean => {
+  if (isDarkBubble) return true;
+  const c = color.trim().toLowerCase();
+  if (c === '#fff' || c === '#ffffff' || c === '#fafafa' || c === 'white') return true;
+  if (c.startsWith('#') && (c.length === 7 || c.length === 4)) {
+    let r = 0, g = 0, b = 0;
+    if (c.length === 7) {
+      r = parseInt(c.slice(1, 3), 16);
+      g = parseInt(c.slice(3, 5), 16);
+      b = parseInt(c.slice(5, 7), 16);
+    } else {
+      r = parseInt(c[1] + c[1], 16);
+      g = parseInt(c[2] + c[2], 16);
+      b = parseInt(c[3] + c[3], 16);
+    }
+    return 0.299 * r + 0.587 * g + 0.114 * b > 175;
+  }
+  return false;
+};
+
 // Piksel-Inpaint + Vektör Scanlation Dizgi Katmanı:
 // 1. Orijinal metni balonun kendi pikselleriyle pürüzsüz onaran WebP yamayı (patchDataUrl) 1:1 oturtur.
 // 2. Çevrilen metni sayfa genişliğine (cqw) kilitli Shantell Sans çizgi roman fontuyla balon içine dizgiler.
@@ -45,6 +65,7 @@ export const TranslationOverlay: React.FC<{
       const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
       const fontSizeCqw = block.fontSizeCqw ?? 2.85;
       const displayText = formatScanlationText(block.text, targetLang);
+      const isLight = isWhiteOrLight(textColor, block.isDark);
 
       return (
         <div
@@ -67,6 +88,9 @@ export const TranslationOverlay: React.FC<{
               letterSpacing: '0.01em',
               overflowWrap: 'break-word',
               wordBreak: 'normal',
+              textShadow: isLight
+                ? '0 2px 4px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.85), 1px 1px 2px rgba(0,0,0,0.9)'
+                : undefined,
               ...(block.hasTextStroke
                 ? {
                     WebkitTextStroke: '0.22em #ffffff',
