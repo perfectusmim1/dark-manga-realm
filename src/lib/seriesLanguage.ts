@@ -42,18 +42,6 @@ export const LANGUAGE_CONFIG: Record<SeriesLanguage, SeriesLanguageInfo> = {
 export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage {
   if (!manga) return 'tr';
 
-  const detailsLang = (manga.details as any)?.language || (manga as any)?.language || (manga as any)?.mangaLanguage;
-  if (detailsLang === 'raw') return 'raw';
-  if (detailsLang === 'en') return 'en';
-  if (detailsLang === 'tr') return 'tr';
-
-  const genres = Array.isArray(manga.genres) ? manga.genres : [];
-  if (genres.some((g) => String(g).toUpperCase() === 'RAW')) return 'raw';
-  if (genres.some((g) => {
-    const s = String(g).toLowerCase();
-    return s === 'ingilizce' || s === 'i̇ngilizce' || s === 'english' || s === 'en';
-  })) return 'en';
-
   const titleLower = (manga.title || '').toLowerCase();
   const slugLower = ((manga as any)?.slug || '').toLowerCase();
 
@@ -67,7 +55,35 @@ export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage
     return 'raw';
   }
 
-  // 2. Source links check
+  const primarySource = ((manga.details as any)?.primarySource || '').toLowerCase();
+  const turkishSources = new Set(['webtoonhatti', 'siyahmelek', 'okutoon', 'golgebahcesi', 'dxdfansub', 'hentaiturk']);
+
+  // 2. Primary Source is decisive
+  if (turkishSources.has(primarySource)) {
+    return 'tr';
+  }
+  if (primarySource === 'mangadass') {
+    return titleLower.includes('raw') ? 'raw' : 'en';
+  }
+  if (primarySource === 'asurascans' || primarySource === 'madaradex' || primarySource === 'mgread' || primarySource === 'ezmanga') {
+    return 'en';
+  }
+
+  // 3. Metadata details.language
+  const detailsLang = (manga.details as any)?.language || (manga as any)?.language || (manga as any)?.mangaLanguage;
+  if (detailsLang === 'raw') return 'raw';
+  if (detailsLang === 'en') return 'en';
+  if (detailsLang === 'tr') return 'tr';
+
+  // 4. Genres check
+  const genres = Array.isArray(manga.genres) ? manga.genres : [];
+  if (genres.some((g) => String(g).toUpperCase() === 'RAW')) return 'raw';
+  if (genres.some((g) => {
+    const s = String(g).toLowerCase();
+    return s === 'ingilizce' || s === 'i̇ngilizce' || s === 'english' || s === 'en';
+  })) return 'en';
+
+  // 5. Source links check (only if primarySource was not set)
   const sources = manga.sourceLinks || (manga as any)?.source_links || [];
   const hasRawSource = sources.some(
     (s: any) =>
@@ -90,14 +106,6 @@ export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage
     );
   });
   if (hasEnglishSource) return 'en';
-
-  const primarySource = ((manga.details as any)?.primarySource || '').toLowerCase();
-  if (primarySource === 'asurascans' || primarySource === 'madaradex' || primarySource === 'mgread' || primarySource === 'ezmanga') {
-    return 'en';
-  }
-  if (primarySource === 'mangadass') {
-    return titleLower.includes('raw') ? 'raw' : 'en';
-  }
 
   return 'tr';
 }
