@@ -1575,7 +1575,7 @@ const Reader: React.FC = () => {
         className="pointer-events-none fixed inset-x-0 z-40 flex items-center justify-between px-3 sm:px-5 transition-[bottom] duration-300"
         style={{
           bottom: controlsVisible
-            ? 'calc(env(safe-area-inset-bottom) + 6rem)'
+            ? 'calc(env(safe-area-inset-bottom) + 5.25rem)'
             : 'calc(env(safe-area-inset-bottom) + 1.25rem)',
         }}
       >
@@ -1589,7 +1589,7 @@ const Reader: React.FC = () => {
           <Button
             variant="secondary"
             size="icon"
-            className="h-10 w-10 rounded-full border border-border bg-background/80 opacity-70 shadow-lg backdrop-blur-md transition-opacity hover:opacity-100"
+            className="h-10 w-10 rounded-full border border-border/80 bg-background/90 text-foreground opacity-80 shadow-lg backdrop-blur-md transition-all hover:opacity-100 hover:scale-105 active:scale-95"
             onClick={(e) => {
               e.stopPropagation();
               scrollToBottom();
@@ -1620,7 +1620,7 @@ const Reader: React.FC = () => {
           <Button
             variant="secondary"
             size="icon"
-            className="h-10 w-10 rounded-full border border-border bg-background/80 opacity-70 shadow-lg backdrop-blur-md transition-opacity hover:opacity-100"
+            className="h-10 w-10 rounded-full border border-border/80 bg-background/90 text-foreground opacity-80 shadow-lg backdrop-blur-md transition-all hover:opacity-100 hover:scale-105 active:scale-95"
             onClick={(e) => {
               e.stopPropagation();
               scrollToTop();

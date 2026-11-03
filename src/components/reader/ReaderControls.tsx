@@ -314,7 +314,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         {filteredChapters.map((ch) => {
           const isCurrentChapter = ch.id === currentChapter.id;
           const chapterLabel = `Bölüm ${formatChapterNumberLabel(ch.number)}`;
-          const subtitle = sanitizeChapterTitle(ch.number, ch.title);
+          const rawSubtitle = sanitizeChapterTitle(ch.number, ch.title);
+          const cleanSubtitle =
+            rawSubtitle &&
+            rawSubtitle.trim().toLocaleLowerCase('tr-TR') !== chapterLabel.trim().toLocaleLowerCase('tr-TR') &&
+            rawSubtitle.trim() !== formatChapterNumberLabel(ch.number)
+              ? rawSubtitle.trim()
+              : null;
 
           return (
             <button
@@ -324,20 +330,35 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               onClick={() => void handleChapterNavigation(ch)}
               disabled={navigatingChapterId === ch.id}
               className={cn(
-                'flex w-full items-center rounded-xl border px-3.5 py-2.5 text-left transition-colors duration-150 focus-visible:border-primary/60 focus-visible:ring-1 focus-visible:ring-primary/30',
+                'group flex w-full items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2.5 text-left transition-all duration-150 focus-visible:border-primary/70 focus-visible:ring-1 focus-visible:ring-primary/40',
                 isCurrentChapter
-                  ? 'border-primary/50 bg-primary/10 text-primary font-semibold'
-                  : 'border-border/60 bg-secondary/35 text-foreground/90 hover:border-border hover:bg-secondary/65 hover:text-foreground',
-                navigatingChapterId === ch.id && 'opacity-60',
+                  ? 'border-primary/60 bg-primary/10 text-primary shadow-[0_0_16px_hsl(var(--primary)/0.12)] font-semibold'
+                  : 'border-border/50 bg-secondary/30 text-foreground/85 hover:border-border/80 hover:bg-secondary/60 hover:text-foreground',
+                navigatingChapterId === ch.id && 'opacity-60 pointer-events-none',
               )}
             >
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm leading-snug">
-                  {chapterLabel}
-                </p>
-                {subtitle && (
-                  <p className="mt-0.5 truncate text-xs text-muted-foreground font-normal">{subtitle}</p>
+              <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                {isCurrentChapter && (
+                  <span
+                    aria-hidden="true"
+                    className="h-4 w-1 shrink-0 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary))]"
+                  />
                 )}
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={cn(
+                      'truncate text-sm leading-snug',
+                      isCurrentChapter ? 'text-primary font-semibold' : 'text-foreground/90 font-medium',
+                    )}
+                  >
+                    {chapterLabel}
+                  </p>
+                  {cleanSubtitle && (
+                    <p className="mt-0.5 truncate text-xs text-muted-foreground font-normal">
+                      {cleanSubtitle}
+                    </p>
+                  )}
+                </div>
               </div>
             </button>
           );
@@ -451,7 +472,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   onInteractOutside={() => {
                     setChapterPanelOpen(false);
                   }}
-                  className="max-h-[min(74svh,33rem)] rounded-t-[1.75rem] border-border/70 bg-popover px-0 shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
+                  className="max-h-[min(74svh,33rem)] rounded-t-[1.75rem] border-t border-border/80 bg-background/95 backdrop-blur-2xl px-0 shadow-2xl pb-[max(0.75rem,env(safe-area-inset-bottom))]"
                 >
                   <DrawerHeader className="px-4 pb-1 pt-2 text-left">
                     <DrawerTitle className="sr-only">Bölümler</DrawerTitle>
@@ -480,7 +501,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 <PopoverContent
                   align="end"
                   onOpenAutoFocus={(event) => event.preventDefault()}
-                  className="w-[min(22.5rem,calc(100vw-1rem))] rounded-2xl border-border bg-popover p-3 shadow-2xl sm:p-3.5"
+                  className="w-[min(23rem,calc(100vw-1rem))] rounded-2xl border border-border/80 bg-background/95 backdrop-blur-2xl p-3.5 shadow-2xl"
                 >
                   {chapterPanelContent}
                 </PopoverContent>

@@ -371,7 +371,10 @@ export const useChapterTranslation = ({
 
       if (options?.prioritize) {
         const rest = queueRef.current.filter((i) => !indices.includes(i));
-        queueRef.current = [...indices.filter((i) => statesRef.current[i]?.status === 'queued'), ...rest];
+        const prioritized = indices
+          .filter((i) => statesRef.current[i]?.status === 'queued')
+          .sort((a, b) => a - b);
+        queueRef.current = [...prioritized, ...rest];
       } else {
         const nextQueue = Array.from(new Set([...queueRef.current, ...validAdditions]));
         nextQueue.sort((a, b) => a - b);
@@ -505,10 +508,9 @@ export const useChapterTranslation = ({
       return;
     }
 
-    const startIndex = Math.max(0, Math.min(pages.length - 1, currentPage - 1));
+    // Otomatik çeviri: önbellek yüklendikten sonra çevrilmemiş sayfaları KESİNLİKLE 1. sayfadan (0'dan) itibaren baştan sona sırayla kuyruğa alır.
     const order: number[] = [];
-    for (let i = startIndex; i < pages.length; i += 1) order.push(i);
-    for (let i = 0; i < startIndex; i += 1) order.push(i);
+    for (let i = 0; i < pages.length; i += 1) order.push(i);
 
     const queuedSet = new Set(queueRef.current);
     const additions = order.filter((index) => {
@@ -527,7 +529,6 @@ export const useChapterTranslation = ({
     cacheReady,
     chapterId,
     pages.length,
-    currentPage,
     enqueueIndices,
   ]);
 
@@ -543,14 +544,6 @@ export const useChapterTranslation = ({
       }
     });
   }, [settings.autoTranslate, setPageState]);
-
-  // Kullanıcı sayfa değiştirdiğinde aktif sayfa kuyruktaysa en öne çekilir.
-  useEffect(() => {
-    const index = currentPage - 1;
-    if (queueRef.current.includes(index)) {
-      queueRef.current = [index, ...queueRef.current.filter((i) => i !== index)];
-    }
-  }, [currentPage]);
 
   // Tamamlandı bildirimi 3.2 sn sonra kendiliğinden kaybolur.
   useEffect(() => {
