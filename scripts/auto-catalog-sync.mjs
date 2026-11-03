@@ -1075,7 +1075,7 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
               link,
               cover,
               isAdult: true,
-              genres: ['+18', 'Mature'],
+              genres: isRaw ? ['+18', 'Mature', 'RAW'] : ['+18', 'Mature', 'İngilizce'],
               details: { language: isRaw ? 'raw' : 'en' },
             });
           }
@@ -1137,7 +1137,7 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
             link,
             cover,
             isAdult: true,
-            genres: ['+18', 'Mature'],
+            genres: ['+18', 'Mature', 'İngilizce'],
             details: { language: 'en' },
           });
         }
@@ -1528,7 +1528,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
       alternativeTitles: [],
       author: 'Bilinmiyor',
       status: 'ongoing',
-      genres: ['+18', 'Mature'],
+      genres: isRaw ? ['+18', 'Mature', 'RAW'] : ['+18', 'Mature', 'İngilizce'],
       isAdult: true,
       chapters: rawChapters,
       details: { language: isRaw ? 'raw' : 'en' },
@@ -1560,6 +1560,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     const genreMatches = extractRegexMatches(html, /href=["']\/browse\?genres=([^"']+)["']/gi);
     const genres = genreMatches.map((m) => normalizeGenreToTurkish(decodeURIComponent(m[1]).trim())).filter(Boolean);
     if (genres.length === 0) genres.push('Webtoon', 'Aksiyon');
+    if (!genres.includes('İngilizce')) genres.push('İngilizce');
 
     // Chapters (Yalnızca BU seriye ait bölüm linklerini eşle, 0/Prologue destekli)
     const slugMatch = seriesUrl.match(/asurascans\.com\/comics\/([^/?#]+)/i);
@@ -2642,6 +2643,7 @@ class SmartCatalogStore {
       details: {
         primarySource: scraped.source,
         primarySourceUrl: scraped.link,
+        language: scraped.details?.language || (scraped.source === 'asurascans' || scraped.source === 'madaradex' || scraped.source === 'mgread' ? 'en' : scraped.title.toLowerCase().includes('(raw)') ? 'raw' : 'tr'),
         lastChapterAddedAt: now,
         lastSourceActivityAt: now,
         lastDeltaCheckAt: now,

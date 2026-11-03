@@ -42,14 +42,22 @@ export const LANGUAGE_CONFIG: Record<SeriesLanguage, SeriesLanguageInfo> = {
 export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage {
   if (!manga) return 'tr';
 
-  const detailsLang = (manga.details as any)?.language;
+  const detailsLang = (manga.details as any)?.language || (manga as any)?.language || (manga as any)?.mangaLanguage;
   if (detailsLang === 'raw') return 'raw';
   if (detailsLang === 'en') return 'en';
   if (detailsLang === 'tr') return 'tr';
 
+  const genres = Array.isArray(manga.genres) ? manga.genres : [];
+  if (genres.some((g) => String(g).toUpperCase() === 'RAW')) return 'raw';
+  if (genres.some((g) => {
+    const s = String(g).toLowerCase();
+    return s === 'ingilizce' || s === 'i̇ngilizce' || s === 'english' || s === 'en';
+  })) return 'en';
+
   const titleLower = (manga.title || '').toLowerCase();
   const slugLower = ((manga as any)?.slug || '').toLowerCase();
 
+  // 1. RAW check by title or slug
   if (
     titleLower.includes('(raw)') ||
     titleLower.includes(' raw') ||
@@ -59,25 +67,37 @@ export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage
     return 'raw';
   }
 
-  const sources = manga.sourceLinks || [];
+  // 2. Source links check
+  const sources = manga.sourceLinks || (manga as any)?.source_links || [];
   const hasRawSource = sources.some(
-    (s) =>
-      s.source?.toLowerCase() === 'mangadass' &&
-      (s.url.includes('/raw-manhwa') || s.url.includes('-raw')),
+    (s: any) =>
+      (s.source || '').toLowerCase() === 'mangadass' &&
+      (s.url?.includes('/raw-manhwa') || s.url?.includes('-raw')),
   );
   if (hasRawSource) return 'raw';
 
-  const hasEnglishSource = sources.some((s) => {
+  const hasEnglishSource = sources.some((s: any) => {
     const src = (s.source || '').toLowerCase();
+    const url = (s.url || '').toLowerCase();
     return (
       src.includes('asura') ||
       src.includes('madaradex') ||
       src.includes('mgread') ||
       src.includes('mangadex') ||
-      src.includes('mangafreak')
+      src.includes('mangafreak') ||
+      src.includes('ezmanga') ||
+      (src.includes('mangadass') && !url.includes('/raw-manhwa') && !url.includes('-raw'))
     );
   });
   if (hasEnglishSource) return 'en';
+
+  const primarySource = ((manga.details as any)?.primarySource || '').toLowerCase();
+  if (primarySource === 'asurascans' || primarySource === 'madaradex' || primarySource === 'mgread' || primarySource === 'ezmanga') {
+    return 'en';
+  }
+  if (primarySource === 'mangadass') {
+    return titleLower.includes('raw') ? 'raw' : 'en';
+  }
 
   return 'tr';
 }

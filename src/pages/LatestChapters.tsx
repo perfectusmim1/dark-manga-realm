@@ -13,6 +13,7 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { getSeriesLanguageInfo } from '@/lib/seriesLanguage';
+import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 30;
@@ -76,6 +77,7 @@ const LatestChapters: React.FC = () => {
     const currentPage = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
 
     const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>([]);
+    const [mangaLangMap, setMangaLangMap] = React.useState<Record<string, ReturnType<typeof getSeriesLanguageInfo>>>({});
     const [isLoading, setIsLoading] = React.useState(true);
     const [recentChapterCount, setRecentChapterCount] = React.useState(0);
     const [totalChaptersCount, setTotalChaptersCount] = React.useState(0);
@@ -108,6 +110,23 @@ const LatestChapters: React.FC = () => {
             const [data, stats] = await Promise.all(promises);
 
             setChapters(data);
+            if (data.length > 0) {
+                const ids = Array.from(new Set(data.map((c) => c.mangaId)));
+                supabase
+                    .from('mangas')
+                    .select('id, title, genres, details, source_links')
+                    .in('id', ids)
+                    .then(({ data: mangasData }) => {
+                        if (mangasData) {
+                            const langMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
+                            for (const m of mangasData) {
+                                langMap[m.id] = getSeriesLanguageInfo(m as any);
+                            }
+                            setMangaLangMap((prev) => ({ ...prev, ...langMap }));
+                        }
+                    })
+                    .catch(() => {});
+            }
             if (stats && !countsLoadedRef.current) {
                 setRecentChapterCount(stats.recentChapterCount);
                 setTotalChaptersCount(stats.totalChaptersCount);
@@ -188,7 +207,7 @@ const LatestChapters: React.FC = () => {
                                                     </Badge>
                                                 )}
                                                 {(() => {
-                                                    const lang = getSeriesLanguageInfo({ title: chapter.mangaTitle });
+                                                    const lang = mangaLangMap[chapter.mangaId] || getSeriesLanguageInfo({ title: chapter.mangaTitle });
                                                     if (lang.language === 'tr') return null;
                                                     return (
                                                         <Badge
