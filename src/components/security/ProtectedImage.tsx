@@ -25,7 +25,11 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
     const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
     const isExternalUrl = src.startsWith('http://') || src.startsWith('https://');
-    const shouldBypassCanvas = src.startsWith('blob:') || src.startsWith('data:');
+    const isMobileDevice = typeof window !== 'undefined' && (
+        window.innerWidth < 768 ||
+        ('maxTouchPoints' in navigator && navigator.maxTouchPoints > 0)
+    );
+    const shouldBypassCanvas = isMobileDevice || src.startsWith('blob:') || src.startsWith('data:');
     const avoidRaw = shouldAvoidRawImageFallback(src);
     const [useFallback, setUseFallback] = useState(shouldBypassCanvas);
     const [isBroken, setIsBroken] = useState(false);
@@ -150,6 +154,8 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
                     }}
                     src={currentSrc}
                     alt={alt}
+                    decoding="async"
+                    loading="lazy"
                     className="w-full h-auto block select-none pointer-events-none"
                     draggable={false}
                     referrerPolicy="no-referrer"

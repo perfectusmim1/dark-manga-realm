@@ -59,7 +59,11 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
     <div
       data-page-index={index}
       className="group relative mx-auto flex w-full justify-center"
-      style={{ maxWidth: fitWidth ? `${896 * (zoom / 100)}px` : 'none' }}
+      style={{
+        maxWidth: fitWidth ? `${896 * (zoom / 100)}px` : 'none',
+        contentVisibility: 'auto',
+        containIntrinsicSize: '800px 1200px',
+      }}
     >
       <div
         data-reader-page-number={index + 1}

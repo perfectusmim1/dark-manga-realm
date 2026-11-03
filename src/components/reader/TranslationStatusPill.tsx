@@ -45,7 +45,7 @@ const TranslationStatusPill: React.FC<TranslationStatusPillProps> = ({
       onClick={(e) => e.stopPropagation()}
       onMouseDown={(e) => e.stopPropagation()}
       className={cn(
-        'pointer-events-auto w-[min(17.5rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border bg-card/90 p-2.5 text-foreground shadow-[0_10px_32px_rgb(0,0,0,0.5)] backdrop-blur-xl animate-fade-in',
+        'pointer-events-auto w-[min(17.5rem,calc(100vw-6.5rem))] overflow-hidden rounded-2xl border bg-card/90 p-2.5 text-foreground shadow-[0_10px_32px_rgb(0,0,0,0.5)] backdrop-blur-xl animate-fade-in',
         showError
           ? 'border-destructive/45'
           : 'border-primary/35 shadow-[0_10px_32px_rgb(0,0,0,0.5),0_0_22px_hsl(var(--primary)/0.14)]',

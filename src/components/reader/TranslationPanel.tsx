@@ -330,6 +330,43 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
         )}
       </div>
 
+      {/* Çeviri Motoru Seçimi */}
+      <div className="space-y-1.5">
+        <Label className="text-xs font-semibold text-muted-foreground">Çeviri Motoru</Label>
+        <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-secondary/40 p-1">
+          <button
+            type="button"
+            onClick={() => updateSettings({ provider: 'gemini' })}
+            className={cn(
+              'flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all',
+              (settings.provider || 'gemini') === 'gemini'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
+            )}
+          >
+            <span>Gemini Flash</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => updateSettings({ provider: 'google' })}
+            className={cn(
+              'flex items-center justify-center gap-1.5 rounded-lg py-1.5 text-xs font-semibold transition-all',
+              settings.provider === 'google'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
+            )}
+          >
+            <span>Google Çeviri</span>
+            <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-bold text-emerald-400">Ücretsiz</span>
+          </button>
+        </div>
+        {settings.provider === 'google' && (
+          <p className="text-[11px] leading-tight text-muted-foreground">
+            Balonlar taranır, metinler Google Çeviri ile ücretsiz ve hızlı aktarılır.
+          </p>
+        )}
+      </div>
+
       {/* Mod Seçenekleri */}
       <div className="space-y-2.5">
         <div className="flex items-center justify-between">

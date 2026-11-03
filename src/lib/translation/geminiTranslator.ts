@@ -472,9 +472,34 @@ const callGeminiVision = async (
   );
 };
 
+export const translateWithGoogleFree = async (
+  text: string,
+  targetLang: string,
+  signal?: AbortSignal,
+): Promise<string> => {
+  const trimmed = text?.trim();
+  if (!trimmed) return '';
+  const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=${encodeURIComponent(targetLang)}&dt=t&q=${encodeURIComponent(trimmed)}`;
+  try {
+    const res = await fetch(url, {
+      signal: signal ? AbortSignal.any([signal, AbortSignal.timeout(8000)]) : AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return trimmed;
+    const json = await res.json();
+    if (Array.isArray(json?.[0])) {
+      const translated = json[0].map((part: any) => part?.[0] || '').join('');
+      return translated.trim() || trimmed;
+    }
+  } catch (err) {
+    console.warn('Google Translate free fallback failed:', err);
+  }
+  return trimmed;
+};
+
 export interface TranslatePageOptions {
   apiKey?: string;
   apiKeys?: readonly string[];
+  provider?: 'gemini' | 'google';
   parallelMode?: boolean;
   imageSrc: string;
   targetLang: string;
@@ -484,6 +509,7 @@ export interface TranslatePageOptions {
 export const translatePageImage = async ({
   apiKey,
   apiKeys,
+  provider = 'gemini',
   parallelMode = false,
   imageSrc,
   targetLang,
@@ -518,10 +544,23 @@ export const translatePageImage = async ({
   }
   fullCtx.drawImage(img, 0, 0);
 
+  const applyGoogleTranslateIfNeeded = async (blocks: TranslationBlock[]) => {
+    if (provider !== 'google') return;
+    await Promise.all(
+      blocks.map(async (b) => {
+        try {
+          const gText = await translateWithGoogleFree(b.text, targetLang, signal);
+          if (gText) b.text = gText;
+        } catch {}
+      }),
+    );
+  };
+
   // Kısa/standart sayfalar (height <= 1600): tek seferde işle
   if (fullHeight <= 1600) {
     const { data, mimeType } = canvasToBase64(fullCanvas);
     const rawBlocks = await callGeminiVision(effectiveKeys, parallelMode, data, mimeType, targetLang, signal);
+    await applyGoogleTranslateIfNeeded(rawBlocks);
     return rawBlocks
       .sort((a, b) => a.box[0] - b.box[0])
       .map((block) => inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, block, targetLang))
@@ -643,6 +682,17 @@ export const translatePageImage = async ({
       }
     });
   });
+
+  if (provider === 'google') {
+    await Promise.all(
+      mergedCandidates.map(async (cand) => {
+        try {
+          const gText = await translateWithGoogleFree(cand.text, targetLang, signal);
+          if (gText) cand.text = gText;
+        } catch {}
+      }),
+    );
+  }
 
   return mergedCandidates
     .sort((a, b) => a.box[0] - b.box[0])

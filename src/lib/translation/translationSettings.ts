@@ -1,6 +1,7 @@
 export interface TranslationSettings {
   apiKey: string;
   apiKeys: string[];
+  provider: 'gemini' | 'google';
   targetLang: string; // ISO 639-1 kodu, örn. 'tr'
   autoTranslate: boolean;
   parallelMode: boolean;
@@ -12,6 +13,7 @@ const STORAGE_KEY = 'toonparrot:translation-settings';
 const DEFAULT_SETTINGS: TranslationSettings = {
   apiKey: '',
   apiKeys: [],
+  provider: 'gemini',
   targetLang: 'tr',
   autoTranslate: false,
   parallelMode: false,
@@ -79,6 +81,10 @@ export const loadTranslationSettings = (): TranslationSettings => {
     return {
       apiKey: apiKeys[0] || '',
       apiKeys,
+      provider:
+        parsed.provider === 'google' || parsed.provider === 'gemini'
+          ? parsed.provider
+          : DEFAULT_SETTINGS.provider,
       targetLang:
         typeof parsed.targetLang === 'string' && parsed.targetLang
           ? parsed.targetLang

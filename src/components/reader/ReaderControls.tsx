@@ -114,6 +114,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const nextChapter = chapters[currentIndex - 1];
 
   const [hoverPage, setHoverPage] = useState<number | null>(null);
+  const [isScrubbing, setIsScrubbing] = useState(false);
+  const [scrubPage, setScrubPage] = useState<number | null>(null);
+  const scrubRafRef = useRef<number | null>(null);
+  const trackRef = useRef<HTMLDivElement | null>(null);
   const [navigatingChapterId, setNavigatingChapterId] = useState<string | null>(null);
   const [chapterSearch, setChapterSearch] = useState('');
   const [chapterPanelOpen, setChapterPanelOpen] = useState(false);
@@ -123,7 +127,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const seriesRouteKey = buildRouteKey(`/manga/${mangaId}`);
   const deferredChapterSearch = useDeferredValue(normalizeChapterSearchValue(chapterSearch));
 
-  const progressPercent = totalPages > 1 ? ((currentPage - 1) / (totalPages - 1)) * 100 : 0;
+  const activePageDisplay = isScrubbing && scrubPage !== null ? scrubPage : currentPage;
+  const progressPercent = totalPages > 1 ? ((activePageDisplay - 1) / (totalPages - 1)) * 100 : 0;
   const chapterItems = useMemo(() => chapters.slice().reverse(), [chapters]);
   const filteredChapters = useMemo(() => {
     if (!deferredChapterSearch) {
@@ -146,34 +151,99 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     return () => window.cancelAnimationFrame(frameId);
   }, [chapterPanelOpen]);
 
-  const handleBarClick = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      e.stopPropagation();
-      const bar = e.currentTarget;
-      const rect = bar.getBoundingClientRect();
-      const x = e.clientX - rect.left;
+  const getPageFromClientX = useCallback(
+    (clientX: number, target: HTMLDivElement): number => {
+      const rect = target.getBoundingClientRect();
+      const x = clientX - rect.left;
       const ratio = Math.max(0, Math.min(1, x / rect.width));
       const page = Math.round(ratio * (totalPages - 1)) + 1;
-      onPageChange?.(Math.max(1, Math.min(totalPages, page)), false);
-    },
-    [totalPages, onPageChange],
-  );
-
-  const handleBarHover = useCallback(
-    (e: React.MouseEvent<HTMLDivElement>) => {
-      const bar = e.currentTarget;
-      const rect = bar.getBoundingClientRect();
-      const x = e.clientX - rect.left;
-      const ratio = Math.max(0, Math.min(1, x / rect.width));
-      const page = Math.round(ratio * (totalPages - 1)) + 1;
-      setHoverPage(Math.max(1, Math.min(totalPages, page)));
+      return Math.max(1, Math.min(totalPages, page));
     },
     [totalPages],
   );
 
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      e.stopPropagation();
+      e.currentTarget.setPointerCapture(e.pointerId);
+      const page = getPageFromClientX(e.clientX, e.currentTarget);
+      setIsScrubbing(true);
+      setScrubPage(page);
+      onPageChange?.(page, false);
+    },
+    [getPageFromClientX, onPageChange],
+  );
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (!isScrubbing) {
+        if (e.pointerType === 'mouse') {
+          const page = getPageFromClientX(e.clientX, e.currentTarget);
+          setHoverPage(page);
+        }
+        return;
+      }
+      e.stopPropagation();
+      const page = getPageFromClientX(e.clientX, e.currentTarget);
+      setScrubPage(page);
+      if (scrubRafRef.current !== null) {
+        cancelAnimationFrame(scrubRafRef.current);
+      }
+      scrubRafRef.current = requestAnimationFrame(() => {
+        onPageChange?.(page, false);
+      });
+    },
+    [getPageFromClientX, isScrubbing, onPageChange],
+  );
+
+  const handlePointerUp = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (isScrubbing) {
+        e.stopPropagation();
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch {
+          // Yoksay
+        }
+        const page = getPageFromClientX(e.clientX, e.currentTarget);
+        if (scrubRafRef.current !== null) {
+          cancelAnimationFrame(scrubRafRef.current);
+          scrubRafRef.current = null;
+        }
+        onPageChange?.(page, false);
+        setIsScrubbing(false);
+        setScrubPage(null);
+        setHoverPage(null);
+      }
+    },
+    [getPageFromClientX, isScrubbing, onPageChange],
+  );
+
+  const handlePointerCancel = useCallback(
+    (e: React.PointerEvent<HTMLDivElement>) => {
+      if (isScrubbing) {
+        try {
+          e.currentTarget.releasePointerCapture(e.pointerId);
+        } catch {
+          // Yoksay
+        }
+        if (scrubRafRef.current !== null) {
+          cancelAnimationFrame(scrubRafRef.current);
+          scrubRafRef.current = null;
+        }
+        setIsScrubbing(false);
+        setScrubPage(null);
+        setHoverPage(null);
+      }
+    },
+    [isScrubbing],
+  );
+
   const handleBarLeave = useCallback(() => {
-    setHoverPage(null);
-  }, []);
+    if (!isScrubbing) {
+      setHoverPage(null);
+    }
+  }, [isScrubbing]);
 
   const handleChapterNavigation = useCallback(
     async (chapter?: Chapter) => {
@@ -654,44 +724,55 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           {settings.showProgress && (
             <div className="flex min-w-0 flex-1 items-center justify-center gap-2 px-1 sm:gap-3 sm:px-4">
               <span className="hidden text-xs font-semibold tabular-nums text-muted-foreground select-none whitespace-nowrap sm:inline">
-                {currentPage} / {totalPages}
+                {activePageDisplay} / {totalPages}
               </span>
 
               <div className="relative min-w-0 flex-1 max-w-[500px]">
-                {/* Hover tooltip */}
-                {hoverPage !== null && (
+                {/* Hover / Scrub tooltip */}
+                {(hoverPage !== null || isScrubbing) && (
                   <div
                     className="absolute -top-8 z-10 rounded-md bg-popover px-2 py-0.5 text-[11px] font-bold text-popover-foreground shadow-lg border border-border/50 pointer-events-none select-none"
                     style={{
-                      left: `${totalPages > 1 ? ((hoverPage - 1) / (totalPages - 1)) * 100 : 0}%`,
+                      left: `${totalPages > 1 ? (((isScrubbing ? activePageDisplay : hoverPage!) - 1) / (totalPages - 1)) * 100 : 0}%`,
                       transform: 'translateX(-50%)',
                     }}
                   >
-                    {hoverPage}
+                    {isScrubbing ? activePageDisplay : hoverPage}
                   </div>
                 )}
 
-                {/* Clickable track area */}
+                {/* Sürüklenebilir ve tıklanabilir iz alanı */}
                 <div
-                  className="relative h-8 flex items-center cursor-pointer group"
-                  onClick={handleBarClick}
-                  onMouseMove={handleBarHover}
-                  onMouseLeave={handleBarLeave}
+                  ref={trackRef}
+                  className="relative h-9 flex items-center cursor-pointer group touch-none select-none py-2"
+                  onPointerDown={handlePointerDown}
+                  onPointerMove={handlePointerMove}
+                  onPointerUp={handlePointerUp}
+                  onPointerCancel={handlePointerCancel}
+                  onPointerLeave={handleBarLeave}
                 >
                   {/* Background track */}
                   <div className="absolute inset-x-0 h-[5px] rounded-full bg-white/10 group-hover:h-[7px] transition-all duration-200" />
 
                   {/* Fill */}
                   <div
-                    className="absolute left-0 h-[5px] rounded-full bg-gradient-to-r from-primary to-blue-400 group-hover:h-[7px] transition-all duration-200 pointer-events-none"
+                    className={cn(
+                      'absolute left-0 h-[5px] rounded-full bg-gradient-to-r from-primary to-blue-400 group-hover:h-[7px] pointer-events-none',
+                      isScrubbing ? 'transition-none h-[7px]' : 'transition-all duration-200',
+                    )}
                     style={{ width: `${progressPercent}%` }}
                   />
 
                   {/* Thumb */}
                   <div
-                    className="absolute top-1/2 -translate-y-1/2 h-3.5 w-3.5 rounded-full bg-white border-2 border-primary shadow-[0_0_10px_rgba(59,130,246,0.5)] group-hover:h-4 group-hover:w-4 group-hover:shadow-[0_0_16px_rgba(59,130,246,0.7)] transition-all duration-200 pointer-events-none"
+                    className={cn(
+                      'absolute top-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-primary shadow-[0_0_10px_rgba(59,130,246,0.5)] pointer-events-none -translate-x-1/2',
+                      isScrubbing
+                        ? 'h-5 w-5 shadow-[0_0_20px_rgba(59,130,246,0.9)] ring-4 ring-primary/35 transition-none'
+                        : 'h-3.5 w-3.5 group-hover:h-4 group-hover:w-4 group-hover:shadow-[0_0_16px_rgba(59,130,246,0.7)] transition-all duration-200',
+                    )}
                     style={{
-                      left: `calc(${progressPercent}% - 7px)`,
+                      left: `${progressPercent}%`,
                     }}
                   />
                 </div>

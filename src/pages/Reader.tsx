@@ -605,7 +605,26 @@ const Reader: React.FC = () => {
           ? sanitizeReaderChapter(preparedTransition.chapter)
           : null;
 
-        if (preparedChapter) {
+        const cachedPages = chapterPagesCacheRef.current.get(chapterId);
+        const existingBaseChapter = existingManga?.chapters.find((c) => c.id === chapterId);
+        const instantPages = (cachedPages && cachedPages.length > 0) ? cachedPages : preparedChapter?.pages;
+
+        if (existingManga && existingBaseChapter && instantPages && instantPages.length > 0) {
+          const resolvedInstantPages = cacheChapterPages(chapterId, instantPages);
+          syncChapterPagesIntoState(chapterId, resolvedInstantPages);
+          const resolvedInstChapter: Chapter = {
+            ...existingBaseChapter,
+            pages: resolvedInstantPages,
+            pageCount: resolvedInstantPages.length,
+          };
+          setManga(existingManga);
+          setChapter(resolvedInstChapter);
+          setResolvedPages(resolvedInstantPages.map(toResolvedReaderPage));
+          setIsOfflineChapter(false);
+          setOfflineUnavailable(false);
+          setIsContentReady(true);
+          setIsLoading(false);
+        } else if (preparedChapter) {
           const preparedPages = cacheChapterPages(preparedChapter.id, preparedChapter.pages);
           syncChapterPagesIntoState(preparedChapter.id, preparedPages);
           setChapter({
@@ -621,18 +640,18 @@ const Reader: React.FC = () => {
 
         const [offlineChapter, mData, chapterPagesById, offlineManga] = await Promise.all([
           getOfflineChapter(chapterId),
-          canUseNetworkReaderFeatures
+          canUseNetworkReaderFeatures && !existingManga
             ? getMangaById(mangaId).catch((error) => {
                 console.error('Reader chapter refresh error:', error);
                 return existingManga;
               })
-            : Promise.resolve(undefined),
-          canUseNetworkReaderFeatures
+            : Promise.resolve(existingManga),
+          canUseNetworkReaderFeatures && (!cachedPages || cachedPages.length === 0) && (!preparedChapter?.pages?.length)
             ? getChapterPagesByIds([chapterId]).catch((error) => {
                 console.error('Reader chapter page fetch error:', error);
                 return {};
               })
-            : Promise.resolve({}),
+            : Promise.resolve(cachedPages ? { [chapterId]: cachedPages } : {}),
           getOfflineMangaDetail(mangaId),
         ]);
         const fallbackManga = mData || existingManga || offlineManga;
@@ -1541,29 +1560,57 @@ const Reader: React.FC = () => {
         </div>
       </div>
 
-      {/* Sağ alt çeviri durumu ve yukarı çıkma kontrolü (tek yığında, çakışmasız) */}
+      {/* Alt yüzen kontroller: Sol (En Alta Git) - Orta (Çeviri Durumu Kartı) - Sağ (En Üste Git) */}
       <div
-        className="pointer-events-none fixed right-4 z-40 flex flex-col items-end gap-2.5 transition-[bottom] duration-300"
+        className="pointer-events-none fixed inset-x-0 z-40 flex items-center justify-between px-3 sm:px-5 transition-[bottom] duration-300"
         style={{
           bottom: controlsVisible
             ? 'calc(env(safe-area-inset-bottom) + 6rem)'
             : 'calc(env(safe-area-inset-bottom) + 1.25rem)',
         }}
       >
-        <TranslationStatusPill
-          summary={translation.summary}
-          onCancel={translation.cancelTranslation}
-          onRetry={translation.retryFailedPages}
-          onDismiss={translation.dismissStatusFeedback}
-        />
-
+        {/* Sol: En Alta Git */}
         <div
-          className={`transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'pointer-events-none h-0 overflow-hidden opacity-0'}`}
+          className={cn(
+            'transition-opacity duration-300',
+            controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+          )}
         >
           <Button
             variant="secondary"
             size="icon"
-            className="pointer-events-auto h-10 w-10 rounded-full border border-border bg-background/80 opacity-70 shadow-lg backdrop-blur-md transition-opacity hover:opacity-100"
+            className="h-10 w-10 rounded-full border border-border bg-background/80 opacity-70 shadow-lg backdrop-blur-md transition-opacity hover:opacity-100"
+            onClick={(e) => {
+              e.stopPropagation();
+              scrollToBottom();
+            }}
+            title="En Alta Git"
+          >
+            <ArrowDownToLine className="h-5 w-5" />
+          </Button>
+        </div>
+
+        {/* Orta: Çeviri Durumu Kartı */}
+        <div className="flex flex-1 items-center justify-center px-1">
+          <TranslationStatusPill
+            summary={translation.summary}
+            onCancel={translation.cancelTranslation}
+            onRetry={translation.retryFailedPages}
+            onDismiss={translation.dismissStatusFeedback}
+          />
+        </div>
+
+        {/* Sağ: En Üste Git */}
+        <div
+          className={cn(
+            'transition-opacity duration-300',
+            controlsVisible ? 'opacity-100 pointer-events-auto' : 'opacity-0 pointer-events-none',
+          )}
+        >
+          <Button
+            variant="secondary"
+            size="icon"
+            className="h-10 w-10 rounded-full border border-border bg-background/80 opacity-70 shadow-lg backdrop-blur-md transition-opacity hover:opacity-100"
             onClick={(e) => {
               e.stopPropagation();
               scrollToTop();
@@ -1573,21 +1620,6 @@ const Reader: React.FC = () => {
             <ArrowUpToLine className="h-5 w-5" />
           </Button>
         </div>
-      </div>
-
-      <div
-        className={`fixed left-4 z-40 flex flex-col gap-3 pointer-events-none transition-opacity duration-300 ${controlsVisible ? 'opacity-100' : 'opacity-0'}`}
-        style={{ bottom: 'calc(env(safe-area-inset-bottom) + 6rem)' }}
-      >
-        <Button 
-          variant="secondary" 
-          size="icon" 
-          className="rounded-full shadow-lg h-10 w-10 opacity-70 hover:opacity-100 pointer-events-auto transition-opacity border border-border bg-background/80 backdrop-blur-md"
-          onClick={(e) => { e.stopPropagation(); scrollToBottom(); }}
-          title="En Alta Git"
-        >
-          <ArrowDownToLine className="h-5 w-5" />
-        </Button>
       </div>
 
       {/* Yorum Bölümü */}

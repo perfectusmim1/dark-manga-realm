@@ -260,6 +260,7 @@ export const useChapterTranslation = ({
       translatePageImage({
         apiKey: activeKeys[0] || settingsRef.current.apiKey,
         apiKeys: activeKeys,
+        provider: settingsRef.current.provider,
         parallelMode: parallelAtStart,
         imageSrc: src,
         targetLang: langAtStart,
