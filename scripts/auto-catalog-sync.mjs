@@ -4274,15 +4274,16 @@ const main = async () => {
   }
 
   // ==========================================================================
-  // FAZ 3: Kuyruktan Yeni Seri Keşif & Zenginleştirme (Bounded Batch)
+  // FAZ 3: Kuyruktan Yeni Seri Keşif & Zenginleştirme (Bounded Batch or ALL)
   // ==========================================================================
-  if (MODE !== 'delta-only' && MODE !== 'enrich-only' && BATCH_SIZE > 0 && !isTimeBudgetExceeded()) {
+  const isProcessAll = hasFlag('--all') || BATCH_SIZE >= 9999 || (BATCH_SIZE === 0 && hasFlag('--archive-mode'));
+  if (MODE !== 'delta-only' && MODE !== 'enrich-only' && (BATCH_SIZE > 0 || isProcessAll) && !isTimeBudgetExceeded()) {
     const pendingItems = Object.values(seriesQueue)
       .filter((s) => (s.status === 'pending' || s.status === 'partial') && PRIMARY_SOURCES.includes(s.source))
       .filter((s) => !TARGET_SOURCE || s.source === TARGET_SOURCE)
       .sort((a, b) => (b.priority || 0) - (a.priority || 0));
 
-    const batchToProcess = pendingItems.slice(0, BATCH_SIZE);
+    const batchToProcess = isProcessAll ? pendingItems : pendingItems.slice(0, BATCH_SIZE);
     if (batchToProcess.length > 0) {
       logInfo(`--- FAZ 3: Kuyruktan ${batchToProcess.length} Yeni Seri Çekiliyor (Toplam Bekleyen: ${pendingItems.length}) ---`);
       let bIdx = 0;
