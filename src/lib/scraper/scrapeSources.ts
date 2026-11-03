@@ -1762,8 +1762,14 @@ export const extractChapterImageResult = (
   }
 
   if (images.length === 0) {
-    if (source === 'webtoonhatti' || source === 'hattorimanga') {
+    if (source === 'webtoonhatti' || source === 'hattorimanga' || source === 'madaradex') {
       images = extractWebtoonHattiImageUrls(doc);
+    } else if (source === 'mangadass') {
+      const dassImgs = Array.from(doc.querySelectorAll('img[src*="mangadass.com/chapters/"], #chapter-container img, .chapter-content img, .reading-content img'));
+      images = dassImgs.map(extractImageSource).filter(Boolean);
+    } else if (source === 'asurascans') {
+      const asuraImgs = Array.from(doc.querySelectorAll('img[src*="asurascans.com/asura-images/chapters/"], .reading-content img, [class*="chapter"] img'));
+      images = asuraImgs.map(extractImageSource).filter(Boolean);
     } else if (source === 'okutoon') {
       const readerImgs = Array.from(doc.querySelectorAll('.reader-area img, .chapter-content img, img[src*="okutoon"], img[data-src]'));
       images = readerImgs.map(extractImageSource).filter(Boolean);

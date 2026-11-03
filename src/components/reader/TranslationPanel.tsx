@@ -357,7 +357,16 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
             )}
           >
             <span>Google Çeviri</span>
-            <span className="rounded bg-emerald-500/20 px-1 py-0.5 text-[9px] font-bold text-emerald-400">Ücretsiz</span>
+            <span
+              className={cn(
+                'rounded px-1.5 py-0.5 text-[9px] font-bold tracking-wide transition-colors',
+                settings.provider === 'google'
+                  ? 'bg-black/35 text-white border border-white/25 shadow-xs'
+                  : 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30',
+              )}
+            >
+              Ücretsiz
+            </span>
           </button>
         </div>
         {settings.provider === 'google' && (
@@ -422,10 +431,21 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
           </span>
         </div>
         <Input
+          id="reader-language-search-input"
+          name="reader-language-search-noautofill"
+          type="search"
+          autoComplete="off"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck={false}
+          data-lpignore="true"
+          data-form-type="other"
+          data-1p-ignore="true"
+          aria-autocomplete="none"
           placeholder="Dil ara..."
           value={languageQuery}
           onChange={(event) => setLanguageQuery(event.target.value)}
-          className="h-8 rounded-xl border-border/60 bg-secondary/50 text-xs focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
+          className="h-8 rounded-xl border-border bg-secondary/40 text-xs focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
         />
         <div className="reader-scroll-thin max-h-32 space-y-0.5 overflow-y-auto rounded-xl border border-border/60 bg-background/45 p-1">
           {filteredLanguages.map((lang) => {
@@ -480,9 +500,20 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
 
         <div className="flex items-center gap-1.5">
           <Input
-            id="gemini-api-key"
-            type={revealKeys ? 'text' : 'password'}
-            autoComplete="off"
+            id="gemini-api-token-input"
+            name="gemini-api-token-noautofill"
+            type="text"
+            autoComplete="new-password"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-lpignore="true"
+            data-form-type="other"
+            data-1p-ignore="true"
+            aria-autocomplete="none"
+            style={{
+              WebkitTextSecurity: revealKeys ? 'none' : 'disc',
+            } as React.CSSProperties}
             placeholder={
               effectiveKeys.length > 0
                 ? 'Ek anahtar ekle (AIza...)'
@@ -501,7 +532,7 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
                 handleAddKeyButton();
               }
             }}
-            className="h-8 flex-1 rounded-xl border-border/60 bg-secondary/50 text-xs focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
+            className="h-8 flex-1 rounded-xl border-border bg-secondary/40 text-xs font-mono focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
           />
           <Button
             type="button"

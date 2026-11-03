@@ -114,7 +114,15 @@ const RUN_START_MS = Date.now();
 const SOFT_RUNTIME_LIMIT_MS = Math.max(3, MAX_RUNTIME_MINUTES - 10) * 60 * 1000;
 const isTimeBudgetExceeded = () => Date.now() - RUN_START_MS >= SOFT_RUNTIME_LIMIT_MS;
 
-const PRIMARY_SOURCES = ['webtoonhatti', 'okutoon', 'siyahmelek', 'hattorimanga'];
+const PRIMARY_SOURCES = [
+  'webtoonhatti',
+  'okutoon',
+  'siyahmelek',
+  'hattorimanga',
+  'mangadass',
+  'asurascans',
+  'madaradex',
+];
 const CHAPTER_CONCURRENCY = 6;
 
 // Global anti-hang safety timeout
@@ -393,7 +401,9 @@ const isBLSeries = (mangaOrMetadata) => {
 const cleanChapterTitle = (rawTitle, chapterNumber, seriesTitle) => {
   let text = (rawTitle || '').toString().trim();
   if (!text) {
-    return chapterNumber != null && Number(chapterNumber) > 0 ? `Bölüm ${chapterNumber}` : 'Bölüm 1';
+    return chapterNumber != null && Number.isFinite(Number(chapterNumber)) && Number(chapterNumber) >= 0
+      ? `Bölüm ${chapterNumber}`
+      : 'Bölüm 1';
   }
 
   // 1. Remove drop rates & percentages
@@ -417,11 +427,17 @@ const cleanChapterTitle = (rawTitle, chapterNumber, seriesTitle) => {
     text = text.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), ' ');
   }
 
-  // 5. Determine effective chapter number
-  let effectiveNum = chapterNumber != null && Number(chapterNumber) > 0 ? Number(chapterNumber) : null;
+  // 5. Determine effective chapter number (handles Chapter 0 / Prologue cleanly)
+  let effectiveNum = chapterNumber != null && Number.isFinite(Number(chapterNumber)) && Number(chapterNumber) >= 0
+    ? Number(chapterNumber)
+    : null;
   if (effectiveNum == null) {
-    const match = text.match(/(?:b[öo]l[üu]m|chapter|ch\.?)\s*(\d+(?:\.\d+)?)/i) || text.match(/(\d+(?:\.\d+)?)/);
-    if (match) effectiveNum = parseFloat(match[1]);
+    if (/\b(?:prologue|prolog|[öo]ns[öo]z)\b/i.test(text)) {
+      effectiveNum = 0;
+    } else {
+      const match = text.match(/(?:b[öo]l[üu]m|chapter|ch\.?)\s*(\d+(?:\.\d+)?)/i) || text.match(/(\d+(?:\.\d+)?)/);
+      if (match) effectiveNum = parseFloat(match[1]);
+    }
   }
 
   // 6. Remove trailing residue numbers if chapter number already established
@@ -985,6 +1001,98 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
         }
       }
     }
+  } else if (source === 'mangadass') {
+    // Sadece +18 yetişkin ve raw manhwa kategorilerini tara
+    const matureFeeds = [
+      'https://mangadass.com/raw-manhwa?orderby=latest',
+      'https://mangadass.com/manga-genre/mature?orderby=latest',
+    ];
+    for (const feedBase of matureFeeds) {
+      for (let page = 1; page <= maxPages; page++) {
+        const pageUrl = page === 1 ? feedBase : feedBase.replace(/\?/, `/${page}?`);
+        const res = await fetchUpstream(pageUrl);
+        if (!res.ok || !res.content) break;
+        const blocks = res.content.split(/class=["'][^"']*(?:manga-item|grid-item|item)[^"']*["']/i).slice(1);
+        if (blocks.length === 0) break;
+        for (const b of blocks) {
+          const linkMatch = b.match(/href=["'](\/manga\/[^"'\/?#]+(?:\/)?)["']/i) || b.match(/href=["'](https?:\/\/mangadass\.com\/manga\/[^"'\/?#]+(?:\/)?)["']/i);
+          const titleMatch = b.match(/title=["']([^"']+)["']/i) || b.match(/<a[^>]+href=["'][^"']+["'][^>]*>([^<]+)<\/a>/i);
+          const imgMatch = b.match(/(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:webp|jpg|jpeg|png)[^"']*)["']/i);
+          const rawLink = linkMatch?.[1]?.trim();
+          if (!rawLink || rawLink.includes('/chapter-')) continue;
+          const link = rawLink.startsWith('http') ? rawLink : `https://mangadass.com${rawLink}`;
+          const title = titleMatch?.[1] ? cleanSeriesTitle(stripTags(titleMatch[1])) : '';
+          const cover = imgMatch?.[1]?.trim() || '';
+          if (link && title && !seen.has(link)) {
+            seen.add(link);
+            const isRaw = title.toLowerCase().includes('(raw)') || feedBase.includes('raw-manhwa');
+            cards.push({
+              source: 'mangadass',
+              title,
+              link,
+              cover,
+              isAdult: true,
+              genres: ['+18', 'Mature'],
+              details: { language: isRaw ? 'raw' : 'en' },
+            });
+          }
+        }
+      }
+    }
+  } else if (source === 'asurascans') {
+    // Normal İngilizce Webtoonlar
+    for (let page = 1; page <= maxPages; page++) {
+      const pageUrl = page === 1 ? 'https://asurascans.com/comics' : `https://asurascans.com/browse/comics?page=${page}`;
+      const res = await fetchUpstream(pageUrl);
+      if (!res.ok || !res.content) break;
+      const links = extractRegexMatches(res.content, /href=["'](\/comics\/[^"'\/?#]+(?:-[a-f0-9]+))["']/gi);
+      for (const m of links) {
+        const path = m[1]?.trim();
+        if (!path || path.includes('/chapter/')) continue;
+        const link = `https://asurascans.com${path}`;
+        if (seen.has(link)) continue;
+        seen.add(link);
+        const slugWithoutHash = path.replace(/^\/comics\//, '').replace(/-[a-f0-9]+$/, '');
+        const autoTitle = slugWithoutHash.replace(/-/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+        cards.push({
+          source: 'asurascans',
+          title: autoTitle,
+          link,
+          cover: '',
+          isAdult: false,
+          genres: ['Webtoon', 'Action'],
+          details: { language: 'en' },
+        });
+      }
+    }
+  } else if (source === 'madaradex') {
+    // +18 Yetişkin İngilizce Manhwa/Manga
+    for (let page = 1; page <= maxPages; page++) {
+      const pageUrl = page === 1 ? 'https://madaradex.org/?m_orderby=latest' : `https://madaradex.org/page/${page}/?m_orderby=latest`;
+      const res = await fetchUpstream(pageUrl);
+      if (!res.ok || !res.content) break;
+      const blocks = res.content.split(/class=["'][^"']*(?:page-item-detail|c-tabs-item__content)[^"']*["']/i).slice(1);
+      for (const b of blocks) {
+        const linkMatch = b.match(/href=["'](https?:\/\/madaradex\.org\/(?:title|manga)\/[^"'\/?#]+(?:\/)?)["']/i);
+        const titleMatch = b.match(/title=["']([^"']+)["']/i) || b.match(/<a[^>]+href=["'][^"']+["'][^>]*>([^<]+)<\/a>/i);
+        const imgMatch = b.match(/(?:data-src|data-lazy-src|src)=["']([^"']+\.(?:webp|jpg|jpeg|png)[^"']*)["']/i);
+        const link = linkMatch?.[1]?.trim();
+        const title = titleMatch?.[1] ? cleanSeriesTitle(stripTags(titleMatch[1])) : '';
+        const cover = imgMatch?.[1]?.trim() || '';
+        if (link && title && !seen.has(link)) {
+          seen.add(link);
+          cards.push({
+            source: 'madaradex',
+            title,
+            link,
+            cover,
+            isAdult: true,
+            genres: ['+18', 'Mature'],
+            details: { language: 'en' },
+          });
+        }
+      }
+    }
   }
 
   return cards.filter((c) => !isBLSeries(c));
@@ -1093,7 +1201,7 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
   if (!res.ok || !res.content) return null;
   const html = res.content;
 
-  if (source === 'webtoonhatti' || source === 'hattorimanga') {
+  if (source === 'webtoonhatti' || source === 'hattorimanga' || source === 'madaradex') {
     const descMatch =
       /<div class="manga-excerpt[\s\S]*?<p>([\s\S]*?)<\/p>/i.exec(html) ||
       /<div class="description-summary[\s\S]*?<p>([\s\S]*?)<\/p>/i.exec(html) ||
@@ -1330,6 +1438,98 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     };
   }
 
+  if (source === 'mangadass') {
+    const titleMatch = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
+    const title = titleMatch ? cleanSeriesTitle(stripTags(titleMatch[1]).trim()) : fallbackTitle;
+    const descMatch = /<div class="[^"]*review-content[^"]*">([\s\S]*?)<\/div>/i.exec(html) ||
+                      /<meta property="og:description" content="([^"]+)"/i.exec(html);
+    const description = descMatch ? stripTags(descMatch[1]).trim() : '';
+    const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
+    const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
+    const chRegex = /href=["'](\/manga\/[^"']+\/chapter-(\d+(?:\.\d+)?))["'][^>]*>([\s\S]*?)<\/a>/gi;
+    const chMatches = extractRegexMatches(html, chRegex);
+    const rawChapters = [];
+    const seenCh = new Set();
+    for (const ch of chMatches) {
+      const chPath = ch[1].trim();
+      const num = parseFloat(ch[2]);
+      const fullLink = chPath.startsWith('http') ? chPath : `https://mangadass.com${chPath}`;
+      if (seenCh.has(fullLink)) continue;
+      seenCh.add(fullLink);
+      const chText = stripTags(ch[3] || `Bölüm ${num}`);
+      rawChapters.push({
+        title: cleanChapterTitle(chText, num, title),
+        link: fullLink,
+        chapterNumber: num,
+      });
+    }
+    rawChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
+    const isRaw = title.toLowerCase().includes('(raw)') || seriesUrl.includes('/raw-manhwa') || seriesUrl.endsWith('-raw');
+    return {
+      source: 'mangadass',
+      title,
+      link: seriesUrl,
+      cover,
+      description,
+      alternativeTitles: [],
+      author: 'Bilinmiyor',
+      status: 'ongoing',
+      genres: ['+18', 'Mature'],
+      isAdult: true,
+      chapters: rawChapters,
+      details: { language: isRaw ? 'raw' : 'en' },
+    };
+  }
+
+  if (source === 'asurascans') {
+    const ogTitle = /<meta property="og:title" content="([^"]+)"/i.exec(html)?.[1];
+    const title = ogTitle ? cleanSeriesTitle(ogTitle.replace(/\s*\|\s*Asura\s*Scans/i, '').trim()) : fallbackTitle;
+    const descMatch = /<meta property="og:description" content="([^"]+)"/i.exec(html) ||
+                      /<span class="[^"]*text-sm text-\[#A2A2A2\][^"]*">([\s\S]*?)<\/span>/i.exec(html);
+    const description = descMatch ? stripTags(descMatch[1]).trim() : '';
+    const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
+    const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
+    const chRegex = /href=["'](\/comics\/[^"']+\/chapter\/(\d+(?:\.\d+)?))["']/gi;
+    const chMatches = extractRegexMatches(html, chRegex);
+    const rawChapters = [];
+    const seenCh = new Set();
+    for (const ch of chMatches) {
+      const chPath = ch[1].trim();
+      const num = parseFloat(ch[2]);
+      const fullLink = `https://asurascans.com${chPath}`;
+      if (seenCh.has(fullLink)) continue;
+      seenCh.add(fullLink);
+      rawChapters.push({
+        title: `Bölüm ${num}`,
+        link: fullLink,
+        chapterNumber: num,
+      });
+    }
+    const prologueMatch = html.match(/href=["'](\/comics\/[^"']+\/chapter\/(?:prologue|0))["']/i);
+    if (prologueMatch && !seenCh.has(`https://asurascans.com${prologueMatch[1]}`)) {
+      rawChapters.unshift({
+        title: 'Bölüm 0 - Prologue',
+        link: `https://asurascans.com${prologueMatch[1]}`,
+        chapterNumber: 0,
+      });
+    }
+    rawChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
+    return {
+      source: 'asurascans',
+      title,
+      link: seriesUrl,
+      cover,
+      description,
+      alternativeTitles: [],
+      author: 'Bilinmiyor',
+      status: 'ongoing',
+      genres: ['Webtoon', 'Action'],
+      isAdult: false,
+      chapters: rawChapters,
+      details: { language: 'en' },
+    };
+  }
+
   return null;
 };
 
@@ -1367,7 +1567,7 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
   if (!res.ok || !res.content) return [];
   const html = res.content;
 
-  if (source === 'webtoonhatti' || source === 'hattorimanga') {
+  if (source === 'webtoonhatti' || source === 'hattorimanga' || source === 'madaradex') {
     let matches = [];
     const pageBreakRegex = /<div class="[^"]*page-break[^"]*"[\s\S]*?<\/div>/gi;
     const pageBreaks = extractRegexMatches(html, pageBreakRegex);
@@ -1412,6 +1612,22 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
       if (u && (u.includes('/uploads/') || u.includes('/chapters/') || u.includes('cdn')) && !isJunkImageUrl(u)) {
         imgs.push(u.startsWith('http') ? u : `https://okutoon.com${u}`);
       }
+    }
+    return await verifyAndFilterImageUrls(imgs);
+  }
+
+  if (source === 'mangadass') {
+    const imgs = [];
+    for (const m of extractRegexMatches(html, /<img[^>]+src=["'](https?:\/\/img\d*\.mangadass\.com\/[^"']+)["']/gi)) {
+      if (m[1] && !isJunkImageUrl(m[1])) imgs.push(m[1].trim());
+    }
+    return await verifyAndFilterImageUrls(imgs);
+  }
+
+  if (source === 'asurascans') {
+    const imgs = [];
+    for (const m of extractRegexMatches(html, /src=["'](https:\/\/cdn\.asurascans\.com\/asura-images\/chapters\/[^"']+)["']/gi)) {
+      if (m[1] && !isJunkImageUrl(m[1])) imgs.push(m[1].trim());
     }
     return await verifyAndFilterImageUrls(imgs);
   }
@@ -2060,11 +2276,23 @@ class SmartCatalogStore {
   }
 
   findMatchingMangaId(title, alternativeTitles = []) {
+    const isTargetRaw = (title || '').toLowerCase().includes('(raw)') || (title || '').toLowerCase().includes(' raw') || (title || '').toLowerCase().endsWith('-raw');
     const allTitles = [title, ...(alternativeTitles || [])];
     for (const t of allTitles) {
       const key = normalizeTitleKey(t);
       if (key && this.titleKeyIndex.has(key)) {
-        return this.titleKeyIndex.get(key);
+        const candidateId = this.titleKeyIndex.get(key);
+        const candidate = this.mangas.get(candidateId);
+        if (candidate) {
+          const isCandidateRaw = (candidate.title || '').toLowerCase().includes('(raw)') ||
+                                 (candidate.title || '').toLowerCase().includes(' raw') ||
+                                 (candidate.details?.language === 'raw');
+          // Raw seriler ile çevrilmiş seriler birbirine merge edilmez, ayrı tutulur
+          if (isTargetRaw !== isCandidateRaw) {
+            continue;
+          }
+        }
+        return candidateId;
       }
     }
     return null;
@@ -3911,10 +4139,41 @@ const main = async () => {
         if (existingId && store.mangas.has(existingId)) {
           const existing = store.mangas.get(existingId);
           store.upsertSourceLink(existing, { source: card.source, url: card.link });
+
+          // Eksik bölümleri kontrol et ve tamamla (Backfill)
+          const detail = await fetchSeriesDetailFromSource(card.source, card.link, card.title, card.cover, card.isAdult);
+          if (detail && Array.isArray(detail.chapters) && detail.chapters.length > 0) {
+            const existingNums = new Set((existing.chapters || []).map((c) => Number(c.chapterNumber ?? c.number ?? 0)));
+            const missingChapters = detail.chapters.filter((ch) => !existingNums.has(Number(ch.chapterNumber)));
+            if (missingChapters.length > 0) {
+              logProgress(bIdx, batchToProcess.length, existing.title, `${missingChapters.length} eksik bölüm kaynaktan (${card.source}) tamamlanıyor...`);
+              await ensureSingleSeriesHydratedFromR2(existing);
+              for (let i = 0; i < missingChapters.length; i += CHAPTER_CONCURRENCY) {
+                const chunk = missingChapters.slice(i, i + CHAPTER_CONCURRENCY);
+                const results = await Promise.all(
+                  chunk.map(async (ch) => {
+                    const pages = await fetchChapterPagesFromSource(card.source, ch.link);
+                    return { ...ch, pages };
+                  })
+                );
+                for (const r of results) {
+                  if (r.pages && r.pages.length > 0) {
+                    store.upsertChapter(existing, {
+                      number: r.chapterNumber,
+                      title: r.title,
+                      pages: r.pages,
+                      releaseDate: r.releaseDate || new Date().toISOString(),
+                    });
+                  }
+                }
+              }
+            }
+          }
+
           card.status = 'completed';
           card.updatedAt = new Date().toISOString();
           touchedMangaIds.add(existing.id);
-          logProgress(bIdx, batchToProcess.length, card.title, `Mevcut seriyle eşleşti (${existing.title}), tek kaynak korundu.`);
+          logProgress(bIdx, batchToProcess.length, card.title, `Mevcut seriyle eşleşti (${existing.title}), eksik bölümler tamamlandı.`);
           continue;
         }
 

@@ -99,8 +99,8 @@ export const buildStoredZipBlob = (files: Array<{ name: string; data: Uint8Array
   });
 };
 
-const mimeToExtension = (mimeType: string): string => {
-  const normalized = mimeType.toLowerCase();
+const mimeToExtension = (mimeType?: string | null): string => {
+  const normalized = (mimeType || '').toLowerCase();
   if (normalized.includes('png')) return 'png';
   if (normalized.includes('webp')) return 'webp';
   return 'jpg';
