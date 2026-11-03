@@ -294,10 +294,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
+          id="reader-chapter-search"
+          name="chapterSearch"
           type="search"
           value={chapterSearch}
           onChange={(event) => setChapterSearch(event.target.value)}
           placeholder="Bölüm ara..."
+          aria-label="Bölüm ara"
           className="h-9 rounded-xl border-border bg-secondary/40 pl-9 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:bg-secondary/70 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
         />
       </div>

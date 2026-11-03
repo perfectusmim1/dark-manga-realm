@@ -10,7 +10,10 @@ export type ScraperSourceKey =
   | 'golgebahcesi'
   | 'dxdfansub'
   | 'siyahmelek'
-  | 'hattorimanga';
+  | 'hattorimanga'
+  | 'mangadass'
+  | 'asurascans'
+  | 'madaradex';
 
 export type LegacyScrapeSource = 'hayalistic';
 export type ScrapeSource = ScraperSourceKey | LegacyScrapeSource;
@@ -23,6 +26,9 @@ export const SCRAPER_SOURCES: readonly ScraperSourceKey[] = [
   'dxdfansub',
   'siyahmelek',
   'hattorimanga',
+  'mangadass',
+  'asurascans',
+  'madaradex',
 ] as const;
 
 export interface ScrapedMangaCard {
@@ -136,6 +142,33 @@ export const SOURCE_CONFIG: Record<ScraperSourceKey, SourceDefinition> = {
       /https?:\/\/(?:www\.)?hattorimanga\.net\/manga\/[^?#]+/i,
     ],
   },
+  mangadass: {
+    label: 'MangaDass (+18 & Raw)',
+    baseUrl: 'https://mangadass.com',
+    searchUrl: (query) => `https://mangadass.com/search?keyword=${encodeURIComponent(query)}`,
+    listUrl: 'https://mangadass.com/raw-manhwa?orderby=latest',
+    directLinkPatterns: [
+      /https?:\/\/(?:www\.)?mangadass\.com\/manga\/[^?#]+/i,
+    ],
+  },
+  asurascans: {
+    label: 'Asura Scans',
+    baseUrl: 'https://asurascans.com',
+    searchUrl: (query) => `https://asurascans.com/browse/comics?q=${encodeURIComponent(query)}`,
+    listUrl: 'https://asurascans.com/comics',
+    directLinkPatterns: [
+      /https?:\/\/(?:www\.)?(?:asurascans\.com|asuracomic\.net)\/comics\/[^?#]+/i,
+    ],
+  },
+  madaradex: {
+    label: 'MadaraDex (+18)',
+    baseUrl: 'https://madaradex.org',
+    searchUrl: (query) => `https://madaradex.org/?s=${encodeURIComponent(query)}&post_type=wp-manga`,
+    listUrl: 'https://madaradex.org/?m_orderby=latest',
+    directLinkPatterns: [
+      /https?:\/\/(?:www\.)?madaradex\.org\/(?:title|manga)\/[^?#]+/i,
+    ],
+  },
 };
 
 const LEGACY_SOURCE_CONFIG: Record<LegacyScrapeSource, SourceDefinition> = {
@@ -187,10 +220,21 @@ export const normalizeSeriesMatchKey = (title: string): string => {
     .trim();
 };
 
+export const isRawSeriesItem = (item: { title: string; details?: any }): boolean => {
+  if (item.details?.language === 'raw') return true;
+  const t = (item.title || '').toLowerCase();
+  return t.includes('(raw)') || t.includes(' raw') || t.endsWith('-raw');
+};
+
 export const areSeriesTitlesMatching = (
-  a: { title: string; alternativeTitles?: string[] },
-  b: { title: string; alternativeTitles?: string[] },
+  a: { title: string; alternativeTitles?: string[]; details?: any },
+  b: { title: string; alternativeTitles?: string[]; details?: any },
 ): boolean => {
+  // Raw seriler ile çevrilmiş seriler birbirine merge edilmez, ayrı tutulur
+  if (isRawSeriesItem(a) !== isRawSeriesItem(b)) {
+    return false;
+  }
+
   const getKeys = (item: { title: string; alternativeTitles?: string[] }) => {
     const allTitles = [item.title, ...(item.alternativeTitles || [])];
     return new Set(allTitles.map(normalizeSeriesMatchKey).filter((k) => k.length >= 3));
@@ -458,7 +502,9 @@ export const cleanChapterTitle = (
 ): string => {
   let text = (rawTitle || '').toString().trim();
   if (!text) {
-    return chapterNumber != null && Number(chapterNumber) > 0 ? `Bölüm ${chapterNumber}` : 'Bölüm 1';
+    return chapterNumber != null && Number.isFinite(Number(chapterNumber)) && Number(chapterNumber) >= 0
+      ? `Bölüm ${chapterNumber}`
+      : 'Bölüm 1';
   }
 
   // 1. Remove drop rates & percentages
@@ -482,11 +528,17 @@ export const cleanChapterTitle = (
     text = text.replace(new RegExp(`\\b${escaped}\\b`, 'gi'), ' ');
   }
 
-  // 5. Determine effective chapter number
-  let effectiveNum = chapterNumber != null && Number(chapterNumber) > 0 ? Number(chapterNumber) : null;
+  // 5. Determine effective chapter number (handles Chapter 0 / Prologue cleanly)
+  let effectiveNum = chapterNumber != null && Number.isFinite(Number(chapterNumber)) && Number(chapterNumber) >= 0
+    ? Number(chapterNumber)
+    : null;
   if (effectiveNum == null) {
-    const match = text.match(/(?:b[öo]l[üu]m|chapter|ch\.?)\s*(\d+(?:\.\d+)?)/i) || text.match(/(\d+(?:\.\d+)?)/);
-    if (match) effectiveNum = parseFloat(match[1]);
+    if (/\b(?:prologue|prolog|[öo]ns[öo]z)\b/i.test(text)) {
+      effectiveNum = 0;
+    } else {
+      const match = text.match(/(?:b[öo]l[üu]m|chapter|ch\.?)\s*(\d+(?:\.\d+)?)/i) || text.match(/(\d+(?:\.\d+)?)/);
+      if (match) effectiveNum = parseFloat(match[1]);
+    }
   }
 
   // 6. Remove trailing residue numbers if chapter number already established
@@ -1010,7 +1062,7 @@ const extractGolgeOrDxdCards = (doc: Document, source: 'golgebahcesi' | 'dxdfans
 };
 
 export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, rawHtml?: string): ScrapedMangaCard[] => {
-  if (source === 'webtoonhatti' || source === 'hattorimanga') {
+  if (source === 'webtoonhatti' || source === 'hattorimanga' || source === 'madaradex') {
     const baseUrl = getSourceDef(source).baseUrl;
     const cards: ScrapedMangaCard[] = [];
     const seenKeys = new Set<string>();
@@ -1019,7 +1071,7 @@ export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, ra
     ));
 
     for (const element of elements) {
-      const titleLink = element.querySelector('.post-title a, .post-title h3 a, h3 a, a[href*="/webtoon/"], a[href*="/manga/"]');
+      const titleLink = element.querySelector('.post-title a, .post-title h3 a, h3 a, a[href*="/webtoon/"], a[href*="/manga/"], a[href*="/title/"]');
       const title = normalizeScrapedText(titleLink?.textContent || element.querySelector('.post-title')?.textContent);
       const link = normalizeUrl(baseUrl, titleLink?.getAttribute('href'));
 
@@ -1042,6 +1094,62 @@ export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, ra
     if (cards.length === 0 && rawHtml) {
       const htmlCards = extractMadaraCardsFromHtml(rawHtml, baseUrl, source);
       if (htmlCards.length > 0) return htmlCards.filter((c) => !isBLSeries(c));
+    }
+    return cards.filter((c) => !isBLSeries(c));
+  }
+
+  if (source === 'asurascans') {
+    const baseUrl = getSourceDef(source).baseUrl;
+    const cards: ScrapedMangaCard[] = [];
+    const seen = new Set<string>();
+    const links = Array.from(doc.querySelectorAll('a[href*="/comics/"]'));
+    for (const a of links) {
+      const href = a.getAttribute('href') || '';
+      if (!href || href === '/comics' || href.endsWith('/comics') || href.includes('/chapter/')) continue;
+      const fullUrl = normalizeUrl(baseUrl, href);
+      if (seen.has(fullUrl)) continue;
+      seen.add(fullUrl);
+      const title = normalizeScrapedText(a.querySelector('span.font-bold, h2, h3, .title')?.textContent || a.getAttribute('title') || a.textContent);
+      const img = a.querySelector('img');
+      const cover = normalizeUrl(baseUrl, img?.getAttribute('src') || img?.getAttribute('data-src'));
+      if (title && fullUrl) {
+        cards.push({
+          source: 'asurascans',
+          title: cleanSeriesTitle(title),
+          link: fullUrl,
+          cover,
+          genres: [],
+        });
+      }
+    }
+    return cards.filter((c) => !isBLSeries(c));
+  }
+
+  if (source === 'mangadass') {
+    const baseUrl = getSourceDef(source).baseUrl;
+    const cards: ScrapedMangaCard[] = [];
+    const seen = new Set<string>();
+    const items = Array.from(doc.querySelectorAll('.manga-item, .grid-item, a[href*="/manga/"]'));
+    for (const item of items) {
+      const a = (item.tagName === 'A' ? item : item.querySelector('a[href*="/manga/"]')) as HTMLAnchorElement | null;
+      if (!a) continue;
+      const href = a.getAttribute('href') || '';
+      if (!href || href === '/manga' || href.includes('/chapter-')) continue;
+      const fullUrl = normalizeUrl(baseUrl, href);
+      if (seen.has(fullUrl)) continue;
+      seen.add(fullUrl);
+      const title = normalizeScrapedText(item.querySelector('h2, h3, .title, .manga-title')?.textContent || a.getAttribute('title') || a.textContent);
+      const img = item.querySelector('img') || a.querySelector('img');
+      const cover = normalizeUrl(baseUrl, img?.getAttribute('data-src') || img?.getAttribute('src'));
+      if (title && fullUrl) {
+        cards.push({
+          source: 'mangadass',
+          title: cleanSeriesTitle(title),
+          link: fullUrl,
+          cover,
+          genres: ['+18'],
+        });
+      }
     }
     return cards.filter((c) => !isBLSeries(c));
   }
