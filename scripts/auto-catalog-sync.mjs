@@ -1349,7 +1349,12 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     const titleMatch = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
     const title = titleMatch ? stripTags(titleMatch[1]).trim() : fallbackTitle;
     const descMatch = /<div class="manga-description[^"]*">([\s\S]*?)<\/div>/i.exec(html);
-    const description = descMatch ? stripTags(descMatch[1]).trim() : '';
+    let description = descMatch ? stripTags(descMatch[1]).trim() : '';
+    if (description && !isLikelyTurkish(description)) {
+      try {
+        description = (await translateTextGtx(description)) || description;
+      } catch {}
+    }
 
     const genreRegex = /<a[^>]+href="https:\/\/siyahmelek\.my\/tur\/[^"]*"[^>]*>([\s\S]*?)<\/a>/gi;
     const genres = extractRegexMatches(html, genreRegex)
@@ -1491,9 +1496,20 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
   if (source === 'mangadass') {
     const titleMatch = /<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html);
     const title = titleMatch ? cleanSeriesTitle(stripTags(titleMatch[1]).trim()) : fallbackTitle;
-    const descMatch = /<div class="[^"]*review-content[^"]*">([\s\S]*?)<\/div>/i.exec(html) ||
-                      /<meta property="og:description" content="([^"]+)"/i.exec(html);
-    const description = descMatch ? stripTags(descMatch[1]).trim() : '';
+
+    // Tam açıklama: MangaDass'ta tam metin class="ss-manga" içinde yer alır (og:description yarım kesilidir)
+    const ssMatch = /<div class="[^"]*ss-manga[^"]*">([\s\S]*?)<\/div>/i.exec(html) ||
+                    /<div class="[^"]*panel-story-description[^"]*">([\s\S]*?)<\/div>/i.exec(html);
+    let description = ssMatch ? stripTags(ssMatch[1].replace(/<div class="section-heading[\s\S]*?<\/div>/i, '')).trim() : '';
+    if (!description || description.length < 20) {
+      const ogDesc = /<meta property="og:description" content="([^"]+)"/i.exec(html);
+      description = ogDesc ? stripTags(ogDesc[1]).trim() : '';
+    }
+    if (description && !isLikelyTurkish(description)) {
+      try {
+        description = (await translateTextGtx(description)) || description;
+      } catch {}
+    }
     const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
     const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
 
@@ -1540,7 +1556,12 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     const title = ogTitle ? cleanSeriesTitle(ogTitle.replace(/\s*\|\s*Asura\s*Scans/i, '').trim()) : fallbackTitle;
     const descMatch = /<meta property="og:description" content="([^"]+)"/i.exec(html) ||
                       /<span class="[^"]*text-sm text-\[#A2A2A2\][^"]*">([\s\S]*?)<\/span>/i.exec(html);
-    const description = descMatch ? stripTags(descMatch[1]).trim() : '';
+    let description = descMatch ? stripTags(descMatch[1]).trim() : '';
+    if (description && !isLikelyTurkish(description)) {
+      try {
+        description = (await translateTextGtx(description)) || description;
+      } catch {}
+    }
     const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
     const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
 
@@ -1618,7 +1639,12 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     const title = ogTitle ? cleanSeriesTitle(ogTitle.trim()) : (h1Match ? cleanSeriesTitle(stripTags(h1Match[1]).trim()) : fallbackTitle);
     const descMatch = /<div class="[^"]*description-summary[^"]*">[\s\S]*?<p>([\s\S]*?)<\/p>/i.exec(html) ||
                       /<meta property="og:description" content="([^"]+)"/i.exec(html);
-    const description = descMatch ? stripTags(descMatch[1]).trim() : '';
+    let description = descMatch ? stripTags(descMatch[1]).trim() : '';
+    if (description && !isLikelyTurkish(description)) {
+      try {
+        description = (await translateTextGtx(description)) || description;
+      } catch {}
+    }
     const coverMatch = /<meta property="og:image" content="([^"]+)"/i.exec(html);
     const cover = coverMatch ? coverMatch[1].trim() : fallbackCover;
 
