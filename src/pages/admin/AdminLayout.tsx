@@ -32,7 +32,7 @@ const AdminLayout: React.FC = () => {
     const [sidebarOpen, setSidebarOpen] = useState(true);
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const { user, isLoading, logout } = useAuth();
-    const { access, isLoading: accessLoading } = useAdminAccess({ requireOnlineValidation: true });
+    const { access, isLoading: accessLoading } = useAdminAccess({ requireOnlineValidation: false });
     const isAdmin = access.canAccessAdminPanel;
     const canUseScrapers = isAdmin && access.role === 'admin';
 
@@ -46,7 +46,12 @@ const AdminLayout: React.FC = () => {
         setMobileSidebarOpen(false);
     }, [location.pathname]);
 
-    if (isLoading || accessLoading || !isAdmin || !user) {
+    // Yetki ilk kez belirlenene kadar render engelle; arka plan doğrulamalarında paneli asla unmount etme
+    if ((isLoading || accessLoading) && !access.canAccessAdminPanel) {
+        return null;
+    }
+
+    if (!isAdmin || !user) {
         return null;
     }
 

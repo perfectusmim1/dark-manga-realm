@@ -32,6 +32,24 @@ const AppInitializer = ({ children }: { children: React.ReactNode }) => {
   useEffect(() => {
     initializeMockData();
     initializeOfflineUserSync();
+
+    // Sitedeki tüm buton ve elemanlarda hover anında çıkan tarayıcı tooltip etiketlerini kaldır
+    const handleMouseOver = (e: MouseEvent) => {
+      const target = (e.target as HTMLElement | null)?.closest?.('[title]');
+      if (target) {
+        const titleVal = target.getAttribute('title');
+        if (titleVal) {
+          if (!target.getAttribute('aria-label')) {
+            target.setAttribute('aria-label', titleVal);
+          }
+          target.removeAttribute('title');
+        }
+      }
+    };
+    document.addEventListener('mouseover', handleMouseOver, { capture: true, passive: true });
+    return () => {
+      document.removeEventListener('mouseover', handleMouseOver, { capture: true });
+    };
   }, []);
 
   return <>{children}</>;

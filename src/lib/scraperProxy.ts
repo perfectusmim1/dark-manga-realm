@@ -56,8 +56,18 @@ export const getScraperProviderLabel = (provider: ScraperProvider) => (
   SCRAPER_PROVIDER_LABELS[provider]
 );
 
+const isLocalBrowserHost = (): boolean => {
+  if (typeof window === 'undefined') return false;
+  const host = window.location.hostname;
+  return host === 'localhost' || host === '127.0.0.1';
+};
+
 export const getAvailableScraperProviders = (): ScraperProvider[] => {
-  const providers: ScraperProvider[] = ['localhost'];
+  const providers: ScraperProvider[] = [];
+
+  if (isLocalBrowserHost()) {
+    providers.push('localhost');
+  }
 
   if (configuredCloudflareScraperUrl) {
     providers.push('cloudflare');
@@ -65,6 +75,10 @@ export const getAvailableScraperProviders = (): ScraperProvider[] => {
 
   if (configuredSupabaseScraperUrl) {
     providers.push('supabase');
+  }
+
+  if (providers.length === 0) {
+    providers.push('localhost');
   }
 
   return providers;
@@ -91,16 +105,16 @@ export const getDefaultScraperProvider = (): ScraperProvider => {
 export const getDefaultScraperProviderForSource = (source: ScrapeSource): ScraperProvider => {
   const availableProviders = getAvailableScraperProviders();
 
-  if (source === 'siyahmelek' && availableProviders.includes('localhost')) {
+  if (source === 'siyahmelek' && isLocalBrowserHost() && availableProviders.includes('localhost')) {
     return 'localhost';
-  }
-
-  if (source === 'siyahmelek' && availableProviders.includes('supabase')) {
-    return 'supabase';
   }
 
   if (availableProviders.includes('cloudflare')) {
     return 'cloudflare';
+  }
+
+  if (availableProviders.includes('supabase')) {
+    return 'supabase';
   }
 
   return getDefaultScraperProvider();
@@ -194,13 +208,28 @@ const createProxyAttempt = (provider: ScraperProvider): ProxyAttempt => {
 
     return {
       label: 'Cloudflare scraper proxy',
-      request: (targetUrl) =>
-        fetch(getNextScraperProxyUrl(), {
-          method: 'POST',
-          headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
-          body: targetUrl,
-          credentials: 'omit',
-        }),
+      request: async (targetUrl) => {
+        const maxAttempts = Math.max(1, Math.min(configuredCloudflareScraperUrls.length, 3));
+        let lastErr: unknown = null;
+        for (let attemptIdx = 0; attemptIdx < maxAttempts; attemptIdx++) {
+          try {
+            const res = await fetch(getNextScraperProxyUrl(), {
+              method: 'POST',
+              headers: { 'Content-Type': 'text/plain;charset=UTF-8' },
+              body: targetUrl,
+              credentials: 'omit',
+              signal: AbortSignal.timeout(12000),
+            });
+            if (res.ok) {
+              return res;
+            }
+            lastErr = new Error(`Cloudflare scraper proxy HTTP ${res.status}`);
+          } catch (err) {
+            lastErr = err;
+          }
+        }
+        throw lastErr instanceof Error ? lastErr : new Error('Cloudflare scraper proxy failed');
+      },
     };
   }
 

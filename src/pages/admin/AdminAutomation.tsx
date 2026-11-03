@@ -518,7 +518,7 @@ const AdminAutomation: React.FC = () => {
   const handleTestAutomations = async (automationIds?: string[]) => {
     const targetAutomationIds = automationIds?.length
       ? automationIds
-      : automations.map((automation) => automation.id);
+      : visibleAutomations.slice(0, 20).map((automation) => automation.id);
 
     if (targetAutomationIds.length === 0) {
       toast.error('Test edilecek otomasyon yok');
@@ -529,7 +529,7 @@ const AdminAutomation: React.FC = () => {
       markAutomationsTesting(targetAutomationIds);
       setIsTestingAll(!automationIds?.length);
 
-      const result = await testChapterAutomations(automationIds);
+      const result = await testChapterAutomations(targetAutomationIds);
       const failedCount = result.testResults.filter((testResult) => testResult.status === 'error').length;
 
       await loadPageData();
@@ -723,8 +723,8 @@ const AdminAutomation: React.FC = () => {
           <div>
             <h1 className="text-2xl font-bold sm:text-3xl">Otomasyon</h1>
             <p className="text-sm leading-6 text-muted-foreground sm:text-base">
-              GitHub Actions 2 saatlik döngülerde yalnızca aktif ve devam eden serileri tarar; tamamlanan seriler elenir,
-              uzun süredir bölüm gelmeyenler pasife alınır ve buradaki düzenlemelerle çift yönlü senkron çalışır.
+              Cloudflare Proxy + R2 + GitHub Actions (2 saatlik döngü) ile çift yönlü senkron çalışır. Yeni eklenen devam eden seriler otomatik alınır;
+              tamamlanan veya 3 ay (90 gün) boyunca yeni bölüm gelmeyen seriler otomasyondan otomatik çıkarılır (arşivde korunur).
             </p>
           </div>
         </div>
@@ -735,10 +735,10 @@ const AdminAutomation: React.FC = () => {
             Sadece Admin
           </Badge>
           <Badge variant="outline" className="h-8 border-primary/20 bg-primary/5 text-primary">
-            Proxy: Cloudflare
+            Cloudflare + GitHub Actions (2s)
           </Badge>
           <Badge variant="outline" className="h-8 border-primary/20 bg-primary/5 text-primary">
-            Saat Dilimi: Europe/Istanbul
+            Oto-Ayıklama: 90 Gün
           </Badge>
         </div>
       </div>
@@ -1186,14 +1186,16 @@ const AdminAutomation: React.FC = () => {
                   variant="outline"
                   className="w-full sm:w-auto"
                   onClick={() => void handleTestAutomations()}
-                  disabled={isBootstrapping || isTestingAll || testingAutomationIds.length > 0 || automations.length === 0}
+                  disabled={isBootstrapping || isTestingAll || testingAutomationIds.length > 0 || visibleAutomations.length === 0}
                 >
                   {isTestingAll ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <CheckCircle2 className="mr-2 h-4 w-4" />
                   )}
-                  Hepsini Test Et
+                  {filteredAutomations.length > 20
+                    ? `Görünenleri Test Et (${Math.min(visibleAutomations.length, 20)})`
+                    : 'Hepsini Test Et'}
                 </Button>
                 <Button variant="outline" size="icon" onClick={() => void loadPageData()} disabled={isBootstrapping}>
                   <RefreshCw className={`h-4 w-4 ${isBootstrapping ? 'animate-spin' : ''}`} />

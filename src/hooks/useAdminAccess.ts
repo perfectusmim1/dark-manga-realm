@@ -65,7 +65,8 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean; en
 
             if (cachedAccess) {
                 setAccess(cachedAccess);
-                setIsLoading(requireOnlineValidation);
+                // Mevcut önbellek varsa arayüzü engelleme (SWR - akıcı arka plan doğrulaması)
+                setIsLoading(false);
             } else {
                 setAccess(DEFAULT_ACCESS);
                 setIsLoading(true);
@@ -81,7 +82,8 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean; en
                 if (!isExpectedAccessControlError(error)) {
                     console.error('Admin access load error:', error);
                 }
-                if (!isCancelled) {
+                // Geçici ağ hatalarında geçerli önbellek varsa yetkiyi sıfırlayıp kullanıcıyı panelden atma
+                if (!isCancelled && !cachedAccess) {
                     setAccess(DEFAULT_ACCESS);
                 }
             } finally {

@@ -187,6 +187,76 @@ export const listChapterAutomations = async (): Promise<{
   return { automations, recentRuns };
 };
 
+interface OkutoonSeriesSnapshot {
+  title: string;
+  normalizedUrl: string;
+  cover: string | null;
+  chapters: Array<{ number: number; link: string; slug: string; seriesSlug: string }>;
+}
+
+const fetchOkutoonSeriesFromApi = async (rawUrl: string): Promise<OkutoonSeriesSnapshot | null> => {
+  const slug = String(rawUrl || '')
+    .replace(/^https?:\/\/(?:www\.)?okutoon\.com\/?/i, '')
+    .replace(/^seri\//i, '')
+    .split(/[/?#]/)[0]
+    ?.trim();
+  if (!slug) return null;
+
+  let seriesMeta: any = null;
+  try {
+    const rawMeta = await fetchScraperContent(`https://okutoon.com/api/v1/series/${encodeURIComponent(slug)}`, {
+      source: 'okutoon',
+    });
+    seriesMeta = JSON.parse(rawMeta)?.data || null;
+  } catch {
+    // Chapters endpoint may still succeed even if metadata endpoint fails
+  }
+
+  const chapters: Array<{ number: number; link: string; slug: string; seriesSlug: string }> = [];
+  const seenSlugs = new Set<string>();
+  let offset = 0;
+
+  for (let pageGuard = 0; pageGuard < 20; pageGuard++) {
+    const chUrl = `https://okutoon.com/api/v1/series/${encodeURIComponent(slug)}/chapters?limit=100&offset=${offset}`;
+    let chJson: any = null;
+    try {
+      const rawCh = await fetchScraperContent(chUrl, { source: 'okutoon' });
+      chJson = JSON.parse(rawCh);
+    } catch {
+      break;
+    }
+
+    const items = Array.isArray(chJson?.data) ? chJson.data : [];
+    if (items.length === 0) break;
+
+    for (const ch of items) {
+      const chSlug = String(ch?.slug || '').trim();
+      if (!chSlug || seenSlugs.has(chSlug)) continue;
+      seenSlugs.add(chSlug);
+      const num = Number(ch?.display_number ?? ch?.number ?? 0);
+      chapters.push({
+        number: Number.isFinite(num) ? num : 0,
+        link: ch?.url || `https://okutoon.com/${slug}/${chSlug}`,
+        slug: chSlug,
+        seriesSlug: slug,
+      });
+    }
+
+    if (!chJson?.meta?.has_more) break;
+    offset += items.length;
+  }
+
+  if (chapters.length === 0) return null;
+  chapters.sort((a, b) => a.number - b.number);
+
+  return {
+    title: String(seriesMeta?.title || slug).trim(),
+    normalizedUrl: `https://okutoon.com/${slug}`,
+    cover: seriesMeta?.cover_url || seriesMeta?.headline_url || null,
+    chapters,
+  };
+};
+
 export const validateChapterAutomation = async (
   source: ChapterAutomationSource,
   sourceUrl: string,
@@ -196,12 +266,29 @@ export const validateChapterAutomation = async (
     throw new Error('Geçersiz seri bağlantısı');
   }
 
+  if (source === 'okutoon') {
+    const okuData = await fetchOkutoonSeriesFromApi(normalizedUrl);
+    if (okuData && okuData.chapters.length > 0) {
+      const chapterNumbers = okuData.chapters.map((c) => Number(c.number)).filter((n) => Number.isFinite(n));
+      return {
+        source,
+        sourceTitle: okuData.title || 'Bilinmeyen Seri',
+        normalizedUrl: okuData.normalizedUrl,
+        cover: okuData.cover,
+        chapterCount: okuData.chapters.length,
+        latestChapterNumber: chapterNumbers.length > 0 ? Math.max(...chapterNumbers) : null,
+        checkedAt: new Date().toISOString(),
+      };
+    }
+  }
+
   const html = await fetchScraperContent(normalizedUrl, { source: source as ScrapeSource });
   const doc = new DOMParser().parseFromString(html, 'text/html');
   const detail = extractScrapedMangaDetail(
     doc,
     source as ScrapeSource,
     { title: '', link: normalizedUrl, cover: '', genres: [] },
+    html,
   );
 
   const chapters = detail._rawChapters.filter((ch) => ch.link);
@@ -257,9 +344,20 @@ export const testChapterAutomations = async (automationIds?: string[]): Promise<
 
       // 3. Fetch source chapters
       const normalizedUrl = normalizeScrapeSeriesUrl(auto.source as ScrapeSource, auto.sourceUrl);
-      const html = await fetchScraperContent(normalizedUrl, { source: auto.source as ScrapeSource });
-      const doc = new DOMParser().parseFromString(html, 'text/html');
-      const sourceChapters = extractScrapedChapterLinks(doc, auto.source as ScrapeSource);
+      let sourceChapters: Array<{ number: number; link: string; slug?: string; seriesSlug?: string }> = [];
+
+      if (auto.source === 'okutoon') {
+        const okuData = await fetchOkutoonSeriesFromApi(normalizedUrl);
+        if (okuData) {
+          sourceChapters = okuData.chapters;
+        }
+      }
+
+      if (sourceChapters.length === 0) {
+        const html = await fetchScraperContent(normalizedUrl, { source: auto.source as ScrapeSource });
+        const doc = new DOMParser().parseFromString(html, 'text/html');
+        sourceChapters = extractScrapedChapterLinks(doc, auto.source as ScrapeSource);
+      }
 
       if (sourceChapters.length === 0) {
         throw new Error('Kaynak sitede bölüm listesi bulunamadı');
@@ -273,13 +371,28 @@ export const testChapterAutomations = async (automationIds?: string[]): Promise<
       let probeStatus = 'ok';
       if (sourceChapters.length > 0) {
         try {
-          const sampleCh = sourceChapters[0];
-          const sampleHtml = await fetchScraperContent(sampleCh.link, { source: auto.source as ScrapeSource });
-          const sampleDoc = new DOMParser().parseFromString(sampleHtml, 'text/html');
-          const imgRes = extractChapterImageResult(sampleDoc, auto.source as ScrapeSource, undefined, sampleHtml);
-          const validImgs = sanitizeAndDedupePageUrls(imgRes.images, auto.source as ScrapeSource);
-          if (validImgs.length === 0) {
-            probeStatus = 'warning_no_images';
+          const sampleCh = sourceChapters[sourceChapters.length - 1] || sourceChapters[0];
+          if (auto.source === 'okutoon' && sampleCh.seriesSlug && sampleCh.slug) {
+            const rawChJson = await fetchScraperContent(
+              `https://okutoon.com/api/v1/series/${encodeURIComponent(sampleCh.seriesSlug)}/chapters/${encodeURIComponent(sampleCh.slug)}`,
+              { source: 'okutoon' },
+            );
+            const pages = JSON.parse(rawChJson)?.data?.pages || [];
+            const validImgs = sanitizeAndDedupePageUrls(
+              pages.map((p: any) => String(p?.image_url || '')).filter(Boolean),
+              'okutoon',
+            );
+            if (validImgs.length === 0) {
+              probeStatus = 'warning_no_images';
+            }
+          } else {
+            const sampleHtml = await fetchScraperContent(sampleCh.link, { source: auto.source as ScrapeSource });
+            const sampleDoc = new DOMParser().parseFromString(sampleHtml, 'text/html');
+            const imgRes = extractChapterImageResult(sampleDoc, auto.source as ScrapeSource, undefined, sampleHtml);
+            const validImgs = sanitizeAndDedupePageUrls(imgRes.images, auto.source as ScrapeSource);
+            if (validImgs.length === 0) {
+              probeStatus = 'warning_no_images';
+            }
           }
         } catch {
           probeStatus = 'warning_probe_failed';
@@ -379,6 +492,18 @@ export const testChapterAutomations = async (automationIds?: string[]): Promise<
 export const createChapterAutomation = async (
   payload: ChapterAutomationUpsertInput,
 ): Promise<ChapterAutomation> => {
+  const { data: existingForManga } = await supabase
+    .from('chapter_automations')
+    .select('id')
+    .eq('manga_id', payload.mangaId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (existingForManga?.id) {
+    return await updateChapterAutomation(existingForManga.id, payload);
+  }
+
   const validation = await validateChapterAutomation(payload.source, payload.sourceUrl);
   const actorUserId = await getCurrentActorUserId();
   const now = new Date().toISOString();

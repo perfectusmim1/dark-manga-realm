@@ -372,7 +372,9 @@ export const useChapterTranslation = ({
         const rest = queueRef.current.filter((i) => !indices.includes(i));
         queueRef.current = [...indices.filter((i) => statesRef.current[i]?.status === 'queued'), ...rest];
       } else {
-        queueRef.current = [...queueRef.current, ...validAdditions];
+        const nextQueue = Array.from(new Set([...queueRef.current, ...validAdditions]));
+        nextQueue.sort((a, b) => a - b);
+        queueRef.current = nextQueue;
       }
 
       if (!settingsRef.current.overlayVisible) {
@@ -397,10 +399,9 @@ export const useChapterTranslation = ({
     const total = pagesRef.current.length;
     if (total === 0) return;
 
-    const startIndex = Math.max(0, Math.min(total - 1, currentPage - 1));
+    // Sayfaları kesin sıralı olarak baştan sona (1, 2, 3, 4...) sıraya al
     const ordered: number[] = [];
-    for (let i = startIndex; i < total; i += 1) ordered.push(i);
-    for (let i = 0; i < startIndex; i += 1) ordered.push(i);
+    for (let i = 0; i < total; i += 1) ordered.push(i);
 
     const pending = ordered.filter((idx) => {
       const st = statesRef.current[idx];
@@ -413,7 +414,7 @@ export const useChapterTranslation = ({
     }
 
     enqueueIndices(pending);
-  }, [currentPage, enqueueIndices, ensureCanStartTranslation]);
+  }, [enqueueIndices, ensureCanStartTranslation]);
 
   const retryFailedPages = useCallback(() => {
     if (!ensureCanStartTranslation()) return;

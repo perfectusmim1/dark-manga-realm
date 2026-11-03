@@ -924,14 +924,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     syncCurrentAccessState();
     const bootstrapRetryTimeoutId = window.setTimeout(syncCurrentAccessState, ACCESS_STATE_BOOTSTRAP_RETRY_DELAY_MS);
     const intervalId = window.setInterval(syncCurrentAccessState, WARNING_BAN_SYNC_INTERVAL_MS);
-    window.addEventListener('focus', syncCurrentAccessState);
-    document.addEventListener('visibilitychange', syncCurrentAccessState);
 
     return () => {
       window.clearTimeout(bootstrapRetryTimeoutId);
       window.clearInterval(intervalId);
-      window.removeEventListener('focus', syncCurrentAccessState);
-      document.removeEventListener('visibilitychange', syncCurrentAccessState);
     };
   }, [isLoading, refreshAccessState, session?.access_token, supabaseUser?.id]);
 

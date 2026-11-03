@@ -327,8 +327,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     />
   );
 
-  const hasTranslationDot = translation.summary.isBusy || translation.hasTranslatedPages;
-
   return (
     <>
       {/* Top Bar */}
@@ -345,7 +343,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               variant="ghost"
               size="icon"
               className="h-8 w-8 sm:h-10 sm:w-10"
-              title="Ana Sayfa"
               aria-label="Ana sayfaya git"
             >
               <Link to="/">
@@ -357,7 +354,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               variant="ghost"
               size="icon"
               className="h-8 w-8 sm:h-10 sm:w-10"
-              title="Seri Sayfası"
               aria-label="Seri sayfasına git"
             >
               <Link to={`/manga/${mangaId}`} onClick={handleSeriesPageNavigation}>
@@ -380,7 +376,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               size="icon"
               className="h-8 w-8 sm:h-10 sm:w-10"
               onClick={onAddBookmark}
-              title="Yer İmlerime Ekle"
+              aria-label="Yer İmlerime Ekle"
             >
               <BookmarkPlus className="h-4 w-4 sm:h-5 sm:w-5" />
             </Button>
@@ -473,15 +469,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     aria-label="Görsel çeviri ayarları"
                   >
                     <Languages className="h-4 w-4 sm:h-5 sm:w-5" />
-                    {hasTranslationDot && (
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          'absolute right-1.5 top-1.5 h-2 w-2 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]',
-                          translation.summary.isBusy && 'animate-pulse',
-                        )}
-                      />
-                    )}
                   </Button>
                 </DrawerTrigger>
                 <DrawerContent
@@ -515,15 +502,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     aria-label="Görsel çeviri ayarları"
                   >
                     <Languages className="h-4 w-4 sm:h-5 sm:w-5" />
-                    {hasTranslationDot && (
-                      <span
-                        aria-hidden="true"
-                        className={cn(
-                          'absolute right-2 top-2 h-2 w-2 rounded-full bg-primary shadow-[0_0_6px_hsl(var(--primary))]',
-                          translation.summary.isBusy && 'animate-pulse',
-                        )}
-                      />
-                    )}
                   </Button>
                 </PopoverTrigger>
                 <PopoverContent
@@ -730,7 +708,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     size="icon"
                     className="h-7 w-7 rounded-full"
                     onClick={onAutoScrollToggle}
-                    title={
+                    aria-label={
                       isAutoScrolling
                         ? 'Otomatik kaydırmayı duraklat'
                         : 'Otomatik kaydırmayı başlat'
@@ -749,7 +727,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                         variant="ghost"
                         size="sm"
                         className="h-7 w-7 rounded-full p-0 text-[10px] font-semibold text-muted-foreground hover:text-foreground sm:h-7 sm:w-auto sm:gap-1 sm:px-2"
-                        title="Otomatik kaydırma hızı"
+                        aria-label="Otomatik kaydırma hızı"
                       >
                         <Gauge className="h-3.5 w-3.5" />
                         <span className="hidden sm:inline">{autoScrollSpeed} px/sn</span>
