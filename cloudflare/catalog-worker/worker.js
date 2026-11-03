@@ -632,6 +632,88 @@ export default {
 
       const now = new Date().toISOString();
 
+      if (pathname === '/v1/admin/github/runs' && method === 'GET') {
+        const pat = env.GITHUB_PAT;
+        if (!pat) {
+          return errorResponse('GITHUB_PAT binding is not configured in worker', 500);
+        }
+        const repo = env.GITHUB_REPO || 'perfectusmim1/dark-manga-realm';
+        const ghRes = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/auto-scraper.yml/runs?per_page=10`, {
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'ToonParrot-Catalog-Worker',
+          },
+        });
+        if (!ghRes.ok) {
+          const errText = await ghRes.text();
+          return errorResponse(`GitHub API error (${ghRes.status}): ${errText}`, 502);
+        }
+        const ghData = await ghRes.json();
+        const runs = (ghData.workflow_runs || []).map((r) => ({
+          id: r.id,
+          runNumber: r.run_number,
+          status: r.status,
+          conclusion: r.conclusion,
+          event: r.event,
+          createdAt: r.created_at,
+          updatedAt: r.updated_at,
+          htmlUrl: r.html_url,
+          displayTitle: r.display_title || r.name,
+          durationSec:
+            r.run_started_at && r.updated_at && r.status === 'completed'
+              ? Math.max(0, Math.round((new Date(r.updated_at).getTime() - new Date(r.run_started_at).getTime()) / 1000))
+              : null,
+        }));
+        return jsonResponse({ ok: true, runs, totalCount: ghData.total_count });
+      }
+
+      if (pathname === '/v1/admin/github/dispatch' && method === 'POST') {
+        const pat = env.GITHUB_PAT;
+        if (!pat) {
+          return errorResponse('GITHUB_PAT binding is not configured in worker', 500);
+        }
+        const repo = env.GITHUB_REPO || 'perfectusmim1/dark-manga-realm';
+        const body = (await request.json().catch(() => ({}))) || {};
+        const mode = body.mode || 'smart';
+        const batchSize = String(body.batchSize || '50');
+        const maxDeltaChecks = String(body.maxDeltaChecks || '200');
+        const maxEnrichChecks = String(body.maxEnrichChecks || '80');
+        const source = body.source || '';
+
+        const ghRes = await fetch(`https://api.github.com/repos/${repo}/actions/workflows/auto-scraper.yml/dispatches`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${pat}`,
+            Accept: 'application/vnd.github+json',
+            'User-Agent': 'ToonParrot-Catalog-Worker',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            ref: 'main',
+            inputs: {
+              mode,
+              batch_size: batchSize,
+              max_delta_checks: maxDeltaChecks,
+              max_enrich_checks: maxEnrichChecks,
+              source,
+            },
+          }),
+        });
+
+        if (!ghRes.ok && ghRes.status !== 204) {
+          const errText = await ghRes.text();
+          return errorResponse(`GitHub Dispatch error (${ghRes.status}): ${errText}`, 502);
+        }
+
+        return jsonResponse({
+          ok: true,
+          message: 'GitHub Actions tarama işlemi başarıyla başlatıldı!',
+          dispatchedAt: now,
+          inputs: { mode, batchSize, maxDeltaChecks, maxEnrichChecks, source },
+        });
+      }
+
       if (pathname === '/v1/admin/catalog/automation-state' && method === 'PUT') {
         const body = await request.json().catch(() => null);
         if (!body || typeof body !== 'object') {
@@ -1249,5 +1331,38 @@ export default {
       'Cache-Control': 'no-store',
     });
   }
+  },
+
+  async scheduled(controller, env, ctx) {
+    ctx.waitUntil(
+      (async () => {
+        try {
+          const pat = env.GITHUB_PAT;
+          if (!pat) return;
+          const repo = env.GITHUB_REPO || 'perfectusmim1/dark-manga-realm';
+          console.log(`[Cloudflare Cron] Dispatching GitHub Actions auto-scraper at ${new Date().toISOString()}`);
+          await fetch(`https://api.github.com/repos/${repo}/actions/workflows/auto-scraper.yml/dispatches`, {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${pat}`,
+              Accept: 'application/vnd.github+json',
+              'User-Agent': 'ToonParrot-Catalog-Worker',
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              ref: 'main',
+              inputs: {
+                mode: 'smart',
+                batch_size: '50',
+                max_delta_checks: '200',
+                max_enrich_checks: '80',
+              },
+            }),
+          });
+        } catch (err) {
+          console.error('Scheduled cron dispatch error:', err);
+        }
+      })()
+    );
   },
 };

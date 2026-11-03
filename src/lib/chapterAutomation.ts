@@ -761,3 +761,58 @@ export const setChapterAutomationActive = async (
 
   return mapAutomationRowToModel(updatedRow, latestRun);
 };
+
+export interface GitHubWorkflowRun {
+  id: number;
+  runNumber: number;
+  status: string;
+  conclusion: string | null;
+  event: string;
+  createdAt: string;
+  updatedAt: string;
+  htmlUrl: string;
+  displayTitle: string;
+  durationSec: number | null;
+}
+
+const CATALOG_WORKER_URL =
+  (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_CATALOG_WORKER_URL) ||
+  'https://toonparrot-catalog-worker.caganhuseyinerdil.workers.dev';
+
+export const fetchGitHubScraperRuns = async (): Promise<GitHubWorkflowRun[]> => {
+  const { getCatalogAdminHeaders } = await import('@/lib/r2CatalogClient');
+  const adminHeaders = await getCatalogAdminHeaders();
+  const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/github/runs`, {
+    headers: adminHeaders,
+  });
+  if (!res.ok) {
+    throw new Error(`GitHub runları alınamadı (${res.status})`);
+  }
+  const data = await res.json();
+  return data.runs || [];
+};
+
+export const dispatchGitHubScraper = async (options: {
+  mode?: 'smart' | 'delta-only' | 'enrich-only';
+  batchSize?: number;
+  maxDeltaChecks?: number;
+  maxEnrichChecks?: number;
+  source?: string;
+} = {}): Promise<{ ok: boolean; message: string }> => {
+  const { getCatalogAdminHeaders } = await import('@/lib/r2CatalogClient');
+  const adminHeaders = await getCatalogAdminHeaders();
+  const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/github/dispatch`, {
+    method: 'POST',
+    headers: {
+      ...adminHeaders,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(options),
+  });
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error || `GitHub taraması başlatılamadı (${res.status})`);
+  }
+  return await res.json();
+};
+

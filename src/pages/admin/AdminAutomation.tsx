@@ -15,6 +15,9 @@ import {
   ShieldCheck,
   Trash2,
   Unplug,
+  Play,
+  ExternalLink,
+  Clock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import ProxyImage from '@/components/media/ProxyImage';
@@ -65,6 +68,9 @@ import {
   testChapterAutomations,
   updateChapterAutomation,
   validateChapterAutomation,
+  fetchGitHubScraperRuns,
+  dispatchGitHubScraper,
+  type GitHubWorkflowRun,
   type ChapterAutomationUpsertInput,
 } from '@/lib/chapterAutomation';
 import { getMangaSummaries } from '@/lib/database';
@@ -253,6 +259,37 @@ const AdminAutomation: React.FC = () => {
   const [testingAutomationIds, setTestingAutomationIds] = useState<string[]>([]);
   const [isTestingAll, setIsTestingAll] = useState(false);
   const [pendingDeleteAutomation, setPendingDeleteAutomation] = useState<ChapterAutomation | null>(null);
+  const [ghRuns, setGhRuns] = useState<GitHubWorkflowRun[]>([]);
+  const [isGhLoading, setIsGhLoading] = useState(false);
+  const [isDispatching, setIsDispatching] = useState(false);
+  const [dispatchMode, setDispatchMode] = useState<'smart' | 'delta-only' | 'enrich-only'>('smart');
+
+  const loadGitHubRuns = async () => {
+    try {
+      setIsGhLoading(true);
+      const runs = await fetchGitHubScraperRuns();
+      setGhRuns(runs);
+    } catch (err) {
+      console.warn('GitHub runs could not be loaded:', err);
+    } finally {
+      setIsGhLoading(false);
+    }
+  };
+
+  const handleManualDispatch = async () => {
+    try {
+      setIsDispatching(true);
+      const res = await dispatchGitHubScraper({ mode: dispatchMode });
+      toast.success(res.message || 'GitHub Actions taraması başlatıldı!');
+      setTimeout(() => {
+        loadGitHubRuns();
+      }, 3500);
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : 'Tarama başlatılamadı');
+    } finally {
+      setIsDispatching(false);
+    }
+  };
   const [automationSearchQuery, setAutomationSearchQuery] = useState('');
   const [automationStatusFilter, setAutomationStatusFilter] = useState<'all' | 'active' | 'inactive'>('all');
   const [visibleAutomationCount, setVisibleAutomationCount] = useState(AUTOMATION_BATCH_SIZE);
@@ -395,6 +432,10 @@ const AdminAutomation: React.FC = () => {
 
     let cancelled = false;
 
+    loadGitHubRuns();
+    const ghInterval = setInterval(() => {
+      loadGitHubRuns();
+    }, 30000);
     void (async () => {
       try {
         setIsBootstrapping(true);
@@ -413,6 +454,7 @@ const AdminAutomation: React.FC = () => {
 
     return () => {
       cancelled = true;
+      clearInterval(ghInterval);
     };
   }, [accessLoading, isAllowed]);
 
@@ -752,6 +794,182 @@ const AdminAutomation: React.FC = () => {
           </Badge>
         </div>
       </div>
+
+      {/* GITHUB ACTIONS 7/24 OTOMASYON VE MANUEL TETİKLEME MERKEZİ */}
+      <Card className="border-primary/20 bg-gradient-to-br from-card via-card to-primary/5 shadow-md">
+        <CardHeader className="flex flex-col gap-4 pb-4 sm:flex-row sm:items-center sm:justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Play className="h-4 w-4" />
+              </div>
+              <CardTitle className="text-lg font-bold sm:text-xl">
+                GitHub Actions 7/24 Tarayıcı & Otomasyon Merkezi
+              </CardTitle>
+            </div>
+            <CardDescription className="text-xs sm:text-sm">
+              Cloudflare Cron ve GitHub Actions ile çalışan tarayıcıyı canlı takip edin veya dilediğiniz an tek tıkla manuel başlatın.
+            </CardDescription>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={loadGitHubRuns}
+              disabled={isGhLoading}
+              className="h-9 gap-1.5"
+            >
+              <RefreshCw className={cn('h-3.5 w-3.5', isGhLoading && 'animate-spin')} />
+              <span>Yenile</span>
+            </Button>
+          </div>
+        </CardHeader>
+
+        <CardContent className="space-y-5">
+          {/* Hızlı Başlatma Barı */}
+          <div className="flex flex-col gap-3 rounded-2xl border border-border/70 bg-background/60 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="flex flex-wrap items-center gap-3">
+              <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Tarama Modu:
+              </Label>
+              <Select
+                value={dispatchMode}
+                onValueChange={(val: any) => setDispatchMode(val)}
+              >
+                <SelectTrigger className="h-9 w-[260px] bg-card text-xs sm:text-sm">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="smart">Smart (Vitrin + Delta + Kuyruk)</SelectItem>
+                  <SelectItem value="delta-only">Sadece Yeni Bölümler (Delta)</SelectItem>
+                  <SelectItem value="enrich-only">Sadece Metadata & Türkçe Açıklama</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button
+              onClick={handleManualDispatch}
+              disabled={isDispatching}
+              className="h-9 gap-2 shadow-sm font-medium"
+            >
+              {isDispatching ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Play className="h-4 w-4 fill-current" />
+              )}
+              <span>Taramayı Şimdi Başlat</span>
+            </Button>
+          </div>
+
+          {/* Son Çalışmalar Tablosu / Listesi */}
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-semibold text-muted-foreground">
+              <span>Son GitHub Actions Çalışmaları ({ghRuns.length})</span>
+              <span className="text-[11px] font-normal text-muted-foreground/80">
+                Cloudflare Cron (Her 2 Saatte Bir) & Manuel Tetikleme
+              </span>
+            </div>
+
+            {isGhLoading && ghRuns.length === 0 ? (
+              <div className="flex items-center justify-center p-8 text-sm text-muted-foreground">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                GitHub geçmişi yükleniyor...
+              </div>
+            ) : ghRuns.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-border p-6 text-center text-xs text-muted-foreground">
+                Henüz GitHub Actions çalışma geçmişi kaydedilmedi veya token bekleniyor.
+              </div>
+            ) : (
+              <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-4">
+                {ghRuns.slice(0, 8).map((run) => {
+                  const isSuccess = run.conclusion === 'success';
+                  const isFailure = run.conclusion === 'failure';
+                  const isRunning = run.status === 'in_progress' || run.status === 'queued';
+
+                  return (
+                    <div
+                      key={run.id}
+                      className={cn(
+                        'flex flex-col justify-between rounded-xl border p-3 text-xs transition-colors',
+                        isRunning
+                          ? 'border-blue-500/40 bg-blue-500/5'
+                          : isSuccess
+                          ? 'border-emerald-500/20 bg-emerald-500/5'
+                          : isFailure
+                          ? 'border-rose-500/20 bg-rose-500/5'
+                          : 'border-border bg-card/60'
+                      )}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-center justify-between gap-1.5">
+                          <span className="font-semibold text-foreground">
+                            Run #{run.runNumber}
+                          </span>
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'text-[10px] px-1.5 py-0 h-5',
+                              isRunning
+                                ? 'border-blue-500 text-blue-500 bg-blue-500/10'
+                                : isSuccess
+                                ? 'border-emerald-500 text-emerald-500 bg-emerald-500/10'
+                                : 'border-rose-500 text-rose-500 bg-rose-500/10'
+                            )}
+                          >
+                            {isRunning ? (
+                              <span className="flex items-center gap-1">
+                                <Loader2 className="h-2.5 w-2.5 animate-spin" /> Çalışıyor
+                              </span>
+                            ) : isSuccess ? (
+                              'Başarılı'
+                            ) : (
+                              'Başarısız'
+                            )}
+                          </Badge>
+                        </div>
+
+                        <div className="flex items-center gap-1 text-[11px] text-muted-foreground">
+                          <Clock className="h-3 w-3" />
+                          <span>
+                            {formatDistanceToNow(new Date(run.createdAt), {
+                              addSuffix: true,
+                              locale: tr,
+                            })}
+                          </span>
+                          {run.durationSec ? (
+                            <span className="ml-auto font-mono text-[10px]">
+                              {Math.floor(run.durationSec / 60)}d {run.durationSec % 60}s
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between pt-2 border-t border-border/40 text-[10px] text-muted-foreground">
+                        <span>
+                          {run.event === 'schedule'
+                            ? 'Otomatik Cron'
+                            : run.event === 'workflow_dispatch'
+                            ? 'Manuel Tetiklendi'
+                            : run.event}
+                        </span>
+                        <a
+                          href={run.htmlUrl}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="flex items-center gap-0.5 text-primary hover:underline"
+                        >
+                          Detay <ExternalLink className="h-2.5 w-2.5" />
+                        </a>
+                      </div>
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </CardContent>
+      </Card>
 
       <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1.12fr)_minmax(360px,0.88fr)]">
         <div className="space-y-6">
