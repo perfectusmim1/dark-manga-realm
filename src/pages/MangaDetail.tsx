@@ -91,6 +91,7 @@ import {
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getMangaTypeLabel } from '@/lib/mangaType';
+import { getSeriesLanguageInfo } from '@/lib/seriesLanguage';
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -2657,6 +2658,15 @@ const MangaDetail: React.FC = () => {
                   <Badge variant="outline">
                     {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara Verildi'}
                   </Badge>
+                  {(() => {
+                    const lang = getSeriesLanguageInfo(manga);
+                    if (lang.language === 'tr') return null;
+                    return (
+                      <Badge variant="outline" className={cn('font-bold border', lang.badgeClassName)}>
+                        {lang.label}
+                      </Badge>
+                    );
+                  })()}
                 </div>
 
                 <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{manga.title}</h1>

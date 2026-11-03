@@ -18,6 +18,7 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
 import { useAdultImageBlurPreference } from '@/hooks/useAdultImageBlurPreference';
+import { getSeriesLanguageInfo } from '@/lib/seriesLanguage';
 
 interface MangaCardProps {
   manga: Manga;
@@ -143,10 +144,10 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   const showAdultLabel = manga.isAdult === true || isAdultMangaType(manga.type);
   const shouldBlurAdultArtwork = blurAdultArtwork && showAdultLabel;
   const typeBadgeLabel = showAdultLabel ? 'Yetişkin' : getMangaTypeLabel(manga.type);
+  const langInfo = useMemo(() => getSeriesLanguageInfo(manga), [manga]);
 
   const typeBadgeClassName = cn(
-    `absolute left-2 z-10 border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
-    'top-2',
+    `border-none text-[10px] font-bold ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`,
     showAdultLabel ? 'bg-rose-600/90 text-white shadow-lg shadow-rose-500/20' :
     manga.type === 'manhwa' ? 'bg-orange-600/90 text-white shadow-lg shadow-orange-500/20' :
         manga.type === 'manhua' ? 'bg-emerald-600/90 text-white shadow-lg shadow-emerald-500/20' :
@@ -252,12 +253,26 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           )}
         />
 
-        <Badge
-          variant="secondary"
-          className={typeBadgeClassName}
-        >
-          {typeBadgeLabel}
-        </Badge>
+        <div className="absolute left-2 top-2 z-10 flex items-center gap-1.5">
+          <Badge
+            variant="secondary"
+            className={typeBadgeClassName}
+          >
+            {typeBadgeLabel}
+          </Badge>
+          {langInfo.language !== 'tr' && (
+            <Badge
+              variant="outline"
+              className={cn(
+                'border text-[9px] font-black uppercase tracking-wider px-1.5 py-0.5 shadow-sm',
+                disableHeavyEffects ? '' : 'backdrop-blur-md',
+                langInfo.badgeClassName,
+              )}
+            >
+              {langInfo.shortLabel}
+            </Badge>
+          )}
+        </div>
 
         {isTopTenWeek && (
           <div

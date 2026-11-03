@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
+import { cn } from '@/lib/utils';
 import { getChapterPagesByIds, getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
 import {
   getReaderSettings,

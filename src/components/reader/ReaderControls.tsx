@@ -298,7 +298,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           value={chapterSearch}
           onChange={(event) => setChapterSearch(event.target.value)}
           placeholder="Bölüm ara..."
-          className="h-9 rounded-xl border-border/60 bg-secondary/50 pl-9 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:bg-secondary/80 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
+          className="h-9 rounded-xl border-border bg-secondary/40 pl-9 text-sm text-foreground placeholder:text-muted-foreground/70 focus-visible:border-primary/50 focus-visible:bg-secondary/70 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
         />
       </div>
 
@@ -312,7 +312,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           const isCurrentChapter = ch.id === currentChapter.id;
           const chapterLabel = `Bölüm ${formatChapterNumberLabel(ch.number)}`;
           const subtitle = sanitizeChapterTitle(ch.number, ch.title);
-          const knownPageCount = ch.pageCount || ch.pages?.length || 0;
 
           return (
             <button
@@ -322,53 +321,19 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               onClick={() => void handleChapterNavigation(ch)}
               disabled={navigatingChapterId === ch.id}
               className={cn(
-                'group flex w-full items-center justify-between gap-2.5 rounded-xl border px-3 py-2.5 text-left transition-colors duration-150 focus-visible:border-primary/60 focus-visible:ring-1 focus-visible:ring-primary/30',
+                'flex w-full items-center rounded-xl border px-3.5 py-2.5 text-left transition-colors duration-150 focus-visible:border-primary/60 focus-visible:ring-1 focus-visible:ring-primary/30',
                 isCurrentChapter
-                  ? 'border-primary/45 bg-primary/[0.11] text-foreground shadow-[0_0_20px_hsl(var(--primary)/0.12)]'
-                  : 'border-border/50 bg-secondary/35 text-foreground/90 hover:border-primary/30 hover:bg-secondary/65 hover:text-foreground',
+                  ? 'border-primary/50 bg-primary/10 text-primary font-semibold'
+                  : 'border-border/60 bg-secondary/35 text-foreground/90 hover:border-border hover:bg-secondary/65 hover:text-foreground',
                 navigatingChapterId === ch.id && 'opacity-60',
               )}
             >
-              <div className="flex min-w-0 items-center gap-2.5">
-                {isCurrentChapter && (
-                  <span
-                    aria-hidden="true"
-                    className="h-4 w-1 shrink-0 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary)/0.85)]"
-                  />
-                )}
-                <div className="min-w-0">
-                  <p
-                    className={cn(
-                      'truncate text-sm font-semibold leading-snug',
-                      isCurrentChapter
-                        ? 'text-primary'
-                        : 'text-foreground group-hover:text-foreground',
-                    )}
-                  >
-                    {chapterLabel}
-                  </p>
-                  {subtitle && (
-                    <p className="mt-0.5 truncate text-xs text-muted-foreground">{subtitle}</p>
-                  )}
-                </div>
-              </div>
-
-              <div className="flex shrink-0 items-center gap-2">
-                {knownPageCount > 0 && (
-                  <span
-                    className={cn(
-                      'text-[11px] tabular-nums',
-                      isCurrentChapter ? 'text-primary/80' : 'text-muted-foreground',
-                    )}
-                  >
-                    {knownPageCount} s.
-                  </span>
-                )}
-                {isCurrentChapter && (
-                  <span
-                    aria-hidden="true"
-                    className="h-2 w-2 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary))]"
-                  />
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm leading-snug">
+                  {chapterLabel}
+                </p>
+                {subtitle && (
+                  <p className="mt-0.5 truncate text-xs text-muted-foreground font-normal">{subtitle}</p>
                 )}
               </div>
             </button>
@@ -512,7 +477,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 <PopoverContent
                   align="end"
                   onOpenAutoFocus={(event) => event.preventDefault()}
-                  className="w-[min(22.5rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:p-3.5"
+                  className="w-[min(22.5rem,calc(100vw-1rem))] rounded-2xl border-border bg-popover p-3 shadow-2xl sm:p-3.5"
                 >
                   {chapterPanelContent}
                 </PopoverContent>
@@ -577,7 +542,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 <PopoverContent
                   align="end"
                   onOpenAutoFocus={(event) => event.preventDefault()}
-                  className="reader-scroll-thin max-h-[min(80vh,38rem)] w-[min(21.5rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:p-4"
+                  className="reader-scroll-thin max-h-[min(80vh,38rem)] w-[min(21.5rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border-border bg-popover p-3 shadow-2xl sm:p-4"
                 >
                   <h4 className="mb-3 text-sm font-semibold tracking-tight sm:text-base">
                     Görsel Çeviri
@@ -596,7 +561,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               <PopoverContent
                 align="end"
                 onOpenAutoFocus={(event) => event.preventDefault()}
-                className="w-[min(20rem,calc(100vw-1rem))] rounded-2xl border-border/60 bg-popover/95 p-3 shadow-2xl backdrop-blur-xl sm:w-72 sm:p-4"
+                className="w-[min(20rem,calc(100vw-1rem))] rounded-2xl border-border bg-popover p-3 shadow-2xl sm:w-72 sm:p-4"
               >
                 <h4 className="mb-3 text-sm font-semibold sm:mb-4 sm:text-base">Okuyucu Ayarları</h4>
                 <div className="flex flex-col gap-3 sm:gap-4">

@@ -12,6 +12,8 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
 import OptimizedImage from '@/components/media/OptimizedImage';
+import { getSeriesLanguageInfo } from '@/lib/seriesLanguage';
+import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 30;
 
@@ -185,6 +187,18 @@ const LatestChapters: React.FC = () => {
                                                         {chapter.mangaType}
                                                     </Badge>
                                                 )}
+                                                {(() => {
+                                                    const lang = getSeriesLanguageInfo({ title: chapter.mangaTitle });
+                                                    if (lang.language === 'tr') return null;
+                                                    return (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={cn('text-[10px] font-black uppercase px-1.5 py-0.5', lang.badgeClassName)}
+                                                        >
+                                                            {lang.shortLabel}
+                                                        </Badge>
+                                                    );
+                                                })()}
                                                 <span className="text-[11px] text-muted-foreground">
                                                     {new Date(chapter.addedAt).toLocaleDateString('tr-TR', {
                                                         day: 'numeric',
