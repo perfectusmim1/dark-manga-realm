@@ -560,11 +560,11 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         const [followersResult, followingResult] = await Promise.all([
             supabase
                 .from('user_follows')
-                .select('*', { count: 'exact', head: true })
+                .select('follower_id', { count: 'planned', head: true })
                 .eq('followed_id', userId),
             supabase
                 .from('user_follows')
-                .select('*', { count: 'exact', head: true })
+                .select('follower_id', { count: 'planned', head: true })
                 .eq('follower_id', userId),
         ]);
 
@@ -1192,7 +1192,7 @@ export const getUserFollowers = async (userId: string, page: number = 1, limit: 
     
     const { data, error, count } = await supabase
         .from('user_follows')
-        .select('follower:follower_id (id, username, avatar, role)', { count: 'exact' })
+        .select('follower:follower_id (id, username, avatar, role)', { count: 'planned' })
         .eq('followed_id', userId)
         .range(offset, offset + limit - 1)
         .order('created_at', { ascending: false });
@@ -1209,7 +1209,7 @@ export const getUserFollowing = async (userId: string, page: number = 1, limit: 
     
     const { data, error, count } = await supabase
         .from('user_follows')
-        .select('followed:followed_id (id, username, avatar, role)', { count: 'exact' })
+        .select('followed:followed_id (id, username, avatar, role)', { count: 'planned' })
         .eq('follower_id', userId)
         .range(offset, offset + limit - 1)
         .order('created_at', { ascending: false });
@@ -1235,7 +1235,7 @@ export const getUserComments = async (userId: string, page: number = 1, limit: n
             gif_url,
             mangas:manga_id (title, cover),
             chapters:chapter_id (number, title)
-        `, { count: 'exact' })
+        `, { count: 'planned' })
         .eq('user_id', userId)
         .order('created_at', { ascending: false })
         .range(offset, offset + limit - 1);

@@ -86,7 +86,7 @@ const ReadingListDetail: React.FC = () => {
                 if (isOnline) {
                     const { count: totalLikes } = await supabase
                         .from('reading_list_likes')
-                        .select('*', { count: 'exact', head: true })
+                        .select('id', { count: 'planned', head: true })
                         .eq('list_id', listId);
 
                     if (isCancelled) return;
@@ -202,7 +202,7 @@ const ReadingListDetail: React.FC = () => {
                     setIsLiked(true);
                     const { count } = await supabase
                         .from('reading_list_likes')
-                        .select('*', { count: 'exact', head: true })
+                        .select('id', { count: 'planned', head: true })
                         .eq('list_id', listId);
                     setLikesCount(count || 0);
                     return;

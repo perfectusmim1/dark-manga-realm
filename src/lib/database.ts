@@ -388,30 +388,21 @@ const fetchNamedEntityRows = async (
         return pending;
     }
 
+    // NOT: count:'exact' kaldırıldı — PostgREST her sayfa için tüm tabloya count(*)
+    // çalıştırıyordu (bkz. performans raporu). Bunun yerine kısa sayfa gelene kadar
+    // batch'li paralel sayfalama yapılır.
+    const ENTITY_PAGE_FETCH_BATCH = 4;
+    const ENTITY_MAX_PAGES = 50;
+
     const promise = (async () => {
-        const firstPageQuery = applyPublicEntityFilter(
-            (supabase.from(table) as any)
-                .select(NAMED_ENTITY_SUMMARY_COLUMNS, { count: 'exact' })
-                .order('likes_count', { ascending: false })
-                .order('name', { ascending: true }),
-            includePrivate,
-        );
-        const { data: firstData, count, error: firstError } = await firstPageQuery.range(
-            0,
-            NAMED_ENTITY_LIST_PAGE_SIZE - 1,
-        );
+        const rows: any[] = [];
+        let pageIndex = 0;
+        let reachedEnd = false;
 
-        if (firstError) {
-            throw firstError;
-        }
-
-        const rows: any[] = [...(firstData || [])];
-        const totalCount = typeof count === 'number' ? count : rows.length;
-
-        if (rows.length >= NAMED_ENTITY_LIST_PAGE_SIZE && totalCount > NAMED_ENTITY_LIST_PAGE_SIZE) {
-            const extraPageCount = Math.ceil((totalCount - NAMED_ENTITY_LIST_PAGE_SIZE) / NAMED_ENTITY_LIST_PAGE_SIZE);
-            const pageRequests = Array.from({ length: extraPageCount }, (_, idx) => {
-                const from = (idx + 1) * NAMED_ENTITY_LIST_PAGE_SIZE;
+        while (!reachedEnd && pageIndex < ENTITY_MAX_PAGES) {
+            const pageRequests = Array.from({ length: ENTITY_PAGE_FETCH_BATCH }, (_, offsetIndex) => {
+                const currentPageIndex = pageIndex + offsetIndex;
+                const from = currentPageIndex * NAMED_ENTITY_LIST_PAGE_SIZE;
                 const to = from + NAMED_ENTITY_LIST_PAGE_SIZE - 1;
                 return applyPublicEntityFilter(
                     (supabase.from(table) as any)
@@ -427,10 +418,15 @@ const fetchNamedEntityRows = async (
                 if (res.error) {
                     throw res.error;
                 }
-                if (Array.isArray(res.data)) {
-                    rows.push(...res.data);
+                const pageRows = Array.isArray(res.data) ? res.data : [];
+                rows.push(...pageRows);
+                if (pageRows.length < NAMED_ENTITY_LIST_PAGE_SIZE) {
+                    reachedEnd = true;
+                    break;
                 }
             }
+
+            pageIndex += ENTITY_PAGE_FETCH_BATCH;
         }
 
         namedEntityRowsCache.set(cacheKey, { fetchedAt: Date.now(), rows });
@@ -848,6 +844,9 @@ const ALL_MANGAS_CACHE_TTL_MS = 5 * 60_000;
 const TOP_TEN_IDS_CACHE_TTL_MS = 5 * 60_000;
 const STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS = 5 * 60_000;
 const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, description, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
+// Liste/picker sorguları için hafif kolon seti: description/details/source_links gibi ağır
+// alanlar çekilmez (bkz. performans raporu: select('*') payload'ı 1.8 KB/satır).
+const MANGA_LIST_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
 const HOME_PAGE_SECTION_LIMITS = Object.freeze({
     trending: 8,
     newlyAdded: 8,
@@ -913,6 +912,17 @@ const getMangaSummarySelectColumns = (
 ) => (
     [
         MANGA_SUMMARY_BASE_SELECT_COLUMNS,
+        visibilityColumnAvailable ? MANGA_VISIBILITY_COLUMN_NAME : null,
+        adultColumnAvailable ? MANGA_ADULT_COLUMN_NAME : null,
+    ].filter(Boolean).join(', ')
+);
+
+const getMangaListSelectColumns = (
+    visibilityColumnAvailable: boolean,
+    adultColumnAvailable: boolean,
+) => (
+    [
+        MANGA_LIST_BASE_SELECT_COLUMNS,
         visibilityColumnAvailable ? MANGA_VISIBILITY_COLUMN_NAME : null,
         adultColumnAvailable ? MANGA_ADULT_COLUMN_NAME : null,
     ].filter(Boolean).join(', ')
@@ -1130,20 +1140,23 @@ const hasUserBlockRelationship = async (viewerId?: string, ownerId?: string): Pr
         return false;
     }
 
+    // NOT: count:'exact' yerine limit(1) varlık kontrolü — sadece boolean gerekiyor.
     const [
-        { count: viewerBlocksOwner, error: viewerBlocksOwnerError },
-        { count: ownerBlocksViewer, error: ownerBlocksViewerError },
+        { data: viewerBlocksOwner, error: viewerBlocksOwnerError },
+        { data: ownerBlocksViewer, error: ownerBlocksViewerError },
     ] = await Promise.all([
         supabase
             .from('user_blocks')
-            .select('*', { count: 'exact', head: true })
+            .select('blocker_id')
             .eq('blocker_id', viewerId)
-            .eq('blocked_id', ownerId),
+            .eq('blocked_id', ownerId)
+            .limit(1),
         supabase
             .from('user_blocks')
-            .select('*', { count: 'exact', head: true })
+            .select('blocker_id')
             .eq('blocker_id', ownerId)
-            .eq('blocked_id', viewerId),
+            .eq('blocked_id', viewerId)
+            .limit(1),
     ]);
 
     if (viewerBlocksOwnerError || ownerBlocksViewerError) {
@@ -1151,7 +1164,7 @@ const hasUserBlockRelationship = async (viewerId?: string, ownerId?: string): Pr
         return false;
     }
 
-    return (viewerBlocksOwner || 0) > 0 || (ownerBlocksViewer || 0) > 0;
+    return Boolean(viewerBlocksOwner?.length) || Boolean(ownerBlocksViewer?.length);
 };
 
 export const canAccessOwnedContent = async (
@@ -1281,55 +1294,55 @@ const fetchAllChapterMetaRows = async (
         return nestedResults.flat();
     }
 
-    let countQuery = supabase
-        .from('chapters')
-        .select('id', { count: 'exact', head: true });
-
-    if (uniqueMangaIds.length > 0) {
-        countQuery = countQuery.in('manga_id', uniqueMangaIds);
-    }
-
-    const { count, error: countError } = await countQuery;
-
-    if (countError) {
-        throw countError;
-    }
-
-    if (!count || count < 1) {
-        return [] as any[];
-    }
-
-    const pageCount = Math.ceil(count / CHAPTER_META_BATCH_SIZE);
-    const requests = Array.from({ length: pageCount }, (_, pageIndex) => {
-        const rangeStart = pageIndex * CHAPTER_META_BATCH_SIZE;
-        const rangeEnd = rangeStart + CHAPTER_META_BATCH_SIZE - 1;
-
-        let query = supabase
-            .from('chapters')
-            .select(selectColumns)
-            .order('manga_id', { ascending: true })
-            .range(rangeStart, rangeEnd);
-
-        if (selectColumns.includes('number')) {
-            query = query.order('number', { ascending: options?.orderByNumberAscending ?? false });
-        }
-
-        if (uniqueMangaIds.length > 0) {
-            query = query.in('manga_id', uniqueMangaIds);
-        }
-
-        return query;
-    });
-
-    const responses = await Promise.all(requests);
+    // NOT: count:'exact' kaldırıldı (317k satırlık chapters tablosunda count(*) 3 sn
+    // statement_timeout'a takılıyordu). Sayfalar kısa sayfa gelene kadar batch'li
+    // paralel çekilir.
+    const pageFetchBatchSize = 8;
+    const maxPages = 500;
     const rows: any[] = [];
+    let pageIndex = 0;
+    let reachedEnd = false;
 
-    for (const response of responses) {
-        if (response.error) {
-            throw response.error;
+    while (!reachedEnd && pageIndex < maxPages) {
+        const pageRequests = Array.from({ length: pageFetchBatchSize }, (_, offsetIndex) => {
+            const currentPageIndex = pageIndex + offsetIndex;
+            const rangeStart = currentPageIndex * CHAPTER_META_BATCH_SIZE;
+            const rangeEnd = rangeStart + CHAPTER_META_BATCH_SIZE - 1;
+
+            let query = supabase
+                .from('chapters')
+                .select(selectColumns)
+                .order('manga_id', { ascending: true })
+                .range(rangeStart, rangeEnd);
+
+            if (selectColumns.includes('number')) {
+                query = query.order('number', { ascending: options?.orderByNumberAscending ?? false });
+            }
+
+            if (uniqueMangaIds.length > 0) {
+                query = query.in('manga_id', uniqueMangaIds);
+            }
+
+            return query;
+        });
+
+        const responses = await Promise.all(pageRequests);
+
+        for (const response of responses) {
+            if (response.error) {
+                throw response.error;
+            }
+
+            const pageRows = response.data || [];
+            rows.push(...pageRows);
+
+            if (pageRows.length < CHAPTER_META_BATCH_SIZE) {
+                reachedEnd = true;
+                break;
+            }
         }
 
-        rows.push(...(response.data || []));
+        pageIndex += pageFetchBatchSize;
     }
 
     return rows;
@@ -1368,7 +1381,7 @@ export const getAllMangas = async (
                 { data: revData, error: reviewsError },
             ] = await Promise.all([
                 fetchAllMangaRowsPaginated(
-                    '*',
+                    getMangaListSelectColumns(visibilityColumnAvailable, adultColumnAvailable),
                     { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
                 ),
                 supabase
@@ -2086,7 +2099,7 @@ export const getMangaById = async (
         getMangaRelatedSeries(mangaId, { includePrivate }),
         supabase
             .from('manga_characters')
-            .select('*', { count: 'exact', head: true })
+            .select('manga_id', { count: 'planned', head: true })
             .eq('manga_id', mangaId),
     ]);
 
@@ -2873,13 +2886,15 @@ export const searchMangas = async (
     const { data, error } = await applyPublicMangaFilter(
         supabase
             .from('mangas')
-            .select('*')
-            .or(`title.ilike.%${query}%,author.ilike.%${query}%`),
+            .select(getMangaListSelectColumns(visibilityColumnAvailable, adultColumnAvailable))
+            .or(`title.ilike.%${query}%,author.ilike.%${query}%`)
+            .limit(100),
         { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
     );
 
     if (error) return [];
-    return data.map(m => ({
+    const rows = (data || []) as any[];
+    return rows.map(m => ({
         ...m,
         ...mapMangaBaseFields(m),
     })) as Manga[];
@@ -3388,15 +3403,17 @@ export const getStatistics = async () => {
         };
     }
 
+    // NOT: bu istatistikler gösterim amaçlı; count:'exact' tüm tabloyu sayıyordu.
+    // 'planned' (planner tahmini) ile hızlı dönüyor.
     const [
         { count: mangaCount },
         { count: commentCount },
         { count: userCount },
         { data: mangaData },
     ] = await Promise.all([
-        supabase.from('mangas').select('id', { count: 'exact', head: true }),
-        supabase.from('comments').select('id', { count: 'exact', head: true }),
-        supabase.from('users').select('id', { count: 'exact', head: true }),
+        supabase.from('mangas').select('id', { count: 'planned', head: true }),
+        supabase.from('comments').select('id', { count: 'planned', head: true }),
+        supabase.from('users').select('id', { count: 'planned', head: true }),
         supabase.from('mangas').select('type, status, views, chapter_count'),
     ]);
 
@@ -3811,7 +3828,7 @@ export const getAdminCommentsPage = async (
             *,
             likes_count:comment_likes(count),
             dislikes_count:comment_dislikes(count)
-        `, { count: 'exact' })
+        `, { count: 'planned' })
         .order('created_at', { ascending: false })
         .range(from, to);
 
@@ -3909,7 +3926,7 @@ export const getAdminReviewsPage = async (
             manga:mangas!manga_id(title, cover),
             likes_count:review_likes(count),
             dislikes_count:review_dislikes(count)
-        `, { count: 'exact' })
+        `, { count: 'planned' })
         .order('created_at', { ascending: false })
         .range(from, to);
 
@@ -5048,12 +5065,13 @@ export const getMangasInReadingList = async (listId: string): Promise<Manga[]> =
 
     const { data: mangaData, error: mangaError } = await supabase
         .from('mangas')
-        .select('*')
+        .select(getMangaListSelectColumns(true, true))
         .in('id', mangaIds);
 
-    if (mangaError) return [];
+    if (mangaError || !mangaData) return [];
 
-    return mangaData.map(m => ({
+    const rows = mangaData as any[];
+    return rows.map(m => ({
         ...m,
         ...mapMangaBaseFields(m),
     })) as Manga[];
@@ -5241,16 +5259,19 @@ export const getSimilarMangas = async (
             adultColumnAvailable,
         } = await resolveMangaVisibilityAccess();
 
-        // Fetch all mangas except the current one
+        // NOT: select('*') yerine hafif kolon seti + limitsiz tablo çekimine karşı limit.
+        // chapter sayıları ayrıca tüm chapters tablosundan değil, mangas.chapter_count'tan gelir.
         const { data, error } = await applyPublicMangaFilter(
             supabase
                 .from('mangas')
-                .select('*')
-                .neq('id', mangaId),
+                .select(getMangaListSelectColumns(visibilityColumnAvailable, adultColumnAvailable))
+                .neq('id', mangaId)
+                .limit(1000),
             { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
         );
 
         if (error || !data) return [];
+        const mangaRows = data as any[];
 
         // Get reviews for average ratings
         const { data: revData } = await supabase
@@ -5258,14 +5279,8 @@ export const getSimilarMangas = async (
             .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement');
         const allReviews = revData || [];
 
-        // Get chapter counts
-        const chapterCounts = await fetchAllChapterMetaRows('manga_id').catch((chapterError) => {
-            console.error('Similar manga chapter count fetch error:', chapterError);
-            return [];
-        });
-
         // Calculate similarity score and map data
-        const scoredMangas = data.map(m => {
+        const scoredMangas = mangaRows.map((m: any) => {
             const mangaGenres = m.genres || [];
             // Count matching genres
             const matchingGenres = genres.filter(g =>
@@ -5282,13 +5297,13 @@ export const getSimilarMangas = async (
                 average = Math.round((totalPoints / mangaReviews.length) * 10) / 10;
             }
 
-            const mangaChapters = chapterCounts.filter(c => c.manga_id === m.id);
+            const chapterCount = Number((m as any).chapter_count ?? (m as any).chapterCount) || 0;
 
             return {
                 manga: {
                     ...m,
                     ...mapMangaBaseFields(m),
-                    chapters: Array(mangaChapters.length).fill({}),
+                    chapters: Array(chapterCount).fill({}),
                     ratings: Array(mangaReviews.length).fill({ rating: average }),
                     averageRating: average,
                     reviewCount: mangaReviews.length
@@ -5370,7 +5385,7 @@ export const getCharacterById = async (
             .from('characters')
             .select(`
                 *,
-                mangas:manga_characters(manga:mangas(*))
+                mangas:manga_characters(manga:mangas(id))
             `)
             .eq('id', id),
         options?.includePrivate,
@@ -5682,7 +5697,7 @@ export const getAuthorById = async (
     const { data, error } = await applyPublicEntityFilter(
         supabase
             .from('authors')
-            .select(`*, mangas:manga_authors(manga:mangas(*))`)
+            .select(`*, mangas:manga_authors(manga:mangas(id))`)
             .eq('id', id),
         options?.includePrivate,
     ).maybeSingle();
@@ -5706,7 +5721,7 @@ export const getArtistById = async (
     const { data, error } = await applyPublicEntityFilter(
         supabase
             .from('artists')
-            .select(`*, mangas:manga_artists(manga:mangas(*))`)
+            .select(`*, mangas:manga_artists(manga:mangas(id))`)
             .eq('id', id),
         options?.includePrivate,
     ).maybeSingle();

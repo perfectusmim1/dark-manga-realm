@@ -971,11 +971,12 @@ export const isFavorite = async (userId: string, mangaId: string): Promise<boole
 // ==================== READING PROGRESS (USER-SPECIFIC) ====================
 
 export const getReadingHistory = async (userId: string): Promise<ReadingProgress[]> => {
+    // NOT: manga:mangas (*) yerine yalnız kullanılan kolonlar (bkz. performans raporu).
     const { data, error } = await supabase
         .from('reading_progress')
         .select(`
             *,
-            manga:mangas (*)
+            manga:mangas (id, title, cover, alternative_titles)
         `)
         .eq('user_id', userId)
         .order('last_read', { ascending: false });
@@ -1957,9 +1958,11 @@ export const markNotificationAsRead = async (userId: string, id: string): Promis
 };
 
 export const getUnreadNotificationCount = async (userId: string): Promise<number> => {
+    // NOT: 30 sn'de bir çağrılan sayaç; count:'exact' tüm notifications tablosunu
+    // sayıyordu. 'planned' planner tahmini ile hızlı dönüyor.
     const { count, error } = await supabase
         .from('notifications')
-        .select('*', { count: 'exact', head: true })
+        .select('id', { count: 'planned', head: true })
         .eq('user_id', userId)
         .eq('read', false);
 

@@ -1,7 +1,9 @@
 import { Toaster } from "@/components/ui/toaster";
 import { Toaster as Sonner } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { QueryClient } from "@tanstack/react-query";
+import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
+import { idbPersister } from "@/lib/cache/idbPersister";
 import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
@@ -22,7 +24,7 @@ const queryClient = new QueryClient({
     queries: {
       refetchOnWindowFocus: false,
       staleTime: 5 * 60 * 1000,
-      gcTime: 30 * 60 * 1000,
+      gcTime: 24 * 60 * 60 * 1000,
     },
   },
 });
@@ -356,8 +358,18 @@ const RouteFallback = () => {
   );
 };
 
+const persistOptions = {
+  persister: idbPersister,
+  maxAge: 7 * 24 * 60 * 60 * 1000,
+  dehydrateOptions: {
+    shouldDehydrateQuery: (query: { state: { status: string } }) => {
+      return query.state.status === 'success';
+    },
+  },
+};
+
 const App = () => (
-  <QueryClientProvider client={queryClient}>
+  <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
     <AuthProvider>
       <TooltipProvider>
         <SecurityWrapper>
@@ -452,7 +464,7 @@ const App = () => (
         </SecurityWrapper>
       </TooltipProvider>
     </AuthProvider>
-  </QueryClientProvider>
+  </PersistQueryClientProvider>
 );
 
 export default App;

@@ -22,6 +22,7 @@ import {
     ensureArtistByName,
     ensureAuthorByName,
     getAllMangas,
+    getMangaById,
     linkMangaToArtist,
     linkMangaToAuthor,
     saveManga,
@@ -326,8 +327,14 @@ const AdminScraper: React.FC = () => {
                 }),
             );
 
-            const mangaId = matchedExisting ? matchedExisting.id : `manga-${Date.now()}`;
-            const chapters: Chapter[] = matchedExisting ? [...matchedExisting.chapters] : [];
+            // NOT: getAllMangas artık hafif kolon seti döndürüyor (details/source_links yok).
+            // Güncelleme sırasında bu alanların üzerine yazılmaması için tam kayıt tek sefer çekilir.
+            const existingManga = matchedExisting
+                ? (await getMangaById(matchedExisting.id, { includePrivate: true }).catch(() => undefined)) ?? matchedExisting
+                : null;
+
+            const mangaId = existingManga ? existingManga.id : `manga-${Date.now()}`;
+            const chapters: Chapter[] = existingManga ? [...existingManga.chapters] : [];
             let newlyAddedCount = 0;
             let updatedCount = 0;
             let lockedChapterCount = 0;
@@ -437,28 +444,28 @@ const AdminScraper: React.FC = () => {
             const normalizedAuthorLabel = normalizedAuthorNames.join(', ');
             const normalizedArtistLabel = normalizedArtistNames.join(', ');
 
-            if (matchedExisting) {
+            if (existingManga) {
                 // Update existing manga
                 const mergedAlternativeTitles = Array.from(new Set([
-                    ...(matchedExisting.alternativeTitles || []),
+                    ...(existingManga.alternativeTitles || []),
                     ...(fetchedData.alternativeTitles || []),
                 ]));
                 const mergedGenres = Array.from(new Set([
-                    ...(matchedExisting.genres || []),
+                    ...(existingManga.genres || []),
                     ...(fetchedData.genres || []),
                 ]));
 
                 const updatedManga: Manga = {
-                    ...matchedExisting,
+                    ...existingManga,
                     alternativeTitles: mergedAlternativeTitles,
                     genres: mergedGenres,
                     chapters,
-                    author: matchedExisting.author || normalizedAuthorLabel || '',
-                    artist: matchedExisting.artist || normalizedArtistLabel || undefined,
-                    description: matchedExisting.description || fetchedData.description || '',
-                    cover: matchedExisting.cover || fetchedData.cover || '',
-                    banner: matchedExisting.banner || fetchedData.banner || fetchedData.cover || '',
-                    isAdult: matchedExisting.isAdult || isAdultImport,
+                    author: existingManga.author || normalizedAuthorLabel || '',
+                    artist: existingManga.artist || normalizedArtistLabel || undefined,
+                    description: existingManga.description || fetchedData.description || '',
+                    cover: existingManga.cover || fetchedData.cover || '',
+                    banner: existingManga.banner || fetchedData.banner || fetchedData.cover || '',
+                    isAdult: existingManga.isAdult || isAdultImport,
                     lastUpdated: new Date().toISOString(),
                 };
 
@@ -472,7 +479,7 @@ const AdminScraper: React.FC = () => {
                 }
 
                 toast.success(
-                    `"${matchedExisting.title}" zaten mevcut. Seri üzerine güncellendi (+${newlyAddedCount} yeni, ${updatedCount} güncellenen bölüm).`,
+                    `"${existingManga.title}" zaten mevcut. Seri üzerine güncellendi (+${newlyAddedCount} yeni, ${updatedCount} güncellenen bölüm).`,
                 );
                 navigate(isAdultImport ? '/admin/adult-mangas' : `/admin/mangas/${mangaId}`);
             } else {
