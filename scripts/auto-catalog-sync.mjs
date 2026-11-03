@@ -4338,6 +4338,14 @@ const main = async () => {
           card.status = 'completed';
           card.updatedAt = new Date().toISOString();
           touchedMangaIds.add(existing.id);
+          if (existing.slug) {
+            touchedSlugs.add(existing.slug);
+            await uploadSeriesFileToR2(existing);
+          }
+          for (const ch of existing.chapters || []) {
+            delete ch.pages;
+          }
+          existing._hydratedFullChapters = false;
           logProgress(bIdx, totalCount, card.title, `Mevcut seriyle eşleşti (${existing.title}), eksik bölümler tamamlandı.`);
           return;
         }
@@ -4394,6 +4402,14 @@ const main = async () => {
           card.status = 'completed';
           card.updatedAt = new Date().toISOString();
           touchedMangaIds.add(existing.id);
+          if (existing.slug) {
+            touchedSlugs.add(existing.slug);
+            await uploadSeriesFileToR2(existing);
+          }
+          for (const ch of existing.chapters || []) {
+            delete ch.pages;
+          }
+          existing._hydratedFullChapters = false;
           logProgress(bIdx, totalCount, card.title, `Alternatif isimle mevcut seriye bağlandı (${existing.title}), eksik bölümler tamamlandı.`);
           return;
         }
@@ -4433,6 +4449,12 @@ const main = async () => {
             touchedMangaIds.add(enrichedManga.id);
             await uploadSeriesFileToR2(enrichedManga);
           }
+
+          // Bellek (Heap OOM) koruması: R2'ye yüklenen bölümlerin ağır resim listesini RAM'den tahliye et
+          for (const ch of enrichedManga.chapters || []) {
+            delete ch.pages;
+          }
+          enrichedManga._hydratedFullChapters = false;
 
           card.status = 'completed';
           card.totalChaptersFound = detail.chapters.length;
