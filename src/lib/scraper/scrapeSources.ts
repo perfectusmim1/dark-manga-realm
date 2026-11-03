@@ -764,16 +764,12 @@ const inferMangaType = (doc: Document, genres: string[], fallbackGenres: string[
 
   const normalizedSource = typeSource.toLocaleLowerCase('tr-TR');
 
-  if (normalizedSource.includes('manhwa')) {
-    return 'manhwa' as const;
-  }
-
   if (normalizedSource.includes('manhua')) {
     return 'manhua' as const;
   }
 
-  if (normalizedSource.includes('webtoon')) {
-    return 'webtoon' as const;
+  if (normalizedSource.includes('manhwa') || normalizedSource.includes('webtoon')) {
+    return 'manhwa' as const;
   }
 
   return 'manga' as const;
@@ -1507,7 +1503,12 @@ const extractDetailFromJson = (json: Record<string, unknown>, source: ScrapeSour
   }
 
   const isAdult = Boolean(isAdultOnlyScrapeSource(source) || json.adult || ADULT_CONTENT_PATTERNS.some((p) => p.test(genresList.join(' '))));
-  const type = normalizeAdultMangaType('webtoon', genresList, isAdult);
+  const inferredBaseType = genresList.some((g) => g.toLowerCase().includes('manhua'))
+    ? 'manhua'
+    : genresList.some((g) => g.toLowerCase().includes('manga')) || source === 'dxdfansub'
+      ? 'manga'
+      : 'manhwa';
+  const type = normalizeAdultMangaType(inferredBaseType, genresList, isAdult);
 
   return {
     title,

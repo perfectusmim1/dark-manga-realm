@@ -130,8 +130,10 @@ const AdminDashboard: React.FC = () => {
                 <div className="rounded-xl border border-border bg-card p-4 sm:p-6">
                     <h2 className="mb-4 text-lg font-semibold">Türe Göre Dağılım</h2>
                     <div className="space-y-4">
-                        {(['manga', 'manhwa', 'manhua', 'webtoon'] as const).map((type) => {
-                            const count = stats.mangasByType[type];
+                        {(['manhwa', 'manhua', 'manga', 'webtoon', 'hentai'] as const)
+                            .filter((type) => (stats.mangasByType[type] || 0) > 0)
+                            .map((type) => {
+                            const count = stats.mangasByType[type] || 0;
                             const percentage = stats.totalMangas > 0
                                 ? Math.round((count / stats.totalMangas) * 100)
                                 : 0;
@@ -139,16 +141,16 @@ const AdminDashboard: React.FC = () => {
                             return (
                                 <div key={type}>
                                     <div className="mb-1 flex items-center justify-between text-sm">
-                                        <span>{getMangaTypeLabel(type as Manga['type'])}</span>
-                                        <span className="text-muted-foreground">{count} ({percentage}%)</span>
+                                        <span className="font-medium">{getMangaTypeLabel(type as Manga['type'])}</span>
+                                        <span className="text-muted-foreground font-mono">{count} ({percentage}%)</span>
                                     </div>
                                     <div className="h-2 overflow-hidden rounded-full bg-secondary">
                                         <div
-                                            className={`h-full rounded-full transition-all ${type === 'manga' ? 'bg-primary' :
-                                                type === 'manhwa' ? 'bg-orange-500' :
-                                                    type === 'manhua' ? 'bg-green-500' :
+                                            className={`h-full rounded-full transition-all ${type === 'manhwa' ? 'bg-orange-500' :
+                                                type === 'manhua' ? 'bg-emerald-500' :
+                                                    type === 'manga' ? 'bg-primary' :
                                                         type === 'webtoon' ? 'bg-sky-500' :
-                                                            type === 'hentai' ? 'bg-fuchsia-500' : 'bg-rose-500'
+                                                            type === 'hentai' ? 'bg-rose-500' : 'bg-fuchsia-500'
                                                 }`}
                                             style={{ width: `${percentage}%` }}
                                         />

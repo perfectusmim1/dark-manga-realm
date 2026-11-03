@@ -329,18 +329,32 @@ const isConfidentTitleMatch = (queryTerms = [], candidateTitles = []) => {
   return false;
 };
 
-const deriveMangaType = ({ countryOfOrigin = '', isAdult = false, primarySource = '', fallbackType = 'webtoon' } = {}) => {
+const deriveMangaType = ({ countryOfOrigin = '', isAdult = false, primarySource = '', fallbackType = 'manhwa', title = '', genres = [] } = {}) => {
   const co = String(countryOfOrigin || '').toUpperCase();
+  const gStr = (Array.isArray(genres) ? genres : []).map((g) => (typeof g === 'string' ? g : g?.name || '')).join(' ').toLowerCase();
+  const tStr = String(title || '').toLowerCase();
+
   if (primarySource === 'hentaiturk') return 'hentai';
+  if (primarySource === 'dxdfansub') return 'manga';
+
+  if (gStr.includes('manhua') || tStr.includes('manhua') || tStr.includes('xiuxian') || gStr.includes('cultivation') || gStr.includes('kültivasyon')) {
+    return 'manhua';
+  }
+  if (gStr.includes('manga') || tStr.includes('manga') || /\b(?:no|wa|ni|ga|wo|san|kun|chan|sama|senpai|sensei|isekai)\b/i.test(tStr)) {
+    return isAdult ? 'hentai' : 'manga';
+  }
+  if (gStr.includes('manhwa') || tStr.includes('manhwa') || primarySource === 'mangadass' || primarySource === 'asurascans' || primarySource === 'madaradex' || primarySource === 'golgebahcesi' || primarySource === 'siyahmelek') {
+    return isAdult ? 'webtoon_hentai' : 'manhwa';
+  }
+
   if (isAdult) {
     if (co === 'JP') return 'hentai';
-    if (co === 'KR' || primarySource === 'siyahmelek' || primarySource === 'hattorimanga') return 'webtoon_hentai';
-    return 'hentai';
+    return 'webtoon_hentai';
   }
   if (co === 'JP') return 'manga';
   if (co === 'KR') return 'manhwa';
   if (co === 'CN' || co === 'TW') return 'manhua';
-  return fallbackType || 'webtoon';
+  return fallbackType || 'manhwa';
 };
 
 const BL_REGEX = /\b(?:yaoi|shounen[\s\-_]*ai|shonen[\s\-_]*ai|boys?[\s\-_]*love|danmei|bara|erkek\s*a[sş]k[ıi]|fujoshi|fudanshi|gay)\b/iu;
@@ -2112,7 +2126,7 @@ class SmartCatalogStore {
         } else if (!hasRealAdultGenre && !titleAdult) {
           m.isAdult = false;
           m.is_adult = false;
-          if (m.type === 'webtoon_hentai') m.type = 'webtoon';
+          if (m.type === 'webtoon_hentai') m.type = 'manhwa';
           m.genres = (m.genres || []).filter(
             (g) => !/^(?:\+18|18\+|yeti[şs]kin|adult|hentai|erotik|smut)$/i.test(g.trim())
           );

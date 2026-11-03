@@ -115,7 +115,42 @@ export const buildImageProxyUrl = (
   metadata: ImageProxyRequestMetadata = {},
 ) => {
   const normalizedSourceUrl = normalizeSourceUrl(sourceUrl);
-  if (!normalizedSourceUrl || !shouldProxyImageUrl(normalizedSourceUrl)) {
+  if (!normalizedSourceUrl) {
+    return null;
+  }
+
+  // Zaten data/blob veya weserv dönüşümü yapılmışsa doğrudan döndür
+  if (
+    normalizedSourceUrl.startsWith('data:') ||
+    normalizedSourceUrl.startsWith('blob:') ||
+    normalizedSourceUrl.includes('images.weserv.nl')
+  ) {
+    return normalizedSourceUrl;
+  }
+
+  // Eğer boyut (örn: 720p veya 144p) ya da kalite dönüştürmesi istenmişse edge CDN üzerinden optimize et
+  const hasTransform = Boolean(transform && (transform.width || transform.quality));
+  if (hasTransform && (normalizedSourceUrl.startsWith('http://') || normalizedSourceUrl.startsWith('https://'))) {
+    try {
+      const params = new URLSearchParams();
+      params.set('url', normalizedSourceUrl);
+      if (transform.width) {
+        params.set('w', `${transform.width}`);
+      }
+      if (transform.quality) {
+        params.set('q', `${transform.quality}`);
+      }
+      params.set('output', transform.format || 'webp');
+      if (transform.fit) {
+        params.set('fit', transform.fit);
+      }
+      return `https://images.weserv.nl/?${params.toString()}`;
+    } catch {
+      // Fallback
+    }
+  }
+
+  if (!shouldProxyImageUrl(normalizedSourceUrl)) {
     return null;
   }
 

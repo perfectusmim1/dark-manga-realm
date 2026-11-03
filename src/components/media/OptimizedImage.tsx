@@ -53,7 +53,8 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   );
 
   const shouldLoad = priority || isNearViewport;
-  const effectiveAllowProxy = allowProxy || avoidRawFallback;
+  const hasTransform = Boolean(transform && (transform.width || transform.quality));
+  const effectiveAllowProxy = allowProxy || avoidRawFallback || hasTransform;
   const resolvedSrc = React.useMemo(() => {
     if (useProxyFallback && isExternalUrl) {
       const proxied = buildProxiedImageUrl(src);
