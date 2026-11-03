@@ -4378,9 +4378,14 @@ const main = async () => {
                 );
                 for (const r of results) {
                   if (r.pages && r.pages.length > 0) {
+                    const isEnglishSource = card.source === 'asurascans' || (card.source === 'mangadass' && !card.genres?.includes('RAW'));
+                    const isRawSource = card.source === 'mangadass' && card.genres?.includes('RAW');
+                    let chTitle = r.title;
+                    if (isEnglishSource && !chTitle.includes('[EN]')) chTitle = `${chTitle} [EN]`;
+                    if (isRawSource && !chTitle.includes('[RAW]')) chTitle = `${chTitle} [RAW]`;
                     store.upsertChapter(existing, {
                       number: r.chapterNumber,
-                      title: r.title,
+                      title: chTitle,
                       pages: r.pages,
                       releaseDate: r.releaseDate || new Date().toISOString(),
                     });

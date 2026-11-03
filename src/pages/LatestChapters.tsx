@@ -207,6 +207,21 @@ const LatestChapters: React.FC = () => {
                                                     </Badge>
                                                 )}
                                                 {(() => {
+                                                    const chTitle = (chapter.chapterTitle || '').toLowerCase();
+                                                    if (chTitle.includes('[raw]') || chTitle.includes('(raw)')) {
+                                                        return (
+                                                            <Badge variant="outline" className="text-[10px] font-black uppercase px-1.5 py-0.5 border-purple-500/40 bg-purple-500/15 text-purple-400">
+                                                                RAW
+                                                            </Badge>
+                                                        );
+                                                    }
+                                                    if (chTitle.includes('[en]') || chTitle.includes('(en)')) {
+                                                        return (
+                                                            <Badge variant="outline" className="text-[10px] font-black uppercase px-1.5 py-0.5 border-sky-500/40 bg-sky-500/15 text-sky-400">
+                                                                EN
+                                                            </Badge>
+                                                        );
+                                                    }
                                                     const lang = mangaLangMap[chapter.mangaId] || getSeriesLanguageInfo({ title: chapter.mangaTitle });
                                                     if (lang.language === 'tr') return null;
                                                     return (

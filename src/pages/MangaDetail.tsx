@@ -91,7 +91,7 @@ import {
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getMangaTypeLabel } from '@/lib/mangaType';
-import { getSeriesLanguageInfo } from '@/lib/seriesLanguage';
+import { getSeriesLanguage, getSeriesLanguageInfo } from '@/lib/seriesLanguage';
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -2535,17 +2535,37 @@ const MangaDetail: React.FC = () => {
 
           <div className="flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0 flex-1">
-              <Link
-                to={`/manga/${manga.id}/chapter/${chapter.id}`}
-                className={cn(
-                  "line-clamp-1 text-base font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-base",
-                  mergedChapterReadMap[chapter.id]?.isRead
-                    ? "text-emerald-400 hover:text-emerald-300"
-                    : "hover:text-primary",
-                )}
-              >
-                {formatChapterDisplayTitle(chapter.number, chapter.title)}
-              </Link>
+              <div className="flex flex-wrap items-center gap-2">
+                <Link
+                  to={`/manga/${manga.id}/chapter/${chapter.id}`}
+                  className={cn(
+                    "line-clamp-1 text-base font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-base",
+                    mergedChapterReadMap[chapter.id]?.isRead
+                      ? "text-emerald-400 hover:text-emerald-300"
+                      : "hover:text-primary",
+                  )}
+                >
+                  {formatChapterDisplayTitle(chapter.number, chapter.title)}
+                </Link>
+                {(() => {
+                  const chTitle = (chapter.title || '').toLowerCase();
+                  if (chTitle.includes('[raw]') || chTitle.includes('(raw)')) {
+                    return (
+                      <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-purple-500/40 bg-purple-500/15 text-purple-400">
+                        RAW
+                      </Badge>
+                    );
+                  }
+                  if (chTitle.includes('[en]') || chTitle.includes('(en)') || getSeriesLanguage(manga) === 'en') {
+                    return (
+                      <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-sky-500/40 bg-sky-500/15 text-sky-400">
+                        EN
+                      </Badge>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
               <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-[11px] text-muted-foreground sm:text-xs">
                 <span className="flex items-center gap-1">
                   <Calendar className="h-3 w-3" />
