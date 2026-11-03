@@ -4464,12 +4464,16 @@ const main = async () => {
         );
         processedCount += currentChunk.length;
 
-        // Her 10 seride bir güvenli R2 + Supabase checkpoint kaydı yap
-        if (processedCount % 10 === 0 && touchedMangaIds.size > 0 && !SKIP_SUPABASE_SYNC) {
+        // Her 10 seride bir yerel disk checkpoint kaydı yap, her 30 seride bir R2 + Supabase ara kaydı yap
+        if (processedCount % 10 === 0) {
+          saveLocalCheckpoint({ ...checkpoint, seriesQueue, ...store.toState() });
+        }
+        if (processedCount % 30 === 0 && touchedMangaIds.size > 0 && !SKIP_SUPABASE_SYNC) {
           try {
             logInfo(`[Checkpoint] ${processedCount}/${batchToProcess.length} seri tamamlandı, R2 ve Supabase ara kaydı yapılıyor...`);
-            saveLocalCheckpoint({ ...checkpoint, seriesQueue, ...store.toState() });
             await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds);
+            touchedMangaIds.clear();
+            touchedSlugs.clear();
           } catch (cpErr) {
             logWarn(`[Checkpoint] Ara kayıt sırasında hata (işlem devam ediyor): ${cpErr.message}`);
           }
