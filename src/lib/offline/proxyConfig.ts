@@ -39,13 +39,8 @@ export const configuredOfflineImageProxyUrls: string[] = buildConfiguredProxyPoo
 // Per-session memory of proxy origins that rejected (401/403) a specific upstream image hostname.
 const rejectedProxiesByHost = new Map<string, Set<string>>();
 
-// Hosts that are only whitelisted on the primary (latest) worker deployment.
-const PRIMARY_WORKER_ONLY_HOST_SUFFIXES = [
-  'asurascans.com',
-  'asuracomic.net',
-  'mangadass.com',
-  'madaradex.org',
-];
+// All 5 worker proxies are fully deployed with the updated allowed hosts whitelist.
+const PRIMARY_WORKER_ONLY_HOST_SUFFIXES: string[] = [];
 
 const isPrimaryWorkerOnlyHost = (host: string): boolean => {
   if (!host) return false;
