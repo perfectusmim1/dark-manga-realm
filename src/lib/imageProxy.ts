@@ -51,6 +51,11 @@ const PROXY_ONLY_HOSTS = [
   'hayalistic.com.tr',
   'wikia.nocookie.net',
   'static.wikia.nocookie.net',
+  'webtoon-oku.net',
+  'cdn-1.webtoon-oku.net',
+  'cdn-2.webtoon-oku.net',
+  'asurascans.com',
+  'cdn.asurascans.com',
 ] as const;
 
 const PROXY_SUPPORTED_HOSTS = [

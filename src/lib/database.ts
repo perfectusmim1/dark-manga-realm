@@ -526,9 +526,8 @@ const fetchAllMangaRowsPaginated = async (
     },
 ) => {
     const CHUNK_SIZE = 1000;
-    // NOT: 1000'lik sayfalar sÄ±ralÄ± Ã§ekiliyordu (4-6 s). SÄ±ralÄ± yerine 4'lÃ¼ batch'lerle
-    // paralel Ã§ekilir; kÄ±sa sayfa gelince durur. SÄ±ra korunur.
-    const PAGE_FETCH_BATCH = 4;
+    // 2'şerli batch'lerle çekilir; Supabase Postgres statement timeout riskini sıfırlar
+    const PAGE_FETCH_BATCH = 2;
     const MAX_ROWS_SAFETY = 100_000;
     const rows: any[] = [];
     let pageIndex = 0;
@@ -551,9 +550,31 @@ const fetchAllMangaRowsPaginated = async (
 
         const responses = await Promise.all(pageRequests);
 
-        for (const response of responses) {
+        for (let i = 0; i < responses.length; i++) {
+            const response = responses[i];
             if (response.error) {
-                throw response.error;
+                // If parallel request encountered a timeout or error, retry this page sequentially
+                const retryPageIndex = pageIndex + i;
+                const from = retryPageIndex * CHUNK_SIZE;
+                const to = from + CHUNK_SIZE - 1;
+                const retryRes = await applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select(selectColumns)
+                        .order('last_updated', { ascending: false })
+                        .range(from, to),
+                    options,
+                );
+                if (retryRes.error) {
+                    throw retryRes.error;
+                }
+                const pageRows = Array.isArray(retryRes.data) ? retryRes.data : [];
+                rows.push(...pageRows);
+                if (pageRows.length < CHUNK_SIZE) {
+                    reachedEnd = true;
+                    break;
+                }
+                continue;
             }
 
             const pageRows = Array.isArray(response.data) ? response.data : [];
@@ -921,7 +942,7 @@ const clearPersistedCatalogCache = () => {
         'named-entities-v1:artists:public',
     ]);
 };
-const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, description, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
+const MANGA_SUMMARY_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
 // Liste/picker sorgularÄ± iÃ§in hafif kolon seti: description/details/source_links gibi aÄŸÄ±r
 // alanlar Ã§ekilmez (bkz. performans raporu: select('*') payload'Ä± 1.8 KB/satÄ±r).
 const MANGA_LIST_BASE_SELECT_COLUMNS = 'id, title, alternative_titles, cover, banner, author, artist, status, genres, views, last_updated, created_at, type, release_year, chapter_count, latest_chapters';
@@ -2034,6 +2055,24 @@ const mapChapterRowToChapter = (row: any, options?: { includePages?: boolean }):
     };
 };
 
+export const getChapterById = async (chapterId: string): Promise<{ chapter: Chapter; mangaId: string } | null> => {
+    try {
+        const { data, error } = await supabase
+            .from('chapters')
+            .select('id, manga_id, number, title, pages, release_date, views')
+            .eq('id', chapterId)
+            .maybeSingle();
+
+        if (error || !data) return null;
+        return {
+            chapter: mapChapterRowToChapter(data, { includePages: true }),
+            mangaId: data.manga_id,
+        };
+    } catch {
+        return null;
+    }
+};
+
 export const getMangaChapters = async (
     mangaId: string,
     options?: { includePages?: boolean }
@@ -2127,7 +2166,7 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
         chunks.map((chunk) =>
             supabase
                 .from('chapters')
-                .select('id, pages, manga_id')
+                .select('id, pages, manga_id, number')
                 .in('id', chunk)
         )
     );
@@ -2140,8 +2179,12 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
 
     const map: Record<string, string[]> = {};
     const missingMangaIds = new Set<string>();
+    const chapterNumberByChId = new Map<string, number>();
 
     for (const row of data || []) {
+        if (typeof row.number === 'number' || !isNaN(Number(row.number))) {
+            chapterNumberByChId.set(row.id, Number(row.number));
+        }
         const pages = sanitizeChapterPageUrls(row.pages || []);
         if (pages.length > 0) {
             map[row.id] = pages;
@@ -2175,10 +2218,22 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
                     const seriesData = await res.json();
                     if (!seriesData || !Array.isArray(seriesData.chapters)) return;
 
-                    for (const ch of seriesData.chapters) {
-                        const targetId = uniqueIds.find((id) => id === ch.id);
-                        if (targetId && Array.isArray(ch.pages) && ch.pages.length > 0) {
-                            map[targetId] = sanitizeChapterPageUrls(ch.pages);
+                    const pagesByChId = new Map<string, string[]>();
+                    const pagesByChNum = new Map<number, string[]>();
+                    for (const sc of seriesData.chapters) {
+                        const p = sanitizeChapterPageUrls(sc.pages || []);
+                        if (sc.id) pagesByChId.set(sc.id, p);
+                        const num = Number(sc.chapterNumber ?? sc.number);
+                        if (!isNaN(num)) pagesByChNum.set(num, p);
+                    }
+
+                    for (const targetId of uniqueIds) {
+                        if (!map[targetId] || map[targetId].length === 0) {
+                            const num = chapterNumberByChId.get(targetId);
+                            const pages = pagesByChId.get(targetId) || (num !== undefined ? pagesByChNum.get(num) : undefined);
+                            if (pages && pages.length > 0) {
+                                map[targetId] = pages;
+                            }
                         }
                     }
                 } catch (e) {
@@ -2225,11 +2280,14 @@ export const getMangaById = async (
         return cloneMangaForCache(cachedMangaDetail.value);
     }
 
-    const { data, error } = await supabase
-        .from('mangas')
-        .select('*')
-        .eq('id', mangaId)
-        .maybeSingle();
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(mangaId);
+    let query = supabase.from('mangas').select('*');
+    if (isUuid) {
+        query = query.eq('id', mangaId);
+    } else {
+        query = query.eq('slug', mangaId);
+    }
+    const { data, error } = await query.maybeSingle();
 
     if (error || !data) {
         if (error && error.code !== 'PGRST116') console.error('Manga detail fetch error:', error);
@@ -2240,9 +2298,7 @@ export const getMangaById = async (
         return undefined;
     }
 
-    if (!includePrivate && !includeAdult && data.is_adult === true) {
-        return undefined;
-    }
+    const realMangaId = data.id;
 
     const [
         { data: reviewData },
@@ -2252,15 +2308,15 @@ export const getMangaById = async (
         relatedSeries,
         { count: characterCount },
     ] = await Promise.all([
-        supabase.from('reviews').select('*').eq('manga_id', mangaId),
-        getMangaChapters(mangaId, { includePages: options?.includePages === true }),
-        getMangaAuthors(mangaId, options),
-        getMangaArtists(mangaId, options),
-        getMangaRelatedSeries(mangaId, { includePrivate }),
+        supabase.from('reviews').select('*').eq('manga_id', realMangaId),
+        getMangaChapters(realMangaId, { includePages: options?.includePages === true }),
+        getMangaAuthors(realMangaId, options),
+        getMangaArtists(realMangaId, options),
+        getMangaRelatedSeries(realMangaId, { includePrivate }),
         supabase
             .from('manga_characters')
             .select('manga_id', { count: 'planned', head: true })
-            .eq('manga_id', mangaId),
+            .eq('manga_id', realMangaId),
     ]);
 
     const reviews = reviewData || [];

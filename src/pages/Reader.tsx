@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { getChapterPagesByIds, getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
+import { getChapterById, getChapterPagesByIds, getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
 import {
   getReaderSettings,
   getLocalChapterReadProgressEntry,
@@ -655,28 +655,57 @@ const Reader: React.FC = () => {
             : Promise.resolve(cachedPages ? { [chapterId]: cachedPages } : {}),
           getOfflineMangaDetail(mangaId),
         ]);
-        const fallbackManga = mData || existingManga || offlineManga;
+        let fallbackManga = mData || existingManga || offlineManga;
+        let baseChapter = fallbackManga?.chapters?.find((c) => c.id === chapterId);
+
+        // Self-healing fallback: direct chapter lookup if not present in fallbackManga or fallbackManga missing
+        if (!baseChapter && canUseNetworkReaderFeatures) {
+          try {
+            const directChapterData = await getChapterById(chapterId);
+            if (directChapterData) {
+              baseChapter = directChapterData.chapter;
+              if (!fallbackManga || fallbackManga.id !== directChapterData.mangaId) {
+                const refreshedManga = await getMangaById(directChapterData.mangaId);
+                if (refreshedManga) {
+                  fallbackManga = refreshedManga;
+                }
+              }
+            }
+          } catch (directChErr) {
+            console.warn('Reader direct chapter lookup fallback error:', directChErr);
+          }
+        }
 
         if (mData) {
           void cacheOfflineManga(mData);
         }
 
-        if (!fallbackManga) {
+        if (!fallbackManga && !baseChapter) {
           navigate('/');
           return;
         }
 
-        const baseChapter = fallbackManga.chapters.find(c => c.id === chapterId);
-        const currentChapterPages = cacheChapterPages(
+        let currentChapterPages = cacheChapterPages(
           chapterId,
           chapterPagesById[chapterId]
           || preparedChapter?.pages
           || baseChapter?.pages
           || [],
         );
+
+        if (currentChapterPages.length === 0 && canUseNetworkReaderFeatures) {
+          try {
+            const rehydrated = await getChapterPagesByIds([chapterId]);
+            if (rehydrated[chapterId] && rehydrated[chapterId].length > 0) {
+              currentChapterPages = cacheChapterPages(chapterId, rehydrated[chapterId]);
+            }
+          } catch {
+            // ignore
+          }
+        }
         syncChapterPagesIntoState(chapterId, currentChapterPages);
 
-        const resolvedManga = baseChapter && currentChapterPages.length > 0
+        const resolvedManga = baseChapter && currentChapterPages.length > 0 && fallbackManga
           ? {
               ...fallbackManga,
               chapters: fallbackManga.chapters.map((chapterItem) => (
@@ -689,7 +718,26 @@ const Reader: React.FC = () => {
                   : chapterItem
               )),
             }
-          : fallbackManga;
+          : fallbackManga || {
+              id: mangaId,
+              title: baseChapter?.title || 'Manga',
+              slug: mangaId,
+              cover: '',
+              banner: '',
+              author: '',
+              artist: '',
+              status: 'ongoing',
+              genres: [],
+              views: 0,
+              lastUpdated: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+              type: 'manga',
+              chapterCount: 1,
+              chapters: baseChapter ? [baseChapter] : [],
+              ratings: [],
+              averageRating: 0,
+              reviewCount: 0,
+            };
 
         setManga(resolvedManga);
         const resolvedChapter = sanitizeReaderChapter(
@@ -710,7 +758,7 @@ const Reader: React.FC = () => {
         );
 
         if (!resolvedChapter) {
-          navigate(`/manga/${mangaId}`);
+          navigate(`/manga/${fallbackManga?.id || mangaId}`);
           return;
         }
 
