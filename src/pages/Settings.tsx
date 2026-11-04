@@ -1,4 +1,4 @@
-﻿import useDocumentTitle from '@/hooks/useDocumentTitle';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React, { useEffect, useMemo, useState } from 'react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -82,7 +82,7 @@ type PreferenceState = {
         show_page_comments: boolean;
     };
     appearance: {
-        manga_hover_preview: boolean;
+
         show_header_offline_toggle: boolean;
         show_chapter_card_images: boolean;
         adult_cover_blur: boolean;
@@ -155,7 +155,7 @@ const buildPreferenceState = (preferences?: AppUser['preferences']): PreferenceS
         show_page_comments: preferences?.comments?.show_page_comments ?? false,
     },
     appearance: {
-        manga_hover_preview: preferences?.appearance?.manga_hover_preview ?? false,
+
         show_header_offline_toggle: preferences?.appearance?.show_header_offline_toggle ?? true,
         show_chapter_card_images: preferences?.appearance?.show_chapter_card_images ?? false,
         adult_cover_blur: preferences?.appearance?.adult_cover_blur ?? false,
