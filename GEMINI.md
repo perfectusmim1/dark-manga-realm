@@ -24,3 +24,18 @@ Bu dosya ToonParrot projesinde görev alan tüm AI ajanları (Main Agent) ve alt
 - **Tip Kontrolü:** Kod yazımı veya düzenleme sonrası her zaman `npx tsc --noEmit` ile kontrol edilir.
 - **Git Commit & Push:** Görev tamamlandıktan sonra yapılan değişiklikler anlamlı bir commit mesajıyla commit'lenip GitHub `main` dalına push edilir.
 - **Temiz Çalışma Alanı:** Geçici test scriptleri, kontrol listeleri veya dump dosyaları iş bittiğinde hemen silinir.
+
+---
+
+## 3. Arayüz Sadeliği & Aşırı Yazı / Dolgu Açıklaması Yasağı (Sade & Anlaşılır UI)
+
+- **Kendi Kendini Anlatan Minimalist Tasarım (Self-Explanatory UI):**
+  - Eklenen arayüz her zaman sade, etkileyici, temiz ve sezgisel olmalıdır. Tasarımın kendisi net konuşmalı; kullanıcıyı veya admini eğitmek için arayüze dolgu metinleri serpiştirilmemelidir.
+- **Sayfa Başlıkları ve Üst Etiketler (Eyebrows & Subtitles):**
+  - Genel sayfalarda veya admin sayfalarında başlıkların (`<h1>`, `<h2>`) üstüne gereksiz büyük etiketler (`STANDART SERİ AKIŞI`, `OKUMA ARŞİVİN` vb.) veya altına ne işe yaradığını anlatan uzun açıklama paragrafları (`<p className="text-muted-foreground">`) KESİNLİKLE eklenemez. Başlık sade ve net bırakılmalıdır.
+- **Admin Paneli Açıklama Yasağı (Zero Filler in Admin):**
+  - Admin panelini zaten site yöneticisi kullanmaktadır; neyin nasıl çalıştığını bildiği için sayfaların, tabloların, butonların veya ayarların altına teknik açıklamalar, arka plan çalışma mekanizmaları, davranış kuralları veya eğitici metin blokları yazılması KESİNLİKLE YASAKTIR.
+- **Arayüz Kontrolleri Altı Dolgu Metin Yasağı (No Sub-Descriptions):**
+  - Toggle, switch, buton, form, menü veya açılır seçeneklerin altına "Balonlar taranır...", "Sayfaları sırayla değil eşzamanlı çevirir" gibi kalabalık yaratan alt açıklama cümleleri (sub-text/help-text) eklenemez. Kontrolün kendi etiketi kendini anlatmalıdır.
+- **Kartlar, Kuyruklar ve Boş Durumlar (Empty States):**
+  - Kart ve listelerin içerisine "En az üç kaydı aynı anda gör...", "Soldan bir kayıt seç..." gibi iç monolog/geliştirici açıklamaları eklenemez. Boş durumlar sade ve kısa tutulmalıdır.
