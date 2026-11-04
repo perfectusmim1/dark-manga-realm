@@ -496,7 +496,7 @@ const cleanChapterTitle = (rawTitle, chapterNumber, seriesTitle) => {
 
 const isLowResThumbnailUrl = (url) =>
   typeof url === 'string' &&
-  (/(?:-\d{2,3}x\d{2,3})\.(?:jpe?g|png|webp)(?:\?.*)?$/i.test(url.trim()) ||
+  (/(?:-\d{2,4}x\d{2,4})\.(?:jpe?g|png|webp)(?:\?.*)?$/i.test(url.trim()) ||
     /\/cover-230\.webp(?:\?.*)?$/i.test(url.trim()));
 
 const upgradeSourceImageUrl = (url) => {
@@ -505,8 +505,8 @@ const upgradeSourceImageUrl = (url) => {
   if (/cdn\.hentaiturk\.com\/uploads\/mangas\/\d+\/cover\/cover-230\.webp/i.test(trimmed)) {
     return trimmed.replace(/\/cover-230\.webp/i, '/cover.webp');
   }
-  if (/(?:webtoonhatti|siyahmelek|hattorimanga)/i.test(trimmed)) {
-    return trimmed.replace(/-\d{2,3}x\d{2,3}(\.(?:jpe?g|png|webp))(?:\?.*)?$/i, '$1');
+  if (/(?:webtoonhatti|siyahmelek|hattorimanga|wp-content)/i.test(trimmed)) {
+    return trimmed.replace(/-\d{2,4}x\d{2,4}(\.(?:jpe?g|png|webp))(?:\?.*)?$/i, '$1');
   }
   return trimmed;
 };
@@ -1318,11 +1318,21 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     }
     rawChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
 
+    const ogCoverMatch = /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i.exec(html);
+    const summaryImgMatch =
+      /<div[^>]*class=["'][^"']*summary_image[^"']*["'][\s\S]*?<img[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+)["']/i.exec(html) ||
+      /<div[^>]*class=["'][^"']*tab-summary[^"']*["'][\s\S]*?<img[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+)["']/i.exec(html);
+    const htmlCover = ogCoverMatch?.[1]?.trim() || summaryImgMatch?.[1]?.trim() || '';
+    const rawCover = (fallbackCover && !isJunkCoverUrl(fallbackCover) && !isLowResThumbnailUrl(fallbackCover))
+      ? fallbackCover
+      : (htmlCover || fallbackCover || '');
+    const cover = upgradeSourceImageUrl(rawCover);
+
     return {
       source,
       title: fallbackTitle || stripTags(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] || ''),
       link: seriesUrl,
-      cover: fallbackCover,
+      cover,
       description,
       alternativeTitles,
       author: author || 'Bilinmiyor',
@@ -1433,11 +1443,21 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     }
     rawChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
 
+    const smOgCoverMatch = /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i.exec(html);
+    const smPosterMatch =
+      /<div[^>]*class=["'][^"']*(?:manga-poster|summary_image|poster)[^"']*["'][\s\S]*?<img[^>]+(?:data-src|data-lazy-src|src)=["']([^"']+)["']/i.exec(html) ||
+      /<img[^>]+class=["'][^"']*wp-post-image[^"']*["'][^>]+(?:data-src|data-lazy-src|src)=["']([^"']+)["']/i.exec(html);
+    const smHtmlCover = smOgCoverMatch?.[1]?.trim() || smPosterMatch?.[1]?.trim() || '';
+    const rawSmCover = (fallbackCover && !isJunkCoverUrl(fallbackCover) && !isLowResThumbnailUrl(fallbackCover))
+      ? fallbackCover
+      : (smHtmlCover || fallbackCover || '');
+    const smCover = upgradeSourceImageUrl(rawSmCover);
+
     return {
       source: 'siyahmelek',
       title,
       link: seriesUrl,
-      cover: fallbackCover,
+      cover: smCover,
       description,
       alternativeTitles,
       author,
@@ -1474,11 +1494,16 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     }
     rawChapters.sort((a, b) => a.chapterNumber - b.chapterNumber);
 
+    const okuOgCoverMatch = /<meta[^>]+property=["']og:image["'][^>]*content=["']([^"']+)["']/i.exec(html);
+    const okuCover = (fallbackCover && !isJunkCoverUrl(fallbackCover))
+      ? fallbackCover
+      : (okuOgCoverMatch?.[1]?.trim() || fallbackCover || '');
+
     return {
       source: 'okutoon',
       title: fallbackTitle || stripTags(/<h1[^>]*>([\s\S]*?)<\/h1>/i.exec(html)?.[1] || ''),
       link: seriesUrl,
-      cover: fallbackCover,
+      cover: upgradeSourceImageUrl(okuCover),
       description,
       alternativeTitles: [],
       author: 'Bilinmiyor',
@@ -2514,7 +2539,12 @@ class SmartCatalogStore {
       if ((!existing.description || existing.description.length < 25) && scraped.description) {
         existing.description = scraped.description;
       }
-      if (!existing.cover && scraped.cover && !isJunkCoverUrl(scraped.cover)) existing.cover = scraped.cover;
+      if ((!existing.cover || isJunkCoverUrl(existing.cover) || isLowResThumbnailUrl(existing.cover)) && scraped.cover && !isJunkCoverUrl(scraped.cover)) {
+        existing.cover = upgradeSourceImageUrl(scraped.cover);
+      }
+      if ((!existing.banner || isJunkCoverUrl(existing.banner) || isLowResThumbnailUrl(existing.banner)) && existing.cover) {
+        existing.banner = existing.cover;
+      }
       if (scraped.status === 'completed' || scraped.status === 'cancelled' || scraped.status === 'hiatus') {
         existing.status = scraped.status;
       }
@@ -3036,6 +3066,12 @@ class SmartCatalogStore {
         const mapped = muData.genres.map(normalizeGenreToTurkish).filter(Boolean);
         currentManga.genres = Array.from(new Set([...(currentManga.genres || []), ...mapped]));
         this.syncScrapedTaxonomies(finalId, { genres: mapped });
+      }
+      if ((!currentManga.cover || isJunkCoverUrl(currentManga.cover) || isLowResThumbnailUrl(currentManga.cover)) && muData.cover && !isJunkCoverUrl(muData.cover)) {
+        currentManga.cover = muData.cover;
+      }
+      if (!currentManga.banner || isJunkCoverUrl(currentManga.banner) || isLowResThumbnailUrl(currentManga.banner)) {
+        currentManga.banner = currentManga.cover;
       }
     }
 
@@ -4059,6 +4095,12 @@ const main = async () => {
           } else {
             store.upsertSourceLink(existing, { source: card.source, url: card.link });
           }
+          if ((!existing.cover || isJunkCoverUrl(existing.cover) || isLowResThumbnailUrl(existing.cover)) && card.cover && !isJunkCoverUrl(card.cover)) {
+            existing.cover = upgradeSourceImageUrl(card.cover);
+            if (!existing.banner || isJunkCoverUrl(existing.banner)) existing.banner = existing.cover;
+            touchedMangaIds.add(existing.id);
+            if (existing.slug) touchedSlugs.add(existing.slug);
+          }
         } else if (!seriesQueue[card.link]) {
           seriesQueue[card.link] = {
             ...card,
@@ -4069,6 +4111,10 @@ const main = async () => {
             updatedAt: new Date().toISOString(),
           };
           newQueuedFromFrontPage++;
+        } else {
+          if ((!seriesQueue[card.link].cover || isJunkCoverUrl(seriesQueue[card.link].cover) || isLowResThumbnailUrl(seriesQueue[card.link].cover)) && card.cover && !isJunkCoverUrl(card.cover)) {
+            seriesQueue[card.link].cover = card.cover;
+          }
         }
       }
       logInfo(`[Vitrin] ${src}: ${frontCards.length} güncel seri kontrol edildi.`);
@@ -4378,6 +4424,10 @@ const main = async () => {
         if (existingByAltId && store.mangas.has(existingByAltId)) {
           const existing = store.mangas.get(existingByAltId);
           store.upsertSourceLink(existing, { source: card.source, url: card.link });
+          if ((!existing.cover || isJunkCoverUrl(existing.cover) || isLowResThumbnailUrl(existing.cover)) && detail.cover && !isJunkCoverUrl(detail.cover)) {
+            existing.cover = upgradeSourceImageUrl(detail.cover);
+            if (!existing.banner || isJunkCoverUrl(existing.banner)) existing.banner = existing.cover;
+          }
 
           // Eksik bölümleri kontrol et ve tamamla (Backfill - Türkçe kaynaklar İngilizce [EN] bölümlerin üzerine yazabilir)
           const isTurkishSource = card.source !== 'asurascans' && card.source !== 'madaradex';
