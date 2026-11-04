@@ -1,9 +1,9 @@
 #!/usr/bin/env node
 /**
- * ToonParrot - Comix.to 80.000 Seri Tam Arşiv Hasat & Senkronizasyon Motoru
+ * ToonParrot - Comix.to Tam Arşiv Hasat & Senkronizasyon Motoru
  *
- * Comix.to üzerindeki tüm kataloğu sayfa sayfa (100'er seri) tarar.
- * 0 bölümü olan veya çalışmayan serileri eler.
+ * Comix.to kataloğunu sayfa sayfa kesintisiz tarar.
+ * 0 bölümü olan veya ölü serileri 0 ms'de atlar.
  * Kalan serilerin kapak, alternatif isim, tür, yaş derecelendirmesi (+18),
  * AniList/MAL eşleşmesi, Türkçe çeviri (GTX) ve en iyi çeviri grubu bölümlerini çeker.
  * Cloudflare R2 ve Supabase veritabanına otomatik aktarır.
@@ -15,7 +15,6 @@ import { fileURLToPath } from 'node:url';
 import { randomUUID } from 'node:crypto';
 import {
   fetchComixApi,
-  extractComixHid,
   isAdultRating as isComixAdultRating,
   mapComixType,
 } from './comix-crypto.mjs';
@@ -74,12 +73,11 @@ const getArgValue = (f, fallback = null) => {
 };
 
 const START_PAGE = parseInt(getArgValue('--start-page', '1'), 10) || 1;
-const MAX_PAGES = parseInt(getArgValue('--max-pages', '1000'), 10) || 1000;
-const BATCH_SIZE = parseInt(getArgValue('--batch-size', '20'), 10) || 20;
+const BATCH_SIZE = parseInt(getArgValue('--batch-size', '15'), 10) || 15;
+const SERIES_CONCURRENCY = parseInt(getArgValue('--concurrency', '4'), 10) || 4;
 const SERIES_PER_PAGE = 50;
-const CHAPTER_CONCURRENCY = 8;
 const IS_DRY_RUN = hasFlag('--dry-run');
-const ORDER_BY = getArgValue('--order', 'follows_total'); // 'follows_total' (en popülerler önce) | 'updated_at' (günceller)
+const ORDER_BY = getArgValue('--order', 'follows_total');
 
 // Anti-hang safety timeout (120 minutes)
 const timeoutTimer = setTimeout(() => {
@@ -90,11 +88,8 @@ if (typeof timeoutTimer.unref === 'function') timeoutTimer.unref();
 
 // --- Live Terminal Progress ---
 const formatTime = () => new Date().toTimeString().split(' ')[0];
-const logProgress = (current, total, item, status) => {
-  const totalNum = total === Infinity || total <= 0 ? 1 : total;
-  const pct = total === Infinity ? '?' : ((current / totalNum) * 100).toFixed(1);
-  const totalStr = total === Infinity ? '∞' : total;
-  console.log(`[${formatTime()}] [${current}/${totalStr}] (${pct}%) - ${item}: ${status}`);
+const logProgress = (page, catalogCount, item, status) => {
+  console.log(`[${formatTime()}] [Sayfa ${page}] [Katalog: ${catalogCount}] - ${item}: ${status}`);
 };
 
 const logInfo = (msg) => console.log(`[${formatTime()}] [INFO] ${msg}`);
@@ -130,7 +125,7 @@ const translateToTurkishGtx = async (text) => {
   if (!text || text.length < 3) return '';
   try {
     const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=tr&dt=t&q=${encodeURIComponent(text.slice(0, 1800))}`;
-    const res = await fetch(url, { signal: AbortSignal.timeout(4000) });
+    const res = await fetch(url, { signal: AbortSignal.timeout(3000) });
     if (res.ok) {
       const json = await res.json();
       const chunks = json?.[0] || [];
@@ -290,10 +285,166 @@ const syncBatchToR2AndSupabase = async (state, touchedMangas) => {
   }
 };
 
+// --- Single Series Processor ---
+async function processSeriesItem(item, page, mainState) {
+  const hid = item.hid || String(item.id);
+
+  // KURAL: Çalışan bölümü yoksa veya ölü/boş seriyse anında atla!
+  if (!item.hasChapters || Number(item.latestChapter || 0) <= 0) {
+    return { skipped: true, reason: 'empty' };
+  }
+
+  const rawTitle = item.title || '';
+  const cleanTitle = cleanSeriesTitle(rawTitle);
+  const isAdult = isComixAdultRating(item.contentRating);
+  const formatType = mapComixType(item.type);
+  const cover = item.poster?.large || item.poster?.medium || '';
+
+  // Bölüm listesini çek
+  let chRes = null;
+  try {
+    chRes = await fetchComixApi(`/manga/${hid}/chapters`, {
+      limit: 100,
+      page: 1,
+      'order[number]': 'asc',
+    });
+  } catch (err) {
+    logWarn(`[Bölüm Hatası] ${hid} ${cleanTitle}: ${err.message}`);
+    return { skipped: true, reason: 'error' };
+  }
+
+  const chItems = chRes?.items || (Array.isArray(chRes) ? chRes : []);
+  if (!chItems || chItems.length === 0) {
+    return { skipped: true, reason: 'no_chapters' };
+  }
+
+  // En iyi çeviri gruplarını seç
+  const chapterMap = new Map();
+  for (const ch of chItems) {
+    const num = Number(ch.number ?? 0);
+    const lang = (ch.language || 'en').toLowerCase();
+    const key = `${num}_${lang}`;
+    const votes = Number(ch.votes || 0);
+
+    if (!chapterMap.has(key) || chapterMap.get(key).votes < votes) {
+      chapterMap.set(key, {
+        id: ch.id,
+        number: num,
+        language: lang,
+        groupName: ch.group?.name || '',
+        votes,
+      });
+    }
+  }
+
+  const chaptersToIngest = Array.from(chapterMap.values())
+    .sort((a, b) => a.number - b.number);
+
+  if (chaptersToIngest.length === 0) {
+    return { skipped: true, reason: 'no_valid_chapters' };
+  }
+
+  // Hızlı Doğrulama: İlk bölümün sayfalarını çekerek serinin çalıştığını teyit et
+  const sampleChapter = chaptersToIngest[0];
+  let samplePages = [];
+  try {
+    const chData = await fetchComixApi(`/chapters/${sampleChapter.id}`);
+    const pageItems = chData?.pages?.items || [];
+    samplePages = pageItems.map((p) => p.url).filter(Boolean);
+  } catch {}
+
+  if (samplePages.length === 0) {
+    return { skipped: true, reason: 'no_pages' };
+  }
+
+  // Tüm bölümleri oluştur (ilk bölüm hazır sayfalarla, geri kalanlar _sourceLink ve on-demand ile)
+  const finalChapters = chaptersToIngest.map((ch, idx) => ({
+    id: randomUUID(),
+    chapterNumber: ch.number,
+    number: ch.number,
+    title: ch.number === 0 ? `Bölüm 0 [${ch.language.toUpperCase()}]` : `Bölüm ${ch.number} [${ch.language.toUpperCase()}]`,
+    language: ch.language,
+    groupName: ch.groupName || '',
+    pages: idx === 0 ? samplePages : [],
+    releaseDate: new Date().toISOString(),
+    views: 0,
+    _sourceLink: `https://comix.to/chapter/${ch.id}`,
+  }));
+
+  // Açıklamayı Türkçe'ye çevir (GTX)
+  let description = item.synopsis || '';
+  if (description && description.length > 10) {
+    description = await translateToTurkishGtx(description);
+  }
+
+  // Türler
+  const genres = Array.isArray(item.genres)
+    ? item.genres.map((g) => (typeof g === 'object' ? g.name : g)).filter(Boolean)
+    : [];
+  if (genres.length === 0) genres.push(formatType === 'manga' ? 'Manga' : 'Webtoon', 'Aksiyon');
+
+  const mangaSlug = `${slugify(cleanTitle)}-${hid}`;
+  const mangaId = randomUUID();
+  const now = new Date().toISOString();
+
+  const newManga = {
+    id: mangaId,
+    title: cleanTitle,
+    slug: mangaSlug,
+    cover,
+    banner: cover,
+    description,
+    alternativeTitles: Array.isArray(item.altTitles) ? item.altTitles : [],
+    author: 'Bilinmiyor',
+    artist: 'Bilinmiyor',
+    status: item.status === 'finished' ? 'completed' : 'ongoing',
+    genres,
+    isAdult,
+    mangaType: formatType,
+    rating: Number(item.ratedAvg || 0),
+    views: Number(item.followsTotal || 0),
+    chapterCount: finalChapters.length,
+    chapters: finalChapters,
+    sourceLinks: [
+      { source: 'comix', url: `https://comix.to/comic/${hid}` },
+      ...(item.links?.al ? [{ source: 'anilist', url: item.links.al }] : []),
+      ...(item.links?.mal ? [{ source: 'myanimelist', url: item.links.mal }] : []),
+      ...(item.links?.md ? [{ source: 'mangadex', url: item.links.md }] : []),
+    ],
+    details: {
+      primarySource: 'comix',
+      primarySourceUrl: `https://comix.to/comic/${hid}`,
+      language: 'en',
+      hid,
+      lastChapterAddedAt: now,
+      lastDeltaCheckAt: now,
+    },
+    createdAt: now,
+    updatedAt: now,
+  };
+
+  mainState.mangas[mangaId] = newManga;
+  await uploadSeriesToR2(newManga);
+
+  // Bellek tasarrufu için checkpoint'te pages arrayini boşalt
+  for (const ch of newManga.chapters) {
+    delete ch.pages;
+  }
+
+  logProgress(
+    page,
+    Object.keys(mainState.mangas).length,
+    cleanTitle,
+    `EKLENDİ: +${finalChapters.length} bölüm [${formatType.toUpperCase()}]`
+  );
+
+  return { success: true, manga: newManga };
+}
+
 // --- Main Harvester ---
 async function harvest() {
   console.log('============================================================================');
-  console.log('   TOONPARROT - COMIX.TO 80.000 SERİ TAM ARŞİV HASAT & AKTARIM MOTORU       ');
+  console.log('   TOONPARROT - COMIX.TO KESİNTİSİZ ARŞİV HASAT & AKTARIM MOTORU            ');
   console.log('============================================================================');
 
   const mainState = loadMainCheckpoint();
@@ -301,19 +452,17 @@ async function harvest() {
   const harvestState = loadHarvestState();
   const processedHids = new Set(harvestState.processedHids || []);
 
-  const startPage = Math.max(START_PAGE, (harvestState.lastPage || 0) + 1);
-  const endPage = startPage + MAX_PAGES - 1;
+  let page = Math.max(START_PAGE, (harvestState.lastPage || 0) + 1);
 
-  logInfo(`Hasat Başlıyor: Sayfa ${startPage} -> ${endPage} | Sıralama: ${ORDER_BY}`);
-  logInfo(`Mevcut Arşivdeki Seri: ${Object.keys(mainState.mangas).length} | Daha Önce İşlenen Comix HID: ${processedHids.size}`);
+  logInfo(`Hasat Başlıyor: Sayfa ${page}'den itibaren sonuna kadar | Sıralama: ${ORDER_BY}`);
+  logInfo(`Mevcut Sitedeki Seri Sayısı: ${Object.keys(mainState.mangas).length} | Daha Önce İşlenen Comix HID: ${processedHids.size}`);
 
   const touchedMangas = [];
   let totalImported = 0;
   let totalSkippedEmpty = 0;
-  let remoteTotalCount = 110800;
 
-  for (let page = startPage; page <= endPage; page++) {
-    logInfo(`Sayfa ${page} taranıyor...`);
+  // SONUNA KADAR KESİNTİSİZ TARAMA DÖNGÜSÜ
+  while (true) {
     let res = null;
     try {
       res = await fetchComixApi('/manga', {
@@ -328,193 +477,41 @@ async function harvest() {
     }
 
     const items = res?.items || (Array.isArray(res) ? res : []);
-    if (res?.meta?.total) {
-      remoteTotalCount = Number(res.meta.total);
-    }
     if (!items || items.length === 0) {
-      logInfo(`Sayfa ${page} boş, arşiv sonuna ulaşıldı.`);
+      logInfo(`Sayfa ${page} boş, arşivin sonuna ulaşıldı!`);
       break;
     }
 
-    logInfo(`Sayfa ${page}: ${items.length} seri bulundu. Bölümler ve metadata inceleniyor...`);
+    logInfo(`Sayfa ${page}: ${items.length} seri taranıyor...`);
 
-    for (const item of items) {
-      const hid = item.hid || String(item.id);
-      if (processedHids.has(hid)) continue;
+    // Yeni serileri filtrele
+    const newItems = items.filter((it) => {
+      const hid = it.hid || String(it.id);
+      if (processedHids.has(hid)) return false;
       processedHids.add(hid);
-
-      // KURAL: Çalışan bölümü yoksa veya ölü/boş seriyse anında atla!
-      if (!item.hasChapters || Number(item.latestChapter || 0) <= 0) {
+      if (!it.hasChapters || Number(it.latestChapter || 0) <= 0) {
         totalSkippedEmpty++;
-        continue;
+        return false;
       }
+      return true;
+    });
 
-      const rawTitle = item.title || '';
-      const cleanTitle = cleanSeriesTitle(rawTitle);
-      const isAdult = isComixAdultRating(item.contentRating);
-      const formatType = mapComixType(item.type);
-      const cover = item.poster?.large || item.poster?.medium || '';
-
-      // Bölüm listesini çek
-      let chRes = null;
-      try {
-        chRes = await fetchComixApi(`/manga/${hid}/chapters`, {
-          limit: 100,
-          page: 1,
-          'order[number]': 'asc',
-        });
-      } catch (err) {
-        logWarn(`[Bölüm Hatası] ${hid} ${cleanTitle}: ${err.message}`);
-      }
-
-      const chItems = chRes?.items || (Array.isArray(chRes) ? chRes : []);
-
-      // KURAL: Gerçekte 0 bölümü varsa ele!
-      if (!chItems || chItems.length === 0) {
-        totalSkippedEmpty++;
-        logProgress(processedHids.size, remoteTotalCount, cleanTitle, '0 bölüm olduğu için elendi.');
-        continue;
-      }
-
-      // En iyi çeviri gruplarını seç
-      const chapterMap = new Map();
-      for (const ch of chItems) {
-        const num = Number(ch.number ?? 0);
-        const lang = (ch.language || 'en').toLowerCase();
-        const key = `${num}_${lang}`;
-        const votes = Number(ch.votes || 0);
-
-        if (!chapterMap.has(key) || chapterMap.get(key).votes < votes) {
-          chapterMap.set(key, {
-            id: ch.id,
-            number: num,
-            language: lang,
-            groupName: ch.group?.name || '',
-            votes,
-          });
-        }
-      }
-
-      const chaptersToIngest = Array.from(chapterMap.values())
-        .sort((a, b) => a.number - b.number)
-        .slice(0, 100);
-
-      // İlk birkaç bölümün sayfalarını çek (veya ihtiyaç halinde tamamını)
-      logProgress(processedHids.size, remoteTotalCount, cleanTitle, `${chaptersToIngest.length} bölümün sayfaları indiriliyor...`);
-
-      const finalChapters = [];
-      for (let cIdx = 0; cIdx < chaptersToIngest.length; cIdx += CHAPTER_CONCURRENCY) {
-        const chBatch = chaptersToIngest.slice(cIdx, cIdx + CHAPTER_CONCURRENCY);
-        const results = await Promise.all(
-          chBatch.map(async (chItem) => {
-            try {
-              const chData = await fetchComixApi(`/chapters/${chItem.id}`);
-              const pageItems = chData?.pages?.items || [];
-              const imgUrls = pageItems.map((p) => p.url).filter(Boolean);
-              return { ...chItem, pages: imgUrls };
-            } catch (err) {
-              return { ...chItem, pages: [] };
-            }
-          })
-        );
-
-        for (const r of results) {
-          if (r.pages && r.pages.length > 0) {
-            finalChapters.push({
-              id: randomUUID(),
-              chapterNumber: r.number,
-              number: r.number,
-              title: r.number === 0 ? `Bölüm 0 [${r.language.toUpperCase()}]` : `Bölüm ${r.number} [${r.language.toUpperCase()}]`,
-              language: r.language,
-              groupName: r.groupName || '',
-              pages: r.pages,
-              releaseDate: new Date().toISOString(),
-              views: 0,
-              _sourceLink: `https://comix.to/chapter/${r.id}`,
-            });
-          }
-        }
-        await sleep(150);
-      }
-
-      if (finalChapters.length === 0) {
-        totalSkippedEmpty++;
-        logProgress(processedHids.size, remoteTotalCount, cleanTitle, 'Çalışan görsel sayfası bulunamadığı için elendi.');
-        continue;
-      }
-
-      // Açıklamayı Türkçe'ye çevir (GTX)
-      let description = item.synopsis || '';
-      if (description && description.length > 10) {
-        description = await translateToTurkishGtx(description);
-      }
-
-      // Türler
-      const genres = Array.isArray(item.genres)
-        ? item.genres.map((g) => (typeof g === 'object' ? g.name : g)).filter(Boolean)
-        : [];
-      if (genres.length === 0) genres.push(formatType === 'manga' ? 'Manga' : 'Webtoon', 'Aksiyon');
-
-      const mangaSlug = `${slugify(cleanTitle)}-${hid}`;
-      const mangaId = randomUUID();
-      const now = new Date().toISOString();
-
-      const newManga = {
-        id: mangaId,
-        title: cleanTitle,
-        slug: mangaSlug,
-        cover,
-        banner: cover,
-        description,
-        alternativeTitles: Array.isArray(item.altTitles) ? item.altTitles : [],
-        author: 'Bilinmiyor',
-        artist: 'Bilinmiyor',
-        status: item.status === 'finished' ? 'completed' : 'ongoing',
-        genres,
-        isAdult,
-        mangaType: formatType,
-        rating: Number(item.ratedAvg || 0),
-        views: Number(item.followsTotal || 0),
-        chapterCount: finalChapters.length,
-        chapters: finalChapters,
-        sourceLinks: [
-          { source: 'comix', url: `https://comix.to/comic/${hid}` },
-          ...(item.links?.al ? [{ source: 'anilist', url: item.links.al }] : []),
-          ...(item.links?.mal ? [{ source: 'myanimelist', url: item.links.mal }] : []),
-          ...(item.links?.md ? [{ source: 'mangadex', url: item.links.md }] : []),
-        ],
-        details: {
-          primarySource: 'comix',
-          primarySourceUrl: `https://comix.to/comic/${hid}`,
-          language: 'en',
-          hid,
-          lastChapterAddedAt: now,
-          lastDeltaCheckAt: now,
-        },
-        createdAt: now,
-        updatedAt: now,
-      };
-
-      mainState.mangas[mangaId] = newManga;
-      touchedMangas.push(newManga);
-      totalImported++;
-
-      // R2 serisini yükle
-      await uploadSeriesToR2(newManga);
-
-      // Bellek tasarrufu için checkpoint'te pages arrayini boşalt
-      for (const ch of newManga.chapters) {
-        delete ch.pages;
-      }
-
-      logProgress(
-        processedHids.size,
-        remoteTotalCount,
-        cleanTitle,
-        `EKLENDİ: +${finalChapters.length} bölüm [${formatType.toUpperCase()}] (Katalog: ${Object.keys(mainState.mangas).length})`
+    // 4'er paralel seri işleme (Multi-concurrency)
+    for (let i = 0; i < newItems.length; i += SERIES_CONCURRENCY) {
+      const chunk = newItems.slice(i, i + SERIES_CONCURRENCY);
+      const results = await Promise.all(
+        chunk.map((item) => processSeriesItem(item, page, mainState))
       );
 
-      // Periyodik checkpoint & senkronizasyon
+      for (const r of results) {
+        if (r.success && r.manga) {
+          touchedMangas.push(r.manga);
+          totalImported++;
+        } else if (r.skipped) {
+          totalSkippedEmpty++;
+        }
+      }
+
       if (touchedMangas.length >= BATCH_SIZE) {
         saveMainCheckpoint(mainState);
         harvestState.lastPage = page;
@@ -524,14 +521,16 @@ async function harvest() {
         touchedMangas.length = 0;
       }
 
-      await sleep(300);
+      await sleep(150);
     }
 
     harvestState.lastPage = page;
     harvestState.processedHids = Array.from(processedHids);
     saveHarvestState(harvestState);
     saveMainCheckpoint(mainState);
-    await sleep(600);
+
+    page++;
+    await sleep(250);
   }
 
   if (touchedMangas.length > 0) {
