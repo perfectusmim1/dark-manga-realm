@@ -5,39 +5,30 @@ import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
 import { normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
+import { runFastWebtoonOcr } from './fastOcr';
 
 const GEMINI_FLASH_MODEL = 'gemini-flash-latest';
 
-const FALLBACK_RETRY_DELAYS_MS = [1800, 4500];
-const DEFAULT_KEY_COOLDOWN_MS = 14_000;
+const FALLBACK_RETRY_DELAYS_MS = [1500, 3500];
+const DEFAULT_KEY_COOLDOWN_MS = 12_000;
 const INVALID_KEY_ISOLATION_MS = 5 * 60_000;
-const PER_REQUEST_TIMEOUT_MS = 28_000;
-const SLICE_HEIGHT = 2200;
-const SLICE_OVERLAP = 220;
-const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1980
-const VISION_MAX_WIDTH = 720;
+const PER_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_TRANSLATE_PROXY_URL =
   'https://toonparrot-scraper-proxy.caganhuseyinerdil.workers.dev/translate';
 
 const supportsThinkingConfig = (model: string): boolean =>
   model.includes('2.5');
 
-const RESPONSE_SCHEMA = {
+const GEMINI_TEXT_TRANSLATE_SCHEMA = {
   type: Type.OBJECT,
   properties: {
-    blocks: {
+    translations: {
       type: Type.ARRAY,
-      items: {
-        type: Type.OBJECT,
-        properties: {
-          box_2d: { type: Type.ARRAY, items: { type: Type.NUMBER } },
-          text: { type: Type.STRING },
-        },
-        required: ['box_2d', 'text'],
-      },
+      items: { type: Type.STRING },
+      description: 'The translated texts in the exact same array order and count',
     },
   },
-  required: ['blocks'],
+  required: ['translations'],
 };
 
 const sleep = (ms: number, signal?: AbortSignal) =>
@@ -111,61 +102,6 @@ export const loadImageElementFromBlob = (blob: Blob): Promise<HTMLImageElement> 
     img.src = url;
   });
 
-const canvasToBase64 = (canvas: HTMLCanvasElement): { data: string; mimeType: string } => {
-  let targetCanvas = canvas;
-  if (canvas.width > VISION_MAX_WIDTH && canvas.height > 0) {
-    const scale = VISION_MAX_WIDTH / canvas.width;
-    const scaledWidth = VISION_MAX_WIDTH;
-    const scaledHeight = Math.max(1, Math.round(canvas.height * scale));
-    const resized = document.createElement('canvas');
-    resized.width = scaledWidth;
-    resized.height = scaledHeight;
-    const rCtx = resized.getContext('2d');
-    if (rCtx) {
-      rCtx.drawImage(canvas, 0, 0, canvas.width, canvas.height, 0, 0, scaledWidth, scaledHeight);
-      targetCanvas = resized;
-    }
-  }
-  const dataUrl = targetCanvas.toDataURL('image/jpeg', 0.80);
-  const base64 = dataUrl.split(',')[1];
-  if (!base64) {
-    throw new Error('Görsel base64 dönüşümü başarısız');
-  }
-  return { data: base64, mimeType: 'image/jpeg' };
-};
-
-// Saf beyaz, saf siyah veya yazı içermesi imkansız düz geçiş şeritlerini <1ms'de tespit edip boşuna API çağrısı yapmayı önler.
-const hasSliceTextPotential = (
-  ctx: CanvasRenderingContext2D,
-  width: number,
-  height: number,
-): boolean => {
-  try {
-    if (width <= 0 || height <= 0) return false;
-    const data = ctx.getImageData(0, 0, width, height).data;
-    const stepX = 4;
-    const stepY = 6;
-    let sharpTransitions = 0;
-
-    for (let y = 0; y < height; y += stepY) {
-      const rowOffset = y * width * 4;
-      let prevLum = -1;
-      for (let x = 0; x < width; x += stepX) {
-        const idx = rowOffset + x * 4;
-        const lum = (data[idx] * 77 + data[idx + 1] * 150 + data[idx + 2] * 29) >> 8;
-        if (prevLum >= 0 && Math.abs(lum - prevLum) > 38) {
-          sharpTransitions += 1;
-          if (sharpTransitions >= 12) return true;
-        }
-        prevLum = lum;
-      }
-    }
-    return false;
-  } catch {
-    return true;
-  }
-};
-
 export const isTransientServerOrTimeoutError = (error: unknown): boolean => {
   if (error instanceof DOMException && error.name === 'TimeoutError') return true;
   if (error instanceof Error && error.name === 'TimeoutError') return true;
@@ -220,7 +156,7 @@ export const classifyTranslationError = (error: unknown): string => {
   }
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
   if (message.includes('api_key_invalid') || message.includes('api anahtarı bulunamadı')) {
-    return 'Gemini API anahtarı eksik. Lütfen Görsel Çeviri panelinden bir API anahtarı ekleyin.';
+    return 'Gemini API anahtarı eksik. Lütfen Görsel Çeviri panelinden bir API anahtarı ekleyin veya Google Çeviri motorunu seçin.';
   }
   if (
     message.includes('503') ||
@@ -231,7 +167,7 @@ export const classifyTranslationError = (error: unknown): string => {
     message.includes('overload') ||
     message.includes('deadline_exceeded')
   ) {
-    return 'Çeviri zaman aşımına uğradı veya Gemini servisi meşgul (503). Lütfen tekrar deneyin.';
+    return 'Çeviri zaman aşımına uğradı veya servis meşgul. Lütfen tekrar deneyin.';
   }
   if (message.includes('görsel') || message.includes('failed to fetch') || message.includes('network')) {
     return 'Sayfa görseli alınamadı. Bağlantınızı kontrol edin.';
@@ -275,7 +211,7 @@ const parseRetryDelayMs = (error: unknown): number => {
   if (secMatch) {
     const parsedMs = Math.ceil(Number(secMatch[1]) * 1000);
     if (Number.isFinite(parsedMs) && parsedMs > 0) {
-      return Math.min(Math.max(parsedMs, 8_000), 35_000);
+      return Math.min(Math.max(parsedMs, 6_000), 25_000);
     }
   }
   return DEFAULT_KEY_COOLDOWN_MS;
@@ -297,7 +233,7 @@ export const executeWithGeminiKeyPool = async <T>(
     throw new Error('API_KEY_INVALID: Geçerli bir Gemini API anahtarı bulunamadı.');
   }
 
-  const maxAttempts = Math.max(normalizedKeys.length * 2, 4);
+  const maxAttempts = Math.max(normalizedKeys.length * 2, 3);
   let lastError: unknown = null;
   let allCoolingRetries = 0;
 
@@ -322,8 +258,8 @@ export const executeWithGeminiKeyPool = async <T>(
       }
       const earliestCooldown = Math.min(...validSlots.map((slot) => slot.cooldownUntil));
       const waitMs = Math.min(
-        Math.max(earliestCooldown - now, FALLBACK_RETRY_DELAYS_MS[allCoolingRetries] || 2000),
-        15_000,
+        Math.max(earliestCooldown - now, FALLBACK_RETRY_DELAYS_MS[allCoolingRetries] || 1500),
+        10_000,
       );
       allCoolingRetries += 1;
       await sleep(waitMs, signal);
@@ -335,7 +271,7 @@ export const executeWithGeminiKeyPool = async <T>(
       }
     }
 
-    // En az aktif isteği olan ve en uzun süredir seçilmeyen anahtarı seç (round-robin + least-loaded)
+    // En az aktif isteği olan anahtarı seç
     readySlots.sort((a, b) => {
       if (a.inFlight !== b.inFlight) return a.inFlight - b.inFlight;
       if (a.nextDispatchAt !== b.nextDispatchAt) return a.nextDispatchAt - b.nextDispatchAt;
@@ -347,9 +283,7 @@ export const executeWithGeminiKeyPool = async <T>(
     chosen.lastPickedSeq = pickSequence;
     chosen.inFlight += 1;
 
-    // Dilimler arası yapay gecikmeyi minimumda tut (180ms–250ms)
-    const minIntervalMs =
-      normalizedKeys.length === 1 ? (parallelMode ? 180 : 250) : 120;
+    const minIntervalMs = normalizedKeys.length === 1 ? (parallelMode ? 100 : 180) : 80;
     const dispatchNow = Date.now();
     const scheduledAt = Math.max(dispatchNow, chosen.nextDispatchAt);
     chosen.nextDispatchAt = scheduledAt + minIntervalMs;
@@ -391,7 +325,6 @@ export const executeWithGeminiKeyPool = async <T>(
       }
 
       if (isTransientServerOrTimeoutError(error)) {
-        // 503 / 502 / 504 / Timeout durumunda beklemeden bir sonraki modele/denemeye geç
         await sleep(250, signal);
         continue;
       }
@@ -417,7 +350,7 @@ const CREDITS_INLINE_REGEX =
 const WATERMARK_DOMAIN_REGEX =
   /(?:https?:\/\/|discord\.gg\/|\b[a-z0-9-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site)\b)/i;
 
-// Ses efektlerini (SFX), inlemeleri (ah/oh/uh/ugh/uaf vb.), seri başlıklarını ve çizer/yazar/editör jeneriklerini eler.
+// Ses efektlerini (SFX), inlemeleri ve çizer/yazar/editör jeneriklerini filtreler
 export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   const t = text.trim();
   if (t.length <= 1) return true;
@@ -425,18 +358,16 @@ export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   if (SFX_WRAP_REGEX.test(t)) return true;
   if (WATERMARK_DOMAIN_REGEX.test(t)) return true;
 
-  // Hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları (logo, SFX, jenerik) atla
+  // Hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları atla
   if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
   if (targetLang !== 'ja' && /[\u3040-\u30FF]/.test(t)) return true;
   if (targetLang !== 'zh' && targetLang !== 'ja' && /[\u4E00-\u9FFF]/.test(t)) return true;
 
-  // Dekoratif başlık parantezlerini temizleyip jenerik/bölüm kontrolü yap
   const stripped = t.replace(/^[<\[({◁▷◀▶★☆•\-~\s]+|[>\])}◁▷◀▶★☆•\-~\s]+$/g, '').trim();
   if (!stripped || stripped.length <= 1) return true;
   if (CREDITS_START_REGEX.test(stripped) || CREDITS_INLINE_REGEX.test(t)) return true;
   if (/^[◁▷◀▶].*[◁▷◀▶]$/.test(t)) return true;
 
-  // Tekli veya tekrarlı saf inleme / nefes / ünlem seslerini ("Ah... haa!", "Ughhh", "¡Uaf!") atla
   const wordTokens = stripped
     .split(/[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>]+/)
     .filter(Boolean);
@@ -449,142 +380,6 @@ export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   }
 
   return false;
-};
-
-const parseBlocks = (raw: string, targetLang: string): TranslationBlock[] => {
-  let parsed: { blocks?: unknown };
-  try {
-    const cleaned = (raw || '')
-      .replace(/^```(?:json)?\s*/i, '')
-      .replace(/\s*```$/i, '')
-      .trim();
-    parsed = JSON.parse(cleaned) as { blocks?: unknown };
-  } catch {
-    return [];
-  }
-  if (!parsed || !Array.isArray(parsed.blocks) || parsed.blocks.length === 0) {
-    return [];
-  }
-  const result: TranslationBlock[] = [];
-  parsed.blocks.forEach((entry) => {
-    const { box_2d: rawBox, text } = (entry || {}) as { box_2d?: unknown; text?: unknown };
-    if (!Array.isArray(rawBox) || rawBox.length !== 4 || typeof text !== 'string' || !text.trim()) {
-      return;
-    }
-    const cleanText = text.trim();
-    if (shouldSkipBlock(cleanText, targetLang)) {
-      return;
-    }
-    const box = rawBox.map(Number);
-    if (box.some((value) => !Number.isFinite(value) || value < 0 || value > 1000)) {
-      return;
-    }
-    const [ymin, xmin, ymax, xmax] = box;
-    if (ymin >= ymax || xmin >= xmax) {
-      return;
-    }
-    if (ymax - ymin < 6 || xmax - xmin < 8) {
-      return;
-    }
-    result.push({ box: [ymin, xmin, ymax, xmax], text: cleanText });
-  });
-  return result;
-};
-
-const computeOverlapMetrics = (
-  boxA: [number, number, number, number],
-  boxB: [number, number, number, number],
-): { iou: number; containment: number } => {
-  const [yA0, xA0, yA1, xA1] = boxA;
-  const [yB0, xB0, yB1, xB1] = boxB;
-
-  const interY0 = Math.max(yA0, yB0);
-  const interX0 = Math.max(xA0, xB0);
-  const interY1 = Math.min(yA1, yB1);
-  const interX1 = Math.min(xA1, xB1);
-
-  if (interY1 <= interY0 || interX1 <= interX0) {
-    return { iou: 0, containment: 0 };
-  }
-
-  const interArea = (interY1 - interY0) * (interX1 - interX0);
-  const areaA = (yA1 - yA0) * (xA1 - xA0);
-  const areaB = (yB1 - yB0) * (xB1 - xB0);
-  const unionArea = areaA + areaB - interArea;
-  const minArea = Math.min(areaA, areaB);
-
-  return {
-    iou: unionArea > 0 ? interArea / unionArea : 0,
-    containment: minArea > 0 ? interArea / minArea : 0,
-  };
-};
-
-const buildPrompt = (targetLang: string) => [
-  'You are an expert manga/webtoon translator and scanlation typesetter.',
-  'Detect ONLY genuine character dialogue inside drawn speech/thought bubbles and story narration inside narration boxes.',
-  `Translate each dialogue and narration into natural, fluent, idiomatic ${getLanguageName(targetLang)} (ISO 639-1 code: "${targetLang}").`,
-  'For box_2d: return [ymin, xmin, ymax, xmax] normalized to 0-1000 tightly enclosing ALL letters of that single bubble\'s text (never merge two separate bubbles into one box).',
-  'STRICT EXCLUSION RULES (DO NOT OUTPUT THESE AT ALL):',
-  '1. SKIP ALL sound effects (SFX), background onomatopoeia, and drawn action text (e.g. "부스슥", "번뜩", "저벅", "쿵", "*step*", "*thump*").',
-  '2. SKIP ALL moans, groans, sighs, gasps, screams, and pure vocal filler bubbles (e.g. "ah", "oh", "uh", "ugh", "ughhh", "aah", "haa", "ngh", "mm", "uaf", "uf", "puf", "eh", "huh", "tsk").',
-  '3. SKIP ALL series title logos, decorative cover/episode banners, chapter numbers, author/artist/editor credits (e.g. "글 : ... / 그림 : ...", "Story / Art"), website URLs, and scanlation watermarks (e.g. "LEE ANTES EN..."). NEVER output floating title graphics.',
-  '4. STRICT CHARACTER NAME & HONORIFIC RULE: Keep all personal names, character names, and Korean/Japanese honorifics (e.g. "Oppa", "Hyung", "Noona", "Unnie", "Sunbae", "Seo-jun", "Elena") in their exact original spelling. NEVER translate or localize names.',
-  'Return ONLY valid JSON matching the schema.',
-].join(' ');
-
-const callGeminiVision = async (
-  keys: readonly string[],
-  parallelMode: boolean,
-  data: string,
-  mimeType: string,
-  targetLang: string,
-  signal?: AbortSignal,
-): Promise<TranslationBlock[]> => {
-  const prompt = buildPrompt(targetLang);
-
-  return executeWithGeminiKeyPool(
-    keys,
-    parallelMode,
-    async (_apiKey, getClient) => {
-      const ai = getClient();
-      const model = GEMINI_FLASH_MODEL;
-      const timeoutSignal = AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS);
-      const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
-
-      try {
-        const response = await ai.models.generateContent({
-          model,
-          config: {
-            ...(supportsThinkingConfig(model)
-              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
-              : {}),
-            responseMimeType: 'application/json',
-            responseSchema: RESPONSE_SCHEMA,
-            abortSignal: combinedSignal,
-          },
-          contents: [
-            {
-              role: 'user',
-              parts: [
-                { inlineData: { data, mimeType } },
-                { text: prompt },
-              ],
-            },
-          ],
-        });
-        return parseBlocks(response.text ?? '', targetLang);
-      } catch (err) {
-        if (signal?.aborted) {
-          throw new DOMException('İptal edildi', 'AbortError');
-        }
-        if (timeoutSignal.aborted || isTransientServerOrTimeoutError(err)) {
-          throw new Error(`503 Vision model timeout or overload (${model})`);
-        }
-        throw err;
-      }
-    },
-    signal,
-  );
 };
 
 const getTranslateProxyEndpoint = (): string => {
@@ -605,7 +400,7 @@ const TURKISH_WORD_REGEX =
 const ENGLISH_STOPWORD_REGEX =
   /\b(?:the|and|you|your|are|was|were|have|has|had|with|this|that|what|when|where|why|how|from|they|them|their|there|here|would|could|should|will|can't|don't|didn't|isn't|aren't|wasn't|I'm|you're|he's|she's|it's|we're|they're)\b/i;
 
-const isLikelyAlreadyTranslated = (text: string, targetLang: string): boolean => {
+export const isLikelyAlreadyTranslated = (text: string, targetLang: string): boolean => {
   const t = text.trim();
   if (!t) return true;
   if (targetLang === 'tr') {
@@ -615,6 +410,9 @@ const isLikelyAlreadyTranslated = (text: string, targetLang: string): boolean =>
   return false;
 };
 
+/**
+ * Google Çeviri API proxy'si ile toplu metin çevirisi (100% Ücretsiz, API Key istemez).
+ */
 export const translateBatchWithGoogleFree = async (
   texts: readonly string[],
   targetLang: string,
@@ -637,8 +435,8 @@ export const translateBatchWithGoogleFree = async (
   const endpoint = getTranslateProxyEndpoint();
   try {
     const reqSignal = signal
-      ? AbortSignal.any([signal, AbortSignal.timeout(6000)])
-      : AbortSignal.timeout(6000);
+      ? AbortSignal.any([signal, AbortSignal.timeout(8000)])
+      : AbortSignal.timeout(8000);
     const res = await fetch(endpoint, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -661,7 +459,7 @@ export const translateBatchWithGoogleFree = async (
       }
     }
   } catch {
-    // Proxy erişilemezse mevcut (Gemini tarafından çevrilmiş) metinleri koru; konsola CORS hatası basma.
+    // Proxy ulaşılamazsa orijinal listeyi koru
   }
 
   return trimmedList;
@@ -676,6 +474,99 @@ export const translateWithGoogleFree = async (
   if (!trimmed) return '';
   const [translated] = await translateBatchWithGoogleFree([trimmed], targetLang, signal);
   return translated || trimmed;
+};
+
+/**
+ * Gemini Flash (`gemini-flash-latest`) ile SAF METİN çevirisi.
+ * Kesinlikle görsel/vision verisi içermez; sadece metin dizileri gider ve gelir.
+ * Çok hızlıdır (~400-800ms) ve neredeyse sıfır token tüketir.
+ */
+export const translateBatchWithGeminiText = async (
+  texts: readonly string[],
+  targetLang: string,
+  keys: readonly string[],
+  parallelMode: boolean,
+  signal?: AbortSignal,
+): Promise<string[]> => {
+  if (texts.length === 0) return [];
+  const trimmedList = texts.map((t) => (t || '').trim());
+  const pendingIndices: number[] = [];
+  const payloadTexts: string[] = [];
+
+  trimmedList.forEach((t, idx) => {
+    if (t.length > 0 && !isLikelyAlreadyTranslated(t, targetLang)) {
+      pendingIndices.push(idx);
+      payloadTexts.push(t);
+    }
+  });
+
+  if (payloadTexts.length === 0) return trimmedList;
+
+  const targetLangName = getLanguageName(targetLang);
+  const prompt = [
+    'You are an expert manga/webtoon translator.',
+    `Translate each of the following ${payloadTexts.length} dialogue/narration lines into natural, fluent, and idiomatic ${targetLangName} (ISO 639-1 code: "${targetLang}").`,
+    'STRICT RULES:',
+    '1. Keep personal character names, honorifics (e.g. Oppa, Hyung, Sunbae, San, Kun, Chan, Sama, Sensei), and proper nouns in their original romanized spelling. NEVER localize names.',
+    '2. Keep translations concise so they fit neatly inside speech bubbles.',
+    `3. Return a JSON object with a "translations" array of exactly ${payloadTexts.length} strings matching input order.`,
+    'Lines to translate:',
+    JSON.stringify(payloadTexts),
+  ].join('\n');
+
+  try {
+    return await executeWithGeminiKeyPool(
+      keys,
+      parallelMode,
+      async (_apiKey, getClient) => {
+        const ai = getClient();
+        const model = GEMINI_FLASH_MODEL; // 'gemini-flash-latest'
+        const timeoutSignal = AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS);
+        const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
+
+        const response = await ai.models.generateContent({
+          model,
+          config: {
+            ...(supportsThinkingConfig(model)
+              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
+              : {}),
+            responseMimeType: 'application/json',
+            responseSchema: GEMINI_TEXT_TRANSLATE_SCHEMA,
+            abortSignal: combinedSignal,
+          },
+          contents: [
+            {
+              role: 'user',
+              parts: [{ text: prompt }],
+            },
+          ],
+        });
+
+        const rawText = response.text || '';
+        const cleaned = rawText.replace(/^```(?:json)?\s*/i, '').replace(/\s*```$/i, '').trim();
+        const parsed = JSON.parse(cleaned) as { translations?: unknown };
+
+        if (Array.isArray(parsed?.translations) && parsed.translations.length === payloadTexts.length) {
+          const out = [...trimmedList];
+          pendingIndices.forEach((origIdx, i) => {
+            const cand = typeof parsed.translations![i] === 'string' ? parsed.translations![i].trim() : '';
+            if (cand) out[origIdx] = cand;
+          });
+          return out;
+        }
+
+        return trimmedList;
+      },
+      signal,
+    );
+  } catch (err) {
+    if (signal?.aborted) {
+      throw new DOMException('İptal edildi', 'AbortError');
+    }
+    // Gemini geçici hata verirse Google Çeviri fallback'i ile kullanıcıyı asla yarı yolda bırakma
+    console.warn('[Gemini Flash Text Fallback to Google Translate]', err);
+    return await translateBatchWithGoogleFree(texts, targetLang, signal);
+  }
 };
 
 export interface TranslationTimings {
@@ -699,6 +590,10 @@ export interface TranslatePageOptions {
   signal?: AbortSignal;
 }
 
+/**
+ * Sayfayı yerel WASM OCR ile tarar ve seçilen motorla (Google veya Gemini Flash) çevirir.
+ * Sıfır LLM Vision maliyeti vardır; görseller hiçbir uzak API'ye gönderilmez.
+ */
 export const translatePageImage = async ({
   apiKey,
   apiKeys,
@@ -713,7 +608,8 @@ export const translatePageImage = async ({
   let transMs = 0;
 
   const effectiveKeys = normalizeApiKeysList(apiKeys, apiKey);
-  if (effectiveKeys.length === 0) {
+  // Yalnızca Gemini motoru seçiliyse API anahtarı zorunludur; Google Çeviri ücretsizdir!
+  if (provider === 'gemini' && effectiveKeys.length === 0) {
     throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
   }
 
@@ -724,6 +620,7 @@ export const translatePageImage = async ({
   if (signal?.aborted) {
     throw new DOMException('İptal edildi', 'AbortError');
   }
+
   const img = await loadImageElementFromBlob(blob);
   const fullWidth = img.naturalWidth || img.width;
   const fullHeight = img.naturalHeight || img.height;
@@ -741,198 +638,49 @@ export const translatePageImage = async ({
   }
   fullCtx.drawImage(img, 0, 0);
 
-  const applyGoogleTranslateBatchIfNeeded = async (items: Array<{ text: string }>) => {
-    if (provider !== 'google' || items.length === 0) return;
-    const pendingIndices: number[] = [];
-    const pendingTexts: string[] = [];
+  // 1. ADIM: Yerel WASM Tesseract OCR ile konuşma balonlarını tespit et
+  const tOcrStart = performance.now();
+  const rawBubbles = await runFastWebtoonOcr(fullCanvas, signal);
+  ocrMs = Math.round(performance.now() - tOcrStart);
 
-    items.forEach((item, idx) => {
-      if (!isLikelyAlreadyTranslated(item.text, targetLang)) {
-        pendingIndices.push(idx);
-        pendingTexts.push(item.text);
-      }
-    });
-
-    if (pendingTexts.length === 0) return;
-
-    const translated = await translateBatchWithGoogleFree(pendingTexts, targetLang, signal);
-    translated.forEach((t, i) => {
-      if (t) items[pendingIndices[i]].text = t;
-    });
-  };
-
-  // Kısa/standart sayfalar (height <= 2300): tek seferde işle
-  if (fullHeight <= 2300) {
-    if (!hasSliceTextPotential(fullCtx, fullWidth, fullHeight)) {
-      return {
-        blocks: [],
-        timings: { ocrMs: 0, transMs: 0, totalMs: Math.round(performance.now() - tStart) },
-      };
-    }
-
-    const { data, mimeType } = canvasToBase64(fullCanvas);
-    const tOcrStart = performance.now();
-    const rawBlocks = await callGeminiVision(
-      effectiveKeys,
-      parallelMode,
-      data,
-      mimeType,
-      targetLang,
-      signal,
-    );
-    ocrMs = Math.round(performance.now() - tOcrStart);
-
-    const tTransStart = performance.now();
-    await applyGoogleTranslateBatchIfNeeded(rawBlocks);
-    transMs = Math.round(performance.now() - tTransStart);
-
-    const blocks = rawBlocks
-      .sort((a, b) => a.box[0] - b.box[0])
-      .map((block) => inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, block, targetLang))
-      .filter((block): block is TranslationBlock => block !== null);
-
+  if (rawBubbles.length === 0) {
     return {
-      blocks,
-      timings: {
-        ocrMs,
-        transMs,
-        totalMs: Math.round(performance.now() - tStart),
-      },
+      blocks: [],
+      timings: { ocrMs, transMs: 0, totalMs: Math.round(performance.now() - tStart) },
     };
   }
 
-  // Uzun webtoon şeritleri: örtüşen dikey pencerelere bölerek 1:1 piksel doğruluğuyla tara
-  const slices: Array<{ y: number; h: number }> = [];
-  for (let y = 0; y < fullHeight; y += SLICE_STEP) {
-    const h = Math.min(SLICE_HEIGHT, fullHeight - y);
-    slices.push({ y, h });
-    if (y + h >= fullHeight) break;
-  }
-
-  interface CandidateBlock {
-    box: [number, number, number, number];
-    text: string;
-    nearSliceSeam: boolean;
-  }
-
-  const slicePayloads = slices.map((slice) => {
-    const sliceCanvas = document.createElement('canvas');
-    sliceCanvas.width = fullWidth;
-    sliceCanvas.height = slice.h;
-    const sliceCtx = sliceCanvas.getContext('2d', { willReadFrequently: true });
-    if (!sliceCtx) {
-      throw new Error('Dilim canvas bağlamı oluşturulamadı');
-    }
-    sliceCtx.drawImage(fullCanvas, 0, slice.y, fullWidth, slice.h, 0, 0, fullWidth, slice.h);
-    const hasText = hasSliceTextPotential(sliceCtx, fullWidth, slice.h);
-    if (!hasText) {
-      return { ...slice, data: '', mimeType: 'image/jpeg', skip: true };
-    }
-    const { data, mimeType } = canvasToBase64(sliceCanvas);
-    return { ...slice, data, mimeType, skip: false };
-  });
-
-  // Tek anahtarda bile 3–4 dilimi eşzamanlı göndererek 10.000px'lik şeritleri tek dalgada (~2.5-4sn) bitir.
-  const sliceConcurrency = parallelMode
-    ? Math.min(Math.max(4, effectiveKeys.length * 3), 6)
-    : Math.min(Math.max(3, effectiveKeys.length * 2), 5);
-
-  const sliceResults: Array<{ y: number; h: number; blocks: TranslationBlock[] }> = [];
-  let succeededSlices = 0;
-  let firstSliceError: unknown = null;
-
-  const tOcrStart = performance.now();
-  for (let i = 0; i < slicePayloads.length; i += sliceConcurrency) {
-    if (signal?.aborted) {
-      throw new DOMException('İptal edildi', 'AbortError');
-    }
-    const batch = slicePayloads.slice(i, i + sliceConcurrency);
-    const batchOut = await Promise.all(
-      batch.map(async (s) => {
-        if (s.skip) {
-          succeededSlices += 1;
-          return { y: s.y, h: s.h, blocks: [] };
-        }
-        try {
-          const blocks = await callGeminiVision(
-            effectiveKeys,
-            parallelMode,
-            s.data,
-            s.mimeType,
-            targetLang,
-            signal,
-          );
-          succeededSlices += 1;
-          return { y: s.y, h: s.h, blocks };
-        } catch (err) {
-          if (isAbortTranslationError(err) || signal?.aborted || isFatalAuthOrKeyError(err)) {
-            throw err;
-          }
-          if (!firstSliceError) firstSliceError = err;
-          return { y: s.y, h: s.h, blocks: [] };
-        }
-      }),
-    );
-    sliceResults.push(...batchOut);
-  }
-  ocrMs = Math.round(performance.now() - tOcrStart);
-
-  if (succeededSlices === 0 && firstSliceError) {
-    throw firstSliceError;
-  }
-
-  const mergedCandidates: CandidateBlock[] = [];
-
-  sliceResults.forEach((slice, sliceIdx) => {
-    const hasTopSeam = sliceIdx > 0;
-    const hasBottomSeam = sliceIdx < sliceResults.length - 1;
-
-    slice.blocks.forEach((block) => {
-      const [tileYmin, tileXmin, tileYmax, tileXmax] = block.box;
-      const pageYmin = Number(
-        Math.max(0, Math.min(1000, ((slice.y + (tileYmin / 1000) * slice.h) / fullHeight) * 1000)).toFixed(4),
-      );
-      const pageYmax = Number(
-        Math.max(0, Math.min(1000, ((slice.y + (tileYmax / 1000) * slice.h) / fullHeight) * 1000)).toFixed(4),
-      );
-      if (pageYmin >= pageYmax) return;
-
-      const mappedBox: [number, number, number, number] = [
-        pageYmin,
-        Number(tileXmin.toFixed(4)),
-        pageYmax,
-        Number(tileXmax.toFixed(4)),
-      ];
-      const nearSliceSeam = (hasTopSeam && tileYmin <= 18) || (hasBottomSeam && tileYmax >= 982);
-
-      const dupIdx = mergedCandidates.findIndex((existing) => {
-        const { iou, containment } = computeOverlapMetrics(existing.box, mappedBox);
-        return iou > 0.4 || containment > 0.65;
-      });
-
-      if (dupIdx >= 0) {
-        const prev = mergedCandidates[dupIdx];
-        const preferNew =
-          (prev.nearSliceSeam && !nearSliceSeam) ||
-          (prev.nearSliceSeam === nearSliceSeam && block.text.length > prev.text.length);
-        if (preferNew) {
-          mergedCandidates[dupIdx] = { box: mappedBox, text: block.text, nearSliceSeam };
-        }
-      } else {
-        mergedCandidates.push({ box: mappedBox, text: block.text, nearSliceSeam });
-      }
-    });
-  });
-
+  // 2. ADIM: Çeviri Motoru (Google Çeviri veya Gemini Flash Text)
   const tTransStart = performance.now();
-  await applyGoogleTranslateBatchIfNeeded(mergedCandidates);
+  const originalTexts = rawBubbles.map((b) => b.text);
+  let translatedTexts: string[] = [];
+
+  if (provider === 'google') {
+    translatedTexts = await translateBatchWithGoogleFree(originalTexts, targetLang, signal);
+  } else {
+    translatedTexts = await translateBatchWithGeminiText(
+      originalTexts,
+      targetLang,
+      effectiveKeys,
+      parallelMode,
+      signal,
+    );
+  }
   transMs = Math.round(performance.now() - tTransStart);
 
-  const blocks = mergedCandidates
-    .sort((a, b) => a.box[0] - b.box[0])
-    .map((cand) =>
-      inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, { box: cand.box, text: cand.text }, targetLang),
-    )
+  // 3. ADIM: Balonları inpaint et ve hedeflenen dilde yeniden diz
+  const blocks = rawBubbles
+    .map((bubble, idx) => {
+      const translated = translatedTexts[idx] || bubble.text;
+      if (shouldSkipBlock(translated, targetLang)) return null;
+      return inpaintAndRefineBlock(
+        fullCtx,
+        fullWidth,
+        fullHeight,
+        { box: bubble.box, text: translated },
+        targetLang,
+      );
+    })
     .filter((block): block is TranslationBlock => block !== null);
 
   return {

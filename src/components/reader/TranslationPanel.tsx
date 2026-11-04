@@ -257,7 +257,7 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
             </span>
             <div className="flex items-center gap-1.5">
               <span>OCR: {(summary.lastTimings.ocrMs / 1000).toFixed(1)}s</span>
-              {summary.lastTimings.provider === 'google' && (
+              {summary.lastTimings.transMs > 0 && (
                 <>
                   <span className="opacity-40">·</span>
                   <span>Çeviri: {(summary.lastTimings.transMs / 1000).toFixed(1)}s</span>
@@ -353,7 +353,18 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
 
       {/* Çeviri Motoru Seçimi */}
       <div className="space-y-1.5">
-        <Label className="text-xs font-semibold text-muted-foreground">Çeviri Motoru</Label>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs font-semibold text-muted-foreground">Çeviri Motoru</Label>
+          {settings.provider === 'google' ? (
+            <span className="rounded-md bg-emerald-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
+              Ücretsiz · Anahtar Gerekmez
+            </span>
+          ) : (
+            <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
+              gemini-flash-latest
+            </span>
+          )}
+        </div>
         <div className="grid grid-cols-2 gap-1 rounded-xl border border-border/60 bg-secondary/40 p-1">
           <button
             type="button"
@@ -403,6 +414,10 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
                   {revealKeys ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
                 </button>
               </>
+            ) : settings.provider === 'google' ? (
+              <span className="rounded-md bg-muted px-1.5 py-0.5 text-[10px] font-medium text-muted-foreground">
+                Google seçili (Opsiyonel)
+              </span>
             ) : (
               <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500">
                 Anahtar gerekli

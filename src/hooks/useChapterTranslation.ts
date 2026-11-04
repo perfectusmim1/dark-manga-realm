@@ -26,6 +26,7 @@ import {
 
 const getMaxConcurrentTranslations = (settings: TranslationSettings): number => {
   if (!settings.parallelMode) return 1;
+  if (settings.provider === 'google') return 3;
   const keyCount = Math.max(1, getEffectiveApiKeys(settings).length);
   return Math.min(Math.max(2, keyCount * 2), 6);
 };
@@ -344,8 +345,13 @@ export const useChapterTranslation = ({
       toast.error('Yeni sayfa çevirmek için internet bağlantısı gerekiyor.');
       return false;
     }
-    if (getEffectiveApiKeys(settingsRef.current).length === 0) {
-      toast.error('Görsel çeviri için lütfen ayarlar panelinden en az bir Gemini API anahtarı ekleyin.');
+    if (
+      settingsRef.current.provider === 'gemini' &&
+      getEffectiveApiKeys(settingsRef.current).length === 0
+    ) {
+      toast.error(
+        'Gemini Flash çevirisi için lütfen Görsel Çeviri panelinden en az bir API anahtarı ekleyin veya Google Çeviri motorunu seçin.',
+      );
       return false;
     }
     return true;
