@@ -9,6 +9,8 @@ import {
   Search,
   Send,
   ShieldCheck,
+  Sparkles,
+  X,
   XCircle,
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
@@ -26,6 +28,12 @@ import {
   listSeriesRequests,
   SERIES_REQUEST_STATUS_LABELS,
 } from '@/lib/seriesRequests';
+import {
+  detectSeriesSource,
+  fetchSeriesMetadataByUrl,
+  formatSeriesMetadataSummary,
+  type FetchedSeriesInfo,
+} from '@/lib/seriesSourceFetch';
 import type { SeriesRequest, SeriesRequestStatus } from '@/lib/types';
 import { toast } from 'sonner';
 
@@ -79,9 +87,66 @@ const SeriesRequests: React.FC = () => {
   const [seriesTitle, setSeriesTitle] = useState('');
   const [referenceUrl, setReferenceUrl] = useState('');
   const [note, setNote] = useState('');
+  const [fetchedMetadata, setFetchedMetadata] = useState<FetchedSeriesInfo | null>(null);
+  const [isFetchingMetadata, setIsFetchingMetadata] = useState(false);
   const [isLoadingRequests, setIsLoadingRequests] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const loadRequestsPromiseRef = useRef<Promise<void> | null>(null);
+  const fetchAbortControllerRef = useRef<AbortController | null>(null);
+
+  // AniList & MyAnimeList otomatik algılama ve veri çekme
+  useEffect(() => {
+    const trimmedUrl = referenceUrl.trim();
+    const detected = detectSeriesSource(trimmedUrl);
+
+    if (!detected) {
+      setFetchedMetadata(null);
+      setIsFetchingMetadata(false);
+      if (fetchAbortControllerRef.current) {
+        fetchAbortControllerRef.current.abort();
+        fetchAbortControllerRef.current = null;
+      }
+      return;
+    }
+
+    if (fetchAbortControllerRef.current) {
+      fetchAbortControllerRef.current.abort();
+    }
+
+    const controller = new AbortController();
+    fetchAbortControllerRef.current = controller;
+    setIsFetchingMetadata(true);
+
+    const timer = setTimeout(async () => {
+      try {
+        const metadata = await fetchSeriesMetadataByUrl(trimmedUrl, controller.signal);
+        if (metadata && !controller.signal.aborted) {
+          setFetchedMetadata(metadata);
+          setSeriesTitle(metadata.title);
+          toast.success(`${metadata.providerLabel} serisi algılandı: "${metadata.title}"`);
+        }
+      } catch (err) {
+        if (!controller.signal.aborted) {
+          console.error('Otomatik seri bilgisi çekilemedi:', err);
+          // Hata olsa dahi kullanıcıyı engellemiyoruz, serbest girişe devam edebilir
+        }
+      } finally {
+        if (!controller.signal.aborted) {
+          setIsFetchingMetadata(false);
+        }
+      }
+    }, 350);
+
+    return () => {
+      clearTimeout(timer);
+      controller.abort();
+    };
+  }, [referenceUrl]);
+
+  const handleClearMetadata = () => {
+    setFetchedMetadata(null);
+    setSeriesTitle('');
+  };
 
   const loadRequests = useCallback(async () => {
     if (!user) {
@@ -145,10 +210,21 @@ const SeriesRequests: React.FC = () => {
 
     try {
       setIsSubmitting(true);
+
+      let finalNote: string | undefined = note.trim() || undefined;
+      if (fetchedMetadata) {
+        const metaSummary = formatSeriesMetadataSummary(fetchedMetadata);
+        if (finalNote) {
+          finalNote = `${finalNote}\n\n[Otomatik Kaynak Bilgisi]\n${metaSummary}`;
+        } else {
+          finalNote = `[Otomatik Kaynak: ${fetchedMetadata.providerLabel}]\n${metaSummary}`;
+        }
+      }
+
       const createdRequest = await createSeriesRequest({
         seriesTitle,
         referenceUrl,
-        note,
+        note: finalNote,
       });
 
       setRequests((current) => [
@@ -162,6 +238,7 @@ const SeriesRequests: React.FC = () => {
       setSeriesTitle('');
       setReferenceUrl('');
       setNote('');
+      setFetchedMetadata(null);
       toast.success('Seri isteği gönderildi');
     } catch (error) {
       console.error('Series request create failed:', error);
@@ -197,7 +274,7 @@ const SeriesRequests: React.FC = () => {
                   İstediğin seriyi hızlıca bırak.
                 </h1>
                 <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                  Seri adı ve bir kaynak link yeterli. Linki ben kontrol edip durumu burada güncelleyeyim.
+                  AniList, MyAnimeList veya herhangi bir kaynak linki yapıştırabilirsin. AniList ve MyAnimeList linklerinde seri bilgileri otomatik doldurulur.
                 </p>
               </div>
 
@@ -251,6 +328,36 @@ const SeriesRequests: React.FC = () => {
                   <h2 className="text-lg font-semibold">Yeni istek</h2>
                   <div className="mt-5 grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
+                      <div className="flex items-center justify-between">
+                        <Label htmlFor="series-request-url">Kaynak link</Label>
+                        {isFetchingMetadata ? (
+                          <span className="inline-flex items-center gap-1 text-xs text-primary">
+                            <Loader2 className="h-3 w-3 animate-spin" />
+                            Bilgiler çekiliyor...
+                          </span>
+                        ) : fetchedMetadata ? (
+                          <Badge
+                            variant="outline"
+                            className={
+                              fetchedMetadata.provider === 'anilist'
+                                ? 'border-sky-500/30 bg-sky-500/10 text-sky-300 gap-1 text-[11px]'
+                                : 'border-blue-500/30 bg-blue-500/10 text-blue-300 gap-1 text-[11px]'
+                            }
+                          >
+                            <Sparkles className="h-3 w-3" />
+                            {fetchedMetadata.providerLabel}
+                          </Badge>
+                        ) : null}
+                      </div>
+                      <Input
+                        id="series-request-url"
+                        value={referenceUrl}
+                        onChange={(event) => setReferenceUrl(event.target.value)}
+                        placeholder="https://anilist.co/..., https://myanimelist.net/... veya serbest link"
+                      />
+                    </div>
+
+                    <div className="space-y-2">
                       <Label htmlFor="series-request-title">Seri adı</Label>
                       <Input
                         id="series-request-title"
@@ -260,15 +367,71 @@ const SeriesRequests: React.FC = () => {
                       />
                     </div>
 
-                    <div className="space-y-2">
-                      <Label htmlFor="series-request-url">Kaynak link</Label>
-                      <Input
-                        id="series-request-url"
-                        value={referenceUrl}
-                        onChange={(event) => setReferenceUrl(event.target.value)}
-                        placeholder="https://..."
-                      />
-                    </div>
+                    {fetchedMetadata ? (
+                      <div className="md:col-span-2 overflow-hidden rounded-2xl border border-primary/20 bg-primary/[0.04] p-3.5 transition-all">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="flex items-start gap-3.5 min-w-0">
+                            {fetchedMetadata.coverUrl ? (
+                              <img
+                                src={fetchedMetadata.coverUrl}
+                                alt={fetchedMetadata.title}
+                                referrerPolicy="no-referrer"
+                                className="h-20 w-14 shrink-0 rounded-xl object-cover border border-white/10 shadow-sm"
+                              />
+                            ) : null}
+                            <div className="min-w-0 space-y-1">
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <Badge variant="secondary" className="text-[10px] uppercase font-bold tracking-wider">
+                                  {fetchedMetadata.providerLabel}
+                                </Badge>
+                                {fetchedMetadata.format ? (
+                                  <Badge variant="outline" className="text-[10px] text-muted-foreground">
+                                    {fetchedMetadata.format}
+                                  </Badge>
+                                ) : null}
+                                {fetchedMetadata.year ? (
+                                  <span className="text-xs text-muted-foreground">{fetchedMetadata.year}</span>
+                                ) : null}
+                                {fetchedMetadata.score ? (
+                                  <span className="text-xs font-semibold text-amber-300">★ {fetchedMetadata.score}</span>
+                                ) : null}
+                              </div>
+
+                              <p className="truncate text-sm font-semibold text-foreground">
+                                {fetchedMetadata.title}
+                              </p>
+
+                              {fetchedMetadata.genres.length > 0 ? (
+                                <div className="flex flex-wrap gap-1 pt-0.5">
+                                  {fetchedMetadata.genres.slice(0, 4).map((g) => (
+                                    <span key={g} className="rounded-md bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-foreground/80">
+                                      {g}
+                                    </span>
+                                  ))}
+                                </div>
+                              ) : null}
+
+                              {fetchedMetadata.authors.length > 0 ? (
+                                <p className="text-[11px] text-muted-foreground truncate">
+                                  Yazar: {fetchedMetadata.authors.slice(0, 2).join(', ')}
+                                </p>
+                              ) : null}
+                            </div>
+                          </div>
+
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-foreground shrink-0"
+                            onClick={handleClearMetadata}
+                            title="Bilgileri Temizle"
+                          >
+                            <X className="h-4 w-4" />
+                          </Button>
+                        </div>
+                      </div>
+                    ) : null}
 
                     <div className="space-y-2 md:col-span-2">
                       <Label htmlFor="series-request-note">Not</Label>
@@ -335,6 +498,23 @@ const SeriesRequests: React.FC = () => {
                           <div className="flex flex-wrap items-center gap-2">
                             <h3 className="text-lg font-semibold">{request.seriesTitle}</h3>
                             <StatusBadge status={request.status} />
+                            {(() => {
+                              const detected = detectSeriesSource(request.referenceUrl);
+                              if (!detected) return null;
+                              return (
+                                <Badge
+                                  variant="outline"
+                                  className={
+                                    detected.provider === 'anilist'
+                                      ? 'border-sky-500/30 bg-sky-500/10 text-sky-300 gap-1 text-[11px]'
+                                      : 'border-blue-500/30 bg-blue-500/10 text-blue-300 gap-1 text-[11px]'
+                                  }
+                                >
+                                  <Sparkles className="h-3 w-3" />
+                                  {detected.provider === 'anilist' ? 'AniList' : 'MyAnimeList'}
+                                </Badge>
+                              );
+                            })()}
                           </div>
 
                           <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-2 text-xs text-muted-foreground">

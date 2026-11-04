@@ -33,6 +33,7 @@ import {
   SERIES_REQUEST_STATUS_VALUES,
   updateSeriesRequest,
 } from '@/lib/seriesRequests';
+import { detectSeriesSource } from '@/lib/seriesSourceFetch';
 import type { SeriesRequest, SeriesRequestStatus } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
@@ -457,11 +458,31 @@ const AdminSeriesRequests: React.FC = () => {
 
               <div className="rounded-[1.35rem] border border-white/10 bg-background/35 p-4 sm:p-5">
                 <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Referans</p>
+                  <div className="min-w-0 flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[10px] uppercase tracking-[0.18em] text-muted-foreground">Referans</p>
+                      {(() => {
+                        const detected = detectSeriesSource(selectedRequest.referenceUrl);
+                        if (!detected) return null;
+                        return (
+                          <Badge
+                            variant="outline"
+                            className={cn(
+                              'gap-1 text-[10px] py-0 px-2 font-medium',
+                              detected.provider === 'anilist'
+                                ? 'border-sky-500/30 bg-sky-500/10 text-sky-300'
+                                : 'border-blue-500/30 bg-blue-500/10 text-blue-300',
+                            )}
+                          >
+                            <Sparkles className="h-2.5 w-2.5" />
+                            {detected.provider === 'anilist' ? 'AniList' : 'MyAnimeList'}
+                          </Badge>
+                        );
+                      })()}
+                    </div>
                     <p className="mt-2 break-all text-sm leading-6 text-foreground/90">{selectedRequest.referenceUrl}</p>
                   </div>
-                  <Button asChild variant="outline" className="w-full lg:w-auto">
+                  <Button asChild variant="outline" className="w-full lg:w-auto shrink-0">
                     <a href={selectedRequest.referenceUrl} target="_blank" rel="noreferrer">
                       <ExternalLink className="mr-2 h-4 w-4" />
                       Linki Aç

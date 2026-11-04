@@ -53,77 +53,50 @@ const cleanDescription = (text?: string | null): string => {
     .trim();
 };
 
-const fetchAniListSeries = async (id: string, sourceUrl: string, signal?: AbortSignal): Promise<FetchedSeriesInfo> => {
-  const numericId = parseInt(id, 10);
-  if (!numericId) {
-    throw new Error('Geçersiz AniList ID');
-  }
-
-  const query = `
-    query ($id: Int) {
-      Media(id: $id, type: MANGA) {
-        id
-        title {
-          english
-          romaji
-          native
-        }
-        synonyms
-        description(asHtml: false)
-        format
-        status
-        genres
-        averageScore
-        startDate {
-          year
-        }
-        coverImage {
-          extraLarge
-          large
-          medium
-        }
-        staff(perPage: 6) {
-          edges {
-            role
-            node {
-              name {
-                full
-              }
+const buildAniListQuery = (paramName: 'id' | 'idMal') => `
+  query ($${paramName}: Int) {
+    Media(${paramName}: $${paramName}, type: MANGA) {
+      id
+      idMal
+      title {
+        english
+        romaji
+        native
+      }
+      synonyms
+      description(asHtml: false)
+      format
+      status
+      genres
+      averageScore
+      startDate {
+        year
+      }
+      coverImage {
+        extraLarge
+        large
+        medium
+      }
+      staff(perPage: 6) {
+        edges {
+          role
+          node {
+            name {
+              full
             }
           }
         }
       }
     }
-  `;
-
-  const response = await fetch('https://graphql.anilist.co', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Accept: 'application/json',
-    },
-    body: JSON.stringify({
-      query,
-      variables: { id: numericId },
-    }),
-    signal,
-  });
-
-  if (!response.ok) {
-    throw new Error(`AniList sunucu hatası (${response.status})`);
   }
+`;
 
-  const result = await response.json();
-  if (result.errors && result.errors.length > 0) {
-    throw new Error(result.errors[0]?.message || 'AniList serisi bulunamadı');
-  }
-
-  const media = result.data?.Media;
-  if (!media) {
-    throw new Error('AniList seri kaydı bulunamadı');
-  }
-
-  const primaryTitle = media.title?.english || media.title?.romaji || media.title?.native || `AniList #${id}`;
+const parseAniListMedia = (
+  media: any,
+  sourceUrl: string,
+  provider: SeriesSourceProvider = 'anilist',
+): FetchedSeriesInfo => {
+  const primaryTitle = media.title?.english || media.title?.romaji || media.title?.native || `${provider === 'anilist' ? 'AniList' : 'MAL'} #${media.id}`;
   const alternativeTitles: string[] = [];
 
   if (media.title?.romaji && media.title.romaji !== primaryTitle) {
@@ -156,9 +129,9 @@ const fetchAniListSeries = async (id: string, sourceUrl: string, signal?: AbortS
   const coverUrl = media.coverImage?.extraLarge || media.coverImage?.large || media.coverImage?.medium;
 
   return {
-    provider: 'anilist',
-    providerLabel: 'AniList',
-    id: String(media.id),
+    provider,
+    providerLabel: provider === 'anilist' ? 'AniList' : 'MyAnimeList',
+    id: String(provider === 'myanimelist' && media.idMal ? media.idMal : media.id),
     sourceUrl,
     title: primaryTitle,
     alternativeTitles,
@@ -173,96 +146,166 @@ const fetchAniListSeries = async (id: string, sourceUrl: string, signal?: AbortS
   };
 };
 
+const fetchAniListSeries = async (id: string, sourceUrl: string, signal?: AbortSignal): Promise<FetchedSeriesInfo> => {
+  const numericId = parseInt(id, 10);
+  if (!numericId) {
+    throw new Error('Geçersiz AniList ID');
+  }
+
+  const response = await fetch('https://graphql.anilist.co', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'application/json',
+    },
+    body: JSON.stringify({
+      query: buildAniListQuery('id'),
+      variables: { id: numericId },
+    }),
+    signal,
+  });
+
+  if (!response.ok) {
+    throw new Error(`AniList sunucu hatası (${response.status})`);
+  }
+
+  const result = await response.json();
+  if (result.errors && result.errors.length > 0) {
+    throw new Error(result.errors[0]?.message || 'AniList serisi bulunamadı');
+  }
+
+  const media = result.data?.Media;
+  if (!media) {
+    throw new Error('AniList seri kaydı bulunamadı');
+  }
+
+  return parseAniListMedia(media, sourceUrl, 'anilist');
+};
+
 const fetchMyAnimeListSeries = async (id: string, sourceUrl: string, signal?: AbortSignal): Promise<FetchedSeriesInfo> => {
   const numericId = parseInt(id, 10);
   if (!numericId) {
     throw new Error('Geçersiz MyAnimeList ID');
   }
 
-  const response = await fetch(`https://api.jikan.moe/v4/manga/${numericId}/full`, {
+  // 1. Önce Jikan REST API'sini kısa bir timeout ile dene
+  try {
+    const jikanController = new AbortController();
+    const jikanTimeout = setTimeout(() => jikanController.abort(), 3500);
+
+    const onParentAbort = () => jikanController.abort();
+    if (signal) {
+      signal.addEventListener('abort', onParentAbort);
+    }
+
+    const response = await fetch(`https://api.jikan.moe/v4/manga/${numericId}/full`, {
+      headers: {
+        Accept: 'application/json',
+      },
+      signal: jikanController.signal,
+    }).finally(() => {
+      clearTimeout(jikanTimeout);
+      if (signal) {
+        signal.removeEventListener('abort', onParentAbort);
+      }
+    });
+
+    if (response.ok) {
+      const result = await response.json();
+      const manga = result.data;
+      if (manga) {
+        const primaryTitle = manga.title_english || manga.title || `MAL #${id}`;
+        const alternativeTitles: string[] = [];
+
+        if (manga.title && manga.title !== primaryTitle) {
+          alternativeTitles.push(manga.title);
+        }
+        if (manga.title_japanese && manga.title_japanese !== primaryTitle) {
+          alternativeTitles.push(manga.title_japanese);
+        }
+        if (Array.isArray(manga.title_synonyms)) {
+          manga.title_synonyms.forEach((syn: string) => {
+            if (syn && !alternativeTitles.includes(syn) && syn !== primaryTitle) {
+              alternativeTitles.push(syn);
+            }
+          });
+        }
+
+        const genres: string[] = [];
+        if (Array.isArray(manga.genres)) {
+          manga.genres.forEach((g: { name?: string }) => {
+            if (g.name && !genres.includes(g.name)) {
+              genres.push(g.name);
+            }
+          });
+        }
+        if (Array.isArray(manga.themes)) {
+          manga.themes.forEach((t: { name?: string }) => {
+            if (t.name && !genres.includes(t.name)) {
+              genres.push(t.name);
+            }
+          });
+        }
+
+        const authors: string[] = [];
+        if (Array.isArray(manga.authors)) {
+          manga.authors.forEach((a: { name?: string }) => {
+            if (a.name && !authors.includes(a.name)) {
+              authors.push(a.name);
+            }
+          });
+        }
+
+        const coverUrl = manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || manga.images?.webp?.large_image_url;
+        const startYear = manga.published?.from ? new Date(manga.published.from).getFullYear() : undefined;
+
+        return {
+          provider: 'myanimelist',
+          providerLabel: 'MyAnimeList',
+          id: String(manga.mal_id || id),
+          sourceUrl,
+          title: primaryTitle,
+          alternativeTitles,
+          coverUrl,
+          description: cleanDescription(manga.synopsis),
+          format: manga.type || undefined,
+          status: manga.status || undefined,
+          genres,
+          score: manga.score ? `${manga.score} / 10` : undefined,
+          year: isNaN(Number(startYear)) ? undefined : startYear,
+          authors,
+        };
+      }
+    }
+  } catch {
+    // Jikan timeout, rate limit veya network hatasında hızlıca AniList idMal sorgusuna geç
+  }
+
+  // 2. Fallback: AniList üzerinde idMal sorgusu (Hızlı, güvenilir, CORS destekli)
+  const fallbackResponse = await fetch('https://graphql.anilist.co', {
+    method: 'POST',
     headers: {
+      'Content-Type': 'application/json',
       Accept: 'application/json',
     },
+    body: JSON.stringify({
+      query: buildAniListQuery('idMal'),
+      variables: { idMal: numericId },
+    }),
     signal,
   });
 
-  if (!response.ok) {
-    if (response.status === 404) {
-      throw new Error('MyAnimeList serisi bulunamadı');
-    }
-    if (response.status === 429) {
-      throw new Error('MyAnimeList istek sınırı aşıldı, lütfen biraz bekleyin');
-    }
-    throw new Error(`MyAnimeList veri hatası (${response.status})`);
+  if (!fallbackResponse.ok) {
+    throw new Error(`MyAnimeList serisi sorgulanamadı (${fallbackResponse.status})`);
   }
 
-  const result = await response.json();
-  const manga = result.data;
-  if (!manga) {
-    throw new Error('MyAnimeList seri verisi boş döndü');
+  const fallbackResult = await fallbackResponse.json();
+  const media = fallbackResult.data?.Media;
+  if (!media) {
+    throw new Error('MyAnimeList serisi bulunamadı');
   }
 
-  const primaryTitle = manga.title_english || manga.title || `MAL #${id}`;
-  const alternativeTitles: string[] = [];
-
-  if (manga.title && manga.title !== primaryTitle) {
-    alternativeTitles.push(manga.title);
-  }
-  if (manga.title_japanese && manga.title_japanese !== primaryTitle) {
-    alternativeTitles.push(manga.title_japanese);
-  }
-  if (Array.isArray(manga.title_synonyms)) {
-    manga.title_synonyms.forEach((syn: string) => {
-      if (syn && !alternativeTitles.includes(syn) && syn !== primaryTitle) {
-        alternativeTitles.push(syn);
-      }
-    });
-  }
-
-  const genres: string[] = [];
-  if (Array.isArray(manga.genres)) {
-    manga.genres.forEach((g: { name?: string }) => {
-      if (g.name && !genres.includes(g.name)) {
-        genres.push(g.name);
-      }
-    });
-  }
-  if (Array.isArray(manga.themes)) {
-    manga.themes.forEach((t: { name?: string }) => {
-      if (t.name && !genres.includes(t.name)) {
-        genres.push(t.name);
-      }
-    });
-  }
-
-  const authors: string[] = [];
-  if (Array.isArray(manga.authors)) {
-    manga.authors.forEach((a: { name?: string }) => {
-      if (a.name && !authors.includes(a.name)) {
-        authors.push(a.name);
-      }
-    });
-  }
-
-  const coverUrl = manga.images?.jpg?.large_image_url || manga.images?.jpg?.image_url || manga.images?.webp?.large_image_url;
-  const startYear = manga.published?.from ? new Date(manga.published.from).getFullYear() : undefined;
-
-  return {
-    provider: 'myanimelist',
-    providerLabel: 'MyAnimeList',
-    id: String(manga.mal_id || id),
-    sourceUrl,
-    title: primaryTitle,
-    alternativeTitles,
-    coverUrl,
-    description: cleanDescription(manga.synopsis),
-    format: manga.type || undefined,
-    status: manga.status || undefined,
-    genres,
-    score: manga.score ? `${manga.score} / 10` : undefined,
-    year: isNaN(Number(startYear)) ? undefined : startYear,
-    authors,
-  };
+  return parseAniListMedia(media, sourceUrl, 'myanimelist');
 };
 
 export const fetchSeriesMetadataByUrl = async (
@@ -305,7 +348,7 @@ export const formatSeriesMetadataSummary = (info: FetchedSeriesInfo): string => 
     parts.push(`Kategori: ${info.genres.slice(0, 4).join(', ')}`);
   }
   if (info.authors.length > 0) {
-    parts.push(`Yazar/Çizer: ${info.authors.slice(0, 2).join(', ')}`);
+    parts.push(`Yazar: ${info.authors.slice(0, 2).join(', ')}`);
   }
   if (info.alternativeTitles.length > 0) {
     parts.push(`Alternatif İsimler: ${info.alternativeTitles.slice(0, 3).join(' / ')}`);
