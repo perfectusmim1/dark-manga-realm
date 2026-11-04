@@ -35,9 +35,12 @@ supabase/
 docs/
 android/
 
-# Scripts: Sadece GitHub Actions delta sync için auto-catalog-sync.mjs gereklidir
+# Scripts: Otomasyon, crypto ve senkronizasyon motorları
 scripts/*
 !scripts/auto-catalog-sync.mjs
+!scripts/comix-crypto.mjs
+!scripts/sync-comix-foreign.mjs
+!scripts/harvest-comix-80k.mjs
 
 # Tests, Cache, Dumps & Temporary Files
 .cache/
