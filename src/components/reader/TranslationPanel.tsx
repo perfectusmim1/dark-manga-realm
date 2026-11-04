@@ -538,17 +538,6 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
         </div>
 
         <div className="flex items-center justify-between">
-          <Label htmlFor="parallel-translate" className="text-sm">
-            Paralel çeviri
-          </Label>
-          <Switch
-            id="parallel-translate"
-            checked={settings.parallelMode}
-            onCheckedChange={(checked) => updateSettings({ parallelMode: checked })}
-          />
-        </div>
-
-        <div className="flex items-center justify-between">
           <Label htmlFor="overlay-visible" className="text-sm">
             Çevirileri göster
           </Label>

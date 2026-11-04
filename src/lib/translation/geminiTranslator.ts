@@ -222,7 +222,6 @@ export const resetGeminiKeyPoolForTests = (): void => {
 
 export const executeWithGeminiKeyPool = async <T>(
   keys: readonly string[],
-  parallelMode: boolean,
   task: (apiKey: string, getClient: () => GoogleGenAI, attemptIndex: number) => Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> => {
@@ -281,7 +280,7 @@ export const executeWithGeminiKeyPool = async <T>(
     chosen.lastPickedSeq = pickSequence;
     chosen.inFlight += 1;
 
-    const minIntervalMs = normalizedKeys.length === 1 ? (parallelMode ? 100 : 180) : 80;
+    const minIntervalMs = normalizedKeys.length === 1 ? 140 : 80;
     const dispatchNow = Date.now();
     const scheduledAt = Math.max(dispatchNow, chosen.nextDispatchAt);
     chosen.nextDispatchAt = scheduledAt + minIntervalMs;
@@ -483,7 +482,6 @@ export const translateBatchWithGeminiText = async (
   texts: readonly string[],
   targetLang: string,
   keys: readonly string[],
-  parallelMode: boolean,
   signal?: AbortSignal,
 ): Promise<string[]> => {
   if (texts.length === 0) return [];
@@ -515,7 +513,6 @@ export const translateBatchWithGeminiText = async (
   try {
     return await executeWithGeminiKeyPool(
       keys,
-      parallelMode,
       async (_apiKey, getClient) => {
         const ai = getClient();
         const model = GEMINI_FLASH_MODEL; // 'gemini-flash-latest'
@@ -580,7 +577,6 @@ export interface TranslatePageOptions {
   apiKey?: string;
   apiKeys?: readonly string[];
   provider?: 'gemini' | 'google';
-  parallelMode?: boolean;
   imageSrc: string;
   targetLang: string;
   signal?: AbortSignal;
@@ -594,7 +590,6 @@ export const translatePageImage = async ({
   apiKey,
   apiKeys,
   provider = 'gemini',
-  parallelMode = false,
   imageSrc,
   targetLang,
   signal,
@@ -663,7 +658,6 @@ export const translatePageImage = async ({
       originalTexts,
       targetLang,
       effectiveKeys,
-      parallelMode,
       signal,
     );
   }

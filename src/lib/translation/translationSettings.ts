@@ -4,7 +4,6 @@ export interface TranslationSettings {
   provider: 'gemini' | 'google';
   targetLang: string; // ISO 639-1 kodu, örn. 'tr'
   autoTranslate: boolean;
-  parallelMode: boolean;
   overlayVisible: boolean;
 }
 
@@ -16,7 +15,6 @@ const DEFAULT_SETTINGS: TranslationSettings = {
   provider: 'gemini',
   targetLang: 'tr',
   autoTranslate: false,
-  parallelMode: false,
   overlayVisible: true,
 };
 
@@ -102,10 +100,6 @@ export const loadTranslationSettings = (): TranslationSettings => {
         typeof parsed.autoTranslate === 'boolean'
           ? parsed.autoTranslate
           : DEFAULT_SETTINGS.autoTranslate,
-      parallelMode:
-        typeof parsed.parallelMode === 'boolean'
-          ? parsed.parallelMode
-          : DEFAULT_SETTINGS.parallelMode,
       overlayVisible:
         typeof parsed.overlayVisible === 'boolean'
           ? parsed.overlayVisible

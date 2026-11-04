@@ -133,9 +133,14 @@ const Reader: React.FC = () => {
   const [isContentReady, setIsContentReady] = useState(false);
   const [pageCommentModalOpen, setPageCommentModalOpen] = useState(false);
 
+  // Sayfaların ve bölüm objesinin gerçekten mevcut URL'deki chapterId'ye ait olduğunu doğrula.
+  // Bölüm geçişi anında eski bölümün sayfaları asla yeni bölüme sızamaz.
+  const isCurrentChapterLoaded = Boolean(chapter && chapter.id === chapterId);
+  const activeChapterPages = isCurrentChapterLoaded ? resolvedPages : [];
+
   const translation = useChapterTranslation({
     chapterId: chapterId || '',
-    pages: resolvedPages,
+    pages: activeChapterPages,
     currentPage,
     networkEnabled: canUseNetworkReaderFeatures,
   });

@@ -24,12 +24,11 @@ import {
   upsertPageTranslation,
 } from '@/lib/translation/translationCache';
 
-const getMaxConcurrentTranslations = (settings: TranslationSettings): number => {
-  if (!settings.parallelMode) return 1;
-  if (settings.provider === 'google') return 3;
-  const keyCount = Math.max(1, getEffectiveApiKeys(settings).length);
-  return Math.min(Math.max(2, keyCount * 2), 6);
-};
+interface QueueJob {
+  epoch: number;
+  chapterId: string;
+  pageIndex: number;
+}
 
 export interface TranslationTimingsLog {
   ocrMs: number;
@@ -98,7 +97,8 @@ export const useChapterTranslation = ({
     total: 0,
   });
 
-  const queueRef = useRef<number[]>([]);
+  const chapterEpochRef = useRef(0);
+  const queueRef = useRef<QueueJob[]>([]);
   const runningRef = useRef(0);
   const statesRef = useRef<Record<number, PageTranslationState>>({});
   const settingsRef = useRef(settings);
@@ -135,10 +135,31 @@ export const useChapterTranslation = ({
     });
   }, []);
 
-  // Bölüm veya hedef dil değiştiğinde kuyruğu durdurup önce yerel IndexedDB önbelleğini anında yükler.
-  // API anahtarı boş veya çevrimdışı olsa bile önbellekteki çeviriler eksiksiz gösterilir.
+  // Sayfalar değiştiğinde (yeni bölümün sayfaları geldiğinde veya boşaldığında) kuyruk sınırlarını güncelle.
   useEffect(() => {
+    pagesRef.current = pages;
+    if (pages.length === 0) {
+      queueRef.current = [];
+      setBatchTracker({ done: 0, total: 0 });
+      return;
+    }
+    const max = pages.length;
+    queueRef.current = queueRef.current.filter((job) => job.pageIndex < max);
+    setBatchTracker((prev) => ({
+      done: Math.min(prev.done, max),
+      total: Math.min(prev.total, max),
+    }));
+  }, [pages]);
+
+  // Bölüm veya hedef dil değiştiğinde:
+  // 1. Önceki bölümün tüm devam eden isteklerini iptal et ve oturum epoch'unu artır.
+  // 2. Kuyruğu ve durumları sıfırla; böylece eski bölümün sayfaları asla yeni bölüme sızamaz.
+  // 3. Yeni bölümün yerel IndexedDB önbelleğini yükle.
+  useEffect(() => {
+    chapterEpochRef.current += 1;
+    const currentEpoch = chapterEpochRef.current;
     chapterRef.current = chapterId;
+
     abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     queueRef.current = [];
@@ -164,7 +185,7 @@ export const useChapterTranslation = ({
     const loadCaches = async () => {
       try {
         const localMap = await getLocalChapterTranslations(chapterId, activeLang);
-        if (cancelled || chapterRef.current !== chapterId) return;
+        if (cancelled || chapterEpochRef.current !== currentEpoch || chapterRef.current !== chapterId) return;
         if (localMap.size > 0) {
           const initial: Record<number, PageTranslationState> = {};
           localMap.forEach((blocks, index) => {
@@ -178,7 +199,7 @@ export const useChapterTranslation = ({
           const mergedMap = await getCachedChapterTranslations(chapterId, activeLang, {
             networkEnabled: true,
           });
-          if (cancelled || chapterRef.current !== chapterId) return;
+          if (cancelled || chapterEpochRef.current !== currentEpoch || chapterRef.current !== chapterId) return;
           if (mergedMap.size > 0) {
             const next = { ...statesRef.current };
             let changed = false;
@@ -198,7 +219,7 @@ export const useChapterTranslation = ({
       } catch {
         // Önbellek okunamasa bile çeviri sistemi çalışmaya devam eder
       } finally {
-        if (!cancelled && chapterRef.current === chapterId) {
+        if (!cancelled && chapterEpochRef.current === currentEpoch && chapterRef.current === chapterId) {
           setCacheReady(true);
         }
       }
@@ -215,11 +236,12 @@ export const useChapterTranslation = ({
   useEffect(() => {
     if (!networkEnabled || !chapterId || !cacheReady) return;
     let cancelled = false;
+    const currentEpoch = chapterEpochRef.current;
     const activeLang = settings.targetLang;
 
     getCachedChapterTranslations(chapterId, activeLang, { networkEnabled: true })
       .then((mergedMap) => {
-        if (cancelled || chapterRef.current !== chapterId) return;
+        if (cancelled || chapterEpochRef.current !== currentEpoch || chapterRef.current !== chapterId) return;
         const next = { ...statesRef.current };
         let changed = false;
         mergedMap.forEach((blocks, index) => {
@@ -247,11 +269,17 @@ export const useChapterTranslation = ({
   }, []);
 
   const runQueue = useCallback(() => {
-    while (
-      runningRef.current < getMaxConcurrentTranslations(settingsRef.current) &&
-      queueRef.current.length > 0
-    ) {
-      const index = queueRef.current.shift() as number;
+    // Sıralı çeviri (concurrency: 1): sıfır yarış durumu, tahmin edilebilir ve %100 kararlı.
+    while (runningRef.current < 1 && queueRef.current.length > 0) {
+      const job = queueRef.current.shift() as QueueJob;
+      if (!job) break;
+
+      // İş başka bir bölüme veya önceki bir oturuma aitse derhal atla
+      if (job.chapterId !== chapterRef.current || job.epoch !== chapterEpochRef.current) {
+        continue;
+      }
+
+      const index = job.pageIndex;
       const state = statesRef.current[index];
       if (state && (state.status === 'translating' || state.status === 'done')) continue;
 
@@ -264,9 +292,9 @@ export const useChapterTranslation = ({
       }
 
       const chapterAtStart = chapterRef.current;
+      const epochAtStart = chapterEpochRef.current;
       const langAtStart = settingsRef.current.targetLang;
       const activeKeys = getEffectiveApiKeys(settingsRef.current);
-      const parallelAtStart = settingsRef.current.parallelMode;
       const signal = abortControllerRef.current.signal;
 
       runningRef.current += 1;
@@ -276,7 +304,6 @@ export const useChapterTranslation = ({
         apiKey: activeKeys[0] || settingsRef.current.apiKey,
         apiKeys: activeKeys,
         provider: settingsRef.current.provider,
-        parallelMode: parallelAtStart,
         imageSrc: src,
         targetLang: langAtStart,
         signal,
@@ -284,6 +311,7 @@ export const useChapterTranslation = ({
         .then(async ({ blocks, timings }) => {
           if (
             signal.aborted ||
+            epochAtStart !== chapterEpochRef.current ||
             chapterRef.current !== chapterAtStart ||
             settingsRef.current.targetLang !== langAtStart
           ) {
@@ -310,6 +338,7 @@ export const useChapterTranslation = ({
           if (
             isAbortTranslationError(err) ||
             signal.aborted ||
+            epochAtStart !== chapterEpochRef.current ||
             chapterRef.current !== chapterAtStart ||
             settingsRef.current.targetLang !== langAtStart
           ) {
@@ -320,21 +349,24 @@ export const useChapterTranslation = ({
           setLastErrorMessage(classifyTranslationError(err));
         })
         .finally(() => {
-          runningRef.current = Math.max(0, runningRef.current - 1);
-          if (
-            runningRef.current === 0 &&
-            queueRef.current.length === 0 &&
-            !wasCancelledManuallyRef.current &&
-            !abortControllerRef.current.signal.aborted
-          ) {
-            const hasDone = Object.values(statesRef.current).some((s) => s.status === 'done');
-            const hasErr = Object.values(statesRef.current).some((s) => s.status === 'error');
-            if (hasDone && !hasErr) {
-              setCompletedPulseAt(Date.now());
+          // Yalnızca aynı oturuma aitse sayacı düşür ve kuyruğu ilerlet
+          if (epochAtStart === chapterEpochRef.current) {
+            runningRef.current = Math.max(0, runningRef.current - 1);
+            if (
+              runningRef.current === 0 &&
+              queueRef.current.length === 0 &&
+              !wasCancelledManuallyRef.current &&
+              !abortControllerRef.current.signal.aborted
+            ) {
+              const hasDone = Object.values(statesRef.current).some((s) => s.status === 'done');
+              const hasErr = Object.values(statesRef.current).some((s) => s.status === 'error');
+              if (hasDone && !hasErr) {
+                setCompletedPulseAt(Date.now());
+              }
+              setBatchTracker({ done: 0, total: 0 });
+            } else {
+              runQueue();
             }
-            setBatchTracker({ done: 0, total: 0 });
-          } else {
-            runQueue();
           }
         });
     }
@@ -359,7 +391,10 @@ export const useChapterTranslation = ({
 
   const enqueueIndices = useCallback(
     (indices: number[], options?: { force?: boolean; prioritize?: boolean }) => {
-      if (indices.length === 0) return;
+      const activeChapterId = chapterRef.current;
+      const currentEpoch = chapterEpochRef.current;
+      if (!activeChapterId || indices.length === 0 || pagesRef.current.length === 0) return;
+
       wasCancelledManuallyRef.current = false;
       const isCurrentlyBusy = runningRef.current > 0 || queueRef.current.length > 0;
       if (!isCurrentlyBusy) {
@@ -372,8 +407,12 @@ export const useChapterTranslation = ({
         abortControllerRef.current = new AbortController();
       }
 
-      const queuedSet = new Set(queueRef.current);
-      const validAdditions: number[] = [];
+      const activeIndicesInQueue = new Set(
+        queueRef.current
+          .filter((j) => j.chapterId === activeChapterId && j.epoch === currentEpoch)
+          .map((j) => j.pageIndex),
+      );
+      const validAdditions: QueueJob[] = [];
 
       for (const pageIndex of indices) {
         if (pageIndex < 0 || pageIndex >= pagesRef.current.length) continue;
@@ -385,9 +424,9 @@ export const useChapterTranslation = ({
           continue;
         }
         setPageState(pageIndex, { status: 'queued' });
-        if (!queuedSet.has(pageIndex)) {
-          validAdditions.push(pageIndex);
-          queuedSet.add(pageIndex);
+        if (!activeIndicesInQueue.has(pageIndex)) {
+          validAdditions.push({ epoch: currentEpoch, chapterId: activeChapterId, pageIndex });
+          activeIndicesInQueue.add(pageIndex);
         }
       }
 
@@ -402,15 +441,14 @@ export const useChapterTranslation = ({
       });
 
       if (options?.prioritize) {
-        const rest = queueRef.current.filter((i) => !indices.includes(i));
-        const prioritized = indices
-          .filter((i) => statesRef.current[i]?.status === 'queued')
-          .sort((a, b) => a - b);
+        const priorityIndices = new Set(indices);
+        const rest = queueRef.current.filter((j) => !priorityIndices.has(j.pageIndex));
+        const prioritized = validAdditions.sort((a, b) => a.pageIndex - b.pageIndex);
         queueRef.current = [...prioritized, ...rest];
       } else {
-        const nextQueue = Array.from(new Set([...queueRef.current, ...validAdditions]));
-        nextQueue.sort((a, b) => a - b);
-        queueRef.current = nextQueue;
+        const existingKeys = new Set(queueRef.current.map((j) => `${j.chapterId}:${j.pageIndex}`));
+        const toAppend = validAdditions.filter((j) => !existingKeys.has(`${j.chapterId}:${j.pageIndex}`));
+        queueRef.current = [...queueRef.current, ...toAppend].sort((a, b) => a.pageIndex - b.pageIndex);
       }
 
       if (!settingsRef.current.overlayVisible) {
@@ -464,6 +502,7 @@ export const useChapterTranslation = ({
   }, [enqueueIndices, ensureCanStartTranslation]);
 
   const cancelTranslation = useCallback(() => {
+    chapterEpochRef.current += 1;
     wasCancelledManuallyRef.current = true;
     abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
@@ -521,14 +560,7 @@ export const useChapterTranslation = ({
 
   const effectiveKeyCount = getEffectiveApiKeys(settings).length;
 
-  // Paralel mod açıldığında veya yeni anahtar eklendiğinde bekleyen kuyruğu yeni eşzamanlılık sınırı ile besle.
-  useEffect(() => {
-    if (queueRef.current.length > 0) {
-      runQueue();
-    }
-  }, [settings.parallelMode, effectiveKeyCount, runQueue]);
-
-  // Otomatik çeviri: önbellek yüklendikten sonra çevrilmemiş sayfaları aktif sayfadan başlayarak kuyruğa alır.
+  // Otomatik çeviri: önbellek yüklendikten sonra çevrilmemiş sayfaları KESİNLİKLE 1. sayfadan (0'dan) itibaren baştan sona sırayla kuyruğa alır.
   useEffect(() => {
     if (
       !settings.autoTranslate ||
@@ -541,15 +573,14 @@ export const useChapterTranslation = ({
       return;
     }
 
-    // Otomatik çeviri: önbellek yüklendikten sonra çevrilmemiş sayfaları KESİNLİKLE 1. sayfadan (0'dan) itibaren baştan sona sırayla kuyruğa alır.
     const order: number[] = [];
     for (let i = 0; i < pages.length; i += 1) order.push(i);
 
-    const queuedSet = new Set(queueRef.current);
+    const activeIndices = new Set(queueRef.current.map((j) => j.pageIndex));
     const additions = order.filter((index) => {
       const state = statesRef.current[index];
       const pending = !state || state.status === 'idle';
-      return pending && !queuedSet.has(index);
+      return pending && !activeIndices.has(index);
     });
     if (additions.length === 0) return;
 
@@ -561,7 +592,7 @@ export const useChapterTranslation = ({
     networkEnabled,
     cacheReady,
     chapterId,
-    pages.length,
+    pages,
     enqueueIndices,
   ]);
 
@@ -571,9 +602,9 @@ export const useChapterTranslation = ({
     const pending = queueRef.current;
     if (pending.length === 0) return;
     queueRef.current = [];
-    pending.forEach((index) => {
-      if (statesRef.current[index]?.status === 'queued') {
-        setPageState(index, { status: 'idle' });
+    pending.forEach((job) => {
+      if (statesRef.current[job.pageIndex]?.status === 'queued') {
+        setPageState(job.pageIndex, { status: 'idle' });
       }
     });
   }, [settings.autoTranslate, setPageState]);
