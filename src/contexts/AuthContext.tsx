@@ -905,6 +905,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           || event === 'INITIAL_SESSION'
           || event === 'MFA_CHALLENGE_VERIFIED'
         ) {
+          void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
+            invalidateMangaVisibilityCaches();
+          }).catch(() => undefined);
           void enqueueAuthStateSync(currentSession);
         }
       }
@@ -1182,6 +1185,9 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setSession(null);
       setMfaState(DEFAULT_MFA_STATE);
       setAccessState(DEFAULT_ACCESS_STATE);
+      void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
+        invalidateMangaVisibilityCaches();
+      }).catch(() => undefined);
     } catch (error) {
       console.error('Logout error:', error);
     }

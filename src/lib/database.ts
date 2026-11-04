@@ -543,6 +543,7 @@ const fetchAllMangaRowsPaginated = async (
                     .from('mangas')
                     .select(selectColumns)
                     .order('last_updated', { ascending: false })
+                    .order('id', { ascending: true })
                     .range(from, to),
                 options,
             );
@@ -562,6 +563,7 @@ const fetchAllMangaRowsPaginated = async (
                         .from('mangas')
                         .select(selectColumns)
                         .order('last_updated', { ascending: false })
+                        .order('id', { ascending: true })
                         .range(from, to),
                     options,
                 );
@@ -914,8 +916,8 @@ const TOP_TEN_IDS_CACHE_TTL_MS = 15 * 60_000;
 const STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS = 5 * 60_000;
 // IDB kalÄ±cÄ± katalog Ã¶nbelleÄŸi: sayfa yenilense bile bu sÃ¼re iÃ§inde aÄŸa Ã§Ä±kmadan dÃ¶ner.
 const PERSISTED_CATALOG_CACHE_TTL_MS = 15 * 60_000;
-const PERSISTED_MANGA_SUMMARIES_KEY_PREFIX = 'manga-summaries-v1:';
-const PERSISTED_HOME_SECTIONS_KEY_PREFIX = 'home-sections-v1:';
+const PERSISTED_MANGA_SUMMARIES_KEY_PREFIX = 'manga-summaries-v2:';
+const PERSISTED_HOME_SECTIONS_KEY_PREFIX = 'home-sections-v2:';
 // Manga detayÄ± kÄ±sa sÃ¼reli bellek cache'i: MangaDetail -> Reader geÃ§iÅŸinde aynÄ± aÄŸÄ±r
 // sorgularÄ±n tekrar edilmesini engeller (yazma iÅŸlemlerinde invalidate edilir).
 const MANGA_DETAIL_CACHE_TTL_MS = 60_000;

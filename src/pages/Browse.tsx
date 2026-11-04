@@ -157,6 +157,11 @@ const Browse: React.FC = () => {
   }, [canSeeAdultContent, typeFilter]);
 
   useEffect(() => {
+    browsePageCache.safe = undefined;
+    browsePageCache.adult = undefined;
+  }, [user?.id]);
+
+  useEffect(() => {
     const handleAdultModeChanged = () => {
       browsePageCache.safe = undefined;
       browsePageCache.adult = undefined;

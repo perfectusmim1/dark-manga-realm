@@ -12,9 +12,18 @@ import { openDB, type IDBPDatabase } from 'idb';
 // NOT: React Query persist katmanı `toonparrot-query-cache` DB'sini kullanıyor
 // (src/lib/cache/idbPersister.ts). Aynı DB adını paylaşmamak için ayrı bir DB adı
 // kullanılır; aksi halde ilk açan taraf DB'yi oluşturur ve diğer store eksik kalır.
-const DB_NAME = 'toonparrot-catalog-cache';
+const DB_NAME = 'toonparrot-catalog-cache-v2';
 const STORE_NAME = 'entries';
 const DB_VERSION = 1;
+
+// Eski v1 veritabanı varsa arka planda temizle
+if (typeof indexedDB !== 'undefined') {
+  try {
+    indexedDB.deleteDatabase('toonparrot-catalog-cache');
+  } catch {
+    // yoksay
+  }
+}
 
 interface PersistedQueryEntry<T = unknown> {
   key: string;
