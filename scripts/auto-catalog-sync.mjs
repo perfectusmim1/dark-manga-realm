@@ -2499,7 +2499,7 @@ class SmartCatalogStore {
     const num = Number(ch.chapterNumber ?? ch.number ?? 0);
     const existingIdx = manga.chapters.findIndex((c) => Number(c.chapterNumber ?? c.number) === num);
     const item = {
-      id: ch.id || randomUUID(),
+      id: ch.id || (existingIdx !== -1 ? manga.chapters[existingIdx].id : randomUUID()),
       mangaId: manga.id,
       chapterNumber: num,
       number: num,
