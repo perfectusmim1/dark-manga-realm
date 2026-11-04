@@ -12,7 +12,7 @@ export type ScraperSourceKey =
   | 'siyahmelek'
   | 'hattorimanga'
   | 'mangadass'
-  | 'asurascans';
+  | 'comix';
 
 export type LegacyScrapeSource = 'hayalistic';
 export type ScrapeSource = ScraperSourceKey | LegacyScrapeSource;
@@ -26,7 +26,7 @@ export const SCRAPER_SOURCES: readonly ScraperSourceKey[] = [
   'siyahmelek',
   'hattorimanga',
   'mangadass',
-  'asurascans',
+  'comix',
 ] as const;
 
 export interface ScrapedMangaCard {
@@ -149,13 +149,13 @@ export const SOURCE_CONFIG: Record<ScraperSourceKey, SourceDefinition> = {
       /https?:\/\/(?:www\.)?mangadass\.com\/manga\/[^?#]+/i,
     ],
   },
-  asurascans: {
-    label: 'Asura Scans',
-    baseUrl: 'https://asurascans.com',
-    searchUrl: (query) => `https://asurascans.com/browse/comics?q=${encodeURIComponent(query)}`,
-    listUrl: 'https://asurascans.com/comics',
+  comix: {
+    label: 'Comix',
+    baseUrl: 'https://comix.to',
+    searchUrl: (query) => `https://comix.to/api/v1/manga?keyword=${encodeURIComponent(query)}&page=1&limit=24`,
+    listUrl: 'https://comix.to/api/v1/manga?page=1&limit=24&order[views]=desc',
     directLinkPatterns: [
-      /https?:\/\/(?:www\.)?(?:asurascans\.com|asuracomic\.net)\/comics\/[^?#]+/i,
+      /https?:\/\/(?:www\.)?comix\.to\/(?:title|manga|api\/v1\/manga)\/[^?#]+/i,
     ],
   },
 };
@@ -707,6 +707,9 @@ export const isDirectScrapeLink = (source: ScrapeSource, value: string) => {
 export const detectScrapeSourceFromUrl = (value: string): ScrapeSource | null => {
   const normalized = value.trim().toLocaleLowerCase('tr-TR');
 
+  if (normalized.includes('comix.to')) {
+    return 'comix';
+  }
   if (normalized.includes('webtoonhatti.club')) {
     return 'webtoonhatti';
   }
@@ -1103,23 +1106,67 @@ export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, ra
     return cards.filter((c) => !isBLSeries(c));
   }
 
-  if (source === 'asurascans') {
+  if (source === 'comix') {
     const baseUrl = getSourceDef(source).baseUrl;
     const cards: ScrapedMangaCard[] = [];
     const seen = new Set<string>();
-    const links = Array.from(doc.querySelectorAll('a[href*="/comics/"]'));
+
+    // 1. If rawContent is JSON from Comix API
+    if (rawContent) {
+      try {
+        const json = JSON.parse(rawContent);
+        const items = json.items || json.result?.items || json.data || (Array.isArray(json) ? json : []);
+        for (const item of items) {
+          if (!item || typeof item !== 'object') continue;
+          const slug = item.slug || item.zq || item.id;
+          const title = cleanSeriesTitle(item.title || item.name || item.u4 || '');
+          if (!slug || !title) continue;
+          const link = `https://comix.to/title/${slug}`;
+          if (seen.has(link)) continue;
+          seen.add(link);
+
+          let cover = item.cover || item.poster || item.KX?.lW || item.KX?.ZN || '';
+          if (cover && !cover.startsWith('http')) {
+            cover = normalizeUrl(baseUrl, cover);
+          }
+
+          const genres: string[] = [];
+          if (Array.isArray(item.genres)) {
+            genres.push(...item.genres.map((g: any) => typeof g === 'string' ? g : g?.name || g?.title || ''));
+          }
+
+          cards.push({
+            source: 'comix',
+            title,
+            link,
+            cover,
+            genres,
+          });
+        }
+        if (cards.length > 0) return cards.filter((c) => !isBLSeries(c));
+      } catch {
+        // Fallback to HTML
+      }
+    }
+
+    // 2. DOM HTML parsing (comix.to/browse or search)
+    const links = Array.from(doc.querySelectorAll('a[href*="/title/"]'));
     for (const a of links) {
       const href = a.getAttribute('href') || '';
-      if (!href || href === '/comics' || href.endsWith('/comics') || href.includes('/chapter/')) continue;
+      if (!href || href === '/title' || href.endsWith('/title') || href.includes('/chapter-') || href.match(/\/\d+-chapter/)) continue;
       const fullUrl = normalizeUrl(baseUrl, href);
       if (seen.has(fullUrl)) continue;
       seen.add(fullUrl);
-      const title = normalizeScrapedText(a.querySelector('span.font-bold, h2, h3, .title')?.textContent || a.getAttribute('title') || a.textContent);
+
+      const titleEl = a.querySelector('.title, h2, h3, h4, span.font-bold, .name');
+      const title = normalizeScrapedText(titleEl?.textContent || a.getAttribute('title') || a.textContent);
       const img = a.querySelector('img');
-      const cover = normalizeUrl(baseUrl, img?.getAttribute('src') || img?.getAttribute('data-src'));
+      const coverSrc = img?.getAttribute('src') || img?.getAttribute('data-src') || img?.getAttribute('data-lazy-src') || '';
+      const cover = coverSrc ? normalizeUrl(baseUrl, coverSrc) : '';
+
       if (title && fullUrl) {
         cards.push({
-          source: 'asurascans',
+          source: 'comix',
           title: cleanSeriesTitle(title),
           link: fullUrl,
           cover,
@@ -1478,6 +1525,104 @@ export const extractScrapedChapterLinks = (doc: Document, source: ScrapeSource):
 
 // JSON helper for detail extraction (MangaCix / Gölge / DxD)
 const extractDetailFromJson = (json: Record<string, unknown>, source: ScrapeSource, fallbackCard: ScrapedMangaCard): ScrapedMangaDraft => {
+  // Comix.to structured payload handling
+  if (source === 'comix') {
+    const title = normalizeScrapedText((json.title || json.name || json.u4 || fallbackCard.title) as string);
+    const altList: string[] = [];
+    if (Array.isArray(json.alternativeTitles)) altList.push(...json.alternativeTitles);
+    if (Array.isArray(json.altTitles)) altList.push(...json.altTitles);
+    if (json.original_title) altList.push(String(json.original_title));
+    if (json.QQ && typeof json.QQ === 'string' && json.QQ !== '?') altList.push(json.QQ);
+
+    const description = normalizeScrapedText((json.description || json.summary || json.xG || json.qI || '') as string);
+    const kx = (json.KX || {}) as Record<string, string>;
+    let cover = (json.cover || json.poster || kx.lW || kx.ZN || fallbackCard.cover) as string;
+    if (cover && !cover.startsWith('http')) {
+      cover = normalizeUrl('https://comix.to', cover);
+    }
+
+    const genresList: string[] = [];
+    if (Array.isArray(json.genres)) {
+      for (const g of json.genres) {
+        if (typeof g === 'string') genresList.push(g);
+        else if (g && typeof g === 'object' && 'name' in g) genresList.push(String(g.name));
+        else if (g && typeof g === 'object' && 'title' in g) genresList.push(String(g.title));
+        else if (g && typeof g === 'object' && 'Oa' in g) genresList.push(String(g.Oa));
+      }
+    }
+
+    const rawChapters: ScrapedChapter[] = [];
+    const chaptersData = Array.isArray(json.chapters)
+      ? json.chapters
+      : Array.isArray(json.items)
+        ? json.items
+        : Array.isArray(json.Gb)
+          ? json.Gb
+          : [];
+
+    for (const ch of chaptersData) {
+      if (!ch || typeof ch !== 'object') continue;
+      const num = Number(ch.number || ch.K8 || ch.episode_number || 0);
+      const chTitle = cleanChapterTitle(String(ch.name || ch.title || ''), num, title);
+      const chId = ch.id || ch.zf || ch.slug || num;
+      const chUrl = ch.url || ch.fI || `https://comix.to/title/${json.slug || json.zq || fallbackCard.link.split('/').pop()}/${chId}`;
+      const fullLink = chUrl.startsWith('http') ? chUrl : normalizeUrl('https://comix.to', chUrl);
+      const lang = ch.language || ch.MV || 'en';
+
+      rawChapters.push({
+        name: chTitle,
+        link: fullLink,
+        number: num,
+      });
+    }
+
+    // USER FILTER RULE: If a series has 0 working chapters, discard it
+    if (rawChapters.length === 0) {
+      return null as any;
+    }
+
+    const jf = String(json.jf || '').toLowerCase();
+    const isAdult = Boolean(
+      json.adult ||
+      json.isAdult ||
+      jf === 'erotica' ||
+      jf === 'pornographic' ||
+      ADULT_CONTENT_PATTERNS.some((p) => p.test(genresList.join(' ')))
+    );
+
+    const rawType = String(json.type || json.E4 || '').toLowerCase();
+    const inferredBaseType = rawType.includes('manhua')
+      ? 'manhua'
+      : rawType.includes('manhwa') || rawType.includes('webtoon')
+        ? 'manhwa'
+        : 'manga';
+    const type = normalizeAdultMangaType(inferredBaseType, genresList, isAdult);
+
+    const sourceLinks: any[] = [];
+    const qd = (json.qD || {}) as Record<string, string>;
+    if (qd.f9) sourceLinks.push({ source: 'anilist', url: qd.f9, label: 'AniList' });
+    if (qd.sn) sourceLinks.push({ source: 'myanimelist', url: qd.sn, label: 'MyAnimeList' });
+    if (qd.u$) sourceLinks.push({ source: 'mangaupdates', url: qd.u$, label: 'MangaUpdates' });
+    if (qd.SO) sourceLinks.push({ source: 'mangadex', url: qd.SO, label: 'MangaDex' });
+
+    return {
+      title,
+      alternativeTitles: Array.from(new Set(altList.filter(t => t && t !== title))),
+      description,
+      cover: cover || '',
+      banner: cover || '',
+      status: (json.status === 'completed' || json.iI === 'completed' || json.status === 'tamamlandi') ? 'completed' : 'ongoing',
+      type,
+      genres: syncAdultContentGenres(genresList, { isAdult, type }),
+      isAdult,
+      chapters: [],
+      views: Number(json.views || json.bp || 0),
+      ratings: [],
+      sourceLinks,
+      _rawChapters: rawChapters.sort((a, b) => a.number - b.number),
+    };
+  }
+
   const title = normalizeScrapedText((json.title || json.name || fallbackCard.title) as string);
   const altTitle = (json.original_title || '') as string;
   const alternativeTitles = altTitle ? [altTitle] : [];
@@ -1542,7 +1687,7 @@ export const extractScrapedMangaDetail = (
   fallbackCard: ScrapedMangaCard,
   rawContent?: string,
 ): ScrapedMangaDraft => {
-  if (rawContent && (source === 'mangacix' || source === 'golgebahcesi' || source === 'dxdfansub')) {
+  if (rawContent && (source === 'mangacix' || source === 'golgebahcesi' || source === 'dxdfansub' || source === 'comix')) {
     try {
       const json = JSON.parse(rawContent);
       const targetObj = json.data || json.title || json.series || json;
@@ -1777,9 +1922,9 @@ export const extractChapterImageResult = (
     } else if (source === 'mangadass') {
       const dassImgs = Array.from(doc.querySelectorAll('img[src*="mangadass.com/chapters/"], #chapter-container img, .chapter-content img, .reading-content img'));
       images = dassImgs.map(extractImageSource).filter(Boolean);
-    } else if (source === 'asurascans') {
-      const asuraImgs = Array.from(doc.querySelectorAll('img[src*="asurascans.com/asura-images/chapters/"], .reading-content img, [class*="chapter"] img'));
-      images = asuraImgs.map(extractImageSource).filter(Boolean);
+    } else if (source === 'comix') {
+      const comixImgs = Array.from(doc.querySelectorAll('img[src*="site/hi/"], img[src*="comix.to/images/"], .reading-content img, [class*="chapter"] img'));
+      images = comixImgs.map(extractImageSource).filter(Boolean);
     } else if (source === 'okutoon') {
       const readerImgs = Array.from(doc.querySelectorAll('.reader-area img, .chapter-content img, img[src*="okutoon"], img[data-src]'));
       images = readerImgs.map(extractImageSource).filter(Boolean);

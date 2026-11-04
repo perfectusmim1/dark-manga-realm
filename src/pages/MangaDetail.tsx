@@ -541,6 +541,7 @@ const MangaDetail: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState('');
+  const [selectedLanguage, setSelectedLanguage] = useState<'all' | 'tr' | 'en'>('all');
   const deferredChapterSearch = useDeferredValue(chapterSearch);
   const [activeTab, setActiveTab] = useState('overview');
   const [minLoadedPreviewIndex, setMinLoadedPreviewIndex] = useState(0);
@@ -2479,6 +2480,23 @@ const MangaDetail: React.FC = () => {
     return views.toString();
   };
 
+  const availableLanguages = useMemo(() => {
+    if (!manga?.chapters) return { hasTr: false, hasEn: false, trCount: 0, enCount: 0 };
+    let trCount = 0;
+    let enCount = 0;
+    for (const ch of manga.chapters) {
+      const isEn = isChapterEnglish(ch, getSeriesLanguage(manga));
+      if (isEn) enCount++;
+      else trCount++;
+    }
+    return {
+      hasTr: trCount > 0,
+      hasEn: enCount > 0,
+      trCount,
+      enCount,
+    };
+  }, [manga?.chapters, manga]);
+
   const filteredChapters = useMemo(() => {
     if (!manga?.chapters) {
       return [];
@@ -2486,11 +2504,18 @@ const MangaDetail: React.FC = () => {
 
     const normalizedQuery = deferredChapterSearch.toLocaleLowerCase('tr-TR');
 
-    const sorted = [...manga.chapters].sort((a, b) => {
+    let sorted = [...manga.chapters].sort((a, b) => {
       const numA = typeof a.number === 'number' ? a.number : parseFloat(a.number as string) || 0;
       const numB = typeof b.number === 'number' ? b.number : parseFloat(b.number as string) || 0;
       return chapterSortOrder === 'desc' ? numB - numA : numA - numB;
     });
+
+    if (selectedLanguage !== 'all') {
+      sorted = sorted.filter((ch) => {
+        const isEn = isChapterEnglish(ch, getSeriesLanguage(manga));
+        return selectedLanguage === 'en' ? isEn : !isEn;
+      });
+    }
 
     if (!deferredChapterSearch) {
       return sorted;
@@ -2500,7 +2525,7 @@ const MangaDetail: React.FC = () => {
       chapter.number.toString().includes(deferredChapterSearch)
       || (chapter.title && chapter.title.toLocaleLowerCase('tr-TR').includes(normalizedQuery))
     ));
-  }, [chapterSortOrder, deferredChapterSearch, manga?.chapters]);
+  }, [chapterSortOrder, deferredChapterSearch, manga?.chapters, selectedLanguage, manga]);
 
   const overviewPreviewChapterCount = isMobile
     ? MOBILE_OVERVIEW_PREVIEW_CHAPTER_COUNT
@@ -2795,7 +2820,11 @@ const MangaDetail: React.FC = () => {
                       </Badge>
                     );
                   }
-                  return null;
+                  return (
+                    <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
+                      TR
+                    </Badge>
+                  );
                 })()}
                 {chapterTranslationMap.has(chapter.id) && (chapterTranslationMap.get(chapter.id) || 0) > 0 && (
                   <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-bold border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
@@ -3428,15 +3457,55 @@ const MangaDetail: React.FC = () => {
                                 İlk Eklenen
                               </button>
                             </div>
-                            <div className="relative flex-1 sm:w-60">
-                              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                              <Input
-                                placeholder="Bölüm ara (örn: 97)"
-                                className="pl-9"
-                                value={chapterSearch}
-                                onChange={(e) => setChapterSearch(e.target.value)}
-                              />
-                            </div>
+                            {availableLanguages.hasEn && availableLanguages.hasTr && (
+                                <div className="flex items-center rounded-lg border border-border bg-secondary/40 p-1 text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedLanguage('all')}
+                                    className={cn(
+                                      'rounded-md px-2.5 py-1 font-medium transition-colors',
+                                      selectedLanguage === 'all'
+                                        ? 'bg-primary text-primary-foreground shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground',
+                                    )}
+                                  >
+                                    Tümü ({manga.chapters.length})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedLanguage('tr')}
+                                    className={cn(
+                                      'rounded-md px-2.5 py-1 font-medium transition-colors',
+                                      selectedLanguage === 'tr'
+                                        ? 'bg-emerald-600 text-white shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground',
+                                    )}
+                                  >
+                                    Türkçe ({availableLanguages.trCount})
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setSelectedLanguage('en')}
+                                    className={cn(
+                                      'rounded-md px-2.5 py-1 font-medium transition-colors',
+                                      selectedLanguage === 'en'
+                                        ? 'bg-sky-600 text-white shadow-sm'
+                                        : 'text-muted-foreground hover:text-foreground',
+                                    )}
+                                  >
+                                    İngilizce ({availableLanguages.enCount})
+                                  </button>
+                                </div>
+                              )}
+                              <div className="relative flex-1 sm:w-60">
+                                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                <Input
+                                  placeholder="Bölüm ara (örn: 97)"
+                                  className="pl-9"
+                                  value={chapterSearch}
+                                  onChange={(e) => setChapterSearch(e.target.value)}
+                                />
+                              </div>
                           </div>
                         </div>
 

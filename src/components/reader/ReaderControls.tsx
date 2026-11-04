@@ -118,6 +118,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const nextChapter = chapters[currentIndex - 1];
 
   const [hoverPage, setHoverPage] = useState<number | null>(null);
+
+  const alternateLangChapter = useMemo(() => {
+    return chapters.find((ch) => ch.number === currentChapter.number && ch.id !== currentChapter.id);
+  }, [chapters, currentChapter]);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPage, setScrubPage] = useState<number | null>(null);
   const scrubRafRef = useRef<number | null>(null);
@@ -398,9 +402,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                         RAW
                       </span>
                     )}
-                    {isChapterEnglish(ch) && (
+                    {isChapterEnglish(ch) ? (
                       <span className="shrink-0 rounded border border-sky-500/40 bg-sky-500/15 px-1 py-0 text-[9px] font-black text-sky-400">
                         EN
+                      </span>
+                    ) : (
+                      <span className="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/15 px-1 py-0 text-[9px] font-black text-emerald-400">
+                        TR
                       </span>
                     )}
                   </div>

@@ -258,6 +258,9 @@ export interface Chapter {
   cardImagePage?: number | null;
   releaseDate: string;
   views: number;
+  language?: string;
+  groupName?: string;
+  sourceUrl?: string;
 }
 
 export interface User {
@@ -543,7 +546,7 @@ export type ChapterAutomationSource =
   | 'hattorimanga'
   | 'hayalistic'
   | 'mangadass'
-  | 'asurascans';
+  | 'comix';
 export type ChapterAutomationProxyProvider = 'cloudflare';
 export type ChapterAutomationRunStatus = 'idle' | 'running' | 'success' | 'no_changes' | 'error';
 export type ChapterAutomationTestStatus = 'idle' | 'running' | 'success' | 'error';

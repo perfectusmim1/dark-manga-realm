@@ -228,7 +228,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           >
             {typeBadgeLabel}
           </Badge>
-          {langInfo.language !== 'tr' && (
+          {langInfo.language === 'raw' && (
             <Badge
               variant="outline"
               className={cn(

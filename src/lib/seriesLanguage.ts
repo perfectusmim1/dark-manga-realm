@@ -36,7 +36,7 @@ export const LANGUAGE_CONFIG: Record<SeriesLanguage, SeriesLanguageInfo> = {
 
 /**
  * Bir serinin dilini belirler (TR, EN veya RAW).
- * Mangadass raw serileri, AsuraScans / MadaraDex İngilizce serileri veya
+ * Mangadass raw serileri, comix / MadaraDex İngilizce serileri veya
  * metadata details.language alanı kontrol edilir.
  */
 export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage {
@@ -65,7 +65,7 @@ export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage
   if (primarySource === 'mangadass') {
     return titleLower.includes('raw') ? 'raw' : 'en';
   }
-  if (primarySource === 'asurascans' || primarySource === 'madaradex' || primarySource === 'mgread' || primarySource === 'ezmanga') {
+  if (primarySource === 'comix' || primarySource === 'madaradex' || primarySource === 'mgread' || primarySource === 'ezmanga') {
     return 'en';
   }
 
