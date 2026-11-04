@@ -581,7 +581,6 @@ const AdminChapterScraper: React.FC = () => {
                 </div>
                 <div>
                     <h1 className="text-2xl font-bold sm:text-3xl">Bölüm Çekme</h1>
-                    <p className="text-muted-foreground">Eski mangalarınız için yeni bölümleri otomatik bulun ve yükleyin.</p>
                 </div>
                 <div className="flex flex-col gap-2 sm:ml-auto sm:flex-row sm:flex-wrap sm:items-center">
                     <Select value={scrapeSource} onValueChange={(value) => handleScrapeSourceChange(value as ScrapeSource)}>

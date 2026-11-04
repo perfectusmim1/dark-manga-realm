@@ -184,9 +184,6 @@ const AdminTags: React.FC = () => {
             <Hash className="h-6 w-6 text-primary" />
             Etiket Yönetimi
           </h1>
-          <p className="text-sm text-muted-foreground mt-1">
-            Etiketleri, kategorileri ve resmi durumlarını yönetin
-          </p>
         </div>
         <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
           <Button

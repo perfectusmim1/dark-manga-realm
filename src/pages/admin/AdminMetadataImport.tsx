@@ -1551,11 +1551,8 @@ const AdminMetadataImport: React.FC = () => {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-2">
+      <div>
         <h1 className="text-2xl font-bold tracking-tight">Harici Metadata Import</h1>
-        <p className="text-sm text-muted-foreground">
-          Manga kaydını seç, kaynak siteyi belirle, hangi veri tiplerinin çekileceğini işaretle ve önizleme ile import et.
-        </p>
       </div>
 
       <div className="grid gap-6 xl:grid-cols-[1.1fr_0.9fr]">

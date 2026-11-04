@@ -223,22 +223,12 @@ const AdminUsers: React.FC = () => {
         <div className="space-y-6">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
-                    <h1 className="text-2xl font-bold sm:text-3xl">Adminler</h1>
-                    <p className="text-muted-foreground">
-                        Tek admin hesabı kilitli. Buradan sadece mevcut kullanıcıları moderatör yapabilir veya moderatör yetkisini kaldırabilirsiniz.
-                    </p>
+                    <h1 className="text-2xl font-bold sm:text-3xl">Admin ve Moderatörler</h1>
                 </div>
                 <Button onClick={() => setShowAddDialog(true)} className="w-full sm:w-auto">
                     {isRefreshing ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Plus className="mr-2 h-4 w-4" />}
                     Yeni Moderatör
                 </Button>
-            </div>
-
-            <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                <p className="font-medium">Korunan ana admin</p>
-                <p className="mt-1 text-amber-100/80">
-                    {PRIMARY_ADMIN_EMAIL} hesabı dışında hiçbir kullanıcı admin yapılamaz ve bu hesap kaldırılamaz.
-                </p>
             </div>
 
             <div className="rounded-xl border border-border bg-card">

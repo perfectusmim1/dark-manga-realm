@@ -314,7 +314,7 @@ const Support: React.FC = () => {
         <div className="rounded-2xl bg-primary/10 p-2.5 text-primary"><Plus className="h-4.5 w-4.5" /></div>
         <div>
           <h2 className="text-base font-semibold">{isGuestMode ? 'Yeni destek talebi' : 'Yeni ticket'}</h2>
-          <p className="text-sm text-muted-foreground">{isGuestMode ? 'Misafir modunda tek seferlik ticket aç.' : 'Konu seç, anlat, gönder.'}</p>
+
         </div>
       </div>
       <div className="grid gap-4 sm:grid-cols-2">
@@ -387,12 +387,8 @@ const Support: React.FC = () => {
         <div className="space-y-4 pt-4 sm:space-y-5 sm:pt-6">
           <section className="rounded-[1.75rem] border border-border bg-card/80 p-4 shadow-xl sm:p-5">
             <div className="flex flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
-              <div className="space-y-2">
-                <Badge variant="outline" className="w-fit gap-1.5 border-primary/20 bg-primary/10 text-primary"><LifeBuoy className="h-3.5 w-3.5" />Destek Merkezi</Badge>
-                <h1 className="text-2xl font-black tracking-tight sm:text-3xl">{isGuestMode ? 'Giriş yapmadan da destek talebi bırak.' : 'Destek paneli daha sıkı yerleşimle hazır.'}</h1>
-                <p className="max-w-3xl text-sm leading-6 text-muted-foreground">
-                  {isGuestMode ? 'Ban itirazısı dahil destek akışı misafir kullanıcıya açık. Ban itirazısında ilgili hesap e-postası zorunlu.' : 'Form, liste ve mesaj alanı aynı ekranda daha rahat görülecek şekilde küçültüldü.'}
-                </p>
+              <div>
+                <h1 className="text-2xl font-black tracking-tight sm:text-3xl">Destek Talepleri</h1>
               </div>
               {user ? (
                 <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">

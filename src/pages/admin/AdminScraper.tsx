@@ -536,7 +536,6 @@ const AdminScraper: React.FC = () => {
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold sm:text-3xl">İçerik Çekici (Scraper)</h1>
-                    <p className="text-muted-foreground">Aktif 5 dış kaynaktan manga ve webtoon serilerini otomatik olarak çekin.</p>
                 </div>
                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                     <Select value={scrapeSource} onValueChange={(value) => handleScrapeSourceChange(value as ScrapeSource)}>

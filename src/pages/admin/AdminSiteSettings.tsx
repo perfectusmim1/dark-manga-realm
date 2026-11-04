@@ -3,6 +3,7 @@ import { Download, FileJson, Loader2, Settings, Shield, ShieldOff, TriangleAlert
 import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Badge } from '@/components/ui/badge';
 import {
     getSiteSecuritySettings,
     setAdblockWarningEnabled,
@@ -21,24 +22,6 @@ const DEFAULT_SECURITY_SETTINGS: SiteSecuritySettings = {
     updatedBy: null,
 };
 
-const CONTENT_BACKUP_INCLUDED_AREAS = [
-    'Mangalar ve bölümler',
-    'Bölüm otomasyon kuralları',
-    'Karakter, yazar, çizer kayıtları',
-    'Galeri, metadata ve kaynak linkleri',
-    'Seri bağlantıları',
-    'Etiketler ve entity-tag ilişkileri',
-    'Duyurular ve site ayarları',
-];
-
-const CONTENT_BACKUP_EXCLUDED_AREAS = [
-    'Auth ve kullanıcı profili verileri',
-    'Yorumlar, incelemeler ve puanlar',
-    'Favoriler, yer imleri ve okuma listeleri',
-    'Takip, bildirim ve aktivite kayıtları',
-    'Otomasyon çalışma logları',
-    'Destek, rapor ve moderasyon geçmişi',
-];
 
 const getManifestTableCount = (manifest: SiteBackupManifest) =>
     Object.values(manifest.tables || {}).filter((rows) => Array.isArray(rows)).length;
@@ -222,10 +205,7 @@ const AdminSiteSettings: React.FC = () => {
                         <Settings className="h-6 w-6" />
                     </div>
                     <div>
-                        <h1 className="text-2xl font-bold sm:text-3xl">Site Settings</h1>
-                        <p className="text-muted-foreground">
-                            Site geneli güvenlik ve kullanıcı uyarı anahtarları.
-                        </p>
+                        <h1 className="text-2xl font-bold sm:text-3xl">Site Ayarları</h1>
                     </div>
                 </div>
                 <p className="text-sm text-muted-foreground">
@@ -248,9 +228,6 @@ const AdminSiteSettings: React.FC = () => {
                             </div>
                             <div>
                                 <h2 className="text-xl font-semibold">Geliştirici Aracı Koruması</h2>
-                                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                                    F12, genel sağ tık ve `debugger` döngüsünü site genelinde kontrol eder. Admin hesabı bu kısıttan muaf kalır.
-                                </p>
                             </div>
                         </div>
                         <Switch
@@ -273,9 +250,6 @@ const AdminSiteSettings: React.FC = () => {
                             </div>
                             <div>
                                 <h2 className="text-xl font-semibold">Adblock Uyarısı</h2>
-                                <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                                    Reklam engelleyici algılanırsa kapatılabilir uyarı gösterir. Kullanıcı tekrar siteye girdiğinde uyarı yeniden görünür.
-                                </p>
                             </div>
                         </div>
                         <Switch
@@ -292,29 +266,28 @@ const AdminSiteSettings: React.FC = () => {
             </div>
 
             <section className="rounded-2xl border border-border bg-card p-4 sm:p-6">
-                <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="space-y-3">
+                <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+                    <div className="space-y-2">
                         <div className="inline-flex rounded-xl bg-primary/10 p-3 text-primary">
                             <FileJson className="h-6 w-6" />
                         </div>
                         <div>
-                            <h2 className="text-xl font-semibold">Site verisi yedekleme</h2>
-                            <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                                Bu bölüm içerik ve katalog verilerini JSON manifest olarak dışa aktarır ve geri yükler.
-                                Manga, bölüm, karakter, yazar, çizer, galeri, metadata, kaynak linkleri, seri bağlantıları,
-                                etiket ilişkileri, bölüm otomasyon kuralları, duyurular ve site ayarları bu kapsama dahildir.
-                            </p>
-                            <p className="text-sm leading-6 text-muted-foreground">
-                                Auth kullanıcıları ve tüm kullanıcı aksiyonları bu akıştan hariç tutulur; yorumlar, incelemeler, puanlar, favoriler,
-                                okuma listeleri, bildirimler, otomasyon çalışma logları ve destek kayıtları import/export dosyasına girmez.
+                            <div className="flex items-center gap-2">
+                                <h2 className="text-xl font-semibold">Site Verisi Yedekleme</h2>
+                                <Badge variant="outline" className="border-sky-500/30 bg-sky-500/10 text-sky-300">
+                                    Cloudflare R2 + Supabase
+                                </Badge>
+                            </div>
+                            <p className="mt-1 text-xs text-muted-foreground">
+                                Manga kataloğu, bölüm sayfaları ve katalog verileri tam yedek olarak dışa aktarılır ve geri yüklenir.
                             </p>
                         </div>
                     </div>
 
-                    <div className="flex w-full flex-col gap-3 lg:w-auto lg:min-w-[280px]">
+                    <div className="flex flex-wrap items-center gap-3">
                         <Button onClick={() => void handleExportBackup()} disabled={isExportingBackup || isImportingBackup}>
                             {isExportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Download className="mr-2 h-4 w-4" />}
-                            İçerik Yedeğini Dışa Aktar
+                            Yedeği İndir (JSON)
                         </Button>
 
                         <Button
@@ -323,7 +296,7 @@ const AdminSiteSettings: React.FC = () => {
                             disabled={isExportingBackup || isImportingBackup}
                         >
                             <Upload className="mr-2 h-4 w-4" />
-                            Backup Dosyası Seç
+                            {pendingBackupFileName ? 'Farklı Dosya Seç' : 'Yedek Dosyası Seç'}
                         </Button>
                         <Input
                             ref={fileInputRef}
@@ -333,57 +306,39 @@ const AdminSiteSettings: React.FC = () => {
                             onChange={(event) => void handleBackupFileChange(event)}
                         />
 
-                        <Button
-                            variant="outline"
-                            onClick={() => void handleImportBackup()}
-                            disabled={!pendingManifest || isImportingBackup || isExportingBackup}
-                        >
-                            {isImportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
-                            İçerik Yedeğini İçe Aktar
-                        </Button>
+                        {pendingManifest && (
+                            <Button
+                                onClick={() => void handleImportBackup()}
+                                disabled={isImportingBackup || isExportingBackup}
+                                className="bg-emerald-600 hover:bg-emerald-700 text-white"
+                            >
+                                {isImportingBackup ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
+                                Yedeği Geri Yükle
+                            </Button>
+                        )}
                     </div>
                 </div>
 
-                <div className="mt-5 grid gap-4 lg:grid-cols-2">
-                    <div className="rounded-2xl border border-border bg-background/60 p-4">
-                        <h3 className="text-sm font-semibold">İçe aktarma durumu</h3>
-                        <p className="mt-2 text-sm text-muted-foreground">
-                            {pendingBackupFileName ? `${pendingBackupFileName} hazır` : 'Henüz dosya seçilmedi'}
-                        </p>
-                        {pendingManifest ? (
-                            <div className="mt-3 space-y-1 text-xs text-muted-foreground">
-                                <p>Versiyon: {pendingManifest.version}</p>
-                                <p>Dışa aktarım: {new Date(pendingManifest.exportedAt).toLocaleString('tr-TR')}</p>
-                                <p>İçerik tablosu: {pendingManifestTableCount}</p>
-                                <p>Toplam kayıt: {pendingManifestRowCount}</p>
-                            </div>
-                        ) : null}
+                {pendingManifest && (
+                    <div className="mt-4 grid gap-3 sm:grid-cols-4 rounded-2xl border border-border bg-background/50 p-4">
+                        <div>
+                            <p className="text-[10px] uppercase text-muted-foreground">Dosya</p>
+                            <p className="mt-1 font-semibold text-sm truncate">{pendingBackupFileName}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase text-muted-foreground">Dışa Aktarım Tarihi</p>
+                            <p className="mt-1 font-semibold text-sm">{new Date(pendingManifest.exportedAt).toLocaleDateString('tr-TR')}</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase text-muted-foreground">Tablo Sayısı</p>
+                            <p className="mt-1 font-semibold text-sm">{pendingManifestTableCount} tablo</p>
+                        </div>
+                        <div>
+                            <p className="text-[10px] uppercase text-muted-foreground">Toplam Satır</p>
+                            <p className="mt-1 font-semibold text-sm">{pendingManifestRowCount} kayıt</p>
+                        </div>
                     </div>
-
-                    <div className="rounded-2xl border border-amber-500/20 bg-amber-500/10 p-4 text-sm text-amber-100">
-                        <p className="font-semibold">Davranış</p>
-                        <p className="mt-2 leading-6">
-                            Bu içe aktarma akışı kullanıcı verisini korumak için ana içerik tablolarında merge çalışır.
-                            Backup dosyasında olmayan manga, bölüm veya entity kayıtları güvenlik nedeniyle otomatik silinmez.
-                        </p>
-                    </div>
-                </div>
-
-                <div className="mt-4 grid gap-4 xl:grid-cols-2">
-                    <div className="rounded-2xl border border-border bg-background/60 p-4">
-                        <h3 className="text-sm font-semibold">Dahil edilen alanlar</h3>
-                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                            {CONTENT_BACKUP_INCLUDED_AREAS.join(' • ')}
-                        </p>
-                    </div>
-
-                    <div className="rounded-2xl border border-border bg-background/60 p-4">
-                        <h3 className="text-sm font-semibold">Hariç tutulan alanlar</h3>
-                        <p className="mt-2 text-sm leading-6 text-muted-foreground">
-                            {CONTENT_BACKUP_EXCLUDED_AREAS.join(' • ')}
-                        </p>
-                    </div>
-                </div>
+                )}
             </section>
 
             {isSaving ? (

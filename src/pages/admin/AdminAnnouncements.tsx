@@ -112,9 +112,8 @@ const AdminAnnouncements: React.FC = () => {
                 <div>
                     <h1 className="text-2xl font-bold flex items-center gap-3 sm:text-3xl">
                         <Megaphone className="h-8 w-8 text-primary" />
-                        Duyuru Yönetimi
+                        Duyurular
                     </h1>
-                    <p className="text-muted-foreground">Tüm kullanıcılara gönderilecek genel duyuruları yönetin</p>
                 </div>
                 
                 <Dialog open={isCreateOpen} onOpenChange={setIsCreateOpen}>
@@ -170,7 +169,6 @@ const AdminAnnouncements: React.FC = () => {
                     <div className="rounded-xl border border-dashed border-border p-12 text-center">
                         <Megaphone className="mx-auto h-12 w-12 text-muted-foreground/30 mb-4" />
                         <h3 className="text-lg font-medium">Henüz duyuru yok</h3>
-                        <p className="text-muted-foreground">Yeni bir duyuru oluşturarak kullanıcılara bilgi verebilirsiniz.</p>
                     </div>
                 ) : (
                     announcements.map((announcement) => (

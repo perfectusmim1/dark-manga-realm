@@ -320,8 +320,7 @@ const AdminUserManagement: React.FC = () => {
         <div className="flex flex-col gap-5 xl:flex-row xl:items-end xl:justify-between">
           <div className="space-y-2">
             <Badge variant="outline" className="w-fit gap-1.5 border-primary/20 bg-primary/10 text-primary"><Users className="h-3.5 w-3.5" /> Moderation Desk</Badge>
-            <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Kullanıcı yönetimi</h1>
-            <p className="max-w-2xl text-sm leading-7 text-muted-foreground sm:text-base">Uyarı, süreli ban, kalıcı ban, hard ban ve unban akışları burada. Sağ panel warning ve ban geçmişini gösterir.</p>
+            <h1 className="text-3xl font-black tracking-tight sm:text-4xl">Kullanıcı Yönetimi</h1>
           </div>
           <div className="relative w-full xl:w-80">
             <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
@@ -340,8 +339,7 @@ const AdminUserManagement: React.FC = () => {
       <div className="grid gap-6 xl:grid-cols-[380px_minmax(0,1fr)]">
         <section className="rounded-3xl border border-border bg-card p-4 shadow-sm sm:p-5">
           <div className="mb-4 flex items-center justify-between gap-3">
-            <div><h2 className="text-lg font-semibold">Kullanıcı listesi</h2><p className="text-sm text-muted-foreground">{filteredUsers.length} kayıt</p></div>
-            <Badge variant="outline">Rolü `user` olan hesaplar cezalandırılabilir</Badge>
+            <div><h2 className="text-lg font-semibold">Kullanıcı Listesi</h2><p className="text-sm text-muted-foreground">{filteredUsers.length} kayıt</p></div>
           </div>
           <div className="space-y-3">
             {filteredUsers.map((account) => {
@@ -453,7 +451,7 @@ const AdminUserManagement: React.FC = () => {
                 </div>
               </div>
             </div>
-          ) : <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center"><Users className="h-12 w-12 text-muted-foreground/40" /><h3 className="mt-4 text-xl font-semibold">Kullanıcı seçilmedi</h3><p className="mt-2 max-w-md text-sm text-muted-foreground">Soldan bir kullanıcı seç. Warning ve ban geçmişi burada açılır.</p></div>}
+          ) : <div className="flex min-h-[520px] flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-background/40 p-8 text-center"><Users className="h-12 w-12 text-muted-foreground/40" /><h3 className="mt-4 text-xl font-semibold">Kullanıcı seçilmedi</h3><p className="mt-2 max-w-md text-sm text-muted-foreground">Listeden bir kullanıcı seçerek detayları ve geçmişi görüntüleyebilirsiniz.</p></div>}
         </section>
       </div>
 

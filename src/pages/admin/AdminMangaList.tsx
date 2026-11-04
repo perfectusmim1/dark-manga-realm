@@ -167,7 +167,6 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
             <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold sm:text-3xl">{sectionTitle}</h1>
-                    <p className="text-muted-foreground">{sectionDescription}</p>
                 </div>
                 <Button asChild className="w-full sm:w-auto">
                     <Link to="/admin/mangas/new">

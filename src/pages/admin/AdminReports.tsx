@@ -416,9 +416,6 @@ const AdminReports: React.FC = () => {
                         <Flag className="h-8 w-8 text-primary" />
                         Bildirilenler
                     </h1>
-                    <p className="text-muted-foreground">
-                        Kullanıcıların bildirdiği seri, yorum, inceleme ve profil sorunlarını buradan yönetebilirsiniz.
-                    </p>
                 </div>
 
                 <Badge variant="outline" className="w-fit px-3 py-1 text-sm">

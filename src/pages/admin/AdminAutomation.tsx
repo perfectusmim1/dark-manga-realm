@@ -771,10 +771,6 @@ const AdminAutomation: React.FC = () => {
           </div>
           <div>
             <h1 className="text-2xl font-bold sm:text-3xl">Otomasyon</h1>
-            <p className="text-sm leading-6 text-muted-foreground sm:text-base">
-              Cloudflare Proxy + R2 + GitHub Actions (2 saatlik döngü) ile çift yönlü senkron çalışır. Yeni eklenen devam eden seriler otomatik alınır;
-              tamamlanan veya 3 ay (90 gün) boyunca yeni bölüm gelmeyen seriler otomasyondan otomatik çıkarılır (arşivde korunur).
-            </p>
           </div>
         </div>
 

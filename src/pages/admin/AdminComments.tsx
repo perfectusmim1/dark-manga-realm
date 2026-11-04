@@ -259,7 +259,6 @@ const AdminComments: React.FC = () => {
             <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                 <div>
                     <h1 className="text-2xl font-bold sm:text-3xl">Yorumlar</h1>
-                    <p className="text-muted-foreground">Yorumları daha hızlı inceleyip yönetin.</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">

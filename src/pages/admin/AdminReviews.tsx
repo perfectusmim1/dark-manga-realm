@@ -224,7 +224,6 @@ const AdminReviews: React.FC = () => {
                         <Star className="h-7 w-7 text-primary" />
                         İncelemeler
                     </h1>
-                    <p className="text-muted-foreground">Kullanıcı incelemelerini seri, kullanıcı ve puan detaylarıyla yönetin.</p>
                 </div>
 
                 <div className="flex flex-wrap gap-2">

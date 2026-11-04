@@ -471,9 +471,6 @@ const AdminEntities: React.FC = () => {
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
           <h1 className="text-2xl font-bold sm:text-3xl">Kişi & Karakter Yönetimi</h1>
-          <p className="text-muted-foreground">
-            Karakter, yazar ve çizer kayıtlarını; görünürlük, metadata, galeri ve kaynak linkleriyle birlikte yönetin.
-          </p>
         </div>
         <Button onClick={openCreateDialog} className="w-full sm:w-auto">
           <Plus className="mr-2 h-4 w-4" />
