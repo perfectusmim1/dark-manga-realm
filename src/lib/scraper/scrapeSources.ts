@@ -1118,6 +1118,8 @@ export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, ra
         const items = json.items || json.result?.items || json.data || (Array.isArray(json) ? json : []);
         for (const item of items) {
           if (!item || typeof item !== 'object') continue;
+          // Kural: Bölümü olmayan veya ölü serileri doğrudan ele
+          if (item.hasChapters === false || item.latestChapter === 0) continue;
           const slug = item.slug || item.zq || item.id;
           const title = cleanSeriesTitle(item.title || item.name || item.u4 || '');
           if (!slug || !title) continue;

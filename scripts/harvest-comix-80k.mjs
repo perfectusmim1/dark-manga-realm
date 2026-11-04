@@ -310,6 +310,7 @@ async function harvest() {
   const touchedMangas = [];
   let totalImported = 0;
   let totalSkippedEmpty = 0;
+  let remoteTotalCount = 110800;
 
   for (let page = startPage; page <= endPage; page++) {
     logInfo(`Sayfa ${page} taranıyor...`);
@@ -327,6 +328,9 @@ async function harvest() {
     }
 
     const items = res?.items || (Array.isArray(res) ? res : []);
+    if (res?.meta?.total) {
+      remoteTotalCount = Number(res.meta.total);
+    }
     if (!items || items.length === 0) {
       logInfo(`Sayfa ${page} boş, arşiv sonuna ulaşıldı.`);
       break;
@@ -339,8 +343,8 @@ async function harvest() {
       if (processedHids.has(hid)) continue;
       processedHids.add(hid);
 
-      // KURAL: Çalışan bölümü yoksa ekleme, ele!
-      if (item.hasChapters === false) {
+      // KURAL: Çalışan bölümü yoksa veya ölü/boş seriyse anında atla!
+      if (!item.hasChapters || Number(item.latestChapter || 0) <= 0) {
         totalSkippedEmpty++;
         continue;
       }
@@ -368,7 +372,7 @@ async function harvest() {
       // KURAL: Gerçekte 0 bölümü varsa ele!
       if (!chItems || chItems.length === 0) {
         totalSkippedEmpty++;
-        logProgress(processedHids.size, 80000, cleanTitle, '0 bölüm olduğu için elendi.');
+        logProgress(processedHids.size, remoteTotalCount, cleanTitle, '0 bölüm olduğu için elendi.');
         continue;
       }
 
@@ -396,7 +400,7 @@ async function harvest() {
         .slice(0, 100);
 
       // İlk birkaç bölümün sayfalarını çek (veya ihtiyaç halinde tamamını)
-      logProgress(processedHids.size, 80000, cleanTitle, `${chaptersToIngest.length} bölümün sayfaları indiriliyor...`);
+      logProgress(processedHids.size, remoteTotalCount, cleanTitle, `${chaptersToIngest.length} bölümün sayfaları indiriliyor...`);
 
       const finalChapters = [];
       for (let cIdx = 0; cIdx < chaptersToIngest.length; cIdx += CHAPTER_CONCURRENCY) {
@@ -435,7 +439,7 @@ async function harvest() {
 
       if (finalChapters.length === 0) {
         totalSkippedEmpty++;
-        logProgress(processedHids.size, 80000, cleanTitle, 'Çalışan görsel sayfası bulunamadığı için elendi.');
+        logProgress(processedHids.size, remoteTotalCount, cleanTitle, 'Çalışan görsel sayfası bulunamadığı için elendi.');
         continue;
       }
 
@@ -505,7 +509,7 @@ async function harvest() {
 
       logProgress(
         processedHids.size,
-        80000,
+        remoteTotalCount,
         cleanTitle,
         `EKLENDİ: +${finalChapters.length} bölüm [${formatType.toUpperCase()}] (Katalog: ${Object.keys(mainState.mangas).length})`
       );

@@ -1128,8 +1128,8 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
       }
       let newOnPage = 0;
       for (const item of items) {
-        // Kural: Çalışan bölümü olmayan serileri doğrudan ele
-        if (item.hasChapters === false || Number(item.latestChapter || 0) <= 0) continue;
+        // Kural: Çalışan bölümü olmayan veya ölü serileri doğrudan ele
+        if (!item.hasChapters || Number(item.latestChapter || 0) <= 0) continue;
 
         const hid = item.hid || String(item.id);
         const link = `https://comix.to/comic/${hid}`;

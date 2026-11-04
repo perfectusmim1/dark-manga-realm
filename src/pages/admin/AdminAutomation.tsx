@@ -89,7 +89,7 @@ const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> =
   { value: 'webtoonhatti', label: 'WebtoonHattı' },
   { value: 'okutoon', label: 'OkuToon' },
   { value: 'mangadass', label: 'Mangadass (+18 & Raw)' },
-  { value: 'comix', label: 'Comix.to (80k Arşiv / EN)' },
+  { value: 'comix', label: 'Comix.to' },
   { value: 'siyahmelek', label: 'SiyahMelek' },
   { value: 'hattorimanga', label: 'HattoriManga' },
   { value: 'mangacix', label: 'MangaCix' },
