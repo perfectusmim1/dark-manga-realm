@@ -314,6 +314,7 @@ export const useChapterTranslation = ({
           ) {
             return;
           }
+          console.error('[Translation Error]', err);
           setPageState(index, { status: 'error' });
           setLastErrorMessage(classifyTranslationError(err));
         })
@@ -343,8 +344,8 @@ export const useChapterTranslation = ({
       toast.error('Yeni sayfa çevirmek için internet bağlantısı gerekiyor.');
       return false;
     }
-    if (settingsRef.current.provider === 'gemini' && getEffectiveApiKeys(settingsRef.current).length === 0) {
-      toast.error('Önce Görsel Çeviri ayarlarından en az bir Gemini API anahtarı ekleyin.');
+    if (getEffectiveApiKeys(settingsRef.current).length === 0) {
+      toast.error('Görsel çeviri için lütfen ayarlar panelinden en az bir Gemini API anahtarı ekleyin.');
       return false;
     }
     return true;

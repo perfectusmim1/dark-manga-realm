@@ -111,7 +111,6 @@ export default defineConfig(({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
-      "tesseract.js": path.resolve(__dirname, "./node_modules/tesseract.js/dist/tesseract.esm.min.js"),
     },
   },
   build: {
@@ -179,10 +178,6 @@ export default defineConfig(({ mode }) => ({
 
           if (normalizedId.includes("idb")) {
             return "offline-storage";
-          }
-
-          if (normalizedId.includes("tesseract.js")) {
-            return "ocr-engine";
           }
 
           return "vendor";

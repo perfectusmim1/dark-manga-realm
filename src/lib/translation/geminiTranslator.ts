@@ -5,14 +5,13 @@ import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
 import { normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
-import { runFastWebtoonOcr } from './fastOcr';
 
 const GEMINI_FLASH_MODEL = 'gemini-flash-latest';
 
 const FALLBACK_RETRY_DELAYS_MS = [1800, 4500];
 const DEFAULT_KEY_COOLDOWN_MS = 14_000;
 const INVALID_KEY_ISOLATION_MS = 5 * 60_000;
-const PER_REQUEST_TIMEOUT_MS = 9_500;
+const PER_REQUEST_TIMEOUT_MS = 28_000;
 const SLICE_HEIGHT = 2200;
 const SLICE_OVERLAP = 220;
 const SLICE_STEP = SLICE_HEIGHT - SLICE_OVERLAP; // 1980
@@ -214,12 +213,26 @@ export const isFatalAuthOrKeyError = (error: unknown): boolean => {
 
 export const classifyTranslationError = (error: unknown): string => {
   if (isFatalAuthOrKeyError(error)) {
-    return 'Gemini API anahtarı geçersiz veya yetkisiz.';
+    return 'Gemini API anahtarı geçersiz veya yetkisiz. Lütfen ayarlar panelinden kontrol edin.';
   }
   if (isRateLimitError(error)) {
     return 'Gemini kota sınırı doldu (429). Ek API anahtarı ekleyebilir veya biraz bekleyebilirsiniz.';
   }
   const message = (error instanceof Error ? error.message : String(error)).toLowerCase();
+  if (message.includes('api_key_invalid') || message.includes('api anahtarı bulunamadı')) {
+    return 'Gemini API anahtarı eksik. Lütfen Görsel Çeviri panelinden bir API anahtarı ekleyin.';
+  }
+  if (
+    message.includes('503') ||
+    message.includes('502') ||
+    message.includes('504') ||
+    message.includes('timeout') ||
+    message.includes('timed out') ||
+    message.includes('overload') ||
+    message.includes('deadline_exceeded')
+  ) {
+    return 'Çeviri zaman aşımına uğradı veya Gemini servisi meşgul (503). Lütfen tekrar deneyin.';
+  }
   if (message.includes('görsel') || message.includes('failed to fetch') || message.includes('network')) {
     return 'Sayfa görseli alınamadı. Bağlantınızı kontrol edin.';
   }
@@ -441,7 +454,11 @@ export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
 const parseBlocks = (raw: string, targetLang: string): TranslationBlock[] => {
   let parsed: { blocks?: unknown };
   try {
-    parsed = JSON.parse(raw) as { blocks?: unknown };
+    const cleaned = (raw || '')
+      .replace(/^```(?:json)?\s*/i, '')
+      .replace(/\s*```$/i, '')
+      .trim();
+    parsed = JSON.parse(cleaned) as { blocks?: unknown };
   } catch {
     return [];
   }
@@ -743,63 +760,6 @@ export const translatePageImage = async ({
       if (t) items[pendingIndices[i]].text = t;
     });
   };
-
-  // Google Çeviri (Ücretsiz) Modu: Tamamen yerel, ultra hızlı Web Worker WASM OCR + Ücretsiz Google Çeviri
-  // Gemini API çağrısı yapmaz, kota/ücret yemez, webtoon ve uzun şerit sayfalarla %100 uyumludur.
-  if (provider === 'google') {
-    const tOcrStart = performance.now();
-    const rawBlocks: Array<{ box: [number, number, number, number]; text: string }> = [];
-
-    if (fullHeight <= 2500) {
-      if (hasSliceTextPotential(fullCtx, fullWidth, fullHeight)) {
-        const detected = await runFastWebtoonOcr(fullCanvas, signal);
-        rawBlocks.push(...detected);
-      }
-    } else {
-      // Uzun webtoon şeritlerini 2000px dilimler halinde tara
-      for (let y = 0; y < fullHeight; y += 2000) {
-        if (signal?.aborted) throw new DOMException('İptal edildi', 'AbortError');
-        const h = Math.min(2000, fullHeight - y);
-        const sliceCanvas = document.createElement('canvas');
-        sliceCanvas.width = fullWidth;
-        sliceCanvas.height = h;
-        const sliceCtx = sliceCanvas.getContext('2d', { willReadFrequently: true });
-        if (sliceCtx) {
-          sliceCtx.drawImage(fullCanvas, 0, y, fullWidth, h, 0, 0, fullWidth, h);
-          if (hasSliceTextPotential(sliceCtx, fullWidth, h)) {
-            const sliceBlocks = await runFastWebtoonOcr(sliceCanvas, signal);
-            for (const b of sliceBlocks) {
-              const ymin = Math.round(((y + (b.box[0] / 1000) * h) / fullHeight) * 1000);
-              const ymax = Math.round(((y + (b.box[2] / 1000) * h) / fullHeight) * 1000);
-              rawBlocks.push({
-                box: [ymin, b.box[1], ymax, b.box[3]],
-                text: b.text,
-              });
-            }
-          }
-        }
-      }
-    }
-    ocrMs = Math.round(performance.now() - tOcrStart);
-
-    const tTransStart = performance.now();
-    await applyGoogleTranslateBatchIfNeeded(rawBlocks);
-    transMs = Math.round(performance.now() - tTransStart);
-
-    const blocks = rawBlocks
-      .sort((a, b) => a.box[0] - b.box[0])
-      .map((block) => inpaintAndRefineBlock(fullCtx, fullWidth, fullHeight, block, targetLang))
-      .filter((block): block is TranslationBlock => block !== null);
-
-    return {
-      blocks,
-      timings: {
-        ocrMs,
-        transMs,
-        totalMs: Math.round(performance.now() - tStart),
-      },
-    };
-  }
 
   // Kısa/standart sayfalar (height <= 2300): tek seferde işle
   if (fullHeight <= 2300) {

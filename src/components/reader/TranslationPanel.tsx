@@ -382,6 +382,128 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
         </div>
       </div>
 
+      {/* Çoklu Gemini API Anahtarı */}
+      <div className="space-y-1.5">
+        <div className="flex items-center justify-between gap-2">
+          <Label htmlFor="gemini-api-key" className="text-xs font-semibold text-muted-foreground">
+            Gemini API Anahtarları
+          </Label>
+          <div className="flex items-center gap-1.5">
+            {effectiveKeys.length > 0 ? (
+              <>
+                <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
+                  {effectiveKeys.length} aktif
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setRevealKeys((prev) => !prev)}
+                  className="inline-flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                  title={revealKeys ? 'Anahtarları gizle' : 'Anahtarları göster'}
+                >
+                  {revealKeys ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
+                </button>
+              </>
+            ) : (
+              <span className="rounded-md bg-amber-500/15 px-1.5 py-0.5 text-[10px] font-semibold text-amber-500">
+                Anahtar gerekli
+              </span>
+            )}
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5">
+          <Input
+            id="gemini-api-token-input"
+            name="gemini-api-token-noautofill"
+            type="text"
+            autoComplete="new-password"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            data-lpignore="true"
+            data-form-type="other"
+            data-1p-ignore="true"
+            aria-autocomplete="none"
+            style={{
+              WebkitTextSecurity: revealKeys ? 'none' : 'disc',
+            } as React.CSSProperties}
+            placeholder={
+              effectiveKeys.length > 0
+                ? 'Ek anahtar ekle (AIza...)'
+                : 'AIza... (aistudio.google.com)'
+            }
+            value={draftKeyInput}
+            onChange={(event) => setDraftKeyInput(event.target.value)}
+            onBlur={() => {
+              if (draftKeyInput.trim()) {
+                commitDraftKeys(true);
+              }
+            }}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') {
+                event.preventDefault();
+                handleAddKeyButton();
+              }
+            }}
+            className="h-8 flex-1 rounded-xl border-border bg-secondary/40 text-xs font-mono focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
+          />
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            disabled={!draftKeyInput.trim()}
+            onClick={handleAddKeyButton}
+            className="h-8 shrink-0 gap-1 rounded-xl border-border/70 bg-background/60 px-2.5 text-xs hover:border-primary/40"
+          >
+            <Plus className="h-3.5 w-3.5 text-primary" />
+            <span>Ekle</span>
+          </Button>
+        </div>
+
+        {effectiveKeys.length > 0 && (
+          <div className="reader-scroll-thin max-h-28 space-y-1 overflow-y-auto rounded-xl border border-border/60 bg-background/45 p-1.5">
+            {effectiveKeys.map((keyItem, idx) => (
+              <div
+                key={keyItem}
+                className="flex items-center justify-between gap-2 rounded-lg bg-secondary/45 px-2 py-1 text-[11px]"
+              >
+                <div className="flex min-w-0 items-center gap-1.5">
+                  <span className="shrink-0 font-semibold tabular-nums text-primary">
+                    #{idx + 1}
+                  </span>
+                  <span className="truncate font-mono text-foreground/90">
+                    {revealKeys ? keyItem : maskApiKey(keyItem)}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => handleRemoveKey(keyItem)}
+                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-red-300"
+                  title="Anahtarı kaldır"
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </div>
+            ))}
+            {effectiveKeys.length > 1 && (
+              <div className="flex justify-end pt-0.5">
+                <button
+                  type="button"
+                  onClick={handleClearAllKeys}
+                  className="text-[10px] font-medium text-muted-foreground transition-colors hover:text-red-300"
+                >
+                  Tüm anahtarları kaldır
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        <p className="text-[11px] leading-snug text-muted-foreground">
+          Tarayıcıda saklanır. Çoklu anahtarda kota dolunca otomatik sıradakine geçer · aistudio.google.com
+        </p>
+      </div>
+
       {/* Mod Seçenekleri */}
       <div className="space-y-2.5">
         <div className="flex items-center justify-between">
@@ -472,124 +594,6 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
             <p className="px-2.5 py-2 text-xs text-muted-foreground">Sonuç bulunamadı</p>
           )}
         </div>
-      </div>
-
-      {/* Çoklu Gemini API Anahtarı */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between gap-2">
-          <Label htmlFor="gemini-api-key" className="text-xs font-semibold text-muted-foreground">
-            Gemini API Anahtarları
-          </Label>
-          <div className="flex items-center gap-1.5">
-            {effectiveKeys.length > 0 && (
-              <>
-                <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold tabular-nums text-primary">
-                  {effectiveKeys.length} aktif
-                </span>
-                <button
-                  type="button"
-                  onClick={() => setRevealKeys((prev) => !prev)}
-                  className="inline-flex h-5 w-5 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                  title={revealKeys ? 'Anahtarları gizle' : 'Anahtarları göster'}
-                >
-                  {revealKeys ? <EyeOff className="h-3 w-3" /> : <Eye className="h-3 w-3" />}
-                </button>
-              </>
-            )}
-          </div>
-        </div>
-
-        <div className="flex items-center gap-1.5">
-          <Input
-            id="gemini-api-token-input"
-            name="gemini-api-token-noautofill"
-            type="text"
-            autoComplete="new-password"
-            autoCorrect="off"
-            autoCapitalize="off"
-            spellCheck={false}
-            data-lpignore="true"
-            data-form-type="other"
-            data-1p-ignore="true"
-            aria-autocomplete="none"
-            style={{
-              WebkitTextSecurity: revealKeys ? 'none' : 'disc',
-            } as React.CSSProperties}
-            placeholder={
-              effectiveKeys.length > 0
-                ? 'Ek anahtar ekle (AIza...)'
-                : 'AIza... (çoklu yapıştırılabilir)'
-            }
-            value={draftKeyInput}
-            onChange={(event) => setDraftKeyInput(event.target.value)}
-            onBlur={() => {
-              if (draftKeyInput.trim()) {
-                commitDraftKeys(true);
-              }
-            }}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') {
-                event.preventDefault();
-                handleAddKeyButton();
-              }
-            }}
-            className="h-8 flex-1 rounded-xl border-border bg-secondary/40 text-xs font-mono focus-visible:border-primary/50 focus-visible:ring-1 focus-visible:ring-primary/30 focus-visible:ring-offset-0"
-          />
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            disabled={!draftKeyInput.trim()}
-            onClick={handleAddKeyButton}
-            className="h-8 shrink-0 gap-1 rounded-xl border-border/70 bg-background/60 px-2.5 text-xs hover:border-primary/40"
-          >
-            <Plus className="h-3.5 w-3.5 text-primary" />
-            <span>Ekle</span>
-          </Button>
-        </div>
-
-        {effectiveKeys.length > 0 && (
-          <div className="reader-scroll-thin max-h-28 space-y-1 overflow-y-auto rounded-xl border border-border/60 bg-background/45 p-1.5">
-            {effectiveKeys.map((keyItem, idx) => (
-              <div
-                key={keyItem}
-                className="flex items-center justify-between gap-2 rounded-lg bg-secondary/45 px-2 py-1 text-[11px]"
-              >
-                <div className="flex min-w-0 items-center gap-1.5">
-                  <span className="shrink-0 font-semibold tabular-nums text-primary">
-                    #{idx + 1}
-                  </span>
-                  <span className="truncate font-mono text-foreground/90">
-                    {revealKeys ? keyItem : maskApiKey(keyItem)}
-                  </span>
-                </div>
-                <button
-                  type="button"
-                  onClick={() => handleRemoveKey(keyItem)}
-                  className="inline-flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-destructive/15 hover:text-red-300"
-                  title="Anahtarı kaldır"
-                >
-                  <X className="h-3 w-3" />
-                </button>
-              </div>
-            ))}
-            {effectiveKeys.length > 1 && (
-              <div className="flex justify-end pt-0.5">
-                <button
-                  type="button"
-                  onClick={handleClearAllKeys}
-                  className="text-[10px] font-medium text-muted-foreground transition-colors hover:text-red-300"
-                >
-                  Tüm anahtarları kaldır
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-
-        <p className="text-[11px] leading-snug text-muted-foreground">
-          Tarayıcıda saklanır. Çoklu anahtarda kota (429) dolunca sıradaki anahtara geçer · aistudio.google.com
-        </p>
       </div>
 
       {/* Önbellek Yönetimi */}

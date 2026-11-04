@@ -59,6 +59,15 @@ export const normalizeApiKeysList = (
     pushCandidate(legacyKey);
   }
 
+  // Ortam değişkeni (VITE_GEMINI_API_KEY) tanımlıysa otomatik olarak dahil et
+  const envKey =
+    typeof import.meta !== 'undefined' && import.meta.env
+      ? (import.meta.env.VITE_GEMINI_API_KEY as string | undefined)
+      : undefined;
+  if (typeof envKey === 'string' && envKey.trim()) {
+    pushCandidate(envKey);
+  }
+
   return result;
 };
 
