@@ -7,15 +7,14 @@ Bu dosya ToonParrot projesinde görev alan tüm AI ajanları (Main Agent) ve alt
 ## 1. Görsel Çeviri & OCR Mimarisi (KATI VE DEĞİŞTİRİLEMEZ)
 
 - **Çeviri Modelleri Sabittir:**
-  - **Gemini Çeviri Motoru:** Model adı her zaman ve kesinlikle **`gemini-flash-latest`** olarak kalacaktır. Model ismi başka bir versiyona, modele veya deneysel ada ASLA değiştirilemez.
+  - **Gemini Çeviri Motoru:** Model adı her zaman ve kesinlikle **`gemini-flash-lite-latest`** (Gemini 3.5 Flash-Lite) olarak kalacak ve en yüksek hız için **`ThinkingLevel.MINIMAL`** modunda çalışacaktır.
   - **Google Çeviri Motoru:** Google Translate (`translateBatchWithGoogleFree` / proxy) her zaman aktif varsayılan alternatif olarak kalacaktır. 100% ücretsizdir ve API anahtarı gerektirmez.
 
 - **OCR ve Balon Tespiti Kuralı - Gemini Vision ve Google Vision KESİNLİKLE YASAKTIR:**
   - Sayfa/bölüm görselleri OCR, metin tespiti veya konuşma balonu tespiti için **ASLA Gemini Vision, Google Cloud Vision ya da herhangi bir uzak multimodal/Vision LLM API'sine gönderilemez**.
   - Vision modelleri aşırı pahalı, aşırı yavaş ve kota tüketici olduğu için bu projede kullanımı KESİNLİKLE YASAKTIR.
-  - OCR işlemi **HER ZAMAN istemci tarafında (tarayıcıda) yerel çalışan, hızlı, hafif ve uzun webtoon şeritlerine uyumlu bir yerel OCR motoruyla (Tesseract WASM / `fastOcr.ts`)** yürütülecektir. Varlıklar `public/tesseract/` altında yerel olarak barındırılır.
-  - Gemini Flash (`gemini-flash-latest`) yalnızca ve yalnızca yerel OCR'ın çıkardığı saf metinlerin çevirisinde (metin -> metin) kullanılır. Modele asla görsel pikselleri (base64 vb.) beslenemez.
-  - Ajanlar kafalarına göre Vision modellerine geri dönemez, model adını değiştiremez veya OCR mimarisini bozamaz.
+  - OCR işlemi **HER ZAMAN istemci tarafında (tarayıcıda) yerel çalışan, hızlı, hafif ve uzun webtoon şeritlerine uyumlu yerel bir derin öğrenme OCR motoruyla (PaddleOCR PP-OCRv3 ONNX / `fastOcr.ts` + `ocrWorker.ts`)** yürütülecektir. Varlıklar `public/ocr/` ve `public/ort/` altında yerel olarak barındırılır. Tesseract WASM yalnızca acil durum yedeği olarak tutulur.
+  - Gemini Flash-Lite (`gemini-flash-lite-latest`) yalnızca ve yalnızca yerel OCR'ın çıkardığı saf metinlerin çevirisinde (metin -> metin) kullanılır. Modele asla görsel pikselleri (base64 vb.) beslenemez.
 
 ---
 

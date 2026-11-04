@@ -7,7 +7,8 @@ import { normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 import { runFastWebtoonOcr } from './fastOcr';
 
-const GEMINI_FLASH_MODEL = 'gemini-flash-latest';
+const GEMINI_FLASH_MODEL = 'gemini-flash-lite-latest';
+const GEMINI_THINKING_LEVEL = ThinkingLevel.MINIMAL;
 
 const FALLBACK_RETRY_DELAYS_MS = [1500, 3500];
 const DEFAULT_KEY_COOLDOWN_MS = 12_000;
@@ -15,11 +16,6 @@ const INVALID_KEY_ISOLATION_MS = 5 * 60_000;
 const PER_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_TRANSLATE_PROXY_URL =
   'https://toonparrot-scraper-proxy.caganhuseyinerdil.workers.dev/translate';
-
-// Metin -> metin çeviride derin akıl yürütme gereksizdir; en hızlı yanıt için düşük thinking.
-// Not: 'gemini-flash-latest' güncel Flash sürümlerine yönlenir ve bu sürümler MINIMAL seviyesini
-// reddeder (400 hatası); tüm Flash sürümlerinin desteklediği en düşük seviye LOW'dur.
-const GEMINI_THINKING_LEVEL = ThinkingLevel.LOW;
 
 const GEMINI_TEXT_TRANSLATE_SCHEMA = {
   type: Type.OBJECT,
