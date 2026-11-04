@@ -54,6 +54,23 @@ export default defineConfig(({ mode }) => ({
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
+          // 0. Yerel OCR modelleri ve WASM çalışma zamanı (büyük, değişmeyen dosyalar):
+          //    ilk indirmeden sonra her çeviride ağa gitmeden önbellekten yüklenir.
+          {
+            urlPattern: ({ url, sameOrigin }: any) =>
+              sameOrigin && /^\/(?:ocr|ort)\//.test(url.pathname),
+            handler: "CacheFirst",
+            options: {
+              cacheName: "toonparrot-ocr-models-v1",
+              cacheableResponse: {
+                statuses: [200],
+              },
+              expiration: {
+                maxEntries: 12,
+                maxAgeSeconds: 60 * 60 * 24 * 90,
+              },
+            },
+          },
           // 1. Yalnızca gerçek görseller: R2 medyası, harici CDN görselleri ve
           //    <img> (destination=image) üzerinden gelen proxied görseller.
           //    ÖNEMLİ: Supabase REST/auth yanıtları ve worker JSON API'leri ASLA

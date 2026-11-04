@@ -16,8 +16,10 @@ const PER_REQUEST_TIMEOUT_MS = 20_000;
 const DEFAULT_TRANSLATE_PROXY_URL =
   'https://toonparrot-scraper-proxy.caganhuseyinerdil.workers.dev/translate';
 
-const supportsThinkingConfig = (model: string): boolean =>
-  model.includes('2.5');
+// Metin -> metin çeviride derin akıl yürütme gereksizdir; en hızlı yanıt için düşük thinking.
+// Not: 'gemini-flash-latest' güncel Flash sürümlerine yönlenir ve bu sürümler MINIMAL seviyesini
+// reddeder (400 hatası); tüm Flash sürümlerinin desteklediği en düşük seviye LOW'dur.
+const GEMINI_THINKING_LEVEL = ThinkingLevel.LOW;
 
 const GEMINI_TEXT_TRANSLATE_SCHEMA = {
   type: Type.OBJECT,
@@ -527,9 +529,7 @@ export const translateBatchWithGeminiText = async (
         const response = await ai.models.generateContent({
           model,
           config: {
-            ...(supportsThinkingConfig(model)
-              ? { thinkingConfig: { thinkingLevel: ThinkingLevel.MINIMAL } }
-              : {}),
+            thinkingConfig: { thinkingLevel: GEMINI_THINKING_LEVEL },
             responseMimeType: 'application/json',
             responseSchema: GEMINI_TEXT_TRANSLATE_SCHEMA,
             abortSignal: combinedSignal,
@@ -638,10 +638,15 @@ export const translatePageImage = async ({
   }
   fullCtx.drawImage(img, 0, 0);
 
-  // 1. ADIM: Yerel WASM Tesseract OCR ile konuşma balonlarını tespit et
+  // 1. ADIM: Yerel OCR (PaddleOCR ONNX, Web Worker) ile metin satırlarını bul ve balonlara grupla
   const tOcrStart = performance.now();
-  const rawBubbles = await runFastWebtoonOcr(fullCanvas, signal);
+  const ocr = await runFastWebtoonOcr(fullCanvas, signal);
   ocrMs = Math.round(performance.now() - tOcrStart);
+
+  // Jenerik / ekip listesi / reklam / duyuru sayfaları hiç çevrilmez
+  const rawBubbles = ocr.isPromoPage
+    ? []
+    : ocr.bubbles.filter((bubble) => !shouldSkipBlock(bubble.text, targetLang));
 
   if (rawBubbles.length === 0) {
     return {
@@ -669,10 +674,23 @@ export const translatePageImage = async ({
   transMs = Math.round(performance.now() - tTransStart);
 
   // 3. ADIM: Balonları inpaint et ve hedeflenen dilde yeniden diz
+  const normalizeForCompare = (s: string) =>
+    s.toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]+/gu, '');
+
+  // Çeviri servisi sessizce başarısız olursa (tüm metinler aynen döner) sayfayı "çevrildi" sayma
+  const unchangedCount = rawBubbles.filter(
+    (bubble, idx) => normalizeForCompare(translatedTexts[idx] || '') === normalizeForCompare(bubble.text),
+  ).length;
+  if (targetLang !== 'en' && rawBubbles.length >= 2 && unchangedCount === rawBubbles.length) {
+    throw new Error('Çeviri servisi yanıt vermedi (timeout)');
+  }
+
   const blocks = rawBubbles
     .map((bubble, idx) => {
-      const translated = translatedTexts[idx] || bubble.text;
+      const translated = (translatedTexts[idx] || bubble.text).trim();
       if (shouldSkipBlock(translated, targetLang)) return null;
+      // Çeviri orijinalle aynıysa (isim, ses efekti, ekran yazısı) orijinal çizimi bozma
+      if (normalizeForCompare(translated) === normalizeForCompare(bubble.text)) return null;
       return inpaintAndRefineBlock(
         fullCtx,
         fullWidth,
