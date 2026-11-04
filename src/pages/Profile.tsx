@@ -1019,7 +1019,7 @@ const Profile: React.FC = () => {
                               <img
                                 src={manga.cover}
                                 alt={manga.title}
-                                className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-105"
+                                className="h-full w-full object-cover"
                               />
                              <div className="absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/80 via-black/10 to-transparent" />
                              <Badge className="absolute left-3 top-3 rounded-full bg-black/70 text-[10px] text-white hover:bg-black/70">

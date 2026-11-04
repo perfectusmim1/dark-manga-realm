@@ -7,8 +7,6 @@ import {
   Clock3,
   Crown,
   Flame,
-  ShieldCheck,
-  Sparkles,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import MangaRatingBadge from '@/components/manga/MangaRatingBadge';
@@ -95,32 +93,20 @@ const TOP_TEN_AUDIENCE_META: Record<
   TopTenAudience,
   {
     title: string;
-    description: string;
-    icon: React.ComponentType<{ className?: string }>;
-    eyebrow: string;
     frameClassName: string;
-    iconWrapClassName: string;
     badgeClassName: string;
     emptyText: string;
   }
 > = {
   safe: {
     title: 'Genel Top 10',
-    description: 'Yetişkin içerik karışmadan, herkes için uygun ana sıralama.',
-    icon: ShieldCheck,
-    eyebrow: 'Standart Seri Akışı',
     frameClassName: 'border-primary/15 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_48%),linear-gradient(180deg,rgba(9,18,38,0.98),rgba(6,11,22,0.98))]',
-    iconWrapClassName: 'border-sky-400/30 bg-sky-500/10 text-sky-300',
     badgeClassName: 'border-sky-400/30 bg-sky-500/10 text-sky-200',
     emptyText: 'Bu aralıkta genel Top 10 için seri bulunamadı.',
   },
   adult: {
     title: '18+ Top 10',
-    description: 'Yalnızca yetişkin olarak işaretlenmiş serilerin ayrı sıralaması.',
-    icon: Sparkles,
-    eyebrow: 'Yetişkin Seri Akışı',
     frameClassName: 'border-rose-500/20 bg-[radial-gradient(circle_at_top,rgba(244,63,94,0.16),transparent_48%),linear-gradient(180deg,rgba(33,8,17,0.98),rgba(18,5,10,0.98))]',
-    iconWrapClassName: 'border-rose-400/30 bg-rose-500/10 text-rose-200',
     badgeClassName: 'border-rose-400/35 bg-rose-500/10 text-rose-100',
     emptyText: 'Bu aralıkta yetişkin Top 10 için seri bulunamadı.',
   },
@@ -339,19 +325,6 @@ const TopTenAudienceBlock: React.FC<{
   isSinglePanel = false,
 }) => {
   const audienceMeta = TOP_TEN_AUDIENCE_META[audience];
-  const timeframeMeta = TOP_TEN_TIMEFRAME_META[timeframe];
-  const AudienceIcon = audienceMeta.icon;
-  const TimeframeIcon = timeframeMeta.icon;
-  const timeframeIconClassName = audience === 'adult'
-    ? timeframe === 'today'
-      ? 'h-4 w-4 text-rose-300'
-      : timeframe === 'week'
-        ? 'h-4 w-4 text-rose-200'
-        : 'h-4 w-4 text-rose-400'
-    : timeframeMeta.iconClassName;
-  const timeframeBadgeClassName = audience === 'adult'
-    ? 'border-rose-400/15 bg-rose-500/5 text-rose-50'
-    : 'border-white/15 bg-white/5 text-white/88';
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const [showLeftArrow, setShowLeftArrow] = useState(false);
@@ -449,27 +422,12 @@ const TopTenAudienceBlock: React.FC<{
     >
       <div className={`relative min-w-0 max-w-full overflow-hidden rounded-[18px] border p-3 shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:rounded-[30px] sm:p-6 lg:p-7 ${isSinglePanel ? 'xl:mx-auto xl:max-w-[76rem]' : ''} ${audienceMeta.frameClassName}`}>
         <div className="relative z-10">
-          <div className="mb-3 flex flex-col gap-3 border-b border-white/10 pb-3 sm:mb-6 sm:gap-5 sm:pb-6">
-            <div className="flex min-w-0 flex-col items-start gap-2.5 xl:flex-row xl:items-start xl:justify-between">
-              <div className="min-w-0">
-                <div className="flex items-center gap-2 sm:gap-3">
-                  <span className={`inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-[0.9rem] border backdrop-blur-sm sm:h-11 sm:w-11 sm:rounded-2xl ${audienceMeta.iconWrapClassName}`}>
-                    <AudienceIcon className="h-3.5 w-3.5 sm:h-5 sm:w-5" />
-                  </span>
-                  <div className="min-w-0">
-                    <p className="text-[9px] font-semibold uppercase tracking-[0.16em] text-white/65 sm:text-[11px] sm:tracking-[0.24em]">
-                      {audienceMeta.eyebrow}
-                    </p>
-                    <h2 className="mt-0.5 text-[0.98rem] font-black leading-[1.02] tracking-tight text-white sm:mt-1 sm:text-[2.2rem]">
-                      {audienceMeta.title}
-                    </h2>
-                  </div>
-                </div>
-                <p className="mt-1.5 max-w-2xl text-[10px] leading-4.5 text-white/72 sm:mt-3 sm:text-sm sm:leading-6">
-                  {audienceMeta.description}
-                </p>
-              </div>
-              <div className="w-full min-w-0 xl:w-auto xl:min-w-[20rem]">
+          <div className="mb-3 flex flex-col gap-3 border-b border-white/10 pb-3 sm:mb-6 sm:pb-6">
+            <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <h2 className="text-[1.25rem] font-black leading-tight tracking-tight text-white sm:text-[2rem]">
+                {audienceMeta.title}
+              </h2>
+              <div className="w-full min-w-0 sm:w-auto">
                 <TopTenTimeframeTabs
                   audience={audience}
                   activeTimeframe={timeframe}
@@ -478,25 +436,6 @@ const TopTenAudienceBlock: React.FC<{
                 />
               </div>
             </div>
-
-            <AnimatePresence mode="wait" initial={false}>
-              <motion.div
-                key={`${audience}-${timeframe}-meta`}
-                initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
-                transition={{ duration: disableHeavyEffects ? 0.14 : 0.2, ease: [0.22, 1, 0.36, 1] }}
-                className="flex flex-col items-start gap-2 text-white sm:flex-row sm:flex-wrap sm:items-center"
-              >
-                <Badge variant="outline" className={cn('inline-flex h-6 items-center gap-1 rounded-full px-2 text-[7px] uppercase tracking-[0.08em] sm:h-8 sm:gap-2 sm:px-3 sm:text-[11px] sm:tracking-[0.18em]', timeframeBadgeClassName)}>
-                  <TimeframeIcon className={timeframeIconClassName} />
-                  {timeframeMeta.title}
-                </Badge>
-                <p className="hidden text-[12px] leading-5 text-white/62 sm:block sm:text-sm">
-                  {timeframeMeta.description}
-                </p>
-              </motion.div>
-            </AnimatePresence>
           </div>
 
           <div className="relative min-w-0 overflow-visible group/carousel">

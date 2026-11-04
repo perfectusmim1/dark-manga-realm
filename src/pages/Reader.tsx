@@ -21,6 +21,7 @@ import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
 import TranslationStatusPill from '@/components/reader/TranslationStatusPill';
 import { useChapterTranslation } from '@/hooks/useChapterTranslation';
+import { useNextChapterTranslation } from '@/hooks/useNextChapterTranslation';
 import { offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { syncChapterTranslationsForOffline } from '@/lib/translation/translationCache';
 import PageCommentRail from '@/components/reader/PageCommentRail';
@@ -1076,6 +1077,15 @@ const Reader: React.FC = () => {
     return manga.chapters[currentIndex - 1];
   }, [chapter, manga]);
 
+  const nextChapterTranslation = useNextChapterTranslation({
+    currentChapterId: chapterId,
+    nextChapter,
+    isCurrentChapterBusy: translation.summary.isBusy,
+    networkEnabled: canUseNetworkReaderFeatures && !isOfflineChapter,
+    settings: translation.settings,
+    ensureChapterPagesLoaded,
+  });
+
   useEffect(() => {
     if (isAutoScrollAvailable) {
       return;
@@ -1667,7 +1677,9 @@ const Reader: React.FC = () => {
         <div className="flex flex-1 items-center justify-center px-1">
           <TranslationStatusPill
             summary={translation.summary}
+            nextChapterProgress={nextChapterTranslation.progress}
             onCancel={translation.cancelTranslation}
+            onCancelNextChapter={nextChapterTranslation.cancelPretranslation}
             onRetry={translation.retryFailedPages}
             onDismiss={translation.dismissStatusFeedback}
           />

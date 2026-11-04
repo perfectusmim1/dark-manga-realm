@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo, useRef } from 'react';
+import React, { useState, useEffect, useMemo, useRef, useCallback, useDeferredValue } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -7,11 +7,13 @@ import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { toast } from 'sonner';
-import { getAllMangas, getCharacters } from '@/lib/database';
+import { getAllMangas, getCharacters, getCharacterSeriesMap } from '@/lib/database';
 import { Save, Search, ArrowLeft, Image as ImageIcon } from 'lucide-react';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import TierItemCard from '@/components/tierlist/TierItemCard';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import { cn } from '@/lib/utils';
 
 const defaultTiers = [
@@ -113,6 +115,7 @@ export default function TierListEditor() {
   const [title, setTitle] = useState('Benim Sıralamam');
   const [type, setType] = useState<'manga' | 'character'>('manga');
   const [items, setItems] = useState<any[]>([]); // all possible mangas/characters
+  const [characterSeriesMap, setCharacterSeriesMap] = useState<Record<string, string>>({});
   const [tierState, setTierState] = useState<Record<string, any[]>>({
     unranked: [],
     'S': [],
@@ -128,6 +131,10 @@ export default function TierListEditor() {
   const [tierLabels, setTierLabels] = useState<Record<string, string>>(defaultTierLabels);
   const [isOwner, setIsOwner] = useState(true);
   const [poolSearch, setPoolSearch] = useState('');
+  const [visiblePoolCount, setVisiblePoolCount] = useState(80);
+  const poolSentinelRef = useRef<HTMLDivElement | null>(null);
+  const deferredSearch = useDeferredValue(poolSearch.trim());
+
   const [touchDragState, setTouchDragState] = useState<TouchDragState | null>(null);
   const [touchDropTargetId, setTouchDropTargetId] = useState<string | null>(null);
   const autoScrollSpeedRef = useRef(0);
@@ -136,9 +143,23 @@ export default function TierListEditor() {
   const touchDropTargetIdRef = useRef<string | null>(null);
 
   useEffect(() => {
+    setVisiblePoolCount(80);
+  }, [deferredSearch, type]);
+
+  useEffect(() => {
     const loadItems = async () => {
-      const dbItems = type === 'manga' ? await getAllMangas() : await getCharacters();
-      setItems(dbItems || []);
+      let dbItems: any[] = [];
+      if (type === 'character') {
+        const [chars, seriesMap] = await Promise.all([
+          getCharacters(),
+          getCharacterSeriesMap(),
+        ]);
+        setCharacterSeriesMap(seriesMap || {});
+        dbItems = chars || [];
+      } else {
+        dbItems = (await getAllMangas()) || [];
+      }
+      setItems(dbItems);
       
       if (!id || id === 'create') {
          if (!user) {
@@ -158,9 +179,22 @@ export default function TierListEditor() {
             }
             setIsOwner(true);
             setTitle(data.title || 'Benim Sıralamam');
-            setType(data.type === 'character' ? 'character' : 'manga');
+            const loadedType = data.type === 'character' ? 'character' : 'manga';
+            setType(loadedType);
             
-            const correctDbItems = data.type === 'character' ? await getCharacters() : await getAllMangas();
+            let correctDbItems: any[] = [];
+            if (loadedType === 'character') {
+              const [chars, seriesMap] = await Promise.all([
+                getCharacters(),
+                getCharacterSeriesMap(),
+              ]);
+              setCharacterSeriesMap(seriesMap || {});
+              correctDbItems = chars || [];
+            } else {
+              correctDbItems = (await getAllMangas()) || [];
+            }
+            setItems(correctDbItems);
+
             const savedTiers = data.items || {};
             const savedLabels = data.tier_labels || {};
             setTierLabels({ ...defaultTierLabels, ...savedLabels });
@@ -306,42 +340,56 @@ export default function TierListEditor() {
   }, [Boolean(touchDragState)]);
 
   const filteredUnrankedItems = useMemo(() => {
-    const query = normalizeSearchValue(poolSearch.trim());
+    const query = normalizeSearchValue(deferredSearch);
     const unrankedItems = tierState['unranked'] ?? [];
 
     if (!query) return unrankedItems;
 
-    return unrankedItems.filter((item) =>
-      normalizeSearchValue(getItemDisplayName(item)).includes(query)
-    );
-  }, [poolSearch, tierState]);
+    return unrankedItems.filter((item) => {
+      const name = normalizeSearchValue(getItemDisplayName(item));
+      if (name.includes(query)) return true;
+      const series = characterSeriesMap[item.id];
+      if (series && normalizeSearchValue(series).includes(query)) return true;
+      return false;
+    });
+  }, [deferredSearch, tierState, characterSeriesMap]);
 
-  const onDragStart = (e: React.DragEvent, sourceTierId: string, itemId: string | number) => {
+  const visibleUnrankedItems = useMemo(() => {
+    return filteredUnrankedItems.slice(0, visiblePoolCount);
+  }, [filteredUnrankedItems, visiblePoolCount]);
+
+  useEffect(() => {
+    const sentinel = poolSentinelRef.current;
+    if (!sentinel) return;
+
+    const observer = new IntersectionObserver(
+      (entries) => {
+        if (entries[0].isIntersecting) {
+          setVisiblePoolCount((prev) => Math.min(prev + 80, filteredUnrankedItems.length));
+        }
+      },
+      { rootMargin: '350px 0px' }
+    );
+
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [filteredUnrankedItems.length, visiblePoolCount]);
+
+  const onDragStart = useCallback((e: React.DragEvent, sourceTierId: string, itemId: string | number) => {
     const idStr = itemId.toString();
     e.dataTransfer.setData('sourceTier', sourceTierId);
     e.dataTransfer.setData('itemId', idStr);
     e.dataTransfer.setData('text/plain', idStr);
     e.dataTransfer.effectAllowed = 'move';
     setDraggingId(idStr);
-  };
+  }, []);
 
-  const onDragEnd = () => {
+  const onDragEnd = useCallback(() => {
     setDraggingId(null);
     autoScrollSpeedRef.current = 0;
-  };
+  }, []);
 
-  const onDrop = (e: React.DragEvent, targetTierId: string) => {
-    e.preventDefault();
-    e.stopPropagation();
-    setDraggingId(null);
-    const sourceTierId = e.dataTransfer.getData('sourceTier');
-    const itemId = e.dataTransfer.getData('itemId') || e.dataTransfer.getData('text/plain');
-
-    if (!sourceTierId || !itemId || sourceTierId === targetTierId) return;
-    moveItem(itemId, sourceTierId, targetTierId);
-  };
-
-  const moveItem = (itemId: string, sourceTierId: string, targetTierId: string) => {
+  const moveItem = useCallback((itemId: string, sourceTierId: string, targetTierId: string) => {
     setTierState(prev => {
        const sourceList = [...prev[sourceTierId]];
        const itemIndex = sourceList.findIndex(x => x.id?.toString() === itemId);
@@ -357,18 +405,25 @@ export default function TierListEditor() {
        };
     });
     setSelectedItem(null);
-  };
+  }, []);
 
-  const handleItemClick = (e: React.MouseEvent, id: string, source: string) => {
+  const onDrop = useCallback((e: React.DragEvent, targetTierId: string) => {
+    e.preventDefault();
     e.stopPropagation();
-    if (selectedItem?.id === id.toString()) {
-        setSelectedItem(null);
-    } else {
-        setSelectedItem({ id: id.toString(), source });
-    }
-  };
+    setDraggingId(null);
+    const sourceTierId = e.dataTransfer.getData('sourceTier');
+    const itemId = e.dataTransfer.getData('itemId') || e.dataTransfer.getData('text/plain');
 
-  const handleTouchDragStart = (event: React.TouchEvent, sourceTierId: string, item: any) => {
+    if (!sourceTierId || !itemId || sourceTierId === targetTierId) return;
+    moveItem(itemId, sourceTierId, targetTierId);
+  }, [moveItem]);
+
+  const handleItemClick = useCallback((e: React.MouseEvent, id: string, source: string) => {
+    e.stopPropagation();
+    setSelectedItem(prev => (prev?.id === id.toString() ? null : { id: id.toString(), source }));
+  }, []);
+
+  const handleTouchDragStart = useCallback((event: React.TouchEvent, sourceTierId: string, item: any) => {
     if (event.touches.length !== 1) {
       return;
     }
@@ -387,13 +442,13 @@ export default function TierListEditor() {
       currentY: touch.clientY,
       isActive: false,
     });
-  };
+  }, []);
 
-  const handleTierAreaClick = (targetTierId: string) => {
+  const handleTierAreaClick = useCallback((targetTierId: string) => {
     if (selectedItem && selectedItem.source !== targetTierId) {
         moveItem(selectedItem.id, selectedItem.source, targetTierId);
     }
-  };
+  }, [selectedItem, moveItem]);
 
   const onDragOver = (e: React.DragEvent) => {
     e.preventDefault();
@@ -438,44 +493,6 @@ export default function TierListEditor() {
     } finally {
        setIsSaving(false);
     }
-  };
-
-  const renderTierItemCard = (item: any, sourceTierId: string, widthClass: string, idleClassName: string) => {
-    const itemId = item.id.toString();
-    const isSelected = selectedItem?.id === itemId;
-    const itemLabel = getItemDisplayName(item);
-    const itemImage = item.cover || item.imageUrl || item.image_url;
-    const isTouchDragging = touchDragState?.id === itemId && touchDragState.isActive;
-
-    return (
-      <div
-        key={item.id}
-        draggable
-        onDragStart={(e) => onDragStart(e, sourceTierId, item.id)}
-        onDragEnd={onDragEnd}
-        onTouchStart={(event) => handleTouchDragStart(event, sourceTierId, item)}
-        onClick={(e) => handleItemClick(e, item.id, sourceTierId)}
-        className={`${widthClass} relative flex aspect-[3/4] items-center justify-center overflow-hidden rounded-md border-2 bg-secondary transition-all touch-none select-none ${draggingId === itemId ? 'opacity-30' : ''} ${isSelected ? 'z-10 scale-110 border-primary shadow-lg ring-4 ring-primary/20' : idleClassName} ${isTouchDragging ? 'scale-105 border-primary shadow-xl ring-2 ring-primary/30' : ''}`}
-        title={itemLabel}
-      >
-        {itemImage ? (
-          <img src={itemImage} alt={itemLabel} className="h-full w-full pointer-events-none object-cover" draggable={false} />
-        ) : (
-          <ImageIcon className="h-6 w-6 pointer-events-none text-muted-foreground/50" />
-        )}
-
-        {isSelected && (
-          <>
-            <div className="pointer-events-none absolute inset-0 bg-black/35" />
-            <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 rounded-md bg-black/70 px-2 py-1 text-center text-[10px] font-medium leading-tight text-white backdrop-blur-sm">
-              <span className="block line-clamp-2 break-words">
-                {itemLabel}
-              </span>
-            </div>
-          </>
-        )}
-      </div>
-    );
   };
 
   return (
@@ -544,9 +561,23 @@ export default function TierListEditor() {
                        />
                    </div>
                    <div className="flex flex-1 flex-wrap items-center gap-1.5 bg-background/50 p-2 sm:gap-2 sm:p-3">
-                       {tierState[tier.id]?.map((item) =>
-                         renderTierItemCard(item, tier.id, 'w-[54px] sm:w-[70px]', 'border-border/50 shadow-md hover:scale-105')
-                       )}
+                       {tierState[tier.id]?.map((item) => (
+                         <TierItemCard
+                           key={item.id}
+                           item={item}
+                           sourceTierId={tier.id}
+                           isSelected={selectedItem?.id === item.id.toString()}
+                           isDragging={draggingId === item.id.toString()}
+                           isTouchDragging={touchDragState?.id === item.id.toString() && Boolean(touchDragState?.isActive)}
+                           widthClass="w-[54px] sm:w-[70px]"
+                           idleClassName="border-border/50 shadow-md hover:scale-105"
+                           seriesTitle={characterSeriesMap[item.id]}
+                           onDragStart={onDragStart}
+                           onDragEnd={onDragEnd}
+                           onTouchStart={handleTouchDragStart}
+                           onClick={handleItemClick}
+                         />
+                       ))}
                        {tierState[tier.id]?.length === 0 && <span className="w-full text-center text-xs font-medium text-muted-foreground/30 sm:text-sm">İçerikleri buraya sürükleyin...</span>}
                    </div>
                </div>
@@ -557,15 +588,20 @@ export default function TierListEditor() {
          {/* Unranked Items Pool */}
          <div className="rounded-xl border border-border bg-secondary/20 p-3 sm:p-4">
             <div className="mb-4 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
-              <h3 className="flex items-center gap-2 font-bold text-muted-foreground">
-                Havuz (Sıralanmamış)
-              </h3>
+              <div className="flex items-center gap-2">
+                <h3 className="font-bold text-muted-foreground">
+                  Havuz (Sıralanmamış)
+                </h3>
+                <span className="rounded-full bg-secondary/80 border border-border/50 px-2.5 py-0.5 text-xs font-semibold text-muted-foreground">
+                  {filteredUnrankedItems.length} {type === 'character' ? 'karakter' : 'manga'}
+                </span>
+              </div>
               <div className="relative w-full md:max-w-xs">
                 <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
                   value={poolSearch}
                   onChange={(e) => setPoolSearch(e.target.value)}
-                  placeholder="İsme göre ara..."
+                  placeholder={type === 'character' ? "Karakter veya seri ara..." : "Manga ara..."}
                   className="pl-9"
                 />
               </div>
@@ -578,9 +614,23 @@ export default function TierListEditor() {
               onDragOver={onDragOver}
               onClick={() => handleTierAreaClick('unranked')}
             >
-               {filteredUnrankedItems.map((item) =>
-                 renderTierItemCard(item, 'unranked', 'w-[58px] sm:w-[80px]', 'border-transparent shadow-sm hover:shadow-primary/20 hover:border-primary')
-               )}
+               {visibleUnrankedItems.map((item) => (
+                 <TierItemCard
+                   key={item.id}
+                   item={item}
+                   sourceTierId="unranked"
+                   isSelected={selectedItem?.id === item.id.toString()}
+                   isDragging={draggingId === item.id.toString()}
+                   isTouchDragging={touchDragState?.id === item.id.toString() && Boolean(touchDragState?.isActive)}
+                   widthClass="w-[58px] sm:w-[80px]"
+                   idleClassName="border-transparent shadow-sm hover:shadow-primary/20 hover:border-primary"
+                   seriesTitle={characterSeriesMap[item.id]}
+                   onDragStart={onDragStart}
+                   onDragEnd={onDragEnd}
+                   onTouchStart={handleTouchDragStart}
+                   onClick={handleItemClick}
+                 />
+               ))}
                {tierState['unranked']?.length === 0 && <span className="text-muted-foreground/50 w-full text-center py-8">Tüm içerikler sıralandı! Mükemmel.</span>}
                {tierState['unranked']?.length > 0 && filteredUnrankedItems.length === 0 && (
                  <span className="text-muted-foreground/50 w-full text-center py-8">
@@ -588,6 +638,19 @@ export default function TierListEditor() {
                  </span>
                )}
             </div>
+
+            {visiblePoolCount < filteredUnrankedItems.length && (
+              <div ref={poolSentinelRef} className="w-full flex justify-center pt-4 pb-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => setVisiblePoolCount((prev) => Math.min(prev + 80, filteredUnrankedItems.length))}
+                  className="text-xs font-semibold"
+                >
+                  Daha Fazla Göster ({filteredUnrankedItems.length - visiblePoolCount} kaldı)
+                </Button>
+              </div>
+            )}
          </div>
 
          {touchDragState?.isActive && (
@@ -597,10 +660,13 @@ export default function TierListEditor() {
            >
              <div className="w-[64px] overflow-hidden rounded-lg border-2 border-primary bg-card shadow-2xl shadow-primary/30 sm:w-[74px]">
                {touchDragState.item.cover || touchDragState.item.imageUrl || touchDragState.item.image_url ? (
-                 <img
+                 <OptimizedImage
                    src={touchDragState.item.cover || touchDragState.item.imageUrl || touchDragState.item.image_url}
                    alt={getItemDisplayName(touchDragState.item)}
+                   allowProxy
+                   transform={{ width: 320, quality: 75, fit: 'cover' }}
                    className="aspect-[3/4] w-full object-cover opacity-95"
+                   containerClassName="w-full h-full"
                  />
                ) : (
                  <div className="flex aspect-[3/4] w-full items-center justify-center bg-secondary">

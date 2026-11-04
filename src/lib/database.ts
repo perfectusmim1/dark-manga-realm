@@ -5593,6 +5593,57 @@ export const getCharactersList = async (
     }
 };
 
+let characterSeriesMapCache: { fetchedAt: number; data: Record<string, string> } | null = null;
+const CHARACTER_SERIES_MAP_TTL_MS = 1000 * 60 * 30;
+
+export const getCharacterSeriesMap = async (): Promise<Record<string, string>> => {
+    if (characterSeriesMapCache && Date.now() - characterSeriesMapCache.fetchedAt < CHARACTER_SERIES_MAP_TTL_MS) {
+        return characterSeriesMapCache.data;
+    }
+
+    const persistedKey = 'character-series-map-v1';
+    const persisted = await readPersistedQueryCache<Record<string, string>>(persistedKey);
+    if (persisted?.value && Date.now() - persisted.fetchedAt < CHARACTER_SERIES_MAP_TTL_MS) {
+        characterSeriesMapCache = { fetchedAt: persisted.fetchedAt, data: persisted.value };
+        return persisted.value;
+    }
+
+    try {
+        const { data: relations, error } = await supabase
+            .from('manga_characters')
+            .select('character_id, manga_id');
+
+        if (error || !relations) {
+            return characterSeriesMapCache?.data || {};
+        }
+
+        const mangas = await getAllMangas();
+        const mangaTitleMap = new Map<string, string>();
+        for (const m of mangas) {
+            if (m.id && m.title) {
+                mangaTitleMap.set(m.id, m.title);
+            }
+        }
+
+        const mapping: Record<string, string> = {};
+        for (const rel of relations) {
+            if (rel.character_id && rel.manga_id && !mapping[rel.character_id]) {
+                const title = mangaTitleMap.get(rel.manga_id);
+                if (title) {
+                    mapping[rel.character_id] = title;
+                }
+            }
+        }
+
+        characterSeriesMapCache = { fetchedAt: Date.now(), data: mapping };
+        void writePersistedQueryCache(persistedKey, mapping);
+        return mapping;
+    } catch (err) {
+        console.warn('getCharacterSeriesMap error:', err);
+        return characterSeriesMapCache?.data || {};
+    }
+};
+
 export const findCharacterByName = async (name: string): Promise<Character | null> => {
     const row = await findNamedEntityRowByName<any>('characters', name);
     return row ? mapCharacterRow(row) : null;

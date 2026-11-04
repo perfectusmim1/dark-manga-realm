@@ -891,12 +891,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         latestSessionSnapshot = currentSession;
+        if (event === 'TOKEN_REFRESHED') {
+          if (currentSession) {
+            setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
+          }
+          return;
+        }
         // We only trigger re-sync for significant events to avoid loops
         if (
           event === 'SIGNED_IN'
           || event === 'SIGNED_OUT'
           || event === 'USER_UPDATED'
-          || event === 'TOKEN_REFRESHED'
           || event === 'INITIAL_SESSION'
           || event === 'MFA_CHALLENGE_VERIFIED'
         ) {

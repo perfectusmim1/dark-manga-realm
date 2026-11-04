@@ -5,14 +5,23 @@ import { cn } from '@/lib/utils';
 
 interface TranslationStatusPillProps {
   summary: TranslationSummary;
+  nextChapterProgress?: {
+    chapterNumber: number | string;
+    completedPages: number;
+    totalPages: number;
+    percent: number;
+  } | null;
   onCancel?: () => void;
+  onCancelNextChapter?: () => void;
   onRetry: () => void;
   onDismiss: () => void;
 }
 
 const TranslationStatusPill: React.FC<TranslationStatusPillProps> = ({
   summary,
+  nextChapterProgress,
   onCancel,
+  onCancelNextChapter,
   onRetry,
   onDismiss,
 }) => {
@@ -31,8 +40,13 @@ const TranslationStatusPill: React.FC<TranslationStatusPillProps> = ({
 
   const showError = !isBusy && Boolean(lastErrorMessage);
   const showCompleted = !isBusy && !showError && Boolean(completedPulseAt);
+  const showNextChapterPretranslating =
+    !isBusy &&
+    !showError &&
+    Boolean(nextChapterProgress) &&
+    Boolean(nextChapterProgress && nextChapterProgress.completedPages < nextChapterProgress.totalPages);
 
-  if (isPillDismissed || (!isBusy && !showError && !showCompleted)) {
+  if (isPillDismissed || (!isBusy && !showError && !showCompleted && !showNextChapterPretranslating)) {
     return null;
   }
 
@@ -110,6 +124,56 @@ const TranslationStatusPill: React.FC<TranslationStatusPillProps> = ({
             aria-label="Görsel çeviri ilerlemesi"
             max={isMultiPageBatch ? batchTotal : 1}
             value={isMultiPageBatch ? batchDone : undefined}
+          />
+        </div>
+      )}
+
+      {showNextChapterPretranslating && nextChapterProgress && (
+        <div className="space-y-2">
+          <div className="flex items-center justify-between gap-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-emerald-500/15 text-emerald-400">
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              </span>
+              <div className="min-w-0">
+                <p className="truncate text-xs font-semibold leading-tight text-foreground">
+                  Sonraki Bölüm Çevriliyor
+                </p>
+                <p className="truncate text-[11px] leading-tight text-muted-foreground">
+                  Bölüm {nextChapterProgress.chapterNumber} · {nextChapterProgress.completedPages}/{nextChapterProgress.totalPages} sayfa
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-1">
+              {onCancelNextChapter && (
+                <button
+                  type="button"
+                  onClick={onCancelNextChapter}
+                  title="Sonraki bölüm çevirisini durdur"
+                  aria-label="Sonraki bölüm çevirisini durdur"
+                  className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-destructive"
+                >
+                  <Square className="h-3 w-3 fill-current" />
+                </button>
+              )}
+              <button
+                type="button"
+                onClick={onDismiss}
+                title="Kutuyu kapat"
+                aria-label="Kutuyu kapat"
+                className="flex h-6 w-6 shrink-0 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
+
+          <progress
+            className="tp-progress block h-1.5 w-full accent-emerald-500"
+            aria-label="Sonraki bölüm çeviri ilerlemesi"
+            max={nextChapterProgress.totalPages}
+            value={nextChapterProgress.completedPages}
           />
         </div>
       )}

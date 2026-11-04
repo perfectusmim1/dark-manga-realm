@@ -50,20 +50,6 @@ if (typeof window !== "undefined") {
   });
 }
 
-// Yeni service worker devreye girdiğinde (deploy sonrası) eski chunk uyumsuzluğunu
-// önlemek için, sayfa daha önce bir SW tarafından kontrol ediliyorsa bir kez yenile.
-if (typeof window !== "undefined" && "serviceWorker" in navigator) {
-  const hadServiceWorkerController = Boolean(navigator.serviceWorker.controller);
-  let hasReloadedForNewWorker = false;
-
-  navigator.serviceWorker.addEventListener("controllerchange", () => {
-    if (!hadServiceWorkerController || hasReloadedForNewWorker) {
-      return;
-    }
-    hasReloadedForNewWorker = true;
-    window.location.reload();
-  });
-}
 
 const registerServiceWorkerWhenIdle = () => {
   const run = () => {

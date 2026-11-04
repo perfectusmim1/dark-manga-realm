@@ -56,6 +56,12 @@ const PROXY_ONLY_HOSTS = [
   'cdn-2.webtoon-oku.net',
   'asurascans.com',
   'cdn.asurascans.com',
+  's4.anilist.co',
+  'anilist.co',
+  'cdn.myanimelist.net',
+  'myanimelist.net',
+  'media.kitsu.io',
+  'kitsu.io',
 ] as const;
 
 const PROXY_SUPPORTED_HOSTS = [

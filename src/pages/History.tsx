@@ -1,4 +1,4 @@
-﻿import useDocumentTitle from '@/hooks/useDocumentTitle';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -201,10 +201,7 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
       </div>
     </div>
 
-    <div className="space-y-2 p-3">
-      <p className="line-clamp-1 text-xs text-muted-foreground">
-        {sanitizeChapterTitle(item.chapterNumber, item.chapterTitle) || `Bölüm ${item.chapterNumber}`}
-      </p>
+    <div className="p-3">
       <div className="flex items-center justify-between gap-2 text-[11px] text-muted-foreground">
         <span>Sayfa {item.page}</span>
         <span>{formatRelativeTime(item.lastRead)}</span>
@@ -237,7 +234,9 @@ const History: React.FC = () => {
       }
 
       try {
-        setIsLoading(true);
+        if (seriesHistory.length === 0 && chapterHistory.length === 0) {
+          setIsLoading(true);
+        }
         await flushPendingReaderSync();
         const [seriesEntries, chapterEntries] = await Promise.all([
           getReadingHistoryEntries(user.id),
@@ -253,7 +252,7 @@ const History: React.FC = () => {
     };
 
     void fetchHistory();
-  }, [user]);
+  }, [user?.id]);
 
   const filteredSeriesHistory = React.useMemo(
     () => seriesHistory.filter((item) => matchesHistorySearch(
@@ -318,16 +317,9 @@ const History: React.FC = () => {
           <div className="rounded-[32px] border border-border/60 bg-card/40 p-6 shadow-[0_30px_60px_rgba(0,0,0,0.16)] backdrop-blur-sm sm:p-8">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">
               <div>
-                <p className="text-xs font-semibold uppercase tracking-[0.3em] text-primary/80">
-                  Okuma Arşivin
-                </p>
-                <h1 className="mt-2 text-2xl font-black tracking-tight sm:text-4xl">
+                <h1 className="text-2xl font-black tracking-tight sm:text-4xl">
                   Okuma Geçmişi
                 </h1>
-                <p className="mt-3 max-w-2xl text-sm text-muted-foreground sm:text-base">
-                  Seri bazında kaldığın yeri gör, tüm okuduğun bölümleri ayrı sekmede tarat
-                  ve arama ile istediğin geçmişe hızlıca dön.
-                </p>
               </div>
 
               <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
@@ -391,7 +383,6 @@ const History: React.FC = () => {
                   <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
                     {filteredSeriesHistory.length} seri
                   </Badge>
-                  <span>Her seriden son kaldığın tek kayıt gösterilir.</span>
                 </div>
 
                 {filteredSeriesHistory.length > 0 ? (
@@ -432,7 +423,6 @@ const History: React.FC = () => {
                   <Badge variant="outline" className="rounded-full px-3 py-1 text-xs">
                     {filteredChapterHistory.length} bölüm
                   </Badge>
-                  <span>Okuduğun bölümler sadece görünür pencere çevresinde mount edilir.</span>
                 </div>
 
                 {filteredChapterHistory.length > 0 ? (

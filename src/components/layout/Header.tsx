@@ -138,17 +138,14 @@ const characterMenuItems = [
   {
     path: '/characters',
     label: 'Karakterler',
-    description: 'Tüm karakter arşivini ve popüler yüzleri keşfet',
   },
   {
     path: '/authors',
     label: 'Yazarlar',
-    description: 'Senaryo ve kurgu tarafını keşfet',
   },
   {
     path: '/artists',
     label: 'Çizerler',
-    description: 'Çizim ekibi ve görsel kadro',
   },
 ];
 
@@ -497,16 +494,13 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
             key={item.path}
             to={item.path}
             onClick={onNavigate}
-            className={`block rounded-xl px-4 py-3 transition-colors ${
+            className={`block rounded-xl px-4 py-2.5 transition-colors ${
               isItemActive
                 ? 'bg-primary/12 text-primary'
                 : 'text-foreground hover:bg-secondary/80'
             }`}
           >
             <p className="text-sm font-semibold">{item.label}</p>
-            <p className={`mt-1 text-xs ${isItemActive ? 'text-primary/80' : 'text-muted-foreground'}`}>
-              {item.description}
-            </p>
           </Link>
         );
       })}
@@ -767,19 +761,14 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                   </Link>
 
                   <div
-                    className={`absolute left-1/2 top-full z-50 w-[17rem] -translate-x-1/2 pt-2 transition-all duration-150 ${
+                    className={`absolute left-1/2 top-full z-50 w-[14rem] -translate-x-1/2 pt-2 transition-all duration-150 ${
                       isCharactersDesktopMenuOpen
                         ? 'pointer-events-auto translate-y-0 opacity-100'
                         : 'pointer-events-none -translate-y-1 opacity-0'
                     }`}
                   >
                     <div className="rounded-2xl border border-border/70 bg-background/95 p-2 shadow-2xl backdrop-blur-xl">
-                      <div className="px-2 pb-2 pt-1">
-                        <p className="text-[11px] font-bold uppercase tracking-[0.22em] text-muted-foreground">
-                          Karakterler
-                        </p>
-                      </div>
-                      <div className="space-y-1.5">
+                      <div className="space-y-1">
                         {renderCharacterMenuLinks()}
                       </div>
                     </div>

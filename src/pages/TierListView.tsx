@@ -3,13 +3,14 @@ import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import { supabase } from '@/lib/supabase';
-import { getAllMangas, getCharacters, getTierListById } from '@/lib/database';
+import { getAllMangas, getCharacters, getCharacterSeriesMap, getTierListById } from '@/lib/database';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Edit, Globe, Lock, ImageIcon, Trophy, User } from 'lucide-react';
+import { ArrowLeft, Edit, Globe, Lock, Trophy, User } from 'lucide-react';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
+import TierItemCard from '@/components/tierlist/TierItemCard';
 
 const defaultTiers = [
   { id: 'S', color: 'bg-red-500' },
@@ -46,6 +47,7 @@ export default function TierListView() {
 
   const [tierList, setTierList] = useState<any>(null);
   const [tierState, setTierState] = useState<Record<string, any[]>>({});
+  const [characterSeriesMap, setCharacterSeriesMap] = useState<Record<string, string>>({});
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({
     'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D', 'F': 'F'
   });
@@ -81,7 +83,18 @@ export default function TierListView() {
       const { data: profile } = await supabase.from('public_profiles').select('username').eq('id', data.user_id).single();
       setOwnerName(profile?.username || 'Anonim');
 
-      const allItems = data.type === 'character' ? await getCharacters() : await getAllMangas();
+      let allItems: any[] = [];
+      if (data.type === 'character') {
+        const [chars, seriesMap] = await Promise.all([
+          getCharacters(),
+          getCharacterSeriesMap(),
+        ]);
+        setCharacterSeriesMap(seriesMap || {});
+        allItems = chars || [];
+      } else {
+        allItems = (await getAllMangas()) || [];
+      }
+
       const savedTiers = data.items || {};
 
       const resolved: Record<string, any[]> = {};
@@ -163,26 +176,17 @@ export default function TierListView() {
                 </div>
                 <div className="flex-1 bg-background/50 flex flex-wrap gap-2 p-3 items-center">
                   {items.map((item: any) => (
-                    <div
+                    <TierItemCard
                       key={item.id}
-                      className="w-[70px] aspect-[3/4] rounded-md overflow-hidden border border-border/50 shadow-md bg-secondary flex items-center justify-center relative group"
-                      title={item.name || item.title}
-                    >
-                      {item.cover || item.imageUrl || item.image_url ? (
-                        <img
-                          src={item.cover || item.imageUrl || item.image_url}
-                          alt={item.name || item.title}
-                          className="w-full h-full object-cover"
-                        />
-                      ) : (
-                        <ImageIcon className="w-6 h-6 text-muted-foreground/50" />
-                      )}
-                      <div className="absolute inset-0 bg-black/70 opacity-0 group-hover:opacity-100 transition-opacity flex items-end p-1">
-                        <span className="text-[9px] text-white font-medium leading-tight line-clamp-2">
-                          {item.name || item.title}
-                        </span>
-                      </div>
-                    </div>
+                      item={item}
+                      sourceTierId={tier.id}
+                      isSelected={false}
+                      isDragging={false}
+                      isTouchDragging={false}
+                      widthClass="w-[70px]"
+                      idleClassName="border-border/50 shadow-md hover:scale-105"
+                      seriesTitle={characterSeriesMap[item.id]}
+                    />
                   ))}
                   {items.length === 0 && (
                     <span className="text-muted-foreground/30 text-sm font-medium w-full text-center">—</span>

@@ -538,6 +538,17 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
         </div>
 
         <div className="flex items-center justify-between">
+          <Label htmlFor="prefetch-next-chapter" className="text-sm">
+            Sonraki bölümü ön-çevir
+          </Label>
+          <Switch
+            id="prefetch-next-chapter"
+            checked={settings.prefetchNextChapterTranslation}
+            onCheckedChange={(checked) => updateSettings({ prefetchNextChapterTranslation: checked })}
+          />
+        </div>
+
+        <div className="flex items-center justify-between">
           <Label htmlFor="overlay-visible" className="text-sm">
             Çevirileri göster
           </Label>

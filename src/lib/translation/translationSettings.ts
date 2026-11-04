@@ -4,6 +4,7 @@ export interface TranslationSettings {
   provider: 'gemini' | 'google';
   targetLang: string; // ISO 639-1 kodu, örn. 'tr'
   autoTranslate: boolean;
+  prefetchNextChapterTranslation: boolean;
   overlayVisible: boolean;
 }
 
@@ -15,6 +16,7 @@ const DEFAULT_SETTINGS: TranslationSettings = {
   provider: 'gemini',
   targetLang: 'tr',
   autoTranslate: false,
+  prefetchNextChapterTranslation: false,
   overlayVisible: true,
 };
 
@@ -100,6 +102,10 @@ export const loadTranslationSettings = (): TranslationSettings => {
         typeof parsed.autoTranslate === 'boolean'
           ? parsed.autoTranslate
           : DEFAULT_SETTINGS.autoTranslate,
+      prefetchNextChapterTranslation:
+        typeof parsed.prefetchNextChapterTranslation === 'boolean'
+          ? parsed.prefetchNextChapterTranslation
+          : DEFAULT_SETTINGS.prefetchNextChapterTranslation,
       overlayVisible:
         typeof parsed.overlayVisible === 'boolean'
           ? parsed.overlayVisible
