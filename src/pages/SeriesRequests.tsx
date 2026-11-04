@@ -266,16 +266,10 @@ const SeriesRequests: React.FC = () => {
         <div className="space-y-6 pt-4 sm:pt-6">
           <section className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6">
             <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
-              <div className="space-y-2">
-                <Badge variant="outline" className="w-fit border-primary/20 bg-primary/10 text-primary">
-                  Seri İstekleri
-                </Badge>
+              <div>
                 <h1 className="text-2xl font-black tracking-tight sm:text-3xl">
-                  İstediğin seriyi hızlıca bırak.
+                  Seri İstekleri
                 </h1>
-                <p className="max-w-2xl text-sm leading-6 text-muted-foreground">
-                  AniList, MyAnimeList veya herhangi bir kaynak linki yapıştırabilirsin. AniList ve MyAnimeList linklerinde seri bilgileri otomatik doldurulur.
-                </p>
               </div>
 
               <div className="grid grid-cols-3 gap-2 sm:min-w-[20rem]">

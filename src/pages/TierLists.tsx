@@ -106,9 +106,6 @@ const TierLists: React.FC = () => {
                         <h1 className="text-3xl font-bold flex items-center gap-3">
                            <Book className="w-8 h-8 text-yellow-500" /> Tier Listelerim
                         </h1>
-                        <p className="text-muted-foreground mt-1">
-                            Özelleştirilmiş karakter ve seri sıralamalarınız! Favorilerini S veya F sınıfına koy.
-                        </p>
                     </div>
 
                     <Button onClick={() => navigate('/tier-lists/create')} className="gap-2">

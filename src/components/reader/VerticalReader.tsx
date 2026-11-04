@@ -131,7 +131,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
       },
       {
         threshold: [0, 0.1, 0.5],
-        rootMargin: '-15% 0px -80% 0px'
+        rootMargin: '0px 0px -75% 0px'
       }
     );
 

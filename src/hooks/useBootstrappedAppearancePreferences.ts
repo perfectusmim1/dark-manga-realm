@@ -3,7 +3,7 @@ import type { User } from '@/lib/types';
 import { useHeaderShellSnapshot } from '@/hooks/useHeaderShellSnapshot';
 
 type AppearancePreferences = {
-  manga_hover_preview: boolean;
+
   show_header_offline_toggle: boolean;
   show_chapter_card_images: boolean;
   adult_cover_blur: boolean;

@@ -139,7 +139,7 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
     show_page_comments: false,
   },
   appearance: {
-    manga_hover_preview: false,
+
     show_header_offline_toggle: true,
     show_chapter_card_images: false,
     adult_cover_blur: false,

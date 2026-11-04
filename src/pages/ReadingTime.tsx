@@ -873,9 +873,6 @@ const ReadingTime: React.FC = () => {
                             <Clock3 className="h-6 w-6" />
                         </div>
                         <h1 className="text-3xl font-bold tracking-tight">Okuma Süresi</h1>
-                        <p className="mt-2 max-w-2xl text-muted-foreground">
-                            Bugün, haftalık, aylık ve tüm zaman okuma süreni farklı görünümlerle takip et. Çizgi, ızgara ve liste arasında geçip günlük yoğunluğu daha rahat görebilirsin.
-                        </p>
                     </div>
 
                     <div className="rounded-2xl border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground">

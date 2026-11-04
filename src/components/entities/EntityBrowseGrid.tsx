@@ -17,7 +17,7 @@ interface EntityBrowseGridItem {
 
 interface EntityBrowseGridProps {
   title: string;
-  description: string;
+  description?: string;
   searchPlaceholder: string;
   emptyMessage: string;
   countLabel: string;
@@ -81,7 +81,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
       <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-center">
         <div>
           <h1 className="mb-2 text-4xl font-black">{title}</h1>
-          <p className="text-muted-foreground">{description}</p>
+          {description ? <p className="text-muted-foreground">{description}</p> : null}
         </div>
 
         <div className="flex w-full items-center gap-4 md:w-auto">

@@ -27,6 +27,7 @@ import { syncChapterTranslationsForOffline } from '@/lib/translation/translation
 import PageCommentRail from '@/components/reader/PageCommentRail';
 import PageCommentModal from '@/components/reader/PageCommentModal';
 import CommentSection from '@/components/comments/CommentSection';
+import { getTargetCommentIdFromLocation } from '@/lib/commentNavigation';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import DeferredMount from '@/components/performance/DeferredMount';
 import useDocumentTitle from '@/hooks/useDocumentTitle';
@@ -111,6 +112,10 @@ const Reader: React.FC = () => {
   const forceOfflineRead = useMemo(
     () => new URLSearchParams(location.search).get('offline') === '1',
     [location.search],
+  );
+  const targetCommentId = useMemo(
+    () => getTargetCommentIdFromLocation(location.search, location.hash),
+    [location.hash, location.search],
   );
   const canUseNetworkReaderFeatures = isOnlineNow && !forceOfflineRead;
 
@@ -858,6 +863,13 @@ const Reader: React.FC = () => {
     let isCancelled = false;
 
     const resolveInitialPage = async () => {
+      if (targetCommentId) {
+        pendingInitialRestorePageRef.current = null;
+        setInitialized(true);
+        setIsLoading(false);
+        return;
+      }
+
       let initialTargetPage = hasExplicitPage ? parsedUrlPage : 1;
 
       if (!hasExplicitPage && user) {
@@ -900,7 +912,7 @@ const Reader: React.FC = () => {
     return () => {
       isCancelled = true;
     };
-  }, [authLoading, chapterId, initialized, isContentReady, isOnlineNow, mangaId, user]);
+  }, [authLoading, chapterId, initialized, isContentReady, isOnlineNow, mangaId, targetCommentId, user]);
 
   useEffect(() => {
     if (!initialized || !chapter || !mangaId || !chapterId || viewTracked.current || isIncognito || !canUseNetworkReaderFeatures) {
@@ -1250,19 +1262,16 @@ const Reader: React.FC = () => {
       return false;
     }
 
-    if (smooth) {
-      isScrollingRef.current = true;
-      if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
-      scrollTimeoutRef.current = setTimeout(() => {
-        isScrollingRef.current = false;
-      }, 800);
-    } else {
+    isScrollingRef.current = true;
+    if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+    scrollTimeoutRef.current = setTimeout(() => {
       isScrollingRef.current = false;
-    }
+    }, smooth ? 800 : 400);
 
-    const elementTop = (targetElement as HTMLElement).offsetTop;
+    const rect = targetElement.getBoundingClientRect();
+    const elementTop = rect.top + window.scrollY;
     window.scrollTo({
-      top: Math.max(0, elementTop - 80),
+      top: Math.max(0, Math.ceil(elementTop) + 2),
       behavior: smooth ? 'smooth' : 'auto'
     });
     setCurrentPage(page);
@@ -1322,6 +1331,11 @@ const Reader: React.FC = () => {
         return;
       }
 
+      if (targetCommentId) {
+        finishRestore();
+        return;
+      }
+
       if (!isRestoreLayoutReady(targetPage) && attempt < RESTORE_LAYOUT_MAX_ATTEMPTS) {
         restoreTimerId = window.setTimeout(() => restore(attempt + 1), RESTORE_LAYOUT_RETRY_MS);
         return;
@@ -1367,7 +1381,7 @@ const Reader: React.FC = () => {
       }
       isScrollingRef.current = false;
     };
-  }, [chapterId, initialized, isLoading, isRestoreLayoutReady, resolvedPages.length, scrollToPage, settings.mode]);
+  }, [chapterId, initialized, isLoading, isRestoreLayoutReady, resolvedPages.length, scrollToPage, settings.mode, targetCommentId]);
 
   const handleAddBookmark = useCallback(() => {
     if (!user) {
@@ -1717,6 +1731,7 @@ const Reader: React.FC = () => {
           <DeferredMount
             rootMargin="320px 0px"
             placeholderMinHeight={180}
+            disabled={Boolean(targetCommentId)}
           >
             <div>
               <CommentSection
