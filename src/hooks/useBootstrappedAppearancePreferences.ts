@@ -10,7 +10,7 @@ type AppearancePreferences = {
 };
 
 const DEFAULT_APPEARANCE_PREFERENCES: AppearancePreferences = {
-  manga_hover_preview: false,
+
   show_header_offline_toggle: true,
   show_chapter_card_images: false,
   adult_cover_blur: false,
@@ -31,7 +31,7 @@ export const useBootstrappedAppearancePreferences = ({
     const shouldDelayVisibleDefaults = authLoading && !user && !headerShellSnapshot?.user;
 
     return {
-      manga_hover_preview: appearance?.manga_hover_preview ?? DEFAULT_APPEARANCE_PREFERENCES.manga_hover_preview,
+
       show_header_offline_toggle: appearance?.show_header_offline_toggle ?? (
         shouldDelayVisibleDefaults
           ? false
