@@ -783,9 +783,12 @@ const MangaDetail: React.FC = () => {
       return rightCreatedAt - leftCreatedAt;
     });
   }, [reviewSortMode, reviews]);
-  const characterCount = useMemo(() => (
-    Math.max(manga?.characterCount || 0, mangaCharacters.length)
-  ), [manga?.characterCount, mangaCharacters.length]);
+  const characterCount = useMemo(() => {
+    if (hasLoadedCharacters) {
+      return mangaCharacters.length;
+    }
+    return manga?.characterCount ?? mangaCharacters.length;
+  }, [hasLoadedCharacters, manga?.characterCount, mangaCharacters.length]);
   const hasMoreCharacters = visibleCharacterCount < mangaCharacters.length;
   const seriesGalleryImages = useMemo(() => {
     const rawGallery = manga?.details?.extra?.seriesGallery;

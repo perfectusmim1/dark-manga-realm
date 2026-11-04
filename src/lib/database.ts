@@ -2343,7 +2343,7 @@ export const getMangaById = async (
         getMangaRelatedSeries(realMangaId, { includePrivate }),
         supabase
             .from('manga_characters')
-            .select('manga_id', { count: 'planned', head: true })
+            .select('manga_id', { count: 'exact', head: true })
             .eq('manga_id', realMangaId),
     ]);
 
