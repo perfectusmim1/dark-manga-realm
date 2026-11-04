@@ -354,7 +354,8 @@ export const useChapterTranslation = ({
     (indices: number[], options?: { force?: boolean; prioritize?: boolean }) => {
       if (indices.length === 0) return;
       wasCancelledManuallyRef.current = false;
-      if (!isBusy) {
+      const isCurrentlyBusy = runningRef.current > 0 || queueRef.current.length > 0;
+      if (!isCurrentlyBusy) {
         setIsPillDismissed(false);
       }
       setLastErrorMessage(null);

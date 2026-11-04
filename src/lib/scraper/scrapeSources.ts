@@ -189,6 +189,26 @@ const getSourceDef = (source: ScrapeSource): SourceDefinition => {
 const normalizeScrapedText = (value?: string | null) =>
   value?.replace(/\s+/g, ' ').trim() || '';
 
+export const cleanSeriesTitle = (title: string): string => {
+  let text = (title || '')
+    .toString()
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;|&apos;/gi, "'")
+    .replace(/&amp;/gi, '&')
+    .replace(/&#8211;|&ndash;/gi, '-')
+    .replace(/&#8212;|&mdash;/gi, '-')
+    .replace(/&#8217;|&#8216;|&rsquo;|&lsquo;/gi, "'");
+
+  text = text.replace(/^[♥★✨🔥⭐\s]+/u, '');
+  text = text.replace(/^(?:\[?\b(?:yeni|hot|g[üu]ncel|new|t[üu]rk[çc]e|oku)\b!?\]?\s*)+/gi, '');
+  text = text.replace(/[,–—\-:|]?\s*(?:\(?[bB][öo]l[üu]m(?:ler)?\s*\d+(?:[–—\-]\d+)?\)?)\s*$/i, '');
+  text = text.replace(/[,–—\-:|]?\s*(?:\(?\d+(?:[–—\-]\d+)?\.\s*[bB][öo]l[üu]m(?:ler)?\)?)\s*$/i, '');
+  text = text.replace(/[,–—\-:|]?\s*(?:(?:birinci|ikinci|[iİ]lk)\s*[bB][öo]l[üu]m)\s*$/i, '');
+  text = text.replace(/\s*(?:[–—\-]\s*)?manga\s*kapa[ğg][ıi]\s*$/i, '').replace(/-manga-kapagi$/i, '');
+  text = text.replace(/^[♥★✨🔥⭐\s,:–—\-]+|[♥★✨🔥⭐\s,:–—\-]+$/gu, '');
+  return text.replace(/\s+/g, ' ').trim();
+};
+
 const toScrapedKey = (value?: string | null) =>
   normalizeScrapedText(value).toLocaleLowerCase('tr-TR');
 

@@ -270,7 +270,6 @@ const parseRetryDelayMs = (error: unknown): number => {
 
 export const resetGeminiKeyPoolForTests = (): void => {
   keyPoolSlots.clear();
-  modelCooldownUntil.clear();
   pickSequence = 0;
 };
 
@@ -285,7 +284,7 @@ export const executeWithGeminiKeyPool = async <T>(
     throw new Error('API_KEY_INVALID: Geçerli bir Gemini API anahtarı bulunamadı.');
   }
 
-  const maxAttempts = Math.max(normalizedKeys.length + VISION_MODELS.length, 4);
+  const maxAttempts = Math.max(normalizedKeys.length * 2, 4);
   let lastError: unknown = null;
   let allCoolingRetries = 0;
 

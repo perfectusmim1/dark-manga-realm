@@ -857,7 +857,7 @@ const filterRow = (row: any, searchParams: URLSearchParams): boolean => {
 export const handleR2CatalogRestRequest = async (
   requestUrl: string,
   init?: RequestInit,
-  _input?: RequestInfo | URL
+  input?: RequestInfo | URL
 ): Promise<Response> => {
   await ensureCatalogLoaded();
 
