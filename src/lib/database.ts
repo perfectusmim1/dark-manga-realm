@@ -589,7 +589,20 @@ const fetchAllMangaRowsPaginated = async (
         pageIndex += PAGE_FETCH_BATCH;
     }
 
-    return rows;
+    const uniqueRows: any[] = [];
+    const seenRowIds = new Set<string>();
+    for (const row of rows) {
+        const rowId = typeof row?.id === 'string' ? row.id : null;
+        if (rowId && seenRowIds.has(rowId)) {
+            continue;
+        }
+        if (rowId) {
+            seenRowIds.add(rowId);
+        }
+        uniqueRows.push(row);
+    }
+
+    return uniqueRows;
 };
 
 const joinNamedEntityValues = (values: Array<string | null | undefined>) => {
@@ -1695,7 +1708,15 @@ export const getMangaSummaries = async (
         if (!includePrivate) {
             mangaSummariesPromise[audienceCacheKey] = pendingRequest;
         }
-        const summaries = await pendingRequest;
+        const rawSummaries = await pendingRequest;
+        const seenSummaryIds = new Set<string>();
+        const summaries: Manga[] = [];
+        for (const item of rawSummaries) {
+            if (item?.id && !seenSummaryIds.has(item.id)) {
+                seenSummaryIds.add(item.id);
+                summaries.push(item);
+            }
+        }
 
         if (!includePrivate && summaries.length > 0) {
             mangaSummariesCache[audienceCacheKey] = {
@@ -1911,11 +1932,18 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         }
     }
 
-    const mapRowsToSummaries = (rows: any[], summaryMap: Map<string, Manga>) => (
-        rows
-            .map((row) => summaryMap.get(row.id))
-            .filter(Boolean) as Manga[]
-    );
+    const mapRowsToSummaries = (rows: any[], summaryMap: Map<string, Manga>) => {
+        const seen = new Set<string>();
+        const list: Manga[] = [];
+        for (const row of rows) {
+            const summary = summaryMap.get(row?.id);
+            if (summary && !seen.has(summary.id)) {
+                seen.add(summary.id);
+                list.push(summary);
+            }
+        }
+        return list;
+    };
 
     try {
         const fetchSections = async () => {
@@ -7227,7 +7255,17 @@ const buildAudienceTopTen = (
         return [];
     }
 
-    return rawData
+    const seenItemIds = new Set<string>();
+    const uniqueRawData = rawData.filter((item: any) => {
+        const id = typeof item?.id === 'string' ? item.id : null;
+        if (!id || seenItemIds.has(id)) {
+            return false;
+        }
+        seenItemIds.add(id);
+        return true;
+    });
+
+    return uniqueRawData
         .map((item: any) => {
             const summary = summaryMap.get(item.id);
 

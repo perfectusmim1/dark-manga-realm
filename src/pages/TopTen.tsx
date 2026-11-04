@@ -330,6 +330,15 @@ const TopTenAudienceBlock: React.FC<{
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
 
+  const uniqueMangas = useMemo(() => {
+    const seen = new Set<string>();
+    return manga.filter((item) => {
+      if (!item?.id || seen.has(item.id)) return false;
+      seen.add(item.id);
+      return true;
+    });
+  }, [manga]);
+
   const updateArrows = useCallback(() => {
     const scroller = scrollRef.current;
     if (!scroller) {
@@ -398,7 +407,7 @@ const TopTenAudienceBlock: React.FC<{
       observer?.disconnect();
       window.clearTimeout(timer);
     };
-  }, [timeframe, audience, manga.length, requestArrowUpdate]);
+  }, [timeframe, audience, uniqueMangas.length, requestArrowUpdate]);
 
   useEffect(() => () => {
     if (rafRef.current !== null) {
@@ -498,7 +507,7 @@ const TopTenAudienceBlock: React.FC<{
                     </div>
                   ))}
                 </motion.div>
-              ) : manga.length > 0 ? (
+              ) : uniqueMangas.length > 0 ? (
                 <motion.div
                   key={`${audience}-${timeframe}-content`}
                   initial={{ opacity: 0 }}
@@ -513,7 +522,7 @@ const TopTenAudienceBlock: React.FC<{
                     className="flex w-full max-w-full min-w-0 snap-x snap-proximity gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2 scroll-smooth"
                     style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
                   >
-                    {manga.map((item, index) => (
+                    {uniqueMangas.map((item, index) => (
                       <div
                         key={`${audience}-${item.id}`}
                         data-top-ten-card

@@ -80,3 +80,7 @@ $RECYCLE.BIN/
 *.njsproj
 *.sln
 *.sw?
+
+# AI Instructions
+GEMINI.md
+

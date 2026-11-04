@@ -1,4 +1,4 @@
-﻿import useDocumentTitle from '@/hooks/useDocumentTitle';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Filter, X } from 'lucide-react';
@@ -238,7 +238,14 @@ const Browse: React.FC = () => {
   }, [contentFilter, searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, currentPage, setSearchParams]);
 
   const filteredManga = useMemo(() => {
-    let result = [...mangas];
+    const seenMangaIds = new Set<string>();
+    let result = mangas.filter((manga) => {
+      if (!manga?.id || seenMangaIds.has(manga.id)) {
+        return false;
+      }
+      seenMangaIds.add(manga.id);
+      return true;
+    });
 
     // Search filter
     if (deferredSearchQuery) {

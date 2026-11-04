@@ -27,6 +27,9 @@ interface MangaCardProps {
   entryAnimationDurationMs?: number;
 }
 
+const MANGA_CARD_INTRINSIC_WIDTH = 280;
+const MANGA_CARD_INTRINSIC_HEIGHT = 420;
+
 const MANGA_CARD_COVER_TRANSFORM = Object.freeze({
   width: 420,
   quality: 68,
