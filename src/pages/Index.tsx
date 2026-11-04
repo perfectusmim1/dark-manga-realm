@@ -55,7 +55,6 @@ interface HorizontalMangaSectionProps {
   linkTo: string;
   manga: Manga[];
   topTenWeekIds?: ReadonlySet<string> | null;
-  hoverPreviewEnabled?: boolean;
   delay: string;
   disableHeavyEffects: boolean;
   isCoarsePointer: boolean;
@@ -635,7 +634,6 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   linkTo,
   manga,
   topTenWeekIds,
-  hoverPreviewEnabled = false,
   delay,
   disableHeavyEffects,
   isCoarsePointer,
@@ -881,7 +879,6 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
                 manga={item}
                 index={index}
                 topTenWeekIds={topTenWeekIds}
-                hoverPreviewEnabled={hoverPreviewEnabled}
                 disableHeavyEffects={disableHeavyEffects}
                 coverPriority={index < visibleCoverPriorityCount}
                 coverRootMargin={coverRootMargin}
@@ -927,7 +924,6 @@ const Index: React.FC = () => {
     readHomeFeedSeed().trendingTags?.value ?? []
   ));
   const [tagsLoading, setTagsLoading] = useState(() => readHomeFeedSeed().trendingTags === null);
-  const hoverPreviewEnabled = appearancePreferences.manga_hover_preview;
   const blurAdultArtwork = appearancePreferences.adult_cover_blur && user?.preferences?.content?.adult_mode === true;
   const mangas = useMemo(() => {
     const uniqueMangaById = new Map<string, Manga>();
@@ -1419,7 +1415,6 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=created"
                 manga={newlyAddedSeries}
                 topTenWeekIds={topTenWeekIds}
-                hoverPreviewEnabled={hoverPreviewEnabled}
                 delay="0s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
@@ -1437,7 +1432,6 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=updated"
                 manga={recentlyUpdated}
                 topTenWeekIds={topTenWeekIds}
-                hoverPreviewEnabled={hoverPreviewEnabled}
                 delay="0.02s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
@@ -1455,7 +1449,6 @@ const Index: React.FC = () => {
                 linkTo="/browse?sort=trending"
                 manga={trendingManga}
                 topTenWeekIds={topTenWeekIds}
-                hoverPreviewEnabled={hoverPreviewEnabled}
                 delay="0.04s"
                 disableHeavyEffects={disableHeavyEffects}
                 isCoarsePointer={isCoarsePointer}
@@ -1521,7 +1514,6 @@ const Index: React.FC = () => {
                       manga={manga}
                       index={index}
                       topTenWeekIds={null}
-                      hoverPreviewEnabled={hoverPreviewEnabled}
                       disableHeavyEffects={disableHeavyEffects}
                       coverPriority={index < 4}
                     />

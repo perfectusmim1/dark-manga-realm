@@ -176,8 +176,8 @@ const CHAPTER_CARD_IMAGE_MODE_OPTIONS: Array<{
 }> = [
     {
         value: 'auto_first_page',
-        label: 'Otomatik (1. sayfa)',
-        description: 'Her bölüm kartında ilk sayfa otomatik kullanılır.',
+        label: 'Otomatik (Rastgele sayfa)',
+        description: 'Her bölüm kartında ilk ve son sayfalar hariç rastgele bir sayfa otomatik kullanılır.',
     },
     {
         value: 'manual',
@@ -238,7 +238,7 @@ const getChapterCardModeSummary = (mode: ChapterCardImageMode) => {
         return 'Bölüm kartlarında görsel gösterilmez. Manuel seçimler saklanır.';
     }
 
-    return 'Seri sayfasında her bölüm kartında ilk sayfa otomatik olarak gösterilir.';
+    return 'Seri sayfasında her bölüm kartında ilk ve son sayfalar hariç rastgele bir sayfa gösterilir.';
 };
 
 const getChapterCardModeChapterHint = (mode: ChapterCardImageMode) => {
@@ -264,7 +264,7 @@ const getChapterCardStatusText = (chapter: Chapter, mode: ChapterCardImageMode) 
             : 'Manuel sayfa seçilmedi';
     }
 
-    return 'Otomatik olarak 1. sayfa';
+    return 'Otomatik (Rastgele sayfa)';
 };
 
 interface SearchableOptionPickerProps<T extends { id: string }> {

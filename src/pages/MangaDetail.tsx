@@ -718,8 +718,13 @@ const MangaDetail: React.FC = () => {
       return undefined;
     }
 
-    return chapter.cardImageUrl
-      || chapterCardImageFallbackUrls[chapter.id]
+    if (chapterCardImageMode === 'manual') {
+      return chapter.cardImageUrl
+        || chapterCardImageFallbackUrls[chapter.id]
+        || resolveChapterCardImageUrl(chapter, chapterCardImageMode, chapter.cardImagePage);
+    }
+
+    return chapterCardImageFallbackUrls[chapter.id]
       || resolveChapterCardImageUrl(chapter, chapterCardImageMode, chapter.cardImagePage);
   }, [chapterCardImageFallbackUrls, chapterCardImageMode]);
 
@@ -2644,6 +2649,7 @@ const MangaDetail: React.FC = () => {
           chaptersNeedingFallback.forEach((chapter) => {
             const resolvedUrl = resolveChapterCardImageUrl(
               {
+                id: chapter.id,
                 pages: pagesById[chapter.id] || [],
                 cardImagePage: chapter.cardImagePage,
                 cardImageUrl: chapter.cardImageUrl,

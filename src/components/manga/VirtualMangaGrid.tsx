@@ -65,7 +65,7 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
   const [windowMetrics, setWindowMetrics] = useState(getWindowMetrics);
   const [containerTop, setContainerTop] = useState(0);
   const [cardHeight, setCardHeight] = useState<number | null>(null);
-  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
+
   const columns = useMemo(
     () => getColumnCount(windowMetrics.width),
     [getColumnCount, windowMetrics.width],
@@ -276,7 +276,7 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
                 manga={manga[0]}
                 index={0}
                 topTenWeekIds={showTopTenWeekBadges ? null : new Set<string>()}
-                hoverPreviewEnabled={false}
+
                 disableHeavyEffects
                 enableEntryAnimation={false}
               />
@@ -296,7 +296,7 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
               manga={item}
               index={startIndex + index}
               topTenWeekIds={topTenWeekIds}
-              hoverPreviewEnabled={hoverPreviewEnabled}
+
               disableHeavyEffects={disableHeavyEffects}
               enableEntryAnimation={enableEntryAnimation}
               entryAnimationClassName={entryAnimationClassName}

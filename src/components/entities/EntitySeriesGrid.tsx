@@ -1,7 +1,6 @@
 import React from 'react';
 import MangaCard from '@/components/manga/MangaCard';
 import { Manga } from '@/lib/types';
-import { useAuth } from '@/contexts/AuthContext';
 import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
 
 interface EntitySeriesGridProps {
@@ -10,9 +9,7 @@ interface EntitySeriesGridProps {
 }
 
 const EntitySeriesGrid: React.FC<EntitySeriesGridProps> = ({ mangas, emptyText }) => {
-  const { user } = useAuth();
   const topTenWeekIds = useTopTenWeekIds(Boolean(mangas?.length));
-  const hoverPreviewEnabled = user?.preferences?.appearance?.manga_hover_preview ?? false;
 
   if (!mangas || mangas.length === 0) {
     return <p className="text-muted-foreground">{emptyText}</p>;
@@ -26,7 +23,6 @@ const EntitySeriesGrid: React.FC<EntitySeriesGridProps> = ({ mangas, emptyText }
           manga={manga}
           index={index}
           topTenWeekIds={topTenWeekIds}
-          hoverPreviewEnabled={hoverPreviewEnabled}
         />
       ))}
     </div>

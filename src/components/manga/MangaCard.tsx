@@ -5,17 +5,11 @@ import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { getTopTenMangaIds } from '@/lib/database';
 import MangaRatingBadge from '@/components/manga/MangaRatingBadge';
-import {
-  HoverCard,
-  HoverCardContent,
-  HoverCardTrigger,
-} from "@/components/ui/hover-card";
 import { cn } from '@/lib/utils';
 import { getOfflinePreferences } from '@/lib/offline/preferences';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { formatChapterNumberLabel } from '@/lib/chapterTitle';
 import OptimizedImage from '@/components/media/OptimizedImage';
-import ProxyImage from '@/components/media/ProxyImage';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
 import { useAdultImageBlurPreference } from '@/hooks/useAdultImageBlurPreference';
 import { getSeriesLanguageInfo } from '@/lib/seriesLanguage';
@@ -24,7 +18,6 @@ interface MangaCardProps {
   manga: Manga;
   index?: number;
   topTenWeekIds?: ReadonlySet<string> | null;
-  hoverPreviewEnabled?: boolean;
   disableHeavyEffects?: boolean;
   coverPriority?: boolean;
   coverRootMargin?: string;
@@ -41,26 +34,6 @@ const MANGA_CARD_COVER_TRANSFORM = Object.freeze({
   fit: 'cover' as const,
 });
 
-const MANGA_CARD_HOVER_COVER_TRANSFORM = Object.freeze({
-  width: 192,
-  quality: 66,
-  format: 'webp' as const,
-  fit: 'cover' as const,
-});
-
-const MANGA_CARD_HOVER_BG_TRANSFORM = Object.freeze({
-  width: 320,
-  quality: 52,
-  format: 'webp' as const,
-  fit: 'cover' as const,
-});
-
-const MANGA_CARD_INTRINSIC_WIDTH = 420;
-const MANGA_CARD_INTRINSIC_HEIGHT = 630;
-const MANGA_CARD_HOVER_INTRINSIC_WIDTH = 192;
-const MANGA_CARD_HOVER_INTRINSIC_HEIGHT = 288;
-const MANGA_CARD_HOVER_BG_INTRINSIC_WIDTH = 320;
-const MANGA_CARD_HOVER_BG_INTRINSIC_HEIGHT = 480;
 const MANGA_CARD_SIZES = '(min-width: 1536px) 14vw, (min-width: 1280px) 15vw, (min-width: 1024px) 17vw, (min-width: 768px) 20vw, (min-width: 640px) 25vw, 42vw';
 
 const TOP_TEN_CORNER_CLIP_PATH = 'polygon(100% 0, 100% 100%, 0 0)';
@@ -97,7 +70,6 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   manga,
   index = 0,
   topTenWeekIds,
-  hoverPreviewEnabled = false,
   disableHeavyEffects = false,
   coverPriority,
   coverRootMargin = '520px 0px',
@@ -107,7 +79,6 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   entryAnimationDurationMs = 500,
 }) => {
   const [isTopTenWeek, setIsTopTenWeek] = useState(false);
-  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
   const blurAdultArtwork = useAdultImageBlurPreference();
   const ratings = manga.ratings || [];
   const genres = manga.genres || [];
@@ -197,12 +168,6 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
       isActive = false;
     };
   }, [manga.id, topTenWeekIds]);
-
-  useEffect(() => {
-    if ((!hoverPreviewEnabled || disableHeavyEffects) && isPreviewOpen) {
-      setIsPreviewOpen(false);
-    }
-  }, [disableHeavyEffects, hoverPreviewEnabled, isPreviewOpen]);
 
   const cardContent = (
     <div
@@ -386,122 +351,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
     </div>
   );
 
-  if (disableHeavyEffects || !hoverPreviewEnabled) {
-    return cardContent;
-  }
-
-  return (
-    <HoverCard open={isPreviewOpen} onOpenChange={setIsPreviewOpen} openDelay={200} closeDelay={100}>
-      <HoverCardTrigger asChild>
-        {cardContent}
-      </HoverCardTrigger>
-      <HoverCardContent
-        side="right"
-        align="start"
-        sideOffset={15}
-        className="pointer-events-none w-80 overflow-hidden border-none bg-background/95 p-0 shadow-2xl ring-1 ring-white/10 backdrop-blur-xl"
-      >
-        <div className="relative">
-          <div className="absolute inset-0 -z-10 h-32 w-full overflow-hidden opacity-20">
-            {isPreviewOpen ? (
-              <ProxyImage
-                src={manga.cover}
-                alt=""
-                width={MANGA_CARD_HOVER_BG_INTRINSIC_WIDTH}
-                height={MANGA_CARD_HOVER_BG_INTRINSIC_HEIGHT}
-                transform={MANGA_CARD_HOVER_BG_TRANSFORM}
-                className="h-full w-full scale-150 object-cover blur-2xl"
-                decoding="async"
-                loading="lazy"
-              />
-            ) : (
-              <div aria-hidden className="h-full w-full bg-muted/30" />
-            )}
-            <div className="absolute inset-0 bg-gradient-to-b from-transparent to-background" />
-          </div>
-
-          <div className="p-5">
-            <div className="flex items-start gap-4">
-              <div className="h-24 w-16 flex-shrink-0 overflow-hidden rounded-md shadow-lg ring-1 ring-white/10">
-                {isPreviewOpen ? (
-                  <ProxyImage
-                    src={manga.cover}
-                    alt=""
-                    width={MANGA_CARD_HOVER_INTRINSIC_WIDTH}
-                    height={MANGA_CARD_HOVER_INTRINSIC_HEIGHT}
-                    transform={MANGA_CARD_HOVER_COVER_TRANSFORM}
-                    className="h-full w-full object-cover"
-                    decoding="async"
-                    loading="lazy"
-                  />
-                ) : (
-                  <div aria-hidden className="h-full w-full bg-muted/30" />
-                )}
-              </div>
-
-              <div className="min-w-0 flex-1">
-                <h4 className="line-clamp-2 text-sm font-bold leading-tight text-foreground">
-                  {manga.title}
-                </h4>
-                <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
-                  <span className="flex items-center gap-1 text-[11px] font-semibold text-primary">
-                    <Star className="h-3 w-3 fill-current" />
-                    {averageRating}
-                  </span>
-                  <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                    <BookOpen className="h-3 w-3" />
-                    {chapterCount > 0 ? `${chapterCount} Bölüm` : 'Bölümler Yakında'}
-                  </span>
-                </div>
-                <div className="mt-2 flex flex-wrap gap-1">
-                  <Badge variant="outline" className="h-5 bg-background/50 px-1.5 text-[9px] uppercase tracking-wider">
-                    {manga.type}
-                  </Badge>
-                  <Badge variant="outline" className="h-5 bg-background/50 px-1.5 text-[9px]">
-                    {manga.status === 'completed' ? 'Tamamlandı' : 'Devam Ediyor'}
-                  </Badge>
-                  {manga.isAdult ? (
-                    <Badge variant="outline" className="h-5 border-rose-500/30 bg-rose-500/10 px-1.5 text-[9px] text-rose-400">
-                      18+
-                    </Badge>
-                  ) : null}
-                </div>
-              </div>
-            </div>
-
-            <div className="mt-4">
-              <p className="line-clamp-4 text-[11px] italic leading-relaxed text-muted-foreground/90">
-                {manga.description || 'Bu seri için henüz bir açıklama girilmemiş.'}
-              </p>
-            </div>
-
-            <div className="mt-4 flex flex-wrap gap-1.5">
-              {genres.slice(0, 4).map((genre) => (
-                <span key={genre} className="rounded border border-primary/10 bg-primary/10 px-2 py-0.5 text-[10px] font-medium text-primary">
-                  {genre}
-                </span>
-              ))}
-            </div>
-
-            <div className="mt-4 flex items-center justify-between border-t border-white/5 pt-4">
-              <div className="flex items-center gap-2">
-                <div className="flex h-6 w-6 items-center justify-center rounded-full bg-secondary">
-                  <User className="h-3 w-3 text-muted-foreground" />
-                </div>
-                <span className="max-w-[120px] truncate text-[10px] font-medium text-muted-foreground">
-                  {manga.author}
-                </span>
-              </div>
-              <div className="flex items-center gap-1.5 text-[10px] text-muted-foreground">
-                <Clock className="h-3 w-3" />
-                <span>{new Date(manga.lastUpdated).toLocaleDateString('tr-TR')}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </HoverCardContent>
-    </HoverCard>
-  );
+  return cardContent;
 };
 
 const MangaCard = memo(MangaCardComponent);

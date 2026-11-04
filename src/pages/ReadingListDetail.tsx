@@ -54,7 +54,7 @@ const ReadingListDetail: React.FC = () => {
     const [selectedMangaIds, setSelectedMangaIds] = useState<string[]>([]);
     const [isRemovingSelected, setIsRemovingSelected] = useState(false);
     const topTenWeekIds = useTopTenWeekIds(Boolean(list?.items?.length));
-    const hoverPreviewEnabled = appearancePreferences.manga_hover_preview;
+
     
     // Likes State
     const [likesCount, setLikesCount] = useState(0);
@@ -489,7 +489,7 @@ const ReadingListDetail: React.FC = () => {
                                                 manga={manga}
                                                 index={index}
                                                 topTenWeekIds={topTenWeekIds}
-                                                hoverPreviewEnabled={hoverPreviewEnabled}
+
                                             />
                                         </div>
 

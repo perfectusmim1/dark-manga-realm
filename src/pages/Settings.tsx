@@ -1875,21 +1875,6 @@ const Settings: React.FC = () => {
                                         </div>
                                     )}
                                 </div>
-                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
-                                    <div className="flex min-w-0 flex-col space-y-1">
-                                        <Label htmlFor="manga-hover-preview">Manga Önizleme Kartını Göster</Label>
-                                        <p className="text-sm text-muted-foreground">Manga kartına hover yapınca veya odaklanınca çıkan detay preview kartını göster.</p>
-                                    </div>
-                                    <Switch
-                                        id="manga-hover-preview"
-                                        checked={prefs.appearance?.manga_hover_preview ?? false}
-                                        onCheckedChange={(checked) => handleUpdatePreferences({
-                                            ...prefs,
-                                            appearance: { ...prefs.appearance, manga_hover_preview: checked }
-                                        }, 'Tercihler güncellendi')}
-                                        disabled={isUpdatingPrefs}
-                                    />
-                                </div>
                                 <div className="flex flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row sm:items-center sm:justify-between sm:gap-4">
                                     <div className="flex min-w-0 flex-col space-y-1">
                                         <Label htmlFor="show-header-offline-toggle">Üst Çubukta Çevrimdışı Mod Butonunu Göster</Label>
