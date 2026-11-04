@@ -15,7 +15,7 @@ import { logChapterRead } from '../lib/profile';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff } from 'lucide-react';
+import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff, FileQuestion } from 'lucide-react';
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
@@ -49,6 +49,7 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import { prefetchChapterAssets, prefetchImageAsset, retainPrefetchedChapters } from '@/lib/imagePrefetch';
 import { OPEN_PAGE_COMMENT_EVENT, OpenPageCommentDetail } from '@/lib/pageCommentEvents';
 import { sanitizeChapterPageUrls } from '@/lib/scraper/scrapeSources';
+import { resolveChapterPagesOnDemand } from '@/lib/chapterOnDemandResolver';
 import { buildRouteKey, markRouteToForceTopOnNextVisit } from '@/lib/scrollRestoration';
 import { syncMangaToExternalProviders } from '@/lib/externalSync';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
@@ -287,8 +288,21 @@ const Reader: React.FC = () => {
     }
 
     const request = getChapterPagesByIds([targetChapterId])
-      .then((chapterPagesById) => {
-        const loadedPages = cacheChapterPages(targetChapterId, chapterPagesById[targetChapterId] || []);
+      .then(async (chapterPagesById) => {
+        let loadedPages = cacheChapterPages(targetChapterId, chapterPagesById[targetChapterId] || []);
+        if (loadedPages.length === 0 && currentMangaRef.current) {
+          const targetCh = currentMangaRef.current.chapters?.find((c: Chapter) => c.id === targetChapterId);
+          if (targetCh) {
+            try {
+              const onDemand = await resolveChapterPagesOnDemand(currentMangaRef.current, targetCh);
+              if (onDemand && onDemand.length > 0) {
+                loadedPages = cacheChapterPages(targetChapterId, onDemand);
+              }
+            } catch {
+              // ignore
+            }
+          }
+        }
         syncChapterPagesIntoState(targetChapterId, loadedPages);
         return loadedPages;
       })
@@ -722,6 +736,17 @@ const Reader: React.FC = () => {
             }
           } catch {
             // ignore
+          }
+
+          if (currentChapterPages.length === 0 && fallbackManga && baseChapter) {
+            try {
+              const onDemand = await resolveChapterPagesOnDemand(fallbackManga, baseChapter);
+              if (onDemand && onDemand.length > 0) {
+                currentChapterPages = cacheChapterPages(chapterId, onDemand);
+              }
+            } catch (onDemandErr) {
+              console.warn('Reader on-demand chapter page resolve error:', onDemandErr);
+            }
           }
         }
         syncChapterPagesIntoState(chapterId, currentChapterPages);
@@ -1634,7 +1659,27 @@ const Reader: React.FC = () => {
           }`}
       >
         <div ref={readerContentRef}>
-          {settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
+          {resolvedPages.length === 0 ? (
+            <div className="flex flex-col items-center justify-center min-h-[50vh] px-4 py-20 text-center">
+              <div className="rounded-full bg-muted/60 p-4 mb-4">
+                <FileQuestion className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h2 className="text-xl font-semibold mb-2">Bölüm Sayfaları Bulunamadı</h2>
+              <p className="text-muted-foreground max-w-md mb-6 text-sm">
+                Bu bölümün sayfaları kaynak sunucudan henüz çekilemedi veya geçici olarak erişilemiyor.
+              </p>
+              <div className="flex flex-wrap items-center justify-center gap-3">
+                <Button variant="outline" onClick={() => window.location.reload()}>
+                  Yeniden Dene
+                </Button>
+                {manga && (
+                  <Button variant="default" asChild>
+                    <Link to={`/manga/${manga.id}`}>Seri Detayına Dön</Link>
+                  </Button>
+                )}
+              </div>
+            </div>
+          ) : settings.mode === 'vertical' || settings.mode === 'webtoon' ? (
             <VerticalReader
               key={chapterId}
               pages={resolvedPages}

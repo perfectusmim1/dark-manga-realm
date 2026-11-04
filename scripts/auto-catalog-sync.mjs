@@ -1740,15 +1740,23 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
     const imgs = [];
     const imgTags = extractRegexMatches(html, /<img[^>]+>/gi);
     for (const [tag] of imgTags) {
-      if (!tag.includes('/wp-content/uploads/init-manga/') && !tag.includes('data-original-src')) continue;
+      const isRelevant =
+        tag.includes('data-original-src') ||
+        tag.includes('melek.mom') ||
+        tag.includes('/wp-content/uploads/init-manga/') ||
+        tag.includes('chapter-content');
+      if (!isRelevant) continue;
+
       const origSrc = /data-original-src="([^"]+)"/i.exec(tag)?.[1];
       const src = /src="([^"]+)"/i.exec(tag)?.[1];
       const chosen = origSrc || (src && !src.startsWith('data:') ? src : null);
-      if (chosen && !isJunkImageUrl(chosen)) imgs.push(chosen);
+      if (chosen && !isJunkImageUrl(chosen) && !chosen.includes('base64') && chosen.startsWith('http')) {
+        imgs.push(chosen.trim());
+      }
     }
     if (imgs.length === 0) {
       for (const m of extractRegexMatches(html, /data-original-src="([^"]+)"/gi)) {
-        if (m[1] && !isJunkImageUrl(m[1])) imgs.push(m[1]);
+        if (m[1] && !isJunkImageUrl(m[1]) && m[1].startsWith('http')) imgs.push(m[1].trim());
       }
     }
     return await verifyAndFilterImageUrls(imgs);

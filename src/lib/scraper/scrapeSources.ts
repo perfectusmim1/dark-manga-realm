@@ -1740,15 +1740,15 @@ export const extractChapterImageResult = (
 ): ScrapedChapterImageResult => {
   let images: string[] = [];
 
-  // SiyahMelek (init-manga): data-original-src öncelikli oku
+  // SiyahMelek: #chapter-content, data-original-src, melek.mom, init-manga
   if (source === 'siyahmelek' && images.length === 0) {
     const smImgs = Array.from(doc.querySelectorAll(
-      '.reading-content img, [data-original-src*="uploads/init-manga"], img[src*="uploads/init-manga"], .reader-area img, .comic-content img',
+      '#chapter-content img, .image-based img, .reading-content img, [data-original-src], img[src*="melek.mom"], img[src*="uploads/init-manga"], .reader-area img, .comic-content img',
     ));
     images = smImgs.map((img) => {
       const orig = img.getAttribute('data-original-src') || img.getAttribute('data-src') || img.getAttribute('src') || '';
       return orig.trim();
-    }).filter((s) => s.startsWith('http'));
+    }).filter((s) => s.startsWith('http') && !s.includes('data:image') && !s.includes('base64'));
   }
 
   // JSON images check (Gölge, DxD, MangaCix API)
@@ -1787,7 +1787,7 @@ export const extractChapterImageResult = (
       const cixImgs = Array.from(doc.querySelectorAll('div.manga-page img.manga-image, img[src*="cdn.mangacix.net"], .reading-content img'));
       images = cixImgs.map(extractImageSource).filter(Boolean);
     } else {
-      const defaultImgs = Array.from(doc.querySelectorAll('.reading-content img, .page-break img, .entry-content img, #reader img, .reader-images img'));
+      const defaultImgs = Array.from(doc.querySelectorAll('#chapter-content img, .image-based img, .reading-content img, .page-break img, .entry-content img, #reader img, .reader-images img, img[data-original-src]'));
       images = defaultImgs.map(extractImageSource).filter(Boolean);
     }
   }
