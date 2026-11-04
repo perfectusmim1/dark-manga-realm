@@ -1,3 +1,4 @@
+﻿import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Filter, X } from 'lucide-react';
@@ -97,6 +98,7 @@ const BrowseGridSkeleton: React.FC = () => (
 
 
 const Browse: React.FC = () => {
+  useDocumentTitle('Keşfet');
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const [searchParams, setSearchParams] = useSearchParams();

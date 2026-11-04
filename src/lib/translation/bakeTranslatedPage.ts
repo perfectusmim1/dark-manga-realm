@@ -328,3 +328,89 @@ export const downloadTranslatedChapterAsZip = async ({
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 };
+
+export interface ChapterForSeriesZip {
+  chapterNumber: number | string;
+  pages: ResolvedReaderPage[];
+  pageStates: Record<number, PageTranslationState>;
+}
+
+export interface DownloadTranslatedSeriesZipOptions {
+  mangaTitle: string;
+  targetLang: string;
+  chapters: ChapterForSeriesZip[];
+  signal?: AbortSignal;
+  onProgress?: (info: {
+    chapterIndex: number;
+    totalChapters: number;
+    chapterNumber: number | string;
+    pageIndex: number;
+    totalPages: number;
+  }) => void;
+}
+
+export const downloadTranslatedSeriesAsZip = async ({
+  mangaTitle,
+  targetLang,
+  chapters,
+  signal,
+  onProgress,
+}: DownloadTranslatedSeriesZipOptions): Promise<void> => {
+  if (chapters.length === 0) {
+    throw new Error('İndirilecek bölüm bulunamadı.');
+  }
+
+  const zipFiles: Array<{ name: string; data: Uint8Array }> = [];
+  const totalChapters = chapters.length;
+
+  for (let chIdx = 0; chIdx < totalChapters; chIdx += 1) {
+    if (signal?.aborted) {
+      throw new DOMException('İptal edildi', 'AbortError');
+    }
+
+    const { chapterNumber, pages, pageStates } = chapters[chIdx];
+    const chNum = formatChapterNumberLabel(chapterNumber);
+    const padWidth = Math.max(3, String(pages.length).length);
+
+    for (let pIdx = 0; pIdx < pages.length; pIdx += 1) {
+      if (signal?.aborted) {
+        throw new DOMException('İptal edildi', 'AbortError');
+      }
+
+      const pageState = pageStates[pIdx];
+      const blocks = pageState?.status === 'done' ? pageState.blocks : undefined;
+      const { blob, ext } = await bakeTranslatedPageToBlob(pages[pIdx].src, blocks, targetLang, signal);
+      const buffer = await blob.arrayBuffer();
+      const pageName = `${String(pIdx + 1).padStart(padWidth, '0')}.${ext}`;
+      const filePath = `Bolum-${chNum}/${pageName}`;
+
+      zipFiles.push({
+        name: filePath,
+        data: new Uint8Array(buffer),
+      });
+
+      onProgress?.({
+        chapterIndex: chIdx + 1,
+        totalChapters,
+        chapterNumber,
+        pageIndex: pIdx + 1,
+        totalPages: pages.length,
+      });
+    }
+  }
+
+  const zipBlob = buildStoredZipBlob(zipFiles);
+  const safeSeries = sanitizeFilenamePart(mangaTitle);
+  const filename = `${safeSeries}-Cevirili-Bolumler-${targetLang.toUpperCase()}.zip`;
+
+  const url = URL.createObjectURL(zipBlob);
+  const anchor = document.createElement('a');
+  anchor.href = url;
+  anchor.download = filename;
+  anchor.rel = 'noopener';
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10000);
+};
+

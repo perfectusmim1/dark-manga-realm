@@ -1,3 +1,4 @@
+﻿import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import {
@@ -213,6 +214,7 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
 );
 
 const History: React.FC = () => {
+  useDocumentTitle('Geçmiş');
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const [seriesHistory, setSeriesHistory] = React.useState<ReadingHistoryEntry[]>([]);

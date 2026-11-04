@@ -1,3 +1,4 @@
+﻿import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React, { useEffect, useState } from 'react';
 import Header from '@/components/layout/Header';
 import { supabase } from '@/lib/supabase';
@@ -28,6 +29,7 @@ interface UserStats {
 }
 
 const Community: React.FC = () => {
+  useDocumentTitle('Topluluk');
   const { isOnline } = useEffectiveOnlineStatus();
   const [users, setUsers] = useState<LeaderboardUser[]>([]);
   const [loading, setLoading] = useState(true);

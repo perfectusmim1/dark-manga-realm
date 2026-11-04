@@ -15,6 +15,8 @@ import {
   Gauge,
   Search,
   Languages,
+  ArrowDown,
+  ArrowUp,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, Chapter, ResolvedReaderPage } from '@/lib/types';
@@ -122,6 +124,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [navigatingChapterId, setNavigatingChapterId] = useState<string | null>(null);
   const [chapterSearch, setChapterSearch] = useState('');
+  const [chapterSortOrder, setChapterSortOrder] = useState<'desc' | 'asc'>('desc');
   const [chapterPanelOpen, setChapterPanelOpen] = useState(false);
   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
   const activeChapterItemRef = useRef<HTMLButtonElement | null>(null);
@@ -131,7 +134,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
   const activePageDisplay = isScrubbing && scrubPage !== null ? scrubPage : currentPage;
   const progressPercent = totalPages > 1 ? ((activePageDisplay - 1) / (totalPages - 1)) * 100 : 0;
-  const chapterItems = useMemo(() => chapters.slice().reverse(), [chapters]);
+  const chapterItems = useMemo(() => {
+    return [...chapters].sort((a, b) => {
+      const numA = typeof a.number === 'number' ? a.number : parseFloat(a.number as string) || 0;
+      const numB = typeof b.number === 'number' ? b.number : parseFloat(b.number as string) || 0;
+      return chapterSortOrder === 'desc' ? numB - numA : numA - numB;
+    });
+  }, [chapters, chapterSortOrder]);
   const filteredChapters = useMemo(() => {
     if (!deferredChapterSearch) {
       return chapterItems;
@@ -285,12 +294,40 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           <span className="rounded-md bg-secondary/80 px-1.5 py-0.5 text-[11px] font-medium tabular-nums text-muted-foreground">
             {filteredChapters.length}
           </span>
+          {isOfflineChapter && (
+            <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
+              Çevrimdışı
+            </span>
+          )}
         </div>
-        {isOfflineChapter && (
-          <span className="rounded-full border border-primary/30 bg-primary/10 px-2 py-0.5 text-[10px] font-semibold text-primary">
-            Çevrimdışı
-          </span>
-        )}
+        <div className="flex items-center rounded-lg border border-border/70 bg-secondary/40 p-0.5 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setChapterSortOrder('desc')}
+            className={cn(
+              'flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors',
+              chapterSortOrder === 'desc'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <ArrowDown className="h-3 w-3" />
+            Son Eklenen
+          </button>
+          <button
+            type="button"
+            onClick={() => setChapterSortOrder('asc')}
+            className={cn(
+              'flex items-center gap-1 rounded-md px-2 py-1 font-medium transition-colors',
+              chapterSortOrder === 'asc'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            <ArrowUp className="h-3 w-3" />
+            İlk Eklenen
+          </button>
+        </div>
       </div>
 
       <div className="relative">

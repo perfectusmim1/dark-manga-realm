@@ -28,6 +28,7 @@ import PageCommentModal from '@/components/reader/PageCommentModal';
 import CommentSection from '@/components/comments/CommentSection';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import DeferredMount from '@/components/performance/DeferredMount';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
 import { Chapter, ReaderSettings, ResolvedReaderPage } from '@/lib/types';
 import {
   buildOfflineReaderPages,
@@ -118,6 +119,15 @@ const Reader: React.FC = () => {
 
   const [manga, setManga] = useState<any>(null);
   const [chapter, setChapter] = useState<any>(null);
+
+  const readerDocumentTitle = useMemo(() => {
+    if (!manga) return null;
+    if (chapter) {
+      return `${manga.title} - Bölüm ${chapter.number}`;
+    }
+    return manga.title;
+  }, [manga, chapter]);
+  useDocumentTitle(readerDocumentTitle);
   const [resolvedPages, setResolvedPages] = useState<ResolvedReaderPage[]>([]);
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
   const [currentPage, setCurrentPage] = useState(1);

@@ -1,3 +1,4 @@
+﻿import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, List } from 'lucide-react';
@@ -78,6 +79,7 @@ const hydrateFavoriteMangaFromOffline = async (favorites: Favorite[]) => {
 };
 
 const Favorites: React.FC = () => {
+  useDocumentTitle('Favorilerim');
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const initialFavoriteCache = user?.id && areFavoritesInitialized(user.id)

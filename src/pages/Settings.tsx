@@ -1,3 +1,4 @@
+﻿import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React, { useEffect, useMemo, useState } from 'react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -206,6 +207,7 @@ const getNextUsernameChangeDate = (usernameChangedAt?: string) => {
 };
 
 const Settings: React.FC = () => {
+  useDocumentTitle('Ayarlar');
     const location = useLocation();
     const {
         user,

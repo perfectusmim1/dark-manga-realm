@@ -1,7 +1,8 @@
-import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowRight, TrendingUp, Clock, Sparkles, Play, ChevronLeft, ChevronRight, Download, WifiOff } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
 import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import MangaCard from '@/components/manga/MangaCard';
 import { Button } from '@/components/ui/button';
@@ -898,6 +899,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 };
 
 const Index: React.FC = () => {
+  useDocumentTitle('ToonParrot - Ücretsiz Türkçe Manga & Webtoon Oku', false);
   const { user, isLoading: authLoading } = useAuth();
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();

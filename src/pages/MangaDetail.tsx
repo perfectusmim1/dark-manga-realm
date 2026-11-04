@@ -24,6 +24,8 @@ import {
   WifiOff,
   Link2,
   RefreshCcw,
+  ArrowDown,
+  ArrowUp,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
@@ -126,9 +128,10 @@ import {
   getLocalChapterTranslations,
   subscribeTranslationCache,
 } from '@/lib/translation/localTranslationCache';
-import { downloadTranslatedChapterAsZip } from '@/lib/translation/bakeTranslatedPage';
+import { downloadTranslatedChapterAsZip, downloadTranslatedSeriesAsZip } from '@/lib/translation/bakeTranslatedPage';
 import { PageTranslationState } from '@/lib/translation/types';
 import { ResolvedReaderPage } from '@/lib/types';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import DeferredMount from '@/components/performance/DeferredMount';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
@@ -516,6 +519,7 @@ const MangaDetail: React.FC = () => {
   const location = useLocation();
   const { disableHeavyEffects, isMobile } = useDeviceProfile();
   const [manga, setManga] = useState<Manga | undefined>();
+  useDocumentTitle(manga ? manga.title : null);
   const { user, isLoading: authLoading } = useAuth();
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
@@ -581,6 +585,16 @@ const MangaDetail: React.FC = () => {
   const [chapterTranslationMap, setChapterTranslationMap] = useState<Map<string, number>>(new Map());
   const [downloadingChapterId, setDownloadingChapterId] = useState<string | null>(null);
   const [clearingTranslationChapterId, setClearingTranslationChapterId] = useState<string | null>(null);
+  const [chapterSortOrder, setChapterSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [isPackagingSeriesZip, setIsPackagingSeriesZip] = useState(false);
+  const [seriesZipProgress, setSeriesZipProgress] = useState<{
+    chapterIndex: number;
+    totalChapters: number;
+    chapterNumber: number | string;
+    pageIndex: number;
+    totalPages: number;
+  } | null>(null);
+  const seriesZipAbortControllerRef = useRef<AbortController | null>(null);
   const [isSeriesReadingTimeLoading, setIsSeriesReadingTimeLoading] = useState(false);
   const [isOfflineView, setIsOfflineView] = useState(false);
   const [isSeriesDownloadDialogOpen, setIsSeriesDownloadDialogOpen] = useState(false);
@@ -1982,6 +1996,115 @@ const MangaDetail: React.FC = () => {
     }
   };
 
+  const translatedChapters = useMemo(() => {
+    if (!manga?.chapters) return [];
+    return manga.chapters
+      .filter((ch) => (chapterTranslationMap.get(ch.id) || 0) > 0)
+      .sort((a, b) => a.number - b.number);
+  }, [manga?.chapters, chapterTranslationMap]);
+
+  const handleDownloadTranslatedSeriesZip = async () => {
+    if (!manga) return;
+    if (translatedChapters.length === 0) {
+      toast.info('Bu seride henüz çevrilmiş bölüm bulunmuyor.');
+      return;
+    }
+    if (isPackagingSeriesZip) return;
+
+    const controller = new AbortController();
+    seriesZipAbortControllerRef.current = controller;
+    setIsPackagingSeriesZip(true);
+    setSeriesZipProgress({
+      chapterIndex: 0,
+      totalChapters: translatedChapters.length,
+      chapterNumber: translatedChapters[0].number,
+      pageIndex: 0,
+      totalPages: 0,
+    });
+
+    const toastId = toast.loading(`${translatedChapters.length} çevirili bölüm hazırlanıyor...`);
+
+    try {
+      const chapterDataList: Array<{
+        chapterNumber: number | string;
+        pages: ResolvedReaderPage[];
+        pageStates: Record<number, PageTranslationState>;
+      }> = [];
+
+      for (let i = 0; i < translatedChapters.length; i += 1) {
+        if (controller.signal.aborted) throw new DOMException('İptal edildi', 'AbortError');
+        const ch = translatedChapters[i];
+
+        setSeriesZipProgress({
+          chapterIndex: i + 1,
+          totalChapters: translatedChapters.length,
+          chapterNumber: ch.number,
+          pageIndex: 0,
+          totalPages: 0,
+        });
+
+        const chapterPages = ch.pages && ch.pages.length > 0
+          ? ch.pages
+          : (await getChapterPagesByIds([ch.id]))[ch.id] || [];
+
+        if (chapterPages.length === 0) continue;
+
+        const cachedBlocksMap = await getLocalChapterTranslations(ch.id, 'tr');
+        const pageStates: Record<number, PageTranslationState> = {};
+        const resolvedPages: ResolvedReaderPage[] = chapterPages.map((src, idx) => {
+          const blocks = cachedBlocksMap.get(idx);
+          if (blocks && blocks.length > 0) {
+            pageStates[idx] = { status: 'done', blocks };
+          } else {
+            pageStates[idx] = { status: 'idle' };
+          }
+          return {
+            pageNumber: idx + 1,
+            src,
+            pageKey: `p-${idx + 1}`,
+          };
+        });
+
+        chapterDataList.push({
+          chapterNumber: ch.number,
+          pages: resolvedPages,
+          pageStates,
+        });
+      }
+
+      if (chapterDataList.length === 0) {
+        throw new Error('İndirilecek geçerli bölüm sayfası bulunamadı.');
+      }
+
+      await downloadTranslatedSeriesAsZip({
+        mangaTitle: manga.title,
+        targetLang: 'tr',
+        chapters: chapterDataList,
+        signal: controller.signal,
+        onProgress: (info) => {
+          setSeriesZipProgress(info);
+        },
+      });
+
+      toast.success(`${translatedChapters.length} bölüm çevirili ZIP olarak indirildi!`, { id: toastId });
+      setIsSeriesDownloadDialogOpen(false);
+    } catch (err: any) {
+      if (err?.name === 'AbortError') {
+        toast.info('Çevirili seriyi indirme iptal edildi.', { id: toastId });
+      } else {
+        toast.error(err instanceof Error ? err.message : 'Çevirili seriyi indirme başarısız oldu.', { id: toastId });
+      }
+    } finally {
+      setIsPackagingSeriesZip(false);
+      setSeriesZipProgress(null);
+      seriesZipAbortControllerRef.current = null;
+    }
+  };
+
+  const handleCancelSeriesZip = () => {
+    seriesZipAbortControllerRef.current?.abort();
+  };
+
   const openReportDialog = () => {
     if (!isOnline) {
       toast.error('Bildirim göndermek için internet bağlantısı gerekli');
@@ -2349,20 +2472,27 @@ const MangaDetail: React.FC = () => {
   };
 
   const filteredChapters = useMemo(() => {
-    if (!manga) {
+    if (!manga?.chapters) {
       return [];
     }
 
     const normalizedQuery = deferredChapterSearch.toLocaleLowerCase('tr-TR');
 
-    return manga.chapters
-      .slice()
-      .reverse()
-      .filter((chapter) => (
-        chapter.number.toString().includes(deferredChapterSearch)
-        || chapter.title.toLocaleLowerCase('tr-TR').includes(normalizedQuery)
-      ));
-  }, [deferredChapterSearch, manga?.chapters]);
+    const sorted = [...manga.chapters].sort((a, b) => {
+      const numA = typeof a.number === 'number' ? a.number : parseFloat(a.number as string) || 0;
+      const numB = typeof b.number === 'number' ? b.number : parseFloat(b.number as string) || 0;
+      return chapterSortOrder === 'desc' ? numB - numA : numA - numB;
+    });
+
+    if (!deferredChapterSearch) {
+      return sorted;
+    }
+
+    return sorted.filter((chapter) => (
+      chapter.number.toString().includes(deferredChapterSearch)
+      || (chapter.title && chapter.title.toLocaleLowerCase('tr-TR').includes(normalizedQuery))
+    ));
+  }, [chapterSortOrder, deferredChapterSearch, manga?.chapters]);
 
   const overviewPreviewChapterCount = isMobile
     ? MOBILE_OVERVIEW_PREVIEW_CHAPTER_COUNT
@@ -3260,14 +3390,44 @@ const MangaDetail: React.FC = () => {
                             <h2 className="text-xl font-bold">Bölümler</h2>
                             <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
                           </div>
-                          <div className="relative w-full sm:w-64">
-                            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                            <Input
-                              placeholder="Bölüm ara (örn: 97)"
-                              className="pl-9"
-                              value={chapterSearch}
-                              onChange={(e) => setChapterSearch(e.target.value)}
-                            />
+                          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                            <div className="flex items-center rounded-lg border border-border/70 bg-secondary/40 p-0.5 text-xs">
+                              <button
+                                type="button"
+                                onClick={() => setChapterSortOrder('desc')}
+                                className={cn(
+                                  'flex items-center gap-1 rounded-md px-2.5 py-1.5 font-medium transition-colors',
+                                  chapterSortOrder === 'desc'
+                                    ? 'bg-primary text-primary-foreground shadow-sm'
+                                    : 'text-muted-foreground hover:text-foreground',
+                                )}
+                              >
+                                <ArrowDown className="h-3.5 w-3.5" />
+                                Son Eklenen
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => setChapterSortOrder('asc')}
+                                className={cn(
+                                  'flex items-center gap-1 rounded-md px-2.5 py-1.5 font-medium transition-colors',
+                                  chapterSortOrder === 'asc'
+                                    ? 'bg-primary text-primary-foreground shadow-sm'
+                                    : 'text-muted-foreground hover:text-foreground',
+                                )}
+                              >
+                                <ArrowUp className="h-3.5 w-3.5" />
+                                İlk Eklenen
+                              </button>
+                            </div>
+                            <div className="relative flex-1 sm:w-60">
+                              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                              <Input
+                                placeholder="Bölüm ara (örn: 97)"
+                                className="pl-9"
+                                value={chapterSearch}
+                                onChange={(e) => setChapterSearch(e.target.value)}
+                              />
+                            </div>
                           </div>
                         </div>
 
@@ -4252,12 +4412,16 @@ const MangaDetail: React.FC = () => {
         </div>
       </main>
 
-      <Dialog open={isSeriesDownloadDialogOpen} onOpenChange={setIsSeriesDownloadDialogOpen}>
+      <Dialog open={isSeriesDownloadDialogOpen} onOpenChange={(open) => {
+        if (!isPackagingSeriesZip) {
+          setIsSeriesDownloadDialogOpen(open);
+        }
+      }}>
         <DialogContent className="max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-2xl border border-border/70 p-4 sm:max-w-[540px] sm:p-6">
           <DialogHeader className="space-y-2 pr-6 text-left sm:pr-8">
             <DialogTitle className="text-xl font-bold sm:text-2xl">Seriyi İndir</DialogTitle>
             <DialogDescription>
-              Mevcut tüm bölümler cihazına indirilecek ve internet olmadan açılabilecek.
+              Seriyi çevrimdışı okumak için kaydedebilir veya çevrilmiş bölümleri ZIP olarak indirebilirsiniz.
             </DialogDescription>
           </DialogHeader>
 
@@ -4265,17 +4429,52 @@ const MangaDetail: React.FC = () => {
             <div className="space-y-4 py-1 sm:space-y-5 sm:py-2">
               <div className="rounded-xl border border-border/60 bg-card/60 p-3 sm:p-4">
                 <p className="text-base font-semibold">{manga.title}</p>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {manga.chapters.length} bölüm
-                </p>
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-sm text-muted-foreground">
+                  <span>{manga.chapters.length} bölüm</span>
+                  {translatedChapters.length > 0 && (
+                    <>
+                      <span>•</span>
+                      <span className="font-medium text-emerald-400">
+                        {translatedChapters.length} çevirili bölüm hazır
+                      </span>
+                    </>
+                  )}
+                </div>
               </div>
 
-              <div className="rounded-xl border border-blue-500/20 bg-blue-500/10 p-3 text-sm text-blue-100 sm:p-4">
-                <p className="font-semibold">Boyut tahmini</p>
-                <p className="mt-1 text-blue-100/80">
-                  Bazı kaynaklar toplam dosya boyutunu önceden vermiyor. Bu durumda gerçek boyut indirme sırasında netleşecek.
-                </p>
-              </div>
+              {isPackagingSeriesZip && seriesZipProgress && (
+                <div className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 p-3.5 space-y-2.5">
+                  <div className="flex items-center justify-between text-xs font-medium text-emerald-300">
+                    <span className="flex items-center gap-1.5">
+                      <Loader2 className="h-3.5 w-3.5 animate-spin" />
+                      Bölüm {seriesZipProgress.chapterNumber} işleniyor ({seriesZipProgress.chapterIndex}/{seriesZipProgress.totalChapters})
+                    </span>
+                    <span>
+                      {seriesZipProgress.totalPages > 0
+                        ? `Sayfa ${seriesZipProgress.pageIndex}/${seriesZipProgress.totalPages}`
+                        : 'Hazırlanıyor...'}
+                    </span>
+                  </div>
+                  <Progress
+                    value={
+                      seriesZipProgress.totalChapters > 0
+                        ? ((seriesZipProgress.chapterIndex - 1 + (seriesZipProgress.totalPages > 0 ? seriesZipProgress.pageIndex / seriesZipProgress.totalPages : 0)) / seriesZipProgress.totalChapters) * 100
+                        : 0
+                    }
+                    className="h-2 bg-emerald-950/40"
+                  />
+                  <div className="flex justify-end pt-1">
+                    <Button
+                      size="sm"
+                      variant="ghost"
+                      onClick={handleCancelSeriesZip}
+                      className="h-7 text-xs text-red-400 hover:bg-red-500/10 hover:text-red-300"
+                    >
+                      İptal Et
+                    </Button>
+                  </div>
+                </div>
+              )}
 
               {offlineSeriesEntry && (
                 <div className="rounded-xl border border-border/60 bg-card/60 p-3 text-sm text-muted-foreground sm:p-4">
@@ -4285,13 +4484,43 @@ const MangaDetail: React.FC = () => {
             </div>
           )}
 
-          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row">
-            <Button className="w-full sm:w-auto" variant="ghost" onClick={() => setIsSeriesDownloadDialogOpen(false)}>
-              İptal
+          <DialogFooter className="flex-col gap-2 sm:flex-row sm:justify-between sm:gap-2">
+            <Button
+              className="w-full sm:w-auto"
+              variant="ghost"
+              onClick={() => setIsSeriesDownloadDialogOpen(false)}
+              disabled={isPackagingSeriesZip}
+            >
+              Kapat
             </Button>
-            <Button className="w-full sm:w-auto" onClick={() => void handleQueueSeriesDownload()} disabled={isQueueingSeriesDownload}>
-              {isQueueingSeriesDownload ? 'Kuyruğa Alınıyor...' : 'İndir'}
-            </Button>
+            <div className="flex flex-col-reverse sm:flex-row items-center gap-2 w-full sm:w-auto">
+              <Button
+                className="w-full sm:w-auto border-emerald-500/30 bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25 hover:text-emerald-200"
+                variant="outline"
+                onClick={() => void handleDownloadTranslatedSeriesZip()}
+                disabled={isPackagingSeriesZip || isQueueingSeriesDownload || translatedChapters.length === 0}
+                title={translatedChapters.length === 0 ? 'Bu seride henüz çevrilmiş bölüm yok' : undefined}
+              >
+                {isPackagingSeriesZip ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    ZIP Paketleniyor...
+                  </>
+                ) : (
+                  <>
+                    <FolderDown className="mr-2 h-4 w-4" />
+                    Çevirili İndir ({translatedChapters.length} Bölüm ZIP)
+                  </>
+                )}
+              </Button>
+              <Button
+                className="w-full sm:w-auto"
+                onClick={() => void handleQueueSeriesDownload()}
+                disabled={isQueueingSeriesDownload || isPackagingSeriesZip}
+              >
+                {isQueueingSeriesDownload ? 'Kuyruğa Alınıyor...' : 'Çevrimdışı İndir'}
+              </Button>
+            </div>
           </DialogFooter>
         </DialogContent>
       </Dialog>
