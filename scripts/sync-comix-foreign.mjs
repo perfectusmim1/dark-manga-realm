@@ -18,6 +18,9 @@ import {
   fetchComixApi,
   unpackManga,
   areSeriesTitlesMatching,
+  cleanEnglishSynopsis,
+  translateSynopsisToTurkish,
+  mapComixGenresAndFormat,
   extractExternalIdsFromComixLinks,
   fetchAniListMetadataAndCharacters,
   fetchBestComixChaptersByLanguage,
@@ -66,16 +69,39 @@ function getArgValue(flag, defaultVal = null) {
 }
 
 const TARGET_SLUG = getArgValue('--slug', null);
-const LIMIT = Number(getArgValue('--limit', TARGET_SLUG ? 1 : 50));
+const LIMIT = Number(getArgValue('--limit', TARGET_SLUG ? 1 : 0)); // 0 = limitsiz (tüm mevcut seriler)
 const CONCURRENCY = Math.max(1, Math.min(6, Number(getArgValue('--concurrency', 3))));
+const RESUME_MODE = args.includes('--resume');
+const FORCE_MODE = args.includes('--force');
 
-// Zaman aşımı koruması (Max 15 dakika genel script süresi, tekil HTTP isteklerinde 15s timeout)
-const GLOBAL_TIMEOUT_MS = Number(getArgValue('--timeout-ms', 15 * 60 * 1000));
-const globalTimer = setTimeout(() => {
-  console.error('[TIMEOUT] Script azami çalışma süresini aştı, güvenli şekilde sonlandırılıyor.');
-  process.exit(1);
-}, GLOBAL_TIMEOUT_MS);
-globalTimer.unref?.();
+// Zaman aşımı koruması (Varsayılan 0 = limitsiz arşiv modu; --timeout-ms verilirse aktif olur)
+const GLOBAL_TIMEOUT_MS = Number(getArgValue('--timeout-ms', 0));
+if (GLOBAL_TIMEOUT_MS > 0) {
+  const globalTimer = setTimeout(() => {
+    console.error('[TIMEOUT] Script azami çalışma süresini aştı, güvenli şekilde sonlandırılıyor.');
+    process.exit(1);
+  }, GLOBAL_TIMEOUT_MS);
+  globalTimer.unref?.();
+}
+
+const CACHE_DIR = path.join(ROOT_DIR, '.cache');
+const SYNC_STATE_FILE = path.join(CACHE_DIR, 'comix-foreign-sync-state.json');
+
+function loadSyncState() {
+  try {
+    if (fs.existsSync(SYNC_STATE_FILE)) {
+      return JSON.parse(fs.readFileSync(SYNC_STATE_FILE, 'utf8'));
+    }
+  } catch {}
+  return { syncedSlugs: [] };
+}
+
+function saveSyncState(state) {
+  try {
+    if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+    fs.writeFileSync(SYNC_STATE_FILE, JSON.stringify(state, null, 2), 'utf8');
+  } catch {}
+}
 
 function getTimeStr() {
   return new Date().toTimeString().split(' ')[0];
@@ -102,8 +128,9 @@ async function fetchExistingMangasFromSupabase() {
 
   const rows = [];
   const pageSize = 200;
-  for (let offset = 0; rows.length < LIMIT; offset += pageSize) {
-    const fetchCount = Math.min(pageSize, LIMIT - rows.length);
+  const effectiveLimit = LIMIT > 0 ? LIMIT : 1000000;
+  for (let offset = 0; rows.length < effectiveLimit; offset += pageSize) {
+    const fetchCount = Math.min(pageSize, effectiveLimit - rows.length);
     const url = `${SUPABASE_URL}/rest/v1/mangas?select=*&order=views.desc,last_updated.desc&offset=${offset}&limit=${fetchCount}`;
     const res = await fetch(url, { headers, signal: AbortSignal.timeout(15000) });
     if (!res.ok) throw new Error(`Supabase mangas liste hatası: ${res.status}`);
@@ -400,24 +427,90 @@ async function processSingleExistingManga(manga, idx, total) {
 
   const existingSourceLinks = Array.isArray(manga.source_links) ? manga.source_links : [];
   const comixLinkUrl = `https://comix.to/title/${hid}-${slug}`;
-  const mergedSourceLinks = [
-    ...existingSourceLinks.filter((l) => l && l.source !== 'comix' && l.source !== 'asura' && l.source !== 'asurascans'),
+  const candidateLinks = [
     {
       source: 'comix',
       url: comixLinkUrl,
       externalId: hid,
       label: 'Comix',
     },
-    ...finalAnilist.sourceLinks.filter(
-      (alLink) => !existingSourceLinks.some((ex) => ex.source === alLink.source)
-    ),
+    ...(finalAnilist.sourceLinks || []),
+    ...(extIds.extraLinks || []),
   ];
+  const mergedSourceLinks = [
+    ...existingSourceLinks.filter((l) => l && l.source !== 'comix' && l.source !== 'asura' && l.source !== 'asurascans'),
+  ];
+  for (const cl of candidateLinks) {
+    if (cl && cl.source && !mergedSourceLinks.some((ex) => ex.source === cl.source)) {
+      mergedSourceLinks.push(cl);
+    }
+  }
+
+  // Konu (Synopsis): Hem Türkçe hem İngilizce ayrı ayrı saklanır
+  const enDescription = cleanEnglishSynopsis(
+    fullComix.synopsis || finalAnilist.descriptionEn || manga.description_en || manga.details?.descriptionEn || ''
+  );
+  const existingTrDesc = String(manga.description_tr || manga.details?.descriptionTr || manga.description || '').trim();
+  const trDescription =
+    existingTrDesc.length > 25 && existingTrDesc !== enDescription
+      ? existingTrDesc
+      : enDescription
+      ? await translateSynopsisToTurkish(enDescription)
+      : existingTrDesc;
+
+  // Türler, format, yazar/çizer, kapak ve yıl zenginleştirmesi
+  const { formatType: comixFormat, isAdult: comixAdult, genres: comixGenres } = mapComixGenresAndFormat(fullComix);
+  const isAdult = Boolean(manga.is_adult || comixAdult || finalAnilist.isAdult);
+  const mergedGenres = Array.from(
+    new Set([
+      ...(Array.isArray(manga.genres) ? manga.genres : []),
+      ...(comixGenres || []),
+      ...(finalAnilist.genres || []),
+      ...(isAdult ? ['+18'] : []),
+    ].filter(Boolean))
+  );
+
+  const comixAuthors = (fullComix.authors || []).map((a) => a.title).filter(Boolean).join(', ');
+  const comixArtists = (fullComix.artists || []).map((a) => a.title).filter(Boolean).join(', ');
+  const anilistAuthors = (finalAnilist.authors || []).filter(Boolean).join(', ');
+  const anilistArtists = (finalAnilist.artists || []).filter(Boolean).join(', ');
+
+  const resolvedAuthor =
+    manga.author && manga.author !== 'Bilinmiyor'
+      ? manga.author
+      : comixAuthors || anilistAuthors || 'Bilinmiyor';
+  const resolvedArtist =
+    manga.artist && manga.artist !== 'Bilinmiyor'
+      ? manga.artist
+      : comixArtists || anilistArtists || resolvedAuthor;
+
+  const resolvedCover =
+    manga.cover || fullComix.poster?.large || fullComix.poster?.medium || finalAnilist.coverUrl || '';
+  const resolvedBanner =
+    manga.banner || finalAnilist.bannerUrl || resolvedCover;
+  const resolvedYear =
+    Number(manga.release_year || fullComix.year || finalAnilist.releaseYear) || null;
 
   const nowIso = new Date().toISOString();
   const r2SeriesPayload = {
     ...manga,
     title: trTitle, // Türkçe ana başlık korunur
     slug,
+    cover: resolvedCover,
+    banner: resolvedBanner,
+    author: resolvedAuthor,
+    artist: resolvedArtist,
+    genres: mergedGenres,
+    type: manga.type || comixFormat || 'manhwa',
+    is_adult: isAdult,
+    isAdult,
+    release_year: resolvedYear,
+    releaseYear: resolvedYear,
+    description: trDescription || enDescription || manga.description || '',
+    description_tr: trDescription || '',
+    descriptionTr: trDescription || '',
+    description_en: enDescription || '',
+    descriptionEn: enDescription || '',
     views: Number(manga.views || 0), // Sitenin kendi görüntülenmesi korunur, Comix'ten alınmaz
     alternative_titles: mergedAltTitles,
     alternativeTitles: mergedAltTitles,
@@ -427,6 +520,10 @@ async function processSingleExistingManga(manga, idx, total) {
       ...(manga.details || {}),
       hid,
       comixSlug: slug,
+      anilistId: finalAnilist.anilistId || extIds.anilistId || null,
+      malId: finalAnilist.malId || extIds.malId || null,
+      descriptionTr: trDescription || '',
+      descriptionEn: enDescription || '',
       availableLanguages: Array.from(new Set(['tr', ...comixChaptersRes.languages])),
       lastForeignSyncAt: nowIso,
     },
@@ -444,7 +541,7 @@ async function processSingleExistingManga(manga, idx, total) {
     idx,
     total,
     trTitle,
-    `BAŞARILI [HID: ${hid}] -> TR: ${existingTrChapters.length} blm | +${addedForeignCount} yabancı blm (${comixChaptersRes.languages.join(', ').toUpperCase()}) | ${finalAnilist.characters.length} karakter | AltBaşlık: ${mergedAltTitles.slice(0, 2).join(', ')}`
+    `BAŞARILI [HID: ${hid}] -> TR: ${existingTrChapters.length} blm | +${addedForeignCount} yabancı blm (${comixChaptersRes.languages.join(', ').toUpperCase()}) | ${finalAnilist.characters.length} karakter | Konu: TR(${trDescription ? 'Var' : 'Yok'})+EN(${enDescription ? 'Var' : 'Yok'})`
   );
 
   return {
@@ -461,9 +558,17 @@ async function main() {
   console.log('   TOONPARROT - COMIX.TO ÇOKLU DİL & KARAKTER SENKRONİZASYONU (R2 HİBRİT)  ');
   console.log('============================================================================');
 
-  const mangas = await fetchExistingMangasFromSupabase();
+  const syncState = loadSyncState();
+  const syncedSet = new Set(syncState.syncedSlugs || []);
+
+  const allMangas = await fetchExistingMangasFromSupabase();
+  const mangas =
+    RESUME_MODE && !FORCE_MODE && !TARGET_SLUG
+      ? allMangas.filter((m) => m?.slug && !syncedSet.has(m.slug))
+      : allMangas;
+
   if (!mangas || mangas.length === 0) {
-    console.log('[BİLGİ] İşlenecek seri bulunamadı.');
+    console.log('[BİLGİ] İşlenecek yeni seri bulunamadı (tümü senkronize edilmiş).');
     process.exit(0);
   }
 
@@ -479,13 +584,20 @@ async function main() {
       batch.map(async (manga, batchOffset) => {
         const currentIdx = i + batchOffset + 1;
         try {
-          return await processSingleExistingManga(manga, currentIdx, mangas.length);
+          const res = await processSingleExistingManga(manga, currentIdx, mangas.length);
+          if (manga?.slug) {
+            syncedSet.add(manga.slug);
+          }
+          return res;
         } catch (err) {
           logProgress(currentIdx, mangas.length, manga.title || manga.slug, `HATA: ${err.message}`);
           return { matched: false, addedChapters: 0 };
         }
       })
     );
+
+    syncState.syncedSlugs = Array.from(syncedSet);
+    saveSyncState(syncState);
 
     for (const r of results) {
       processed++;

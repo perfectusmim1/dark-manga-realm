@@ -629,12 +629,14 @@ const mapMangaVisibilityFields = (row: any) => ({
 });
 
 const mapMangaBaseFields = (row: any) => ({
-    alternativeTitles: row?.alternative_titles || [],
+    alternativeTitles: row?.alternative_titles || row?.alternativeTitles || [],
     ...mapMangaVisibilityFields(row),
-    lastUpdated: row?.last_updated,
-    createdAt: row?.created_at,
-    releaseYear: row?.release_year,
-    description: sanitizeMangaDescription(row?.description),
+    lastUpdated: row?.last_updated || row?.lastUpdated,
+    createdAt: row?.created_at || row?.createdAt,
+    releaseYear: row?.release_year ?? row?.releaseYear,
+    description: sanitizeMangaDescription(row?.description || row?.description_tr || row?.descriptionTr || row?.details?.descriptionTr),
+    descriptionTr: sanitizeMangaDescription(row?.description_tr || row?.descriptionTr || row?.details?.descriptionTr || row?.description),
+    descriptionEn: sanitizeMangaDescription(row?.description_en || row?.descriptionEn || row?.details?.descriptionEn || ''),
 });
 
 const LEGACY_MANGA_PERSON_LABEL_LIMIT = 100;

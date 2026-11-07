@@ -1069,7 +1069,24 @@ const MangaDetail: React.FC = () => {
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   };
-  const cleanedDescription = React.useMemo(() => cleanDescriptionText(manga?.description), [manga?.description]);
+  const [descriptionLang, setDescriptionLang] = useState<'tr' | 'en'>('tr');
+  const cleanedDescriptionTr = React.useMemo(
+    () => cleanDescriptionText(manga?.descriptionTr || (manga?.details as any)?.descriptionTr || manga?.description),
+    [manga?.description, manga?.descriptionTr, manga?.details],
+  );
+  const cleanedDescriptionEn = React.useMemo(
+    () => cleanDescriptionText(manga?.descriptionEn || (manga as any)?.description_en || (manga?.details as any)?.descriptionEn || ''),
+    [manga],
+  );
+  const hasBilingualDescription = Boolean(
+    cleanedDescriptionTr &&
+    cleanedDescriptionEn &&
+    cleanedDescriptionTr.toLowerCase() !== cleanedDescriptionEn.toLowerCase(),
+  );
+  const cleanedDescription = React.useMemo(
+    () => (hasBilingualDescription && descriptionLang === 'en' ? cleanedDescriptionEn : (cleanedDescriptionTr || cleanedDescriptionEn)),
+    [cleanedDescriptionEn, cleanedDescriptionTr, descriptionLang, hasBilingualDescription],
+  );
   const descriptionPreview = React.useMemo(() => {
     if (cleanedDescription.length <= descriptionPreviewLimit) {
       return cleanedDescription;
@@ -1157,6 +1174,7 @@ const MangaDetail: React.FC = () => {
     setIsDescriptionExpanded(false);
     setIsAlternativeTitlesExpanded(false);
     setSelectedLanguage('all');
+    setDescriptionLang('tr');
   }, [manga?.id]);
 
   useEffect(() => {
@@ -3219,6 +3237,34 @@ const MangaDetail: React.FC = () => {
                 </div>
 
                 <div>
+                  {hasBilingualDescription && (
+                    <div className="mb-2 inline-flex items-center rounded-lg border border-border/60 bg-secondary/40 p-0.5">
+                      <button
+                        type="button"
+                        onClick={() => setDescriptionLang('tr')}
+                        className={cn(
+                          'rounded-md px-2.5 py-0.5 text-xs font-semibold transition-colors',
+                          descriptionLang === 'tr'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        TR
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setDescriptionLang('en')}
+                        className={cn(
+                          'rounded-md px-2.5 py-0.5 text-xs font-semibold transition-colors',
+                          descriptionLang === 'en'
+                            ? 'bg-primary text-primary-foreground shadow-sm'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        EN
+                      </button>
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => shouldShowDescriptionToggle && setIsDescriptionExpanded((previous) => !previous)}

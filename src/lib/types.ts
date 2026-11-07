@@ -11,6 +11,8 @@ export interface Manga {
   status: 'ongoing' | 'completed' | 'hiatus';
   genres: string[];
   description: string;
+  descriptionTr?: string;
+  descriptionEn?: string;
   // Rating is now calculated from user votes
   ratings: MangaRating[];
   views: number;
@@ -100,6 +102,8 @@ export interface EntityMetadata {
   originalWebtoon?: string[];
   genres?: string[];
   tags?: string[];
+  descriptionTr?: string;
+  descriptionEn?: string;
   comments?: string;
   extra?: Record<string, JsonValue>;
 }
