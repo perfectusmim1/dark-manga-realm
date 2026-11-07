@@ -6,6 +6,7 @@ import { getLanguageName } from './languages';
 import { normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 import { runFastWebtoonOcr } from './fastOcr';
+import { isPureSoundEffect } from './ocrCore';
 
 const GEMINI_FLASH_MODEL = 'gemini-flash-lite-latest';
 const GEMINI_THINKING_LEVEL = ThinkingLevel.MINIMAL;
@@ -364,6 +365,7 @@ export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   if (!stripped || stripped.length <= 1) return true;
   if (CREDITS_START_REGEX.test(stripped) || CREDITS_INLINE_REGEX.test(t)) return true;
   if (/^[◁▷◀▶].*[◁▷◀▶]$/.test(t)) return true;
+  if (isPureSoundEffect(stripped)) return true;
 
   const wordTokens = stripped
     .split(/[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>]+/)
@@ -679,13 +681,19 @@ export const translatePageImage = async ({
     .map((bubble, idx) => {
       const translated = (translatedTexts[idx] || bubble.text).trim();
       if (shouldSkipBlock(translated, targetLang)) return null;
-      // Çeviri orijinalle aynıysa (isim, ses efekti, ekran yazısı) orijinal çizimi bozma
+      // Çeviri orijinalle aynıysa (özel isim, saf ses efekti) orijinal çizimi bozma
       if (normalizeForCompare(translated) === normalizeForCompare(bubble.text)) return null;
       return inpaintAndRefineBlock(
         fullCtx,
         fullWidth,
         fullHeight,
-        { box: bubble.box, text: translated },
+        {
+          box: bubble.box,
+          text: translated,
+          originalText: bubble.text,
+          lines: bubble.lines,
+          emphasisLastLineScale: bubble.emphasisLastLineScale,
+        },
         targetLang,
       );
     })

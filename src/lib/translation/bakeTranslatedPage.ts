@@ -3,10 +3,14 @@ import { ResolvedReaderPage } from '@/lib/types';
 import {
   ensureScanlationFontReady,
   formatScanlationText,
-  SCANLATION_FONT_FAMILY,
-  simulateWrappedLines,
+  getFontFamilyCss,
 } from './bubbleInpainter';
 import { fetchTranslatableImageBlob, loadImageElementFromBlob } from './geminiTranslator';
+import {
+  computeSmartWrappedLines,
+  getLineHeightRatioForBlock,
+  isWhiteOrLightColor,
+} from './textLayout';
 import { PageTranslationState, TranslationBlock } from './types';
 
 const CRC32_TABLE = (() => {
@@ -126,28 +130,8 @@ const canvasToJpegBlob = (canvas: HTMLCanvasElement, quality = 0.93): Promise<Bl
     );
   });
 
-const isWhiteOrLight = (color: string, isDarkBubble?: boolean): boolean => {
-  if (isDarkBubble) return true;
-  const c = color.trim().toLowerCase();
-  if (c === '#fff' || c === '#ffffff' || c === '#fafafa' || c === 'white') return true;
-  if (c.startsWith('#') && (c.length === 7 || c.length === 4)) {
-    let r = 0, g = 0, b = 0;
-    if (c.length === 7) {
-      r = parseInt(c.slice(1, 3), 16);
-      g = parseInt(c.slice(3, 5), 16);
-      b = parseInt(c.slice(5, 7), 16);
-    } else {
-      r = parseInt(c[1] + c[1], 16);
-      g = parseInt(c[2] + c[2], 16);
-      b = parseInt(c[3] + c[3], 16);
-    }
-    return 0.299 * r + 0.587 * g + 0.114 * b > 175;
-  }
-  return false;
-};
-
-// Sayfa görselinin tam çözünürlüklü kopyası üzerine piksel-inpaint yamalarını ve Shantell Sans
-// scanlation dizgisini doğrudan işleyerek indirilebilir görsel üretir.
+// Sayfa görselinin tam çözünürlüklü kopyası üzerine piksel-inpaint yamalarını ve
+// stil kopyalı scanlation/SFX dizgisini doğrudan işleyerek indirilebilir görsel üretir.
 export const bakeTranslatedPageToBlob = async (
   imageSrc: string,
   blocks: TranslationBlock[] | undefined,
@@ -206,7 +190,7 @@ export const bakeTranslatedPageToBlob = async (
     }
   }
 
-  // 2. Katman: Shantell Sans çizgi roman dizgisi
+  // 2. Katman: Stil kopyalı çizgi roman / SFX dizgisi
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
   ctx.lineJoin = 'round';
@@ -224,39 +208,81 @@ export const bakeTranslatedPageToBlob = async (
     if (boxW <= 4 || boxH <= 4) continue;
 
     const fontSizeCqw = block.fontSizeCqw ?? 2.85;
-    const fontPx = Math.max(11, (fontSizeCqw / 100) * width);
-    ctx.font = `700 ${fontPx}px ${SCANLATION_FONT_FAMILY}`;
+    const baseFontPx = Math.max(11, (fontSizeCqw / 100) * width);
+    const fontFamilyCss = getFontFamilyCss(block.fontFamily);
+    const fontWeight = block.fontWeight ?? 700;
+    const lineHeightRatio = getLineHeightRatioForBlock(block);
 
-    const { lines } = simulateWrappedLines(ctx, displayText, boxW, fontPx);
-    if (lines.length === 0) continue;
+    const wrapped = computeSmartWrappedLines(ctx, displayText, boxW * 0.95, baseFontPx, {
+      fontFamily: block.fontFamily,
+      fontWeight,
+      lineWidthsPct: block.lineWidthsPct,
+      emphasisLastLineScale: block.emphasisLastLineScale,
+      lineHeightRatio,
+    });
+    if (wrapped.lines.length === 0) continue;
 
-    const lineHeight = fontPx * 1.22;
-    const totalTextH = lines.length * lineHeight;
     const centerX = boxX + boxW * 0.5;
-    const startY = boxY + (boxH - totalTextH) * 0.5 + lineHeight * 0.5;
+    const centerY = boxY + boxH * 0.5;
     const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
-    const isLight = isWhiteOrLight(textColor, block.isDark);
+    const isLight = isWhiteOrLightColor(textColor, block.isDark);
+    const strokeColor = block.strokeColor || '#ffffff';
+    const strokeWidthEm = block.strokeWidthEm ?? 0.22;
 
-    for (let i = 0; i < lines.length; i += 1) {
-      const lineY = startY + i * lineHeight;
+    ctx.save();
+    if (block.rotationDeg) {
+      ctx.translate(centerX, centerY);
+      ctx.rotate((block.rotationDeg * Math.PI) / 180);
+      ctx.translate(-centerX, -centerY);
+    }
+
+    let cursorY = boxY + (boxH - wrapped.totalHeightPx) * 0.5;
+
+    for (let i = 0; i < wrapped.lines.length; i += 1) {
+      const line = wrapped.lines[i];
+      const lineFontPx = baseFontPx * line.scale;
+      const lineH = lineFontPx * lineHeightRatio;
+      const lineY = cursorY + lineH * 0.5;
+      cursorY += lineH;
+
+      ctx.font = `${block.fontStyle || 'normal'} ${fontWeight} ${lineFontPx}px ${fontFamilyCss}`;
+
       if (block.hasTextStroke) {
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = Math.max(2.5, fontPx * 0.22);
-        ctx.strokeText(lines[i], centerX, lineY);
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = Math.max(2.5, lineFontPx * strokeWidthEm);
+        ctx.strokeText(line.text, centerX, lineY);
       }
-      if (isLight) {
+
+      if (isLight || block.shadowColor) {
         ctx.save();
-        ctx.shadowColor = 'rgba(0, 0, 0, 0.95)';
-        ctx.shadowBlur = Math.max(3, fontPx * 0.18);
+        ctx.shadowColor = block.shadowColor || 'rgba(0, 0, 0, 0.95)';
+        ctx.shadowBlur = Math.max(3, lineFontPx * (block.shadowBlurEm ?? 0.18));
         ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = Math.max(1.5, fontPx * 0.08);
+        ctx.shadowOffsetY = Math.max(1.5, lineFontPx * 0.08);
       }
-      ctx.fillStyle = textColor;
-      ctx.fillText(lines[i], centerX, lineY);
-      if (isLight) {
+
+      if (block.gradientStops && block.gradientStops.length === 2) {
+        const grad = ctx.createLinearGradient(
+          centerX,
+          lineY - lineFontPx * 0.5,
+          centerX,
+          lineY + lineFontPx * 0.5,
+        );
+        grad.addColorStop(0, block.gradientStops[0]);
+        grad.addColorStop(1, block.gradientStops[1]);
+        ctx.fillStyle = grad;
+      } else {
+        ctx.fillStyle = textColor;
+      }
+
+      ctx.fillText(line.text, centerX, lineY);
+
+      if (isLight || block.shadowColor) {
         ctx.restore();
       }
     }
+
+    ctx.restore();
   }
 
   const bakedBlob = await canvasToJpegBlob(canvas);
@@ -413,4 +439,3 @@ export const downloadTranslatedSeriesAsZip = async ({
   anchor.remove();
   setTimeout(() => URL.revokeObjectURL(url), 10000);
 };
-

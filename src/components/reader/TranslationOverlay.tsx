@@ -1,111 +1,171 @@
 import React from 'react';
 import { AlertTriangle, Eye, EyeOff, Languages, Loader2, RefreshCw } from 'lucide-react';
 import { PageTranslationState, TranslationBlock } from '@/lib/translation/types';
-import { formatScanlationText, SCANLATION_FONT_FAMILY } from '@/lib/translation/bubbleInpainter';
+import { formatScanlationText, getFontFamilyCss } from '@/lib/translation/bubbleInpainter';
+import {
+  computeSmartWrappedLines,
+  getLineHeightRatioForBlock,
+  getSharedMeasureContext,
+  isWhiteOrLightColor,
+} from '@/lib/translation/textLayout';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
-const isWhiteOrLight = (color: string, isDarkBubble?: boolean): boolean => {
-  if (isDarkBubble) return true;
-  const c = color.trim().toLowerCase();
-  if (c === '#fff' || c === '#ffffff' || c === '#fafafa' || c === 'white') return true;
-  if (c.startsWith('#') && (c.length === 7 || c.length === 4)) {
-    let r = 0, g = 0, b = 0;
-    if (c.length === 7) {
-      r = parseInt(c.slice(1, 3), 16);
-      g = parseInt(c.slice(3, 5), 16);
-      b = parseInt(c.slice(5, 7), 16);
-    } else {
-      r = parseInt(c[1] + c[1], 16);
-      g = parseInt(c[2] + c[2], 16);
-      b = parseInt(c[3] + c[3], 16);
-    }
-    return 0.299 * r + 0.587 * g + 0.114 * b > 175;
-  }
-  return false;
-};
-
-// Piksel-Inpaint + Vektör Scanlation Dizgi Katmanı:
-// 1. Orijinal metni balonun kendi pikselleriyle pürüzsüz onaran WebP yamayı (patchDataUrl) 1:1 oturtur.
-// 2. Çevrilen metni sayfa genişliğine (cqw) kilitli Shantell Sans çizgi roman fontuyla balon içine dizgiler.
+// Piksel-Inpaint + Vektör & Stil Kopyalı Scanlation Dizgi Katmanı:
+// 1. Orijinal metni balonun veya sahnenin pikselleriyle pürüzsüz onaran WebP yamayı (patchDataUrl) 1:1 oturtur.
+// 2. Çevrilen metni sayfa genişliğine (cqw) kilitli, orijinal yazının font karakterini, rengini, konturunu,
+//    gradyanını, açısını ve vurgu ölçeğini birebir koruyan vektör katmanıyla ekrana basar.
 export const TranslationOverlay: React.FC<{
   blocks: TranslationBlock[];
   targetLang?: string;
-}> = ({ blocks, targetLang = 'tr' }) => (
-  <div
-    className="pointer-events-none absolute inset-0 z-20 select-none"
-    style={{ containerType: 'inline-size' } as React.CSSProperties}
-  >
-    {/* 1. Katman: Tüm balonların lekesiz piksel-inpaint arka plan yamaları */}
-    {blocks.map((block, index) => {
-      if (!block.patchDataUrl || !block.patchBox) return null;
-      const [pYmin, pXmin, pYmax, pXmax] = block.patchBox;
-      return (
-        <img
-          key={`patch-${index}`}
-          src={block.patchDataUrl}
-          alt=""
-          aria-hidden="true"
-          draggable={false}
-          className="pointer-events-none absolute block max-w-none select-none"
-          style={{
-            top: `${pYmin / 10}%`,
-            left: `${pXmin / 10}%`,
-            width: `${(pXmax - pXmin) / 10}%`,
-            height: `${(pYmax - pYmin) / 10}%`,
-          }}
-        />
-      );
-    })}
+}> = ({ blocks, targetLang = 'tr' }) => {
+  const measureCtx = getSharedMeasureContext();
 
-    {/* 2. Katman: Vektörel Retina webtoon/manga dizgisi */}
-    {blocks.map((block, index) => {
-      const [ymin, xmin, ymax, xmax] = block.box;
-      const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
-      const fontSizeCqw = block.fontSizeCqw ?? 2.85;
-      const displayText = formatScanlationText(block.text, targetLang);
-      const isLight = isWhiteOrLight(textColor, block.isDark);
-
-      return (
-        <div
-          key={`text-${index}`}
-          className="pointer-events-none absolute flex items-center justify-center select-none"
-          style={{
-            top: `${ymin / 10}%`,
-            left: `${xmin / 10}%`,
-            width: `${(xmax - xmin) / 10}%`,
-            height: `${(ymax - ymin) / 10}%`,
-          }}
-        >
-          <span
-            className="block w-full text-center font-bold"
+  return (
+    <div
+      className="pointer-events-none absolute inset-0 z-20 select-none"
+      style={{ containerType: 'inline-size' } as React.CSSProperties}
+    >
+      {/* 1. Katman: Tüm balonların ve sahne yazılarının lekesiz piksel-inpaint arka plan yamaları */}
+      {blocks.map((block, index) => {
+        if (!block.patchDataUrl || !block.patchBox) return null;
+        const [pYmin, pXmin, pYmax, pXmax] = block.patchBox;
+        return (
+          <img
+            key={`patch-${index}`}
+            src={block.patchDataUrl}
+            alt=""
+            aria-hidden="true"
+            draggable={false}
+            className="pointer-events-none absolute block max-w-none select-none"
             style={{
-              color: textColor,
-              fontFamily: SCANLATION_FONT_FAMILY,
-              fontSize: `${fontSizeCqw}cqw`,
-              lineHeight: 1.22,
-              letterSpacing: '0.01em',
-              overflowWrap: 'break-word',
-              wordBreak: 'normal',
-              textShadow: isLight
-                ? '0 2px 4px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.85), 1px 1px 2px rgba(0,0,0,0.9)'
-                : undefined,
-              ...(block.hasTextStroke
-                ? {
-                    WebkitTextStroke: '0.22em #ffffff',
-                    paintOrder: 'stroke fill',
-                  }
-                : undefined),
-            } as React.CSSProperties}
+              top: `${pYmin / 10}%`,
+              left: `${pXmin / 10}%`,
+              width: `${(pXmax - pXmin) / 10}%`,
+              height: `${(pYmax - pYmin) / 10}%`,
+            }}
+          />
+        );
+      })}
+
+      {/* 2. Katman: Vektörel Retina webtoon/manga & SFX dizgisi */}
+      {blocks.map((block, index) => {
+        const [ymin, xmin, ymax, xmax] = block.box;
+        const displayText = formatScanlationText(block.text, targetLang);
+        if (!displayText) return null;
+
+        const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
+        const fontSizeCqw = block.fontSizeCqw ?? 2.85;
+        const fontFamilyCss = getFontFamilyCss(block.fontFamily);
+        const fontWeight = block.fontWeight ?? 700;
+        const lineHeightRatio = getLineHeightRatioForBlock(block);
+        const isLight = isWhiteOrLightColor(textColor, block.isDark);
+        const strokeColor = block.strokeColor || '#ffffff';
+        const strokeWidthEm = block.strokeWidthEm ?? 0.22;
+        const letterSpacing = `${block.letterSpacingEm ?? 0.01}em`;
+
+        // Referans 1000px genişlik üzerinden dengeli satırları ve vurgu ölçeğini hesapla
+        const refBoxW = Math.max(20, xmax - xmin);
+        const refFontPx = (fontSizeCqw / 100) * 1000;
+        const wrapped = computeSmartWrappedLines(
+          measureCtx,
+          displayText,
+          refBoxW * 0.94,
+          refFontPx,
+          {
+            fontFamily: block.fontFamily,
+            fontWeight,
+            lineWidthsPct: block.lineWidthsPct,
+            emphasisLastLineScale: block.emphasisLastLineScale,
+            lineHeightRatio,
+          },
+        );
+
+        const textShadow = block.shadowColor
+          ? `0 2px 5px ${block.shadowColor}, 0 0 3px ${block.shadowColor}`
+          : isLight && !block.hasTextStroke
+            ? '0 2px 4px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.85), 1px 1px 2px rgba(0,0,0,0.9)'
+            : undefined;
+
+        const transformParts: string[] = [];
+        if (block.rotationDeg) transformParts.push(`rotate(${block.rotationDeg}deg)`);
+        if (block.skewDeg) transformParts.push(`skewX(${block.skewDeg}deg)`);
+        const transformCss = transformParts.length > 0 ? transformParts.join(' ') : undefined;
+
+        return (
+          <div
+            key={`text-${index}`}
+            className="pointer-events-none absolute flex flex-col items-center justify-center select-none"
+            style={{
+              top: `${ymin / 10}%`,
+              left: `${xmin / 10}%`,
+              width: `${(xmax - xmin) / 10}%`,
+              height: `${(ymax - ymin) / 10}%`,
+              transform: transformCss,
+            }}
           >
-            {displayText}
-          </span>
-        </div>
-      );
-    })}
-  </div>
-);
+            {wrapped.lines.length > 0 ? (
+              wrapped.lines.map((line, lineIdx) => {
+                const lineCqw = Number((fontSizeCqw * line.scale).toFixed(3));
+                return (
+                  <span
+                    key={lineIdx}
+                    className="block w-full text-center whitespace-nowrap"
+                    style={
+                      {
+                        color: textColor,
+                        fontFamily: fontFamilyCss,
+                        fontWeight,
+                        fontStyle: block.fontStyle || 'normal',
+                        fontSize: `${lineCqw}cqw`,
+                        lineHeight: lineHeightRatio,
+                        letterSpacing,
+                        textShadow,
+                        ...(block.hasTextStroke
+                          ? {
+                              WebkitTextStroke: `${strokeWidthEm}em ${strokeColor}`,
+                              paintOrder: 'stroke fill',
+                            }
+                          : undefined),
+                      } as React.CSSProperties
+                    }
+                  >
+                    {line.text}
+                  </span>
+                );
+              })
+            ) : (
+              <span
+                className="block w-full text-center"
+                style={
+                  {
+                    color: textColor,
+                    fontFamily: fontFamilyCss,
+                    fontWeight,
+                    fontSize: `${fontSizeCqw}cqw`,
+                    lineHeight: lineHeightRatio,
+                    letterSpacing,
+                    overflowWrap: 'break-word',
+                    textShadow,
+                    ...(block.hasTextStroke
+                      ? {
+                          WebkitTextStroke: `${strokeWidthEm}em ${strokeColor}`,
+                          paintOrder: 'stroke fill',
+                        }
+                      : undefined),
+                  } as React.CSSProperties
+                }
+              >
+                {displayText}
+              </span>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+};
 
 interface PageTranslateButtonProps {
   state?: PageTranslationState;

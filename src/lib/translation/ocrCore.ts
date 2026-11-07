@@ -1,11 +1,10 @@
 /**
- * PaddleOCR (PP-OCRv3/v4 ONNX) tabanlı yerel OCR çekirdeği.
- * DOM / tarayıcı API'si veya import içermez: aynı kod tarayıcıda (onnxruntime-web) ve
- * Node test düzeneğinde (onnxruntime-node) birebir çalışır.
- * Görseller hiçbir uzak API'ye gönderilmez; tüm çıkarım istemcide yapılır.
+ * Saf yerel PaddleOCR (PP-OCRv3/v4) çıkarım çekirdeği ve balon gruplama mantığı.
+ * Tarayıcı Web Worker'ı ve Node/vitest testleri tarafından ortak kullanılır; DOM bağımlılığı yoktur.
  */
+import type { OcrBubbleLineBox } from './types';
 
-export interface RgbaImage {
+export interface OcrImageBuffer {
   data: Uint8ClampedArray | Uint8Array;
   width: number;
   height: number;
@@ -13,14 +12,19 @@ export interface RgbaImage {
 
 export interface OcrLine {
   text: string;
-  /** 0-100 arası tanıma güveni */
+  /** 0..100 arası güven skoru */
   confidence: number;
   bbox: { x0: number; y0: number; x1: number; y1: number };
 }
 
 export interface OcrBubble {
+  /** [ymin, xmin, ymax, xmax] 0..1000 normalize */
   box: [number, number, number, number];
   text: string;
+  /** Balonu oluşturan alt satırların normalize kutuları */
+  lines?: OcrBubbleLineBox[];
+  /** Son satır vurgulu/büyük yazılmışsa ("ALONE?" gibi) büyüklük çarpanı */
+  emphasisLastLineScale?: number;
 }
 
 export type OcrModelRunner = (
@@ -40,11 +44,11 @@ const DET_MAX_WIDTH = 960;
 const DET_SLICE_H = 1536;
 const DET_SLICE_OVERLAP = 192;
 const DET_BIN_THRESH = 0.3;
-const DET_BOX_THRESH = 0.6;
-const DET_UNCLIP_RATIO = 1.6;
+const DET_BOX_THRESH = 0.58;
+const DET_UNCLIP_RATIO = 1.78;
 const REC_H = 48;
 const REC_MAX_W = 1600;
-const MIN_LINE_CONFIDENCE = 80;
+const MIN_LINE_CONFIDENCE = 78;
 
 const clamp = (v: number, lo: number, hi: number) => (v < lo ? lo : v > hi ? hi : v);
 
@@ -53,22 +57,22 @@ const checkAbort = (signal?: AbortSignal) => {
 };
 
 /**
- * Kaynak RGBA görüntüden bilineer örnekleme ile doğrudan normalize edilmiş BGR NCHW tensörü üretir
- * (PaddleOCR modelleri cv2 BGR sırasıyla eğitilmiştir).
+ * Kaynak görüntünün [sx0, sy0, sw, sh] dikdörtgenini çift doğrusal örnekleme ile
+ * [1, 3, th, outW] NCHW BGR float32 tensörüne yazar (sağ taraf sıfır dolgulu).
  */
 const sampleToTensor = (
-  img: RgbaImage,
+  img: OcrImageBuffer,
   sx0: number,
   sy0: number,
   sw: number,
   sh: number,
   tw: number,
   th: number,
-  mean: number[],
-  std: number[],
-  out: Float32Array,
   outW: number,
-): void => {
+  mean: readonly number[],
+  std: readonly number[],
+  out: Float32Array,
+) => {
   const { data, width, height } = img;
   const plane = outW * th;
   const scaleX = sw / tw;
@@ -92,7 +96,7 @@ const sampleToTensor = (
         const top = data[i00 + c] * (1 - wx) + data[i01 + c] * wx;
         const bot = data[i10 + c] * (1 - wx) + data[i11 + c] * wx;
         const v = (top * (1 - wy) + bot * wy) / 255;
-        // c: 0=R,1=G,2=B -> BGR düzlemleri (B=0, G=1, R=2)
+        // PaddleOCR BGR kanal sırası bekler (R->2, G->1, B->0)
         const ch = 2 - c;
         out[ch * plane + o] = (v - mean[ch]) / std[ch];
       }
@@ -105,28 +109,29 @@ interface DetBox {
   y0: number;
   x1: number;
   y1: number;
-  score: number;
 }
 
-/** DBNet olasılık haritasından eksen hizalı metin satırı kutuları çıkarır (8-komşuluk bileşenleri). */
+/** DBNet olasılık haritasından bağlı bileşen analizi ile metin kutularını çıkarır. */
 const extractDetBoxes = (prob: Float32Array, w: number, h: number): DetBox[] => {
   const labels = new Int32Array(w * h);
   const queue = new Int32Array(w * h);
   const boxes: DetBox[] = [];
-  let cur = 0;
-  for (let start = 0; start < w * h; start += 1) {
-    if (labels[start] !== 0 || prob[start] <= DET_BIN_THRESH) continue;
-    cur += 1;
-    labels[start] = cur;
+  let label = 0;
+
+  for (let i = 0; i < w * h; i += 1) {
+    if (prob[i] <= DET_BIN_THRESH || labels[i] !== 0) continue;
+    label += 1;
     let head = 0;
     let tail = 0;
-    queue[tail++] = start;
-    let minX = w;
-    let maxX = 0;
-    let minY = h;
-    let maxY = 0;
+    queue[tail++] = i;
+    labels[i] = label;
+    let minX = i % w;
+    let maxX = minX;
+    let minY = (i / w) | 0;
+    let maxY = minY;
     let sum = 0;
     let count = 0;
+
     while (head < tail) {
       const p = queue[head++];
       const py = (p / w) | 0;
@@ -137,6 +142,7 @@ const extractDetBoxes = (prob: Float32Array, w: number, h: number): DetBox[] => 
       if (px > maxX) maxX = px;
       if (py < minY) minY = py;
       if (py > maxY) maxY = py;
+
       for (let dy = -1; dy <= 1; dy += 1) {
         const ny = py + dy;
         if (ny < 0 || ny >= h) continue;
@@ -145,66 +151,82 @@ const extractDetBoxes = (prob: Float32Array, w: number, h: number): DetBox[] => 
           if (nx < 0 || nx >= w) continue;
           const n = ny * w + nx;
           if (labels[n] === 0 && prob[n] > DET_BIN_THRESH) {
-            labels[n] = cur;
+            labels[n] = label;
             queue[tail++] = n;
           }
         }
       }
     }
+
     const bw = maxX - minX + 1;
     const bh = maxY - minY + 1;
-    if (Math.min(bw, bh) < 3) continue;
+    if (count < 8 || bw < 3 || bh < 3) continue;
     const score = sum / count;
     if (score < DET_BOX_THRESH) continue;
-    // DB unclip: d = alan * oran / çevre
+
+    // DBNet küçültülmüş çekirdeğini orijinal metin sınırına genişlet (unclip)
+    // Kalın konturlu/stilize SFX harflerinin sağ/sol uçlarının kesilmemesi için yatayda ek tolerans
     const d = (bw * bh * DET_UNCLIP_RATIO) / (2 * (bw + bh));
-    boxes.push({ x0: minX - d, y0: minY - d, x1: maxX + 1 + d, y1: maxY + 1 + d, score });
+    const dx = Math.max(d * 1.18, bh * 0.28);
+    const dy = Math.max(d * 0.95, bh * 0.18);
+    boxes.push({
+      x0: clamp(minX - dx, 0, w),
+      y0: clamp(minY - dy, 0, h),
+      x1: clamp(maxX + 1 + dx, 0, w),
+      y1: clamp(maxY + 1 + dy, 0, h),
+    });
   }
   return boxes;
 };
 
+/** CTC açgözlü (greedy) kod çözme: tekrarları ve blank (0) indeksini eler. */
 const ctcDecode = (
   data: Float32Array,
   steps: number,
   classes: number,
-  dictionary: string[],
+  dict: readonly string[],
 ): { text: string; confidence: number } => {
   let text = '';
   let probSum = 0;
-  let emitted = 0;
-  let prev = -1;
+  let probCount = 0;
+  let prevIdx = 0;
+
   for (let t = 0; t < steps; t += 1) {
     const off = t * classes;
-    let best = 0;
-    let bestP = data[off];
-    for (let k = 1; k < classes; k += 1) {
+    let maxIdx = 0;
+    let maxVal = -Infinity;
+    for (let k = 0; k < classes; k += 1) {
       const v = data[off + k];
-      if (v > bestP) {
-        bestP = v;
-        best = k;
+      if (v > maxVal) {
+        maxVal = v;
+        maxIdx = k;
       }
     }
-    if (best !== 0 && best !== prev) {
-      text += dictionary[best - 1] ?? '';
-      probSum += bestP;
-      emitted += 1;
+    if (maxIdx > 0 && maxIdx !== prevIdx) {
+      const ch = dict[maxIdx - 1] ?? '';
+      if (ch) {
+        text += ch;
+        probSum += maxVal;
+        probCount += 1;
+      }
     }
-    prev = best;
+    prevIdx = maxIdx;
   }
-  return { text, confidence: emitted > 0 ? (probSum / emitted) * 100 : 0 };
+  return { text, confidence: probCount > 0 ? (probSum / probCount) * 100 : 0 };
 };
 
 const recognizeBox = async (
-  img: RgbaImage,
-  box: { x0: number; y0: number; x1: number; y1: number },
+  img: OcrImageBuffer,
+  box: DetBox,
   runners: OcrRunners,
 ): Promise<{ text: string; confidence: number }> => {
   const cw = box.x1 - box.x0;
   const ch = box.y1 - box.y0;
+  if (cw < 4 || ch < 4) return { text: '', confidence: 0 };
   const tw = clamp(Math.round((REC_H * cw) / ch), 16, REC_MAX_W);
   const outW = Math.ceil(tw / 8) * 8;
   const input = new Float32Array(3 * REC_H * outW);
-  sampleToTensor(img, box.x0, box.y0, cw, ch, tw, REC_H, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], input, outW);
+  sampleToTensor(img, box.x0, box.y0, cw, ch, tw, REC_H, outW, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], input);
   const out = await runners.rec(input, [1, 3, REC_H, outW]);
   const steps = out.dims[1];
   const classes = out.dims[2];
@@ -218,19 +240,19 @@ const iou = (a: OcrLine['bbox'], b: OcrLine['bbox']) => {
   const inter = ix * iy;
   const areaA = (a.x1 - a.x0) * (a.y1 - a.y0);
   const areaB = (b.x1 - b.x0) * (b.y1 - b.y0);
-  return inter / Math.min(areaA, areaB);
+  return inter / Math.max(1, areaA + areaB - inter);
 };
 
 /**
- * Tam sayfayı (uzun webtoon şeritleri dahil) örtüşmeli dikey dilimlerle tarar.
- * Dilim kenarında kesilen satırlar atılır; aynı satır komşu dilimde tam haliyle bulunur.
+ * Uzun webtoon/manga sayfasını örtüşmeli dilimler halinde PaddleOCR ile tarar.
  */
 export const runPaddleOcr = async (
-  img: RgbaImage,
+  img: OcrImageBuffer,
   runners: OcrRunners,
   signal?: AbortSignal,
 ): Promise<OcrLine[]> => {
   const { width, height } = img;
+  if (width <= 0 || height <= 0) return [];
   const scale = width > DET_MAX_WIDTH ? DET_MAX_WIDTH / width : 1;
   const detW = Math.max(32, Math.round((width * scale) / 32) * 32);
   const sliceSrcH = Math.round(DET_SLICE_H / scale);
@@ -244,7 +266,7 @@ export const runPaddleOcr = async (
     const isLast = sy + srcH >= height;
     const detH = Math.max(32, Math.round((srcH * scale) / 32) * 32);
     const input = new Float32Array(3 * detW * detH);
-    sampleToTensor(img, 0, sy, width, srcH, detW, detH, DET_MEAN, DET_STD, input, detW);
+    sampleToTensor(img, 0, sy, width, srcH, detW, detH, detW, DET_MEAN, DET_STD, input);
     const out = await runners.det(input, [1, 3, detH, detW]);
     checkAbort(signal);
     const mapH = out.dims[2];
@@ -253,26 +275,27 @@ export const runPaddleOcr = async (
     const fy = srcH / mapH;
 
     for (const b of extractDetBoxes(out.data, mapW, mapH)) {
-      // Dilim sınırına değen (yarım kesilmiş) satırları at; örtüşme bölgesindeki komşu dilim onu tam görür.
+      // Dilim sınırında yarım kesilen kutuları komşu dilime bırak
+      if (!isFirst && b.y0 <= 2) continue;
       if (!isLast && b.y1 >= mapH - 2) continue;
-      if (!isFirst && b.y0 <= 1) continue;
       const box = {
         x0: clamp(b.x0 * fx, 0, width),
-        x1: clamp(b.x1 * fx, 0, width),
         y0: clamp(b.y0 * fy + sy, 0, height),
+        x1: clamp(b.x1 * fx, 0, width),
         y1: clamp(b.y1 * fy + sy, 0, height),
       };
       const bw = box.x1 - box.x0;
       const bh = box.y1 - box.y0;
-      if (bw < 6 || bh < 6) continue;
-      // Dikey dizilmiş metin (SFX / Japonca) yatay tanıyıcıya uygun değil
-      if (bh > bw * 2.5) continue;
+      if (bw < 10 || bh < 8 || bh > bw * 5) continue;
+
+      checkAbort(signal);
       const rec = await recognizeBox(img, box, runners);
       const text = rec.text.trim();
-      if (!text) continue;
+      // 52+ güvenli parçaları da tut; aynı satırdaki yüksek güvenli kelimenin devamıysa ("FIRST MURD" + "ER.") kurtarılacak
+      if (!text || rec.confidence < 52) continue;
       lines.push({
         text,
-        confidence: Math.round(rec.confidence),
+        confidence: rec.confidence,
         bbox: {
           x0: Math.round(box.x0),
           y0: Math.round(box.y0),
@@ -284,22 +307,41 @@ export const runPaddleOcr = async (
     if (isLast) break;
   }
 
-  // Örtüşme bölgesinde iki kez görülen satırlardan güveni yüksek olanı tut
+  // Dilim örtüşmelerinden gelen çift kutuları IoU ile tekilleştir
   const sorted = [...lines].sort((a, b) => b.confidence - a.confidence);
   const kept: OcrLine[] = [];
   for (const line of sorted) {
-    if (!kept.some((k) => iou(k.bbox, line.bbox) > 0.6)) kept.push(line);
+    if (kept.some((k) => iou(k.bbox, line.bbox) > 0.45)) continue;
+    kept.push(line);
   }
-  return kept.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+  return kept;
 };
+
+/**
+ * Tek kelimelik kısa anlamlı İngilizce ünlem/emir/diyalog kelimeleri ("NO", "GO", "UP", "SO" vb.).
+ * Bu kelimeler büyük/stilize yazıldığında bile düşük güvenle elenmemelidir.
+ */
+const SHORT_MEANINGFUL_WORD_REGEX =
+  /^(?:no|yes|go|so|up|in|on|ok|hi|me|us|we|he|do|to|or|if|my|by|am|is|it|at|be|oh|ah|why|who|how|now|run|die|out|off|get|let|see|say|can|not|all|one|two|too|bad|new|old|big|end|lie|cry|try|fly|sky|son|mom|dad|bro|sis|sir|god|war|sin|red|hit|cut)[!?.…,:;'"~-]*$/i;
 
 /** OCR gürültüsünü (çizimden okunan sembol yığınları, düşük güvenli parçalar) eler. */
 export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDENCE): boolean => {
   const text = line.text.trim();
-  if (line.confidence < minConfidence) return false;
+  const stripped = text.replace(/^[^a-zA-Z0-9]+|[^a-zA-Z0-9]+$/g, '');
+  const isShortMeaningful = SHORT_MEANINGFUL_WORD_REGEX.test(stripped);
   const letters = text.match(/\p{L}/gu)?.length ?? 0;
   const digits = text.match(/\p{N}/gu)?.length ?? 0;
   const junk = text.match(/[^\p{L}\p{N}\s.,!?'"“”‘’…:;()\-–—~&%+*]/gu)?.length ?? 0;
+  const isCleanAlphabetic =
+    junk === 0 &&
+    digits === 0 &&
+    letters >= 3 &&
+    /^[a-zA-Z]+(?:['\s-][a-zA-Z]+)*[!?.…,:;'"~-]*$/.test(text);
+
+  const effectiveMinConf =
+    isShortMeaningful || isCleanAlphabetic ? Math.min(minConfidence, 64) : minConfidence;
+
+  if (line.confidence < effectiveMinConf) return false;
   if (letters === 0) return false;
   if (letters < 2 && !/^(?:I|A|O)[!?.…,]*$/i.test(text)) return false;
   // Sembol oranı yüksek satırlar (ör. "| 7 A - _ =", "| 2 7 27") çizim gürültüsüdür
@@ -325,18 +367,140 @@ export const cleanOcrText = (text: string): string => {
 };
 
 /**
- * Satırları balonlara gruplar. İki satır yalnızca benzer yazı boyutunda, dikeyde yakın ve
- * yatayda örtüşüyorsa aynı balona girer; böylece çevirmen notları ve komşu balonlar birleşmez.
+ * Saf ses efektlerini (onomatopoeia: BOOM, CRASH, SWOOSH, THUD, CLANG, SHING, TAP TAP vb.) tespit eder.
+ * Kullanıcı kuralı: Saf ses efektleri çevrilmez (çizim olarak korunur),
+ * ancak "NO", "ALONE?", "FIRST MURDER", "STOP", "WAIT", "HELP", "DIE" gibi anlamlı kelimeler KESİNLİKLE çevrilir.
+ */
+const PURE_SFX_STEMS = new Set([
+  // Darbe / Patlama / Çarpma
+  'boom', 'kaboom', 'bam', 'baam', 'bang', 'clang', 'clank', 'clash', 'clack',
+  'clatter', 'crash', 'crack', 'crackle', 'thud', 'thump', 'thwack', 'wham',
+  'whack', 'slam', 'smack', 'smash', 'pow', 'poof', 'bonk', 'boing', 'bong',
+  'ding', 'dong', 'kring', 'ting', 'plink', 'plop', 'splat', 'sploosh', 'squelch',
+  'squish', 'thwip', 'twang', 'zing', 'zap', 'zzt', 'zzzt', 'bzz', 'bzzt', 'vroom',
+  'screech', 'skrrt',
+  // Rüzgar / Kesme / Hareket
+  'swoosh', 'whoosh', 'swish', 'shing', 'shwing', 'schwing', 'fwip', 'fwoosh',
+  'whir', 'whirr', 'rustle', 'patter', 'stomp',
+  // Titreme / Çevre / Hayvan / Kalp atışı
+  'rumble', 'grumble', 'rattle', 'creak', 'sizzle', 'fizz', 'glug', 'gulp',
+  'slurp', 'munch', 'chomp', 'woof', 'meow', 'purr', 'grr', 'grrr',
+  'badump', 'badum', 'lubdub', 'doki', 'dokidoki',
+  // Nefes / Gülme / Ses efektleri
+  'wheeze', 'sniffle', 'achoo', 'hic', 'zzz', 'bwahaha', 'muahaha', 'mwahaha',
+  'kekeke', 'kukuku',
+  // Korece / Japonca romanize saf ses efektleri
+  'kwang', 'kwaang', 'kung', 'kuung', 'dugeun', 'dukgeun', 'jjeoreong', 'puk',
+  'peok', 'ssuk', 'geuk', 'kkeuk', 'heok', 'heuk', 'deolkeok', 'chirik', 'sarak',
+  'ttuk', 'jjak', 'gogo', 'gogogo', 'menacing',
+]);
+
+/** Tek başına anlamlı kelime olabilecek ama 2-3 kez arka arkaya tekrarlandığında ses efekti olan kelimeler ("TAP TAP TAP", "STEP STEP", "DRIP DRIP", "CLAP CLAP") */
+const REPEATED_ONLY_SFX_STEMS = new Set([
+  'tap', 'step', 'drip', 'drop', 'clap', 'pat', 'knock', 'tick', 'tock', 'click',
+  'pop', 'snap', 'ring', 'beep', 'honk', 'cough', 'pant', 'sob', 'gasp', 'gulp',
+  'chew', 'chop', 'slash', 'slice', 'poke', 'prod', 'shake', 'tremble', 'shiver',
+  'shudder', 'flinch', 'twitch', 'sparkle', 'glint', 'gleam', 'flash', 'glow',
+]);
+
+const collapseRepeatedChars = (word: string): string =>
+  word.toLowerCase().replace(/([a-z])\1{2,}/g, '$1$1').replace(/([a-z])\1+/g, '$1');
+
+export const isPureSoundEffect = (text: string): boolean => {
+  const cleaned = text
+    .trim()
+    .replace(/^[¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•\s]+|[¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•\s]+$/g, '');
+  if (!cleaned) return true;
+
+  const rawTokens = cleaned
+    .split(/[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>]+/)
+    .map((t) => t.trim().toLowerCase())
+    .filter(Boolean);
+
+  if (rawTokens.length === 0 || rawTokens.length > 4) return false;
+
+  const joinedAlpha = rawTokens.join('').replace(/[^a-z]/g, '');
+  if (
+    joinedAlpha &&
+    (PURE_SFX_STEMS.has(joinedAlpha) || PURE_SFX_STEMS.has(collapseRepeatedChars(joinedAlpha)))
+  ) {
+    return true;
+  }
+
+  // Tüm tokenlar saf ses efekti köklerinden oluşuyorsa (ör. "BOOM!", "KWAANG!", "BA-DUMP", "CLANG CRASH")
+  const allPureSfx = rawTokens.every((tok) => {
+    const exact = tok.replace(/[^a-z]/g, '');
+    if (!exact) return true;
+    if (PURE_SFX_STEMS.has(exact)) return true;
+    const collapsed = collapseRepeatedChars(exact);
+    if (PURE_SFX_STEMS.has(collapsed)) return true;
+    // "shhhhh", "zzzzzz", "grrrrr", "krrrr", "bzzzz" gibi ünsüz uzatmaları
+    if (/^(?:sh+|z+|g+r+|k+r+|b+z+|f+s+h+|s+w+i+s+h+|w+h+o+s+h+|t+h+u+d+|b+o+m+|b+a+m+|p+o+w+)$/i.test(exact)) {
+      return true;
+    }
+    return false;
+  });
+  if (allPureSfx) return true;
+
+  // "TAP TAP", "STEP STEP STEP", "DRIP DRIP", "TICK TOCK", "DING DONG" gibi tekrarlı efektler
+  if (rawTokens.length >= 2) {
+    const stems = rawTokens.map((t) => t.replace(/[^a-z]/g, ''));
+    const allRepeatedSfx = stems.every(
+      (s) => REPEATED_ONLY_SFX_STEMS.has(s) || REPEATED_ONLY_SFX_STEMS.has(collapseRepeatedChars(s)),
+    );
+    if (allRepeatedSfx) {
+      const uniqueStems = new Set(stems.map(collapseRepeatedChars));
+      if (uniqueStems.size === 1) return true;
+      if (uniqueStems.has('tick') && uniqueStems.has('tock') && uniqueStems.size === 2) return true;
+    }
+  }
+
+  return false;
+};
+
+/**
+ * Satırları balonlara gruplar.
+ * - Aynı yatay hizada bölünmüş kelimeleri ("FIRST MURD" + "ER.") düşük güvenli parça kurtarma ile birleştirir.
+ * - Aynı konuşma balonunun içindeki vurgulu/büyük alt satırları ("WHY DID YOU COME UP" + "ALONE?")
+ *   boyut oranı 2.85 katına kadar olsa bile aynı balona bağlar.
  */
 export const groupOcrLinesIntoBubbles = (
   rawLines: OcrLine[],
   imgWidth: number,
   imgHeight: number,
 ): OcrBubble[] => {
-  const lines = rawLines
+  const cleanedAll = rawLines
     .map((l) => ({ ...l, text: cleanOcrText(l.text) }))
-    .filter((l) => l.text.length > 0 && isUsableOcrLine(l))
-    .sort((a, b) => a.bbox.y0 - b.bbox.y0);
+    .filter((l) => l.text.length > 0);
+
+  // Yüksek güvenli satırları seç
+  const strongLines = cleanedAll.filter((l) => isUsableOcrLine(l, MIN_LINE_CONFIDENCE));
+
+  // Aynı yatay satırda (baseline) yüksek güvenli bir satırın hemen sağında/solunda kalan
+  // 52..78 güven aralığındaki parçaları ("ER." gibi) kurtar
+  const rescuedLines = cleanedAll.filter((cand) => {
+    if (isUsableOcrLine(cand, MIN_LINE_CONFIDENCE)) return false;
+    if (cand.confidence < 52) return false;
+    const letters = cand.text.match(/\p{L}/gu)?.length ?? 0;
+    if (letters < 1) return false;
+    const cb = cand.bbox;
+    const ch = cb.y1 - cb.y0;
+    return strongLines.some((s) => {
+      const sb = s.bbox;
+      const sh = sb.y1 - sb.y0;
+      const minH = Math.min(ch, sh);
+      const maxH = Math.max(ch, sh);
+      if (maxH / Math.max(1, minH) > 1.85) return false;
+      const vOverlap = Math.min(cb.y1, sb.y1) - Math.max(cb.y0, sb.y0);
+      if (vOverlap < minH * 0.5) return false;
+      const hGap = Math.max(cb.x0, sb.x0) - Math.min(cb.x1, sb.x1);
+      return hGap >= -minH * 0.4 && hGap <= maxH * 1.65;
+    });
+  });
+
+  const lines = [...strongLines, ...rescuedLines].sort(
+    (a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0,
+  );
   if (lines.length === 0) return [];
 
   const parent = lines.map((_, i) => i);
@@ -351,25 +515,62 @@ export const groupOcrLinesIntoBubbles = (
   for (let i = 0; i < lines.length; i += 1) {
     const a = lines[i].bbox;
     const ha = a.y1 - a.y0;
+    const wa = a.x1 - a.x0;
+    const centerXa = (a.x0 + a.x1) * 0.5;
+
     for (let j = i + 1; j < lines.length; j += 1) {
       const b = lines[j].bbox;
       const hb = b.y1 - b.y0;
+      const wb = b.x1 - b.x0;
+      const centerXb = (b.x0 + b.x1) * 0.5;
       const minH = Math.min(ha, hb);
       const maxH = Math.max(ha, hb);
-      if (b.y0 - a.y1 > maxH * 1.2) {
-        // y0'a göre sıralı; ama a'dan daha alta uzanan uzun bir satır olabilir, devam et
+
+      // 1. Durum: Aynı yatay satırda yan yana bölünmüş parçalar ("FIRST MURD" + "ER.")
+      const vOverlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+      const hGap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1);
+      if (
+        vOverlap >= minH * 0.52 &&
+        hGap >= -minH * 0.35 &&
+        hGap <= maxH * 1.55 &&
+        maxH / Math.max(1, minH) <= 1.85
+      ) {
+        parent[find(j)] = find(i);
+        continue;
+      }
+
+      if (b.y0 - a.y1 > maxH * 1.35) {
         if (b.y0 - a.y1 > maxH * 4) break;
         continue;
       }
-      if (maxH / minH > 1.55) continue;
+
       const vGap = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1);
-      if (vGap > minH * 1.1) continue;
+      if (vGap > maxH * 1.15) continue;
+
       const overlap = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
-      const narrow = Math.min(a.x1 - a.x0, b.x1 - b.x0);
-      const centerDist = Math.abs((a.x0 + a.x1) / 2 - (b.x0 + b.x1) / 2);
-      const aligned = overlap > narrow * 0.35 || (overlap > 0 && centerDist < maxH * 2);
-      if (!aligned) continue;
-      parent[find(j)] = find(i);
+      const narrow = Math.min(wa, wb);
+      const centerDist = Math.abs(centerXa - centerXb);
+
+      // 2. Durum: Standart benzer boyutlu balon satırları
+      const heightRatio = maxH / Math.max(1, minH);
+      if (heightRatio <= 1.65) {
+        const aligned = overlap > narrow * 0.35 || (overlap > 0 && centerDist < maxH * 2);
+        if (aligned && vGap <= minH * 1.15) {
+          parent[find(j)] = find(i);
+          continue;
+        }
+      }
+
+      // 3. Durum: Aynı balon içindeki vurgulu/büyük satır ("WHY DID YOU COME UP" + "ALONE?")
+      // Yatay merkezleri hizalıysa ve dikey boşluk balon içi satır aralığı kadarsa 2.85x boyuta kadar birleştir
+      if (heightRatio <= 2.85) {
+        const stronglyAligned =
+          (overlap > narrow * 0.48 && centerDist < maxH * 1.35) ||
+          (overlap > narrow * 0.65 && centerDist < Math.max(wa, wb) * 0.42);
+        if (stronglyAligned && vGap >= -minH * 0.25 && vGap <= minH * 1.45) {
+          parent[find(j)] = find(i);
+        }
+      }
     }
   }
 
@@ -383,33 +584,116 @@ export const groupOcrLinesIntoBubbles = (
 
   const bubbles: Array<OcrBubble & { y: number }> = [];
   groups.forEach((group) => {
-    group.sort((a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0);
+    // Aynı satırdaki yan yana kutuları soldan sağa, farklı satırları yukarıdan aşağıya sırala
+    group.sort((a, b) => {
+      const ha = a.bbox.y1 - a.bbox.y0;
+      const hb = b.bbox.y1 - b.bbox.y0;
+      const vOv = Math.min(a.bbox.y1, b.bbox.y1) - Math.max(a.bbox.y0, b.bbox.y0);
+      if (vOv >= Math.min(ha, hb) * 0.5) {
+        return a.bbox.x0 - b.bbox.x0;
+      }
+      return a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0;
+    });
+
+    // Yan yana olan parçaları tek satırda birleştir (ör. "FIRST MURD" + "ER." -> "FIRST MURDER.")
+    const mergedRows: OcrLine[] = [];
+    for (const item of group) {
+      const prev = mergedRows[mergedRows.length - 1];
+      if (prev) {
+        const hp = prev.bbox.y1 - prev.bbox.y0;
+        const hi = item.bbox.y1 - item.bbox.y0;
+        const vOv = Math.min(prev.bbox.y1, item.bbox.y1) - Math.max(prev.bbox.y0, item.bbox.y0);
+        const hGap = item.bbox.x0 - prev.bbox.x1;
+        if (vOv >= Math.min(hp, hi) * 0.5 && hGap >= -Math.min(hp, hi) * 0.4) {
+          // Çok yakın yan yana parçaysa ("MURD" + "ER.") boşluksuz veya tek boşlukla birleştir
+          const joiner = hGap < Math.min(hp, hi) * 0.28 && /^[a-zA-Z]/.test(item.text) && /[a-zA-Z]$/.test(prev.text)
+            ? ''
+            : ' ';
+          prev.text = `${prev.text}${joiner}${item.text}`.trim();
+          prev.confidence = Math.max(prev.confidence, item.confidence);
+          prev.bbox = {
+            x0: Math.min(prev.bbox.x0, item.bbox.x0),
+            y0: Math.min(prev.bbox.y0, item.bbox.y0),
+            x1: Math.max(prev.bbox.x1, item.bbox.x1),
+            y1: Math.max(prev.bbox.y1, item.bbox.y1),
+          };
+          continue;
+        }
+      }
+      mergedRows.push({
+        text: item.text,
+        confidence: item.confidence,
+        bbox: { ...item.bbox },
+      });
+    }
+
     let x0 = Infinity;
     let y0 = Infinity;
     let x1 = -Infinity;
     let y1 = -Infinity;
-    for (const l of group) {
+    for (const l of mergedRows) {
       x0 = Math.min(x0, l.bbox.x0);
       y0 = Math.min(y0, l.bbox.y0);
       x1 = Math.max(x1, l.bbox.x1);
       y1 = Math.max(y1, l.bbox.y1);
     }
-    const text = group
+
+    const text = mergedRows
       .map((l) => l.text)
       .join(' ')
       .replace(/(\p{L})- (\p{L})/gu, '$1$2')
       .replace(/\s+/g, ' ')
       .trim();
+
+    // Son satırın vurgulu (daha büyük) olup olmadığını hesapla ("ALONE?" gibi)
+    let emphasisLastLineScale: number | undefined;
+    if (mergedRows.length >= 2) {
+      const lastRow = mergedRows[mergedRows.length - 1];
+      const lastH = lastRow.bbox.y1 - lastRow.bbox.y0;
+      const otherHeights = mergedRows.slice(0, -1).map((r) => r.bbox.y1 - r.bbox.y0);
+      const avgOtherH = otherHeights.reduce((s, v) => s + v, 0) / otherHeights.length;
+      if (avgOtherH > 0 && lastH / avgOtherH >= 1.32) {
+        emphasisLastLineScale = Number(clamp(lastH / avgOtherH, 1.25, 1.65).toFixed(2));
+      }
+    }
+
+    const lineBoxes: OcrBubbleLineBox[] = mergedRows.map((r) => ({
+      box: [
+        clamp(Math.round((r.bbox.y0 / imgHeight) * 1000), 0, 1000),
+        clamp(Math.round((r.bbox.x0 / imgWidth) * 1000), 0, 1000),
+        clamp(Math.round((r.bbox.y1 / imgHeight) * 1000), 0, 1000),
+        clamp(Math.round((r.bbox.x1 / imgWidth) * 1000), 0, 1000),
+      ],
+      text: r.text,
+      confidence: Math.round(r.confidence),
+    }));
+
     const box: [number, number, number, number] = [
       clamp(Math.round((y0 / imgHeight) * 1000), 0, 1000),
       clamp(Math.round((x0 / imgWidth) * 1000), 0, 1000),
       clamp(Math.round((y1 / imgHeight) * 1000), 0, 1000),
       clamp(Math.round((x1 / imgWidth) * 1000), 0, 1000),
     ];
-    if (box[2] > box[0] && box[3] > box[1]) bubbles.push({ box, text, y: y0 });
+
+    if (box[2] > box[0] && box[3] > box[1]) {
+      bubbles.push({
+        box,
+        text,
+        lines: lineBoxes,
+        emphasisLastLineScale,
+        y: y0,
+      });
+    }
   });
 
-  return bubbles.sort((a, b) => a.y - b.y).map(({ box, text }) => ({ box, text }));
+  return bubbles
+    .sort((a, b) => a.y - b.y)
+    .map(({ box, text, lines: lineBoxes, emphasisLastLineScale }) => ({
+      box,
+      text,
+      lines: lineBoxes,
+      ...(emphasisLastLineScale ? { emphasisLastLineScale } : {}),
+    }));
 };
 
 const CREDIT_LINE_REGEX =
