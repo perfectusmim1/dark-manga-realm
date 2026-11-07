@@ -476,7 +476,7 @@ export const translateWithGoogleFree = async (
 };
 
 /**
- * Gemini Flash (`gemini-flash-latest`) ile SAF METİN çevirisi.
+ * Gemini Flash-Lite (`gemini-flash-lite-latest`) ile SAF METİN çevirisi.
  * Kesinlikle görsel/vision verisi içermez; sadece metin dizileri gider ve gelir.
  * Çok hızlıdır (~400-800ms) ve neredeyse sıfır token tüketir.
  */
@@ -517,7 +517,7 @@ export const translateBatchWithGeminiText = async (
       keys,
       async (_apiKey, getClient) => {
         const ai = getClient();
-        const model = GEMINI_FLASH_MODEL; // 'gemini-flash-latest'
+        const model = GEMINI_FLASH_MODEL; // 'gemini-flash-lite-latest'
         const timeoutSignal = AbortSignal.timeout(PER_REQUEST_TIMEOUT_MS);
         const combinedSignal = signal ? AbortSignal.any([signal, timeoutSignal]) : timeoutSignal;
 
@@ -559,7 +559,7 @@ export const translateBatchWithGeminiText = async (
       throw new DOMException('İptal edildi', 'AbortError');
     }
     // Gemini geçici hata verirse Google Çeviri fallback'i ile kullanıcıyı asla yarı yolda bırakma
-    console.warn('[Gemini Flash Text Fallback to Google Translate]', err);
+    console.warn('[Gemini Flash-Lite Text Fallback to Google Translate]', err);
     return await translateBatchWithGoogleFree(texts, targetLang, signal);
   }
 };
@@ -585,7 +585,7 @@ export interface TranslatePageOptions {
 }
 
 /**
- * Sayfayı yerel WASM OCR ile tarar ve seçilen motorla (Google veya Gemini Flash) çevirir.
+ * Sayfayı yerel WASM OCR ile tarar ve seçilen motorla (Google veya Gemini Flash-Lite) çevirir.
  * Sıfır LLM Vision maliyeti vardır; görseller hiçbir uzak API'ye gönderilmez.
  */
 export const translatePageImage = async ({
@@ -648,7 +648,7 @@ export const translatePageImage = async ({
     };
   }
 
-  // 2. ADIM: Çeviri Motoru (Google Çeviri veya Gemini Flash Text)
+  // 2. ADIM: Çeviri Motoru (Google Çeviri veya Gemini Flash-Lite Text)
   const tTransStart = performance.now();
   const originalTexts = rawBubbles.map((b) => b.text);
   let translatedTexts: string[] = [];

@@ -382,7 +382,7 @@ export const useChapterTranslation = ({
       getEffectiveApiKeys(settingsRef.current).length === 0
     ) {
       toast.error(
-        'Gemini Flash çevirisi için lütfen Görsel Çeviri panelinden en az bir API anahtarı ekleyin veya Google Çeviri motorunu seçin.',
+        'Gemini Flash-Lite çevirisi için lütfen Görsel Çeviri panelinden en az bir API anahtarı ekleyin veya Google Çeviri motorunu seçin.',
       );
       return false;
     }

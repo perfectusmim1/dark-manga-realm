@@ -361,7 +361,7 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
             </span>
           ) : (
             <span className="rounded-md bg-primary/15 px-1.5 py-0.5 text-[10px] font-semibold text-primary">
-              gemini-flash-latest
+              gemini-flash-lite-latest
             </span>
           )}
         </div>
@@ -376,7 +376,7 @@ const TranslationPanel: React.FC<TranslationPanelProps> = ({
                 : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
             )}
           >
-            <span>Gemini Flash</span>
+            <span>Gemini Flash-Lite</span>
           </button>
           <button
             type="button"
