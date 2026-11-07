@@ -5,6 +5,10 @@
             "destination": "https://www.mangaupdates.com/:path*"
         },
         {
+            "source": "/comix-api-proxy/:path*",
+            "destination": "https://comix.to/api/v1/:path*"
+        },
+        {
             "source": "/(.*)",
             "destination": "/index.html"
         }

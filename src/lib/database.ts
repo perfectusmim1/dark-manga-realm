@@ -82,6 +82,8 @@ import { sanitizeCharacterDescription, sanitizeMangaDescription } from '@/lib/de
 import { sanitizeEntityImageUrl } from '@/lib/entityImages';
 import { normalizeComparableText } from '@/lib/textMatching';
 import { getReactionScore, type ReactionType } from './reactions';
+import { extractComixChapterId, resolveComixChapterPagesById } from '@/lib/chapterOnDemandResolver';
+import { resolveChapterLanguageCode } from '@/lib/seriesLanguage';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
     value?.trim().replace(/\s+/g, ' ') || '';
@@ -1711,13 +1713,49 @@ export const getMangaSummaries = async (
             mangaSummariesPromise[audienceCacheKey] = pendingRequest;
         }
         const rawSummaries = await pendingRequest;
+        const r2ShardSummaries = await fetchR2ComixArchiveShards().catch(() => [] as Manga[]);
         const seenSummaryIds = new Set<string>();
+        const seenSummarySlugs = new Set<string>();
+        const seenNormalizedTitles = new Set<string>();
         const summaries: Manga[] = [];
+
+        const registerSummaryKeys = (item: any) => {
+            if (item?.id) seenSummaryIds.add(item.id);
+            if (item?.slug) seenSummarySlugs.add(String(item.slug).toLowerCase());
+            const mainKey = normalizeNamedEntityKey(item?.title);
+            if (mainKey) seenNormalizedTitles.add(mainKey);
+            const alts = item?.alternativeTitles || item?.alternative_titles || [];
+            if (Array.isArray(alts)) {
+                for (const alt of alts) {
+                    const altKey = normalizeNamedEntityKey(String(alt || ''));
+                    if (altKey) seenNormalizedTitles.add(altKey);
+                }
+            }
+        };
+
         for (const item of rawSummaries) {
             if (item?.id && !seenSummaryIds.has(item.id)) {
-                seenSummaryIds.add(item.id);
+                registerSummaryKeys(item);
                 summaries.push(item);
             }
+        }
+
+        for (const shardItem of r2ShardSummaries) {
+            if (!shardItem?.id || seenSummaryIds.has(shardItem.id)) continue;
+            if (!includePrivate && !includeAdult && shardItem.isAdult) continue;
+            const slugKey = String((shardItem as any)?.slug || '').toLowerCase();
+            if (slugKey && seenSummarySlugs.has(slugKey)) continue;
+            const titleKey = normalizeNamedEntityKey(shardItem.title);
+            if (titleKey && seenNormalizedTitles.has(titleKey)) continue;
+            const altMatch = Array.isArray(shardItem.alternativeTitles) && shardItem.alternativeTitles.some((alt) => {
+                const k = normalizeNamedEntityKey(alt);
+                return Boolean(k && seenNormalizedTitles.has(k));
+            });
+            if (altMatch) continue;
+            if ((shardItem.chapterCount ?? shardItem.chapters?.length ?? 0) <= 0) continue;
+
+            registerSummaryKeys(shardItem);
+            summaries.push(shardItem);
         }
 
         if (!includePrivate && summaries.length > 0) {
@@ -2070,34 +2108,271 @@ interface GetMangaByIdOptions {
     includePages?: boolean;
 }
 
+const getCatalogWorkerBaseUrl = (): string => (
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_CATALOG_WORKER_URL) ||
+    (typeof process !== 'undefined' && process.env?.VITE_CATALOG_WORKER_URL) ||
+    ''
+).replace(/\/+$/, '');
+
+interface R2CachedChapterEntry {
+    chapter: Chapter;
+    mangaId: string;
+    slug?: string;
+}
+
+const r2SeriesCacheBySlug = new Map<string, { fetchedAt: number; data: any }>();
+const r2SeriesInFlightBySlug = new Map<string, Promise<any>>();
+const r2ChapterMetaById = new Map<string, R2CachedChapterEntry>();
+const r2MangaSlugById = new Map<string, string>();
+const r2ShardSeriesByIdOrSlug = new Map<string, any>();
+let r2ComixShardsCache: { fetchedAt: number; items: Manga[] } | null = null;
+let r2ComixShardsPromise: Promise<Manga[]> | null = null;
+const R2_SERIES_CACHE_TTL_MS = 60_000;
+const R2_SHARDS_CACHE_TTL_MS = 5 * 60_000;
+
 const mapChapterRowToChapter = (row: any, options?: { includePages?: boolean }): Chapter => {
     const includePages = options?.includePages === true;
     const pages = includePages ? sanitizeChapterPageUrls(row.pages || []) : [];
+    const sourceUrl = row.source_url || row.sourceUrl || row._sourceLink || undefined;
 
     return {
         id: row.id,
-        number: Number(row.number) || 0,
+        number: Number(row.number ?? row.chapterNumber) || 0,
         title: row.title || '',
         pages,
-        pageCount: includePages ? pages.length : undefined,
-        releaseDate: row.release_date || '',
-        views: row.views || 0,
+        pageCount: includePages ? pages.length : (typeof row.pageCount === 'number' ? row.pageCount : undefined),
+        releaseDate: row.release_date || row.releaseDate || '',
+        views: Number(row.views) || 0,
+        language: row.language ? String(row.language).toLowerCase() : undefined,
+        sourceUrl,
+        _sourceLink: row._sourceLink || sourceUrl,
     };
+};
+
+const indexR2SeriesChapters = (seriesData: any, fallbackMangaId?: string, fallbackSlug?: string) => {
+    if (!seriesData || typeof seriesData !== 'object') return;
+    const mangaObj = seriesData.manga || seriesData;
+    const mangaId = String(mangaObj?.id || fallbackMangaId || '').trim();
+    const slug = String(mangaObj?.slug || seriesData.slug || fallbackSlug || '').trim();
+    if (mangaId && slug) {
+        r2MangaSlugById.set(mangaId, slug);
+    }
+    if (Array.isArray(seriesData.chapters)) {
+        for (const sc of seriesData.chapters) {
+            if (!sc || !sc.id) continue;
+            const mapped = mapChapterRowToChapter(sc, { includePages: true });
+            r2ChapterMetaById.set(sc.id, {
+                chapter: mapped,
+                mangaId: mangaId || String(sc.manga_id || sc.mangaId || ''),
+                slug,
+            });
+        }
+    }
+};
+
+const fetchR2SeriesBySlug = async (slug?: string | null): Promise<any | null> => {
+    const cleanSlug = String(slug || '').trim().toLowerCase();
+    if (!cleanSlug) return null;
+
+    const cached = r2SeriesCacheBySlug.get(cleanSlug);
+    if (cached && Date.now() - cached.fetchedAt < R2_SERIES_CACHE_TTL_MS) {
+        return cached.data;
+    }
+
+    const inFlight = r2SeriesInFlightBySlug.get(cleanSlug);
+    if (inFlight) {
+        return inFlight;
+    }
+
+    const workerUrl = getCatalogWorkerBaseUrl();
+    if (!workerUrl) return null;
+
+    const promise = (async () => {
+        try {
+            const res = await fetch(`${workerUrl}/v1/catalog/series/${encodeURIComponent(cleanSlug)}`, {
+                headers: { Accept: 'application/json' },
+            });
+            if (!res.ok) {
+                r2SeriesCacheBySlug.set(cleanSlug, { fetchedAt: Date.now(), data: null });
+                return null;
+            }
+            const data = await res.json();
+            indexR2SeriesChapters(data, undefined, cleanSlug);
+            r2SeriesCacheBySlug.set(cleanSlug, { fetchedAt: Date.now(), data });
+            return data;
+        } catch {
+            return null;
+        } finally {
+            r2SeriesInFlightBySlug.delete(cleanSlug);
+        }
+    })();
+
+    r2SeriesInFlightBySlug.set(cleanSlug, promise);
+    return promise;
+};
+
+const mapR2ShardRowToMangaSummary = (raw: any): Manga | null => {
+    if (!raw || typeof raw !== 'object' || !raw.id || !raw.title) return null;
+    const slug = String(raw.slug || '').trim();
+    if (slug) {
+        r2MangaSlugById.set(raw.id, slug);
+        r2ShardSeriesByIdOrSlug.set(slug.toLowerCase(), raw);
+    }
+    r2ShardSeriesByIdOrSlug.set(String(raw.id), raw);
+
+    const precomputedChapters = Array.isArray(raw.latest_chapters || raw.chapters)
+        ? (raw.latest_chapters || raw.chapters)
+            .slice(0, 2)
+            .map((ch: any) => ({
+                id: String(ch?.id || ''),
+                number: Number(ch?.number ?? ch?.chapterNumber) || 1,
+                title: String(ch?.title || ''),
+                pages: [],
+                releaseDate: String(ch?.release_date || ch?.releaseDate || ''),
+                views: 0,
+                language: ch?.language ? String(ch.language).toLowerCase() : undefined,
+            }))
+            .filter((ch: any) => ch.id)
+        : [];
+
+    const chapterCount = Number(raw.chapter_count ?? raw.chapterCount ?? raw.chapters?.length ?? precomputedChapters.length) || 0;
+    if (chapterCount <= 0) return null;
+
+    return {
+        ...raw,
+        id: String(raw.id),
+        slug,
+        title: String(raw.title),
+        author: cleanPlaceholderNamedEntityString(raw.author) || raw.author || 'Bilinmiyor',
+        artist: cleanPlaceholderNamedEntityString(raw.artist) || raw.artist || '',
+        cover: String(raw.cover || ''),
+        banner: String(raw.banner || raw.cover || ''),
+        genres: normalizeGenres(raw.genres || []),
+        status: (raw.status === 'completed' || raw.status === 'hiatus' ? raw.status : 'ongoing') as Manga['status'],
+        type: (raw.type || 'manhwa') as Manga['type'],
+        views: 0,
+        ...mapMangaBaseFields(raw),
+        chapters: precomputedChapters as Chapter[],
+        ratings: [],
+        chapterCount,
+        averageRating: 0,
+        reviewCount: 0,
+        details: raw.details || {},
+        sourceLinks: raw.source_links || raw.sourceLinks || [],
+    } as Manga;
+};
+
+const fetchR2ComixArchiveShards = async (): Promise<Manga[]> => {
+    if (r2ComixShardsCache && Date.now() - r2ComixShardsCache.fetchedAt < R2_SHARDS_CACHE_TTL_MS) {
+        return r2ComixShardsCache.items;
+    }
+    if (r2ComixShardsPromise) {
+        return r2ComixShardsPromise;
+    }
+
+    const workerUrl = getCatalogWorkerBaseUrl();
+    if (!workerUrl) return [];
+
+    r2ComixShardsPromise = (async () => {
+        try {
+            const manifestData = await fetchR2SeriesBySlug('comix-shard-manifest');
+            const shardSlugs: string[] = Array.isArray(manifestData?.shards) && manifestData.shards.length > 0
+                ? manifestData.shards.map((s: any) => String(typeof s === 'string' ? s : s?.slug || '')).filter(Boolean)
+                : ['comix-shard-page-1'];
+
+            const shardPayloads = await Promise.all(
+                shardSlugs.slice(0, 20).map((s) => fetchR2SeriesBySlug(s))
+            );
+
+            const items: Manga[] = [];
+            const seenIds = new Set<string>();
+            for (const payload of shardPayloads) {
+                const list = Array.isArray(payload?.series)
+                    ? payload.series
+                    : Array.isArray(payload?.items)
+                    ? payload.items
+                    : Array.isArray(payload)
+                    ? payload
+                    : [];
+                for (const raw of list) {
+                    const mapped = mapR2ShardRowToMangaSummary(raw);
+                    if (mapped && !seenIds.has(mapped.id)) {
+                        seenIds.add(mapped.id);
+                        items.push(mapped);
+                    }
+                }
+            }
+
+            r2ComixShardsCache = { fetchedAt: Date.now(), items };
+            return items;
+        } catch {
+            return [];
+        } finally {
+            r2ComixShardsPromise = null;
+        }
+    })();
+
+    return r2ComixShardsPromise;
 };
 
 export const getChapterById = async (chapterId: string): Promise<{ chapter: Chapter; mangaId: string } | null> => {
     try {
+        const cachedR2 = r2ChapterMetaById.get(chapterId);
+        if (cachedR2) {
+            const ch = { ...cachedR2.chapter, pages: [...(cachedR2.chapter.pages || [])] };
+            if (ch.pages.length === 0) {
+                const comixChId = extractComixChapterId(ch);
+                if (comixChId) {
+                    ch.pages = await resolveComixChapterPagesById(comixChId);
+                    ch.pageCount = ch.pages.length;
+                    cachedR2.chapter.pages = ch.pages;
+                }
+            }
+            return {
+                chapter: ch,
+                mangaId: cachedR2.mangaId,
+            };
+        }
+
         const { data, error } = await supabase
             .from('chapters')
             .select('id, manga_id, number, title, pages, release_date, views')
             .eq('id', chapterId)
             .maybeSingle();
 
-        if (error || !data) return null;
-        return {
-            chapter: mapChapterRowToChapter(data, { includePages: true }),
-            mangaId: data.manga_id,
-        };
+        if (!error && data) {
+            const chapter = mapChapterRowToChapter(data, { includePages: true });
+            if (chapter.pages.length === 0) {
+                const comixChId = extractComixChapterId(chapter);
+                if (comixChId) {
+                    chapter.pages = await resolveComixChapterPagesById(comixChId);
+                    chapter.pageCount = chapter.pages.length;
+                }
+            }
+            return {
+                chapter,
+                mangaId: data.manga_id,
+            };
+        }
+
+        const comixChId = extractComixChapterId({ id: chapterId });
+        if (comixChId) {
+            const pages = await resolveComixChapterPagesById(comixChId);
+            return {
+                chapter: {
+                    id: chapterId,
+                    number: 1,
+                    title: '',
+                    pages,
+                    pageCount: pages.length,
+                    releaseDate: new Date().toISOString(),
+                    views: 0,
+                },
+                mangaId: '',
+            };
+        }
+
+        return null;
     } catch {
         return null;
     }
@@ -2105,15 +2380,15 @@ export const getChapterById = async (chapterId: string): Promise<{ chapter: Chap
 
 export const getMangaChapters = async (
     mangaId: string,
-    options?: { includePages?: boolean }
+    options?: { includePages?: boolean; slug?: string }
 ): Promise<Chapter[]> => {
     const includePages = options?.includePages === true;
     const selectColumns = includePages
         ? 'id, manga_id, number, title, pages, release_date, views'
         : 'id, manga_id, number, title, release_date, views';
 
-    // PostgREST max-rows=1000: 1000+ bÃ¶lÃ¼mlÃ¼ serilerde (Ã¶r. Martial Peak 3.842)
-    // bÃ¶lÃ¼m listesi sessizce kÄ±rpÄ±lmasÄ±n diye sayfalÄ± Ã§ekilir.
+    // PostgREST max-rows=1000: 1000+ bölümlü serilerde (ör. Martial Peak 3.842)
+    // bölüm listesi sessizce kırpılmasın diye sayfalı çekilir.
     const CHAPTER_FETCH_PAGE_SIZE = 1000;
     const CHAPTER_FETCH_MAX_PAGES = 30;
     const data: any[] = [];
@@ -2140,46 +2415,72 @@ export const getMangaChapters = async (
 
     const mapped = data.map((row: any) => mapChapterRowToChapter(row, { includePages }));
 
-    if (includePages && mapped.some((c) => !c.pages || c.pages.length === 0)) {
-        try {
-            const { data: manga } = await supabase
+    try {
+        let resolvedSlug = options?.slug || r2MangaSlugById.get(mangaId) || '';
+        if (!resolvedSlug) {
+            const { data: mangaRow } = await supabase
                 .from('mangas')
                 .select('slug')
                 .eq('id', mangaId)
                 .maybeSingle();
+            if (mangaRow?.slug) {
+                resolvedSlug = mangaRow.slug;
+                r2MangaSlugById.set(mangaId, resolvedSlug);
+            }
+        }
 
-            if (manga?.slug) {
-                const workerUrl = (
-                    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_CATALOG_WORKER_URL) ||
-                    ''
-                ).replace(/\/+$/, '');
+        if (resolvedSlug) {
+            const seriesData = await fetchR2SeriesBySlug(resolvedSlug);
+            if (seriesData && Array.isArray(seriesData.chapters)) {
+                indexR2SeriesChapters(seriesData, mangaId, resolvedSlug);
 
-                if (workerUrl) {
-                    const res = await fetch(`${workerUrl}/v1/catalog/series/${encodeURIComponent(manga.slug)}`);
-                    if (res.ok) {
-                        const seriesData = await res.json();
-                        if (seriesData && Array.isArray(seriesData.chapters)) {
-                            const pagesByChId = new Map<string, string[]>();
-                            const pagesByChNum = new Map<number, string[]>();
-                            for (const sc of seriesData.chapters) {
-                                const p = sanitizeChapterPageUrls(sc.pages || []);
-                                if (sc.id) pagesByChId.set(sc.id, p);
-                                const num = Number(sc.chapterNumber ?? sc.number);
-                                if (!isNaN(num)) pagesByChNum.set(num, p);
-                            }
-                            for (const ch of mapped) {
-                                if (!ch.pages || ch.pages.length === 0) {
-                                    ch.pages = pagesByChId.get(ch.id) || pagesByChNum.get(ch.number) || [];
-                                }
-                            }
+                const existingById = new Map<string, Chapter>();
+                const existingByNumAndLang = new Map<string, Chapter>();
+
+                for (const ch of mapped) {
+                    existingById.set(ch.id, ch);
+                    const lang = resolveChapterLanguageCode(ch, 'tr');
+                    existingByNumAndLang.set(`${ch.number}:${lang}`, ch);
+                }
+
+                for (const sc of seriesData.chapters) {
+                    const r2Ch = mapChapterRowToChapter(sc, { includePages });
+                    const r2Lang = resolveChapterLanguageCode(r2Ch, sc.language || 'tr');
+                    r2Ch.language = r2Lang;
+                    const key = `${r2Ch.number}:${r2Lang}`;
+
+                    const match = existingById.get(r2Ch.id) || existingByNumAndLang.get(key);
+                    if (match) {
+                        if (includePages && (!match.pages || match.pages.length === 0) && r2Ch.pages.length > 0) {
+                            match.pages = r2Ch.pages;
                         }
+                        if (!match.language && r2Ch.language) {
+                            match.language = r2Ch.language;
+                        }
+                        if (!match.sourceUrl && r2Ch.sourceUrl) {
+                            match.sourceUrl = r2Ch.sourceUrl;
+                            match._sourceLink = r2Ch._sourceLink;
+                        }
+                    } else {
+                        existingById.set(r2Ch.id, r2Ch);
+                        existingByNumAndLang.set(key, r2Ch);
+                        mapped.push(r2Ch);
                     }
                 }
             }
-        } catch (e) {
-            console.warn(`Failed to hydrate chapter pages from R2 series for manga ${mangaId}:`, e);
         }
+    } catch (e) {
+        console.warn(`Failed to merge R2 chapters for manga ${mangaId}:`, e);
     }
+
+    mapped.sort((a, b) => {
+        if (b.number !== a.number) return b.number - a.number;
+        const langA = resolveChapterLanguageCode(a, 'tr');
+        const langB = resolveChapterLanguageCode(b, 'tr');
+        if (langA === 'tr' && langB !== 'tr') return -1;
+        if (langB === 'tr' && langA !== 'tr') return 1;
+        return langA.localeCompare(langB);
+    });
 
     return mapped;
 };
@@ -2191,35 +2492,57 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
         return {};
     }
 
-    const chunks = chunkArray(uniqueIds, 100);
-    const chunkResults = await Promise.all(
-        chunks.map((chunk) =>
-            supabase
-                .from('chapters')
-                .select('id, pages, manga_id, number')
-                .in('id', chunk)
-        )
-    );
+    const map: Record<string, string[]> = {};
+    const idsToQuerySupabase: string[] = [];
 
-    const data: any[] = [];
-    for (const res of chunkResults) {
-        if (res.error) throw res.error;
-        if (res.data) data.push(...res.data);
+    for (const id of uniqueIds) {
+        const cachedR2 = r2ChapterMetaById.get(id);
+        if (cachedR2 && cachedR2.chapter.pages && cachedR2.chapter.pages.length > 0) {
+            map[id] = cachedR2.chapter.pages;
+        } else if (!/^c01c0000-[0-9a-f]{4}-4000-8000-\d{12}$/i.test(id)) {
+            idsToQuerySupabase.push(id);
+        }
     }
 
-    const map: Record<string, string[]> = {};
     const missingMangaIds = new Set<string>();
     const chapterNumberByChId = new Map<string, number>();
 
-    for (const row of data || []) {
-        if (typeof row.number === 'number' || !isNaN(Number(row.number))) {
-            chapterNumberByChId.set(row.id, Number(row.number));
+    if (idsToQuerySupabase.length > 0) {
+        const chunks = chunkArray(idsToQuerySupabase, 100);
+        const chunkResults = await Promise.all(
+            chunks.map((chunk) =>
+                supabase
+                    .from('chapters')
+                    .select('id, pages, manga_id, number')
+                    .in('id', chunk)
+            )
+        );
+
+        const data: any[] = [];
+        for (const res of chunkResults) {
+            if (res.error) throw res.error;
+            if (res.data) data.push(...res.data);
         }
-        const pages = sanitizeChapterPageUrls(row.pages || []);
-        if (pages.length > 0) {
-            map[row.id] = pages;
-        } else if (row.manga_id) {
-            missingMangaIds.add(row.manga_id);
+
+        for (const row of data || []) {
+            if (typeof row.number === 'number' || !isNaN(Number(row.number))) {
+                chapterNumberByChId.set(row.id, Number(row.number));
+            }
+            const pages = sanitizeChapterPageUrls(row.pages || []);
+            if (pages.length > 0) {
+                map[row.id] = pages;
+            } else if (row.manga_id) {
+                missingMangaIds.add(row.manga_id);
+            }
+        }
+    }
+
+    for (const id of uniqueIds) {
+        if (!map[id] || map[id].length === 0) {
+            const cachedR2 = r2ChapterMetaById.get(id);
+            if (cachedR2?.mangaId) {
+                missingMangaIds.add(cachedR2.mangaId);
+            }
         }
     }
 
@@ -2227,25 +2550,22 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
         await Promise.all(
             [...missingMangaIds].map(async (mangaId) => {
                 try {
-                    const { data: manga } = await supabase
-                        .from('mangas')
-                        .select('slug')
-                        .eq('id', mangaId)
-                        .maybeSingle();
+                    let slug = r2MangaSlugById.get(mangaId) || '';
+                    if (!slug) {
+                        const { data: manga } = await supabase
+                            .from('mangas')
+                            .select('slug')
+                            .eq('id', mangaId)
+                            .maybeSingle();
+                        if (manga?.slug) {
+                            slug = manga.slug;
+                            r2MangaSlugById.set(mangaId, slug);
+                        }
+                    }
 
-                    if (!manga?.slug) return;
+                    if (!slug) return;
 
-                    const workerUrl = (
-                        (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_CATALOG_WORKER_URL) ||
-                        ''
-                    ).replace(/\/+$/, '');
-
-                    if (!workerUrl) return;
-
-                    const res = await fetch(`${workerUrl}/v1/catalog/series/${encodeURIComponent(manga.slug)}`);
-                    if (!res.ok) return;
-
-                    const seriesData = await res.json();
+                    const seriesData = await fetchR2SeriesBySlug(slug);
                     if (!seriesData || !Array.isArray(seriesData.chapters)) return;
 
                     const pagesByChId = new Map<string, string[]>();
@@ -2254,7 +2574,9 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
                         const p = sanitizeChapterPageUrls(sc.pages || []);
                         if (sc.id) pagesByChId.set(sc.id, p);
                         const num = Number(sc.chapterNumber ?? sc.number);
-                        if (!isNaN(num)) pagesByChNum.set(num, p);
+                        if (!isNaN(num) && p.length > 0 && !pagesByChNum.has(num)) {
+                            pagesByChNum.set(num, p);
+                        }
                     }
 
                     for (const targetId of uniqueIds) {
@@ -2271,6 +2593,30 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
                 }
             })
         );
+    }
+
+    // Resolve any remaining Comix chapters on-demand via Comix /chapters/:id API
+    const unresolvedIds = uniqueIds.filter((id) => !map[id] || map[id].length === 0);
+    if (unresolvedIds.length > 0) {
+        const resolveChunks = chunkArray(unresolvedIds, 6);
+        for (const batch of resolveChunks) {
+            await Promise.all(
+                batch.map(async (targetId) => {
+                    const cachedEntry = r2ChapterMetaById.get(targetId);
+                    const comixChId = extractComixChapterId(
+                        cachedEntry?.chapter || { id: targetId }
+                    );
+                    if (!comixChId) return;
+                    const resolvedPages = await resolveComixChapterPagesById(comixChId);
+                    if (resolvedPages.length > 0) {
+                        map[targetId] = resolvedPages;
+                        if (cachedEntry) {
+                            cachedEntry.chapter.pages = resolvedPages;
+                        }
+                    }
+                })
+            );
+        }
     }
 
     return map;
@@ -2317,10 +2663,50 @@ export const getMangaById = async (
     } else {
         query = query.eq('slug', mangaId);
     }
-    const { data, error } = await query.maybeSingle();
+    const { data: supabaseData, error } = await query.maybeSingle();
 
-    if (error || !data) {
-        if (error && error.code !== 'PGRST116') console.error('Manga detail fetch error:', error);
+    let data = supabaseData;
+    if (error && error.code !== 'PGRST116') {
+        console.error('Manga detail fetch error:', error);
+    }
+
+    if (!data) {
+        if (!r2ComixShardsCache) {
+            await fetchR2ComixArchiveShards().catch(() => []);
+        }
+        const shardCandidate = r2ShardSeriesByIdOrSlug.get(mangaId) || r2ShardSeriesByIdOrSlug.get(mangaId.toLowerCase());
+        const targetSlug = shardCandidate?.slug || (!isUuid ? mangaId : r2MangaSlugById.get(mangaId));
+        const r2SeriesPayload = targetSlug ? await fetchR2SeriesBySlug(targetSlug) : null;
+        const r2MangaRaw = r2SeriesPayload?.manga || r2SeriesPayload || shardCandidate;
+
+        if (r2MangaRaw && r2MangaRaw.id && r2MangaRaw.title) {
+            data = {
+                ...r2MangaRaw,
+                id: String(r2MangaRaw.id),
+                slug: String(r2MangaRaw.slug || targetSlug || ''),
+                title: String(r2MangaRaw.title),
+                author: r2MangaRaw.author || 'Bilinmiyor',
+                artist: r2MangaRaw.artist || '',
+                is_public: r2MangaRaw.is_public ?? r2MangaRaw.isPublic ?? true,
+                is_adult: r2MangaRaw.is_adult ?? r2MangaRaw.isAdult ?? false,
+                description: r2MangaRaw.description || '',
+                cover: r2MangaRaw.cover || '',
+                banner: r2MangaRaw.banner || r2MangaRaw.cover || '',
+                genres: normalizeGenres(r2MangaRaw.genres || []),
+                status: r2MangaRaw.status || 'ongoing',
+                type: r2MangaRaw.type || 'manhwa',
+                views: 0,
+                release_year: r2MangaRaw.release_year ?? r2MangaRaw.releaseYear,
+                alternative_titles: r2MangaRaw.alternative_titles || r2MangaRaw.alternativeTitles || [],
+                details: r2MangaRaw.details || {},
+                source_links: r2MangaRaw.source_links || r2MangaRaw.sourceLinks || [],
+                last_updated: r2MangaRaw.last_updated || r2MangaRaw.lastUpdated || new Date().toISOString(),
+                created_at: r2MangaRaw.created_at || r2MangaRaw.createdAt || new Date().toISOString(),
+            };
+        }
+    }
+
+    if (!data) {
         return undefined;
     }
 
@@ -2329,6 +2715,9 @@ export const getMangaById = async (
     }
 
     const realMangaId = data.id;
+    if (data.slug) {
+        r2MangaSlugById.set(realMangaId, data.slug);
+    }
 
     const [
         { data: reviewData },
@@ -2337,9 +2726,10 @@ export const getMangaById = async (
         artistsDetails,
         relatedSeries,
         { count: characterCount },
+        r2SeriesData,
     ] = await Promise.all([
         supabase.from('reviews').select('*').eq('manga_id', realMangaId),
-        getMangaChapters(realMangaId, { includePages: options?.includePages === true }),
+        getMangaChapters(realMangaId, { includePages: options?.includePages === true, slug: data.slug }),
         getMangaAuthors(realMangaId, options),
         getMangaArtists(realMangaId, options),
         getMangaRelatedSeries(realMangaId, { includePrivate }),
@@ -2347,6 +2737,7 @@ export const getMangaById = async (
             .from('manga_characters')
             .select('manga_id', { count: 'exact', head: true })
             .eq('manga_id', realMangaId),
+        data.slug ? fetchR2SeriesBySlug(data.slug) : Promise.resolve(null),
     ]);
 
     const reviews = reviewData || [];
@@ -2377,13 +2768,35 @@ export const getMangaById = async (
 
     const hydratedChapters = hydrateChaptersWithCardImageState(chapterRows, data.details);
 
+    const r2MangaObj = r2SeriesData?.manga || r2SeriesData || {};
+    const mergedAltTitles = Array.from(
+        new Set(
+            [
+                ...(Array.isArray(data.alternative_titles) ? data.alternative_titles : []),
+                ...(Array.isArray(r2MangaObj.alternative_titles) ? r2MangaObj.alternative_titles : []),
+                ...(Array.isArray(r2MangaObj.alternativeTitles) ? r2MangaObj.alternativeTitles : []),
+            ]
+                .map((t) => String(t || '').trim())
+                .filter((t) => Boolean(t) && t.toLowerCase() !== String(data.title || '').trim().toLowerCase())
+        )
+    );
+
+    const mergedSourceLinks = normalizeEntitySourceLinks([
+        ...(Array.isArray(data.source_links) ? data.source_links : []),
+        ...(Array.isArray(r2MangaObj.source_links) ? r2MangaObj.source_links : []),
+        ...(Array.isArray(r2MangaObj.sourceLinks) ? r2MangaObj.sourceLinks : []),
+    ]);
+
+    const r2CharacterList = Array.isArray(r2SeriesData?.characters) ? r2SeriesData.characters : [];
+    const totalCharacterCount = Math.max(characterCount || 0, r2CharacterList.length);
+
     const mangaDetail = {
         ...data,
         author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || cleanPlaceholderNamedEntityString(data.author) || data.author,
         artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || cleanPlaceholderNamedEntityString(data.artist) || data.artist,
-        ...mapMangaBaseFields(data),
-        details: data.details || {},
-        sourceLinks: data.source_links || [],
+        ...mapMangaBaseFields({ ...data, alternative_titles: mergedAltTitles }),
+        details: { ...(r2MangaObj.details || {}), ...(data.details || {}) },
+        sourceLinks: mergedSourceLinks,
         relatedSeries,
         chapters: hydratedChapters,
         ratings: reviews.map(r => ({
@@ -2391,7 +2804,7 @@ export const getMangaById = async (
             rating: Math.round((r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5),
             createdAt: r.created_at
         })),
-        characterCount: characterCount || 0,
+        characterCount: totalCharacterCount,
         averageRating: average,
         ratingBreakdown: breakdown,
         reviewCount: reviews.length,
@@ -5862,8 +6275,7 @@ export const getMangaCharacters = async (
         .select('listing_role, character:characters(*)')
         .eq('manga_id', mangaId);
 
-    if (error) return [];
-    return (data || [])
+    const supabaseCharacters = (!error && Array.isArray(data) ? data : [])
         .map((entry: any) => {
             if (!entry.character) {
                 return null;
@@ -5873,15 +6285,51 @@ export const getMangaCharacters = async (
                 listingRole: normalizeCharacterListingRole(entry.listing_role),
             });
         })
-        .filter((character: any) => character && (options?.includePrivate || character.isPublic !== false))
-        .sort((left, right) => {
-            const priorityDiff = getCharacterListingRolePriority(left.listingRole) - getCharacterListingRolePriority(right.listingRole);
-            if (priorityDiff !== 0) {
-                return priorityDiff;
-            }
+        .filter((character: any) => character && (options?.includePrivate || character.isPublic !== false)) as Character[];
 
-            return left.name.localeCompare(right.name, 'tr');
-        });
+    try {
+        let slug = r2MangaSlugById.get(mangaId) || '';
+        if (!slug) {
+            const { data: mangaRow } = await supabase
+                .from('mangas')
+                .select('slug')
+                .eq('id', mangaId)
+                .maybeSingle();
+            if (mangaRow?.slug) {
+                slug = mangaRow.slug;
+                r2MangaSlugById.set(mangaId, slug);
+            }
+        }
+        if (slug) {
+            const r2Series = await fetchR2SeriesBySlug(slug);
+            if (Array.isArray(r2Series?.characters) && r2Series.characters.length > 0) {
+                const seenKeys = new Set(supabaseCharacters.map((c) => normalizeNamedEntityKey(c.name)));
+                for (const rawChar of r2Series.characters) {
+                    if (!rawChar || !rawChar.name) continue;
+                    const key = normalizeNamedEntityKey(rawChar.name);
+                    if (key && !seenKeys.has(key)) {
+                        seenKeys.add(key);
+                        supabaseCharacters.push(
+                            mapCharacterRow(rawChar, {
+                                listingRole: normalizeCharacterListingRole(rawChar.listing_role || rawChar.listingRole || rawChar.role),
+                            })
+                        );
+                    }
+                }
+            }
+        }
+    } catch (e) {
+        console.warn(`Failed to merge R2 characters for manga ${mangaId}:`, e);
+    }
+
+    return supabaseCharacters.sort((left, right) => {
+        const priorityDiff = getCharacterListingRolePriority(left.listingRole) - getCharacterListingRolePriority(right.listingRole);
+        if (priorityDiff !== 0) {
+            return priorityDiff;
+        }
+
+        return left.name.localeCompare(right.name, 'tr');
+    });
 };
 
 export const replaceMangaCharacters = async (

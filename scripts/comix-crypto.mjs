@@ -1,15 +1,19 @@
-// ToonParrot - Standalone Node.js ESM Comix API & Cryptography Engine
+/**
+ * Comix.to Custom Binary/Stream Cipher & Request Signing Engine (Node.js / ESM)
+ * Supports Comix to40oy / to260x API v1 protocol with automatic bundle key refresh.
+ */
+import dns from 'node:dns';
+try {
+  dns.setDefaultResultOrder('verbatim');
+} catch {}
 
-export const KID = "1k4";
-export const NJ = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
-export const FJ = 1024;
+let KID = 'c38';
 
-// 1088 bytes material array
-export const MATERIAL = new Uint8Array([
-  6,138,198,121,76,216,88,110,94,7,198,101,28,56,69,206,84,248,86,178,29,44,132,87,227,32,53,38,105,102,102,41,62,132,99,91,23,137,25,254,21,13,96,148,92,175,40,159,223,51,1,50,75,247,41,79,189,228,94,225,182,213,246,223,169,210,120,52,125,112,133,51,73,15,118,165,70,237,29,43,51,132,26,205,57,191,224,147,163,225,110,225,183,146,237,131,28,118,109,83,153,25,109,195,138,251,29,76,71,202,140,213,141,50,160,224,176,72,186,128,224,178,98,221,96,83,123,113,208,15,82,73,181,146,27,172,115,242,93,160,139,191,148,34,174,89,205,157,59,179,248,249,165,145,168,200,76,106,115,146,220,51,220,244,20,210,163,199,158,143,55,159,84,102,194,204,58,94,178,117,135,206,202,5,28,53,234,186,160,13,189,253,18,1,94,76,125,173,67,49,147,241,110,80,186,149,130,182,28,219,108,0,69,148,118,65,147,178,212,9,186,147,205,80,22,95,179,52,58,105,17,37,49,90,235,246,188,200,140,56,167,223,75,121,127,104,70,177,205,148,244,91,8,93,81,248,176,39,88,169,177,169,196,255,175,137,170,203,192,13,171,172,105,241,239,163,118,154,228,99,115,70,246,91,36,168,124,37,249,219,218,14,218,14,14,36,172,171,6,8,195,133,240,190,227,44,165,145,174,236,146,177,49,13,7,51,56,57,29,95,138,243,198,183,202,203,6,126,114,210,249,157,235,103,234,205,57,41,127,47,72,37,35,221,62,37,246,52,70,230,75,151,247,150,133,206,64,34,153,119,136,126,56,76,206,164,169,208,10,75,64,242,204,98,119,156,154,81,113,88,176,171,230,111,84,45,133,93,135,207,164,99,252,53,19,101,95,209,143,185,158,41,150,18,168,45,27,249,209,97,181,63,234,20,182,121,123,5,130,76,32,18,20,19,245,192,106,78,203,172,111,161,123,31,111,200,79,204,73,83,50,169,9,133,213,195,183,193,131,64,136,199,110,212,183,58,50,150,90,147,159,3,120,47,13,65,216,139,171,16,188,205,45,93,65,41,146,226,176,76,238,140,69,100,51,108,166,77,68,246,18,30,251,43,45,5,214,107,109,254,178,214,72,134,128,24,171,101,231,208,31,20,231,97,79,77,219,27,195,153,172,83,77,80,24,241,155,14,183,40,171,19,155,249,154,175,42,219,107,152,134,150,101,158,206,31,213,80,18,138,90,130,28,141,115,102,12,252,74,174,111,7,248,150,77,210,52,186,88,81,102,3,117,173,207,252,2,20,60,7,255,101,117,17,131,54,204,132,159,28,85,23,151,170,15,249,36,247,23,190,116,9,2,226,192,1,60,86,59,253,128,119,94,188,217,142,19,4,191,250,232,96,148,162,0,15,218,134,26,132,197,3,181,111,44,1,140,199,57,13,91,28,232,167,64,80,174,75,118,247,233,17,217,172,42,64,3,206,190,244,67,66,216,141,28,246,65,190,56,43,80,28,1,94,42,142,1,39,95,100,197,111,180,99,11,161,25,30,141,112,174,48,213,203,74,205,222,185,205,153,12,194,128,81,11,164,39,31,53,138,103,180,60,212,207,31,190,169,152,93,80,249,41,76,201,25,85,135,187,77,216,174,238,232,198,215,34,207,118,185,115,204,81,91,142,34,178,44,172,182,200,216,10,14,213,34,53,116,74,62,226,34,54,243,13,28,186,169,140,156,20,212,100,208,77,165,160,125,89,101,91,31,6,47,31,204,198,208,237,36,67,146,15,231,102,142,129,86,25,143,35,49,194,128,188,51,191,113,144,55,0,177,43,238,211,75,157,92,61,115,56,26,151,123,76,141,8,154,43,82,76,198,147,58,129,227,214,108,71,183,122,157,109,76,45,234,254,0,191,171,40,67,48,237,148,242,32,137,88,81,120,180,218,87,43,243,174,4,239,14,142,11,11,11,189,22,252,173,187,27,146,202,252,222,136,101,118,11,105,91,252,118,227,36,215,108,157,150,72,42,61,162,214,194,246,65,205,247,151,162,80,15,194,116,237,34,106,123,66,28,224,97,39,202,175,38,245,39,168,7,2,101,70,98,249,5,151,69,132,48,163,39,66,187,189,179,139,156,139,151,141,40,89,27,59,190,60,242,251,142,17,111,60,95,178,116,32,101,194,233,96,124,208,191,148,87,57,234,73,97,163,7,76,213,237,37,144,229,31,74,123,204,43,38,20,169,172,73,66,134,103,11,168,225,243,117,88,204,145,237,242,123,223,57,194,48,107,224,172,104,74,64,39,248,131,226,64,11,190,193,234,103,182,152,148,48,189,43,217,47,75,185,214,38,115,230,30,59,240,161,40,18,63,105,94,42,164,231,252,246,173,128,220,38,123,128,31,182,39,155,138,186,42,231,57,0,130,142,132,150,128,139,195,60,138,99,243,134
+let MATERIAL = new Uint8Array([
+  250,133,109,158,214,229,160,58,55,248,136,196,220,208,205,15,28,139,230,166,160,114,172,107,189,60,229,203,171,239,63,18,250,148,160,101,93,94,46,228,116,28,41,94,103,39,183,207,243,118,101,8,7,167,201,49,104,194,182,204,61,196,200,63,196,116,116,201,7,184,183,65,207,210,135,48,112,218,98,171,186,53,125,0,129,131,242,138,26,66,164,236,10,214,99,170,217,150,83,16,118,66,246,104,20,4,248,222,242,46,251,49,45,214,246,251,62,170,14,68,3,199,33,178,62,107,1,53,48,107,8,160,137,196,213,112,57,80,187,98,61,108,185,156,66,21,74,164,147,94,82,133,29,208,214,249,124,197,241,234,222,118,23,46,40,227,168,151,120,18,236,232,81,121,15,147,185,169,234,70,76,3,104,40,18,5,220,242,177,122,134,220,29,127,54,212,91,76,214,249,109,250,136,28,248,74,80,195,186,32,74,82,179,76,46,80,109,168,58,64,126,237,83,183,193,50,125,22,169,140,106,169,246,204,107,76,194,231,45,182,52,80,174,208,121,150,56,94,130,35,102,36,95,14,239,35,130,205,87,44,95,132,8,125,93,131,118,34,77,227,101,223,248,96,133,21,185,104,168,119,13,45,244,154,32,74,125,178,156,54,202,59,141,238,127,20,135,27,42,145,0,201,104,18,37,23,158,4,102,77,28,132,84,27,236,102,155,14,87,46,186,39,235,11,201,146,233,155,175,138,16,74,171,218,186,213,65,105,70,243,50,90,181,230,83,148,96,249,82,2,179,123,134,31,199,159,122,202,243,238,239,28,64,101,101,66,42,221,20,110,237,126,96,252,57,6,94,12,112,227,17,151,77,225,68,86,101,168,245,70,46,63,10,190,141,153,92,60,208,142,138,144,230,159,72,195,12,75,135,86,37,19,216,245,121,89,225,169,171,104,223,218,189,3,125,9,177,188,244,188,250,187,245,49,50,186,92,144,11,255,193,151,230,51,133,88,218,57,162,17,88,39,91,57,42,18,200,4,247,11,167,137,238,83,30,100,57,145,90,208,177,9,204,175,39,84,222,90,169,163,131,153,34,33,192,228,190,125,187,5,46,157,95,23,90,34,200,171,113,42,116,11,24,185,61,65,4,15,132,51,95,80,53,132,119,235,229,97,233,128,35,0,76,194,214,80,218,209,1,90,124,237,176,13,26,160,63,85,239,180,45,123,177,137,114,17,14,145,32,137,14,53,103,79,217,141,7,187,2,77,11,12,11,223,244,82,141,78,110,201,249,106,35,252,69,121,181,53,194,111,188,88,151,79,13,216,57,238,136,14,66,154,188,163,96,20,33,203,68,45,49,120,122,109,62,142,77,47,143,232,151,249,41,178,45,84,5,111,139,28,234,132,42,77,115,243,179,229,9,9,154,67,131,177,8,141,121,58,179,179,163,159,123,30,24,230,57,132,142,49,1,204,96,158,74,156,199,100,47,11,250,228,88,166,163,134,180,22,46,93,177,246,245,116,48,160,198,46,80,167,210,169,117,94,170,45,190,52,33,128,10,183,138,47,94,241,94,74,64,72,164,205,34,231,16,33,37,232,125,92,254,97,187,138,32,196,70,98,36,148,1,47,199,127,191,203,126,127,35,165,203,111,237,86,235,95,6,245,57,134,171,232,186,187,247,23,249,136,212,87,73,157,195,89,207,227,75,129,255,51,54,82,89,180,19,165,22,239,107,167,241,250,42,143,157,237,108,2,226,212,58,180,63,30,118,101,73,100,121,91,45,99,102,116,72,89,169,204,222,205,156,160,146,212,0,127,185,81,189,135,236,19,11,167,65,93,8,217,26,217,159,151,87,90,163,72,113,217,24,120,37,145,236,251,238,148,125,144,14,33,84,189,62,57,114,135,11,32,255,139,169,76,92,222,185,238,111,106,21,41,17,245,65,197,154,158,221,250,215,203,254,7,107,132,151,142,178,76,11,19,160,113,242,179,181,47,124,93,43,13,43,149,184,235,204,60,211,239,66,89,217,53,172,2,245,201,186,201,146,160,199,151,227,32,151,148,89,162,29,224,232,2,216,178,82,52,205,21,195,175,61,157,68,73,189,52,247,47,238,148,109,235,223,242,132,206,108,134,147,15,220,7,88,76,157,43,13,193,227,109,118,122,183,41,56,214,99,106,65,63,34,72,195,93,85,21,75,251,115,209,255,58,249,79,249,11,32,56,239,49,192,2,152,160,153,97,172,63,67,255,16,126,175,121,99,169,247,252,250,32,7,254,19,231,115,206,30,218,18,188,200,250,31,213,248,50,89,224,58,49,95,153,37,199,221,35,232,98,15,242,195,133,132,237,143,126,250,20,116,113,14,1,143,74,80,105,40,14,209,177,255,245,50,150,214,169,207,232,67,70,127,160,180,127,80,121,18,3,116,75,227,240,250,162,98,24,168,152
 ]);
 
-export const Hj = new Uint32Array([
+const SHA256_K = new Uint32Array([
   1116352408,1899447441,3049323471,3921009573,961987163,1508970993,2453635748,2870763221,
   3624381080,310598401,607225278,1426881987,1925078388,2162078206,2614888103,3248222580,
   3835390401,4022224774,264347078,604807628,770255983,1249150122,1555081692,1996064986,
@@ -20,331 +24,1321 @@ export const Hj = new Uint32Array([
   1955562222,2024104815,2227730452,2361852424,2428436474,2756734187,3204031479,3329325298
 ]);
 
-function Ij(p, r) {
-  return (p >>> r) | (p << (32 - r));
+const BASE64_CHARS = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+let BASE64_LOOKUP = null;
+
+function getBase64Lookup() {
+  if (BASE64_LOOKUP) return BASE64_LOOKUP;
+  const table = new Int16Array(128);
+  table.fill(-1);
+  for (let i = 0; i < BASE64_CHARS.length; i++) {
+    table[BASE64_CHARS.charCodeAt(i)] = i;
+  }
+  table[43] = 62; // '+'
+  table[47] = 63; // '/'
+  BASE64_LOOKUP = table;
+  return table;
 }
 
-function Jj(p, r, D) {
-  const y = new Uint32Array(64);
-  for (let o = 0; o < 16; o++) {
-    const C = D + 4 * o;
-    y[o] = (r[C] << 24) | (r[C + 1] << 16) | (r[C + 2] << 8) | r[C + 3];
-  }
-  for (let s = 16; s < 64; s++) {
-    const Z = y[s - 15],
-      u = Ij(Z, 7) ^ Ij(Z, 18) ^ (Z >>> 3),
-      T = y[s - 2],
-      S = Ij(T, 17) ^ Ij(T, 19) ^ (T >>> 10);
-    y[s] = (y[s - 16] + u + y[s - 7] + S) | 0;
-  }
-  let w = p[0], x = p[1], X = p[2], N = p[3], O = p[4], H = p[5], G = p[6], Q = p[7];
-  for (let q = 0; q < 64; q++) {
-    const U = (Q + (Ij(O, 6) ^ Ij(O, 11) ^ Ij(O, 25)) + ((O & H) ^ (~O & G)) + Hj[q] + y[q]) | 0,
-      z = ((Ij(w, 2) ^ Ij(w, 13) ^ Ij(w, 22)) + ((w & x) ^ (w & X) ^ (x & X))) | 0;
-    Q = G;
-    G = H;
-    H = O;
-    O = (N + U) | 0;
-    N = X;
-    X = x;
-    x = w;
-    w = (U + z) | 0;
-  }
-  p[0] = (p[0] + w) | 0;
-  p[1] = (p[1] + x) | 0;
-  p[2] = (p[2] + X) | 0;
-  p[3] = (p[3] + N) | 0;
-  p[4] = (p[4] + O) | 0;
-  p[5] = (p[5] + H) | 0;
-  p[6] = (p[6] + G) | 0;
-  p[7] = (p[7] + Q) | 0;
+function rotr(x, n) {
+  return (x >>> n) | (x << (32 - n));
 }
 
-function Kj(p, r, D) {
-  const y = Uint32Array.from(p);
-  const w = D + r.length;
-  let x = r.length + 1;
-  for (; x % 64 !== 56;) x++;
-  const X = new Uint8Array(x + 8);
-  X.set(r);
-  X[r.length] = 128;
-  const N = 8 * w,
-    O = Math.floor(N / 4294967296),
-    H = N >>> 0,
-    G = X.length - 8;
-  X[G] = (O >>> 24) & 255;
-  X[G + 1] = (O >>> 16) & 255;
-  X[G + 2] = (O >>> 8) & 255;
-  X[G + 3] = O & 255;
-  X[G + 4] = (H >>> 24) & 255;
-  X[G + 5] = (H >>> 16) & 255;
-  X[G + 6] = (H >>> 8) & 255;
-  X[G + 7] = H & 255;
-  for (let o = 0; o < X.length; o += 64) Jj(y, X, o);
-  const Q = new Uint8Array(32);
-  for (let C = 0; C < 8; C++) {
-    Q[4 * C] = (y[C] >>> 24) & 255;
-    Q[4 * C + 1] = (y[C] >>> 16) & 255;
-    Q[4 * C + 2] = (y[C] >>> 8) & 255;
-    Q[4 * C + 3] = y[C] & 255;
+function sha256Block(state, block, offset) {
+  const W = new Uint32Array(64);
+  for (let i = 0; i < 16; i++) {
+    const j = offset + 4 * i;
+    W[i] = (block[j] << 24) | (block[j + 1] << 16) | (block[j + 2] << 8) | block[j + 3];
   }
-  return Q;
+  for (let i = 16; i < 64; i++) {
+    const s0 = rotr(W[i - 15], 7) ^ rotr(W[i - 15], 18) ^ (W[i - 15] >>> 3);
+    const s1 = rotr(W[i - 2], 17) ^ rotr(W[i - 2], 19) ^ (W[i - 2] >>> 10);
+    W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0;
+  }
+  let a = state[0], b = state[1], c = state[2], d = state[3];
+  let e = state[4], f = state[5], g = state[6], h = state[7];
+  for (let i = 0; i < 64; i++) {
+    const S1 = rotr(e, 6) ^ rotr(e, 11) ^ rotr(e, 25);
+    const ch = (e & f) ^ (~e & g);
+    const temp1 = (h + S1 + ch + SHA256_K[i] + W[i]) | 0;
+    const S0 = rotr(a, 2) ^ rotr(a, 13) ^ rotr(a, 22);
+    const maj = (a & b) ^ (a & c) ^ (b & c);
+    const temp2 = (S0 + maj) | 0;
+    h = g; g = f; f = e; e = (d + temp1) | 0;
+    d = c; c = b; b = a; a = (temp1 + temp2) | 0;
+  }
+  state[0] = (state[0] + a) | 0;
+  state[1] = (state[1] + b) | 0;
+  state[2] = (state[2] + c) | 0;
+  state[3] = (state[3] + d) | 0;
+  state[4] = (state[4] + e) | 0;
+  state[5] = (state[5] + f) | 0;
+  state[6] = (state[6] + g) | 0;
+  state[7] = (state[7] + h) | 0;
 }
 
-function Lj(p, r) {
-  const D = new Uint32Array(8);
-  for (let y = 0; y < 8; y++) {
-    const w = r + 4 * y;
-    D[y] = (p[w] << 24) | (p[w + 1] << 16) | (p[w + 2] << 8) | p[w + 3];
+function customSha256(iv, data, extraLen) {
+  const state = Uint32Array.from(iv);
+  const totalLen = extraLen + data.length;
+  let padLen = data.length + 1;
+  while (padLen % 64 !== 56) padLen++;
+  const padded = new Uint8Array(padLen + 8);
+  padded.set(data);
+  padded[data.length] = 128;
+  const bitLen = 8 * totalLen;
+  const highBits = Math.floor(bitLen / 4294967296);
+  const lowBits = bitLen >>> 0;
+  const endOffset = padded.length - 8;
+  padded[endOffset] = (highBits >>> 24) & 255;
+  padded[endOffset + 1] = (highBits >>> 16) & 255;
+  padded[endOffset + 2] = (highBits >>> 8) & 255;
+  padded[endOffset + 3] = highBits & 255;
+  padded[endOffset + 4] = (lowBits >>> 24) & 255;
+  padded[endOffset + 5] = (lowBits >>> 16) & 255;
+  padded[endOffset + 6] = (lowBits >>> 8) & 255;
+  padded[endOffset + 7] = lowBits & 255;
+  for (let i = 0; i < padded.length; i += 64) {
+    sha256Block(state, padded, i);
   }
-  return D;
+  const out = new Uint8Array(32);
+  for (let i = 0; i < 8; i++) {
+    out[4 * i] = (state[i] >>> 24) & 255;
+    out[4 * i + 1] = (state[i] >>> 16) & 255;
+    out[4 * i + 2] = (state[i] >>> 8) & 255;
+    out[4 * i + 3] = state[i] & 255;
+  }
+  return out;
 }
 
-function Mj(p) {
-  return new TextEncoder().encode(p);
+function readUint32ArrayBE(bytes, offset) {
+  const out = new Uint32Array(8);
+  for (let i = 0; i < 8; i++) {
+    const j = offset + 4 * i;
+    out[i] = (bytes[j] << 24) | (bytes[j + 1] << 16) | (bytes[j + 2] << 8) | bytes[j + 3];
+  }
+  return out;
 }
 
-function Wj(p, r) {
-  const D = Mj(r);
-  const y = Kj(Lj(p, 0), D, 64);
-  const step2 = Kj(Lj(p, 32), y, 64);
-  
-  let result = "";
-  for (let idx = 0; idx < step2.length; idx += 3) {
-    const y0 = step2[idx],
-      w = step2[idx + 1],
-      x = step2[idx + 2];
-    result += NJ[y0 >> 2] + NJ[((3 & y0) << 4) | (w >> 4)];
-    if (idx + 1 < step2.length) result += NJ[((15 & w) << 2) | (x >> 6)];
-    if (idx + 2 < step2.length) result += NJ[63 & x];
+function toBase64Url(bytes) {
+  let out = '';
+  let i = 0;
+  for (; i + 2 < bytes.length; i += 3) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8) | bytes[i + 2];
+    out += BASE64_CHARS[(n >>> 18) & 63] + BASE64_CHARS[(n >>> 12) & 63] + BASE64_CHARS[(n >>> 6) & 63] + BASE64_CHARS[n & 63];
   }
-  return result.slice(0, 16);
+  const rem = bytes.length - i;
+  if (rem === 1) {
+    const n = bytes[i] << 16;
+    out += BASE64_CHARS[(n >>> 18) & 63] + BASE64_CHARS[(n >>> 12) & 63];
+  } else if (rem === 2) {
+    const n = (bytes[i] << 16) | (bytes[i + 1] << 8);
+    out += BASE64_CHARS[(n >>> 18) & 63] + BASE64_CHARS[(n >>> 12) & 63] + BASE64_CHARS[(n >>> 6) & 63];
+  }
+  return out;
 }
 
-let Pj = null;
-function getPj() {
-  if (Pj === null) {
-    Pj = new Int8Array(256).fill(-1);
-    for (let G = 0; G < 64; G++) {
-      Pj[NJ.charCodeAt(G)] = G;
-    }
-    Pj[43] = 62;
-    Pj[47] = 63;
+function fromBase64Url(rawStr) {
+  const str = String(rawStr || '').replace(/=+$/, '');
+  const lookup = getBase64Lookup();
+  const len = str.length;
+  const rem = len & 3;
+  if (rem === 1) throw new Error('Invalid base64url length');
+  const outLen = 3 * (len >>> 2) + (rem === 2 ? 1 : rem === 3 ? 2 : 0);
+  const out = new Uint8Array(outLen);
+  let outIdx = 0;
+  let inIdx = 0;
+  for (const limit = len - rem; inIdx < limit; inIdx += 4) {
+    const c0 = str.charCodeAt(inIdx), c1 = str.charCodeAt(inIdx + 1), c2 = str.charCodeAt(inIdx + 2), c3 = str.charCodeAt(inIdx + 3);
+    const v0 = c0 < 128 ? lookup[c0] : -1, v1 = c1 < 128 ? lookup[c1] : -1, v2 = c2 < 128 ? lookup[c2] : -1, v3 = c3 < 128 ? lookup[c3] : -1;
+    if ((v0 | v1 | v2 | v3) < 0) throw new Error('Invalid base64url character');
+    const n = (v0 << 18) | (v1 << 12) | (v2 << 6) | v3;
+    out[outIdx++] = (n >>> 16) & 255;
+    out[outIdx++] = (n >>> 8) & 255;
+    out[outIdx++] = n & 255;
   }
-  return Pj;
+  if (rem === 2) {
+    const c0 = str.charCodeAt(inIdx), c1 = str.charCodeAt(inIdx + 1);
+    const v0 = c0 < 128 ? lookup[c0] : -1, v1 = c1 < 128 ? lookup[c1] : -1;
+    if ((v0 | v1) < 0) throw new Error('Invalid base64url character');
+    out[outIdx] = ((v0 << 18) | (v1 << 12)) >>> 16;
+  } else if (rem === 3) {
+    const c0 = str.charCodeAt(inIdx), c1 = str.charCodeAt(inIdx + 1), c2 = str.charCodeAt(inIdx + 2);
+    const v0 = c0 < 128 ? lookup[c0] : -1, v1 = c1 < 128 ? lookup[c1] : -1, v2 = c2 < 128 ? lookup[c2] : -1;
+    if ((v0 | v1 | v2) < 0) throw new Error('Invalid base64url character');
+    const n = (v0 << 18) | (v1 << 12) | (v2 << 6);
+    out[outIdx++] = (n >>> 16) & 255;
+    out[outIdx] = (n >>> 8) & 255;
+  }
+  return out;
 }
 
-function Xj(p, r) {
-  const D_lookup = getPj();
-  const y = Mj(r);
-  const w = new Uint8Array((9 + ((3 * y.length) >> 2)) & -4);
-  const x = -4 & y.length;
-  let X = 2, N = 0;
-  for (; N < x; N += 4) {
-    const Q = (D_lookup[y[N]] << 18) | (D_lookup[y[N + 1]] << 12) | (D_lookup[y[N + 2]] << 6) | D_lookup[y[N + 3]];
-    if (Q < 0) break;
-    w[X] = Q >> 16;
-    w[X + 1] = Q >> 8;
-    w[X + 2] = Q & 255;
-    X += 3;
-  }
-  let O = 0, H = 0;
-  for (; N < y.length; N++) {
-    const o = D_lookup[y[N]];
-    if (o >= 0) {
-      O = 65535 & ((O << 6) | o);
-      H += 6;
-      if (H >= 8) {
-        H -= 8;
-        w[X++] = O >> H;
-      }
-    }
-  }
-
-  if (X < 4) throw new Error("Ciphertext too short");
-
-  const y_shift = ((w[2] << 8) | w[3]) % FJ;
-  const w_sub = p.subarray(64, 1088);
-  const x_buf = new Uint8Array(FJ);
-  x_buf.set(w_sub.subarray(y_shift));
-  x_buf.set(w_sub.subarray(0, y_shift), FJ - y_shift);
-
-  const X_arr = new Uint32Array(w.buffer, w.byteOffset, Math.floor(X / 4));
-  const N_arr = new Uint32Array(x_buf.buffer, x_buf.byteOffset, 256);
-  const O_len = X >> 2;
-  let H_check = 0;
-  for (let G = 1; G < O_len; G++) {
-    const Q = X_arr[G] ^ N_arr[(G - 1) % 256];
-    X_arr[G] = Q;
-    H_check |= 2155905152 & (Q | ((Q - 538976288) & ~Q));
-  }
-  for (let o = O_len << 2; o < X; o++) {
-    const C = w[o] ^ x_buf[(o - 4) % FJ];
-    w[o] = C;
-    if (C < 32 || C >= 128) H_check = 1;
-  }
-
-  // UTF-8 JSON parse from index 4 to X
-  const rawJson = new TextDecoder().decode(w.subarray(4, X));
-  return JSON.parse(rawJson);
+export function signPath(canonicalPath) {
+  const data = new TextEncoder().encode(canonicalPath);
+  const iv1 = readUint32ArrayBE(MATERIAL, 0);
+  const iv2 = readUint32ArrayBE(MATERIAL, 32);
+  const innerHash = customSha256(iv1, data, 64);
+  const outerHash = customSha256(iv2, innerHash, 64);
+  return `${KID}.${toBase64Url(outerHash.subarray(0, 12))}`;
 }
 
-// Token generator function
-export function generateComixToken(urlPathAndQuery) {
-  const hash = Wj(MATERIAL, urlPathAndQuery);
-  return `${KID}.${hash}`;
-}
+export function decryptPayload(encryptedB64) {
+  const rawBytes = fromBase64Url(encryptedB64);
+  const totalLen = rawBytes.length + 2;
+  if (totalLen < 4) throw new Error('Invalid encrypted response');
+  const paddedLen = (totalLen + 3) & ~3;
+  const buf = new Uint8Array(paddedLen);
+  buf.set(rawBytes, 2);
 
-// Decrypt function
-export function decryptComixPayload(cipherText) {
-  return Xj(MATERIAL, cipherText);
-}
+  const shift = ((buf[2] << 8) | buf[3]) % 1024;
+  const keySlice = MATERIAL.subarray(64, 1088);
+  const rotatedKey = new Uint8Array(1024);
+  rotatedKey.set(keySlice.subarray(shift));
+  rotatedKey.set(keySlice.subarray(0, shift), 1024 - shift);
 
-export function serializeComixParams(params) {
-  const pairs = [];
-  const append = (key, val) => {
-    if (val === null || val === undefined) return;
-    if (Array.isArray(val)) {
-      val.forEach((item, idx) => append(`${key}[${idx}]`, item));
-    } else if (typeof val === 'object') {
-      const keys = Object.keys(val).sort();
-      for (const k of keys) {
-        append(key === "" ? k : `${key}[${k}]`, val[k]);
-      }
-    } else {
-      pairs.push(`${key}=${String(val)}`);
-    }
-  };
-
-  const topKeys = Object.keys(params).filter((k) => k !== '_').sort();
-  for (const k of topKeys) {
-    append(k, params[k]);
+  const wordCount = totalLen >> 2;
+  const u32Data = new Uint32Array(buf.buffer, buf.byteOffset, wordCount);
+  const u32Key = new Uint32Array(rotatedKey.buffer, rotatedKey.byteOffset, 256);
+  for (let i = 1; i < wordCount; i++) {
+    u32Data[i] = u32Data[i] ^ u32Key[(i - 1) % 256];
   }
-  return pairs.join('&');
+  for (let i = wordCount << 2; i < totalLen; i++) {
+    buf[i] = buf[i] ^ rotatedKey[(i - 4) % 1024];
+  }
+  const jsonStr = new TextDecoder().decode(buf.subarray(4, totalLen));
+  return JSON.parse(jsonStr);
 }
 
-import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
+let refreshPromise = null;
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-const projectRoot = path.resolve(__dirname, '..');
-const COOKIE_FILE = path.join(projectRoot, '.cache', 'comix-cookie.json');
-
-function getWafPassCookie() {
-  if (process.env.COMIX_WAF_PASS) return process.env.COMIX_WAF_PASS;
-  if (existsSync(COOKIE_FILE)) {
+/**
+ * Automatically fetches live https://comix.to bundle and extracts updated KID + 1088-byte MATERIAL
+ * if Comix rotates keys on a new deployment.
+ */
+export async function refreshComixCryptoKeys() {
+  if (refreshPromise) return refreshPromise;
+  refreshPromise = (async () => {
     try {
-      const data = JSON.parse(readFileSync(COOKIE_FILE, 'utf8'));
-      if (data && data.waf_pass) return data.waf_pass;
-    } catch {}
-  }
-  return '';
-}
-
-export async function fetchComixApi(endpoint, params = {}, options = {}) {
-  const cleanEndpoint = endpoint.startsWith('/') ? endpoint : `/${endpoint}`;
-  const relativePath = cleanEndpoint.replace(/^\/api\/v1/, '');
-  const isChapterEndpoint = relativePath.includes('/chapters') || relativePath.startsWith('/chapters/');
-  const mergedParams = {
-    ...params,
-    v: params.v !== undefined ? params.v : (isChapterEndpoint ? 2 : 0),
-    w: params.w !== undefined ? params.w : (isChapterEndpoint ? 'ff010101' : 0),
-  };
-  const queryString = serializeComixParams(mergedParams);
-  const tokenSubject = queryString ? `${relativePath}?${queryString}` : relativePath;
-  const token = generateComixToken(tokenSubject);
-
-  const searchParams = new URLSearchParams();
-  const finalParams = { ...mergedParams, _: token };
-  for (const [k, v] of Object.entries(finalParams)) {
-    if (typeof v === 'object' && v !== null && !Array.isArray(v)) {
-      for (const [subK, subV] of Object.entries(v)) {
-        searchParams.append(`${k}[${subK}]`, String(subV));
-      }
-    } else if (Array.isArray(v)) {
-      v.forEach((item, idx) => searchParams.append(`${k}[${idx}]`, String(item)));
-    } else if (v !== undefined && v !== null) {
-      searchParams.append(k, String(v));
-    }
-  }
-
-  const url = `https://comix.to/api/v1${relativePath}?${searchParams.toString()}`;
-  const timeoutMs = options.timeoutMs || 25000;
-  const wafPass = getWafPassCookie();
-
-  const defaultReferer = relativePath.includes('/manga/')
-    ? 'https://comix.to/title/' + (relativePath.split('/manga/')[1]?.split('/')[0] || '')
-    : 'https://comix.to/';
-
-  for (let attempt = 1; attempt <= 3; attempt++) {
-    try {
-      const headers = {
-        accept: "application/json",
-        "x-rt": "0",
-        "x-requested-with": "XMLHttpRequest",
-        "user-agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/156.0.0.0 Safari/537.36 Edg/156.0.0.0",
-        referer: options.referer || defaultReferer,
-        ...(wafPass ? { cookie: `waf_pass=${wafPass}` } : {}),
-        ...(options.headers || {}),
-      };
-
-      const res = await fetch(url, {
-        headers,
-        signal: AbortSignal.timeout(timeoutMs),
+      const homeRes = await fetch('https://comix.to/', {
+        headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36' },
       });
+      if (!homeRes.ok) return false;
+      const html = await homeRes.text();
+      const mainMatch = html.match(/(\/assets\/[^\x22']+\/dist\/)main-[^\x22']+\.js/);
+      if (!mainMatch) return false;
+      const basePath = mainMatch[1];
+      const mainJs = await (await fetch('https://comix.to' + mainMatch[0], {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      })).text();
+      const apicoreMatch = mainJs.match(/apicore-[^\x22']+\.js/);
+      if (!apicoreMatch) return false;
+      const apiJs = await (await fetch('https://comix.to' + basePath + apicoreMatch[0], {
+        headers: { 'User-Agent': 'Mozilla/5.0' },
+      })).text();
 
-      if (!res.ok) {
-        if (res.status === 404) return null;
-        if (res.status === 403 || res.status === 429) {
-          if (attempt < 3) {
-            await new Promise((r) => setTimeout(r, 2500 * attempt));
-            continue;
+      const rotEnd = apiJs.indexOf('import{');
+      const fnDIdx = apiJs.indexOf('function d()');
+      const fnEIdx = apiJs.indexOf('function e(');
+      const xjIdx = apiJs.indexOf('xj=[');
+      const bjEnd = apiJs.indexOf(';var Bj=');
+      if (rotEnd < 0 || fnDIdx < 0 || fnEIdx < 0 || xjIdx < 0 || bjEnd < 0) return false;
+
+      let depth = 0, fnDEnd = fnDIdx;
+      for (let i = apiJs.indexOf('{', fnDIdx); i < apiJs.length; i++) {
+        if (apiJs[i] === '{') depth++;
+        else if (apiJs[i] === '}') { depth--; if (depth === 0) { fnDEnd = i + 1; break; } }
+      }
+      depth = 0;
+      let fnEEnd = fnEIdx;
+      for (let i = apiJs.indexOf('{', fnEIdx); i < apiJs.length; i++) {
+        if (apiJs[i] === '{') depth++;
+        else if (apiJs[i] === '}') { depth--; if (depth === 0) { fnEEnd = i + 1; break; } }
+      }
+
+      const wjStart = apiJs.indexOf('wj={};');
+      const yjStart = wjStart > 0 ? wjStart : apiJs.lastIndexOf('var yj=', xjIdx);
+      if (yjStart < 0) return false;
+      const zjEnd = apiJs.indexOf('var Zj=');
+      const wjEnd = apiJs.indexOf(';var Wj=');
+      const targetEnd = zjEnd > 0 ? zjEnd : (wjEnd > 0 ? wjEnd : bjEnd + 15);
+
+      const vm = await import('node:vm');
+      const ctx = vm.createContext({ parseInt, String, Object, Array, Uint8Array, Uint32Array, Int8Array, Math, TextEncoder });
+      const scriptCode = [
+        apiJs.slice(fnDIdx, fnDEnd),
+        apiJs.slice(fnEIdx, fnEEnd),
+        apiJs.slice(0, rotEnd),
+        (wjStart > 0 ? 'var ' : '') + apiJs.slice(yjStart, targetEnd),
+      ].join('\n');
+      vm.runInContext(scriptCode, ctx);
+      const activeObj = ctx.Wj || ctx.Bj;
+      if (activeObj) {
+        const kidVal = Object.values(activeObj).find((v) => typeof v === 'string');
+        const matFn = Object.values(activeObj).find((v) => typeof v === 'function');
+        if (kidVal && matFn) {
+          const nextMat = matFn();
+          if (nextMat && nextMat.length === 1088) {
+            const prevKid = KID;
+            const prevMat = MATERIAL;
+            KID = kidVal;
+            MATERIAL = new Uint8Array(nextMat);
+            // Verify the candidate key actually works before keeping it
+            const testReq = encodeRequest({ method: 'GET', url: '/manga', params: { limit: 1 } });
+            const testRes = await fetch(testReq.url, { headers: testReq.headers }).catch(() => null);
+            if (testRes && testRes.ok) {
+              return true;
+            }
+            KID = prevKid;
+            MATERIAL = prevMat;
           }
         }
-        throw new Error(`HTTP ${res.status}: ${res.statusText}`);
       }
+      return false;
+    } catch {
+      return false;
+    } finally {
+      refreshPromise = null;
+    }
+  })();
+  return refreshPromise;
+}
 
-      const data = await res.json();
-      let payload = data;
-      if (data && data.e) {
-        payload = decryptComixPayload(data.e);
+/**
+ * Formats query parameters exactly as Comix's `ll(path, params)` interceptor does:
+ * - Unencoded `key=value` pairs sorted alphabetically for signature computation.
+ * - URLSearchParams encoded query string for the HTTP request URL.
+ */
+function buildSignedQuery(cleanPath, paramsObj) {
+  const rawEntries = [];
+  const encodeEntries = [];
+
+  const collect = (prefix, val) => {
+    if (val === undefined || val === null) return;
+    if (Array.isArray(val)) {
+      val.forEach((item, idx) => collect(`${prefix}[${idx}]`, item));
+      return;
+    }
+    if (typeof val === 'object') {
+      for (const k of Object.keys(val).sort()) {
+        collect(prefix === '' ? k : `${prefix}[${k}]`, val[k]);
       }
-      if (payload && payload.result !== undefined) {
-        return payload.result;
-      }
-      return payload;
-    } catch (err) {
-      if (attempt === 3) throw err;
-      await new Promise((r) => setTimeout(r, 1200 * attempt));
+      return;
+    }
+    rawEntries.push(`${prefix}=${String(val)}`);
+    encodeEntries.push([prefix, String(val)]);
+  };
+
+  const topKeys = Object.keys(paramsObj).filter((k) => k !== '_').sort();
+  for (const k of topKeys) {
+    collect(k, paramsObj[k]);
+  }
+
+  const canonical = rawEntries.length > 0 ? `${cleanPath}?${rawEntries.join('&')}` : cleanPath;
+  const sig = signPath(canonical);
+
+  const encodedParts = encodeEntries.map(
+    ([k, v]) => `${encodeURIComponent(k).replace(/%5B/gi, '[').replace(/%5D/gi, ']')}=${encodeURIComponent(v)}`
+  );
+  encodedParts.push(`_=${encodeURIComponent(sig)}`);
+  return { canonical, sig, queryString: encodedParts.join('&') };
+}
+
+export function encodeRequest({ method = 'GET', url, params = null, v = 0, w = 0 }) {
+  const rawUrl = String(url || '');
+  const [pathPart, existingQuery] = rawUrl.replace(/^https?:\/\/[^/]+/, '').split('?');
+  const cleanPath = (pathPart || '').replace(/^\/api\/v1/, '');
+
+  const mergedParams = {};
+  if (existingQuery) {
+    const sp = new URLSearchParams(existingQuery);
+    for (const [k, val] of sp.entries()) {
+      if (k !== '_') mergedParams[k] = val;
     }
   }
-  return null;
-}
-
-export function extractComixHid(urlOrHid) {
-  if (!urlOrHid) return '';
-  const s = String(urlOrHid).trim();
-  const m = s.match(/(?:comic|manga|chapter|title)\/([a-z0-9_-]+)/i);
-  if (m) {
-    const raw = m[1];
-    // If format is like 'y70v-full-time-swordsman', extract 'y70v'
-    const dashIdx = raw.indexOf('-');
-    if (dashIdx !== -1) return raw.slice(0, dashIdx);
-    return raw;
+  if (params && typeof params === 'object') {
+    for (const [k, val] of Object.entries(params)) {
+      if (val !== undefined && val !== null && k !== '_') {
+        mergedParams[k] = val;
+      }
+    }
   }
-  return s.replace(/^https?:\/\/[^/]+\/?/i, '').replace(/^\/+/, '').split(/[/?#]/)[0];
+
+  const isChapterEndpoint =
+    /\/(?:manga\/[^/?]+|groups\/\d+)\/chapters$|^\/chapters\/\d+$/.test(cleanPath);
+
+  if (isChapterEndpoint) {
+    if (mergedParams.v === undefined) mergedParams.v = String(v);
+    if (mergedParams.w === undefined) mergedParams.w = String(w);
+  }
+
+  const { sig, queryString } = buildSignedQuery(cleanPath, mergedParams);
+  return {
+    url: `https://comix.to/api/v1${cleanPath}?${queryString}`,
+    headers: {
+      'Accept': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'X-Rt': '0',
+      'x-48': '0',
+      'x-req': '1',
+    },
+    signature: sig,
+  };
 }
 
-export function isAdultRating(rating) {
-  const r = String(rating || '').toLowerCase();
-  return r === 'erotica' || r === 'pornographic' || r === 'hentai' || r === 'nsfw';
+export function decodeResponse(buffer) {
+  const text = typeof buffer === 'string' ? buffer : new TextDecoder().decode(buffer);
+  const json = JSON.parse(text);
+  const decrypted = json && typeof json.e === 'string' ? decryptPayload(json.e) : json;
+  const res = (decrypted && decrypted.status === 'ok' && 'result' in decrypted)
+    ? decrypted.result
+    : decrypted;
+  if (res && typeof res === 'object' && !Array.isArray(res)) {
+    const metaObj = res.meta ?? res.pagination ?? res.yU;
+    if (metaObj && typeof metaObj === 'object') {
+      const normalizedMeta = {
+        ...metaObj,
+        total: metaObj.total ?? metaObj.f ?? 0,
+        perPage: metaObj.perPage ?? metaObj.per_page ?? metaObj.limit ?? 20,
+        page: metaObj.page ?? metaObj.current_page ?? 1,
+        lastPage: metaObj.lastPage ?? metaObj.last_page ?? 1,
+        last_page: metaObj.last_page ?? metaObj.lastPage ?? 1,
+        hasNext: Boolean(metaObj.hasNext ?? ((metaObj.page ?? 1) < (metaObj.lastPage ?? metaObj.last_page ?? 1))),
+      };
+      res.meta = normalizedMeta;
+      res.pagination = normalizedMeta;
+    }
+  }
+  return res;
 }
 
-export function mapComixType(type) {
-  const t = String(type || '').toLowerCase();
-  if (t === 'manhwa' || t === 'webtoon') return 'webtoon';
-  if (t === 'manhua') return 'manhua';
-  return 'manga';
+/**
+ * Generates ordered CDN mirror URLs for a Comix chapter page (`to40oy-Cv9NlRfE2.js` algorithm).
+ */
+export function buildComixPageMirrorUrls(primaryUrl, altDomains = [], alt2Domain = 'kkplayer.wtf', altNode = null, pageIndex = 0) {
+  if (!primaryUrl || typeof primaryUrl !== 'string') return [];
+  const fullUrl = primaryUrl.startsWith('http') ? primaryUrl : `https://comix.to${primaryUrl.startsWith('/') ? '' : '/'}${primaryUrl}`;
+  const match = /^(https?:\/\/)([^/?#]+)(.*)$/.exec(fullUrl);
+  if (!match) return [fullUrl];
+  const [, protocol, host, pathAndQuery] = match;
+  const hostParts = host.split('.');
+  if (hostParts.length < 2) return [fullUrl];
+  const primaryNode = hostParts[0];
+  const primaryBaseDomain = hostParts.slice(1).join('.');
+
+  const domains = [
+    primaryBaseDomain,
+    Array.isArray(altDomains) && altDomains.length > 0 ? altDomains[pageIndex % altDomains.length] : undefined,
+    alt2Domain || 'kkplayer.wtf',
+  ].filter(Boolean);
+
+  const nodes = altNode && altNode !== primaryNode ? [primaryNode, altNode] : [primaryNode];
+  const candidates = [];
+  for (const node of nodes) {
+    for (const domain of domains) {
+      const candidateHost = `${node}.${domain}`;
+      const candidateUrl = `${protocol}${candidateHost}${pathAndQuery}`;
+      if (!candidates.includes(candidateUrl)) {
+        candidates.push(candidateUrl);
+      }
+    }
+  }
+  return candidates.length > 0 ? candidates : [fullUrl];
 }
+
+export function unpackManga(raw) {
+  if (!raw || typeof raw !== 'object') return raw;
+  const mapTermList = (arr) =>
+    (arr ?? []).map((item) => ({
+      id: item.id ?? item.tr,
+      title: item.title ?? item.N_ ?? item.name ?? '',
+      slug: item.slug ?? '',
+    }));
+
+  const normalizeComixAssetUrl = (u) => {
+    if (!u || typeof u !== 'string') return '';
+    const trimmed = u.trim();
+    if (!trimmed) return '';
+    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) return trimmed;
+    return `https://comix.to${trimmed.startsWith('/') ? '' : '/'}${trimmed}`;
+  };
+
+  const posterRaw = raw.poster ?? raw.yd;
+  const poster = posterRaw
+    ? {
+        medium: normalizeComixAssetUrl(posterRaw.medium ?? posterRaw.tC ?? ''),
+        large: normalizeComixAssetUrl(posterRaw.large ?? posterRaw.Rg ?? posterRaw.medium ?? posterRaw.tC ?? ''),
+      }
+    : null;
+
+  const linksRaw = raw.links ?? raw.eZ;
+  const links = linksRaw
+    ? {
+        al: linksRaw.al ?? linksRaw._l ?? null,
+        mal: linksRaw.mal ?? linksRaw.D2 ?? null,
+        mu: linksRaw.mu ?? linksRaw.w4 ?? null,
+        md: linksRaw.md ?? linksRaw.eW ?? null,
+        mb: linksRaw.mb ?? linksRaw.lB ?? null,
+      }
+    : null;
+
+  const hasChapters = raw.hasChapters ?? raw.Wz ?? (Number(raw.latestChapter ?? raw.OI ?? 0) > 0);
+  const latestChapter = Number(raw.latestChapter ?? raw.OI ?? 0);
+
+  return {
+    id: raw.id ?? raw.Mi,
+    hid: raw.hid ?? raw.hash_id ?? raw.Gi,
+    title: raw.title ?? raw.N_ ?? '',
+    altTitles: raw.altTitles ?? raw.alt_titles ?? raw.VK ?? [],
+    type: raw.type ?? raw.es ?? 'manhwa',
+    status: raw.status ?? raw.Jg ?? 'releasing',
+    originalLanguage: raw.originalLanguage ?? raw.original_language ?? raw.tP ?? '',
+    poster,
+    latestChapter,
+    finalChapter: raw.finalChapter ?? raw.rY ?? 0,
+    finalVolume: raw.finalVolume ?? raw.Vv ?? 0,
+    hasChapters: Boolean(hasChapters),
+    chaptersTotal: raw.chaptersTotal ?? raw.chapters_total ?? (hasChapters ? Math.max(1, Math.ceil(latestChapter || 1)) : 0),
+    startDate: raw.startDate ?? raw.uO ?? '',
+    endDate: raw.endDate ?? raw.y5 ?? '',
+    year: raw.year ?? raw.V_ ?? null,
+    synopsis: raw.synopsis ?? raw.Qw ?? '',
+    synopsisHtml: raw.synopsisHtml ?? raw.fO ?? '',
+    followsTotal: 0, // Never import external views/follows
+    ratedAvg: raw.ratedAvg ?? raw.$d ?? 0,
+    ratedScore: raw.ratedScore ?? raw.eU ?? 0,
+    ratedCount: raw.ratedCount ?? raw.PW ?? 0,
+    contentRating: raw.contentRating ?? raw.content_rating ?? raw.pk ?? 'safe',
+    links,
+    url: raw.url ?? raw.ub ?? '',
+    genres: mapTermList(raw.genres ?? raw.qA),
+    demographics: mapTermList(raw.demographics ?? raw.LV),
+    formats: mapTermList(raw.formats ?? raw.Ii),
+    tags: mapTermList(raw.tags ?? raw.P8),
+    authors: mapTermList(raw.authors ?? raw.DG),
+    artists: mapTermList(raw.artists ?? raw.Zu),
+    publishers: mapTermList(raw.publishers ?? raw.nl),
+    sources: (raw.sources ?? raw.sy ?? []).map((s) => ({ label: s.label ?? s.hR, url: s.url ?? s.ub })),
+  };
+}
+
+export function unpackChapters(raw) {
+  const list = Array.isArray(raw) ? raw : (raw?.items ?? raw?.lr ?? []);
+  return list.map((ch) => ({
+    id: ch.id ?? ch.Uw,
+    mangaId: ch.mangaId ?? ch.manga_id ?? ch.Mi,
+    number: Number(ch.number ?? ch.FL ?? 0),
+    volume: ch.volume ?? ch.hG ?? null,
+    name: ch.name ?? ch.jh ?? '',
+    language: String(ch.language ?? ch.yN ?? 'en').toLowerCase(),
+    isOfficial: Boolean(ch.isOfficial ?? ch.is_official ?? ch.Sq),
+    votes: Number(ch.votes ?? ch.N4 ?? 0),
+    createdAtFormatted: ch.createdAtFormatted ?? ch.Cc ?? '',
+    groupId: ch.groupId ?? ch.group_id ?? ch.w6 ?? null,
+    group: (ch.group ?? ch.LF)
+      ? {
+          id: (ch.group ?? ch.LF).id ?? (ch.group ?? ch.LF).w6,
+          name: (ch.group ?? ch.LF).name ?? (ch.group ?? ch.LF).jh ?? '',
+        }
+      : null,
+    url: ch.url ?? ch.ub ?? '',
+  }));
+}
+
+export function unpackChapterPages(raw) {
+  if (!raw || typeof raw !== 'object') return { pages: [], pageObjects: [] };
+  const pagesContainer = raw.pages ?? raw.Ni ?? [];
+  const isLegacyArray = Array.isArray(pagesContainer);
+  const baseUrl = (!isLegacyArray && pagesContainer?.baseUrl) ? String(pagesContainer.baseUrl) : '';
+  const altDomains = (!isLegacyArray && Array.isArray(pagesContainer?.alt)) ? pagesContainer.alt : [];
+  const alt2Domain = (!isLegacyArray && pagesContainer?.alt2) ? String(pagesContainer.alt2) : 'kkplayer.wtf';
+  const altNode = (!isLegacyArray && (pagesContainer?.alt_node || pagesContainer?.node))
+    ? String(pagesContainer.alt_node || pagesContainer.node)
+    : null;
+  const rawItems = isLegacyArray ? pagesContainer : (pagesContainer?.items ?? []);
+
+  const pageObjects = rawItems.map((p, idx) => {
+    const rawUrl = String(p.url ?? p.ub ?? '');
+    const primaryUrl = rawUrl.startsWith('http') ? rawUrl : `${baseUrl}${rawUrl}`;
+    const itemAlt = Array.isArray(p.n6) && p.n6.length > 0 ? p.n6 : altDomains;
+    const itemAlt2 = p.R2 ?? alt2Domain;
+    const itemNode = p.wp ?? altNode;
+    const mirrors = buildComixPageMirrorUrls(primaryUrl, itemAlt, itemAlt2, itemNode, idx);
+    return {
+      url: mirrors[0] || primaryUrl,
+      mirrors,
+      alt: itemAlt,
+      alt2: itemAlt2,
+      altNode: itemNode,
+      width: p.width ?? p.fc ?? 0,
+      height: p.height ?? p.pq ?? 0,
+    };
+  });
+
+  return {
+    id: raw.id ?? raw.Uw,
+    mangaId: raw.mangaId ?? raw.Mi,
+    number: Number(raw.number ?? raw.FL ?? 0),
+    volume: raw.volume ?? raw.hG ?? null,
+    name: raw.name ?? raw.jh ?? '',
+    language: String(raw.language ?? raw.yN ?? 'en').toLowerCase(),
+    pages: pageObjects.map((p) => p.url).filter(Boolean),
+    pageObjects,
+  };
+}
+
+export async function fetchComixApi(endpoint, params = {}) {
+  // Normalize legacy `q` param to `keyword` for `/manga` search
+  const normalizedParams = { ...params };
+  if (endpoint === '/manga' && normalizedParams.q !== undefined && normalizedParams.keyword === undefined) {
+    normalizedParams.keyword = normalizedParams.q;
+    delete normalizedParams.q;
+  }
+
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const req = encodeRequest({ method: 'GET', url: endpoint, params: normalizedParams, v: 0, w: 0 });
+    const res = await fetch(req.url, {
+      headers: {
+        ...req.headers,
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36',
+      },
+    });
+    if (res.status === 403 && attempt === 0) {
+      const refreshed = await refreshComixCryptoKeys();
+      if (refreshed) continue;
+    }
+    if (!res.ok) {
+      throw new Error(`HTTP ${res.status}: ${res.statusText} [${req.url}]`);
+    }
+    const buf = await res.arrayBuffer();
+    return decodeResponse(buf);
+  }
+}
+
+// ============================================================================
+// SHARED COMIX ARCHIVE, DEDUPLICATION, METADATA & MULTI-LANGUAGE HELPERS
+// ============================================================================
+
+export function toComixChapterUuid(comixChId) {
+  const cleanDigits = String(comixChId || '').replace(/[^0-9]/g, '');
+  return `c01c0000-0000-4000-8000-${cleanDigits.padStart(12, '0').slice(-12)}`;
+}
+
+export function toComixSeriesUuid(hid) {
+  const clean = String(hid || '').toLowerCase().replace(/[^a-z0-9]/g, '') || '0';
+  const lenHex = Math.min(15, clean.length).toString(16);
+  let num = 0n;
+  for (const ch of clean.slice(0, 10)) {
+    const v = parseInt(ch, 36);
+    if (!Number.isNaN(v)) num = num * 36n + BigInt(v);
+  }
+  const hexPart = (num & 0xffffffffffffn).toString(16).padStart(12, '0');
+  return `c01c0001-0000-4000-800${lenHex}-${hexPart}`;
+}
+
+export function toComixCharacterUuid(charId) {
+  const cleanDigits = String(charId || '').replace(/[^0-9]/g, '');
+  return `c01c0002-0000-4000-8000-${cleanDigits.padStart(12, '0').slice(-12)}`;
+}
+
+export function slugifyTitle(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/ı/g, 'i')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9\s-]/g, '')
+    .trim()
+    .replace(/\s+/g, '-')
+    .replace(/-+/g, '-')
+    .replace(/^-|-$/g, '');
+}
+
+export function normalizeTitleKey(text) {
+  return String(text || '')
+    .toLowerCase()
+    .replace(/\b(manhwa|manga|manhua|webtoon|komik|comic|novel|official|remake)\b/gi, '')
+    .replace(/ı/g, 'i')
+    .replace(/ğ/g, 'g')
+    .replace(/ü/g, 'u')
+    .replace(/ş/g, 's')
+    .replace(/ö/g, 'o')
+    .replace(/ç/g, 'c')
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]/g, '');
+}
+
+export function areSeriesTitlesMatching(a, b) {
+  const keyA = normalizeTitleKey(a);
+  const keyB = normalizeTitleKey(b);
+  if (!keyA || !keyB) return false;
+  if (keyA === keyB) return true;
+  if (keyA.length >= 6 && keyB.length >= 6) {
+    if (keyA === keyB + 's' || keyB === keyA + 's') return true;
+    if (keyA.replace(/^the/, '') === keyB.replace(/^the/, '')) return true;
+  }
+  return false;
+}
+
+export function cleanChapterTitle(rawName, chapterNumber) {
+  const numLabel = `Bölüm ${chapterNumber}`;
+  if (!rawName || typeof rawName !== 'string') return numLabel;
+
+  let cleaned = rawName
+    .replace(/\[(?:[a-z]{2}(?:-[a-z]{2})?|official|raw|scan[^\]]*|group[^\]]*)\]/gi, '')
+    .replace(/\((?:[a-z]{2}(?:-[a-z]{2})?|official|raw|scan[^)]*)\)/gi, '')
+    .replace(/^(?:chapter|ch\.?|episode|ep\.?|bölüm|bolum)\s*\d+(?:[.,]\d+)?\s*[:\-–—~|]*\s*/i, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+  if (!cleaned || /^\d+(?:[.,]\d+)?$/.test(cleaned)) {
+    return numLabel;
+  }
+  if (cleaned.toLowerCase() === `chapter ${chapterNumber}` || cleaned.toLowerCase() === `bölüm ${chapterNumber}`) {
+    return numLabel;
+  }
+  return `${numLabel} - ${cleaned.slice(0, 90)}`;
+}
+
+export function cleanEnglishSynopsis(raw) {
+  if (!raw || typeof raw !== 'string') return '';
+  return raw
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\[Written by MAL Rewrite\]/gi, '')
+    .replace(/\(Source:[^)]+\)/gi, '')
+    .replace(/\[Source:[^\]]+\]/gi, '')
+    .replace(/---[\s\S]*$/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+export async function translateSynopsisToTurkish(text) {
+  const cleaned = cleanEnglishSynopsis(text);
+  if (!cleaned || cleaned.length < 5) return '';
+  try {
+    const clipped = cleaned.slice(0, 1800);
+    const url = `https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl=tr&dt=t&q=${encodeURIComponent(clipped)}`;
+    const res = await fetch(url, {
+      headers: { 'User-Agent': 'Mozilla/5.0' },
+      signal: AbortSignal.timeout(8000),
+    });
+    if (!res.ok) return cleaned;
+    const data = await res.json();
+    if (Array.isArray(data?.[0])) {
+      const translated = data[0].map((part) => part?.[0] || '').join('').trim();
+      return translated || cleaned;
+    }
+    return cleaned;
+  } catch {
+    return cleaned;
+  }
+}
+
+export const GENRE_MAP_TR = {
+  action: 'Aksiyon',
+  adventure: 'Macera',
+  comedy: 'Komedi',
+  drama: 'Dram',
+  fantasy: 'Fantastik',
+  magic: 'Büyü',
+  romance: 'Romantik',
+  'sci-fi': 'Bilim Kurgu',
+  scifi: 'Bilim Kurgu',
+  'science fiction': 'Bilim Kurgu',
+  mystery: 'Gizem',
+  psychological: 'Psikolojik',
+  horror: 'Korku',
+  thriller: 'Gerilim',
+  supernatural: 'Doğaüstü',
+  'slice of life': 'Hayattan Kesitler',
+  sports: 'Spor',
+  historical: 'Tarihi',
+  'martial arts': 'Dövüş Sanatları',
+  wuxia: 'Dövüş Sanatları',
+  murim: 'Dövüş Sanatları',
+  isekai: 'Isekai',
+  reincarnation: 'Reenkarnasyon',
+  regression: 'Reenkarnasyon',
+  time_travel: 'Zaman Yolculuğu',
+  'time travel': 'Zaman Yolculuğu',
+  system: 'Sistem',
+  dungeons: 'Zindan',
+  dungeon: 'Zindan',
+  'school life': 'Okul Hayatı',
+  school: 'Okul Hayatı',
+  seinen: 'Seinen',
+  shounen: 'Shounen',
+  shonen: 'Shounen',
+  shoujo: 'Shoujo',
+  shojo: 'Shoujo',
+  josei: 'Josei',
+  tragedy: 'Trajedi',
+  crime: 'Suç',
+  military: 'Askeri',
+  mecha: 'Mecha',
+  music: 'Müzik',
+  cooking: 'Yemek',
+  medical: 'Tıbbi',
+  harem: 'Harem',
+  ecchi: 'Ecchi',
+  villainess: 'Kötü Kadın',
+  monsters: 'Canavarlar',
+  demons: 'İblisler',
+  vampires: 'Vampirler',
+  zombies: 'Zombiler',
+  post_apocalyptic: 'Kıyamet Sonrası',
+  'post-apocalyptic': 'Kıyamet Sonrası',
+  survival: 'Hayatta Kalma',
+  revenge: 'İntikam',
+  gaming: 'Oyun',
+  'video games': 'Oyun',
+  virtual_reality: 'Sanal Gerçeklik',
+};
+
+const ADULT_GENRE_KEYWORDS = new Set([
+  'adult',
+  'hentai',
+  'smut',
+  'mature',
+  'erotica',
+  'pornographic',
+  '18+',
+  '+18',
+  'nsfw',
+]);
+
+export function mapComixGenresAndFormat(unpacked) {
+  const rawType = String(unpacked?.type || '').toLowerCase();
+  const origLang = String(unpacked?.originalLanguage || '').toLowerCase();
+  const rawFormatNames = [
+    ...(unpacked?.formats || []),
+    ...(unpacked?.genres || []),
+    ...(unpacked?.tags || []),
+  ].map((t) => String(t?.title || t?.name || t?.slug || '').toLowerCase());
+
+  const allTitleText = [unpacked?.title, ...(unpacked?.altTitles || [])].join(' ');
+  const hasHangul = /[\uAC00-\uD7AF\u1100-\u11FF]/.test(allTitleText);
+  const hasKana = /[\u3040-\u309F\u30A0-\u30FF]/.test(allTitleText);
+
+  let formatType = 'manhwa';
+  if (rawType === 'manhwa' || rawType === 'webtoon' || origLang === 'ko' || origLang === 'kr' || hasHangul || rawFormatNames.some((n) => n.includes('webtoon') || n.includes('long strip'))) {
+    formatType = 'manhwa';
+  } else if (rawType === 'manga' || origLang === 'ja' || origLang === 'jp' || hasKana) {
+    formatType = 'manga';
+  } else if (rawType === 'manhua' || origLang === 'zh' || origLang === 'cn' || origLang === 'zh-hk' || origLang === 'zh-tw') {
+    formatType = 'manhua';
+  }
+
+  const contentRating = String(unpacked?.contentRating || 'safe').toLowerCase();
+  const allTermTitles = [
+    ...(unpacked?.genres || []),
+    ...(unpacked?.demographics || []),
+    ...(unpacked?.tags || []),
+  ].map((t) => String(t?.title || t?.name || t?.slug || '').trim());
+
+  let isAdult =
+    contentRating === 'erotica' ||
+    contentRating === 'pornographic' ||
+    contentRating === 'adult' ||
+    contentRating === 'r18' ||
+    allTermTitles.some((t) => ADULT_GENRE_KEYWORDS.has(t.toLowerCase()));
+
+  const genreSet = new Set();
+  for (const rawTerm of allTermTitles) {
+    const lower = rawTerm.toLowerCase();
+    if (ADULT_GENRE_KEYWORDS.has(lower)) {
+      isAdult = true;
+      continue;
+    }
+    const mapped = GENRE_MAP_TR[lower] || GENRE_MAP_TR[lower.replace(/-/g, ' ')];
+    if (mapped) {
+      genreSet.add(mapped);
+    }
+  }
+
+  if (isAdult) {
+    genreSet.add('+18');
+  }
+  if (genreSet.size === 0) {
+    genreSet.add(formatType === 'manga' ? 'Manga' : formatType === 'manhua' ? 'Manhua' : 'Webtoon');
+  }
+
+  return {
+    formatType,
+    isAdult,
+    genres: Array.from(genreSet).slice(0, 12),
+  };
+}
+
+export function extractExternalIdsFromComixLinks(links, existingSourceLinks = []) {
+  let anilistId = null;
+  let malId = null;
+
+  if (links && typeof links === 'object') {
+    const alRaw = String(links.al || '');
+    const malRaw = String(links.mal || '');
+    const alMatch = alRaw.match(/(?:anilist\.co\/manga\/|^)(\d+)/i);
+    if (alMatch) anilistId = Number(alMatch[1]);
+    const malMatch = malRaw.match(/(?:myanimelist\.net\/manga\/|^)(\d+)/i);
+    if (malMatch) malId = Number(malMatch[1]);
+  }
+
+  if (Array.isArray(existingSourceLinks)) {
+    for (const link of existingSourceLinks) {
+      const url = String(link?.url || '');
+      if (!anilistId) {
+        const m = url.match(/anilist\.co\/manga\/(\d+)/i);
+        if (m) anilistId = Number(m[1]);
+      }
+      if (!malId) {
+        const m = url.match(/myanimelist\.net\/manga\/(\d+)/i);
+        if (m) malId = Number(m[1]);
+      }
+    }
+  }
+
+  return { anilistId, malId };
+}
+
+function cleanCharacterBio(rawBio) {
+  if (!rawBio || typeof rawBio !== 'string') return '';
+  return rawBio
+    .replace(/~!([\s\S]*?)!~/g, '')
+    .replace(/__([^_]+)__/g, '$1')
+    .replace(/\*\*([^*]+)\*\*/g, '$1')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\(Source:[^)]+\)/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 700);
+}
+
+export async function fetchAniListMetadataAndCharacters({ anilistId = null, malId = null, searchTitles = [] }) {
+  const queryById = `
+    query ($id: Int, $idMal: Int, $search: String) {
+      Media(id: $id, idMal: $idMal, search: $search, type: MANGA) {
+        id
+        idMal
+        isAdult
+        title {
+          romaji
+          english
+          native
+        }
+        synonyms
+        characters(sort: [ROLE, RELEVANCE, ID], perPage: 20) {
+          edges {
+            role
+            node {
+              id
+              name {
+                full
+                native
+                alternative
+              }
+              image {
+                large
+                medium
+              }
+              description
+            }
+          }
+        }
+      }
+    }
+  `;
+
+  const attempts = [];
+  if (anilistId) attempts.push({ id: Number(anilistId) });
+  if (malId) attempts.push({ idMal: Number(malId) });
+  for (const t of searchTitles.slice(0, 2)) {
+    if (t && String(t).trim().length >= 2) {
+      attempts.push({ search: String(t).trim() });
+    }
+  }
+
+  for (const variables of attempts) {
+    try {
+      const res = await fetch('https://graphql.anilist.co', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Accept: 'application/json',
+        },
+        body: JSON.stringify({ query: queryById, variables }),
+        signal: AbortSignal.timeout(8000),
+      });
+      if (!res.ok) continue;
+      const json = await res.json();
+      const media = json?.data?.Media;
+      if (!media || !media.id) continue;
+
+      const mediaTitles = [
+        media.title?.romaji,
+        media.title?.english,
+        media.title?.native,
+        ...(Array.isArray(media.synonyms) ? media.synonyms : []),
+      ]
+        .map((s) => String(s || '').trim())
+        .filter(Boolean);
+
+      // If matched via search, verify title similarity to avoid false-positive AniList matches
+      if (variables.search && searchTitles.length > 0) {
+        const matchesAny = searchTitles.some((st) =>
+          mediaTitles.some((mt) => areSeriesTitlesMatching(st, mt))
+        );
+        if (!matchesAny) continue;
+      }
+
+      const edges = Array.isArray(media.characters?.edges) ? media.characters.edges : [];
+      const characters = [];
+      const seenCharNames = new Set();
+
+      for (const edge of edges) {
+        const node = edge?.node;
+        const fullName = String(node?.name?.full || '').trim();
+        if (!node?.id || !fullName) continue;
+        const nameKey = fullName.toLowerCase();
+        if (seenCharNames.has(nameKey)) continue;
+        seenCharNames.add(nameKey);
+
+        const role = edge.role === 'MAIN' ? 'main' : 'supporting';
+        const imageUrl = String(node.image?.large || node.image?.medium || '').trim();
+        const altNames = [
+          node.name?.native,
+          ...(Array.isArray(node.name?.alternative) ? node.name.alternative : []),
+        ]
+          .map((s) => String(s || '').trim())
+          .filter(Boolean);
+
+        characters.push({
+          id: toComixCharacterUuid(node.id),
+          name: fullName,
+          alternative_names: altNames,
+          alternativeNames: altNames,
+          image_url: imageUrl,
+          imageUrl,
+          description: cleanCharacterBio(node.description || ''),
+          listing_role: role,
+          listingRole: role,
+          is_public: true,
+          isPublic: true,
+          likes_count: 0,
+          likesCount: 0,
+          source_links: [
+            {
+              source: 'anilist',
+              url: `https://anilist.co/character/${node.id}`,
+              externalId: String(node.id),
+            },
+          ],
+          sourceLinks: [
+            {
+              source: 'anilist',
+              url: `https://anilist.co/character/${node.id}`,
+              externalId: String(node.id),
+            },
+          ],
+        });
+      }
+
+      const sourceLinks = [
+        {
+          source: 'anilist',
+          url: `https://anilist.co/manga/${media.id}`,
+          externalId: String(media.id),
+          label: 'AniList',
+        },
+      ];
+      if (media.idMal) {
+        sourceLinks.push({
+          source: 'myanimelist',
+          url: `https://myanimelist.net/manga/${media.idMal}`,
+          externalId: String(media.idMal),
+          label: 'MyAnimeList',
+        });
+      }
+
+      return {
+        anilistId: media.id,
+        malId: media.idMal || null,
+        isAdult: Boolean(media.isAdult),
+        altTitles: mediaTitles,
+        characters,
+        sourceLinks,
+      };
+    } catch {
+      // try next variable set
+    }
+  }
+
+  return {
+    anilistId: anilistId || null,
+    malId: malId || null,
+    isAdult: false,
+    altTitles: [],
+    characters: [],
+    sourceLinks: [
+      ...(anilistId
+        ? [{ source: 'anilist', url: `https://anilist.co/manga/${anilistId}`, externalId: String(anilistId), label: 'AniList' }]
+        : []),
+      ...(malId
+        ? [{ source: 'myanimelist', url: `https://myanimelist.net/manga/${malId}`, externalId: String(malId), label: 'MyAnimeList' }]
+        : []),
+    ],
+  };
+}
+
+/**
+ * Fetches all chapters for a Comix series (`hid`) across all available languages,
+ * selects the highest-scoring scanlation group per `(number, language)` with backup failover,
+ * verifies sample chapter pages work, and returns clean chapter objects with `views: 0`.
+ */
+export async function fetchBestComixChaptersByLanguage(hid, mangaId, slug, options = {}) {
+  const maxStepsPerDir = Math.max(1, Math.ceil((options.maxPages ?? 14) / 2));
+  const verifySamplePages = options.verifySamplePages !== false;
+  const hydrateSamplePages = options.hydrateSamplePages !== false;
+  const seenChaptersById = new Map();
+
+  for (const dir of ['desc', 'asc']) {
+    let raw;
+    try {
+      raw = await fetchComixApi(`/manga/${hid}/chapters`, {
+        page: 1,
+        limit: 100,
+        order: { number: dir },
+      });
+    } catch {
+      break;
+    }
+
+    let pageItems = unpackChapters(raw);
+    if (!pageItems || pageItems.length === 0) break;
+    for (const item of pageItems) {
+      if (item && item.id) seenChaptersById.set(item.id, item);
+    }
+
+    const total = Number(raw?.meta?.total ?? raw?.pagination?.total ?? pageItems.length);
+    if (total <= 100) break;
+    if (dir === 'asc' && total <= 200) break;
+
+    for (let step = 0; step < maxStepsPerDir; step++) {
+      const currentTo = Number(raw?.meta?.to ?? raw?.pagination?.to ?? 0);
+      if (!currentTo || currentTo >= Math.ceil(total / 2) + 60) break;
+
+      const lastId = pageItems[pageItems.length - 1]?.id;
+      if (!lastId) break;
+
+      let bestLimit = 99 - (step % 40);
+      let bestNextTo = 0;
+      for (let L = 55; L <= 100; L++) {
+        const nextTo = Math.ceil(currentTo / L) * L;
+        if (nextTo > bestNextTo) {
+          bestNextTo = nextTo;
+          bestLimit = L;
+        }
+      }
+      if (bestNextTo <= currentTo) break;
+
+      try {
+        raw = await fetchComixApi(`/manga/${hid}/chapters`, {
+          limit: bestLimit,
+          around: lastId,
+          order: { number: dir },
+        });
+        pageItems = unpackChapters(raw);
+        if (!pageItems || pageItems.length === 0) break;
+        for (const item of pageItems) {
+          if (item && item.id) seenChaptersById.set(item.id, item);
+        }
+      } catch {
+        break;
+      }
+    }
+  }
+
+  const allUnpacked = Array.from(seenChaptersById.values());
+
+  if (allUnpacked.length === 0) {
+    return { valid: false, chapters: [], languages: [], samplePages: [] };
+  }
+
+  // Group candidates by `${number}:${language}` and rank by best group score
+  const candidatesByKey = new Map();
+  for (const ch of allUnpacked) {
+    if (!ch || !ch.id || Number.isNaN(Number(ch.number))) continue;
+    const lang = String(ch.language || 'en').toLowerCase().trim() || 'en';
+    const num = Number(ch.number);
+    const key = `${num}:${lang}`;
+
+    const score =
+      (ch.isOfficial ? 10000 : 0) +
+      (ch.group?.name ? 500 : 0) +
+      Number(ch.votes || 0) * 10 +
+      Number(ch.id || 0) * 0.000001;
+
+    const list = candidatesByKey.get(key) || [];
+    list.push({ ...ch, number: num, language: lang, score });
+    candidatesByKey.set(key, list);
+  }
+
+  for (const list of candidatesByKey.values()) {
+    list.sort((a, b) => b.score - a.score);
+  }
+
+  const chosenEntries = [];
+  for (const [key, list] of candidatesByKey.entries()) {
+    chosenEntries.push({
+      key,
+      primary: list[0],
+      backup: list[1] || null,
+      pages: [],
+    });
+  }
+
+  chosenEntries.sort((a, b) => {
+    if (a.primary.number !== b.primary.number) return a.primary.number - b.primary.number;
+    return a.primary.language.localeCompare(b.primary.language);
+  });
+
+  if (chosenEntries.length === 0) {
+    return { valid: false, chapters: [], languages: [], samplePages: [] };
+  }
+
+  let samplePages = [];
+  if (verifySamplePages) {
+    // Pick first chapter (preferably English or Turkish, otherwise first entry)
+    const sampleEntry =
+      chosenEntries.find((e) => e.primary.language === 'en' && Number.isInteger(e.primary.number)) ||
+      chosenEntries.find((e) => e.primary.language === 'en') ||
+      chosenEntries.find((e) => e.primary.language === 'tr') ||
+      chosenEntries[0];
+
+    if (sampleEntry) {
+      try {
+        const rawCh = await fetchComixApi(`/chapters/${sampleEntry.primary.id}`);
+        const unpackedPages = unpackChapterPages(rawCh);
+        if (unpackedPages.pages && unpackedPages.pages.length >= 2) {
+          samplePages = unpackedPages.pages;
+          if (hydrateSamplePages) {
+            sampleEntry.pages = unpackedPages.pages;
+          }
+        } else if (sampleEntry.backup) {
+          const backupRaw = await fetchComixApi(`/chapters/${sampleEntry.backup.id}`);
+          const backupPages = unpackChapterPages(backupRaw);
+          if (backupPages.pages && backupPages.pages.length >= 2) {
+            sampleEntry.primary = sampleEntry.backup;
+            samplePages = backupPages.pages;
+            if (hydrateSamplePages) {
+              sampleEntry.pages = backupPages.pages;
+            }
+          }
+        }
+      } catch {
+        if (sampleEntry.backup) {
+          try {
+            const backupRaw = await fetchComixApi(`/chapters/${sampleEntry.backup.id}`);
+            const backupPages = unpackChapterPages(backupRaw);
+            if (backupPages.pages && backupPages.pages.length >= 2) {
+              sampleEntry.primary = sampleEntry.backup;
+              samplePages = backupPages.pages;
+              if (hydrateSamplePages) {
+                sampleEntry.pages = backupPages.pages;
+              }
+            }
+          } catch {}
+        }
+      }
+    }
+
+    if (samplePages.length === 0) {
+      return { valid: false, chapters: [], languages: [], samplePages: [] };
+    }
+  }
+
+  // Hydrate chapter pages in parallel batches so chapters in R2 have ready-to-read pages immediately
+  if (hydrateSamplePages) {
+    const maxHydrate = options.maxHydrateChapters ?? 80;
+    const toHydrate = chosenEntries
+      .filter((e) => !e.pages || e.pages.length === 0)
+      .sort((a, b) => {
+        const prioA = a.primary.language === 'tr' ? 0 : a.primary.language === 'en' ? 1 : 2;
+        const prioB = b.primary.language === 'tr' ? 0 : b.primary.language === 'en' ? 1 : 2;
+        if (prioA !== prioB) return prioA - prioB;
+        return a.primary.number - b.primary.number;
+      })
+      .slice(0, maxHydrate);
+
+    const batchSize = 20;
+    for (let i = 0; i < toHydrate.length; i += batchSize) {
+      const batch = toHydrate.slice(i, i + batchSize);
+      await Promise.all(
+        batch.map(async (entry) => {
+          try {
+            const rawCh = await fetchComixApi(`/chapters/${entry.primary.id}`);
+            const unpacked = unpackChapterPages(rawCh);
+            if (unpacked.pages && unpacked.pages.length >= 2) {
+              entry.pages = unpacked.pages;
+              return;
+            }
+            if (entry.backup) {
+              const bRaw = await fetchComixApi(`/chapters/${entry.backup.id}`);
+              const bUnpacked = unpackChapterPages(bRaw);
+              if (bUnpacked.pages && bUnpacked.pages.length >= 2) {
+                entry.primary = entry.backup;
+                entry.pages = bUnpacked.pages;
+                return;
+              }
+            }
+            if (unpacked.pages && unpacked.pages.length > 0 && Number.isInteger(entry.primary.number)) {
+              entry.pages = unpacked.pages;
+            } else {
+              entry.dead = true;
+            }
+          } catch {
+            // Leave pages empty for on-demand resolution if transient error
+          }
+        })
+      );
+    }
+  }
+
+  const nowIso = new Date().toISOString();
+  const languagesSet = new Set();
+  const validEntries = chosenEntries.filter((e) => !e.dead);
+  const finalChapters = validEntries.map((entry) => {
+    const ch = entry.primary;
+    languagesSet.add(ch.language);
+    const chUuid = toComixChapterUuid(ch.id);
+    const sourceUrl = `https://comix.to/title/${hid}-${slug}/${ch.id}-chapter-${ch.number}`;
+    return {
+      id: chUuid,
+      manga_id: mangaId,
+      mangaId,
+      number: ch.number,
+      chapterNumber: ch.number,
+      title: cleanChapterTitle(ch.name, ch.number),
+      language: ch.language,
+      pages: entry.pages || [],
+      pageCount: entry.pages?.length || undefined,
+      views: 0,
+      release_date: nowIso,
+      releaseDate: nowIso,
+      source_url: sourceUrl,
+      sourceUrl,
+      _sourceLink: sourceUrl,
+    };
+  });
+
+  return {
+    valid: finalChapters.length > 0,
+    chapters: finalChapters,
+    languages: Array.from(languagesSet),
+    samplePages,
+  };
+}
+

@@ -2,10 +2,15 @@ const CHAPTER_PREFIXES = ['bölüm', 'bolum', 'chapter', 'chap', 'episode', 'ep'
 const CHAPTER_SEPARATOR_CHARS = new Set([':', '：', '-', '–', '—', '|', '.', '_']);
 
 export const isChapterEnglish = (
-    chapter?: { title?: string | null; pages?: string[] } | null,
+    chapter?: { title?: string | null; pages?: string[]; language?: string | null } | null,
     mangaLanguage?: string | null
 ): boolean => {
     if (!chapter) return false;
+    const explicitLang = (chapter as any).language;
+    if (typeof explicitLang === 'string' && explicitLang.trim()) {
+        const norm = explicitLang.trim().toLowerCase();
+        return norm !== 'tr' && norm !== 'turkish' && norm !== 'türkçe' && norm !== 'raw';
+    }
     const title = (chapter.title || '').toLowerCase();
     if (title.includes('[en]') || title.includes('(en)') || title.includes('[english]')) {
         return true;
@@ -13,16 +18,19 @@ export const isChapterEnglish = (
     if (mangaLanguage === 'en' || mangaLanguage === 'english') {
         return true;
     }
-    if (Array.isArray(chapter.pages) && chapter.pages.some((p) => typeof p === 'string' && (p.includes('comix') || p.includes('asura-images')))) {
+    if (Array.isArray(chapter.pages) && chapter.pages.some((p) => typeof p === 'string' && (p.includes('comix') || /\/hi\/[A-Za-z0-9_-]+/.test(p)))) {
         return true;
     }
     return false;
 };
 
 export const isChapterRaw = (
-    chapter?: { title?: string | null } | null
+    chapter?: { title?: string | null; language?: string | null } | null
 ): boolean => {
     if (!chapter) return false;
+    if (String((chapter as any).language || '').trim().toLowerCase() === 'raw') {
+        return true;
+    }
     const title = (chapter.title || '').toLowerCase();
     return title.includes('[raw]') || title.includes('(raw)');
 };
@@ -41,8 +49,8 @@ export const formatChapterNumberLabel = (value: number | string) => {
 
 const stripLanguageTags = (value: string) => {
     return value
-        .replace(/\s*\[(?:en|raw|tr|english)\]\s*/gi, ' ')
-        .replace(/\s*\((?:en|raw|tr|english)\)\s*/gi, ' ')
+        .replace(/\s*\[(?:en|raw|tr|english|turkish|es|es-la|pt|pt-br|ru|fr|id|ar|de|it|pl|vi|th|ja|ko|zh)\]\s*/gi, ' ')
+        .replace(/\s*\((?:en|raw|tr|english|turkish|es|es-la|pt|pt-br|ru|fr|id|ar|de|it|pl|vi|th|ja|ko|zh)\)\s*/gi, ' ')
         .trim();
 };
 

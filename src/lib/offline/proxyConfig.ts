@@ -9,7 +9,7 @@ const rawConfiguredProxies =
     : '';
 
 export const defaultOfflineImageProxyUrl =
-  'https://toonparrot-offline-image-proxy.caganhuseyinerdil.workers.dev';
+  'https://toonparrot-offline-image-proxy.caganherdil.workers.dev';
 
 const normalizeProxyUrl = (value: string): string => value.trim().replace(/\/+$/, '');
 
@@ -39,14 +39,31 @@ export const configuredOfflineImageProxyUrls: string[] = buildConfiguredProxyPoo
 // Per-session memory of proxy origins that rejected (401/403) a specific upstream image hostname.
 const rejectedProxiesByHost = new Map<string, Set<string>>();
 
-// All 5 worker proxies are fully deployed with the updated allowed hosts whitelist.
-const PRIMARY_WORKER_ONLY_HOST_SUFFIXES: string[] = [];
+// Primary worker (`caganherdil.workers.dev`) has latest Comix cover & /hi/ mirror failover rules.
+const PRIMARY_WORKER_ONLY_HOST_SUFFIXES: string[] = [
+  'comix.to',
+  'kkplayer.wtf',
+  'wowpic.org',
+  'homeandheartshop.site',
+  'brightglow12.site',
+  'fastcontent12.site',
+  'readlightnovel.site',
+];
 
-const isPrimaryWorkerOnlyHost = (host: string): boolean => {
+const isPrimaryWorkerOnlyTarget = (targetUrl: string, host: string): boolean => {
   if (!host) return false;
-  return PRIMARY_WORKER_ONLY_HOST_SUFFIXES.some(
-    (suffix) => host === suffix || host.endsWith(`.${suffix}`),
-  );
+  if (PRIMARY_WORKER_ONLY_HOST_SUFFIXES.some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) {
+    return true;
+  }
+  try {
+    const parsed = new URL(targetUrl);
+    if (/^\/hi\/[A-Za-z0-9_-]+/.test(parsed.pathname)) {
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
 };
 
 const extractHostname = (targetUrl: string): string => {
@@ -97,7 +114,7 @@ const getNonRejectedPoolForTarget = (targetUrl: string, pool: readonly string[] 
   const host = extractHostname(targetUrl);
   if (!host) return [...pool];
 
-  if (isPrimaryWorkerOnlyHost(host)) {
+  if (isPrimaryWorkerOnlyTarget(targetUrl, host)) {
     return [defaultOfflineImageProxyUrl];
   }
 

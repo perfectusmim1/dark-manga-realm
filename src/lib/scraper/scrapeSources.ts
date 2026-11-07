@@ -41,6 +41,7 @@ export interface ScrapedChapter {
   name: string;
   link: string;
   number: number;
+  language?: string;
   prefetchedImageResult?: ScrapedChapterImageResult;
 }
 
@@ -1111,10 +1112,10 @@ export const extractScrapedMangaCards = (doc: Document, source: ScrapeSource, ra
     const cards: ScrapedMangaCard[] = [];
     const seen = new Set<string>();
 
-    // 1. If rawContent is JSON from Comix API
-    if (rawContent) {
+    // 1. If rawHtml is JSON from Comix API
+    if (rawHtml) {
       try {
-        const json = JSON.parse(rawContent);
+        const json = JSON.parse(rawHtml);
         const items = json.items || json.result?.items || json.data || (Array.isArray(json) ? json : []);
         for (const item of items) {
           if (!item || typeof item !== 'object') continue;
@@ -1529,83 +1530,117 @@ export const extractScrapedChapterLinks = (doc: Document, source: ScrapeSource):
 const extractDetailFromJson = (json: Record<string, unknown>, source: ScrapeSource, fallbackCard: ScrapedMangaCard): ScrapedMangaDraft => {
   // Comix.to structured payload handling
   if (source === 'comix') {
-    const title = normalizeScrapedText((json.title || json.name || json.u4 || fallbackCard.title) as string);
+    const title = normalizeScrapedText((json.title || json.N_ || json.name || json.u4 || fallbackCard.title) as string);
     const altList: string[] = [];
-    if (Array.isArray(json.alternativeTitles)) altList.push(...json.alternativeTitles);
-    if (Array.isArray(json.altTitles)) altList.push(...json.altTitles);
+    if (Array.isArray(json.alternativeTitles)) altList.push(...(json.alternativeTitles as string[]));
+    if (Array.isArray(json.altTitles)) altList.push(...(json.altTitles as string[]));
+    if (Array.isArray(json.VK)) altList.push(...(json.VK as string[]));
     if (json.original_title) altList.push(String(json.original_title));
     if (json.QQ && typeof json.QQ === 'string' && json.QQ !== '?') altList.push(json.QQ);
 
-    const description = normalizeScrapedText((json.description || json.summary || json.xG || json.qI || '') as string);
-    const kx = (json.KX || {}) as Record<string, string>;
-    let cover = (json.cover || json.poster || kx.lW || kx.ZN || fallbackCard.cover) as string;
+    const description = normalizeScrapedText((json.synopsis || json.Qw || json.description || json.summary || json.xG || json.qI || '') as string);
+    const posterObj = (json.poster && typeof json.poster === 'object' ? json.poster : json.yd && typeof json.yd === 'object' ? json.yd : json.KX && typeof json.KX === 'object' ? json.KX : null) as Record<string, string> | null;
+    let cover = (
+      typeof json.cover === 'string' ? json.cover :
+      typeof json.poster === 'string' ? json.poster :
+      posterObj?.large || posterObj?.Rg || posterObj?.medium || posterObj?.tC || posterObj?.lW || posterObj?.ZN ||
+      fallbackCard.cover
+    ) as string;
     if (cover && !cover.startsWith('http')) {
       cover = normalizeUrl('https://comix.to', cover);
     }
 
     const genresList: string[] = [];
-    if (Array.isArray(json.genres)) {
-      for (const g of json.genres) {
-        if (typeof g === 'string') genresList.push(g);
-        else if (g && typeof g === 'object' && 'name' in g) genresList.push(String(g.name));
-        else if (g && typeof g === 'object' && 'title' in g) genresList.push(String(g.title));
-        else if (g && typeof g === 'object' && 'Oa' in g) genresList.push(String(g.Oa));
-      }
+    const rawGenres = Array.isArray(json.genres) ? json.genres : Array.isArray(json.qA) ? json.qA : [];
+    for (const g of rawGenres) {
+      if (typeof g === 'string') genresList.push(g);
+      else if (g && typeof g === 'object' && 'title' in g) genresList.push(String((g as any).title));
+      else if (g && typeof g === 'object' && 'N_' in g) genresList.push(String((g as any).N_));
+      else if (g && typeof g === 'object' && 'name' in g) genresList.push(String((g as any).name));
+      else if (g && typeof g === 'object' && 'Oa' in g) genresList.push(String((g as any).Oa));
     }
 
-    const rawChapters: ScrapedChapter[] = [];
     const chaptersData = Array.isArray(json.chapters)
       ? json.chapters
       : Array.isArray(json.items)
         ? json.items
-        : Array.isArray(json.Gb)
-          ? json.Gb
-          : [];
+        : Array.isArray(json.lr)
+          ? json.lr
+          : Array.isArray(json.Gb)
+            ? json.Gb
+            : [];
 
-    for (const ch of chaptersData) {
+    // Group chapters by (number, language) and select best scanlation group
+    const bestByNumAndLang = new Map<string, { score: number; chapter: ScrapedChapter }>();
+    for (const ch of chaptersData as Record<string, any>[]) {
       if (!ch || typeof ch !== 'object') continue;
-      const num = Number(ch.number || ch.K8 || ch.episode_number || 0);
-      const chTitle = cleanChapterTitle(String(ch.name || ch.title || ''), num, title);
-      const chId = ch.id || ch.zf || ch.slug || num;
-      const chUrl = ch.url || ch.fI || `https://comix.to/title/${json.slug || json.zq || fallbackCard.link.split('/').pop()}/${chId}`;
+      const num = Number(ch.number ?? ch.FL ?? ch.K8 ?? ch.episode_number ?? 0);
+      const lang = String(ch.language ?? ch.yN ?? ch.MV ?? 'en').trim().toLowerCase() || 'en';
+      const chTitle = cleanChapterTitle(String(ch.name ?? ch.jh ?? ch.title ?? ''), num, title);
+      const chId = ch.id ?? ch.Uw ?? ch.zf ?? ch.slug ?? num;
+      const chUrl = String(ch.url ?? ch.ub ?? ch.fI ?? `https://comix.to/title/${json.hid || json.slug || json.zq || fallbackCard.link.split('/').pop()}/${chId}`);
       const fullLink = chUrl.startsWith('http') ? chUrl : normalizeUrl('https://comix.to', chUrl);
-      const lang = ch.language || ch.MV || 'en';
 
-      rawChapters.push({
-        name: chTitle,
-        link: fullLink,
-        number: num,
-      });
+      const isOfficial = Boolean(ch.isOfficial ?? ch.is_official ?? ch.Sq);
+      const hasGroup = Boolean(ch.group ?? ch.LF ?? ch.groupId ?? ch.w6);
+      const votes = Number(ch.votes ?? ch.N4 ?? 0);
+      const score = (isOfficial ? 10000 : 0) + (hasGroup ? 500 : 0) + votes * 10;
+
+      const key = `${num}:${lang}`;
+      const existing = bestByNumAndLang.get(key);
+      if (!existing || score > existing.score) {
+        bestByNumAndLang.set(key, {
+          score,
+          chapter: {
+            name: chTitle,
+            link: fullLink,
+            number: num,
+            language: lang,
+          },
+        });
+      }
     }
 
+    const rawChapters = Array.from(bestByNumAndLang.values()).map((entry) => entry.chapter);
+
     // USER FILTER RULE: If a series has 0 working chapters, discard it
-    if (rawChapters.length === 0) {
+    if (rawChapters.length === 0 && !(json.hasChapters ?? json.Wz)) {
       return null as any;
     }
 
-    const jf = String(json.jf || '').toLowerCase();
+    const contentRating = String(json.contentRating || json.content_rating || json.pk || json.jf || '').toLowerCase();
     const isAdult = Boolean(
       json.adult ||
       json.isAdult ||
-      jf === 'erotica' ||
-      jf === 'pornographic' ||
+      contentRating === 'erotica' ||
+      contentRating === 'pornographic' ||
       ADULT_CONTENT_PATTERNS.some((p) => p.test(genresList.join(' ')))
     );
 
-    const rawType = String(json.type || json.E4 || '').toLowerCase();
-    const inferredBaseType = rawType.includes('manhua')
+    const rawType = String(json.type || json.es || json.E4 || '').toLowerCase();
+    const origLang = String(json.originalLanguage || json.tP || '').toLowerCase();
+    const inferredBaseType = rawType.includes('manhua') || origLang === 'zh'
       ? 'manhua'
-      : rawType.includes('manhwa') || rawType.includes('webtoon')
+      : rawType.includes('manhwa') || rawType.includes('webtoon') || origLang === 'ko'
         ? 'manhwa'
         : 'manga';
     const type = normalizeAdultMangaType(inferredBaseType, genresList, isAdult);
 
     const sourceLinks: any[] = [];
-    const qd = (json.qD || {}) as Record<string, string>;
-    if (qd.f9) sourceLinks.push({ source: 'anilist', url: qd.f9, label: 'AniList' });
-    if (qd.sn) sourceLinks.push({ source: 'myanimelist', url: qd.sn, label: 'MyAnimeList' });
-    if (qd.u$) sourceLinks.push({ source: 'mangaupdates', url: qd.u$, label: 'MangaUpdates' });
-    if (qd.SO) sourceLinks.push({ source: 'mangadex', url: qd.SO, label: 'MangaDex' });
+    const linksObj = (json.links || json.eZ || json.qD || {}) as Record<string, string>;
+    const alVal = linksObj.al || linksObj._l || linksObj.f9;
+    const malVal = linksObj.mal || linksObj.D2 || linksObj.sn;
+    const muVal = linksObj.mu || linksObj.w4 || linksObj.u$;
+    const mdVal = linksObj.md || linksObj.eW || linksObj.SO;
+    if (alVal) sourceLinks.push({ source: 'anilist', url: String(alVal).startsWith('http') ? String(alVal) : `https://anilist.co/manga/${alVal}`, label: 'AniList' });
+    if (malVal) sourceLinks.push({ source: 'myanimelist', url: String(malVal).startsWith('http') ? String(malVal) : `https://myanimelist.net/manga/${malVal}`, label: 'MyAnimeList' });
+    if (muVal) sourceLinks.push({ source: 'mangaupdates', url: String(muVal).startsWith('http') ? String(muVal) : `https://www.mangaupdates.com/series/${muVal}`, label: 'MangaUpdates' });
+    if (mdVal) sourceLinks.push({ source: 'mangadex', url: String(mdVal).startsWith('http') ? String(mdVal) : `https://mangadex.org/title/${mdVal}`, label: 'MangaDex' });
+
+    const authorsArr = Array.isArray(json.authors) ? json.authors : Array.isArray(json.DG) ? json.DG : [];
+    const artistsArr = Array.isArray(json.artists) ? json.artists : Array.isArray(json.Zu) ? json.Zu : [];
+    const authorName = authorsArr.map((a: any) => a?.title || a?.N_ || a?.name || '').filter(Boolean).join(', ') || undefined;
+    const artistName = artistsArr.map((a: any) => a?.title || a?.N_ || a?.name || '').filter(Boolean).join(', ') || undefined;
 
     return {
       title,
@@ -1613,12 +1648,14 @@ const extractDetailFromJson = (json: Record<string, unknown>, source: ScrapeSour
       description,
       cover: cover || '',
       banner: cover || '',
-      status: (json.status === 'completed' || json.iI === 'completed' || json.status === 'tamamlandi') ? 'completed' : 'ongoing',
+      author: authorName,
+      artist: artistName,
+      status: (json.status === 'completed' || json.status === 'finished' || json.Jg === 'finished' || json.iI === 'completed' || json.status === 'tamamlandi') ? 'completed' : 'ongoing',
       type,
       genres: syncAdultContentGenres(genresList, { isAdult, type }),
       isAdult,
       chapters: [],
-      views: Number(json.views || json.bp || 0),
+      views: 0,
       ratings: [],
       sourceLinks,
       _rawChapters: rawChapters.sort((a, b) => a.number - b.number),

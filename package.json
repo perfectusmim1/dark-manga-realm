@@ -24,7 +24,8 @@
     "archive:delta": "node scripts/auto-catalog-sync.mjs --mode delta-only",
     "archive:comix": "node scripts/auto-catalog-sync.mjs --source comix --archive-mode",
     "archive:harvest:comix": "node scripts/harvest-comix-80k.mjs",
-    "archive:sync:foreign": "node scripts/sync-comix-foreign.mjs"
+    "archive:sync:foreign": "node scripts/sync-comix-foreign.mjs",
+    "archive:migrate:supabase": "node scripts/migrate-r2-to-supabase.mjs"
   },
   "dependencies": {
     "@capacitor/android": "^8.3.0",

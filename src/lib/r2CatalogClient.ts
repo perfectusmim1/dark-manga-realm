@@ -390,27 +390,37 @@ export const ensureSeriesChapterPagesHydrated = async (mangaId: string): Promise
       }
       const allChapters = tableStore.get('chapters')!;
 
-      // Map series chapters by id and by chapter number
+      // Map series chapters by id and by (chapter number + language)
       const seriesChById = new Map<string, any>();
-      const seriesChByNum = new Map<number, any>();
+      const seriesChByNumAndLang = new Map<string, any>();
 
       for (const sc of series.chapters) {
         if (sc.id) seriesChById.set(sc.id, sc);
         const num = Number(sc.chapterNumber ?? sc.number);
-        if (!isNaN(num)) seriesChByNum.set(num, sc);
+        const lang = String(sc.language || 'tr').toLowerCase();
+        if (!isNaN(num)) {
+          seriesChByNumAndLang.set(`${num}:${lang}`, sc);
+        }
       }
 
       // Update existing chapter rows for this manga
       const matchedSeriesChIds = new Set<string>();
       for (const row of allChapters) {
         if (row.manga_id === mangaId) {
+          const rowLang = String(row.language || 'tr').toLowerCase();
           const seriesCh = (row.id ? seriesChById.get(row.id) : null) ??
-            (row.number !== undefined ? seriesChByNum.get(Number(row.number)) : null);
+            (row.number !== undefined ? seriesChByNumAndLang.get(`${Number(row.number)}:${rowLang}`) : null);
 
           if (seriesCh) {
             matchedSeriesChIds.add(seriesCh.id);
             if (!row.pages || row.pages.length === 0) {
               row.pages = seriesCh.pages || [];
+            }
+            if (seriesCh.language && !row.language) {
+              row.language = seriesCh.language;
+            }
+            if ((seriesCh.source_url || seriesCh.sourceUrl || seriesCh._sourceLink) && !row.source_url) {
+              row.source_url = seriesCh.source_url || seriesCh.sourceUrl || seriesCh._sourceLink;
             }
           }
         }
@@ -419,8 +429,13 @@ export const ensureSeriesChapterPagesHydrated = async (mangaId: string): Promise
       // Add any chapter from series that is missing in tableStore
       for (const sc of series.chapters) {
         if (sc.id && !matchedSeriesChIds.has(sc.id)) {
+          const scLang = String(sc.language || 'tr').toLowerCase();
+          const scNum = Number(sc.chapterNumber ?? sc.number);
           const exists = allChapters.some(
-            (c) => c.manga_id === mangaId && (c.id === sc.id || Number(c.number) === Number(sc.chapterNumber ?? sc.number))
+            (c) =>
+              c.manga_id === mangaId &&
+              (c.id === sc.id ||
+                (Number(c.number) === scNum && String(c.language || 'tr').toLowerCase() === scLang))
           );
           if (!exists) {
             const normalized = normalizeRowFields({
@@ -429,6 +444,11 @@ export const ensureSeriesChapterPagesHydrated = async (mangaId: string): Promise
               number: Number(sc.chapterNumber ?? sc.number ?? 0),
               title: sc.title || '',
               pages: Array.isArray(sc.pages) ? sc.pages : [],
+              language: sc.language || undefined,
+              source_url: sc.source_url || sc.sourceUrl || sc._sourceLink || undefined,
+              sourceUrl: sc.sourceUrl || sc.source_url || sc._sourceLink || undefined,
+              _sourceLink: sc._sourceLink || sc.source_url || sc.sourceUrl || undefined,
+              views: 0,
               release_date: sc.releaseDate || sc.release_date || new Date().toISOString(),
               created_at: sc.createdAt || sc.created_at || new Date().toISOString(),
               updated_at: sc.updatedAt || sc.updated_at || new Date().toISOString(),

@@ -16,6 +16,12 @@ export default defineConfig(({ mode }) => ({
         secure: true,
         rewrite: (path) => path.replace(/^\/mangaupdates-proxy/, ""),
       },
+      "/comix-api-proxy": {
+        target: "https://comix.to",
+        changeOrigin: true,
+        secure: true,
+        rewrite: (path) => path.replace(/^\/comix-api-proxy/, "/api/v1"),
+      },
     },
   },
   plugins: [

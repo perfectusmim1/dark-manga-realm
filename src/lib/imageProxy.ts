@@ -55,6 +55,11 @@ const PROXY_ONLY_HOSTS = [
   'cdn-1.webtoon-oku.net',
   'cdn-2.webtoon-oku.net',
   'comix.to',
+  'www.comix.to',
+  'kkplayer.wtf',
+  'wowpic.org',
+  'homeandheartshop.site',
+  'brightglow12.site',
   's4.anilist.co',
   'anilist.co',
   'cdn.myanimelist.net',
@@ -99,10 +104,16 @@ const getProxyBaseUrl = (sourceUrl?: string | null) => {
   return offlineProxyConfig.url || null;
 };
 
+const isComixHiCdnPath = (url: URL) => /^\/hi\/[A-Za-z0-9_-]+/.test(url.pathname);
+
 const shouldProxyImageUrl = (sourceUrl?: string | null) => {
   const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
   if (!parsedSourceUrl || isStoredMediaUrl(sourceUrl) || !getProxyBaseUrl(sourceUrl)) {
     return false;
+  }
+
+  if (isComixHiCdnPath(parsedSourceUrl)) {
+    return true;
   }
 
   return PROXY_ONLY_HOSTS.some((host) => matchesHostRule(parsedSourceUrl.hostname, host));
@@ -114,6 +125,10 @@ export const shouldAvoidRawImageFallback = (sourceUrl?: string | null) => {
   const parsedSourceUrl = getParsedSourceUrl(sourceUrl);
   if (!parsedSourceUrl || isStoredMediaUrl(sourceUrl)) {
     return false;
+  }
+
+  if (isComixHiCdnPath(parsedSourceUrl)) {
+    return true;
   }
 
   return PROXY_ONLY_HOSTS.some((host) => matchesHostRule(parsedSourceUrl.hostname, host));
