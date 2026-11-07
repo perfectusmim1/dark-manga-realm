@@ -231,7 +231,7 @@ export const executeWithGeminiKeyPool = async <T>(
     throw new Error('API_KEY_INVALID: Geçerli bir Gemini API anahtarı bulunamadı.');
   }
 
-  const maxAttempts = Math.max(normalizedKeys.length * 2, 3);
+  const maxAttempts = Math.max(normalizedKeys.length * 3, 5);
   let lastError: unknown = null;
   let allCoolingRetries = 0;
 
@@ -323,7 +323,8 @@ export const executeWithGeminiKeyPool = async <T>(
       }
 
       if (isTransientServerOrTimeoutError(error)) {
-        await sleep(250, signal);
+        const backoffMs = Math.min(800 * Math.pow(1.6, attempt), 3500);
+        await sleep(backoffMs, signal);
         continue;
       }
 

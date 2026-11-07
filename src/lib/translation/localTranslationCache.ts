@@ -108,7 +108,7 @@ export const isValidCachedBlockList = (
 ): rawBlocks is TranslationBlock[] => {
   if (!Array.isArray(rawBlocks)) return false;
   if (rawBlocks.length === 0) {
-    return recordVersion === TRANSLATION_BLOCK_VERSION;
+    return recordVersion === undefined || recordVersion === TRANSLATION_BLOCK_VERSION;
   }
   return rawBlocks.every((entry) => {
     if (!entry || typeof entry !== 'object') return false;
@@ -334,7 +334,7 @@ export const getTranslationCacheStats = async (
   let currentChapterBytes = 0;
 
   for (const record of records) {
-    if (!isValidCachedBlockList(record.blocks)) continue;
+    if (!isValidCachedBlockList(record.blocks, record.v)) continue;
     chapterSet.add(record.chapterId);
     totalPages += 1;
     const size = record.byteSize || 0;

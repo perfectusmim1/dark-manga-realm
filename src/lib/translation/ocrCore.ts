@@ -829,15 +829,25 @@ export const isCreditsOrPromoPage = (bubbles: OcrBubble[]): boolean => {
   if (bubbles.length === 0) return false;
   const promo = bubbles.filter((b) => isCreditOrPromoText(b.text)).length;
   if (promo === 0) return false;
-  // Tek bloklu duyuru/reklam görselleri (ör. "Join our Discord...")
-  if (bubbles.length <= 2) return bubbles.some((b) => STRONG_PROMO_REGEX.test(b.text));
-  if (promo >= 2 && promo / bubbles.length >= 0.28) return true;
-  // AsuraScans vb. jenerik banner'lar: güçlü reklam/grup adı içerip kalan kutular 1-3 kelimelik ekip üyeleri/başlıksa
-  if (bubbles.length <= 12 && bubbles.some((b) => STRONG_PROMO_REGEX.test(b.text))) {
-    const shortOrPromo = bubbles.filter(
-      (b) => isCreditOrPromoText(b.text) || b.text.trim().split(/\s+/).length <= 3,
-    ).length;
-    if (shortOrPromo / bubbles.length >= 0.75) return true;
+
+  // 1. Sayfadaki tüm bloklar jenerik/reklam/link ise (örn. sadece "Join our Discord: discord.gg/...")
+  if (promo === bubbles.length) return true;
+
+  // 2. 1-2 bloklu görselde metinlerin tamamı reklam/link ise
+  if (bubbles.length <= 2 && bubbles.every((b) => isCreditOrPromoText(b.text))) {
+    return true;
   }
+
+  // 3. AsuraScans vb. gerçek jenerik / ekip künyesi sayfası:
+  // Sayfa güçlü bir grup adı/linki (STRONG_PROMO_REGEX) içermeli VE en az 2 farklı çevirmen/editör/dizgi künye satırı (TL, PR, Editor, Cleaner vb.) bulunmalı
+  const creditRolesCount = bubbles.filter((b) => CREDIT_LINE_REGEX.test(b.text)).length;
+  if (
+    creditRolesCount >= 2 &&
+    bubbles.some((b) => STRONG_PROMO_REGEX.test(b.text)) &&
+    creditRolesCount / bubbles.length >= 0.45
+  ) {
+    return true;
+  }
+
   return false;
 };
