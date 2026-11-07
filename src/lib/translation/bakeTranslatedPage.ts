@@ -9,7 +9,6 @@ import { fetchTranslatableImageBlob, loadImageElementFromBlob } from './geminiTr
 import {
   computeSmartWrappedLines,
   getLineHeightRatioForBlock,
-  isWhiteOrLightColor,
 } from './textLayout';
 import { PageTranslationState, TranslationBlock } from './types';
 
@@ -213,7 +212,7 @@ export const bakeTranslatedPageToBlob = async (
     const fontWeight = block.fontWeight ?? 700;
     const lineHeightRatio = getLineHeightRatioForBlock(block);
 
-    const wrapped = computeSmartWrappedLines(ctx, displayText, boxW * 0.95, baseFontPx, {
+    const wrapped = computeSmartWrappedLines(ctx, displayText, boxW * 0.88, baseFontPx, {
       fontFamily: block.fontFamily,
       fontWeight,
       lineWidthsPct: block.lineWidthsPct,
@@ -225,9 +224,8 @@ export const bakeTranslatedPageToBlob = async (
     const centerX = boxX + boxW * 0.5;
     const centerY = boxY + boxH * 0.5;
     const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
-    const isLight = isWhiteOrLightColor(textColor, block.isDark);
     const strokeColor = block.strokeColor || '#ffffff';
-    const strokeWidthEm = block.strokeWidthEm ?? 0.22;
+    const strokeWidthEm = block.strokeWidthEm ?? 0.12;
 
     ctx.save();
     if (block.rotationDeg) {
@@ -247,18 +245,18 @@ export const bakeTranslatedPageToBlob = async (
 
       ctx.font = `${block.fontStyle || 'normal'} ${fontWeight} ${lineFontPx}px ${fontFamilyCss}`;
 
-      if (block.hasTextStroke) {
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = Math.max(2.5, lineFontPx * strokeWidthEm);
-        ctx.strokeText(line.text, centerX, lineY);
+      if (block.shadowColor) {
+        ctx.save();
+        ctx.shadowColor = block.shadowColor;
+        ctx.shadowBlur = Math.max(3, lineFontPx * (block.shadowBlurEm ?? 0.16));
+        ctx.shadowOffsetX = 0;
+        ctx.shadowOffsetY = 0;
       }
 
-      if (isLight || block.shadowColor) {
-        ctx.save();
-        ctx.shadowColor = block.shadowColor || 'rgba(0, 0, 0, 0.95)';
-        ctx.shadowBlur = Math.max(3, lineFontPx * (block.shadowBlurEm ?? 0.18));
-        ctx.shadowOffsetX = 0;
-        ctx.shadowOffsetY = Math.max(1.5, lineFontPx * 0.08);
+      if (block.hasTextStroke) {
+        ctx.strokeStyle = strokeColor;
+        ctx.lineWidth = Math.max(1.2, lineFontPx * strokeWidthEm);
+        ctx.strokeText(line.text, centerX, lineY);
       }
 
       if (block.gradientStops && block.gradientStops.length === 2) {
@@ -277,7 +275,7 @@ export const bakeTranslatedPageToBlob = async (
 
       ctx.fillText(line.text, centerX, lineY);
 
-      if (isLight || block.shadowColor) {
+      if (block.shadowColor) {
         ctx.restore();
       }
     }

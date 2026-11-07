@@ -6,7 +6,6 @@ import {
   computeSmartWrappedLines,
   getLineHeightRatioForBlock,
   getSharedMeasureContext,
-  isWhiteOrLightColor,
 } from '@/lib/translation/textLayout';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Button } from '@/components/ui/button';
@@ -60,18 +59,17 @@ export const TranslationOverlay: React.FC<{
         const fontFamilyCss = getFontFamilyCss(block.fontFamily);
         const fontWeight = block.fontWeight ?? 700;
         const lineHeightRatio = getLineHeightRatioForBlock(block);
-        const isLight = isWhiteOrLightColor(textColor, block.isDark);
         const strokeColor = block.strokeColor || '#ffffff';
-        const strokeWidthEm = block.strokeWidthEm ?? 0.22;
+        const strokeWidthEm = block.strokeWidthEm ?? 0.12;
         const letterSpacing = `${block.letterSpacingEm ?? 0.01}em`;
 
-        // Referans 1000px genişlik üzerinden dengeli satırları ve vurgu ölçeğini hesapla
+        // Referans 1000px genişlik üzerinden dengeli satırları ve vurgu ölçeğini hesapla (%12 yatay güvenlik payı)
         const refBoxW = Math.max(20, xmax - xmin);
         const refFontPx = (fontSizeCqw / 100) * 1000;
         const wrapped = computeSmartWrappedLines(
           measureCtx,
           displayText,
-          refBoxW * 0.94,
+          refBoxW * 0.88,
           refFontPx,
           {
             fontFamily: block.fontFamily,
@@ -83,7 +81,7 @@ export const TranslationOverlay: React.FC<{
         );
 
         const textShadow = block.shadowColor
-          ? `0 2px 5px ${block.shadowColor}, 0 0 3px ${block.shadowColor}`
+          ? `0 0 3px ${block.shadowColor}, 0 0 7px ${block.shadowColor}`
           : undefined;
 
         const transformParts: string[] = [];

@@ -12,7 +12,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 5;
+export const TRANSLATION_BLOCK_VERSION = 6;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -222,9 +222,9 @@ export const inpaintAndRefineBlock = (
   const bh = boxY1 - boxY0;
 
   // Büyük/stilize harflerin ("NO", "FIRST MURDER.", "ALONE?") pencere sınırına çarpıp
-  // balon çerçevesi sanılmasını önlemek için hem bw hem bh'ye göre geniş arama penceresi
-  const padWinX = Math.max(bh < 55 ? 64 : 46, bw * 0.48, bh * 0.95);
-  const padWinY = Math.max(bh < 55 ? 42 : 38, bh * 0.65, bw * 0.16);
+  // balon çerçevesi sanılmasını önlemek ve yuvarlak/dikenli balonların üst-alt boşluğunu tam görmek için geniş arama penceresi
+  const padWinX = Math.max(bh < 55 ? 64 : 48, bw * 0.48, bh * 0.95);
+  const padWinY = Math.max(bh < 55 ? 56 : 48, bh * 1.15, bw * 0.42);
 
   let wx0 = Math.max(0, Math.floor(boxX0 - padWinX));
   let wx1 = Math.min(fullWidth, Math.ceil(boxX1 + padWinX));
@@ -1004,16 +1004,31 @@ export const inpaintAndRefineBlock = (
   // Balonun gerçek iç boşluğunu (safeLeft..safeRight, safeTop..safeBottom) ve balon duvarı varlığını ölç
   const midLocalY = Math.round((gMinY + gMaxY) * 0.5);
   const midLocalX = Math.round((gMinX + gMaxX) * 0.5);
-  const bandHalfY = Math.max(6, Math.round((gMaxY - gMinY) * 0.35));
+  const bandHalfY = Math.max(14, Math.round(Math.max(gMaxY - gMinY, medGlyphH * 2.2) * 0.55));
   const bandY0 = clamp(midLocalY - bandHalfY, 0, wh - 1);
   const bandY1 = clamp(midLocalY + bandHalfY, 0, wh - 1);
+  const wallColorThresh = Math.max(52, ringStd * 3.4);
 
   const isObstacleAt = (lx: number, ly: number): boolean => {
     const idx = ly * ww + lx;
+    if (eraseMask[idx] || rawGlyphMask[idx]) return false;
     if (borderMask[idx]) return true;
     const lbl = labels[idx];
-    return lbl !== 0 && !accepted.has(lbl);
+    if (lbl !== 0 && !accepted.has(lbl)) return true;
+    if (ringStd < 16) {
+      const cIdx = idx * 3;
+      const d = Math.max(
+        Math.abs(winRgb[cIdx] - ringMedR),
+        Math.abs(winRgb[cIdx + 1] - ringMedG),
+        Math.abs(winRgb[cIdx + 2] - ringMedB),
+      );
+      if (d > wallColorThresh) return true;
+    }
+    return false;
   };
+
+  const wallPadX = Math.max(20, Math.round(medGlyphH * 0.85));
+  const wallPadY = Math.max(14, Math.round(medGlyphH * 0.55));
 
   let safeLocalLeft = 0;
   let hitLeftWall = false;
@@ -1026,7 +1041,7 @@ export const inpaintAndRefineBlock = (
       }
     }
     if (hit) {
-      safeLocalLeft = x + 12;
+      safeLocalLeft = x + wallPadX;
       hitLeftWall = true;
       break;
     }
@@ -1043,13 +1058,13 @@ export const inpaintAndRefineBlock = (
       }
     }
     if (hit) {
-      safeLocalRight = x - 12;
+      safeLocalRight = x - wallPadX;
       hitRightWall = true;
       break;
     }
   }
 
-  const bandHalfX = Math.max(8, Math.round((gMaxX - gMinX) * 0.35));
+  const bandHalfX = Math.max(10, Math.round((gMaxX - gMinX) * 0.38));
   const bandX0 = clamp(midLocalX - bandHalfX, 0, ww - 1);
   const bandX1 = clamp(midLocalX + bandHalfX, 0, ww - 1);
 
@@ -1064,7 +1079,7 @@ export const inpaintAndRefineBlock = (
       }
     }
     if (hit) {
-      safeLocalTop = y + 10;
+      safeLocalTop = y + wallPadY;
       hitTopWall = true;
       break;
     }
@@ -1081,7 +1096,7 @@ export const inpaintAndRefineBlock = (
       }
     }
     if (hit) {
-      safeLocalBottom = y - 10;
+      safeLocalBottom = y - wallPadY;
       hitBottomWall = true;
       break;
     }
@@ -1402,29 +1417,40 @@ export const inpaintAndRefineBlock = (
     }
   } else {
     // Konuşma Balonu & Anlatım Kutusu:
-    const effectiveGlyphH = style.hasTextStroke ? Math.max(12, medGlyphH - 4) : medGlyphH;
-    const maxDialogFontPx = emphasisLastLineScale ? fullWidth * 0.036 : fullWidth * 0.038;
-    fontPx = clamp(effectiveGlyphH * 1.05, fullWidth * 0.02, maxDialogFontPx);
+    const effectiveGlyphH =
+      style.hasTextStroke && (style.strokeWidthEm ?? 0) > 0.1
+        ? Math.max(12, medGlyphH - 4)
+        : medGlyphH;
+    const maxDialogFontPx = emphasisLastLineScale ? fullWidth * 0.035 : fullWidth * 0.036;
+    fontPx = clamp(effectiveGlyphH * 1.0, fullWidth * 0.019, maxDialogFontPx);
     const minFontPx = Math.max(11, fullWidth * 0.015);
 
     const charLen = displayText.length;
     const desiredCharsPerLine =
-      charLen <= 12
+      charLen <= 10
         ? charLen + 2
-        : clamp(Math.ceil(Math.sqrt(charLen * 2.5)) * 2, 13, 21);
+        : clamp(Math.ceil(Math.sqrt(charLen * 1.7)) * 2, 11, 16);
     const singleCharW =
       measureStyledWordWidth(measureCtx, 'A', fontPx, style.fontFamily, style.fontWeight) ||
       fontPx * 0.61;
-    const desiredW = desiredCharsPerLine * singleCharW + 20;
+    const desiredW = desiredCharsPerLine * singleCharW + 18;
+    const usableSafeW =
+      hitLeftWall && hitRightWall
+        ? Math.max(Math.min(glyphW, safeW * 0.85), safeW * 0.86)
+        : safeW;
 
-    finalBoxW = clamp(Math.max(glyphW * 1.1, desiredW), Math.min(glyphW, safeW), safeW);
-    finalBoxH = Math.max(glyphH * 1.15, safeH);
+    finalBoxW = clamp(
+      Math.max(glyphW * 0.92, desiredW),
+      Math.min(glyphW * 0.85, usableSafeW),
+      usableSafeW,
+    );
+    finalBoxH = Math.max(glyphH * 1.25, safeH);
 
     for (let step = 0; step < 14; step += 1) {
       const wrapped = computeSmartWrappedLines(
         measureCtx,
         displayText,
-        finalBoxW * 0.94,
+        finalBoxW * 0.9,
         fontPx,
         {
           fontFamily: style.fontFamily,
@@ -1434,15 +1460,15 @@ export const inpaintAndRefineBlock = (
       );
 
       if (
-        wrapped.totalHeightPx <= finalBoxH * 0.96 &&
-        wrapped.maxWordWidth <= finalBoxW * 0.96
+        wrapped.totalHeightPx <= finalBoxH * 0.94 &&
+        wrapped.maxWordWidth <= finalBoxW * 0.92
       ) {
         finalBoxH = Math.max(glyphH, wrapped.totalHeightPx + fontPx * 0.45);
         break;
       }
 
-      if (finalBoxW < safeW) {
-        finalBoxW = safeW;
+      if (finalBoxW < usableSafeW) {
+        finalBoxW = usableSafeW;
         continue;
       }
       if (fontPx <= minFontPx) break;
