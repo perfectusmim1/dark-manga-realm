@@ -868,14 +868,28 @@ const Reader: React.FC = () => {
               reviewCount: 0,
             };
 
+        if (canUseNetworkReaderFeatures && mData && !baseChapter && Array.isArray(mData.chapters) && mData.chapters.length > 0) {
+          const targetNum = offlineChapter?.chapterNumber;
+          const replacementChapter = (
+            targetNum !== undefined
+              ? mData.chapters.find((c: Chapter) => Number(c.number) === Number(targetNum))
+              : undefined
+          ) || mData.chapters[0];
+          if (replacementChapter && replacementChapter.id !== chapterId) {
+            navigate(`/manga/${mData.id}/chapter/${replacementChapter.id}`, { replace: true });
+            return;
+          }
+        }
+
         setManga(resolvedManga);
+        const allowOfflineChapterFallback = !canUseNetworkReaderFeatures || !mData;
         const resolvedChapter = sanitizeReaderChapter(
           (baseChapter ? {
             ...baseChapter,
             pages: currentChapterPages,
             pageCount: currentChapterPages.length || baseChapter.pageCount,
           } : null)
-          || (offlineChapter ? {
+          || (allowOfflineChapterFallback && offlineChapter ? {
             id: offlineChapter.chapterId,
             number: offlineChapter.chapterNumber,
             title: offlineChapter.title,

@@ -83,7 +83,7 @@ import { sanitizeEntityImageUrl } from '@/lib/entityImages';
 import { normalizeComparableText } from '@/lib/textMatching';
 import { getReactionScore, type ReactionType } from './reactions';
 import { extractComixChapterId, resolveComixChapterPagesById } from '@/lib/chapterOnDemandResolver';
-import { resolveChapterLanguageCode } from '@/lib/seriesLanguage';
+import { getSeriesLanguage, resolveChapterLanguageCode } from '@/lib/seriesLanguage';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
     value?.trim().replace(/\s+/g, ' ') || '';
@@ -2382,7 +2382,7 @@ export const getChapterById = async (chapterId: string): Promise<{ chapter: Chap
 
 export const getMangaChapters = async (
     mangaId: string,
-    options?: { includePages?: boolean; slug?: string }
+    options?: { includePages?: boolean; slug?: string; fallbackLanguage?: string }
 ): Promise<Chapter[]> => {
     const includePages = options?.includePages === true;
     const selectColumns = includePages
@@ -2415,22 +2415,38 @@ export const getMangaChapters = async (
         }
     }
 
-    const mapped = data.map((row: any) => mapChapterRowToChapter(row, { includePages }));
+    let resolvedSlug = options?.slug || r2MangaSlugById.get(mangaId) || '';
+    let fallbackLang = options?.fallbackLanguage || '';
 
-    try {
-        let resolvedSlug = options?.slug || r2MangaSlugById.get(mangaId) || '';
-        if (!resolvedSlug) {
+    if (!resolvedSlug || !fallbackLang) {
+        try {
             const { data: mangaRow } = await supabase
                 .from('mangas')
-                .select('slug')
+                .select('slug, title, details, source_links, genres')
                 .eq('id', mangaId)
                 .maybeSingle();
             if (mangaRow?.slug) {
                 resolvedSlug = mangaRow.slug;
                 r2MangaSlugById.set(mangaId, resolvedSlug);
             }
+            if (!fallbackLang && mangaRow) {
+                fallbackLang = getSeriesLanguage(mangaRow as any);
+            }
+        } catch {
+            // ignore
         }
+    }
+    if (!fallbackLang) {
+        fallbackLang = 'tr';
+    }
 
+    const mapped = data.map((row: any) => {
+        const ch = mapChapterRowToChapter(row, { includePages });
+        ch.language = resolveChapterLanguageCode(ch, fallbackLang);
+        return ch;
+    });
+
+    try {
         if (resolvedSlug) {
             const seriesData = await fetchR2SeriesBySlug(resolvedSlug);
             if (seriesData && Array.isArray(seriesData.chapters)) {
@@ -2441,13 +2457,13 @@ export const getMangaChapters = async (
 
                 for (const ch of mapped) {
                     existingById.set(ch.id, ch);
-                    const lang = resolveChapterLanguageCode(ch, 'tr');
+                    const lang = resolveChapterLanguageCode(ch, fallbackLang);
                     existingByNumAndLang.set(`${ch.number}:${lang}`, ch);
                 }
 
                 for (const sc of seriesData.chapters) {
                     const r2Ch = mapChapterRowToChapter(sc, { includePages });
-                    const r2Lang = resolveChapterLanguageCode(r2Ch, sc.language || 'tr');
+                    const r2Lang = resolveChapterLanguageCode(r2Ch, sc.language || fallbackLang);
                     r2Ch.language = r2Lang;
                     const key = `${r2Ch.number}:${r2Lang}`;
 
@@ -2477,10 +2493,12 @@ export const getMangaChapters = async (
 
     mapped.sort((a, b) => {
         if (b.number !== a.number) return b.number - a.number;
-        const langA = resolveChapterLanguageCode(a, 'tr');
-        const langB = resolveChapterLanguageCode(b, 'tr');
+        const langA = resolveChapterLanguageCode(a, fallbackLang);
+        const langB = resolveChapterLanguageCode(b, fallbackLang);
         if (langA === 'tr' && langB !== 'tr') return -1;
         if (langB === 'tr' && langA !== 'tr') return 1;
+        if (langA === 'en' && langB !== 'en') return -1;
+        if (langB === 'en' && langA !== 'en') return 1;
         return langA.localeCompare(langB);
     });
 
@@ -2731,7 +2749,11 @@ export const getMangaById = async (
         r2SeriesData,
     ] = await Promise.all([
         supabase.from('reviews').select('*').eq('manga_id', realMangaId),
-        getMangaChapters(realMangaId, { includePages: options?.includePages === true, slug: data.slug }),
+        getMangaChapters(realMangaId, {
+            includePages: options?.includePages === true,
+            slug: data.slug,
+            fallbackLanguage: getSeriesLanguage(data),
+        }),
         getMangaAuthors(realMangaId, options),
         getMangaArtists(realMangaId, options),
         getMangaRelatedSeries(realMangaId, { includePrivate }),
@@ -2792,15 +2814,24 @@ export const getMangaById = async (
     const r2CharacterList = Array.isArray(r2SeriesData?.characters) ? r2SeriesData.characters : [];
     const totalCharacterCount = Math.max(characterCount || 0, r2CharacterList.length);
 
+    const uniqueChapterCount = new Set(hydratedChapters.map((c) => Number(c.number))).size || hydratedChapters.length;
+    const mergedDetails = { ...(r2MangaObj.details || {}), ...(data.details || {}) };
+
     const mangaDetail = {
         ...data,
         author: joinNamedEntityValues(authorsDetails.map((author) => author.name)) || cleanPlaceholderNamedEntityString(data.author) || data.author,
         artist: joinNamedEntityValues(artistsDetails.map((artist) => artist.name)) || cleanPlaceholderNamedEntityString(data.artist) || data.artist,
-        ...mapMangaBaseFields({ ...data, alternative_titles: mergedAltTitles }),
-        details: { ...(r2MangaObj.details || {}), ...(data.details || {}) },
+        ...mapMangaBaseFields({
+            ...r2MangaObj,
+            ...data,
+            details: mergedDetails,
+            alternative_titles: mergedAltTitles,
+        }),
+        details: mergedDetails,
         sourceLinks: mergedSourceLinks,
         relatedSeries,
         chapters: hydratedChapters,
+        chapterCount: uniqueChapterCount,
         ratings: reviews.map(r => ({
             userId: r.user_id,
             rating: Math.round((r.rating_story + r.rating_characters + r.rating_art + r.rating_progression + r.rating_engagement) / 5),

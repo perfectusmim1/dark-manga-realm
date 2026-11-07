@@ -142,7 +142,31 @@ async function fetchExistingMangasFromSupabase() {
   return rows;
 }
 
-async function fetchExistingChaptersForManga(mangaId, slug) {
+function isExistingMangaTurkish(manga) {
+  const detailsLang = String(manga?.details?.language || '').toLowerCase();
+  if (detailsLang === 'en' || detailsLang === 'raw') return false;
+  const primarySource = String(manga?.details?.primarySource || '').toLowerCase();
+  const nonTurkishSources = new Set([
+    'comix',
+    'asurascans',
+    'asura',
+    'mangadass',
+    'madaradex',
+    'mgread',
+    'ezmanga',
+    'mangadex',
+    'mangafreak',
+  ]);
+  if (nonTurkishSources.has(primarySource)) return false;
+  return true;
+}
+
+async function fetchExistingChaptersForManga(manga, slug) {
+  const mangaId = manga.id;
+  if (!isExistingMangaTurkish(manga)) {
+    return [];
+  }
+
   const headers = {
     apikey: SUPABASE_ANON_KEY,
     Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
@@ -157,12 +181,18 @@ async function fetchExistingChaptersForManga(mangaId, slug) {
     if (!res.ok) break;
     const rows = await res.json();
     if (!Array.isArray(rows) || rows.length === 0) break;
-    all.push(...rows);
+    for (const row of rows) {
+      const titleStr = String(row?.title || '');
+      if (/\[en\]|\(en\)|\[raw\]|\(raw\)/i.test(titleStr)) continue;
+      const pagesArr = Array.isArray(row?.pages) ? row.pages : [];
+      if (pagesArr.some((p) => String(p || '').includes('asurascans'))) continue;
+      all.push(row);
+    }
     if (rows.length < pageSize) break;
   }
 
   // Also check existing R2 series JSON for any Turkish chapter pages not in Supabase
-  if (slug) {
+  if (slug && all.length > 0) {
     try {
       const r2Res = await fetch(`${CATALOG_WORKER_URL}/v1/catalog/series/${encodeURIComponent(slug)}`, {
         headers: { Accept: 'application/json' },
@@ -175,7 +205,9 @@ async function fetchExistingChaptersForManga(mangaId, slug) {
         for (const rc of r2Chapters) {
           const lang = String(rc?.language || 'tr').toLowerCase();
           if (lang === 'tr' && Array.isArray(rc?.pages) && rc.pages.length > 0) {
-            r2PagesByNum.set(Number(rc.number ?? rc.chapterNumber), rc.pages);
+            if (!rc.pages.some((p) => String(p || '').includes('asurascans'))) {
+              r2PagesByNum.set(Number(rc.number ?? rc.chapterNumber), rc.pages);
+            }
           }
         }
         for (const ch of all) {
@@ -355,7 +387,7 @@ async function processSingleExistingManga(manga, idx, total) {
         });
 
   const [existingTrChapters, comixChaptersRes] = await Promise.all([
-    fetchExistingChaptersForManga(manga.id, slug),
+    fetchExistingChaptersForManga(manga, slug),
     fetchBestComixChaptersByLanguage(hid, manga.id, slug, {
       maxPages: 15,
       verifySamplePages: true,
@@ -491,6 +523,21 @@ async function processSingleExistingManga(manga, idx, total) {
   const resolvedYear =
     Number(manga.release_year || fullComix.year || finalAnilist.releaseYear) || null;
 
+  const actualAvailableLanguages = Array.from(
+    new Set(mergedChapters.map((c) => String(c.language || '').toLowerCase()).filter(Boolean))
+  );
+  const uniqueChapterNumbersCount = new Set(mergedChapters.map((c) => Number(c.number))).size;
+  const latestChaptersPreview = mergedChapters
+    .slice(-2)
+    .reverse()
+    .map((c) => ({
+      id: c.id,
+      number: c.number,
+      title: c.title,
+      release_date: c.release_date || c.releaseDate,
+      language: c.language,
+    }));
+
   const nowIso = new Date().toISOString();
   const r2SeriesPayload = {
     ...manga,
@@ -520,14 +567,17 @@ async function processSingleExistingManga(manga, idx, total) {
       ...(manga.details || {}),
       hid,
       comixSlug: slug,
+      language: actualAvailableLanguages.includes('tr') ? 'tr' : (actualAvailableLanguages[0] || 'en'),
       anilistId: finalAnilist.anilistId || extIds.anilistId || null,
       malId: finalAnilist.malId || extIds.malId || null,
       descriptionTr: trDescription || '',
       descriptionEn: enDescription || '',
-      availableLanguages: Array.from(new Set(['tr', ...comixChaptersRes.languages])),
+      availableLanguages: actualAvailableLanguages,
       lastForeignSyncAt: nowIso,
     },
-    chapterCount: mergedChapters.length,
+    chapter_count: uniqueChapterNumbersCount,
+    chapterCount: uniqueChapterNumbersCount,
+    latest_chapters: latestChaptersPreview,
     chapters: mergedChapters,
     characters: finalAnilist.characters,
     last_updated: manga.last_updated || nowIso,

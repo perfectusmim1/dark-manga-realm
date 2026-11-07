@@ -2525,15 +2525,63 @@ const MangaDetail: React.FC = () => {
     return views.toString();
   };
 
-  const availableLanguages = useMemo(() => {
+  const fallbackSeriesLang = useMemo(() => getSeriesLanguage(manga), [manga]);
+
+  const chapterVariantsByNumber = useMemo(() => {
+    const map = new Map<number, Chapter[]>();
     if (!manga?.chapters || manga.chapters.length === 0) {
+      return map;
+    }
+
+    for (const ch of manga.chapters) {
+      const num = typeof ch.number === 'number' ? ch.number : parseFloat(String(ch.number)) || 0;
+      const lang = resolveChapterLanguageCode(ch, fallbackSeriesLang);
+      const list = map.get(num) || [];
+      const existingIdx = list.findIndex((item) => resolveChapterLanguageCode(item, fallbackSeriesLang) === lang);
+      if (existingIdx === -1) {
+        list.push(ch);
+      } else {
+        const existing = list[existingIdx];
+        const existingPages = getKnownChapterPageCount(existing) || existing.pages?.length || 0;
+        const candidatePages = getKnownChapterPageCount(ch) || ch.pages?.length || 0;
+        if (candidatePages > existingPages) {
+          list[existingIdx] = ch;
+        }
+      }
+      map.set(num, list);
+    }
+
+    for (const [num, list] of map.entries()) {
+      list.sort((a, b) => {
+        const langA = resolveChapterLanguageCode(a, fallbackSeriesLang);
+        const langB = resolveChapterLanguageCode(b, fallbackSeriesLang);
+        if (langA === 'tr' && langB !== 'tr') return -1;
+        if (langB === 'tr' && langA !== 'tr') return 1;
+        if (langA === 'en' && langB !== 'en') return -1;
+        if (langB === 'en' && langA !== 'en') return 1;
+        return langA.localeCompare(langB);
+      });
+      map.set(num, list);
+    }
+
+    return map;
+  }, [manga?.chapters, fallbackSeriesLang]);
+
+  const uniqueChapterCount = useMemo(
+    () => chapterVariantsByNumber.size || manga?.chapters?.length || 0,
+    [chapterVariantsByNumber.size, manga?.chapters?.length],
+  );
+
+  const availableLanguages = useMemo(() => {
+    if (chapterVariantsByNumber.size === 0) {
       return { entries: [] as Array<{ code: string; count: number; info: ReturnType<typeof getLanguageInfoByCode> }> };
     }
     const counts = new Map<string, number>();
-    const fallbackLang = getSeriesLanguage(manga);
-    for (const ch of manga.chapters) {
-      const code = resolveChapterLanguageCode(ch, fallbackLang);
-      counts.set(code, (counts.get(code) || 0) + 1);
+    for (const variants of chapterVariantsByNumber.values()) {
+      for (const ch of variants) {
+        const code = resolveChapterLanguageCode(ch, fallbackSeriesLang);
+        counts.set(code, (counts.get(code) || 0) + 1);
+      }
     }
     const entries = Array.from(counts.entries())
       .map(([code, count]) => ({
@@ -2549,35 +2597,44 @@ const MangaDetail: React.FC = () => {
         return b.count - a.count;
       });
     return { entries };
-  }, [manga?.chapters, manga]);
+  }, [chapterVariantsByNumber, fallbackSeriesLang]);
 
   const filteredChapters = useMemo(() => {
-    if (!manga?.chapters) {
+    if (chapterVariantsByNumber.size === 0) {
       return [];
     }
 
     const normalizedQuery = deferredChapterSearch.toLocaleLowerCase('tr-TR');
-    const fallbackLang = getSeriesLanguage(manga);
+    const sortedNumbers = Array.from(chapterVariantsByNumber.keys()).sort((a, b) =>
+      chapterSortOrder === 'desc' ? b - a : a - b
+    );
 
-    let sorted = [...manga.chapters].sort((a, b) => {
-      const numA = typeof a.number === 'number' ? a.number : parseFloat(a.number as string) || 0;
-      const numB = typeof b.number === 'number' ? b.number : parseFloat(b.number as string) || 0;
-      return chapterSortOrder === 'desc' ? numB - numA : numA - numB;
-    });
+    const unifiedList: Chapter[] = [];
+    for (const num of sortedNumbers) {
+      const variants = chapterVariantsByNumber.get(num) || [];
+      if (variants.length === 0) continue;
 
-    if (selectedLanguage !== 'all') {
-      sorted = sorted.filter((ch) => resolveChapterLanguageCode(ch, fallbackLang) === selectedLanguage);
+      let chosen: Chapter | undefined;
+      if (selectedLanguage !== 'all') {
+        chosen = variants.find((ch) => resolveChapterLanguageCode(ch, fallbackSeriesLang) === selectedLanguage);
+        if (!chosen) continue;
+      } else {
+        chosen = variants[0];
+      }
+
+      if (deferredChapterSearch) {
+        const matchesNum = String(num).includes(deferredChapterSearch);
+        const matchesTitle = variants.some(
+          (v) => v.title && v.title.toLocaleLowerCase('tr-TR').includes(normalizedQuery)
+        );
+        if (!matchesNum && !matchesTitle) continue;
+      }
+
+      unifiedList.push(chosen);
     }
 
-    if (!deferredChapterSearch) {
-      return sorted;
-    }
-
-    return sorted.filter((chapter) => (
-      chapter.number.toString().includes(deferredChapterSearch)
-      || (chapter.title && chapter.title.toLocaleLowerCase('tr-TR').includes(normalizedQuery))
-    ));
-  }, [chapterSortOrder, deferredChapterSearch, manga?.chapters, selectedLanguage, manga]);
+    return unifiedList;
+  }, [chapterSortOrder, chapterVariantsByNumber, deferredChapterSearch, fallbackSeriesLang, selectedLanguage]);
 
   const overviewPreviewChapterCount = isMobile
     ? MOBILE_OVERVIEW_PREVIEW_CHAPTER_COUNT
@@ -2593,9 +2650,18 @@ const MangaDetail: React.FC = () => {
       : visibleChapters
   ), [filteredChapters, overviewVisibleCount, showAllChapters, visibleChapters]);
   const remainingOverviewChapterCount = Math.max(0, filteredChapters.length - visibleOverviewChapters.length);
-  const sortedPreviewChapters = useMemo(() => (
-    manga?.chapters ? [...manga.chapters].sort((a, b) => a.number - b.number) : []
-  ), [manga?.chapters]);
+  const sortedPreviewChapters = useMemo(() => {
+    const ascNumbers = Array.from(chapterVariantsByNumber.keys()).sort((a, b) => a - b);
+    return ascNumbers
+      .map((num) => {
+        const variants = chapterVariantsByNumber.get(num) || [];
+        if (selectedLanguage !== 'all') {
+          return variants.find((ch) => resolveChapterLanguageCode(ch, fallbackSeriesLang) === selectedLanguage) || variants[0];
+        }
+        return variants[0];
+      })
+      .filter(Boolean) as Chapter[];
+  }, [chapterVariantsByNumber, fallbackSeriesLang, selectedLanguage]);
   const previewWindow = useMemo(() => {
     if (sortedPreviewChapters.length === 0) {
       return {
@@ -2809,6 +2875,9 @@ const MangaDetail: React.FC = () => {
   }
 
   const renderChapterRow = (chapter: Chapter) => {
+    const numKey = typeof chapter.number === 'number' ? chapter.number : parseFloat(String(chapter.number)) || 0;
+    const variants = chapterVariantsByNumber.get(numKey) || [chapter];
+    const isAnyVariantRead = variants.some((v) => mergedChapterReadMap[v.id]?.isRead);
     const chapterPageCount = getKnownChapterPageCount(chapter);
     const chapterCardImageUrl = getResolvedChapterCardImageUrl(chapter);
     const pageCountBadge = chapterPageCount ? (
@@ -2845,41 +2914,42 @@ const MangaDetail: React.FC = () => {
 
           <div className="flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0 flex-1">
-              <div className="flex flex-wrap items-center gap-2">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Link
                   to={`/manga/${manga.id}/chapter/${chapter.id}`}
                   className={cn(
-                    "line-clamp-1 text-base font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-base",
-                    mergedChapterReadMap[chapter.id]?.isRead
+                    "line-clamp-1 text-base font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-base mr-0.5",
+                    isAnyVariantRead
                       ? "text-emerald-400 hover:text-emerald-300"
                       : "hover:text-primary",
                   )}
                 >
                   {formatChapterDisplayTitle(chapter.number, chapter.title)}
                 </Link>
-                {(() => {
-                  const langInfo = getChapterLanguageInfo(chapter, getSeriesLanguage(manga));
+                {variants.map((variant) => {
+                  const langInfo = getChapterLanguageInfo(variant, fallbackSeriesLang);
+                  const isActiveVariant = variant.id === chapter.id;
                   return (
-                    <>
-                      {isChapterRaw(chapter) && langInfo.code !== 'raw' && (
-                        <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-purple-500/40 bg-purple-500/15 text-purple-400">
-                          RAW
-                        </Badge>
-                      )}
+                    <Link
+                      key={variant.id}
+                      to={`/manga/${manga.id}/chapter/${variant.id}`}
+                      title={`${langInfo.label} (${formatChapterDisplayTitle(variant.number, variant.title)})`}
+                      className="inline-flex"
+                    >
                       <Badge
                         variant="outline"
                         className={cn(
-                          'h-5 shrink-0 px-1.5 py-0 text-[10px] font-black',
-                          langInfo.badgeClass
+                          'h-5 shrink-0 px-1.5 py-0 text-[10px] font-black transition-all hover:scale-105',
+                          langInfo.badgeClass,
+                          variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                         )}
-                        title={langInfo.label}
                       >
                         {langInfo.shortLabel}
                       </Badge>
-                    </>
+                    </Link>
                   );
-                })()}
-                {chapterTranslationMap.has(chapter.id) && (chapterTranslationMap.get(chapter.id) || 0) > 0 && (
+                })}
+                {variants.some((v) => chapterTranslationMap.has(v.id) && (chapterTranslationMap.get(v.id) || 0) > 0) && (
                   <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-bold border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
                     Çevrildi
                   </Badge>
@@ -2894,7 +2964,7 @@ const MangaDetail: React.FC = () => {
                   <Eye className="h-3 w-3" />
                   {formatViews(chapter.views || 0)}
                 </span>
-                {mergedChapterReadMap[chapter.id]?.isRead && (
+                {isAnyVariantRead && (
                   <Badge variant="secondary" className="text-[10px] border-emerald-500/20 bg-emerald-500/15 text-emerald-300">
                     Okundu
                   </Badge>
@@ -3218,7 +3288,7 @@ const MangaDetail: React.FC = () => {
                   </div>
                   <div className="flex items-center gap-1.5 text-emerald-400">
                     <BookOpen className="h-5 w-5 text-emerald-400" />
-                    <span className="font-semibold tracking-tight">{manga.chapters.length} bölüm</span>
+                    <span className="font-semibold tracking-tight">{uniqueChapterCount} bölüm</span>
                   </div>
                   {user && (
                     <div className="flex items-center gap-1.5 text-red-400">
@@ -3510,7 +3580,7 @@ const MangaDetail: React.FC = () => {
                         <div className="flex flex-col justify-between gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4">
                           <div>
                             <h2 className="text-xl font-bold">Bölümler</h2>
-                            <p className="text-sm text-muted-foreground">{manga.chapters.length} bölüm mevcut</p>
+                            <p className="text-sm text-muted-foreground">{uniqueChapterCount} bölüm mevcut</p>
                           </div>
                           <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
                             <div className="flex items-center rounded-lg border border-border/70 bg-secondary/40 p-0.5 text-xs">
@@ -3553,7 +3623,7 @@ const MangaDetail: React.FC = () => {
                                         : 'text-muted-foreground hover:text-foreground',
                                     )}
                                   >
-                                    Tümü ({manga.chapters.length})
+                                    Tümü ({uniqueChapterCount})
                                   </button>
                                   {availableLanguages.entries.map((entry) => (
                                     <button

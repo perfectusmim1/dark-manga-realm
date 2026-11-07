@@ -229,25 +229,51 @@ export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage
     return 'raw';
   }
 
-  const primarySource = ((manga.details as any)?.primarySource || '').toLowerCase();
-  const turkishSources = new Set(['webtoonhatti', 'siyahmelek', 'okutoon', 'golgebahcesi', 'dxdfansub', 'hentaiturk', 'mangacix', 'hattorimanga']);
+  // 2. Explicit metadata details.language or availableLanguages
+  const detailsObj = (manga.details as any) || {};
+  const detailsLang = String(
+    detailsObj.language || (manga as any)?.language || (manga as any)?.mangaLanguage || '',
+  ).toLowerCase();
+  if (detailsLang === 'raw') return 'raw';
+  if (detailsLang === 'en') return 'en';
+  if (detailsLang === 'tr') return 'tr';
 
-  // 2. Primary Source is decisive
+  const availLangs: string[] = Array.isArray(detailsObj.availableLanguages)
+    ? detailsObj.availableLanguages.map((l: any) => String(l || '').toLowerCase())
+    : [];
+  if (availLangs.length > 0 && !availLangs.includes('tr')) {
+    return availLangs.includes('raw') ? 'raw' : 'en';
+  }
+
+  const primarySource = String(detailsObj.primarySource || '').toLowerCase();
+  const turkishSources = new Set([
+    'webtoonhatti',
+    'siyahmelek',
+    'okutoon',
+    'golgebahcesi',
+    'dxdfansub',
+    'hentaiturk',
+    'mangacix',
+    'hattorimanga',
+  ]);
+
+  // 3. Primary Source
   if (turkishSources.has(primarySource)) {
     return 'tr';
   }
   if (primarySource === 'mangadass') {
     return titleLower.includes('raw') ? 'raw' : 'en';
   }
-  if (primarySource === 'comix' || primarySource === 'madaradex' || primarySource === 'mgread' || primarySource === 'ezmanga') {
+  if (
+    primarySource === 'comix' ||
+    primarySource === 'madaradex' ||
+    primarySource === 'mgread' ||
+    primarySource === 'ezmanga' ||
+    primarySource === 'asurascans' ||
+    primarySource === 'asura'
+  ) {
     return 'en';
   }
-
-  // 3. Metadata details.language
-  const detailsLang = (manga.details as any)?.language || (manga as any)?.language || (manga as any)?.mangaLanguage;
-  if (detailsLang === 'raw') return 'raw';
-  if (detailsLang === 'en') return 'en';
-  if (detailsLang === 'tr') return 'tr';
 
   // 4. Genres check
   const genres = Array.isArray(manga.genres) ? manga.genres : [];

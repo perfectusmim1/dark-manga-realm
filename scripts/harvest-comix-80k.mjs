@@ -439,6 +439,9 @@ async function processComixSeries(rawItem, currentIdx, totalTarget, dedupeIndex,
     ...(extIds.extraLinks || []),
   ];
 
+  const uniqueChapterNumbersCount = new Set(
+    chaptersRes.chapters.map((c) => Number(c.number))
+  ).size;
   const nowIso = new Date().toISOString();
   const status = fullItem.status === 'finished' || fullItem.status === 'completed' ? 'completed' : 'ongoing';
   const latestChaptersPreview = chaptersRes.chapters.slice(-2).reverse().map((c) => ({
@@ -480,6 +483,7 @@ async function processComixSeries(rawItem, currentIdx, totalTarget, dedupeIndex,
       primarySource: 'comix',
       primarySourceUrl: `https://comix.to/title/${hid}-${slug}`,
       hid,
+      language: chaptersRes.languages.includes('tr') ? 'tr' : (chaptersRes.languages[0] || 'en'),
       anilistId: anilistMeta.anilistId || extIds.anilistId || null,
       malId: anilistMeta.malId || extIds.malId || null,
       descriptionTr: trDescription || '',
@@ -488,8 +492,8 @@ async function processComixSeries(rawItem, currentIdx, totalTarget, dedupeIndex,
       originalLanguage: fullItem.originalLanguage || anilistMeta.countryOfOrigin || '',
       storageTier: 'r2_only',
     },
-    chapter_count: chaptersRes.chapters.length,
-    chapterCount: chaptersRes.chapters.length,
+    chapter_count: uniqueChapterNumbersCount,
+    chapterCount: uniqueChapterNumbersCount,
     latest_chapters: latestChaptersPreview,
     chapters: chaptersRes.chapters,
     characters: anilistMeta.characters,

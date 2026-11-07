@@ -123,13 +123,73 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const navigate = useNavigate();
   const { isMobile } = useDeviceProfile();
 
-  const currentLangCode = useMemo(() => resolveChapterLanguageCode(currentChapter), [currentChapter]);
-  const currentLangInfo = useMemo(() => getChapterLanguageInfo(currentChapter), [currentChapter]);
+  const fallbackLangCode = useMemo(() => {
+    for (const ch of chapters) {
+      if (ch.language && ch.language.trim()) {
+        return ch.language.trim().toLowerCase();
+      }
+    }
+    return 'tr';
+  }, [chapters]);
+
+  const currentLangCode = useMemo(
+    () => resolveChapterLanguageCode(currentChapter, fallbackLangCode),
+    [currentChapter, fallbackLangCode],
+  );
+  const currentLangInfo = useMemo(
+    () => getChapterLanguageInfo(currentChapter, fallbackLangCode),
+    [currentChapter, fallbackLangCode],
+  );
+
+  const chapterVariantsByNumber = useMemo(() => {
+    const map = new Map<number, Chapter[]>();
+    for (const ch of chapters) {
+      const num = typeof ch.number === 'number' ? ch.number : parseFloat(String(ch.number)) || 0;
+      const lang = resolveChapterLanguageCode(ch, fallbackLangCode);
+      const list = map.get(num) || [];
+      const existingIdx = list.findIndex(
+        (item) => resolveChapterLanguageCode(item, fallbackLangCode) === lang,
+      );
+      if (existingIdx === -1) {
+        list.push(ch);
+      } else {
+        const existing = list[existingIdx];
+        const existingPages = existing.pageCount || existing.pages?.length || 0;
+        const candidatePages = ch.pageCount || ch.pages?.length || 0;
+        if (candidatePages > existingPages) {
+          list[existingIdx] = ch;
+        }
+      }
+      map.set(num, list);
+    }
+
+    for (const [num, list] of map.entries()) {
+      list.sort((a, b) => {
+        const langA = resolveChapterLanguageCode(a, fallbackLangCode);
+        const langB = resolveChapterLanguageCode(b, fallbackLangCode);
+        if (langA === 'tr' && langB !== 'tr') return -1;
+        if (langB === 'tr' && langA !== 'tr') return 1;
+        if (langA === 'en' && langB !== 'en') return -1;
+        if (langB === 'en' && langA !== 'en') return 1;
+        return langA.localeCompare(langB);
+      });
+      map.set(num, list);
+    }
+
+    return map;
+  }, [chapters, fallbackLangCode]);
+
+  const uniqueChapterCount = useMemo(
+    () => chapterVariantsByNumber.size || chapters.length,
+    [chapterVariantsByNumber.size, chapters.length],
+  );
 
   const sameLanguageChapters = useMemo(() => {
-    const filtered = chapters.filter((ch) => resolveChapterLanguageCode(ch) === currentLangCode);
+    const filtered = chapters.filter(
+      (ch) => resolveChapterLanguageCode(ch, fallbackLangCode) === currentLangCode,
+    );
     return filtered.length > 0 ? filtered : chapters;
-  }, [chapters, currentLangCode]);
+  }, [chapters, currentLangCode, fallbackLangCode]);
 
   const currentIndex = sameLanguageChapters.findIndex((ch) => ch.id === currentChapter.id);
   const prevChapter = currentIndex >= 0 ? sameLanguageChapters[currentIndex + 1] : undefined;
@@ -139,17 +199,11 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
 
   const sameNumberChapters = useMemo(() => {
-    const matches = chapters.filter((ch) => Number(ch.number) === Number(currentChapter.number));
-    return matches.sort((a, b) => {
-      const langA = resolveChapterLanguageCode(a);
-      const langB = resolveChapterLanguageCode(b);
-      if (langA === 'tr' && langB !== 'tr') return -1;
-      if (langB === 'tr' && langA !== 'tr') return 1;
-      if (langA === 'en' && langB !== 'en') return -1;
-      if (langB === 'en' && langA !== 'en') return 1;
-      return langA.localeCompare(langB);
-    });
-  }, [chapters, currentChapter.number]);
+    const num = typeof currentChapter.number === 'number'
+      ? currentChapter.number
+      : parseFloat(String(currentChapter.number)) || 0;
+    return chapterVariantsByNumber.get(num) || [currentChapter];
+  }, [chapterVariantsByNumber, currentChapter]);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPage, setScrubPage] = useState<number | null>(null);
   const [scrubPercent, setScrubPercent] = useState<number | null>(null);
@@ -165,9 +219,11 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
   const availableReaderLanguages = useMemo(() => {
     const counts = new Map<string, number>();
-    for (const ch of chapters) {
-      const code = resolveChapterLanguageCode(ch);
-      counts.set(code, (counts.get(code) || 0) + 1);
+    for (const variants of chapterVariantsByNumber.values()) {
+      for (const ch of variants) {
+        const code = resolveChapterLanguageCode(ch, fallbackLangCode);
+        counts.set(code, (counts.get(code) || 0) + 1);
+      }
     }
     return Array.from(counts.entries())
       .map(([code, count]) => ({
@@ -182,7 +238,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         if (b.code === 'en' && a.code !== 'en') return 1;
         return b.count - a.count;
       });
-  }, [chapters]);
+  }, [chapterVariantsByNumber, fallbackLangCode]);
 
   const seriesRouteKey = buildRouteKey(`/manga/${mangaId}`);
   const deferredChapterSearch = useDeferredValue(normalizeChapterSearchValue(chapterSearch));
@@ -194,16 +250,27 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     : fallbackProgressPercent;
   const progressPercent = isScrubbing && scrubPercent !== null ? scrubPercent : baseProgressPercent;
   const chapterItems = useMemo(() => {
-    let base = [...chapters];
-    if (selectedReaderLang !== 'all') {
-      base = base.filter((ch) => resolveChapterLanguageCode(ch) === selectedReaderLang);
+    const sortedNumbers = Array.from(chapterVariantsByNumber.keys()).sort((a, b) =>
+      chapterSortOrder === 'desc' ? b - a : a - b,
+    );
+    const items: Chapter[] = [];
+    for (const num of sortedNumbers) {
+      const variants = chapterVariantsByNumber.get(num) || [];
+      if (variants.length === 0) continue;
+      if (selectedReaderLang !== 'all') {
+        const match = variants.find(
+          (ch) => resolveChapterLanguageCode(ch, fallbackLangCode) === selectedReaderLang,
+        );
+        if (match) items.push(match);
+      } else {
+        const matchCurrentLang = variants.find(
+          (ch) => resolveChapterLanguageCode(ch, fallbackLangCode) === currentLangCode,
+        );
+        items.push(matchCurrentLang || variants[0]);
+      }
     }
-    return base.sort((a, b) => {
-      const numA = typeof a.number === 'number' ? a.number : parseFloat(a.number as string) || 0;
-      const numB = typeof b.number === 'number' ? b.number : parseFloat(b.number as string) || 0;
-      return chapterSortOrder === 'desc' ? numB - numA : numA - numB;
-    });
-  }, [chapters, chapterSortOrder, selectedReaderLang]);
+    return items;
+  }, [chapterVariantsByNumber, chapterSortOrder, selectedReaderLang, fallbackLangCode, currentLangCode]);
   const filteredChapters = useMemo(() => {
     if (!deferredChapterSearch) {
       return chapterItems;
@@ -430,7 +497,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 : 'text-muted-foreground hover:text-foreground',
             )}
           >
-            Tümü ({chapters.length})
+            Tümü ({uniqueChapterCount})
           </button>
           {availableReaderLanguages.map((entry) => (
             <button
@@ -475,7 +542,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         )}
       >
         {filteredChapters.map((ch) => {
-          const isCurrentChapter = ch.id === currentChapter.id;
+          const numKey = typeof ch.number === 'number' ? ch.number : parseFloat(String(ch.number)) || 0;
+          const variants = chapterVariantsByNumber.get(numKey) || [ch];
+          const isCurrentChapter = variants.some((v) => v.id === currentChapter.id);
           const chapterLabel = `Bölüm ${formatChapterNumberLabel(ch.number)}`;
           const rawSubtitle = sanitizeChapterTitle(ch.number, ch.title);
           const cleanSubtitle =
@@ -508,7 +577,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   />
                 )}
                 <div className="min-w-0 flex-1">
-                  <div className="flex items-center gap-1.5">
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <p
                       className={cn(
                         'truncate text-sm leading-snug',
@@ -517,27 +586,35 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     >
                       {chapterLabel}
                     </p>
-                    {(() => {
-                      const langInfo = getChapterLanguageInfo(ch);
+                    {variants.map((variant) => {
+                      const langInfo = getChapterLanguageInfo(variant, fallbackLangCode);
+                      const isActiveVariant = variant.id === currentChapter.id;
                       return (
-                        <>
-                          {isChapterRaw(ch) && langInfo.code !== 'raw' && (
-                            <span className="shrink-0 rounded border border-purple-500/40 bg-purple-500/15 px-1 py-0 text-[9px] font-black text-purple-400">
-                              RAW
-                            </span>
+                        <span
+                          key={variant.id}
+                          role="button"
+                          tabIndex={0}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void handleChapterNavigation(variant);
+                          }}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.stopPropagation();
+                              void handleChapterNavigation(variant);
+                            }
+                          }}
+                          className={cn(
+                            'shrink-0 rounded border px-1 py-0 text-[9px] font-black transition-all hover:scale-105',
+                            langInfo.badgeClass,
+                            variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                           )}
-                          <span
-                            className={cn(
-                              'shrink-0 rounded border px-1 py-0 text-[9px] font-black',
-                              langInfo.badgeClass,
-                            )}
-                            title={langInfo.label}
-                          >
-                            {langInfo.shortLabel}
-                          </span>
-                        </>
+                          title={`${langInfo.label} olarak aç`}
+                        >
+                          {langInfo.shortLabel}
+                        </span>
                       );
-                    })()}
+                    })}
                   </div>
                   {cleanSubtitle && (
                     <p className="mt-0.5 truncate text-xs text-muted-foreground font-normal">
