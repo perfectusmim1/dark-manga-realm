@@ -191,14 +191,15 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
       const clampedPercent = Math.min(100, Math.max(0, Number(rawPercent.toFixed(2))));
       const clampedOffset = Math.min(1, Math.max(0, Number(matchedOffsetRatio.toFixed(4))));
 
-      if (currentPage !== lastReportedPage.current) {
+      const pageChanged = currentPage !== lastReportedPage.current;
+      if (pageChanged) {
         lastReportedPage.current = currentPage;
         onPageChange(currentPage);
       }
 
       if (
         Math.abs(clampedPercent - lastReportedPercent.current) >= 0.05
-        || currentPage !== lastReportedPage.current
+        || pageChanged
       ) {
         lastReportedPercent.current = clampedPercent;
         onProgressChange?.(currentPage, clampedOffset, clampedPercent);
@@ -236,7 +237,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
           page={page}
           zoom={effectiveZoom}
           fitWidth={settings.fitWidth}
-          priority={Math.abs(index + 1 - initialPage) <= 2}
+          priority={index <= initialPage + 1}
           translation={translation}
         />
       ))}

@@ -401,6 +401,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const [user, setUser] = useState<User | null>(null);
   const [supabaseUser, setSupabaseUser] = useState<SupabaseUser | null>(null);
   const [session, setSession] = useState<Session | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  sessionRef.current = session;
   const [isLoading, setIsLoading] = useState(true);
   const [mfaState, setMfaState] = useState<MfaState>(DEFAULT_MFA_STATE);
   const [accessState, setAccessState] = useState<UserAccessState>(DEFAULT_ACCESS_STATE);
@@ -553,11 +555,12 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       return;
     }
 
+    const currentSession = sessionRef.current;
     const activeSession = await waitForUsableSupabaseSession({
-      preferredSession: session,
+      preferredSession: currentSession,
       required: false,
       maxWaitMs: 2000,
-    }).catch(() => session);
+    }).catch(() => currentSession);
     const activeUser = activeSession?.user || supabaseUser;
 
     if (!activeUser || !activeSession?.access_token) {
@@ -587,7 +590,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     } finally {
       accessStateRefreshInFlightRef.current = false;
     }
-  }, [applyCurrentUserAccessSnapshot, session, supabaseUser]);
+  }, [applyCurrentUserAccessSnapshot, supabaseUser]);
 
   useEffect(() => {
     accessStateRefreshInFlightRef.current = false;
@@ -705,6 +708,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             required: false,
           }).catch(() => currentSession);
           const activeSession = stabilizedSession?.user ? stabilizedSession : currentSession;
+          lastSyncedUserId = activeSession.user.id;
+          sessionRef.current = activeSession;
 
           if (!isEffectivelyOnline()) {
             const fallbackUser = mapSupabaseUserToUser(activeSession.user, null);
@@ -890,21 +895,22 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, currentSession) => {
         latestSessionSnapshot = currentSession;
+        sessionRef.current = currentSession;
         if (event === 'TOKEN_REFRESHED') {
           if (currentSession) {
-            setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
+            setSession(prev => prev?.user?.id === currentSession.user?.id ? prev : currentSession);
           }
           return;
         }
         // Tab wakeup in Supabase Auth emits SIGNED_IN after _recoverAndRefresh().
-        // If the same user is already synced, silently update the session token without
-        // invalidating caches or re-running full auth/profile/MFA sync.
+        // If the same user is already synced, silently update the session ref without
+        // invalidating caches or re-rendering the entire AuthContext tree.
         if (
           event === 'SIGNED_IN'
           && currentSession?.user?.id
           && lastSyncedUserId === currentSession.user.id
         ) {
-          setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
+          setSession(prev => prev?.user?.id === currentSession.user?.id ? prev : currentSession);
           return;
         }
         // We only trigger re-sync for significant events to avoid loops

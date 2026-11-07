@@ -103,6 +103,86 @@ const toResolvedReaderPage = (rawUrl: string): ResolvedReaderPage => {
   return { src, source: 'remote' };
 };
 
+interface SessionChapterScrollPos {
+  page: number;
+  offsetRatio: number;
+  progressPercent: number;
+  updatedAt: number;
+}
+
+const getSessionScrollPosKey = (chapterId: string) => `toonparrot_reader_pos_v1:${chapterId}`;
+
+const readSessionChapterScrollPos = (chapterId?: string): SessionChapterScrollPos | null => {
+  if (!chapterId || typeof window === 'undefined') return null;
+  try {
+    const raw = window.sessionStorage.getItem(getSessionScrollPosKey(chapterId));
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as Partial<SessionChapterScrollPos>;
+    const page = Number(parsed?.page);
+    const offsetRatio = Number(parsed?.offsetRatio);
+    const progressPercent = Number(parsed?.progressPercent);
+    if (!Number.isFinite(page) || page < 1) return null;
+    return {
+      page: Math.floor(page),
+      offsetRatio: Number.isFinite(offsetRatio) ? Math.min(1, Math.max(0, offsetRatio)) : 0,
+      progressPercent: Number.isFinite(progressPercent) ? Math.min(100, Math.max(0, progressPercent)) : 0,
+      updatedAt: Number(parsed?.updatedAt) || 0,
+    };
+  } catch {
+    return null;
+  }
+};
+
+const writeSessionChapterScrollPos = (
+  chapterId: string | undefined,
+  page: number,
+  offsetRatio: number,
+  progressPercent: number,
+) => {
+  if (!chapterId || typeof window === 'undefined') return;
+  try {
+    const payload: SessionChapterScrollPos = {
+      page: Math.max(1, Math.floor(page)),
+      offsetRatio: Number(Math.min(1, Math.max(0, offsetRatio)).toFixed(4)),
+      progressPercent: Number(Math.min(100, Math.max(0, progressPercent)).toFixed(2)),
+      updatedAt: Date.now(),
+    };
+    window.sessionStorage.setItem(getSessionScrollPosKey(chapterId), JSON.stringify(payload));
+  } catch {
+    // ignore storage errors
+  }
+};
+
+const getInitialUrlOrSessionPosition = (chapterId?: string): { page: number; offsetRatio: number } => {
+  if (typeof window === 'undefined') {
+    return { page: 1, offsetRatio: 0 };
+  }
+  const params = new URLSearchParams(window.location.search);
+  const rawPage = params.get('page');
+  const parsedPage = rawPage ? parseInt(rawPage, 10) : NaN;
+  const hasPage = Number.isFinite(parsedPage) && parsedPage > 0;
+  const rawOffset = params.get('offset');
+  const parsedOffset = rawOffset !== null ? parseFloat(rawOffset) : NaN;
+  const hasOffset = Number.isFinite(parsedOffset) && parsedOffset >= 0 && parsedOffset <= 1;
+  const sessionPos = readSessionChapterScrollPos(chapterId);
+
+  if (hasPage) {
+    const page = parsedPage;
+    const offsetRatio = hasOffset
+      ? parsedOffset
+      : sessionPos && sessionPos.page === page
+        ? sessionPos.offsetRatio
+        : 0;
+    return { page, offsetRatio };
+  }
+
+  if (sessionPos && (sessionPos.page > 1 || sessionPos.offsetRatio > 0)) {
+    return { page: sessionPos.page, offsetRatio: sessionPos.offsetRatio };
+  }
+
+  return { page: 1, offsetRatio: 0 };
+};
+
 const Reader: React.FC = () => {
   const { mangaId, chapterId } = useParams<{ mangaId: string; chapterId: string }>();
   const navigate = useNavigate();
@@ -138,8 +218,9 @@ const Reader: React.FC = () => {
   useDocumentTitle(readerDocumentTitle);
   const [resolvedPages, setResolvedPages] = useState<ResolvedReaderPage[]>([]);
   const [settings, setSettings] = useState<ReaderSettings>(getReaderSettings());
-  const [currentPage, setCurrentPage] = useState(1);
-  const [currentPageOffsetRatio, setCurrentPageOffsetRatio] = useState(0);
+  const initialPos = useMemo(() => getInitialUrlOrSessionPosition(chapterId), [chapterId]);
+  const [currentPage, setCurrentPage] = useState(() => initialPos.page);
+  const [currentPageOffsetRatio, setCurrentPageOffsetRatio] = useState(() => initialPos.offsetRatio);
   const [currentProgressPercent, setCurrentProgressPercent] = useState(0);
   const [controlsVisible, setControlsVisible] = useState(true);
   const [initialized, setInitialized] = useState(false);
@@ -156,7 +237,10 @@ const Reader: React.FC = () => {
   // Sayfaların ve bölüm objesinin gerçekten mevcut URL'deki chapterId'ye ait olduğunu doğrula.
   // Bölüm geçişi anında eski bölümün sayfaları asla yeni bölüme sızamaz.
   const isCurrentChapterLoaded = Boolean(chapter && chapter.id === chapterId);
-  const activeChapterPages = isCurrentChapterLoaded ? resolvedPages : [];
+  const activeChapterPages = useMemo(
+    () => (isCurrentChapterLoaded ? resolvedPages : []),
+    [isCurrentChapterLoaded, resolvedPages],
+  );
 
   const translation = useChapterTranslation({
     chapterId: chapterId || '',
@@ -173,6 +257,8 @@ const Reader: React.FC = () => {
   const resumeAutoScrollAfterNavigationRef = useRef(false);
   const pendingInitialRestorePageRef = useRef<number | null>(null);
   const pendingInitialRestoreOffsetRef = useRef<number>(0);
+  const hasRestoredChapterRef = useRef<string | null>(null);
+  const hasLoadedPagesRef = useRef<boolean>(false);
   const restoreAnchorLockRef = useRef<{ page: number; offsetRatio: number; active: boolean } | null>(null);
   const loadedChapterKeyRef = useRef<string | null>(null);
   const currentMangaRef = useRef<any>(null);
@@ -539,10 +625,13 @@ const Reader: React.FC = () => {
 
   // Reset state and scroll on chapter change
   useEffect(() => {
-    setCurrentPage(1);
-    setCurrentPageOffsetRatio(0);
+    const nextInitialPos = getInitialUrlOrSessionPosition(chapterId);
+    setCurrentPage(nextInitialPos.page);
+    setCurrentPageOffsetRatio(nextInitialPos.offsetRatio);
     setCurrentProgressPercent(0);
-    window.scrollTo({ top: 0, behavior: 'auto' });
+    if (nextInitialPos.page <= 1 && nextInitialPos.offsetRatio <= 0.002) {
+      window.scrollTo({ top: 0, behavior: 'auto' });
+    }
     viewTracked.current = false;
     setInitialized(false);
     setIsTrackingReady(false);
@@ -558,6 +647,8 @@ const Reader: React.FC = () => {
     setIsOfflineChapter(false);
     pendingInitialRestorePageRef.current = null;
     pendingInitialRestoreOffsetRef.current = 0;
+    hasRestoredChapterRef.current = null;
+    hasLoadedPagesRef.current = false;
     restoreAnchorLockRef.current = null;
     loadedChapterKeyRef.current = null;
     setPageCommentModalOpen(false);
@@ -606,32 +697,8 @@ const Reader: React.FC = () => {
   }, [user]);
 
   useEffect(() => {
-    const shouldLockScroll = isLoading || !isInitialViewportReady;
-    const html = document.documentElement;
-    const body = document.body;
-    const previousHtmlOverflow = html.style.overflow;
-    const previousBodyOverflow = body.style.overflow;
-    const previousHtmlOverscroll = html.style.overscrollBehavior;
-    const previousBodyOverscroll = body.style.overscrollBehavior;
-    const previousBodyTouchAction = body.style.touchAction;
-
-    if (shouldLockScroll) {
-      html.style.overflow = 'hidden';
-      body.style.overflow = 'hidden';
-      html.style.overscrollBehavior = 'none';
-      body.style.overscrollBehavior = 'none';
-      body.style.touchAction = 'none';
-      window.scrollTo({ top: 0, behavior: 'auto' });
-    }
-
-    return () => {
-      html.style.overflow = previousHtmlOverflow;
-      body.style.overflow = previousBodyOverflow;
-      html.style.overscrollBehavior = previousHtmlOverscroll;
-      body.style.overscrollBehavior = previousBodyOverscroll;
-      body.style.touchAction = previousBodyTouchAction;
-    };
-  }, [isInitialViewportReady, isLoading]);
+    hasLoadedPagesRef.current = resolvedPages.length > 0;
+  }, [resolvedPages.length]);
 
   // Load chapter content only once per route change. User/auth state is resolved separately.
   useEffect(() => {
@@ -639,7 +706,7 @@ const Reader: React.FC = () => {
       if (!mangaId || !chapterId) return;
 
       const chapterLoadKey = `${mangaId}:${chapterId}:${forceOfflineRead ? '1' : '0'}`;
-      if (loadedChapterKeyRef.current === chapterLoadKey && resolvedPages.length > 0) {
+      if (loadedChapterKeyRef.current === chapterLoadKey && hasLoadedPagesRef.current) {
         return;
       }
 
@@ -840,24 +907,37 @@ const Reader: React.FC = () => {
           revokeOfflineUrlsRef.current = offlinePages.revoke;
 
           if (offlinePages.storedPageCount > 0) {
-            setResolvedPages(offlinePages.pages);
+            hasLoadedPagesRef.current = offlinePages.pages.length > 0;
+            setResolvedPages((prev) =>
+              haveSameReaderPages(prev.map((p) => p.src), offlinePages.pages.map((p) => p.src))
+                ? prev
+                : offlinePages.pages
+            );
             setIsOfflineChapter(true);
             setOfflineUnavailable(false);
           } else {
             revokeOfflineUrlsRef.current?.();
             revokeOfflineUrlsRef.current = null;
+            hasLoadedPagesRef.current = false;
             setResolvedPages([]);
             setIsOfflineChapter(false);
             setOfflineUnavailable(true);
           }
         } else if (forceOfflineRead || !isOnlineNow) {
           setChapter(resolvedChapter);
+          hasLoadedPagesRef.current = false;
           setResolvedPages([]);
           setIsOfflineChapter(false);
           setOfflineUnavailable(true);
         } else {
           setChapter(resolvedChapter);
-          setResolvedPages(resolvedChapter.pages.map(toResolvedReaderPage));
+          const nextRemotePages = resolvedChapter.pages.map(toResolvedReaderPage);
+          hasLoadedPagesRef.current = nextRemotePages.length > 0;
+          setResolvedPages((prev) =>
+            haveSameReaderPages(prev.map((p) => p.src), nextRemotePages.map((p) => p.src))
+              ? prev
+              : nextRemotePages
+          );
           setIsOfflineChapter(false);
           setOfflineUnavailable(false);
         }
@@ -867,6 +947,7 @@ const Reader: React.FC = () => {
         setIsContentReady(true);
       } catch (err) {
         console.error('Reader load error:', err);
+        hasLoadedPagesRef.current = false;
         setResolvedPages([]);
         setIsOfflineChapter(false);
         setOfflineUnavailable(forceOfflineRead || !isOnlineNow);
@@ -904,8 +985,9 @@ const Reader: React.FC = () => {
     const urlPct = searchParams.get('pct');
     const parsedUrlPct = urlPct !== null ? parseFloat(urlPct) : NaN;
     const hasExplicitPct = Number.isFinite(parsedUrlPct) && parsedUrlPct >= 0 && parsedUrlPct <= 100;
+    const sessionPos = readSessionChapterScrollPos(chapterId);
 
-    if (authLoading && !hasExplicitPage && !hasExplicitPct) {
+    if (authLoading && !hasExplicitPage && !hasExplicitPct && !sessionPos) {
       return;
     }
 
@@ -934,6 +1016,9 @@ const Reader: React.FC = () => {
           initialTargetPage = Math.min(safeTotalPages, Math.max(1, Math.floor(exactPageFloat) + 1));
           initialTargetOffset = Math.min(1, Math.max(0, exactPageFloat - (initialTargetPage - 1)));
         }
+      } else if (!hasExplicitPage && sessionPos && (sessionPos.page > 1 || sessionPos.offsetRatio > 0)) {
+        initialTargetPage = Math.min(safeTotalPages, sessionPos.page);
+        initialTargetOffset = Math.min(1, Math.max(0, sessionPos.offsetRatio));
       } else if (!hasExplicitPage && user) {
         const localChapterEntry = getLocalChapterReadProgressEntry(user.id, chapterId);
         const progress = await getLatestProgress(user.id, mangaId);
@@ -963,10 +1048,14 @@ const Reader: React.FC = () => {
             initialTargetPage = Math.min(safeTotalPages, offlineChapter.maxReadPage);
           }
         }
-      } else if (hasExplicitPage && !hasExplicitOffset && user && initialTargetPage > 1) {
-        const localChapterEntry = getLocalChapterReadProgressEntry(user.id, chapterId);
-        if (localChapterEntry && localChapterEntry.page === initialTargetPage && typeof localChapterEntry.pageOffsetRatio === 'number') {
-          initialTargetOffset = localChapterEntry.pageOffsetRatio;
+      } else if (hasExplicitPage && !hasExplicitOffset) {
+        if (sessionPos && sessionPos.page === initialTargetPage && sessionPos.offsetRatio > 0) {
+          initialTargetOffset = sessionPos.offsetRatio;
+        } else if (user && initialTargetPage > 1) {
+          const localChapterEntry = getLocalChapterReadProgressEntry(user.id, chapterId);
+          if (localChapterEntry && localChapterEntry.page === initialTargetPage && typeof localChapterEntry.pageOffsetRatio === 'number') {
+            initialTargetOffset = localChapterEntry.pageOffsetRatio;
+          }
         }
       }
 
@@ -981,6 +1070,7 @@ const Reader: React.FC = () => {
 
       pendingInitialRestorePageRef.current = initialTargetPage;
       pendingInitialRestoreOffsetRef.current = initialTargetOffset;
+      writeSessionChapterScrollPos(chapterId, initialTargetPage, initialTargetOffset, initialPct);
       setCurrentPage(initialTargetPage);
       setCurrentPageOffsetRatio(initialTargetOffset);
       setCurrentProgressPercent(initialPct);
@@ -1324,10 +1414,6 @@ const Reader: React.FC = () => {
         return false;
       }
 
-      if (index < targetIndex) {
-        continue;
-      }
-
       const mediaElement = pageElement.querySelector('[data-media-ready="true"]') as HTMLElement | null;
       if (!mediaElement || mediaElement.getBoundingClientRect().height < 32) {
         return false;
@@ -1338,17 +1424,17 @@ const Reader: React.FC = () => {
   }, [resolvedPages.length]);
 
   const handlePageChange = useCallback((page: number) => {
-    // If we are programmatically scrolling or locked on initial restore anchor, ignore updates from observer
-    if (isScrollingRef.current || !isInitialViewportReady || restoreAnchorLockRef.current?.active) return;
+    if (isScrollingRef.current || !isInitialViewportReady) return;
     setCurrentPage(page);
   }, [isInitialViewportReady]);
 
   const handleProgressChange = useCallback((page: number, pageOffsetRatio: number, progressPercent: number) => {
-    if (isScrollingRef.current || !isInitialViewportReady || restoreAnchorLockRef.current?.active) return;
+    if (isScrollingRef.current || !isInitialViewportReady) return;
+    writeSessionChapterScrollPos(chapterId, page, pageOffsetRatio, progressPercent);
     setCurrentPage(page);
     setCurrentPageOffsetRatio(pageOffsetRatio);
     setCurrentProgressPercent(progressPercent);
-  }, [isInitialViewportReady]);
+  }, [chapterId, isInitialViewportReady]);
 
   const scrollToPageAndOffset = useCallback((page: number, offsetRatio = 0, smooth = true, releaseAnchorLock = true) => {
     const safeTotal = Math.max(1, resolvedPages.length || chapter?.pages?.length || 1);
@@ -1388,11 +1474,12 @@ const Reader: React.FC = () => {
       100,
       Math.max(0, Number((((safePage - 1 + safeOffset) / safeTotal) * 100).toFixed(2))),
     );
+    writeSessionChapterScrollPos(chapterId, safePage, safeOffset, computedPercent);
     setCurrentPage(safePage);
     setCurrentPageOffsetRatio(Number(safeOffset.toFixed(4)));
     setCurrentProgressPercent(computedPercent);
     return true;
-  }, [chapter?.pages?.length, resolvedPages.length]);
+  }, [chapter?.pages?.length, chapterId, resolvedPages.length]);
 
   // Scroll to a specific page (called when user clicks on page controls)
   const scrollToPage = useCallback((page: number, smooth = true) => {
@@ -1408,6 +1495,7 @@ const Reader: React.FC = () => {
       const targetPage = clampedPct >= 99.95
         ? safeTotal
         : Math.max(1, Math.min(safeTotal, Math.floor((clampedPct / 100) * safeTotal) + 1));
+      writeSessionChapterScrollPos(chapterId, targetPage, 0, clampedPct);
       setCurrentPage(targetPage);
       setCurrentPageOffsetRatio(0);
       setCurrentProgressPercent(clampedPct);
@@ -1429,6 +1517,7 @@ const Reader: React.FC = () => {
         isScrollingRef.current = false;
       }, smooth ? 800 : 250);
       window.scrollTo({ top: maxScroll, behavior: smooth ? 'smooth' : 'auto' });
+      writeSessionChapterScrollPos(chapterId, safeTotal, 1, 100);
       setCurrentPage(safeTotal);
       setCurrentPageOffsetRatio(1);
       setCurrentProgressPercent(100);
@@ -1443,7 +1532,7 @@ const Reader: React.FC = () => {
     const targetPage = Math.max(1, Math.min(safeTotal, Math.floor(exactPageFloat) + 1));
     const targetOffset = Math.max(0, Math.min(1, exactPageFloat - (targetPage - 1)));
     return scrollToPageAndOffset(targetPage, targetOffset, smooth, true);
-  }, [chapter?.pages?.length, resolvedPages.length, scrollToPageAndOffset, settings.mode]);
+  }, [chapter?.pages?.length, chapterId, resolvedPages.length, scrollToPageAndOffset, settings.mode]);
 
   useEffect(() => {
     if (!initialized || !chapterId) {
@@ -1496,6 +1585,11 @@ const Reader: React.FC = () => {
         : Math.max(0, Math.round(elementTop + (lock.offsetRatio > 0.002 ? elementHeight * lock.offsetRatio : 2)));
 
       if (Math.abs(window.scrollY - desiredScrollY) > 2) {
+        isScrollingRef.current = true;
+        if (scrollTimeoutRef.current) clearTimeout(scrollTimeoutRef.current);
+        scrollTimeoutRef.current = setTimeout(() => {
+          isScrollingRef.current = false;
+        }, 120);
         window.scrollTo({ top: desiredScrollY, behavior: 'auto' });
       }
     };
@@ -1507,6 +1601,7 @@ const Reader: React.FC = () => {
       observer.disconnect();
       window.removeEventListener('wheel', releaseLock);
       window.removeEventListener('touchmove', releaseLock);
+      window.removeEventListener('mousedown', releaseLock);
       window.removeEventListener('keydown', handleKeyRelease);
     };
 
@@ -1529,23 +1624,25 @@ const Reader: React.FC = () => {
 
     window.addEventListener('wheel', releaseLock, { passive: true });
     window.addEventListener('touchmove', releaseLock, { passive: true });
+    window.addEventListener('mousedown', releaseLock, { passive: true });
     window.addEventListener('keydown', handleKeyRelease);
 
     const autoReleaseTimer = window.setTimeout(() => {
       releaseLock();
-    }, 6000);
+    }, 8000);
 
     return () => {
       window.clearTimeout(autoReleaseTimer);
       observer.disconnect();
       window.removeEventListener('wheel', releaseLock);
       window.removeEventListener('touchmove', releaseLock);
+      window.removeEventListener('mousedown', releaseLock);
       window.removeEventListener('keydown', handleKeyRelease);
     };
   }, [isInitialViewportReady, settings.mode]);
 
   useEffect(() => {
-    if (!initialized || isLoading) {
+    if (!initialized || isLoading || !chapterId) {
       return;
     }
 
@@ -1558,10 +1655,13 @@ const Reader: React.FC = () => {
       return;
     }
 
-    const targetPage = pendingInitialRestorePageRef.current ?? 1;
-    const targetOffset = pendingInitialRestoreOffsetRef.current ?? 0;
-    pendingInitialRestorePageRef.current = null;
-    pendingInitialRestoreOffsetRef.current = 0;
+    if (hasRestoredChapterRef.current === chapterId) {
+      return;
+    }
+
+    const fallbackPos = getInitialUrlOrSessionPosition(chapterId);
+    const targetPage = pendingInitialRestorePageRef.current ?? fallbackPos.page;
+    const targetOffset = pendingInitialRestoreOffsetRef.current || fallbackPos.offsetRatio || 0;
 
     let isCancelled = false;
     let restoreTimerId: number | null = null;
@@ -1569,6 +1669,9 @@ const Reader: React.FC = () => {
     const finishRestore = () => {
       window.requestAnimationFrame(() => {
         if (!isCancelled) {
+          hasRestoredChapterRef.current = chapterId;
+          pendingInitialRestorePageRef.current = null;
+          pendingInitialRestoreOffsetRef.current = 0;
           isScrollingRef.current = false;
           setIsInitialViewportReady(true);
         }

@@ -12,7 +12,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 8;
+export const TRANSLATION_BLOCK_VERSION = 9;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -694,13 +694,39 @@ export const inpaintAndRefineBlock = (
       }
       const extendsOutsideCore =
         c.minx < cx0 - 3 || c.maxx > cx1 + 3 || c.miny < cy0 - 3 || c.maxy > cy1 + 3;
-      if (extendsOutsideCore && coreRatio < 0.28 && c.area > 12) {
+      const isContainedInParagraphBand =
+        !c.touchesBorder &&
+        c.miny >= cy0 - 6 &&
+        c.maxy <= cy1 + 6 &&
+        c.h >= 8 &&
+        c.h <= Math.max(medLineH * 2.5, 58) &&
+        c.w <= Math.max(bw * 1.08, medLineH * 9.5, 190);
+      if (
+        extendsOutsideCore &&
+        coreRatio < 0.28 &&
+        c.area > 12 &&
+        !(preferLightFirst && isContainedInParagraphBand)
+      ) {
         return false;
       }
-      const maxAllowedCompH = Math.max(medLineH * 1.65, 28);
-      const maxAllowedCompW = coreRatio >= 0.45 ? Math.max(medLineH * 5.2, 96) : Math.max(medLineH * 3.2, 56);
+      const isStrongCoreOrGlowingWord =
+        !c.touchesBorder && (coreRatio >= 0.32 || (preferLightFirst && isContainedInParagraphBand));
+      const maxAllowedCompH = isStrongCoreOrGlowingWord
+        ? Math.max(medLineH * 2.5, 58)
+        : Math.max(medLineH * 1.65, 28);
+      const maxAllowedCompW = isStrongCoreOrGlowingWord
+        ? Math.max(bw * 1.08, medLineH * 9.5, 190)
+        : coreRatio >= 0.45
+          ? Math.max(medLineH * 5.2, 96)
+          : Math.max(medLineH * 3.2, 56);
       if (c.h > maxAllowedCompH || c.w > maxAllowedCompW) return false;
-      if (c.area > medLineH * medLineH * 0.75 && coreRatio < 0.18) return false;
+      if (
+        c.area > medLineH * medLineH * 0.75 &&
+        coreRatio < 0.18 &&
+        !(preferLightFirst && isContainedInParagraphBand)
+      ) {
+        return false;
+      }
       return true;
     };
 
@@ -718,7 +744,21 @@ export const inpaintAndRefineBlock = (
     const runMaskPass = (fgMask: Uint8Array) => {
       const res = extractComponents(fgMask);
       const v = res.comps.filter(isValidGlyphComponent);
-      const acc = new Set<number>(v.filter((c) => c.overlapsCore).map((c) => c.id));
+      const acc = new Set<number>(
+        v
+          .filter(
+            (c) =>
+              c.overlapsCore ||
+              (preferLightFirst &&
+                !c.touchesBorder &&
+                c.miny >= cy0 - 4 &&
+                c.maxy <= cy1 + 4 &&
+                c.h >= 10 &&
+                c.h <= Math.max(medLineH * 2.4, 56) &&
+                c.w <= Math.max(bw * 1.05, medLineH * 9.0, 180)),
+          )
+          .map((c) => c.id),
+      );
       return { ...res, valid: v, accepted: acc, spanW: getAcceptedSpanW(acc, v) };
     };
 
@@ -797,10 +837,12 @@ export const inpaintAndRefineBlock = (
 
       const maxCompH = isSingleOrDarkSfx
         ? Math.max(medH * 3.8, maxH * 3.2, bh * 2.8)
-        : Math.max(medH * 1.45, medLineH * 1.45);
+        : Math.max(medH * 2.4, medLineH * 2.4, 56);
       const maxCompW = isSingleOrDarkSfx
         ? Math.max(medH * 6.0, bw * 1.2)
-        : Math.max(medH * 2.0, medLineH * 2.0);
+        : preferLightFirst
+          ? Math.max(bw * 1.08, medLineH * 9.5, 180)
+          : Math.max(medH * 3.2, medLineH * 3.2, 72);
       for (const c of valid) {
         if (accepted.has(c.id)) continue;
         if (c.minx < allowedMinX || c.maxx > allowedMaxX || c.miny < allowedMinY || c.maxy > allowedMaxY) {
@@ -1133,7 +1175,11 @@ export const inpaintAndRefineBlock = (
             const pg = winRgb[cIdx + 1];
             const pb = winRgb[cIdx + 2];
             const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
-            if (pLum >= 200 && pLum > bgLumInit + 28) {
+            const dGlowBg = Math.max(pr - bgR, pg - bgG, pb - bgB);
+            if (
+              (pLum >= 200 && pLum > bgLumInit + 28) ||
+              (bgLumInit < 140 && (pLum > bgLumInit + 22 || dGlowBg > 28))
+            ) {
               nextMask[idx] = 1;
               haloAdded += 1;
             }

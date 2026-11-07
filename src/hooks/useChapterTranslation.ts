@@ -140,15 +140,18 @@ export const useChapterTranslation = ({
     pagesRef.current = pages;
     if (pages.length === 0) {
       queueRef.current = [];
-      setBatchTracker({ done: 0, total: 0 });
+      setBatchTracker((prev) => (prev.done === 0 && prev.total === 0 ? prev : { done: 0, total: 0 }));
       return;
     }
     const max = pages.length;
     queueRef.current = queueRef.current.filter((job) => job.pageIndex < max);
-    setBatchTracker((prev) => ({
-      done: Math.min(prev.done, max),
-      total: Math.min(prev.total, max),
-    }));
+    setBatchTracker((prev) => {
+      const nextDone = Math.min(prev.done, max);
+      const nextTotal = Math.min(prev.total, max);
+      return prev.done === nextDone && prev.total === nextTotal
+        ? prev
+        : { done: nextDone, total: nextTotal };
+    });
   }, [pages]);
 
   // Bölüm veya hedef dil değiştiğinde:

@@ -693,7 +693,11 @@ export const translatePageImage = async ({
 
   const blocks = rawBubbles
     .map((bubble, idx) => {
-      const translated = (translatedTexts[idx] || bubble.text).trim();
+      const translated = (translatedTexts[idx] || bubble.text)
+        .replace(/<[^>]{1,32}>/g, ' ')
+        .replace(/[<>]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
       if (
         translated === '[SFX]' ||
         translated.toUpperCase() === '[SFX]' ||

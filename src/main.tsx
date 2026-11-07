@@ -54,7 +54,10 @@ if (typeof window !== "undefined") {
 const registerServiceWorkerWhenIdle = () => {
   const run = () => {
     registerSW({
-      immediate: true,
+      immediate: false,
+      onNeedRefresh() {
+        // Aktif okuma oturumunu veya sekmeyi kendi kendine asla yenileme
+      },
     });
   };
 

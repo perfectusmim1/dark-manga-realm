@@ -1,7 +1,65 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { getCachedImageAsset, prefetchImageAsset } from '@/lib/imagePrefetch';
+import { getCachedImageAsset } from '@/lib/imagePrefetch';
 import { shouldAvoidRawImageFallback } from '@/lib/imageProxy';
 import { buildProxiedImageUrl } from '@/lib/mediaStorage';
+
+const IMAGE_DIMS_STORAGE_KEY = 'toonparrot_img_dims_v1';
+const memoryImageDimsCache = new Map<string, [number, number]>();
+let sessionDimsHydrated = false;
+
+const hydrateDimsFromSession = () => {
+    if (sessionDimsHydrated || typeof window === 'undefined') return;
+    sessionDimsHydrated = true;
+    try {
+        const raw = window.sessionStorage.getItem(IMAGE_DIMS_STORAGE_KEY);
+        if (!raw) return;
+        const parsed = JSON.parse(raw) as Record<string, [number, number]>;
+        if (parsed && typeof parsed === 'object') {
+            for (const [key, val] of Object.entries(parsed)) {
+                if (Array.isArray(val) && val.length === 2 && val[0] > 0 && val[1] > 0) {
+                    memoryImageDimsCache.set(key, [val[0], val[1]]);
+                }
+            }
+        }
+    } catch {
+        // ignore storage errors
+    }
+};
+
+const getKnownImageDims = (rawSrc: string, resolvedSrc: string): [number, number] | null => {
+    hydrateDimsFromSession();
+    const fromMem = memoryImageDimsCache.get(rawSrc) || memoryImageDimsCache.get(resolvedSrc);
+    if (fromMem) return fromMem;
+    const cachedAsset = getCachedImageAsset(resolvedSrc) || getCachedImageAsset(rawSrc);
+    if (cachedAsset && cachedAsset.naturalWidth > 0 && cachedAsset.naturalHeight > 0) {
+        const dims: [number, number] = [cachedAsset.naturalWidth, cachedAsset.naturalHeight];
+        memoryImageDimsCache.set(rawSrc, dims);
+        memoryImageDimsCache.set(resolvedSrc, dims);
+        return dims;
+    }
+    return null;
+};
+
+const recordKnownImageDims = (rawSrc: string, resolvedSrc: string, width: number, height: number) => {
+    if (width <= 0 || height <= 0) return;
+    hydrateDimsFromSession();
+    const prev = memoryImageDimsCache.get(rawSrc);
+    if (prev && prev[0] === width && prev[1] === height) return;
+    const dims: [number, number] = [width, height];
+    memoryImageDimsCache.set(rawSrc, dims);
+    memoryImageDimsCache.set(resolvedSrc, dims);
+    if (typeof window === 'undefined') return;
+    try {
+        const entries = Array.from(memoryImageDimsCache.entries()).slice(-400);
+        const obj: Record<string, [number, number]> = {};
+        for (const [k, v] of entries) {
+            obj[k] = v;
+        }
+        window.sessionStorage.setItem(IMAGE_DIMS_STORAGE_KEY, JSON.stringify(obj));
+    } catch {
+        // ignore quota errors
+    }
+};
 
 interface ProtectedImageProps {
     src: string;
@@ -26,104 +84,57 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
     onMediaReadyChange,
     overlay,
 }) => {
-    const canvasRef = useRef<HTMLCanvasElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
+    const prevSrcRef = useRef<string>(src);
     const isExternalUrl = src.startsWith('http://') || src.startsWith('https://');
-    const isMobileDevice = typeof window !== 'undefined' && (
-        window.innerWidth < 768 ||
-        ('maxTouchPoints' in navigator && navigator.maxTouchPoints > 0)
-    );
-    const shouldBypassCanvas = isMobileDevice || src.startsWith('blob:') || src.startsWith('data:');
     const avoidRaw = shouldAvoidRawImageFallback(src);
-    const [useFallback, setUseFallback] = useState(shouldBypassCanvas);
-    const [isBroken, setIsBroken] = useState(false);
-    const [isMediaReady, setIsMediaReady] = useState(false);
     const [useProxyFallback, setUseProxyFallback] = useState(avoidRaw);
 
     const currentSrc = (useProxyFallback || avoidRaw) && isExternalUrl
         ? buildProxiedImageUrl(src) || src
         : src;
 
+    const [knownDims, setKnownDims] = useState<[number, number] | null>(() =>
+        getKnownImageDims(src, currentSrc)
+    );
+    const [isMediaReady, setIsMediaReady] = useState<boolean>(() => {
+        const cached = getCachedImageAsset(currentSrc) || getCachedImageAsset(src);
+        return Boolean(cached && cached.naturalWidth > 0);
+    });
+
     useEffect(() => {
-        setUseFallback(shouldBypassCanvas);
-        setIsBroken(false);
-        setIsMediaReady(false);
-        setUseProxyFallback(shouldAvoidRawImageFallback(src));
-    }, [shouldBypassCanvas, src]);
+        if (prevSrcRef.current === src) {
+            return;
+        }
+        prevSrcRef.current = src;
+        const nextAvoidRaw = shouldAvoidRawImageFallback(src);
+        const nextResolvedSrc = (nextAvoidRaw && (src.startsWith('http://') || src.startsWith('https://')))
+            ? buildProxiedImageUrl(src) || src
+            : src;
+        setUseProxyFallback(nextAvoidRaw);
+        const dims = getKnownImageDims(src, nextResolvedSrc);
+        setKnownDims(dims);
+        const cached = getCachedImageAsset(nextResolvedSrc) || getCachedImageAsset(src);
+        setIsMediaReady(Boolean(cached && cached.naturalWidth > 0));
+    }, [src]);
 
     useEffect(() => {
         onMediaReadyChange?.(isMediaReady);
     }, [isMediaReady, onMediaReadyChange]);
 
-    useEffect(() => {
-        if (useFallback) return;
-
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const ctx = canvas.getContext('2d');
-        if (!ctx) {
-            setUseFallback(true);
-            return;
+    const handleImgLoad = (el: HTMLImageElement) => {
+        if (el.naturalWidth > 0 && el.naturalHeight > 0) {
+            recordKnownImageDims(src, currentSrc, el.naturalWidth, el.naturalHeight);
+            setKnownDims((prev) =>
+                prev && prev[0] === el.naturalWidth && prev[1] === el.naturalHeight
+                    ? prev
+                    : [el.naturalWidth, el.naturalHeight]
+            );
         }
-
-        let isCancelled = false;
-
-        const drawImageToCanvas = (img: HTMLImageElement) => {
-            if (isCancelled) {
-                return;
-            }
-
-            try {
-                const width = 1200;
-                const height = (img.height / img.width) * width;
-                canvas.width = width;
-                canvas.height = height;
-                ctx.drawImage(img, 0, 0, width, height);
-                setIsMediaReady(true);
-            } catch (e) {
-                console.error("Canvas draw error, falling back to protected img", e);
-                setUseFallback(true);
-            }
-        };
-
-        const cachedImage = getCachedImageAsset(currentSrc);
-        if (cachedImage) {
-            drawImageToCanvas(cachedImage);
-        } else {
-            void prefetchImageAsset(currentSrc)
-                .then((img) => drawImageToCanvas(img))
-                .catch(() => {
-                    if (!isCancelled) {
-                        if (isExternalUrl && !useProxyFallback) {
-                            setUseProxyFallback(true);
-                        } else {
-                            setUseFallback(true);
-                        }
-                    }
-                });
+        if (!isMediaReady) {
+            setIsMediaReady(true);
         }
-
-        // Tampering detection
-        const observer = new MutationObserver(() => {
-            if (containerRef.current && canvas && !containerRef.current.contains(canvas) && !useFallback) {
-                setIsBroken(true);
-            }
-        });
-
-        if (containerRef.current) {
-            observer.observe(containerRef.current, { childList: true, subtree: true });
-        }
-
-        return () => {
-            isCancelled = true;
-            observer.disconnect();
-        };
-    }, [currentSrc, isExternalUrl, useFallback, useProxyFallback]);
-
-    if (isBroken) {
-        return <div className="w-full h-96 bg-black flex items-center justify-center text-red-500 font-bold">GÜVENLİK İHLALİ</div>;
-    }
+    };
 
     const handleImgError = () => {
         if (isExternalUrl && !useProxyFallback) {
@@ -136,52 +147,46 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
         setIsMediaReady(false);
     };
 
+    const effectiveDims = knownDims || getKnownImageDims(src, currentSrc);
+
     return (
         <div
             ref={containerRef}
-            className={`relative select-none ${className}`}
+            className={`relative select-none ${className || ''}`}
             style={{
                 ...style,
                 width: `${zoom}%`,
                 maxWidth: '100%',
-                minHeight: !isMediaReady && reserveHeightWhenLoading ? '75vh' : style?.minHeight,
+                aspectRatio: effectiveDims ? `${effectiveDims[0]} / ${effectiveDims[1]}` : style?.aspectRatio,
+                minHeight: !effectiveDims && !isMediaReady && reserveHeightWhenLoading ? '75vh' : style?.minHeight,
                 lineHeight: 0,
                 marginLeft: 'auto',
                 marginRight: 'auto',
             }}
         >
-            {useFallback ? (
-                <img
-                    ref={(el) => {
-                        if (el && el.complete && el.naturalWidth > 0 && !isMediaReady) {
-                            setIsMediaReady(true);
-                        }
-                    }}
-                    src={currentSrc}
-                    alt={alt}
-                    decoding="async"
-                    loading={priority ? 'eager' : 'lazy'}
-                    className="w-full h-auto block select-none pointer-events-none"
-                    draggable={false}
-                    referrerPolicy="no-referrer"
-                    onContextMenu={(e) => e.preventDefault()}
-                    onLoad={() => setIsMediaReady(true)}
-                    onError={handleImgError}
-                    data-media-ready={isMediaReady ? 'true' : 'false'}
-                    data-proxied={useProxyFallback ? 'true' : 'false'}
-                    style={{
-                        userSelect: 'none',
-                        WebkitUserSelect: 'none',
-                    }}
-                />
-            ) : (
-                <canvas
-                    ref={canvasRef}
-                    className="w-full h-auto block pointer-events-none"
-                    data-media-ready={isMediaReady ? 'true' : 'false'}
-                    style={{ touchAction: 'none' }}
-                />
-            )}
+            <img
+                ref={(el) => {
+                    if (el && el.complete && el.naturalWidth > 0) {
+                        handleImgLoad(el);
+                    }
+                }}
+                src={currentSrc}
+                alt={alt}
+                decoding="async"
+                loading={priority ? 'eager' : 'lazy'}
+                className="w-full h-auto block select-none pointer-events-none"
+                draggable={false}
+                referrerPolicy="no-referrer"
+                onContextMenu={(e) => e.preventDefault()}
+                onLoad={(e) => handleImgLoad(e.currentTarget)}
+                onError={handleImgError}
+                data-media-ready={isMediaReady || Boolean(effectiveDims) ? 'true' : 'false'}
+                data-proxied={useProxyFallback ? 'true' : 'false'}
+                style={{
+                    userSelect: 'none',
+                    WebkitUserSelect: 'none',
+                }}
+            />
 
             {/* Absolute protection overlay - hardest to bypass */}
             <div

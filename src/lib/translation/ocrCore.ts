@@ -365,8 +365,11 @@ export const cleanOcrText = (text: string): string => {
   while (tokens.length > 0 && isJunkToken(tokens[tokens.length - 1])) tokens.pop();
   return tokens
     .join(' ')
-    .replace(/^[|\\/_=~^`]+/u, '')
-    .replace(/[|\\/_=~^`]+$/u, '')
+    .replace(/^[|\\/_=~^`<>]+/u, '')
+    .replace(/[|\\/_=~^`<>]+$/u, '')
+    .replace(/<[^>]{1,28}>/g, ' ')
+    .replace(/[<>]+/g, ' ')
+    .replace(/\s+/g, ' ')
     .replace(/(?<=[A-Za-z])0(?=[A-Za-z.!?,;:'"\s]|$)/g, 'O')
     .replace(/(?:^|(?<=[\s"'([¡¿]))0(?=[A-Za-z]{1,})/g, 'O')
     .replace(/^5[0O]([!?.…]*)$/i, 'SO$1')
