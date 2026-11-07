@@ -70,7 +70,7 @@ function getArgValue(flag, defaultVal = null) {
 
 const TARGET_SLUG = getArgValue('--slug', null);
 const LIMIT = Number(getArgValue('--limit', TARGET_SLUG ? 1 : 0)); // 0 = limitsiz (tüm mevcut seriler)
-const CONCURRENCY = Math.max(1, Math.min(6, Number(getArgValue('--concurrency', 3))));
+const CONCURRENCY = Math.max(1, Math.min(16, Number(getArgValue('--concurrency', 8))));
 const RESUME_MODE = args.includes('--resume');
 const FORCE_MODE = args.includes('--force');
 
@@ -391,8 +391,7 @@ async function processSingleExistingManga(manga, idx, total) {
     fetchBestComixChaptersByLanguage(hid, manga.id, slug, {
       maxPages: 15,
       verifySamplePages: true,
-      hydrateSamplePages: true,
-      maxHydrateChapters: 120,
+      hydrateSamplePages: false,
     }),
   ]);
 

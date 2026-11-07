@@ -55,7 +55,7 @@ echo ===========================================================================
 echo  [ADIM 1/2] Mevcut Turkce Serilerin Yabanci Bolum, Konu (TR+EN) ve Karakterleri Esitleniyor...
 echo ===============================================================================
 :RETRY_SYNC_BOTH
-node scripts/sync-comix-foreign.mjs --limit 0 --concurrency 3 --resume
+node scripts/sync-comix-foreign.mjs --limit 0 --concurrency 8 --resume
 if errorlevel 1 (
     echo [UYARI] Ag veya baglanti kesintisi algilandi, 5 saniye icinde kaldigi yerden devam ediliyor...
     timeout /t 5 >nul
@@ -68,7 +68,7 @@ echo ===========================================================================
 echo  [ADIM 2/2] Comix.to 80K Arsivi Limitsiz Cekiliyor (R2 Hibrit + AniList/MAL + TR/EN Konu)...
 echo ===============================================================================
 :RETRY_HARVEST
-node scripts/harvest-comix-80k.mjs --limit 0 --max-pages 0 --concurrency 3 --resume
+node scripts/harvest-comix-80k.mjs --limit 0 --max-pages 0 --concurrency 8 --resume
 if errorlevel 1 (
     echo [UYARI] Ag veya baglanti kesintisi algilandi, 5 saniye icinde kaldigi sayfadan devam ediliyor...
     timeout /t 5 >nul
@@ -82,7 +82,7 @@ echo ===========================================================================
 echo  Mevcut Turkce Serilerin Yabanci Bolum, Konu (TR+EN) ve Karakterleri Esitleniyor...
 echo ===============================================================================
 :RETRY_SYNC_SINGLE
-node scripts/sync-comix-foreign.mjs --limit 0 --concurrency 3 --resume
+node scripts/sync-comix-foreign.mjs --limit 0 --concurrency 8 --resume
 if errorlevel 1 (
     echo [UYARI] Ag veya baglanti kesintisi algilandi, 5 saniye icinde kaldigi yerden devam ediliyor...
     timeout /t 5 >nul

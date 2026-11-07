@@ -81,7 +81,7 @@ const EXPLICIT_START_PAGE = getArgValue('--start-page', null);
 const START_PAGE = Math.max(1, Number(EXPLICIT_START_PAGE || 1));
 const MAX_PAGES = Number(getArgValue('--max-pages', 0)); // 0 = sonuna kadar dinamik (limitsiz)
 const LIMIT_SERIES = Number(getArgValue('--limit', 0)); // 0 = limitsiz
-const SERIES_CONCURRENCY = Math.max(1, Math.min(6, Number(getArgValue('--concurrency', 3))));
+const SERIES_CONCURRENCY = Math.max(1, Math.min(16, Number(getArgValue('--concurrency', 8))));
 const ORDER_BY = getArgValue('--order', 'follows_total');
 const RESUME_MODE = args.includes('--resume');
 const FORCE_MODE = args.includes('--force');
@@ -364,7 +364,7 @@ async function processComixSeries(rawItem, currentIdx, totalTarget, dedupeIndex,
   const chaptersRes = await fetchBestComixChaptersByLanguage(hid, mangaId, slug, {
     maxPages: 12,
     verifySamplePages: true,
-    hydrateSamplePages: true,
+    hydrateSamplePages: false,
   });
 
   if (!chaptersRes.valid || chaptersRes.chapters.length === 0) {
