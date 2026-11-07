@@ -235,7 +235,10 @@ const Bookmarks: React.FC = () => {
                       animationFillMode: 'forwards',
                     }}
                   >
-                    <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`} className="relative block aspect-[4/3] w-full overflow-hidden sm:aspect-square">
+                    <Link
+                      to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}
+                      className="relative block aspect-[4/3] w-full overflow-hidden sm:aspect-square"
+                    >
                       {previewImage ? (
                         !isOnline
                           ? (
@@ -269,8 +272,11 @@ const Bookmarks: React.FC = () => {
                       )}
                       <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
-                      <div className="absolute left-2 top-2 flex rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-white shadow-md backdrop-blur-md sm:left-3 sm:top-3 sm:text-xs">
-                        Sayfa {item.page}
+                      <div className="absolute left-2 top-2 flex items-center gap-1 rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-white shadow-md backdrop-blur-md sm:left-3 sm:top-3 sm:text-xs">
+                        <span>Sayfa {item.page}</span>
+                        {typeof item.progressPercent === 'number' && (
+                          <span className="text-primary">· %{item.progressPercent.toFixed(1)}</span>
+                        )}
                       </div>
 
                       <div className="absolute bottom-2 right-2 rounded-md bg-black/60 px-2 py-1 text-[10px] text-muted-foreground backdrop-blur-md sm:bottom-3 sm:right-3 sm:text-xs">
@@ -308,7 +314,7 @@ const Bookmarks: React.FC = () => {
                           className="h-9 flex-1 text-xs sm:text-sm"
                           asChild
                         >
-                          <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`}>
+                          <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}>
                             Oku
                           </Link>
                         </Button>

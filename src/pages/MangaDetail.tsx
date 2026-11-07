@@ -95,7 +95,12 @@ import {
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { getMangaTypeLabel } from '@/lib/mangaType';
-import { getSeriesLanguage, getSeriesLanguageInfo } from '@/lib/seriesLanguage';
+import {
+  getChapterLanguageInfo,
+  getLanguageInfoByCode,
+  getSeriesLanguage,
+  resolveChapterLanguageCode,
+} from '@/lib/seriesLanguage';
 import { Progress } from "@/components/ui/progress";
 import { Textarea } from "@/components/ui/textarea";
 import {
@@ -541,7 +546,7 @@ const MangaDetail: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isListModalOpen, setIsListModalOpen] = useState(false);
   const [chapterSearch, setChapterSearch] = useState('');
-  const [selectedLanguage, setSelectedLanguage] = useState<'all' | 'tr' | 'en'>('all');
+  const [selectedLanguage, setSelectedLanguage] = useState<string>('all');
   const deferredChapterSearch = useDeferredValue(chapterSearch);
   const [activeTab, setActiveTab] = useState('overview');
   const [minLoadedPreviewIndex, setMinLoadedPreviewIndex] = useState(0);
@@ -1151,6 +1156,7 @@ const MangaDetail: React.FC = () => {
   useEffect(() => {
     setIsDescriptionExpanded(false);
     setIsAlternativeTitlesExpanded(false);
+    setSelectedLanguage('all');
   }, [manga?.id]);
 
   useEffect(() => {
@@ -1860,8 +1866,29 @@ const MangaDetail: React.FC = () => {
       setIsQueueingSeriesDownload(true);
       setIsSeriesDownloadDialogOpen(false);
       const downloadableChapters = await getMangaChapters(manga.id, { includePages: true });
+      const seriesFallbackLang = getSeriesLanguage(manga);
+      const languageFilteredChapters = selectedLanguage !== 'all'
+        ? downloadableChapters.filter((ch) => resolveChapterLanguageCode(ch, seriesFallbackLang) === selectedLanguage)
+        : (() => {
+            const byNum = new Map<number, Chapter>();
+            for (const ch of downloadableChapters) {
+              const existing = byNum.get(ch.number);
+              if (!existing) {
+                byNum.set(ch.number, ch);
+                continue;
+              }
+              const existingLang = resolveChapterLanguageCode(existing, seriesFallbackLang);
+              const candidateLang = resolveChapterLanguageCode(ch, seriesFallbackLang);
+              if (candidateLang === 'tr' && existingLang !== 'tr') {
+                byNum.set(ch.number, ch);
+              } else if (candidateLang === 'en' && existingLang !== 'tr' && existingLang !== 'en') {
+                byNum.set(ch.number, ch);
+              }
+            }
+            return Array.from(byNum.values());
+          })();
       const chapterMetadataMap = new Map(manga.chapters.map((chapter) => [chapter.id, chapter]));
-      const chaptersWithCardImageState = downloadableChapters.map((chapter) => {
+      const chaptersWithCardImageState = languageFilteredChapters.map((chapter) => {
         const currentChapter = chapterMetadataMap.get(chapter.id);
         return {
           ...chapter,
@@ -2481,20 +2508,29 @@ const MangaDetail: React.FC = () => {
   };
 
   const availableLanguages = useMemo(() => {
-    if (!manga?.chapters) return { hasTr: false, hasEn: false, trCount: 0, enCount: 0 };
-    let trCount = 0;
-    let enCount = 0;
-    for (const ch of manga.chapters) {
-      const isEn = isChapterEnglish(ch, getSeriesLanguage(manga));
-      if (isEn) enCount++;
-      else trCount++;
+    if (!manga?.chapters || manga.chapters.length === 0) {
+      return { entries: [] as Array<{ code: string; count: number; info: ReturnType<typeof getLanguageInfoByCode> }> };
     }
-    return {
-      hasTr: trCount > 0,
-      hasEn: enCount > 0,
-      trCount,
-      enCount,
-    };
+    const counts = new Map<string, number>();
+    const fallbackLang = getSeriesLanguage(manga);
+    for (const ch of manga.chapters) {
+      const code = resolveChapterLanguageCode(ch, fallbackLang);
+      counts.set(code, (counts.get(code) || 0) + 1);
+    }
+    const entries = Array.from(counts.entries())
+      .map(([code, count]) => ({
+        code,
+        count,
+        info: getLanguageInfoByCode(code),
+      }))
+      .sort((a, b) => {
+        if (a.code === 'tr' && b.code !== 'tr') return -1;
+        if (b.code === 'tr' && a.code !== 'tr') return 1;
+        if (a.code === 'en' && b.code !== 'en') return -1;
+        if (b.code === 'en' && a.code !== 'en') return 1;
+        return b.count - a.count;
+      });
+    return { entries };
   }, [manga?.chapters, manga]);
 
   const filteredChapters = useMemo(() => {
@@ -2503,6 +2539,7 @@ const MangaDetail: React.FC = () => {
     }
 
     const normalizedQuery = deferredChapterSearch.toLocaleLowerCase('tr-TR');
+    const fallbackLang = getSeriesLanguage(manga);
 
     let sorted = [...manga.chapters].sort((a, b) => {
       const numA = typeof a.number === 'number' ? a.number : parseFloat(a.number as string) || 0;
@@ -2511,10 +2548,7 @@ const MangaDetail: React.FC = () => {
     });
 
     if (selectedLanguage !== 'all') {
-      sorted = sorted.filter((ch) => {
-        const isEn = isChapterEnglish(ch, getSeriesLanguage(manga));
-        return selectedLanguage === 'en' ? isEn : !isEn;
-      });
+      sorted = sorted.filter((ch) => resolveChapterLanguageCode(ch, fallbackLang) === selectedLanguage);
     }
 
     if (!deferredChapterSearch) {
@@ -2806,24 +2840,25 @@ const MangaDetail: React.FC = () => {
                   {formatChapterDisplayTitle(chapter.number, chapter.title)}
                 </Link>
                 {(() => {
-                  if (isChapterRaw(chapter)) {
-                    return (
-                      <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-purple-500/40 bg-purple-500/15 text-purple-400">
-                        RAW
-                      </Badge>
-                    );
-                  }
-                  if (isChapterEnglish(chapter, getSeriesLanguage(manga))) {
-                    return (
-                      <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-sky-500/40 bg-sky-500/15 text-sky-400">
-                        EN
-                      </Badge>
-                    );
-                  }
+                  const langInfo = getChapterLanguageInfo(chapter, getSeriesLanguage(manga));
                   return (
-                    <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-emerald-500/40 bg-emerald-500/15 text-emerald-400">
-                      TR
-                    </Badge>
+                    <>
+                      {isChapterRaw(chapter) && langInfo.code !== 'raw' && (
+                        <Badge variant="outline" className="h-5 shrink-0 px-1.5 py-0 text-[10px] font-black border-purple-500/40 bg-purple-500/15 text-purple-400">
+                          RAW
+                        </Badge>
+                      )}
+                      <Badge
+                        variant="outline"
+                        className={cn(
+                          'h-5 shrink-0 px-1.5 py-0 text-[10px] font-black',
+                          langInfo.badgeClass
+                        )}
+                        title={langInfo.label}
+                      >
+                        {langInfo.shortLabel}
+                      </Badge>
+                    </>
                   );
                 })()}
                 {chapterTranslationMap.has(chapter.id) && (chapterTranslationMap.get(chapter.id) || 0) > 0 && (
@@ -3242,9 +3277,12 @@ const MangaDetail: React.FC = () => {
                 <div className="pt-4">
                   {continueChapter ? (
                     <Button asChild variant="glow" size="lg" className="w-full">
-                      <Link to={`/manga/${manga.id}/chapter/${continueChapter.id}?page=${latestProgress?.page || 1}`}>
+                      <Link
+                        to={`/manga/${manga.id}/chapter/${continueChapter.id}?page=${latestProgress?.page || 1}${latestProgress?.pageOffsetRatio && latestProgress.pageOffsetRatio > 0.005 ? `&offset=${latestProgress.pageOffsetRatio.toFixed(3)}` : ''}`}
+                      >
                         <Play className="h-4 w-4" />
-                        Devam Et (Bölüm {continueChapter.number}, Sayfa {latestProgress?.page || 1})
+                        Devam Et (Bölüm {continueChapter.number}, Sayfa {latestProgress?.page || 1}
+                        {typeof latestProgress?.progressPercent === 'number' ? ` · %${Math.round(latestProgress.progressPercent)}` : ''})
                       </Link>
                     </Button>
                   ) : manga.chapters.length > 0 ? (
@@ -3457,8 +3495,8 @@ const MangaDetail: React.FC = () => {
                                 İlk Eklenen
                               </button>
                             </div>
-                            {availableLanguages.hasEn && availableLanguages.hasTr && (
-                                <div className="flex items-center rounded-lg border border-border bg-secondary/40 p-1 text-xs">
+                            {availableLanguages.entries.length > 1 && (
+                                <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1 text-xs">
                                   <button
                                     type="button"
                                     onClick={() => setSelectedLanguage('all')}
@@ -3471,30 +3509,25 @@ const MangaDetail: React.FC = () => {
                                   >
                                     Tümü ({manga.chapters.length})
                                   </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedLanguage('tr')}
-                                    className={cn(
-                                      'rounded-md px-2.5 py-1 font-medium transition-colors',
-                                      selectedLanguage === 'tr'
-                                        ? 'bg-emerald-600 text-white shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground',
-                                    )}
-                                  >
-                                    Türkçe ({availableLanguages.trCount})
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedLanguage('en')}
-                                    className={cn(
-                                      'rounded-md px-2.5 py-1 font-medium transition-colors',
-                                      selectedLanguage === 'en'
-                                        ? 'bg-sky-600 text-white shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground',
-                                    )}
-                                  >
-                                    İngilizce ({availableLanguages.enCount})
-                                  </button>
+                                  {availableLanguages.entries.map((entry) => (
+                                    <button
+                                      key={entry.code}
+                                      type="button"
+                                      onClick={() => setSelectedLanguage(entry.code)}
+                                      className={cn(
+                                        'rounded-md px-2.5 py-1 font-medium transition-colors',
+                                        selectedLanguage === entry.code
+                                          ? entry.code === 'tr'
+                                            ? 'bg-emerald-600 text-white shadow-sm'
+                                            : entry.code === 'en'
+                                            ? 'bg-sky-600 text-white shadow-sm'
+                                            : 'bg-primary text-primary-foreground shadow-sm'
+                                          : 'text-muted-foreground hover:text-foreground',
+                                      )}
+                                    >
+                                      {entry.info.label} ({entry.count})
+                                    </button>
+                                  ))}
                                 </div>
                               )}
                               <div className="relative flex-1 sm:w-60">
@@ -3929,7 +3962,7 @@ const MangaDetail: React.FC = () => {
                       {seriesBookmarkEntries.map(({ bookmark, chapter, chapterLabel, createdAtLabel, previewImage }, index) => (
                         <Link
                           key={`${bookmark.chapterId}-${bookmark.page}-${bookmark.createdAt || index}`}
-                          to={`/manga/${manga.id}/chapter/${bookmark.chapterId}?page=${bookmark.page}`}
+                          to={`/manga/${manga.id}/chapter/${bookmark.chapterId}?page=${bookmark.page}${bookmark.pageOffsetRatio && bookmark.pageOffsetRatio > 0.005 ? `&offset=${bookmark.pageOffsetRatio.toFixed(3)}` : ''}`}
                           className="group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6 animate-fade-up opacity-0 [transform:translateZ(0)]"
                           style={{ animationDelay: `${0.08 + index * 0.04}s`, animationFillMode: 'forwards' }}
                         >
@@ -3942,6 +3975,11 @@ const MangaDetail: React.FC = () => {
                           <div className="min-w-0 flex-1">
                             <div className="flex items-start justify-between gap-3">
                               <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80 sm:text-sm">Yer İmi</p>
+                              {typeof bookmark.progressPercent === 'number' && (
+                                <span className="rounded-md bg-primary/15 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">
+                                  %{bookmark.progressPercent.toFixed(1)}
+                                </span>
+                              )}
                             </div>
 
                             <h3 className="mt-2 line-clamp-2 text-lg font-semibold sm:mt-3 sm:text-xl">

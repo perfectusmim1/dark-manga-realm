@@ -9,6 +9,8 @@ interface ProtectedImageProps {
     className?: string;
     style?: React.CSSProperties;
     zoom?: number;
+    priority?: boolean;
+    reserveHeightWhenLoading?: boolean;
     onMediaReadyChange?: (ready: boolean) => void;
     overlay?: React.ReactNode;
 }
@@ -19,6 +21,8 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
     className,
     style,
     zoom = 100,
+    priority = false,
+    reserveHeightWhenLoading = false,
     onMediaReadyChange,
     overlay,
 }) => {
@@ -140,6 +144,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
                 ...style,
                 width: `${zoom}%`,
                 maxWidth: '100%',
+                minHeight: !isMediaReady && reserveHeightWhenLoading ? '75vh' : style?.minHeight,
                 lineHeight: 0,
                 marginLeft: 'auto',
                 marginRight: 'auto',
@@ -155,7 +160,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
                     src={currentSrc}
                     alt={alt}
                     decoding="async"
-                    loading="lazy"
+                    loading={priority ? 'eager' : 'lazy'}
                     className="w-full h-auto block select-none pointer-events-none"
                     draggable={false}
                     referrerPolicy="no-referrer"

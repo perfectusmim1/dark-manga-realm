@@ -261,6 +261,7 @@ export interface Chapter {
   language?: string;
   groupName?: string;
   sourceUrl?: string;
+  _sourceLink?: string;
 }
 
 export interface User {
@@ -321,6 +322,8 @@ export interface ReadingProgress {
   chapterId: string;
   chapterNumber: number;
   page: number;
+  pageOffsetRatio?: number;
+  progressPercent?: number;
   lastRead: string;
   mangaTitle?: string;
   mangaCover?: string;
@@ -342,6 +345,8 @@ export interface Bookmark {
   chapterId: string;
   chapterNumber: number;
   page: number;
+  pageOffsetRatio?: number;
+  progressPercent?: number;
   note?: string | null;
   createdAt?: string;
   mangaTitle?: string;

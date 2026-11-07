@@ -685,17 +685,14 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     let latestSessionSnapshot: Session | null = null;
     let lastQueuedAuthSyncKey = '';
     let lastQueuedAuthSyncAt = 0;
+    let lastSyncedUserId: string | null = null;
 
     const getAuthSyncKey = (currentSession: Session | null) => {
       if (!currentSession?.user) {
         return 'signed-out';
       }
 
-      const tokenFragment = currentSession.access_token
-        ? currentSession.access_token.slice(-16)
-        : 'no-token';
-
-      return `${currentSession.user.id}:${tokenFragment}`;
+      return currentSession.user.id;
     };
 
     const syncAuthState = async (currentSession: Session | null) => {
@@ -776,6 +773,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
           setSession(prev => JSON.stringify(prev) === JSON.stringify(activeSession) ? prev : activeSession);
           setSupabaseUser(prev => JSON.stringify(prev) === JSON.stringify(activeSession.user) ? prev : activeSession.user);
+          lastSyncedUserId = activeSession.user.id;
 
           if (profile) {
             const newUser = mapSupabaseUserToUser(activeSession.user, profile);
@@ -818,6 +816,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
             void refreshMfaState();
           }
         } else {
+          lastSyncedUserId = null;
           setSession(null);
           setSupabaseUser(null);
           setUser(null);
@@ -897,6 +896,17 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           }
           return;
         }
+        // Tab wakeup in Supabase Auth emits SIGNED_IN after _recoverAndRefresh().
+        // If the same user is already synced, silently update the session token without
+        // invalidating caches or re-running full auth/profile/MFA sync.
+        if (
+          event === 'SIGNED_IN'
+          && currentSession?.user?.id
+          && lastSyncedUserId === currentSession.user.id
+        ) {
+          setSession(prev => JSON.stringify(prev) === JSON.stringify(currentSession) ? prev : currentSession);
+          return;
+        }
         // We only trigger re-sync for significant events to avoid loops
         if (
           event === 'SIGNED_IN'
@@ -905,9 +915,11 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           || event === 'INITIAL_SESSION'
           || event === 'MFA_CHALLENGE_VERIFIED'
         ) {
-          void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
-            invalidateMangaVisibilityCaches();
-          }).catch(() => undefined);
+          if (event === 'SIGNED_OUT' || event === 'USER_UPDATED' || (event === 'SIGNED_IN' && lastSyncedUserId !== currentSession?.user?.id)) {
+            void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
+              invalidateMangaVisibilityCaches();
+            }).catch(() => undefined);
+          }
           void enqueueAuthStateSync(currentSession);
         }
       }
@@ -920,8 +932,10 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     };
   }, [ensureProfile, refreshMfaState]);
 
+  const hasAccessToken = Boolean(session?.access_token);
+
   useEffect(() => {
-    if (!supabaseUser?.id || !session?.access_token || isLoading || !isEffectivelyOnline()) {
+    if (!supabaseUser?.id || !hasAccessToken || isLoading || !isEffectivelyOnline()) {
       return;
     }
 
@@ -939,7 +953,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       window.clearTimeout(bootstrapRetryTimeoutId);
       window.clearInterval(intervalId);
     };
-  }, [isLoading, refreshAccessState, session?.access_token, supabaseUser?.id]);
+  }, [hasAccessToken, isLoading, refreshAccessState, supabaseUser?.id]);
 
   const login = async (email: string, password: string): Promise<{
     success: boolean;

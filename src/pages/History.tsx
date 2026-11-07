@@ -114,6 +114,7 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
               {formatChapterDisplayTitle(item.chapterNumber, item.chapterTitle)}
               {' • '}
               Sayfa {item.page}
+              {typeof item.progressPercent === 'number' ? ` · %${Math.round(item.progressPercent)}` : ''}
             </p>
           </div>
 
@@ -142,7 +143,7 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
           </Link>
         </Button>
         <Button asChild size="sm" className="w-full rounded-full px-5 sm:w-auto" variant="glow">
-          <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`}>
+          <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}>
             <Play className="mr-2 h-4 w-4" />
             Devam Et
           </Link>
@@ -154,7 +155,7 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
 
 const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index: number }) => (
   <Link
-    to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}`}
+    to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}
     className="group animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 opacity-0 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:bg-card"
     style={{
       animationDelay: `${0.08 + Math.min(index, 11) * 0.02}s`,

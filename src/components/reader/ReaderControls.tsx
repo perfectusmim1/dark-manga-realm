@@ -24,9 +24,13 @@ import {
   formatChapterDisplayTitle,
   formatChapterNumberLabel,
   sanitizeChapterTitle,
-  isChapterEnglish,
   isChapterRaw,
 } from '@/lib/chapterTitle';
+import {
+  getChapterLanguageInfo,
+  getLanguageInfoByCode,
+  resolveChapterLanguageCode,
+} from '@/lib/seriesLanguage';
 import { Input } from '@/components/ui/input';
 import {
   Popover,
@@ -64,8 +68,11 @@ interface ReaderControlsProps {
   onAddBookmark: () => void;
   currentPage: number;
   totalPages: number;
+  progressPercent?: number;
+  pageOffsetRatio?: number;
   visible: boolean;
   onPageChange?: (page: number, smooth?: boolean) => void;
+  onPercentChange?: (percent: number, smooth?: boolean) => void;
   isIncognito: boolean;
   onIncognitoToggle: (val: boolean) => void;
   isAutoScrollAvailable: boolean;
@@ -95,8 +102,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   onAddBookmark,
   currentPage,
   totalPages,
+  progressPercent: externalProgressPercent,
   visible,
   onPageChange,
+  onPercentChange,
   isIncognito,
   onIncognitoToggle,
   isAutoScrollAvailable,
@@ -113,38 +122,88 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 }) => {
   const navigate = useNavigate();
   const { isMobile } = useDeviceProfile();
-  const currentIndex = chapters.findIndex((ch) => ch.id === currentChapter.id);
-  const prevChapter = chapters[currentIndex + 1];
-  const nextChapter = chapters[currentIndex - 1];
+
+  const currentLangCode = useMemo(() => resolveChapterLanguageCode(currentChapter), [currentChapter]);
+  const currentLangInfo = useMemo(() => getChapterLanguageInfo(currentChapter), [currentChapter]);
+
+  const sameLanguageChapters = useMemo(() => {
+    const filtered = chapters.filter((ch) => resolveChapterLanguageCode(ch) === currentLangCode);
+    return filtered.length > 0 ? filtered : chapters;
+  }, [chapters, currentLangCode]);
+
+  const currentIndex = sameLanguageChapters.findIndex((ch) => ch.id === currentChapter.id);
+  const prevChapter = currentIndex >= 0 ? sameLanguageChapters[currentIndex + 1] : undefined;
+  const nextChapter = currentIndex > 0 ? sameLanguageChapters[currentIndex - 1] : undefined;
 
   const [hoverPage, setHoverPage] = useState<number | null>(null);
+  const [hoverPercent, setHoverPercent] = useState<number | null>(null);
 
-  const alternateLangChapter = useMemo(() => {
-    return chapters.find((ch) => ch.number === currentChapter.number && ch.id !== currentChapter.id);
-  }, [chapters, currentChapter]);
+  const sameNumberChapters = useMemo(() => {
+    const matches = chapters.filter((ch) => Number(ch.number) === Number(currentChapter.number));
+    return matches.sort((a, b) => {
+      const langA = resolveChapterLanguageCode(a);
+      const langB = resolveChapterLanguageCode(b);
+      if (langA === 'tr' && langB !== 'tr') return -1;
+      if (langB === 'tr' && langA !== 'tr') return 1;
+      if (langA === 'en' && langB !== 'en') return -1;
+      if (langB === 'en' && langA !== 'en') return 1;
+      return langA.localeCompare(langB);
+    });
+  }, [chapters, currentChapter.number]);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPage, setScrubPage] = useState<number | null>(null);
+  const [scrubPercent, setScrubPercent] = useState<number | null>(null);
   const scrubRafRef = useRef<number | null>(null);
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [navigatingChapterId, setNavigatingChapterId] = useState<string | null>(null);
   const [chapterSearch, setChapterSearch] = useState('');
   const [chapterSortOrder, setChapterSortOrder] = useState<'desc' | 'asc'>('desc');
+  const [selectedReaderLang, setSelectedReaderLang] = useState<string>('all');
   const [chapterPanelOpen, setChapterPanelOpen] = useState(false);
   const [translationPanelOpen, setTranslationPanelOpen] = useState(false);
   const activeChapterItemRef = useRef<HTMLButtonElement | null>(null);
+
+  const availableReaderLanguages = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const ch of chapters) {
+      const code = resolveChapterLanguageCode(ch);
+      counts.set(code, (counts.get(code) || 0) + 1);
+    }
+    return Array.from(counts.entries())
+      .map(([code, count]) => ({
+        code,
+        count,
+        info: getLanguageInfoByCode(code),
+      }))
+      .sort((a, b) => {
+        if (a.code === 'tr' && b.code !== 'tr') return -1;
+        if (b.code === 'tr' && a.code !== 'tr') return 1;
+        if (a.code === 'en' && b.code !== 'en') return -1;
+        if (b.code === 'en' && a.code !== 'en') return 1;
+        return b.count - a.count;
+      });
+  }, [chapters]);
 
   const seriesRouteKey = buildRouteKey(`/manga/${mangaId}`);
   const deferredChapterSearch = useDeferredValue(normalizeChapterSearchValue(chapterSearch));
 
   const activePageDisplay = isScrubbing && scrubPage !== null ? scrubPage : currentPage;
-  const progressPercent = totalPages > 1 ? ((activePageDisplay - 1) / (totalPages - 1)) * 100 : 0;
+  const fallbackProgressPercent = totalPages > 1 ? ((activePageDisplay - 1) / (totalPages - 1)) * 100 : 0;
+  const baseProgressPercent = typeof externalProgressPercent === 'number'
+    ? Math.max(0, Math.min(100, externalProgressPercent))
+    : fallbackProgressPercent;
+  const progressPercent = isScrubbing && scrubPercent !== null ? scrubPercent : baseProgressPercent;
   const chapterItems = useMemo(() => {
-    return [...chapters].sort((a, b) => {
+    let base = [...chapters];
+    if (selectedReaderLang !== 'all') {
+      base = base.filter((ch) => resolveChapterLanguageCode(ch) === selectedReaderLang);
+    }
+    return base.sort((a, b) => {
       const numA = typeof a.number === 'number' ? a.number : parseFloat(a.number as string) || 0;
       const numB = typeof b.number === 'number' ? b.number : parseFloat(b.number as string) || 0;
       return chapterSortOrder === 'desc' ? numB - numA : numA - numB;
     });
-  }, [chapters, chapterSortOrder]);
+  }, [chapters, chapterSortOrder, selectedReaderLang]);
   const filteredChapters = useMemo(() => {
     if (!deferredChapterSearch) {
       return chapterItems;
@@ -166,13 +225,18 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     return () => window.cancelAnimationFrame(frameId);
   }, [chapterPanelOpen]);
 
-  const getPageFromClientX = useCallback(
-    (clientX: number, target: HTMLDivElement): number => {
+  const getScrubTargetFromClientX = useCallback(
+    (clientX: number, target: HTMLDivElement): { percent: number; page: number } => {
       const rect = target.getBoundingClientRect();
       const x = clientX - rect.left;
-      const ratio = Math.max(0, Math.min(1, x / rect.width));
-      const page = Math.round(ratio * (totalPages - 1)) + 1;
-      return Math.max(1, Math.min(totalPages, page));
+      const ratio = Math.max(0, Math.min(1, x / Math.max(1, rect.width)));
+      const percent = Number((ratio * 100).toFixed(2));
+      const safeTotal = Math.max(1, totalPages);
+      const exactPageFloat = ratio * safeTotal;
+      const page = ratio >= 0.999
+        ? safeTotal
+        : Math.max(1, Math.min(safeTotal, Math.floor(exactPageFloat) + 1));
+      return { percent, page };
     },
     [totalPages],
   );
@@ -181,34 +245,45 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     (e: React.PointerEvent<HTMLDivElement>) => {
       e.stopPropagation();
       e.currentTarget.setPointerCapture(e.pointerId);
-      const page = getPageFromClientX(e.clientX, e.currentTarget);
+      const { percent, page } = getScrubTargetFromClientX(e.clientX, e.currentTarget);
       setIsScrubbing(true);
       setScrubPage(page);
-      onPageChange?.(page, false);
+      setScrubPercent(percent);
+      if (onPercentChange) {
+        onPercentChange(percent, false);
+      } else {
+        onPageChange?.(page, false);
+      }
     },
-    [getPageFromClientX, onPageChange],
+    [getScrubTargetFromClientX, onPageChange, onPercentChange],
   );
 
   const handlePointerMove = useCallback(
     (e: React.PointerEvent<HTMLDivElement>) => {
       if (!isScrubbing) {
         if (e.pointerType === 'mouse') {
-          const page = getPageFromClientX(e.clientX, e.currentTarget);
+          const { percent, page } = getScrubTargetFromClientX(e.clientX, e.currentTarget);
           setHoverPage(page);
+          setHoverPercent(percent);
         }
         return;
       }
       e.stopPropagation();
-      const page = getPageFromClientX(e.clientX, e.currentTarget);
+      const { percent, page } = getScrubTargetFromClientX(e.clientX, e.currentTarget);
       setScrubPage(page);
+      setScrubPercent(percent);
       if (scrubRafRef.current !== null) {
         cancelAnimationFrame(scrubRafRef.current);
       }
       scrubRafRef.current = requestAnimationFrame(() => {
-        onPageChange?.(page, false);
+        if (onPercentChange) {
+          onPercentChange(percent, false);
+        } else {
+          onPageChange?.(page, false);
+        }
       });
     },
-    [getPageFromClientX, isScrubbing, onPageChange],
+    [getScrubTargetFromClientX, isScrubbing, onPageChange, onPercentChange],
   );
 
   const handlePointerUp = useCallback(
@@ -220,18 +295,24 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         } catch {
           // Yoksay
         }
-        const page = getPageFromClientX(e.clientX, e.currentTarget);
+        const { percent, page } = getScrubTargetFromClientX(e.clientX, e.currentTarget);
         if (scrubRafRef.current !== null) {
           cancelAnimationFrame(scrubRafRef.current);
           scrubRafRef.current = null;
         }
-        onPageChange?.(page, false);
+        if (onPercentChange) {
+          onPercentChange(percent, false);
+        } else {
+          onPageChange?.(page, false);
+        }
         setIsScrubbing(false);
         setScrubPage(null);
+        setScrubPercent(null);
         setHoverPage(null);
+        setHoverPercent(null);
       }
     },
-    [getPageFromClientX, isScrubbing, onPageChange],
+    [getScrubTargetFromClientX, isScrubbing, onPageChange, onPercentChange],
   );
 
   const handlePointerCancel = useCallback(
@@ -248,7 +329,9 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         }
         setIsScrubbing(false);
         setScrubPage(null);
+        setScrubPercent(null);
         setHoverPage(null);
+        setHoverPercent(null);
       }
     },
     [isScrubbing],
@@ -257,6 +340,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   const handleBarLeave = useCallback(() => {
     if (!isScrubbing) {
       setHoverPage(null);
+      setHoverPercent(null);
     }
   }, [isScrubbing]);
 
@@ -334,6 +418,42 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         </div>
       </div>
 
+      {availableReaderLanguages.length > 1 && (
+        <div className="flex flex-wrap items-center gap-1 rounded-xl border border-border/70 bg-secondary/40 p-1 text-[11px]">
+          <button
+            type="button"
+            onClick={() => setSelectedReaderLang('all')}
+            className={cn(
+              'rounded-lg px-2 py-1 font-medium transition-colors',
+              selectedReaderLang === 'all'
+                ? 'bg-primary text-primary-foreground shadow-sm'
+                : 'text-muted-foreground hover:text-foreground',
+            )}
+          >
+            Tümü ({chapters.length})
+          </button>
+          {availableReaderLanguages.map((entry) => (
+            <button
+              key={entry.code}
+              type="button"
+              onClick={() => setSelectedReaderLang(entry.code)}
+              className={cn(
+                'rounded-lg px-2 py-1 font-medium transition-colors',
+                selectedReaderLang === entry.code
+                  ? entry.code === 'tr'
+                    ? 'bg-emerald-600 text-white shadow-sm'
+                    : entry.code === 'en'
+                    ? 'bg-sky-600 text-white shadow-sm'
+                    : 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-muted-foreground hover:text-foreground',
+              )}
+            >
+              {entry.info.shortLabel} ({entry.count})
+            </button>
+          ))}
+        </div>
+      )}
+
       <div className="relative">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -397,20 +517,27 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                     >
                       {chapterLabel}
                     </p>
-                    {isChapterRaw(ch) && (
-                      <span className="shrink-0 rounded border border-purple-500/40 bg-purple-500/15 px-1 py-0 text-[9px] font-black text-purple-400">
-                        RAW
-                      </span>
-                    )}
-                    {isChapterEnglish(ch) ? (
-                      <span className="shrink-0 rounded border border-sky-500/40 bg-sky-500/15 px-1 py-0 text-[9px] font-black text-sky-400">
-                        EN
-                      </span>
-                    ) : (
-                      <span className="shrink-0 rounded border border-emerald-500/40 bg-emerald-500/15 px-1 py-0 text-[9px] font-black text-emerald-400">
-                        TR
-                      </span>
-                    )}
+                    {(() => {
+                      const langInfo = getChapterLanguageInfo(ch);
+                      return (
+                        <>
+                          {isChapterRaw(ch) && langInfo.code !== 'raw' && (
+                            <span className="shrink-0 rounded border border-purple-500/40 bg-purple-500/15 px-1 py-0 text-[9px] font-black text-purple-400">
+                              RAW
+                            </span>
+                          )}
+                          <span
+                            className={cn(
+                              'shrink-0 rounded border px-1 py-0 text-[9px] font-black',
+                              langInfo.badgeClass,
+                            )}
+                            title={langInfo.label}
+                          >
+                            {langInfo.shortLabel}
+                          </span>
+                        </>
+                      );
+                    })()}
                   </div>
                   {cleanSubtitle && (
                     <p className="mt-0.5 truncate text-xs text-muted-foreground font-normal">
@@ -489,6 +616,72 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           </div>
 
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+            {sameNumberChapters.length > 1 ? (
+              <Popover>
+                <PopoverTrigger asChild>
+                  <button
+                    type="button"
+                    className={cn(
+                      'inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[11px] font-black transition-all hover:opacity-90 sm:h-9 sm:px-2.5 sm:text-xs',
+                      currentLangInfo.badgeClass,
+                    )}
+                    aria-label="Bölüm dilini değiştir"
+                    title="Bölüm dilini değiştir"
+                  >
+                    <span>{currentLangInfo.shortLabel}</span>
+                  </button>
+                </PopoverTrigger>
+                <PopoverContent
+                  align="end"
+                  className="w-44 rounded-xl border border-border/80 bg-popover p-1.5 shadow-xl"
+                >
+                  <div className="space-y-1">
+                    {sameNumberChapters.map((altCh) => {
+                      const altInfo = getChapterLanguageInfo(altCh);
+                      const isActive = altCh.id === currentChapter.id;
+                      return (
+                        <button
+                          key={altCh.id}
+                          type="button"
+                          onClick={() => {
+                            if (!isActive) {
+                              void handleChapterNavigation(altCh);
+                            }
+                          }}
+                          className={cn(
+                            'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
+                            isActive
+                              ? 'bg-primary/15 text-primary font-semibold'
+                              : 'text-foreground/85 hover:bg-secondary/60 hover:text-foreground',
+                          )}
+                        >
+                          <span>{altInfo.label}</span>
+                          <span
+                            className={cn(
+                              'rounded border px-1.5 py-0 text-[10px] font-black',
+                              altInfo.badgeClass,
+                            )}
+                          >
+                            {altInfo.shortLabel}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </PopoverContent>
+              </Popover>
+            ) : (
+              <span
+                className={cn(
+                  'inline-flex h-7 items-center rounded-md border px-1.5 text-[10px] font-black sm:h-8 sm:px-2 sm:text-[11px]',
+                  currentLangInfo.badgeClass,
+                )}
+                title={currentLangInfo.label}
+              >
+                {currentLangInfo.shortLabel}
+              </span>
+            )}
+
             <Button
               variant="ghost"
               size="icon"
@@ -779,13 +972,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 {/* Hover / Scrub tooltip */}
                 {(hoverPage !== null || isScrubbing) && (
                   <div
-                    className="absolute -top-8 z-10 rounded-md bg-popover px-2 py-0.5 text-[11px] font-bold text-popover-foreground shadow-lg border border-border/50 pointer-events-none select-none"
+                    className="absolute -top-8 z-10 rounded-md bg-popover px-2 py-0.5 text-[11px] font-bold text-popover-foreground shadow-lg border border-border/50 pointer-events-none select-none whitespace-nowrap"
                     style={{
-                      left: `${totalPages > 1 ? (((isScrubbing ? activePageDisplay : hoverPage!) - 1) / (totalPages - 1)) * 100 : 0}%`,
+                      left: `${Math.max(4, Math.min(96, isScrubbing ? progressPercent : (hoverPercent ?? progressPercent)))}%`,
                       transform: 'translateX(-50%)',
                     }}
                   >
-                    {isScrubbing ? activePageDisplay : hoverPage}
+                    %{(isScrubbing ? progressPercent : (hoverPercent ?? progressPercent)).toFixed(1)} · S.{isScrubbing ? activePageDisplay : hoverPage}
                   </div>
                 )}
 
@@ -806,7 +999,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   <div
                     className={cn(
                       'absolute left-0 h-[5px] rounded-full bg-gradient-to-r from-primary to-blue-400 group-hover:h-[7px] pointer-events-none',
-                      isScrubbing ? 'transition-none h-[7px]' : 'transition-all duration-200',
+                      isScrubbing ? 'transition-none h-[7px]' : 'transition-all duration-150',
                     )}
                     style={{ width: `${progressPercent}%` }}
                   />
@@ -817,7 +1010,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       'absolute top-1/2 -translate-y-1/2 rounded-full bg-white border-2 border-primary shadow-[0_0_10px_rgba(59,130,246,0.5)] pointer-events-none -translate-x-1/2',
                       isScrubbing
                         ? 'h-5 w-5 shadow-[0_0_20px_rgba(59,130,246,0.9)] ring-4 ring-primary/35 transition-none'
-                        : 'h-3.5 w-3.5 group-hover:h-4 group-hover:w-4 group-hover:shadow-[0_0_16px_rgba(59,130,246,0.7)] transition-all duration-200',
+                        : 'h-3.5 w-3.5 group-hover:h-4 group-hover:w-4 group-hover:shadow-[0_0_16px_rgba(59,130,246,0.7)] transition-all duration-150',
                     )}
                     style={{
                       left: `${progressPercent}%`,
@@ -826,8 +1019,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 </div>
               </div>
 
-              <span className="text-[10px] font-medium tabular-nums text-primary select-none whitespace-nowrap">
-                %{Math.round(progressPercent)}
+              <span className="text-[11px] font-semibold tabular-nums text-primary select-none whitespace-nowrap">
+                %{progressPercent >= 99.95 ? '100' : progressPercent.toFixed(1)}
               </span>
 
               {isAutoScrollAvailable && (

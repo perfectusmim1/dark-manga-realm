@@ -192,7 +192,7 @@ const AccessGate = ({ children }: { children: React.ReactNode }) => {
     return () => {
       active = false;
     };
-  }, [isOnline, location.pathname, location.search]);
+  }, [isOnline, location.pathname]);
 
   const isSupportPath = location.pathname === '/support' || location.pathname.startsWith('/support/');
   const isAuthPath = location.pathname === '/auth';

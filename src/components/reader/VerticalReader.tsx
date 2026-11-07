@@ -8,6 +8,7 @@ interface VerticalReaderProps {
   pages: ResolvedReaderPage[];
   settings: ReaderSettings;
   onPageChange: (page: number) => void;
+  onProgressChange?: (page: number, pageOffsetRatio: number, progressPercent: number) => void;
   initialPage?: number;
   trackingEnabled?: boolean;
   translation?: ReaderTranslationApi;
@@ -18,6 +19,7 @@ interface ReaderPageProps {
   page: ResolvedReaderPage;
   zoom: number;
   fitWidth: boolean;
+  priority: boolean;
   translation?: ReaderTranslationApi;
 }
 
@@ -26,6 +28,7 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
   page,
   zoom,
   fitWidth,
+  priority,
   translation,
 }) => {
   const [pageOverlayShown, setPageOverlayShown] = useState(true);
@@ -61,8 +64,6 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
       className="group relative mx-auto flex w-full justify-center"
       style={{
         maxWidth: fitWidth ? `${896 * (zoom / 100)}px` : 'none',
-        contentVisibility: 'auto',
-        containIntrinsicSize: '800px 1200px',
       }}
     >
       <div
@@ -73,6 +74,8 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
           src={page.src}
           alt={`Sayfa ${index + 1}`}
           zoom={zoom}
+          priority={priority}
+          reserveHeightWhenLoading
           overlay={overlayNode}
         />
       </div>
@@ -87,11 +90,13 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   pages,
   settings,
   onPageChange,
+  onProgressChange,
   initialPage = 1,
   trackingEnabled = true,
   translation,
 }) => {
   const lastReportedPage = useRef<number>(initialPage);
+  const lastReportedPercent = useRef<number>(-1);
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
   const effectiveZoom = isMobileViewport && settings.fitWidth
     ? Math.max(settings.zoom, 100)
@@ -103,45 +108,120 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  // Intersection Observer for tracking current page
+  // High-precision scroll + sub-page offset tracker for percentage & page state
   useEffect(() => {
-    if (!trackingEnabled) {
+    if (!trackingEnabled || pages.length === 0) {
       return;
     }
 
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const intersecting = entries
-          .filter(e => e.isIntersecting)
-          .map(entry => {
-            const index = parseInt((entry.target as HTMLElement).dataset.pageIndex || '-1', 10);
-            return { index, entry };
-          })
-          .filter(p => p.index !== -1)
-          .sort((a, b) => a.index - b.index);
+    let rafId: number | null = null;
 
-        if (intersecting.length > 0) {
-          const currentPage = intersecting[0].index + 1;
-
-          if (currentPage !== lastReportedPage.current) {
-            lastReportedPage.current = currentPage;
-            onPageChange(currentPage);
-          }
-        }
-      },
-      {
-        threshold: [0, 0.1, 0.5],
-        rootMargin: '0px 0px -75% 0px'
+    const evaluateScrollPosition = () => {
+      rafId = null;
+      const pageNodes = Array.from(document.querySelectorAll<HTMLElement>('[data-page-index]'));
+      if (pageNodes.length === 0) {
+        return;
       }
-    );
 
-    // Observe all page containers
-    document.querySelectorAll('[data-page-index]').forEach((el) => {
-      observer.observe(el);
-    });
+      const totalPages = Math.max(1, pages.length);
+      const scrollY = Math.max(0, window.scrollY);
+      const viewportHeight = Math.max(1, window.innerHeight);
+      const docHeight = Math.max(
+        document.documentElement.scrollHeight,
+        document.body?.scrollHeight || 0,
+      );
+      const maxScroll = Math.max(0, docHeight - viewportHeight);
 
-    return () => observer.disconnect();
-  }, [pages, onPageChange, trackingEnabled]);
+      if (scrollY <= 4) {
+        const firstPage = 1;
+        if (firstPage !== lastReportedPage.current) {
+          lastReportedPage.current = firstPage;
+          onPageChange(firstPage);
+        }
+        if (Math.abs(lastReportedPercent.current - 0) >= 0.05) {
+          lastReportedPercent.current = 0;
+          onProgressChange?.(1, 0, 0);
+        }
+        return;
+      }
+
+      if (maxScroll > 0 && scrollY >= maxScroll - 4) {
+        const lastPage = totalPages;
+        if (lastPage !== lastReportedPage.current) {
+          lastReportedPage.current = lastPage;
+          onPageChange(lastPage);
+        }
+        if (Math.abs(lastReportedPercent.current - 100) >= 0.05) {
+          lastReportedPercent.current = 100;
+          onProgressChange?.(lastPage, 1, 100);
+        }
+        return;
+      }
+
+      const anchorViewportY = 2;
+      let matchedIndex = 0;
+      let matchedOffsetRatio = 0;
+      let closestDistance = Number.POSITIVE_INFINITY;
+
+      for (const el of pageNodes) {
+        const idx = parseInt(el.dataset.pageIndex || '-1', 10);
+        if (idx < 0) continue;
+        const rect = el.getBoundingClientRect();
+        const height = Math.max(1, rect.height);
+
+        if (rect.top <= anchorViewportY && rect.bottom >= anchorViewportY) {
+          matchedIndex = idx;
+          matchedOffsetRatio = Math.min(1, Math.max(0, (anchorViewportY - rect.top) / height));
+          closestDistance = 0;
+          break;
+        }
+
+        const distance = rect.top > anchorViewportY
+          ? rect.top - anchorViewportY
+          : anchorViewportY - rect.bottom;
+        if (distance < closestDistance) {
+          closestDistance = distance;
+          matchedIndex = idx;
+          matchedOffsetRatio = rect.top > anchorViewportY ? 0 : 1;
+        }
+      }
+
+      const currentPage = Math.min(totalPages, Math.max(1, matchedIndex + 1));
+      const rawPercent = ((currentPage - 1 + matchedOffsetRatio) / totalPages) * 100;
+      const clampedPercent = Math.min(100, Math.max(0, Number(rawPercent.toFixed(2))));
+      const clampedOffset = Math.min(1, Math.max(0, Number(matchedOffsetRatio.toFixed(4))));
+
+      if (currentPage !== lastReportedPage.current) {
+        lastReportedPage.current = currentPage;
+        onPageChange(currentPage);
+      }
+
+      if (
+        Math.abs(clampedPercent - lastReportedPercent.current) >= 0.05
+        || currentPage !== lastReportedPage.current
+      ) {
+        lastReportedPercent.current = clampedPercent;
+        onProgressChange?.(currentPage, clampedOffset, clampedPercent);
+      }
+    };
+
+    const scheduleEvaluation = () => {
+      if (rafId !== null) return;
+      rafId = window.requestAnimationFrame(evaluateScrollPosition);
+    };
+
+    window.addEventListener('scroll', scheduleEvaluation, { passive: true });
+    window.addEventListener('resize', scheduleEvaluation);
+    scheduleEvaluation();
+
+    return () => {
+      window.removeEventListener('scroll', scheduleEvaluation);
+      window.removeEventListener('resize', scheduleEvaluation);
+      if (rafId !== null) {
+        window.cancelAnimationFrame(rafId);
+      }
+    };
+  }, [pages.length, onPageChange, onProgressChange, trackingEnabled]);
 
   useEffect(() => {
     lastReportedPage.current = initialPage;
@@ -156,6 +236,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
           page={page}
           zoom={effectiveZoom}
           fitWidth={settings.fitWidth}
+          priority={Math.abs(index + 1 - initialPage) <= 2}
           translation={translation}
         />
       ))}

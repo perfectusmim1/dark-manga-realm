@@ -55,6 +55,8 @@ export interface ChapterReadProgressEntry {
     chapterId: string;
     chapterNumber: number;
     page: number;
+    pageOffsetRatio?: number;
+    currentProgressPercent?: number;
     pageCount: number;
     maxPage: number;
     readProgressPercent: number;
@@ -317,12 +319,20 @@ const cacheOfflineMangaMetadata = async (mangaIds: string[]) => {
     );
 };
 
-export const calculateChapterReadProgressPercent = (page: number, pageCount: number) => {
+export const calculateChapterReadProgressPercent = (page: number, pageCount: number, pageOffsetRatio: number = 0) => {
     const safePageCount = getSafeChapterPageCount(pageCount);
     const safePage = getSafeChapterPage(page, safePageCount);
+    const safeOffset = Math.min(1, Math.max(0, Number.isFinite(pageOffsetRatio) ? pageOffsetRatio : 0));
 
-    if (safePageCount <= 1) {
+    if (safePageCount <= 1 && safeOffset <= 0) {
         return 100;
+    }
+
+    if (safeOffset > 0) {
+        return Math.min(
+            100,
+            Math.max(0, Number((((safePage - 1 + safeOffset) / safePageCount) * 100).toFixed(2))),
+        );
     }
 
     return Math.min(
@@ -580,6 +590,8 @@ const upsertLocalChapterReadProgress = (
         chapterNumber: number;
         page: number;
         pageCount: number;
+        pageOffsetRatio?: number;
+        progressPercent?: number;
         mangaTitle?: string;
         mangaCover?: string;
         mangaAlternativeTitles?: string[];
@@ -588,18 +600,29 @@ const upsertLocalChapterReadProgress = (
 ): ChapterReadProgressEntry => {
     const safePageCount = getSafeChapterPageCount(progress.pageCount || 1);
     const safePage = getSafeChapterPage(progress.page || 1, safePageCount);
+    const safeOffset = typeof progress.pageOffsetRatio === 'number' && Number.isFinite(progress.pageOffsetRatio)
+        ? Math.min(1, Math.max(0, Number(progress.pageOffsetRatio.toFixed(4))))
+        : undefined;
     const now = new Date().toISOString();
     const store = getLocalChapterReadStore();
     const existing = store[userId]?.[progress.chapterId];
     const nextMaxPage = Math.max(existing?.maxPage || 1, safePage);
-    const nextPercent = calculateChapterReadProgressPercent(nextMaxPage, safePageCount);
+    const currentPercent = typeof progress.progressPercent === 'number' && Number.isFinite(progress.progressPercent)
+        ? Math.min(100, Math.max(0, Number(progress.progressPercent.toFixed(2))))
+        : calculateChapterReadProgressPercent(safePage, safePageCount, safeOffset || 0);
+    const nextPercent = Math.max(
+        calculateChapterReadProgressPercent(nextMaxPage, safePageCount),
+        currentPercent,
+    );
 
     const nextEntry: ChapterReadProgressEntry = {
         userId,
         mangaId: progress.mangaId,
         chapterId: progress.chapterId,
         chapterNumber: progress.chapterNumber,
-        page: Math.max(existing?.page || 1, safePage),
+        page: safePage,
+        pageOffsetRatio: safeOffset ?? existing?.pageOffsetRatio,
+        currentProgressPercent: currentPercent,
         pageCount: Math.max(existing?.pageCount || 1, safePageCount),
         maxPage: nextMaxPage,
         readProgressPercent: Math.max(existing?.readProgressPercent || 0, nextPercent),
@@ -1030,6 +1053,8 @@ const buildLocalReadingHistoryEntries = async (userId: string): Promise<ReadingH
                 chapterId: entry.chapterId,
                 chapterNumber: entry.chapterNumber,
                 page: entry.page,
+                pageOffsetRatio: entry.pageOffsetRatio,
+                progressPercent: entry.currentProgressPercent ?? entry.readProgressPercent,
                 lastRead: entry.lastRead,
                 mangaTitle: offlineManga?.title || entry.mangaTitle,
                 mangaCover: offlineManga?.cover || entry.mangaCover,
@@ -1194,18 +1219,26 @@ const buildReadingHistoryEntriesFromRows = async (
         }
     }
 
-    const remoteEntries = rows.map((entry) => ({
-        userId: entry.user_id,
-        mangaId: entry.manga_id,
-        chapterId: entry.chapter_id,
-        chapterNumber: Number(entry.chapter_number),
-        page: entry.page,
-        lastRead: entry.last_read,
-        mangaTitle: entry.manga?.title,
-        mangaCover: entry.manga?.cover,
-        mangaAlternativeTitles: mapAlternativeTitles(entry.manga),
-        chapterTitle: chapterTitleMap.get(entry.chapter_id),
-    }));
+    const remoteEntries = rows.map((entry) => {
+        const localChapterEntry = getLocalChapterReadProgressEntry(userId, entry.chapter_id);
+        const matchesLocalPage = localChapterEntry && localChapterEntry.page === entry.page;
+        return {
+            userId: entry.user_id,
+            mangaId: entry.manga_id,
+            chapterId: entry.chapter_id,
+            chapterNumber: Number(entry.chapter_number),
+            page: entry.page,
+            pageOffsetRatio: matchesLocalPage ? localChapterEntry.pageOffsetRatio : undefined,
+            progressPercent: matchesLocalPage
+                ? (localChapterEntry.currentProgressPercent ?? localChapterEntry.readProgressPercent)
+                : localChapterEntry?.readProgressPercent,
+            lastRead: entry.last_read,
+            mangaTitle: entry.manga?.title,
+            mangaCover: entry.manga?.cover,
+            mangaAlternativeTitles: mapAlternativeTitles(entry.manga),
+            chapterTitle: chapterTitleMap.get(entry.chapter_id),
+        };
+    });
 
     hydrateLocalChapterReadMetadata(userId, remoteEntries);
     return sortByLastReadDesc(remoteEntries);
@@ -1301,6 +1334,8 @@ export const syncChapterReadProgress = async (
         chapterNumber: number;
         page: number;
         pageCount: number;
+        pageOffsetRatio?: number;
+        progressPercent?: number;
         mangaTitle?: string;
         mangaCover?: string;
         mangaAlternativeTitles?: string[];
@@ -1345,7 +1380,15 @@ export const syncChapterReadProgress = async (
         }
 
         chapterReadTableFeatureState = 'available';
-        return normalizeChapterReadProgress(data);
+        const remoteNormalized = normalizeChapterReadProgress(data);
+        if (!remoteNormalized) {
+            return localEntry;
+        }
+        return {
+            ...remoteNormalized,
+            pageOffsetRatio: localEntry.pageOffsetRatio,
+            currentProgressPercent: localEntry.currentProgressPercent,
+        };
     } catch {
         return localEntry;
     }
@@ -1663,12 +1706,16 @@ export const getLatestProgress = async (userId: string, mangaId: string): Promis
             return undefined;
         }
 
+        const localEntry = getLocalChapterReadProgressEntry(userId, latestChapterProgress.chapterId);
+
         return {
             userId,
             mangaId,
             chapterId: latestChapterProgress.chapterId,
             chapterNumber: latestChapterProgress.chapterNumber,
-            page: latestChapterProgress.page,
+            page: localEntry?.page ?? latestChapterProgress.page,
+            pageOffsetRatio: localEntry?.pageOffsetRatio ?? latestChapterProgress.pageOffsetRatio,
+            progressPercent: localEntry?.currentProgressPercent ?? latestChapterProgress.readProgressPercent,
             lastRead: latestChapterProgress.lastRead,
         } satisfies ReadingProgress;
     };
@@ -1685,6 +1732,9 @@ export const getLatestProgress = async (userId: string, mangaId: string): Promis
             return buildFallbackProgress();
         }
 
+        const localEntry = getLocalChapterReadProgressEntry(userId, data.chapter_id);
+        const matchesPage = localEntry && localEntry.page === data.page;
+
         return {
             ...data,
             userId: data.user_id,
@@ -1692,6 +1742,10 @@ export const getLatestProgress = async (userId: string, mangaId: string): Promis
             chapterId: data.chapter_id,
             chapterNumber: Number(data.chapter_number),
             page: data.page,
+            pageOffsetRatio: matchesPage ? localEntry.pageOffsetRatio : undefined,
+            progressPercent: matchesPage
+                ? (localEntry.currentProgressPercent ?? localEntry.readProgressPercent)
+                : localEntry?.readProgressPercent,
             lastRead: data.last_read
         };
     } catch {
@@ -1704,6 +1758,56 @@ export const removeFromHistory = async (userId: string, mangaId: string): Promis
 };
 
 // ==================== BOOKMARKS (USER-SPECIFIC) ====================
+
+const BOOKMARK_META_PATTERN = /\s*\[\[tp:offset=([0-9.]+),pct=([0-9.]+)\]\]$/;
+
+const encodeBookmarkNoteWithMeta = (
+    note?: string | null,
+    pageOffsetRatio?: number,
+    progressPercent?: number,
+): string | null => {
+    const cleanNote = (note || '').replace(BOOKMARK_META_PATTERN, '').trim();
+    const hasMeta = (typeof pageOffsetRatio === 'number' && Number.isFinite(pageOffsetRatio) && pageOffsetRatio > 0)
+        || (typeof progressPercent === 'number' && Number.isFinite(progressPercent) && progressPercent >= 0);
+
+    if (!hasMeta) {
+        return cleanNote || null;
+    }
+
+    const safeOffset = typeof pageOffsetRatio === 'number' && Number.isFinite(pageOffsetRatio)
+        ? Math.min(1, Math.max(0, pageOffsetRatio)).toFixed(4)
+        : '0';
+    const safePct = typeof progressPercent === 'number' && Number.isFinite(progressPercent)
+        ? Math.min(100, Math.max(0, progressPercent)).toFixed(2)
+        : '0';
+    const metaTag = `[[tp:offset=${safeOffset},pct=${safePct}]]`;
+    return cleanNote ? `${cleanNote} ${metaTag}` : metaTag;
+};
+
+const decodeBookmarkNoteWithMeta = (rawNote?: string | null): {
+    note: string | null;
+    pageOffsetRatio?: number;
+    progressPercent?: number;
+} => {
+    if (!rawNote) {
+        return { note: null };
+    }
+
+    const match = rawNote.match(BOOKMARK_META_PATTERN);
+    if (!match) {
+        return { note: rawNote };
+    }
+
+    const cleanNote = rawNote.replace(BOOKMARK_META_PATTERN, '').trim();
+    const parsedOffset = parseFloat(match[1]);
+    const parsedPct = parseFloat(match[2]);
+
+    return {
+        note: cleanNote || null,
+        pageOffsetRatio: Number.isFinite(parsedOffset) ? parsedOffset : undefined,
+        progressPercent: Number.isFinite(parsedPct) ? parsedPct : undefined,
+    };
+};
 
 export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
     if (!userId) {
@@ -1725,14 +1829,20 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
                     throw error;
                 }
 
-                const rawBookmarks = (data || []).map((bookmark: any) => ({
-                    ...bookmark,
-                    userId: bookmark.user_id,
-                    mangaId: bookmark.manga_id,
-                    chapterId: bookmark.chapter_id,
-                    chapterNumber: Number(bookmark.chapter_number),
-                    createdAt: bookmark.created_at,
-                })) as Bookmark[];
+                const rawBookmarks = (data || []).map((bookmark: any) => {
+                    const decoded = decodeBookmarkNoteWithMeta(bookmark.note);
+                    return {
+                        ...bookmark,
+                        note: decoded.note,
+                        pageOffsetRatio: decoded.pageOffsetRatio,
+                        progressPercent: decoded.progressPercent,
+                        userId: bookmark.user_id,
+                        mangaId: bookmark.manga_id,
+                        chapterId: bookmark.chapter_id,
+                        chapterNumber: Number(bookmark.chapter_number),
+                        createdAt: bookmark.created_at,
+                    };
+                }) as Bookmark[];
                 const mangaIds = [...new Set(rawBookmarks.map((bookmark) => bookmark.mangaId).filter(Boolean))];
                 const chapterIds = [...new Set(rawBookmarks.map((bookmark) => bookmark.chapterId).filter(Boolean))];
 
@@ -1780,6 +1890,8 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
 
                     return {
                         ...bookmark,
+                        pageOffsetRatio: bookmark.pageOffsetRatio ?? existingBookmark?.pageOffsetRatio,
+                        progressPercent: bookmark.progressPercent ?? existingBookmark?.progressPercent,
                         mangaTitle: manga?.title || existingBookmark?.mangaTitle,
                         mangaCover: manga?.cover || existingBookmark?.mangaCover,
                         pageImage: existingBookmark?.pageImage,
@@ -1798,7 +1910,15 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
         }
     }
 
-    return cachedBookmarks;
+    return cachedBookmarks.map((b) => {
+        const decoded = decodeBookmarkNoteWithMeta(b.note);
+        return {
+            ...b,
+            note: decoded.note,
+            pageOffsetRatio: b.pageOffsetRatio ?? decoded.pageOffsetRatio,
+            progressPercent: b.progressPercent ?? decoded.progressPercent,
+        };
+    });
 };
 
 export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'userId'>): Promise<void> => {
@@ -1812,6 +1932,11 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         throw new Error('ALREADY_EXISTS');
     }
 
+    const decodedNote = decodeBookmarkNoteWithMeta(bookmark.note);
+    const cleanNote = decodedNote.note;
+    const effectiveOffset = bookmark.pageOffsetRatio ?? decodedNote.pageOffsetRatio;
+    const effectivePct = bookmark.progressPercent ?? decodedNote.progressPercent;
+
     const nextBookmark: Bookmark = {
         id: createClientEntityId(),
         userId,
@@ -1819,7 +1944,9 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         chapterId: bookmark.chapterId,
         chapterNumber: bookmark.chapterNumber,
         page: bookmark.page,
-        note: bookmark.note,
+        pageOffsetRatio: effectiveOffset,
+        progressPercent: effectivePct,
+        note: cleanNote,
         createdAt: new Date().toISOString(),
         mangaTitle: bookmark.mangaTitle,
         mangaCover: bookmark.mangaCover,
@@ -1853,6 +1980,8 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         throw new Error('ALREADY_EXISTS');
     }
 
+    const dbNote = encodeBookmarkNoteWithMeta(cleanNote, effectiveOffset, effectivePct);
+
     const { error } = await supabase.from('bookmarks').insert({
         id: nextBookmark.id,
         user_id: userId,
@@ -1860,7 +1989,7 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         chapter_id: bookmark.chapterId,
         chapter_number: bookmark.chapterNumber,
         page: bookmark.page,
-        note: bookmark.note,
+        note: dbNote,
         created_at: nextBookmark.createdAt,
     });
 
