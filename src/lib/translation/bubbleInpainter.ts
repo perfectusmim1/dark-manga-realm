@@ -12,7 +12,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 3;
+export const TRANSLATION_BLOCK_VERSION = 4;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -223,8 +223,8 @@ export const inpaintAndRefineBlock = (
 
   // Büyük/stilize harflerin ("NO", "FIRST MURDER.", "ALONE?") pencere sınırına çarpıp
   // balon çerçevesi sanılmasını önlemek için hem bw hem bh'ye göre geniş arama penceresi
-  const padWinX = Math.max(46, bw * 0.48, bh * 0.95);
-  const padWinY = Math.max(38, bh * 0.65, bw * 0.16);
+  const padWinX = Math.max(bh < 55 ? 64 : 46, bw * 0.48, bh * 0.95);
+  const padWinY = Math.max(bh < 55 ? 42 : 38, bh * 0.65, bw * 0.16);
 
   let wx0 = Math.max(0, Math.floor(boxX0 - padWinX));
   let wx1 = Math.min(fullWidth, Math.ceil(boxX1 + padWinX));
@@ -306,17 +306,135 @@ export const inpaintAndRefineBlock = (
       }
     }
 
-    const R = clamp(Math.round(Math.min(bw, bh) * 0.36), 20, 46);
+    const medLineH =
+      lineCores.length > 0
+        ? medianOf(lineCores.map((lc) => Math.max(8, lc.y1 - lc.y0)))
+        : Math.max(16, bh);
+    const R = clamp(Math.round(Math.min(bw, bh) * 0.42), 24, 54);
+    const RTight = clamp(Math.round(medLineH * 0.18), 8, 16);
+    const padCoreX = Math.max(16, Math.round(medLineH * 0.45));
+    const padCoreY = Math.max(6, Math.round(medLineH * 0.14));
+
+    const isInsideAnyCore = (x: number, y: number): boolean => {
+      for (let i = 0; i < lineCores.length; i += 1) {
+        const lc = lineCores[i];
+        if (x >= lc.x0 && x <= lc.x1 && y >= lc.y0 && y <= lc.y1) return true;
+      }
+      return x >= cx0 && x <= cx1 && y >= cy0 && y <= cy1;
+    };
+
+    const isNearAnyLineCore = (x: number, y: number): boolean => {
+      for (let i = 0; i < lineCores.length; i += 1) {
+        const lc = lineCores[i];
+        if (
+          x >= lc.x0 - padCoreX &&
+          x <= lc.x1 + padCoreX &&
+          y >= lc.y0 - padCoreY &&
+          y <= lc.y1 + padCoreY
+        ) {
+          return true;
+        }
+      }
+      return (
+        x >= cx0 - padCoreX &&
+        x <= cx1 + padCoreX &&
+        y >= cy0 - padCoreY &&
+        y <= cy1 + padCoreY
+      );
+    };
 
     /**
-     * Çok Kanallı (Çift Yönlü Parlaklık + 3B Renk / Kroma Farkı) Ön Plan Maskesi:
-     * - Sadece "açık zeminde koyu" veya "koyu zeminde açık" değil;
-     * - Koyu zeminde koyu kırmızı ("ER.") gibi renk (hue/chroma) farkı olan harfleri ve
-     * - Hem beyaz konturu hem koyu iç dolguyu aynı anda yakalar.
+     * Koyu Mürekkep / Koyu İç Dolgulu Harf Maskesi (`fgDark`):
+     * - Yalnızca yerel çevresinden DAHA KOYU olan pikselleri (`pixLum < 185`) işaretler.
+     * - Beyaz kontur pikselleri (`pixLum >= 185`) kesinlikle `0` kaldığı için, "KIM JEONGHYUK",
+     *   "REPARTIDOR DE DALMIN", "31 AÑOS" gibi beyaz konturlu koyu harflerde 3px beyaz kontur
+     *   doğal bir yalıtım hendek (moat) görevi görür; harf içlerinin siyah çerçeve veya koyu yelekle
+     *   birleşmesini %100 engeller!
      */
-    const buildForegroundMask = (localThresh: number, globalThresh: number): Uint8Array => {
+    const buildDarkForegroundMask = (localThresh: number, globalThresh: number): Uint8Array => {
       const fg = new Uint8Array(numPixels);
       const isLightOrMid = bgLumInit >= 115;
+
+      for (let y = 0; y < wh; y += 1) {
+        const y0s = Math.max(0, y - R);
+        const y1s = Math.min(wh, y + R + 1);
+        const r0Off = y0s * iw;
+        const r1Off = y1s * iw;
+        const spanY = y1s - y0s;
+
+        const ty0s = Math.max(0, y - RTight);
+        const ty1s = Math.min(wh, y + RTight + 1);
+        const tr0Off = ty0s * iw;
+        const tr1Off = ty1s * iw;
+        const tSpanY = ty1s - ty0s;
+
+        for (let x = 0; x < ww; x += 1) {
+          const pIdx = y * ww + x;
+          const cIdx = pIdx * 3;
+          const pr = winRgb[cIdx];
+          const pg = winRgb[cIdx + 1];
+          const pb = winRgb[cIdx + 2];
+          const pixLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+
+          // Beyaz kontur ve tam beyaz balon zemini pikselleri asla koyu harf maskesine giremez (Yalıtım Kalkanı)
+          if (pixLum >= 225) continue;
+
+          const x0s = Math.max(0, x - R);
+          const x1s = Math.min(ww, x + R + 1);
+          const invArea = 1 / (spanY * (x1s - x0s));
+
+          const meanR =
+            (iiR[r1Off + x1s] - iiR[r0Off + x1s] - iiR[r1Off + x0s] + iiR[r0Off + x0s]) * invArea;
+          const meanG =
+            (iiG[r1Off + x1s] - iiG[r0Off + x1s] - iiG[r1Off + x0s] + iiG[r0Off + x0s]) * invArea;
+          const meanB =
+            (iiB[r1Off + x1s] - iiB[r0Off + x1s] - iiB[r1Off + x0s] + iiB[r0Off + x0s]) * invArea;
+
+          const tx0s = Math.max(0, x - RTight);
+          const tx1s = Math.min(ww, x + RTight + 1);
+          const tInvArea = 1 / (tSpanY * (tx1s - tx0s));
+
+          const tMeanR =
+            (iiR[tr1Off + tx1s] - iiR[tr0Off + tx1s] - iiR[tr1Off + tx0s] + iiR[tr0Off + tx0s]) *
+            tInvArea;
+          const tMeanG =
+            (iiG[tr1Off + tx1s] - iiG[tr0Off + tx1s] - iiG[tr1Off + tx0s] + iiG[tr0Off + tx0s]) *
+            tInvArea;
+          const tMeanB =
+            (iiB[tr1Off + tx1s] - iiB[tr0Off + tx1s] - iiB[tr1Off + tx0s] + iiB[tr0Off + tx0s]) *
+            tInvArea;
+
+          const inCore = isInsideAnyCore(x, y);
+          const effLocal = inCore ? Math.max(9, localThresh * 0.65) : localThresh;
+          const meanLum = 0.299 * meanR + 0.587 * meanG + 0.114 * meanB;
+          const tMeanLum = 0.299 * tMeanR + 0.587 * tMeanG + 0.114 * tMeanB;
+          const bgMatchesLocal = isLightOrMid && Math.abs(meanLum - bgLumInit) < 32;
+
+          const dLumMedDark = meanLum - pixLum;
+          const dLumTightDark = tMeanLum - pixLum;
+          const dMedDark = Math.max(meanR - pr, meanG - pg, meanB - pb);
+          const dTightDark = Math.max(tMeanR - pr, tMeanG - pg, tMeanB - pb);
+
+          // 1. Açık/gradyanlı zeminde standart veya güneş ışığında solmuş koyu/gri mürekkep
+          //    (Sarı güneş hüzmelerinde yalnızca mavi kanal düştüğü için gerçek parlaklık düşüşü dLumMedDark şarttır!)
+          // 2. Koyu zemin üzerinde bile olsa beyaz dış konturun oluşturduğu parlak dar hale (tMeanLum >= 95) içindeki koyu harf gövdesi (pixLum < 155)!
+          if (
+            (meanLum >= 160 && dLumMedDark > effLocal * 0.82 && dMedDark > effLocal) ||
+            (pixLum < 155 && tMeanLum >= 95 && dLumTightDark > effLocal * 0.75 && dTightDark > effLocal * 0.9)
+          ) {
+            fg[pIdx] = 1;
+          }
+        }
+      }
+      return fg;
+    };
+
+    /**
+     * Parlak / Açık Renkli Harf ve Kontur Maskesi (`fgLight`):
+     * - Siyah/koyu sahnelerdeki ("NO.", "FIRST MURDER.") beyaz konturlu veya parlak renkli harfler için.
+     */
+    const buildLightForegroundMask = (localThresh: number, globalThresh: number): Uint8Array => {
+      const fg = new Uint8Array(numPixels);
 
       for (let y = 0; y < wh; y += 1) {
         const y0s = Math.max(0, y - R);
@@ -343,51 +461,30 @@ export const inpaintAndRefineBlock = (
           const pg = winRgb[cIdx + 1];
           const pb = winRgb[cIdx + 2];
 
-          // 1. Ana kontrast yönü
-          const dLocalPrimary = isLightOrMid
-            ? Math.max(meanR - pr, meanG - pg, meanB - pb)
-            : Math.max(pr - meanR, pg - meanG, pb - meanB);
-          const dGlobalPrimary = isLightOrMid
-            ? Math.max(bgR - pr, bgG - pg, bgB - pb)
-            : Math.max(pr - bgR, pg - bgG, pb - bgB);
+          const inCore = isInsideAnyCore(x, y);
+          const effLocal = inCore ? Math.max(9, localThresh * 0.65) : localThresh;
+          const dLocalLight = Math.max(pr - meanR, pg - meanG, pb - meanB);
+          const dGlobalLight = Math.max(pr - bgR, pg - bgG, pb - bgB);
 
-          if (dLocalPrimary > localThresh || dGlobalPrimary > globalThresh) {
+          if (
+            dLocalLight > effLocal ||
+            (dLocalLight > effLocal * 0.5 && dGlobalLight > globalThresh * 1.25)
+          ) {
             fg[pIdx] = 1;
             continue;
           }
 
-          // 2. Ters yönlü kontur/hale (açık zeminde beyaz hale veya koyu/orta zeminde siyah kontur)
-          const dGlobalOpposite = isLightOrMid
-            ? Math.max(pr - bgR, pg - bgG, pb - bgB)
-            : Math.max(bgR - pr, bgG - pg, bgB - pb);
-          if (bgLumInit > 35 && bgLumInit < 236 && dGlobalOpposite > globalThresh * 0.85) {
-            fg[pIdx] = 1;
-            continue;
-          }
-
-          // 3. Kroma / Renk Tonu Farkı ("ER." gibi siyah zemin üzerinde koyu bordo/kırmızı/mavi harfler)
-          const chromaDiffGlobal =
-            Math.abs((pr - pg) - (bgR - bgG)) +
-            Math.abs((pr - pb) - (bgR - bgB)) +
-            Math.abs((pg - pb) - (bgG - bgB));
+          // Siyah zemin üzerinde koyu kırmızı/bordo ("ER.") gibi yüksek kromalı harfler
           const chromaDiffLocal =
             Math.abs((pr - pg) - (meanR - meanG)) +
             Math.abs((pr - pb) - (meanR - meanB)) +
             Math.abs((pg - pb) - (meanG - meanB));
-          if (chromaDiffGlobal > globalThresh * 1.45 || chromaDiffLocal > localThresh * 1.65) {
+          if (chromaDiffLocal > effLocal * 1.55 && dLocalLight > 6) {
             fg[pIdx] = 1;
           }
         }
       }
       return fg;
-    };
-
-    const isInsideAnyCore = (x: number, y: number): boolean => {
-      for (let i = 0; i < lineCores.length; i += 1) {
-        const lc = lineCores[i];
-        if (x >= lc.x0 && x <= lc.x1 && y >= lc.y0 && y <= lc.y1) return true;
-      }
-      return x >= cx0 && x <= cx1 && y >= cy0 && y <= cy1;
     };
 
     const extractComponents = (fg: Uint8Array) => {
@@ -416,6 +513,8 @@ export const inpaintAndRefineBlock = (
           let touchesBorder = false;
           let overlapsCore = false;
 
+          const startNearCore = isNearAnyLineCore(x, y);
+
           while (qHead < qTail) {
             const curr = queue[qHead++];
             const cy = (curr / ww) | 0;
@@ -442,6 +541,11 @@ export const inpaintAndRefineBlock = (
               for (let nx = nxMin; nx <= nxMax; nx += 1) {
                 const nIdx = rowOff + nx;
                 if (fg[nIdx] === 1 && labels[nIdx] === 0) {
+                  // Harf kuşağı (isNearAnyLineCore) içindeki piksellerin dışarıdaki arka plan çizgileri
+                  // veya balon çerçevesiyle birleşip touchesBorder=true olmasını engelle!
+                  if (!(bgLumInit < 45 && bh < 55) && startNearCore !== isNearAnyLineCore(nx, ny)) {
+                    continue;
+                  }
                   labels[nIdx] = curId;
                   queue[qTail++] = nIdx;
                 }
@@ -475,6 +579,9 @@ export const inpaintAndRefineBlock = (
      * - Gerçek bir harf/kelime bileşeni OCR çekirdek kutusunun (cx0..cx1, cy0..cy1) içinde yoğun piksellere sahiptir (`coreRatio >= 0.16`).
      * - Balon çerçevesi ise pencere sınırına değer (`touchesBorder`) veya çekirdeğin dışından dolanan boş bir halkadır (`coreRatio < 0.12`).
      */
+    const preferLightFirst = bgLumInit < 45 && bh < 55;
+    const isSingleOrDarkSfx = preferLightFirst;
+
     const isValidGlyphComponent = (c: ComponentInfo): boolean => {
       if (c.area < 2) return false;
       const coreRatio = c.corePixels / Math.max(1, c.area);
@@ -484,35 +591,88 @@ export const inpaintAndRefineBlock = (
         return true;
       }
       if (c.touchesBorder) return false;
-      const maxAllowedCompH = Math.max(bh * 1.35, wh * 0.84);
-      const maxAllowedCompW = Math.max(bw * 1.25, ww * 0.9);
+      const maxAllowedCompH = isSingleOrDarkSfx
+        ? Math.max(bh * 2.8, wh * 0.88)
+        : Math.max(bh * 1.35, wh * 0.84);
+      const maxAllowedCompW = isSingleOrDarkSfx
+        ? Math.max(bw * 1.35, ww * 0.9)
+        : Math.max(bw * 1.25, ww * 0.9);
       return c.w <= maxAllowedCompW && c.h <= maxAllowedCompH;
     };
 
-    let fg = buildForegroundMask(20, 32);
-    let { labels, comps } = extractComponents(fg);
-    let valid = comps.filter(isValidGlyphComponent);
-    let accepted = new Set<number>(valid.filter((c) => c.overlapsCore).map((c) => c.id));
+    const getAcceptedSpanW = (acc: Set<number>, vList: ComponentInfo[]): number => {
+      let minX = Infinity;
+      let maxX = -Infinity;
+      for (const c of vList) {
+        if (!acc.has(c.id)) continue;
+        if (c.minx < minX) minX = c.minx;
+        if (c.maxx > maxX) maxX = c.maxx;
+      }
+      return maxX >= minX ? maxX - minX + 1 : 0;
+    };
 
-    if (accepted.size === 0) {
-      fg = buildForegroundMask(11, 18);
-      ({ labels, comps } = extractComponents(fg));
-      valid = comps.filter(isValidGlyphComponent);
-      accepted = new Set<number>(valid.filter((c) => c.overlapsCore).map((c) => c.id));
+    const runMaskPass = (fgMask: Uint8Array) => {
+      const res = extractComponents(fgMask);
+      const v = res.comps.filter(isValidGlyphComponent);
+      const acc = new Set<number>(v.filter((c) => c.overlapsCore).map((c) => c.id));
+      return { ...res, valid: v, accepted: acc, spanW: getAcceptedSpanW(acc, v) };
+    };
+
+    // Arka plan koyuysa ("NO.", "FIRST MURDER.") parlak maskeden başla;
+    // aksi halde ("KIM JEONGHYUK", "31 AÑOS" ve tüm konuşma balonları) koyu mürekkep maskesinden başla.
+    let pass = runMaskPass(
+      preferLightFirst ? buildLightForegroundMask(20, 32) : buildDarkForegroundMask(20, 32),
+    );
+
+    if (pass.accepted.size === 0 || pass.spanW < bw * 0.22) {
+      const gentlePass = runMaskPass(
+        preferLightFirst ? buildLightForegroundMask(11, 18) : buildDarkForegroundMask(11, 18),
+      );
+      if (gentlePass.spanW > pass.spanW) pass = gentlePass;
     }
 
-    // OCR kutusunun kenarında kesilmiş harfleri ("?", "!", "ER.", "ALONE?") komşu balonlara atlamadan büyüt
+    if (pass.accepted.size === 0 || pass.spanW < bw * 0.22) {
+      const altPass = runMaskPass(
+        preferLightFirst ? buildDarkForegroundMask(16, 26) : buildLightForegroundMask(18, 28),
+      );
+      if (altPass.spanW > pass.spanW) pass = altPass;
+    }
+
+    const { labels, comps, valid, accepted } = pass;
+
+    // OCR kutusunun kenarında kesilmiş harfleri ("?", "!", "ER.", "ALONE?") komşu balonlara veya
+    // balon dışı noktalı arka plan dokularına (screentone) sıçramadan kontrollü olarak büyüt
+    const maxGrowX = isSingleOrDarkSfx
+      ? Math.max(64, bh * 2.1, bw * 0.58)
+      : Math.max(26, bh * 0.8, bw * 0.18);
+    const maxGrowY = isSingleOrDarkSfx
+      ? Math.max(46, bh * 1.45)
+      : Math.max(18, bh * 0.42);
+    const allowedMinX = Math.max(1, cx0 - maxGrowX);
+    const allowedMaxX = Math.min(ww - 2, cx1 + maxGrowX);
+    const allowedMinY = Math.max(1, cy0 - maxGrowY);
+    const allowedMaxY = Math.min(wh - 2, cy1 + maxGrowY);
+
     let changed = true;
-    while (changed) {
+    let growIter = 0;
+    const maxGrowIter = isSingleOrDarkSfx ? 4 : 3;
+    while (changed && growIter < maxGrowIter) {
       changed = false;
+      growIter += 1;
       const accComps = valid.filter((c) => accepted.has(c.id));
       if (accComps.length === 0) break;
 
       const heights = accComps.filter((c) => c.h >= 6).map((c) => c.h);
       const maxH = heights.length > 0 ? Math.max(...heights) : Math.max(20, bh * 0.5);
       const medH = heights.length > 0 ? medianOf(heights) : 20;
-      const padX = Math.max(20, medH * 1.65, maxH * 0.95);
-      const padY = Math.max(14, medH * 1.05, maxH * 0.65);
+      const padX = Math.min(
+        maxGrowX,
+        isSingleOrDarkSfx ? Math.max(18, medH * 1.35) : Math.max(14, medH * 1.15),
+      );
+      const padY = Math.min(
+        maxGrowY,
+        isSingleOrDarkSfx ? Math.max(12, medH * 0.85) : Math.max(10, medH * 0.75),
+      );
 
       let uMinX = Infinity;
       let uMaxX = -Infinity;
@@ -524,15 +684,22 @@ export const inpaintAndRefineBlock = (
         if (c.miny < uMinY) uMinY = c.miny;
         if (c.maxy > uMaxY) uMaxY = c.maxy;
       }
-      uMinX -= padX;
-      uMaxX += padX;
-      uMinY -= padY;
-      uMaxY += padY;
+      uMinX = Math.max(allowedMinX, uMinX - padX);
+      uMaxX = Math.min(allowedMaxX, uMaxX + padX);
+      uMinY = Math.max(allowedMinY, uMinY - padY);
+      uMaxY = Math.min(allowedMaxY, uMaxY + padY);
 
+      const maxCompH = isSingleOrDarkSfx
+        ? Math.max(medH * 3.8, maxH * 3.2, bh * 2.8)
+        : Math.max(medH * 3.0, maxH * 1.8);
       for (const c of valid) {
         if (accepted.has(c.id)) continue;
-        // Aynı balon içindeki vurgulu büyük kelimeleri ("ALONE?") kaçırmamak için maxH * 2.8'e kadar izin ver
-        if (c.h > Math.max(medH * 3.2, maxH * 1.85) || c.w > Math.max(medH * 6.5, bw * 1.25)) {
+        if (c.minx < allowedMinX || c.maxx > allowedMaxX || c.miny < allowedMinY || c.maxy > allowedMaxY) {
+          continue;
+        }
+        // Nokta gürültülerini (1-3px screentone beneklerini) dışarıdan toplama
+        if (c.area < 6 && !c.overlapsCore) continue;
+        if (c.h > maxCompH || c.w > Math.max(medH * 6.0, bw * 1.2)) {
           continue;
         }
         if (c.maxx >= uMinX && c.minx <= uMaxX && c.maxy >= uMinY && c.miny <= uMaxY) {
@@ -554,12 +721,12 @@ export const inpaintAndRefineBlock = (
       // Eğer bileşen satır yüksekliğiyle uyumluysa (tüm pencereyi boydan boya geçen panel çizgisi değilse)
       // ve OCR çekirdeğine yakınsa, pencereyi o yönde genişlet!
       const vOverlapCore = Math.min(c.maxy, cy1 + 12) - Math.max(c.miny, cy0 - 12);
-      if (c.h <= bh * 1.75 && c.w <= bw * 1.2 && vOverlapCore >= Math.min(c.h, bh) * 0.45) {
-        if (c.minx <= 2 && curWx0 > 0 && cx0 - c.maxx <= bh * 1.2) {
-          expandLeft = Math.max(expandLeft, Math.round(bh * 1.5 + 48));
+      if (c.h <= bh * 3.0 && c.w <= bw * 1.4 && vOverlapCore >= Math.min(c.h, bh) * 0.45) {
+        if (c.minx <= 2 && curWx0 > 0 && cx0 - c.maxx <= bh * 1.6) {
+          expandLeft = Math.max(expandLeft, Math.round(bh * 1.8 + 54));
         }
-        if (c.maxx >= ww - 3 && curWx1 < fullWidth && c.minx - cx1 <= bh * 1.2) {
-          expandRight = Math.max(expandRight, Math.round(bh * 1.5 + 48));
+        if (c.maxx >= ww - 3 && curWx1 < fullWidth && c.minx - cx1 <= bh * 1.6) {
+          expandRight = Math.max(expandRight, Math.round(bh * 1.8 + 54));
         }
       }
       const hOverlapCore = Math.min(c.maxx, cx1 + 12) - Math.max(c.minx, cx0 - 12);
@@ -681,6 +848,10 @@ export const inpaintAndRefineBlock = (
     gMaxX,
     gMinY,
     gMaxY,
+    winRgb,
+    bgR,
+    bgG,
+    bgB,
   );
 
   // Harf yüksekliğine ve kapalı kontur varlığına göre uyarlanır morfolojik genişletme (Adaptive Dilation)
@@ -934,20 +1105,28 @@ export const inpaintAndRefineBlock = (
     );
 
     // Silme Sonrası Artık İz Kontrolü (Post-Inpaint Residual Verification):
-    // Harf kutusunun hemen içinde hala yüksek kontrastlı kontur/gölge kalıntısı varsa 2. geçişle temizle
-    const residualThresh = Math.max(32, ringStd * 2.35);
+    // Harf kutusunun hemen içinde hala yüksek kontrastlı kontur/gölge kalıntısı varsa 2. geçişle temizle.
+    // Gradyan balonlarda yanlış tetiklenmemesi için her pikseli kendi 5px komşuluğuyla kıyasla.
+    const residualThresh = Math.max(36, ringStd * 2.2);
     let residualFound = 0;
     const resMask = new Uint8Array(numPixels);
-    for (let y = Math.max(1, gMinY - 3); y <= Math.min(wh - 2, gMaxY + 3); y += 1) {
+    for (let y = Math.max(3, gMinY - 2); y <= Math.min(wh - 4, gMaxY + 2); y += 1) {
       const rOff = y * ww;
-      for (let x = Math.max(1, gMinX - 3); x <= Math.min(ww - 2, gMaxX + 3); x += 1) {
+      for (let x = Math.max(3, gMinX - 2); x <= Math.min(ww - 4, gMaxX + 2); x += 1) {
         const idx = rOff + x;
         if (eraseMask[idx] || borderMask[idx]) continue;
         const cIdx = idx * 3;
+        const lIdx = (idx - 3) * 3;
+        const rIdx = (idx + 3) * 3;
+        const tIdx = (idx - 3 * ww) * 3;
+        const bIdx = (idx + 3 * ww) * 3;
+        const locR = (cleaned[lIdx] + cleaned[rIdx] + cleaned[tIdx] + cleaned[bIdx]) * 0.25;
+        const locG = (cleaned[lIdx + 1] + cleaned[rIdx + 1] + cleaned[tIdx + 1] + cleaned[bIdx + 1]) * 0.25;
+        const locB = (cleaned[lIdx + 2] + cleaned[rIdx + 2] + cleaned[tIdx + 2] + cleaned[bIdx + 2]) * 0.25;
         const dev = Math.max(
-          Math.abs(cleaned[cIdx] - ringMedR),
-          Math.abs(cleaned[cIdx + 1] - ringMedG),
-          Math.abs(cleaned[cIdx + 2] - ringMedB),
+          Math.abs(cleaned[cIdx] - locR),
+          Math.abs(cleaned[cIdx + 1] - locG),
+          Math.abs(cleaned[cIdx + 2] - locB),
         );
         if (dev > residualThresh) {
           resMask[idx] = 1;
@@ -1040,16 +1219,27 @@ export const inpaintAndRefineBlock = (
     toNorm(absPatchX1, fullWidth),
   ];
 
-  // Simetrik merkezli güvenli genişlik ve yükseklik
+  // Simetrik merkezli güvenli genişlik ve yükseklik:
+  // Eğer konuşma balonunun hem sol hem sağ duvarı tespit edildiyse, balonun gerçek yatay merkezini
+  // ve tam iç genişliğini kullan (böylece yazı sağa/sola sıkışmaz, balonun tam ortasına yayılır).
   const glyphW = Math.max(24, gMaxX - gMinX + 1);
   const glyphH = Math.max(18, gMaxY - gMinY + 1);
+  const layoutCenterX =
+    hitLeftWall && hitRightWall && safeLocalRight > safeLocalLeft + 24
+      ? Math.round((safeLocalLeft + safeLocalRight) * 0.5)
+      : midLocalX;
+  const layoutCenterY =
+    hitTopWall && hitBottomWall && safeLocalBottom > safeLocalTop + 20
+      ? Math.round((safeLocalTop + safeLocalBottom) * 0.5)
+      : midLocalY;
+
   const maxHalfW = Math.max(
     glyphW * 0.5,
-    Math.min(midLocalX - safeLocalLeft, safeLocalRight - midLocalX),
+    Math.min(layoutCenterX - safeLocalLeft, safeLocalRight - layoutCenterX),
   );
   const maxHalfH = Math.max(
     glyphH * 0.55,
-    Math.min(midLocalY - safeLocalTop, safeLocalBottom - midLocalY),
+    Math.min(layoutCenterY - safeLocalTop, safeLocalBottom - layoutCenterY),
   );
   const safeW = Math.max(glyphW, maxHalfW * 2);
   const safeH = Math.max(glyphH * 1.1, maxHalfH * 2);
@@ -1153,8 +1343,8 @@ export const inpaintAndRefineBlock = (
     }
   }
 
-  const absCenterX = wx0 + midLocalX;
-  const absCenterY = wy0 + midLocalY;
+  const absCenterX = wx0 + layoutCenterX;
+  const absCenterY = wy0 + layoutCenterY;
   const refinedX0 = clamp(absCenterX - finalBoxW * 0.5, 0, fullWidth - 4);
   const refinedX1 = clamp(absCenterX + finalBoxW * 0.5, refinedX0 + 4, fullWidth);
   const refinedY0 = clamp(absCenterY - finalBoxH * 0.5, 0, fullHeight - 4);

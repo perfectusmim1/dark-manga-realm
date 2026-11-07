@@ -9,6 +9,7 @@ const CLEARED_MARKERS_STORAGE_KEY = 'toonparrot_translation_cleared_v1';
 
 export interface StoredPageTranslationRecord {
   key: string;
+  v?: number;
   chapterId: string;
   lang: string;
   pageIndex: number;
@@ -101,9 +102,14 @@ const writeClearedMarkers = (markers: Record<string, string>) => {
   }
 };
 
-export const isValidCachedBlockList = (rawBlocks: unknown): rawBlocks is TranslationBlock[] => {
+export const isValidCachedBlockList = (
+  rawBlocks: unknown,
+  recordVersion?: number,
+): rawBlocks is TranslationBlock[] => {
   if (!Array.isArray(rawBlocks)) return false;
-  if (rawBlocks.length === 0) return true;
+  if (rawBlocks.length === 0) {
+    return recordVersion === TRANSLATION_BLOCK_VERSION;
+  }
   return rawBlocks.every((entry) => {
     if (!entry || typeof entry !== 'object') return false;
     const b = entry as Partial<TranslationBlock>;
@@ -155,7 +161,7 @@ export const getLocalChapterTranslations = async (
   if (db) {
     const records = await db.getAllFromIndex('pages', 'by-chapter-lang', [chapterId, lang]);
     for (const record of records) {
-      if (typeof record.pageIndex === 'number' && isValidCachedBlockList(record.blocks)) {
+      if (typeof record.pageIndex === 'number' && isValidCachedBlockList(record.blocks, record.v)) {
         result.set(record.pageIndex, record.blocks);
       }
     }
@@ -166,7 +172,7 @@ export const getLocalChapterTranslations = async (
     if (
       record.chapterId === chapterId &&
       record.lang === lang &&
-      isValidCachedBlockList(record.blocks)
+      isValidCachedBlockList(record.blocks, record.v)
     ) {
       result.set(record.pageIndex, record.blocks);
     }
@@ -185,6 +191,7 @@ export const putLocalPageTranslation = async (
 
   const record: StoredPageTranslationRecord = {
     key: makeRecordKey(chapterId, lang, pageIndex),
+    v: TRANSLATION_BLOCK_VERSION,
     chapterId,
     lang,
     pageIndex,
@@ -229,6 +236,7 @@ export const putLocalChapterTranslationsBatch = async (
       if (entry.pageIndex < 0) continue;
       await tx.store.put({
         key: makeRecordKey(chapterId, lang, entry.pageIndex),
+        v: TRANSLATION_BLOCK_VERSION,
         chapterId,
         lang,
         pageIndex: entry.pageIndex,
@@ -244,6 +252,7 @@ export const putLocalChapterTranslationsBatch = async (
       const key = makeRecordKey(chapterId, lang, entry.pageIndex);
       memoryFallbackStore.set(key, {
         key,
+        v: TRANSLATION_BLOCK_VERSION,
         chapterId,
         lang,
         pageIndex: entry.pageIndex,

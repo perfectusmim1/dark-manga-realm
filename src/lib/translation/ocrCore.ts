@@ -291,8 +291,8 @@ export const runPaddleOcr = async (
       checkAbort(signal);
       const rec = await recognizeBox(img, box, runners);
       const text = rec.text.trim();
-      // 52+ güvenli parçaları da tut; aynı satırdaki yüksek güvenli kelimenin devamıysa ("FIRST MURD" + "ER.") kurtarılacak
-      if (!text || rec.confidence < 52) continue;
+      // 48+ güvenli parçaları da tut; aynı satırdaki veya aynı balon içindeki yüksek güvenli satırların devamıysa kurtarılacak
+      if (!text || rec.confidence < 48) continue;
       lines.push({
         text,
         confidence: rec.confidence,
@@ -332,14 +332,15 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
   const letters = text.match(/\p{L}/gu)?.length ?? 0;
   const digits = text.match(/\p{N}/gu)?.length ?? 0;
   const junk = text.match(/[^\p{L}\p{N}\s.,!?'"“”‘’…:;()\-–—~&%+*]/gu)?.length ?? 0;
-  const isCleanAlphabetic =
+  const isCleanText =
     junk === 0 &&
-    digits === 0 &&
     letters >= 3 &&
-    /^[a-zA-Z]+(?:['\s-][a-zA-Z]+)*[!?.…,:;'"~-]*$/.test(text);
+    /^[a-zA-Z0-9]+(?:[\s.,!?'"“”‘’…:;()\-–—~]+[a-zA-Z0-9]+)*[\s.,!?'"“”‘’…:;()\-–—~]*$/.test(
+      stripped || text,
+    );
 
   const effectiveMinConf =
-    isShortMeaningful || isCleanAlphabetic ? Math.min(minConfidence, 64) : minConfidence;
+    isShortMeaningful || isCleanText ? Math.min(minConfidence, 58) : minConfidence;
 
   if (line.confidence < effectiveMinConf) return false;
   if (letters === 0) return false;
@@ -352,7 +353,7 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
   return true;
 };
 
-/** Baştaki/sondaki balon kenarı artıklarını ("|", "'", "\\" vb.) temizler. */
+/** Baştaki/sondaki balon kenarı artıklarını ("|", "'", "\\" vb.) ve ASCII sözlük kaynaklı İspanyolca "¿" -> "C" okumalarını temizler. */
 export const cleanOcrText = (text: string): string => {
   const tokens = text.replace(/\s+/g, ' ').trim().split(' ');
   const isJunkToken = (tok: string) =>
@@ -363,6 +364,13 @@ export const cleanOcrText = (text: string): string => {
     .join(' ')
     .replace(/^[|\\/_=~^`]+/u, '')
     .replace(/[|\\/_=~^`]+$/u, '')
+    .replace(
+      /\b[cC](?=(?:eh|ah|oh|que|quien|qlien|qle|como|cuando|cuanto|donde|por|para|podria|podrias|verdad|estaria|esta|eso|ese|ahora|acaso|sera|puede|puedo|tiene|hay)\b)/gi,
+      '',
+    )
+    .replace(/\b[qQ][lL][eE]\b/g, 'QUE')
+    .replace(/\b[qQ][lL][iI][eE][nN]\b/g, 'QUIEN')
+    .replace(/\b[mM][lL][cC][hH]([aA][sS]?|[oO][sS]?)\b/g, 'Much$1')
     .trim();
 };
 
@@ -476,25 +484,51 @@ export const groupOcrLinesIntoBubbles = (
   // Yüksek güvenli satırları seç
   const strongLines = cleanedAll.filter((l) => isUsableOcrLine(l, MIN_LINE_CONFIDENCE));
 
-  // Aynı yatay satırda (baseline) yüksek güvenli bir satırın hemen sağında/solunda kalan
-  // 52..78 güven aralığındaki parçaları ("ER." gibi) kurtar
+  // 1) Aynı yatay satırda (baseline) yüksek güvenli bir satırın hemen sağında/solunda kalan parçaları ("ER." gibi)
+  // 2) Veya aynı konuşma balonu sütununda yüksek güvenli bir satırın hemen üstünde/altında kalan temiz satırları ("Esta", "Ocultara el sol, que" gibi) kurtar
   const rescuedLines = cleanedAll.filter((cand) => {
     if (isUsableOcrLine(cand, MIN_LINE_CONFIDENCE)) return false;
-    if (cand.confidence < 52) return false;
+    if (cand.confidence < 48) return false;
     const letters = cand.text.match(/\p{L}/gu)?.length ?? 0;
+    const junk = cand.text.match(/[^\p{L}\p{N}\s.,!?'"“”‘’…:;()\-–—~&%+*]/gu)?.length ?? 0;
     if (letters < 1) return false;
     const cb = cand.bbox;
     const ch = cb.y1 - cb.y0;
+    const cw = cb.x1 - cb.x0;
+    const centerXc = (cb.x0 + cb.x1) * 0.5;
+
     return strongLines.some((s) => {
       const sb = s.bbox;
       const sh = sb.y1 - sb.y0;
+      const sw = sb.x1 - sb.x0;
+      const centerXs = (sb.x0 + sb.x1) * 0.5;
       const minH = Math.min(ch, sh);
       const maxH = Math.max(ch, sh);
       if (maxH / Math.max(1, minH) > 1.85) return false;
+
+      // Yatay komşu ("FIRST MURD" + "ER.")
       const vOverlap = Math.min(cb.y1, sb.y1) - Math.max(cb.y0, sb.y0);
-      if (vOverlap < minH * 0.5) return false;
       const hGap = Math.max(cb.x0, sb.x0) - Math.min(cb.x1, sb.x1);
-      return hGap >= -minH * 0.4 && hGap <= maxH * 1.65;
+      if (vOverlap >= minH * 0.5 && hGap >= -minH * 0.4 && hGap <= maxH * 1.65) {
+        return true;
+      }
+
+      // Dikey balon içi komşu ("Esta" + "BEBIDA SABE" vb.)
+      if (letters >= 2 && junk === 0 && cand.confidence >= 50) {
+        const vGap = Math.max(cb.y0, sb.y0) - Math.min(cb.y1, sb.y1);
+        const hOverlap = Math.min(cb.x1, sb.x1) - Math.max(cb.x0, sb.x0);
+        const narrow = Math.min(cw, sw);
+        const centerDist = Math.abs(centerXc - centerXs);
+        if (
+          vGap >= -minH * 0.25 &&
+          vGap <= maxH * 1.15 &&
+          hOverlap > narrow * 0.45 &&
+          centerDist < maxH * 1.65
+        ) {
+          return true;
+        }
+      }
+      return false;
     });
   });
 
@@ -502,6 +536,28 @@ export const groupOcrLinesIntoBubbles = (
     (a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0,
   );
   if (lines.length === 0) return [];
+
+  // Bir satırın iki ayrı yan yana sütunun ("REPARTIDOR" ve "31 ANOS") üstünü/altını boydan boya
+  // kaplayan geniş bir başlık ("KIM JEONGHYUK") olup olmadığını kontrol eder.
+  const spansSeparateSideBySideColumns = (wideIdx: number, colIdx: number): boolean => {
+    const wBox = lines[wideIdx].bbox;
+    const cBox = lines[colIdx].bbox;
+    const ch = cBox.y1 - cBox.y0;
+    for (let k = 0; k < lines.length; k += 1) {
+      if (k === wideIdx || k === colIdx) continue;
+      const oBox = lines[k].bbox;
+      const oh = oBox.y1 - oBox.y0;
+      const vOv = Math.min(cBox.y1, oBox.y1) - Math.max(cBox.y0, oBox.y0);
+      const hGap = Math.max(cBox.x0, oBox.x0) - Math.min(cBox.x1, oBox.x1);
+      // colIdx ile aynı yatay hizada ama aralarında belirgin boşluk olan ikinci bir sütun varsa ("REPARTIDOR" vs "31 ANOS")
+      if (vOv >= Math.min(ch, oh) * 0.4 && hGap > Math.max(ch, oh) * 0.55) {
+        const ov1 = Math.min(wBox.x1, cBox.x1) - Math.max(wBox.x0, cBox.x0);
+        const ov2 = Math.min(wBox.x1, oBox.x1) - Math.max(wBox.x0, oBox.x0);
+        if (ov1 > 0 && ov2 > 0) return true;
+      }
+    }
+    return false;
+  };
 
   const parent = lines.map((_, i) => i);
   const find = (i: number): number => {
@@ -527,13 +583,14 @@ export const groupOcrLinesIntoBubbles = (
       const maxH = Math.max(ha, hb);
 
       // 1. Durum: Aynı yatay satırda yan yana bölünmüş parçalar ("FIRST MURD" + "ER.")
+      // Not: Aralarındaki boşluk makul bir kelime/harf boşluğu kadarsa birleştir; iki ayrı sütunsa ("REPARTIDOR" vs "31 ANOS") birleştirme!
       const vOverlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
       const hGap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1);
       if (
         vOverlap >= minH * 0.52 &&
         hGap >= -minH * 0.35 &&
-        hGap <= maxH * 1.55 &&
-        maxH / Math.max(1, minH) <= 1.85
+        hGap <= maxH * 0.62 &&
+        maxH / Math.max(1, minH) <= 1.65
       ) {
         parent[find(j)] = find(i);
         continue;
@@ -547,6 +604,30 @@ export const groupOcrLinesIntoBubbles = (
       const vGap = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1);
       if (vGap > maxH * 1.15) continue;
 
+      // İki satır arasında dikeyde başka bir ara satır varsa (ör. 1. satır 2. satırı atlayıp 3. satırla birleşmeye çalışıyorsa) engelle
+      let hasIntermediateRow = false;
+      for (let m = i + 1; m < j; m += 1) {
+        const mb = lines[m].bbox;
+        const mCenterY = (mb.y0 + mb.y1) * 0.5;
+        if (mCenterY > a.y1 - minH * 0.2 && mCenterY < b.y0 + minH * 0.2) {
+          const ovA = Math.min(a.x1, mb.x1) - Math.max(a.x0, mb.x0);
+          const ovB = Math.min(b.x1, mb.x1) - Math.max(b.x0, mb.x0);
+          if (ovA > 0 || ovB > 0) {
+            hasIntermediateRow = true;
+            break;
+          }
+        }
+      }
+      if (hasIntermediateRow) continue;
+
+      // Eğer satırlardan biri iki ayrı yan yana sütunun üstünü kapatan geniş bir başlıksa ("KIM JEONGHYUK"), sütunlarla birleştirme
+      if (
+        spansSeparateSideBySideColumns(i, j) ||
+        spansSeparateSideBySideColumns(j, i)
+      ) {
+        continue;
+      }
+
       const overlap = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
       const narrow = Math.min(wa, wb);
       const centerDist = Math.abs(centerXa - centerXb);
@@ -554,7 +635,9 @@ export const groupOcrLinesIntoBubbles = (
       // 2. Durum: Standart benzer boyutlu balon satırları
       const heightRatio = maxH / Math.max(1, minH);
       if (heightRatio <= 1.65) {
-        const aligned = overlap > narrow * 0.35 || (overlap > 0 && centerDist < maxH * 2);
+        const aligned =
+          (overlap > narrow * 0.35 && centerDist < Math.max(maxH * 2.2, Math.max(wa, wb) * 0.32)) ||
+          (overlap > 0 && centerDist < maxH * 1.8);
         if (aligned && vGap <= minH * 1.15) {
           parent[find(j)] = find(i);
           continue;
@@ -697,7 +780,7 @@ export const groupOcrLinesIntoBubbles = (
 };
 
 const CREDIT_LINE_REGEX =
-  /\b(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)\b/i;
+  /\b(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)\b/i;
 const URL_LINE_REGEX =
   /(?:https?:\/\/|www\.|discord\.gg|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
 const STRONG_PROMO_REGEX =

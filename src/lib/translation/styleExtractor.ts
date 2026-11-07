@@ -91,10 +91,37 @@ export const fillEnclosedGlyphInteriors = (
   gMaxX: number,
   gMinY: number,
   gMaxY: number,
+  winRgb?: Int32Array,
+  bgR = 255,
+  bgG = 255,
+  bgB = 255,
 ): EnclosedFillResult => {
   const numPixels = ww * wh;
   const combinedMask = new Uint8Array(rawMask);
   const enclosedInteriorMask = new Uint8Array(numPixels);
+
+  // rawMask'in medyan parlaklığını ölç (normal koyu mürekkep mi yoksa beyaz/açık dış kontur mu?)
+  let rawLum = 20;
+  const bgLum = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB;
+  if (winRgb) {
+    const rawLums: number[] = [];
+    const step = Math.max(1, Math.floor(((gMaxY - gMinY + 1) * (gMaxX - gMinX + 1)) / 600));
+    let k = 0;
+    for (let y = Math.max(0, gMinY); y <= Math.min(wh - 1, gMaxY); y += 1) {
+      const rOff = y * ww;
+      for (let x = Math.max(0, gMinX); x <= Math.min(ww - 1, gMaxX); x += 1) {
+        const idx = rOff + x;
+        if (!rawMask[idx]) continue;
+        k += 1;
+        if (k % step !== 0) continue;
+        const c3 = idx * 3;
+        rawLums.push(0.299 * winRgb[c3] + 0.587 * winRgb[c3 + 1] + 0.114 * winRgb[c3 + 2]);
+      }
+    }
+    if (rawLums.length > 0) {
+      rawLum = medianOf(rawLums);
+    }
+  }
 
   // Konturdaki 1-2 piksellik anti-aliasing çatlaklarından sızmayı önlemek için geçici 1px kapanmış duvar
   const wall = new Uint8Array(numPixels);
@@ -214,11 +241,46 @@ export const fillEnclosedGlyphInteriors = (
       }
 
       if (!touchesBorderMask && cTail <= maxHoleArea) {
-        for (let k = 0; k < cTail; k += 1) {
-          const pIdx = compPixels[k];
-          combinedMask[pIdx] = 1;
-          enclosedInteriorMask[pIdx] = 1;
-          enclosedCount += 1;
+        // Normal konuşma balonlarındaki "O, D, A, B, P, R" harflerinin içindeki beyaz zemin boşluklarını (counter)
+        // konturlu harf iç dolgusu sanmamak için renk kontrolü yap:
+        let isTrueGlyphFill = true;
+        if (winRgb) {
+          const hRs: number[] = [];
+          const hGs: number[] = [];
+          const hBs: number[] = [];
+          const step = Math.max(1, Math.floor(cTail / 64));
+          for (let k = 0; k < cTail; k += step) {
+            const c3 = compPixels[k] * 3;
+            hRs.push(winRgb[c3]);
+            hGs.push(winRgb[c3 + 1]);
+            hBs.push(winRgb[c3 + 2]);
+          }
+          const holeR = medianOf(hRs);
+          const holeG = medianOf(hGs);
+          const holeB = medianOf(hBs);
+          const holeLum = 0.299 * holeR + 0.587 * holeG + 0.114 * holeB;
+          const holeToBgDist = colorDist(holeR, holeG, holeB, bgR, bgG, bgB);
+          const holeSat = rgbSaturation(holeR, holeG, holeB);
+
+          // Bir kapalı cebin (hole) gerçek bir "konturlu harf iç dolgusu" ("NO.", "FIRST MURDER." vb.) sayılması için:
+          // 1) Dış kontur parlak olup iç cep ondan belirgin şekilde KOYU olmalıdır (holeLum < rawLum - 22), VEYA
+          // 2) Dış kontur koyu olup (rawLum < 75) iç cep arka plandan tamamen farklı doygun bir renk olmalıdır.
+          // Aksi halde (özellikle holeLum >= rawLum olan tüm açık/gradyanlı cepler) "o, a, e, d, O, D, A, B" harflerinin ortasındaki arka plan deliğidir!
+          const isDarkCoreInsideBrightOutline = rawLum >= 140 && holeLum < rawLum - 22;
+          const isColoredCoreInsideBlackOutline =
+            rawLum < 75 && holeToBgDist >= 55 && holeSat >= 0.38 && holeLum < bgLum - 25;
+          if (!isDarkCoreInsideBrightOutline && !isColoredCoreInsideBlackOutline) {
+            isTrueGlyphFill = false;
+          }
+        }
+
+        if (isTrueGlyphFill) {
+          for (let k = 0; k < cTail; k += 1) {
+            const pIdx = compPixels[k];
+            combinedMask[pIdx] = 1;
+            enclosedInteriorMask[pIdx] = 1;
+            enclosedCount += 1;
+          }
         }
       }
     }
@@ -297,6 +359,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       dist[idx] = d;
     }
   }
+  let maxDist = 0;
   for (let y = wh - 1; y >= 0; y -= 1) {
     const rOff = y * ww;
     for (let x = ww - 1; x >= 0; x -= 1) {
@@ -306,6 +369,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       if (x < ww - 1 && dist[idx + 1] + 1 < d) d = dist[idx + 1] + 1;
       if (y < wh - 1 && dist[idx + ww] + 1 < d) d = dist[idx + ww] + 1;
       dist[idx] = d;
+      if (d > maxDist && d < 9000) maxDist = d;
     }
   }
 
@@ -353,7 +417,9 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     }
   }
 
-  // Kapalı iç alan yoksa veya yeterli örnek çıkmadıysa mesafe dönüşümü (dist=1 vs dist>=2) ile ayır
+  // Kapalı iç alan yoksa veya yeterli örnek çıkmadıysa mesafe dönüşümü (dist<=edgeMaxD vs dist>=coreMinD) ile ayır.
+  // Kalın konturlu SFX/başlık yazılarında ("KIM JEONGHYUK", "REPARTIDOR DE DALMIN", "31 AÑOS")
+  // beyaz kontur 2-3px kalınlığında olduğu için çekirdek örneklemesini daha derinden (coreMinD) al.
   if (coreRs.length < 12) {
     edgeRs.length = 0;
     edgeGs.length = 0;
@@ -363,6 +429,9 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     coreBs.length = 0;
     coreYs.length = 0;
 
+    const edgeMaxD = maxDist >= 6 ? 2 : 1;
+    const coreMinD = maxDist >= 7 ? 4 : maxDist >= 5 ? 3 : 2;
+
     for (let y = 0; y < wh; y += 1) {
       const rOff = y * ww;
       for (let x = 0; x < ww; x += 1) {
@@ -370,12 +439,12 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         const d = dist[idx];
         if (d <= 0) continue;
         const cIdx = idx * 3;
-        if (d === 1) {
+        if (d <= edgeMaxD) {
           edgeRs.push(winRgb[cIdx]);
           edgeGs.push(winRgb[cIdx + 1]);
           edgeBs.push(winRgb[cIdx + 2]);
         }
-        if (d >= 2) {
+        if (d >= coreMinD) {
           coreRs.push(winRgb[cIdx]);
           coreGs.push(winRgb[cIdx + 1]);
           coreBs.push(winRgb[cIdx + 2]);
@@ -412,23 +481,71 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const fillToEdgeDist = colorDist(fillR, fillG, fillB, edgeR, edgeG, edgeB);
   const edgeToBgDist = colorDist(edgeR, edgeG, edgeB, ringMedR, ringMedG, ringMedB);
   const fillToBgDist = colorDist(fillR, fillG, fillB, ringMedR, ringMedG, ringMedB);
+  const fillLum = 0.299 * fillR + 0.587 * fillG + 0.114 * fillB;
+  const edgeLum = 0.299 * edgeR + 0.587 * edgeG + 0.114 * edgeB;
 
   // Kontur tespiti:
-  // 1) Kapalı iç alan varsa ve dış halka (edge) ile iç dolgu (fill) arasında belirgin kontrast varsa (ör. beyaz konturlu siyah "NO" veya beyaz konturlu bordo "FIRST MURDER.")
-  // 2) Veya yarı saydam/dokulu zeminde harf kenarında zıt parlaklıkta hale varsa
+  // Normal anti-aliasing pikselleri her zaman fillLum ile bgLum ARASINDA yer alır (min(fillLum,bgLum) <= edgeLum <= max(fillLum,bgLum)).
+  // Gerçek bir dış kontur (stroke) ise ya:
+  // 1) Kapalı iç dolguya (hasSignificantEnclosed) sahiptir ("NO", "FIRST MURDER.", "REPARTIDOR DE DALMIN", "31 AÑOS"), ya da
+  // 2) Hem harf dolgusundan hem arka plandan daha parlak (beyaz hale) veya her ikisinden daha koyu (siyah kontur) bir dış halkadır!
+  // Koyu harf maskesi (fgDark) yalnızca harf içini yakaladığında, beyaz/parlak dış kontur
+  // fullGlyphMask'in hemen 1-2px DIŞINDA yer alır ("KIM JEONGHYUK", "REPARTIDOR DE DALMIN", "31 AÑOS").
+  const haloRs: number[] = [];
+  const haloGs: number[] = [];
+  const haloBs: number[] = [];
+  for (let y = 2; y < wh - 2; y += 1) {
+    const rOff = y * ww;
+    for (let x = 2; x < ww - 2; x += 1) {
+      const idx = rOff + x;
+      if (fullGlyphMask[idx]) continue;
+      if (
+        fullGlyphMask[idx - 2] ||
+        fullGlyphMask[idx + 2] ||
+        fullGlyphMask[idx - 2 * ww] ||
+        fullGlyphMask[idx + 2 * ww]
+      ) {
+        const cIdx = idx * 3;
+        haloRs.push(winRgb[cIdx]);
+        haloGs.push(winRgb[cIdx + 1]);
+        haloBs.push(winRgb[cIdx + 2]);
+      }
+    }
+  }
+  const haloR = haloRs.length > 0 ? Math.round(medianOf(haloRs)) : ringMedR;
+  const haloG = haloGs.length > 0 ? Math.round(medianOf(haloGs)) : ringMedG;
+  const haloB = haloBs.length > 0 ? Math.round(medianOf(haloBs)) : ringMedB;
+  const haloLum = 0.299 * haloR + 0.587 * haloG + 0.114 * haloB;
+  const haloToFillDist = colorDist(haloR, haloG, haloB, fillR, fillG, fillB);
+  const haloToBgDist = colorDist(haloR, haloG, haloB, ringMedR, ringMedG, ringMedB);
+
+  const isEdgeOutsideLumRange =
+    edgeLum > Math.max(fillLum, bgLum) + 36 || edgeLum < Math.min(fillLum, bgLum) - 36;
+  const hasOuterHaloStroke =
+    !hasClosedBubbleWalls &&
+    haloToFillDist >= 55 &&
+    ((haloLum >= 225 && fillLum <= 145 && (haloToBgDist >= 24 || ringStd >= 16)) ||
+      (haloLum <= 45 && fillLum >= 165 && (haloToBgDist >= 24 || ringStd >= 16)));
+
   let hasOutline = false;
   let strokeR = 255;
   let strokeG = 255;
   let strokeB = 255;
 
-  if (hasSignificantEnclosed && fillToEdgeDist >= 32 && edgeToBgDist >= 26) {
+  if (hasSignificantEnclosed && fillToEdgeDist >= 32 && edgeToBgDist >= 24) {
     hasOutline = true;
     strokeR = edgeR;
     strokeG = edgeG;
     strokeB = edgeB;
+  } else if (hasOuterHaloStroke) {
+    hasOutline = true;
+    strokeR = haloR;
+    strokeG = haloG;
+    strokeB = haloB;
   } else if (
+    isEdgeOutsideLumRange &&
     fillToEdgeDist >= 42 &&
-    edgeToBgDist >= 30 &&
+    edgeToBgDist >= 32 &&
     maxChannelDiff(fillR, fillG, fillB, edgeR, edgeG, edgeB) >= 55
   ) {
     hasOutline = true;
@@ -441,16 +558,21 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const relGlyphH = medGlyphH / Math.max(1, fullWidth);
   const fillSat = rgbSaturation(fillR, fillG, fillB);
   const isColoredFill =
-    fillSat >= 0.24 && maxChannelDiff(fillR, fillG, fillB, fillG, fillB, fillR) >= 28;
-  const isSceneBackground = ringStd >= 11 || !hasClosedBubbleWalls;
+    fillSat >= 0.26 && maxChannelDiff(fillR, fillG, fillB, fillG, fillB, fillR) >= 32;
+  const isInsideLightBubble =
+    hasClosedBubbleWalls && bgLum >= 145 && !hasSignificantEnclosed && relGlyphH < 0.048;
+  const isSceneBackground = (ringStd >= 14 || !hasClosedBubbleWalls) && !isInsideLightBubble;
 
   let kind: TranslationBlockKind = 'dialogue';
-  if (
+  if (isInsideLightBubble && !isColoredFill) {
+    kind = 'dialogue';
+    hasOutline = false;
+  } else if (
     hasOutline ||
     isColoredFill ||
-    relGlyphH >= 0.042 ||
-    (isSceneBackground && relGlyphH >= 0.028) ||
-    (ringStd >= 16 && !hasClosedBubbleWalls)
+    relGlyphH >= 0.048 ||
+    (isSceneBackground && relGlyphH >= 0.032) ||
+    (ringStd >= 18 && !hasClosedBubbleWalls)
   ) {
     kind = 'sfx';
   } else if (ringStd < 6 && isDarkBg && hasClosedBubbleWalls) {
@@ -493,8 +615,10 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     if (coreYs.length >= 24) {
       const minY = Math.min(...coreYs);
       const maxY = Math.max(...coreYs);
-      const midY = (minY + maxY) * 0.5;
-      if (maxY - minY >= 16) {
+      const spanY = maxY - minY;
+      if (spanY >= 16) {
+        const topCut = minY + spanY * 0.38;
+        const botCut = maxY - spanY * 0.38;
         const topRs: number[] = [];
         const topGs: number[] = [];
         const topBs: number[] = [];
@@ -502,11 +626,11 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         const botGs: number[] = [];
         const botBs: number[] = [];
         for (let i = 0; i < coreYs.length; i += 1) {
-          if (coreYs[i] <= midY) {
+          if (coreYs[i] <= topCut) {
             topRs.push(coreRs[i]);
             topGs.push(coreGs[i]);
             topBs.push(coreBs[i]);
-          } else {
+          } else if (coreYs[i] >= botCut) {
             botRs.push(coreRs[i]);
             botGs.push(coreGs[i]);
             botBs.push(coreBs[i]);
@@ -520,7 +644,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
           const bG = Math.round(medianOf(botGs));
           const bB = Math.round(medianOf(botBs));
           const gradDiff = colorDist(tR, tG, tB, bR, bG, bB);
-          if (gradDiff >= 26 && gradDiff <= 145) {
+          if (gradDiff >= 20 && gradDiff <= 155) {
             const cTop = rgbToHex(tR, tG, tB);
             const cBot = rgbToHex(bR, bG, bB);
             gradientStops = [cTop, cBot];
@@ -600,7 +724,6 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     letterSpacingEm = 0.03;
   }
 
-  const fillLum = 0.299 * fillR + 0.587 * fillG + 0.114 * fillB;
   const shadowColor =
     kind === 'sfx' || isDarkBg || fillLum > 165
       ? 'rgba(0, 0, 0, 0.92)'
@@ -705,16 +828,17 @@ export const inpaintTexturedRegion = (
         const xs1 = x;
 
         const useLeft = xs0 > 0 && !borderMask[rOff + xs0 - 1];
-        const lIdx = (rOff + xs0 - 1) * 3;
-        const lr = useLeft ? cleaned[lIdx] : ringMedR;
-        const lg = useLeft ? cleaned[lIdx + 1] : ringMedG;
-        const lb = useLeft ? cleaned[lIdx + 2] : ringMedB;
-
         const useRight = xs1 < ww && !borderMask[rOff + xs1];
+        const lIdx = (rOff + xs0 - 1) * 3;
         const rIdx = (rOff + xs1) * 3;
-        const rr = useRight ? cleaned[rIdx] : ringMedR;
-        const rg = useRight ? cleaned[rIdx + 1] : ringMedG;
-        const rb = useRight ? cleaned[rIdx + 2] : ringMedB;
+
+        const lr = useLeft ? cleaned[lIdx] : useRight ? cleaned[rIdx] : ringMedR;
+        const lg = useLeft ? cleaned[lIdx + 1] : useRight ? cleaned[rIdx + 1] : ringMedG;
+        const lb = useLeft ? cleaned[lIdx + 2] : useRight ? cleaned[rIdx + 2] : ringMedB;
+
+        const rr = useRight ? cleaned[rIdx] : useLeft ? cleaned[lIdx] : ringMedR;
+        const rg = useRight ? cleaned[rIdx + 1] : useLeft ? cleaned[lIdx + 1] : ringMedG;
+        const rb = useRight ? cleaned[rIdx + 2] : useLeft ? cleaned[lIdx + 2] : ringMedB;
 
         const sp = Math.max(1, xs1 - xs0);
         for (let i = 0; i < sp; i += 1) {
@@ -745,18 +869,19 @@ export const inpaintTexturedRegion = (
         const ys1 = y;
 
         const topIdx = (ys0 - 1) * ww + x;
-        const useTop = ys0 > 0 && !borderMask[topIdx];
-        const t3 = topIdx * 3;
-        const tr = useTop ? cleaned[t3] : ringMedR;
-        const tg = useTop ? cleaned[t3 + 1] : ringMedG;
-        const tb = useTop ? cleaned[t3 + 2] : ringMedB;
-
         const botIdx = ys1 * ww + x;
+        const useTop = ys0 > 0 && !borderMask[topIdx];
         const useBot = ys1 < wh && !borderMask[botIdx];
+        const t3 = topIdx * 3;
         const b3 = botIdx * 3;
-        const br = useBot ? cleaned[b3] : ringMedR;
-        const bg = useBot ? cleaned[b3 + 1] : ringMedG;
-        const bb = useBot ? cleaned[b3 + 2] : ringMedB;
+
+        const tr = useTop ? cleaned[t3] : useBot ? cleaned[b3] : ringMedR;
+        const tg = useTop ? cleaned[t3 + 1] : useBot ? cleaned[b3 + 1] : ringMedG;
+        const tb = useTop ? cleaned[t3 + 2] : useBot ? cleaned[b3 + 2] : ringMedB;
+
+        const br = useBot ? cleaned[b3] : useTop ? cleaned[t3] : ringMedR;
+        const bg = useBot ? cleaned[b3 + 1] : useTop ? cleaned[t3 + 1] : ringMedG;
+        const bb = useBot ? cleaned[b3 + 2] : useTop ? cleaned[t3 + 2] : ringMedB;
 
         const sp = Math.max(1, ys1 - ys0);
         for (let i = 0; i < sp; i += 1) {

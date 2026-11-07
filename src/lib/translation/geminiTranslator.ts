@@ -6,7 +6,7 @@ import { getLanguageName } from './languages';
 import { normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 import { runFastWebtoonOcr } from './fastOcr';
-import { isPureSoundEffect } from './ocrCore';
+import { isCreditOrPromoText, isPureSoundEffect } from './ocrCore';
 
 const GEMINI_FLASH_MODEL = 'gemini-flash-lite-latest';
 const GEMINI_THINKING_LEVEL = ThinkingLevel.MINIMAL;
@@ -354,7 +354,7 @@ export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   if (t.length <= 1) return true;
   if (PURE_PUNCT_REGEX.test(t)) return true;
   if (SFX_WRAP_REGEX.test(t)) return true;
-  if (WATERMARK_DOMAIN_REGEX.test(t)) return true;
+  if (WATERMARK_DOMAIN_REGEX.test(t) || isCreditOrPromoText(t)) return true;
 
   // Hedef dil Korece/Japonca/Çince değilse çevrilmeden kalan Hangul/Kana/CJK blokları atla
   if (targetLang !== 'ko' && /[\uAC00-\uD7AF\u3131-\u318E]/.test(t)) return true;
@@ -393,18 +393,21 @@ const getTranslateProxyEndpoint = (): string => {
   return firstProxy ? `${firstProxy}/translate` : DEFAULT_TRANSLATE_PROXY_URL;
 };
 
-const TURKISH_CHAR_REGEX = /[çğıöşüÇĞİÖŞÜ]/;
-const TURKISH_WORD_REGEX =
-  /\b(?:bir|ve|bu|için|ama|fakat|ancak|ben|sen|biz|siz|onlar|değil|var|yok|gibi|kadar|sonra|önce|daha|çok|hiç|ne|nasıl|neden|niye|kim|nerede|benim|senin|onun|bizim|sizin|evet|hayır|tamam|lütfen|teşekkür|merhaba|oldu|olacak|mi|mı|mu|mü|de|da|ki)\b/i;
-const ENGLISH_STOPWORD_REGEX =
-  /\b(?:the|and|you|your|are|was|were|have|has|had|with|this|that|what|when|where|why|how|from|they|them|their|there|here|would|could|should|will|can't|don't|didn't|isn't|aren't|wasn't|I'm|you're|he's|she's|it's|we're|they're)\b/i;
+const STRICT_TURKISH_CHAR_REGEX = /[çğıİşÇĞŞ]/;
+const STRICT_TURKISH_CHAR_GLOBAL = /[çğıİşÇĞŞ]/g;
+const STRICT_TURKISH_WORD_REGEX =
+  /\b(?:için|fakat|ancak|değil|kadar|sonra|önce|nasıl|neden|niye|nerede|benim|senin|onun|bizim|sizin|evet|hayır|tamam|lütfen|teşekkür|merhaba|olacak|olduğu|olarak|böyle|şöyle|ಚ|keşke|acaba|belki|çünkü|rağmen|doğru|yanlış|güzel|büyük|küçük)\b/i;
+const FOREIGN_STOPWORD_REGEX =
+  /\b(?:the|and|you|your|are|was|were|have|has|had|with|this|that|what|when|where|why|how|from|they|them|their|there|here|would|could|should|will|can't|don't|didn't|isn't|aren't|wasn't|I'm|you're|he's|she's|it's|we're|they're|el|la|los|las|un|una|unos|unas|del|al|por|para|con|sin|pero|como|cuando|donde|quien|que|mas|muy|este|esta|estos|estas|ese|esa|esos|esas|todo|toda|todos|todas|hacer|hace|hizo|haber|ha|han|habia|soy|eres|somos|son|estoy|estan|estaba|tengo|tienes|tiene|tienen|tenia|voy|vas|van|puedo|puede|pueden|quiero|quiere|quieren|debi|debia|despues|antes|ahora|aqui|solo|maldita|maldito|mierda|carajo|anos|ano)\b/i;
 
 export const isLikelyAlreadyTranslated = (text: string, targetLang: string): boolean => {
   const t = text.trim();
   if (!t) return true;
   if (targetLang === 'tr') {
-    if (ENGLISH_STOPWORD_REGEX.test(t)) return false;
-    if (TURKISH_CHAR_REGEX.test(t) || TURKISH_WORD_REGEX.test(t)) return true;
+    if (FOREIGN_STOPWORD_REGEX.test(t)) return false;
+    const trChars = t.match(STRICT_TURKISH_CHAR_GLOBAL)?.length ?? 0;
+    if (trChars >= 2) return true;
+    if (STRICT_TURKISH_CHAR_REGEX.test(t) && STRICT_TURKISH_WORD_REGEX.test(t)) return true;
   }
   return false;
 };
@@ -550,7 +553,7 @@ export const translateBatchWithGeminiText = async (
           return out;
         }
 
-        return trimmedList;
+        throw new Error('Eksik veya uyumsuz çeviri dizisi döndü.');
       },
       signal,
     );
