@@ -224,32 +224,12 @@ async function uploadR2SeriesJson(slug, payload) {
   }
 }
 
+const uploadedFullShards = new Set();
+
 async function syncShardsToR2(shardSummariesMap) {
-  const allSummaries = Object.values(shardSummariesMap);
-  if (allSummaries.length === 0) return;
-
-  // Önce mevcut R2 comix-shard-page-1 varsa oku ki önceki seriler kaybolmasın
-  try {
-    const existingShardRes = await fetch(`${CATALOG_WORKER_URL}/v1/catalog/series/comix-shard-page-1`, {
-      headers: { Accept: 'application/json' },
-      signal: AbortSignal.timeout(10000),
-    });
-    if (existingShardRes.ok) {
-      const existingData = await existingShardRes.json();
-      const existingList = Array.isArray(existingData?.series)
-        ? existingData.series
-        : Array.isArray(existingData?.items)
-        ? existingData.items
-        : [];
-      for (const item of existingList) {
-        if (item?.id && !shardSummariesMap[item.id]) {
-          shardSummariesMap[item.id] = item;
-        }
-      }
-    }
-  } catch {}
-
   const mergedList = Object.values(shardSummariesMap);
+  if (mergedList.length === 0) return;
+
   const shardSlugs = [];
   const totalShards = Math.max(1, Math.ceil(mergedList.length / SHARD_SIZE));
 
@@ -258,6 +238,13 @@ async function syncShardsToR2(shardSummariesMap) {
     const shardSlug = `comix-shard-page-${shardNum}`;
     shardSlugs.push(shardSlug);
     const slice = mergedList.slice(sIdx * SHARD_SIZE, (sIdx + 1) * SHARD_SIZE);
+    const isFullShard = slice.length === SHARD_SIZE;
+
+    // Tamamlanmış (250 elemanlı) shard'ları tekrar tekrar R2'ye yükleyip vakit ve istek harcama
+    if (isFullShard && uploadedFullShards.has(shardNum)) {
+      continue;
+    }
+
     const shardPayload = {
       id: `c01c0009-0000-4000-8000-${String(shardNum).padStart(12, '0')}`,
       slug: shardSlug,
@@ -281,6 +268,10 @@ async function syncShardsToR2(shardSummariesMap) {
       body: JSON.stringify(shardPayload),
       signal: AbortSignal.timeout(20000),
     }).catch(() => undefined);
+
+    if (isFullShard) {
+      uploadedFullShards.add(shardNum);
+    }
   }
 
   const manifestPayload = {
@@ -586,15 +577,25 @@ async function main() {
     }
 
     let pageRes = null;
-    try {
-      pageRes = await fetchComixApi('/manga', {
-        page: currentPage,
-        limit: 20,
-        [`order[${ORDER_BY}]`]: 'desc',
-      });
-    } catch (err) {
-      console.warn(`[UYARI] Sayfa ${currentPage} çekilemedi: ${err.message}`);
-      break;
+    let pageFetchOk = false;
+    for (let retry = 0; retry < 5; retry++) {
+      try {
+        pageRes = await fetchComixApi('/manga', {
+          page: currentPage,
+          limit: 20,
+          [`order[${ORDER_BY}]`]: 'desc',
+        });
+        pageFetchOk = true;
+        break;
+      } catch (err) {
+        console.warn(`[UYARI] Sayfa ${currentPage} çekilemedi (${retry + 1}/5): ${err.message}`);
+        await new Promise((resolve) => setTimeout(resolve, (retry + 1) * 3000));
+      }
+    }
+
+    if (!pageFetchOk) {
+      console.error(`[HATA] Sayfa ${currentPage} 5 denemeden sonra çekilemedi. Yeniden deneme için çıkılıyor...`);
+      process.exit(1);
     }
 
     const rawItems = pageRes?.items || (Array.isArray(pageRes) ? pageRes : []);
