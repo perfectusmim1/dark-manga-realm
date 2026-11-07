@@ -382,17 +382,19 @@ export const cleanOcrText = (text: string): string => {
 const PURE_SFX_STEMS = new Set([
   // Darbe / Patlama / Çarpma
   'boom', 'kaboom', 'bam', 'baam', 'bang', 'clang', 'clank', 'clash', 'clack',
-  'clatter', 'crash', 'crack', 'crackle', 'thud', 'thump', 'thwack', 'wham',
-  'whack', 'slam', 'smack', 'smash', 'pow', 'poof', 'bonk', 'boing', 'bong',
-  'ding', 'dong', 'kring', 'ting', 'plink', 'plop', 'splat', 'sploosh', 'squelch',
-  'squish', 'thwip', 'twang', 'zing', 'zap', 'zzt', 'zzzt', 'bzz', 'bzzt', 'vroom',
-  'screech', 'skrrt',
-  // Rüzgar / Kesme / Hareket
+  'clatter', 'crash', 'crack', 'crackle', 'cruck', 'crach', 'grack', 'craek', 'krack',
+  'crunch', 'thud', 'thump', 'thwack', 'wham', 'whack', 'slam', 'smack', 'smash',
+  'pow', 'poof', 'bonk', 'boing', 'bong', 'ding', 'dong', 'kring', 'ting', 'plink',
+  'plop', 'splat', 'sploosh', 'squelch', 'squish', 'thwip', 'twang', 'zing', 'zap',
+  'zzt', 'zzzt', 'bzz', 'bzzt', 'vroom', 'screech', 'skrrt',
+  // Rüzgar / Kesme / Hareket / İrkilme efektleri
   'swoosh', 'whoosh', 'swish', 'shing', 'shwing', 'schwing', 'fwip', 'fwoosh',
-  'whir', 'whirr', 'rustle', 'patter', 'stomp',
+  'whir', 'whirr', 'rustle', 'patter', 'stomp', 'startle', 'startles', 'flinch',
+  'flinches', 'shudder', 'shudders', 'tremble', 'trembles', 'twitch', 'twitches',
+  'jolt', 'jolts',
   // Titreme / Çevre / Hayvan / Kalp atışı
   'rumble', 'grumble', 'rattle', 'creak', 'sizzle', 'fizz', 'glug', 'gulp',
-  'slurp', 'munch', 'chomp', 'woof', 'meow', 'purr', 'grr', 'grrr',
+  'slurp', 'munch', 'chomp', 'woof', 'meow', 'purr', 'grr', 'grrr', 'roar', 'growl', 'howl',
   'badump', 'badum', 'lubdub', 'doki', 'dokidoki',
   // Nefes / Gülme / Ses efektleri
   'wheeze', 'sniffle', 'achoo', 'hic', 'zzz', 'bwahaha', 'muahaha', 'mwahaha',
@@ -401,6 +403,10 @@ const PURE_SFX_STEMS = new Set([
   'kwang', 'kwaang', 'kung', 'kuung', 'dugeun', 'dukgeun', 'jjeoreong', 'puk',
   'peok', 'ssuk', 'geuk', 'kkeuk', 'heok', 'heuk', 'deolkeok', 'chirik', 'sarak',
   'ttuk', 'jjak', 'gogo', 'gogogo', 'menacing',
+  // Türkçe yansıma / ses efekti karşılıkları (eğik SFX yanlış okunup çevrilirse yakalamak için)
+  'çat', 'pat', 'küt', 'güm', 'şak', 'tak', 'tık', 'çatır', 'çatırt', 'çatırtı',
+  'şırrak', 'şangır', 'gıcırt', 'gıcırtı', 'hışırt', 'hışırtı', 'vın', 'vınn',
+  'vız', 'vızz', 'hart', 'kırt', 'fış', 'fışş', 'cız', 'cızz', 'şlap', 'irülür', 'irkilir',
 ]);
 
 /** Tek başına anlamlı kelime olabilecek ama 2-3 kez arka arkaya tekrarlandığında ses efekti olan kelimeler ("TAP TAP TAP", "STEP STEP", "DRIP DRIP", "CLAP CLAP") */
@@ -485,7 +491,7 @@ export const groupOcrLinesIntoBubbles = (
   const strongLines = cleanedAll.filter((l) => isUsableOcrLine(l, MIN_LINE_CONFIDENCE));
 
   // 1) Aynı yatay satırda (baseline) yüksek güvenli bir satırın hemen sağında/solunda kalan parçaları ("ER." gibi)
-  // 2) Veya aynı konuşma balonu sütununda yüksek güvenli bir satırın hemen üstünde/altında kalan temiz satırları ("Esta", "Ocultara el sol, que" gibi) kurtar
+  // 2) Veya aynı konuşma balonu sütununda yüksek güvenli bir satırın hemen üstünde/altında kalan temiz satırları ("Esta", "I've found its" gibi) kurtar
   const rescuedLines = cleanedAll.filter((cand) => {
     if (isUsableOcrLine(cand, MIN_LINE_CONFIDENCE)) return false;
     if (cand.confidence < 48) return false;
@@ -496,12 +502,14 @@ export const groupOcrLinesIntoBubbles = (
     const ch = cb.y1 - cb.y0;
     const cw = cb.x1 - cb.x0;
     const centerXc = (cb.x0 + cb.x1) * 0.5;
+    const centerYc = (cb.y0 + cb.y1) * 0.5;
 
     return strongLines.some((s) => {
       const sb = s.bbox;
       const sh = sb.y1 - sb.y0;
       const sw = sb.x1 - sb.x0;
       const centerXs = (sb.x0 + sb.x1) * 0.5;
+      const centerYs = (sb.y0 + sb.y1) * 0.5;
       const minH = Math.min(ch, sh);
       const maxH = Math.max(ch, sh);
       if (maxH / Math.max(1, minH) > 1.85) return false;
@@ -513,17 +521,19 @@ export const groupOcrLinesIntoBubbles = (
         return true;
       }
 
-      // Dikey balon içi komşu ("Esta" + "BEBIDA SABE" vb.)
-      if (letters >= 2 && junk === 0 && cand.confidence >= 50) {
+      // Dikey balon içi komşu ("Esta" + "BEBIDA SABE", "I've found its" + "weak spot!" vb.)
+      if (letters >= 2 && junk <= 1 && cand.confidence >= 50) {
         const vGap = Math.max(cb.y0, sb.y0) - Math.min(cb.y1, sb.y1);
         const hOverlap = Math.min(cb.x1, sb.x1) - Math.max(cb.x0, sb.x0);
         const narrow = Math.min(cw, sw);
         const centerDist = Math.abs(centerXc - centerXs);
+        const centerYDist = Math.abs(centerYc - centerYs);
         if (
-          vGap >= -minH * 0.25 &&
+          vGap >= -minH * 0.62 &&
+          centerYDist >= minH * 0.48 &&
           vGap <= maxH * 1.15 &&
-          hOverlap > narrow * 0.45 &&
-          centerDist < maxH * 1.65
+          hOverlap > narrow * 0.42 &&
+          centerDist < maxH * 1.75
         ) {
           return true;
         }
@@ -536,6 +546,10 @@ export const groupOcrLinesIntoBubbles = (
     (a, b) => a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0,
   );
   if (lines.length === 0) return [];
+
+  // RPG / Sistem durum penceresi satırları ("HEALTH: 100", "MAGIC: 0", "ATTACK: 2", "NAME: JIANG CHENG" vb.)
+  // dikeyde asla tek paragraf halinde birleştirilmemelidir; her biri kendi satır hizasında kalmalıdır!
+  const KEY_VALUE_STAT_LINE_REGEX = /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,26}:\s*\S/;
 
   // Bir satırın iki ayrı yan yana sütunun ("REPARTIDOR" ve "31 ANOS") üstünü/altını boydan boya
   // kaplayan geniş bir başlık ("KIM JEONGHYUK") olup olmadığını kontrol eder.
@@ -573,12 +587,15 @@ export const groupOcrLinesIntoBubbles = (
     const ha = a.y1 - a.y0;
     const wa = a.x1 - a.x0;
     const centerXa = (a.x0 + a.x1) * 0.5;
+    const centerYa = (a.y0 + a.y1) * 0.5;
+    const isStatA = KEY_VALUE_STAT_LINE_REGEX.test(lines[i].text);
 
     for (let j = i + 1; j < lines.length; j += 1) {
       const b = lines[j].bbox;
       const hb = b.y1 - b.y0;
       const wb = b.x1 - b.x0;
       const centerXb = (b.x0 + b.x1) * 0.5;
+      const centerYb = (b.y0 + b.y1) * 0.5;
       const minH = Math.min(ha, hb);
       const maxH = Math.max(ha, hb);
 
@@ -601,8 +618,13 @@ export const groupOcrLinesIntoBubbles = (
         continue;
       }
 
+      // RPG / Sistem tablosu satırlarını ("HEALTH: 100", "MAGIC: 0" vb.) dikeyde birleştirme!
+      const isStatB = KEY_VALUE_STAT_LINE_REGEX.test(lines[j].text);
+      if (isStatA || isStatB) continue;
+
       const vGap = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1);
-      if (vGap > maxH * 1.15) continue;
+      const centerYDist = Math.abs(centerYb - centerYa);
+      if (vGap > maxH * 1.15 || vGap < -minH * 0.62 || centerYDist < minH * 0.45) continue;
 
       // İki satır arasında dikeyde başka bir ara satır varsa (ör. 1. satır 2. satırı atlayıp 3. satırla birleşmeye çalışıyorsa) engelle
       let hasIntermediateRow = false;
@@ -650,7 +672,7 @@ export const groupOcrLinesIntoBubbles = (
         const stronglyAligned =
           (overlap > narrow * 0.48 && centerDist < maxH * 1.35) ||
           (overlap > narrow * 0.65 && centerDist < Math.max(wa, wb) * 0.42);
-        if (stronglyAligned && vGap >= -minH * 0.25 && vGap <= minH * 1.45) {
+        if (stronglyAligned && vGap >= -minH * 0.55 && vGap <= minH * 1.45) {
           parent[find(j)] = find(i);
         }
       }
@@ -664,6 +686,9 @@ export const groupOcrLinesIntoBubbles = (
     if (list) list.push(line);
     else groups.set(root, [line]);
   });
+
+  const toNormCoord = (val: number, total: number): number =>
+    Number(clamp((val / Math.max(1, total)) * 1000, 0, 1000).toFixed(4));
 
   const bubbles: Array<OcrBubble & { y: number }> = [];
   groups.forEach((group) => {
@@ -687,7 +712,13 @@ export const groupOcrLinesIntoBubbles = (
         const hi = item.bbox.y1 - item.bbox.y0;
         const vOv = Math.min(prev.bbox.y1, item.bbox.y1) - Math.max(prev.bbox.y0, item.bbox.y0);
         const hGap = item.bbox.x0 - prev.bbox.x1;
-        if (vOv >= Math.min(hp, hi) * 0.5 && hGap >= -Math.min(hp, hi) * 0.4) {
+        const centerYp = (prev.bbox.y0 + prev.bbox.y1) * 0.5;
+        const centerYi = (item.bbox.y0 + item.bbox.y1) * 0.5;
+        if (
+          vOv >= Math.min(hp, hi) * 0.52 &&
+          Math.abs(centerYp - centerYi) < Math.min(hp, hi) * 0.45 &&
+          hGap >= -Math.min(hp, hi) * 0.4
+        ) {
           // Çok yakın yan yana parçaysa ("MURD" + "ER.") boşluksuz veya tek boşlukla birleştir
           const joiner = hGap < Math.min(hp, hi) * 0.28 && /^[a-zA-Z]/.test(item.text) && /[a-zA-Z]$/.test(prev.text)
             ? ''
@@ -742,20 +773,20 @@ export const groupOcrLinesIntoBubbles = (
 
     const lineBoxes: OcrBubbleLineBox[] = mergedRows.map((r) => ({
       box: [
-        clamp(Math.round((r.bbox.y0 / imgHeight) * 1000), 0, 1000),
-        clamp(Math.round((r.bbox.x0 / imgWidth) * 1000), 0, 1000),
-        clamp(Math.round((r.bbox.y1 / imgHeight) * 1000), 0, 1000),
-        clamp(Math.round((r.bbox.x1 / imgWidth) * 1000), 0, 1000),
+        toNormCoord(r.bbox.y0, imgHeight),
+        toNormCoord(r.bbox.x0, imgWidth),
+        toNormCoord(r.bbox.y1, imgHeight),
+        toNormCoord(r.bbox.x1, imgWidth),
       ],
       text: r.text,
       confidence: Math.round(r.confidence),
     }));
 
     const box: [number, number, number, number] = [
-      clamp(Math.round((y0 / imgHeight) * 1000), 0, 1000),
-      clamp(Math.round((x0 / imgWidth) * 1000), 0, 1000),
-      clamp(Math.round((y1 / imgHeight) * 1000), 0, 1000),
-      clamp(Math.round((x1 / imgWidth) * 1000), 0, 1000),
+      toNormCoord(y0, imgHeight),
+      toNormCoord(x0, imgWidth),
+      toNormCoord(y1, imgHeight),
+      toNormCoord(x1, imgWidth),
     ];
 
     if (box[2] > box[0] && box[3] > box[1]) {
@@ -780,15 +811,15 @@ export const groupOcrLinesIntoBubbles = (
 };
 
 const CREDIT_LINE_REGEX =
-  /\b(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)\b/i;
+  /\b(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|cosmic\s*scans|night\s*scans|void\s*scans|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)\b|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)\s*[:\-]?\s*[a-z0-9_]{2,14}$/i;
 const URL_LINE_REGEX =
   /(?:https?:\/\/|www\.|discord\.gg|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
 const STRONG_PROMO_REGEX =
-  /(?:https?:\/\/|www\.|discord|patreon|paypal|ko-?fi|recruiting|join\s+(?:our|us)|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
+  /(?:https?:\/\/|www\.|discord|patreon|paypal|ko-?fi|recruiting|join\s+(?:our|us)|asurascans|asura\s*scans|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
 
 /** Satırın jenerik / reklam / filigran içeriği olup olmadığını döndürür. */
 export const isCreditOrPromoText = (text: string): boolean =>
-  CREDIT_LINE_REGEX.test(text) || URL_LINE_REGEX.test(text);
+  CREDIT_LINE_REGEX.test(text.trim()) || URL_LINE_REGEX.test(text);
 
 /**
  * Sayfa çoğunlukla jenerik, ekip listesi, reklam veya duyuru içeriyorsa true döner.
@@ -800,5 +831,13 @@ export const isCreditsOrPromoPage = (bubbles: OcrBubble[]): boolean => {
   if (promo === 0) return false;
   // Tek bloklu duyuru/reklam görselleri (ör. "Join our Discord...")
   if (bubbles.length <= 2) return bubbles.some((b) => STRONG_PROMO_REGEX.test(b.text));
-  return promo >= 2 && promo / bubbles.length >= 0.34;
+  if (promo >= 2 && promo / bubbles.length >= 0.28) return true;
+  // AsuraScans vb. jenerik banner'lar: güçlü reklam/grup adı içerip kalan kutular 1-3 kelimelik ekip üyeleri/başlıksa
+  if (bubbles.length <= 12 && bubbles.some((b) => STRONG_PROMO_REGEX.test(b.text))) {
+    const shortOrPromo = bubbles.filter(
+      (b) => isCreditOrPromoText(b.text) || b.text.trim().split(/\s+/).length <= 3,
+    ).length;
+    if (shortOrPromo / bubbles.length >= 0.75) return true;
+  }
+  return false;
 };

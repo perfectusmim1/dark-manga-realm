@@ -241,9 +241,9 @@ export const fillEnclosedGlyphInteriors = (
       }
 
       if (!touchesBorderMask && cTail <= maxHoleArea) {
-        // Normal konuşma balonlarındaki "O, D, A, B, P, R" harflerinin içindeki beyaz zemin boşluklarını (counter)
+        // Normal konuşma balonlarındaki "O, D, A, B, P, R, o, a, e" harflerinin içindeki zemin deliklerini (counter)
         // konturlu harf iç dolgusu sanmamak için renk kontrolü yap:
-        let isTrueGlyphFill = true;
+        let isTrueGlyphFill = false;
         if (winRgb) {
           const hRs: number[] = [];
           const hGs: number[] = [];
@@ -259,18 +259,12 @@ export const fillEnclosedGlyphInteriors = (
           const holeG = medianOf(hGs);
           const holeB = medianOf(hBs);
           const holeLum = 0.299 * holeR + 0.587 * holeG + 0.114 * holeB;
-          const holeToBgDist = colorDist(holeR, holeG, holeB, bgR, bgG, bgB);
-          const holeSat = rgbSaturation(holeR, holeG, holeB);
 
           // Bir kapalı cebin (hole) gerçek bir "konturlu harf iç dolgusu" ("NO.", "FIRST MURDER." vb.) sayılması için:
-          // 1) Dış kontur parlak olup iç cep ondan belirgin şekilde KOYU olmalıdır (holeLum < rawLum - 22), VEYA
-          // 2) Dış kontur koyu olup (rawLum < 75) iç cep arka plandan tamamen farklı doygun bir renk olmalıdır.
-          // Aksi halde (özellikle holeLum >= rawLum olan tüm açık/gradyanlı cepler) "o, a, e, d, O, D, A, B" harflerinin ortasındaki arka plan deliğidir!
-          const isDarkCoreInsideBrightOutline = rawLum >= 140 && holeLum < rawLum - 22;
-          const isColoredCoreInsideBlackOutline =
-            rawLum < 75 && holeToBgDist >= 55 && holeSat >= 0.38 && holeLum < bgLum - 25;
-          if (!isDarkCoreInsideBrightOutline && !isColoredCoreInsideBlackOutline) {
-            isTrueGlyphFill = false;
+          // Yalnızca dış kontur parlak/beyaz olup (rawLum >= 150) iç cep ondan belirgin şekilde KOYU olmalıdır (holeLum < rawLum - 35)!
+          // Koyu harflerin (rawLum < 150) içindeki tüm delikler "O, A, D, B, P, R, o, a, e" harflerinin ortasındaki arka plan deliğidir!
+          if (rawLum >= 150 && holeLum < rawLum - 35) {
+            isTrueGlyphFill = true;
           }
         }
 
@@ -280,6 +274,12 @@ export const fillEnclosedGlyphInteriors = (
             combinedMask[pIdx] = 1;
             enclosedInteriorMask[pIdx] = 1;
             enclosedCount += 1;
+          }
+        } else if (cTail <= Math.min(maxHoleArea, 240)) {
+          // Küçük harf içi delikleri (o, a, e, d) yalnızca silme maskesine (combinedMask) dahil et ki
+          // dokulu zeminde harf ortasında leke kalmasın; ancak stil çıkarımına (enclosedInteriorMask) ASLA dahil etme!
+          for (let k = 0; k < cTail; k += 1) {
+            combinedMask[compPixels[k]] = 1;
           }
         }
       }
@@ -305,11 +305,13 @@ export interface StyleExtractionInput {
   fullWidth: number;
   hasClosedBubbleWalls: boolean;
   compCenters: Array<{ x: number; y: number; w: number; h: number }>;
+  origLineCount?: number;
 }
 
 /**
- * Silinen orijinal metin piksellerinden yazı rengini, kontur (stroke) rengini/kalınlığını,
- * dikey renk geçişini (gradient), gölgeyi, eğim açısını ve en uygun çizgi roman/SFX font ailesini çıkarır.
+ * Silinen orijinal metin piksellerinden yazı rengini, yalnızca orijinalde gerçekten varsa kontur (stroke) rengini,
+ * dikey renk geçişini (gradient), eğim açısını ve en uygun çizgi roman/SFX font ailesini çıkarır.
+ * Orijinal yazıda kontur (dış çizgi) yoksa ASLA yapay dış çizgi eklemez.
  */
 export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedStyleFingerprint => {
   const {
@@ -328,11 +330,12 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     fullWidth,
     hasClosedBubbleWalls,
     compCenters,
+    origLineCount = 1,
   } = input;
 
   const numPixels = ww * wh;
   const bgLum = 0.299 * ringMedR + 0.587 * ringMedG + 0.114 * ringMedB;
-  const isDarkBg = bgLum < 128;
+  const isDarkBg = bgLum < 145;
 
   // 1. Mesafe dönüşümü (Manhattan Chamfer 1-2): harf kenarı (dist=1) ile harf çekirdeğini (dist>=2) ayır
   const fullGlyphMask = new Uint8Array(numPixels);
@@ -383,8 +386,8 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const coreBs: number[] = [];
   const coreYs: number[] = [];
 
-  // Eğer "NO" veya "FIRST MURDER." gibi kapalı iç dolgu (enclosedInteriorMask) varsa:
-  // rawGlyphMask doğrudan dış konturu, enclosedInteriorMask (kontura 1..5px mesafedeki iç katman) ise iç dolguyu verir!
+  // Eğer "NO" veya "FIRST MURDER." gibi gerçek kapalı iç dolgu (enclosedInteriorMask) varsa:
+  // rawGlyphMask doğrudan beyaz dış konturu, enclosedInteriorMask ise koyu/renkli iç dolguyu verir!
   const hasSignificantEnclosed =
     enclosedCount >= 18 && enclosedCount >= totalGlyphPixels * 0.08;
 
@@ -399,7 +402,6 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
           edgeGs.push(winRgb[cIdx + 1]);
           edgeBs.push(winRgb[cIdx + 2]);
         } else if (enclosedInteriorMask[idx]) {
-          // Harf konturunun hemen içindeki gövde pikselleri (O harfinin en ortasındaki boşluğa düşmemek için)
           const nearStroke =
             (x > 1 && rawGlyphMask[idx - 2]) ||
             (x < ww - 2 && rawGlyphMask[idx + 2]) ||
@@ -417,9 +419,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     }
   }
 
-  // Kapalı iç alan yoksa veya yeterli örnek çıkmadıysa mesafe dönüşümü (dist<=edgeMaxD vs dist>=coreMinD) ile ayır.
-  // Kalın konturlu SFX/başlık yazılarında ("KIM JEONGHYUK", "REPARTIDOR DE DALMIN", "31 AÑOS")
-  // beyaz kontur 2-3px kalınlığında olduğu için çekirdek örneklemesini daha derinden (coreMinD) al.
+  // Kapalı iç alan yoksa doğrudan rawGlyphMask içindeki çekirdek pikselleri örnekle
   if (coreRs.length < 12) {
     edgeRs.length = 0;
     edgeGs.length = 0;
@@ -436,6 +436,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       const rOff = y * ww;
       for (let x = 0; x < ww; x += 1) {
         const idx = rOff + x;
+        if (!rawGlyphMask[idx]) continue;
         const d = dist[idx];
         if (d <= 0) continue;
         const cIdx = idx * 3;
@@ -470,9 +471,9 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     }
   }
 
-  let fillR = coreRs.length > 0 ? Math.round(medianOf(coreRs)) : isDarkBg ? 250 : 12;
-  let fillG = coreGs.length > 0 ? Math.round(medianOf(coreGs)) : isDarkBg ? 250 : 12;
-  let fillB = coreBs.length > 0 ? Math.round(medianOf(coreBs)) : isDarkBg ? 250 : 12;
+  const fillR = coreRs.length > 0 ? Math.round(medianOf(coreRs)) : isDarkBg ? 255 : 12;
+  const fillG = coreGs.length > 0 ? Math.round(medianOf(coreGs)) : isDarkBg ? 255 : 12;
+  const fillB = coreBs.length > 0 ? Math.round(medianOf(coreBs)) : isDarkBg ? 255 : 12;
 
   const edgeR = edgeRs.length > 0 ? Math.round(medianOf(edgeRs)) : fillR;
   const edgeG = edgeGs.length > 0 ? Math.round(medianOf(edgeGs)) : fillG;
@@ -484,16 +485,14 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const fillLum = 0.299 * fillR + 0.587 * fillG + 0.114 * fillB;
   const edgeLum = 0.299 * edgeR + 0.587 * edgeG + 0.114 * edgeB;
 
-  // Kontur tespiti:
-  // Normal anti-aliasing pikselleri her zaman fillLum ile bgLum ARASINDA yer alır (min(fillLum,bgLum) <= edgeLum <= max(fillLum,bgLum)).
-  // Gerçek bir dış kontur (stroke) ise ya:
-  // 1) Kapalı iç dolguya (hasSignificantEnclosed) sahiptir ("NO", "FIRST MURDER.", "REPARTIDOR DE DALMIN", "31 AÑOS"), ya da
-  // 2) Hem harf dolgusundan hem arka plandan daha parlak (beyaz hale) veya her ikisinden daha koyu (siyah kontur) bir dış halkadır!
-  // Koyu harf maskesi (fgDark) yalnızca harf içini yakaladığında, beyaz/parlak dış kontur
-  // fullGlyphMask'in hemen 1-2px DIŞINDA yer alır ("KIM JEONGHYUK", "REPARTIDOR DE DALMIN", "31 AÑOS").
+  // Kontur tespiti (YALNIZCA orijinal görselde gerçekten kalın bir dış çizgi varsa true olur):
+  // 1) Kapalı iç dolguya (hasSignificantEnclosed) sahip beyaz konturlu içi koyu/renkli harfler ("NO.", "FIRST MURDER.")
+  // 2) Koyu harf çekirdeğinin (fillLum <= 130) etrafını kesintisiz saran ve arka plandan (bgLum <= 190) tamamen bağımsız
+  //    parlak beyaz dış kontur ("KIM JEONGHYUK", "REPARTIDOR DE DALMIN", "31 AÑOS", "I've found its weak spot!").
   const haloRs: number[] = [];
   const haloGs: number[] = [];
   const haloBs: number[] = [];
+  let whiteHaloCount = 0;
   for (let y = 2; y < wh - 2; y += 1) {
     const rOff = y * ww;
     for (let x = 2; x < ww - 2; x += 1) {
@@ -506,9 +505,16 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         fullGlyphMask[idx + 2 * ww]
       ) {
         const cIdx = idx * 3;
-        haloRs.push(winRgb[cIdx]);
-        haloGs.push(winRgb[cIdx + 1]);
-        haloBs.push(winRgb[cIdx + 2]);
+        const hr = winRgb[cIdx];
+        const hg = winRgb[cIdx + 1];
+        const hb = winRgb[cIdx + 2];
+        haloRs.push(hr);
+        haloGs.push(hg);
+        haloBs.push(hb);
+        const hLum = 0.299 * hr + 0.587 * hg + 0.114 * hb;
+        if (hLum >= 210 && rgbSaturation(hr, hg, hb) < 0.2) {
+          whiteHaloCount += 1;
+        }
       }
     }
   }
@@ -518,21 +524,30 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const haloLum = 0.299 * haloR + 0.587 * haloG + 0.114 * haloB;
   const haloToFillDist = colorDist(haloR, haloG, haloB, fillR, fillG, fillB);
   const haloToBgDist = colorDist(haloR, haloG, haloB, ringMedR, ringMedG, ringMedB);
+  const whiteHaloRatio = haloRs.length > 0 ? whiteHaloCount / haloRs.length : 0;
 
-  const isEdgeOutsideLumRange =
-    edgeLum > Math.max(fillLum, bgLum) + 36 || edgeLum < Math.min(fillLum, bgLum) - 36;
   const hasOuterHaloStroke =
     !hasClosedBubbleWalls &&
-    haloToFillDist >= 55 &&
-    ((haloLum >= 225 && fillLum <= 145 && (haloToBgDist >= 24 || ringStd >= 16)) ||
-      (haloLum <= 45 && fillLum >= 165 && (haloToBgDist >= 24 || ringStd >= 16)));
+    fillLum <= 130 &&
+    bgLum <= 190 &&
+    haloLum >= 225 &&
+    whiteHaloRatio >= 0.62 &&
+    haloToFillDist >= 85 &&
+    haloToBgDist >= 48 &&
+    haloLum > bgLum + 38;
 
   let hasOutline = false;
   let strokeR = 255;
   let strokeG = 255;
   let strokeB = 255;
 
-  if (hasSignificantEnclosed && fillToEdgeDist >= 32 && edgeToBgDist >= 24) {
+  if (
+    hasSignificantEnclosed &&
+    edgeLum >= 190 &&
+    fillLum <= 135 &&
+    fillToEdgeDist >= 48 &&
+    edgeToBgDist >= 45
+  ) {
     hasOutline = true;
     strokeR = edgeR;
     strokeG = edgeG;
@@ -542,76 +557,43 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     strokeR = haloR;
     strokeG = haloG;
     strokeB = haloB;
-  } else if (
-    isEdgeOutsideLumRange &&
-    fillToEdgeDist >= 42 &&
-    edgeToBgDist >= 32 &&
-    maxChannelDiff(fillR, fillG, fillB, edgeR, edgeG, edgeB) >= 55
-  ) {
-    hasOutline = true;
-    strokeR = edgeR;
-    strokeG = edgeG;
-    strokeB = edgeB;
   }
 
-  // 3. Bölge türünü (dialogue / narration / sfx / emphasis) sınıflandır
+  // 3. Bölge türünü (dialogue / narration / sfx) sınıflandır
   const relGlyphH = medGlyphH / Math.max(1, fullWidth);
   const fillSat = rgbSaturation(fillR, fillG, fillB);
   const isColoredFill =
-    fillSat >= 0.26 && maxChannelDiff(fillR, fillG, fillB, fillG, fillB, fillR) >= 32;
-  const isInsideLightBubble =
-    hasClosedBubbleWalls && bgLum >= 145 && !hasSignificantEnclosed && relGlyphH < 0.048;
-  const isSceneBackground = (ringStd >= 14 || !hasClosedBubbleWalls) && !isInsideLightBubble;
+    fillSat >= 0.28 && maxChannelDiff(fillR, fillG, fillB, fillG, fillB, fillR) >= 36;
 
   let kind: TranslationBlockKind = 'dialogue';
-  if (isInsideLightBubble && !isColoredFill) {
-    kind = 'dialogue';
-    hasOutline = false;
-  } else if (
-    hasOutline ||
-    isColoredFill ||
-    relGlyphH >= 0.048 ||
-    (isSceneBackground && relGlyphH >= 0.032) ||
-    (ringStd >= 18 && !hasClosedBubbleWalls)
-  ) {
+  if (hasOutline || (relGlyphH >= 0.056 && !hasClosedBubbleWalls && bgLum < 200)) {
     kind = 'sfx';
-  } else if (ringStd < 6 && isDarkBg && hasClosedBubbleWalls) {
+  } else if (isDarkBg) {
     kind = 'narration';
+  } else {
+    kind = 'dialogue';
   }
 
-  // 4. Renk netleştirme ve okunabilirlik garantisi
-  let finalTextColor = isDarkBg ? '#fafafa' : '#0c0c0c';
+  // 4. Renk netleştirme (ASLA yapay dış çizgi eklenmez; yalnızca orijinalde hasOutline=true ise kontur kullanılır)
+  let finalTextColor = isDarkBg ? '#ffffff' : '#0c0c0c';
   let finalStrokeColor: string | undefined;
   let strokeWidthEm: number | undefined;
   let textGradient: string | undefined;
   let gradientStops: [string, string] | undefined;
 
-  if (kind === 'sfx' || isColoredFill || hasOutline) {
-    // Orijinal rengi koru; eğer çok soluksa doygunluğunu/kontrastını hafifçe güçlendir
-    if (hasOutline) {
-      const strokeLum = 0.299 * strokeR + 0.587 * strokeG + 0.114 * strokeB;
-      // Kontur beyaz/açıksa tam net beyaz/açık ton yap; koyuysa tam koyu yap
-      if (strokeLum > 185 && rgbSaturation(strokeR, strokeG, strokeB) < 0.2) {
-        finalStrokeColor = '#ffffff';
-      } else if (strokeLum < 55 && rgbSaturation(strokeR, strokeG, strokeB) < 0.2) {
-        finalStrokeColor = '#0a0a0c';
-      } else {
-        finalStrokeColor = rgbToHex(strokeR, strokeG, strokeB);
-      }
-      strokeWidthEm = hasSignificantEnclosed ? 0.24 : 0.2;
-      finalTextColor = rgbToHex(fillR, fillG, fillB);
+  if (hasOutline) {
+    const strokeLum = 0.299 * strokeR + 0.587 * strokeG + 0.114 * strokeB;
+    if (strokeLum > 185 && rgbSaturation(strokeR, strokeG, strokeB) < 0.2) {
+      finalStrokeColor = '#ffffff';
+    } else if (strokeLum < 55 && rgbSaturation(strokeR, strokeG, strokeB) < 0.2) {
+      finalStrokeColor = '#0a0a0c';
     } else {
-      // Kontursuz SFX / sahne yazısı: zeminle kontrastı düşükse koruyucu kontur ekle
-      finalTextColor = rgbToHex(fillR, fillG, fillB);
-      if (fillToBgDist < 85 || ringStd >= 12) {
-        const fillLum = 0.299 * fillR + 0.587 * fillG + 0.114 * fillB;
-        hasOutline = true;
-        finalStrokeColor = fillLum > 140 ? '#0a0a0c' : '#ffffff';
-        strokeWidthEm = 0.2;
-      }
+      finalStrokeColor = rgbToHex(strokeR, strokeG, strokeB);
     }
+    strokeWidthEm = hasSignificantEnclosed ? 0.22 : 0.19;
+    finalTextColor = rgbToHex(fillR, fillG, fillB);
 
-    // Dikey renk geçişi (gradient) kontrolü: üst yarı ile alt yarı arasında belirgin ton farkı varsa
+    // Dikey renk geçişi (gradient) kontrolü: yalnızca konturlu SFX/başlık yazılarında ("KIM JEONGHYUK" vb.)
     if (coreYs.length >= 24) {
       const minY = Math.min(...coreYs);
       const maxY = Math.max(...coreYs);
@@ -644,7 +626,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
           const bG = Math.round(medianOf(botGs));
           const bB = Math.round(medianOf(botBs));
           const gradDiff = colorDist(tR, tG, tB, bR, bG, bB);
-          if (gradDiff >= 20 && gradDiff <= 155) {
+          if (gradDiff >= 24 && gradDiff <= 155) {
             const cTop = rgbToHex(tR, tG, tB);
             const cBot = rgbToHex(bR, bG, bB);
             gradientStops = [cTop, cBot];
@@ -653,22 +635,33 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         }
       }
     }
+  } else if (isDarkBg) {
+    // Koyu veya renkli kutu (RPG sistem ekranı, kahverengi/lacivert anlatım kutusu vb.):
+    // WebP anti-aliasing yüzünden mavi/kahverengi arka planın beyaz harflere hafif bulaşmasını temizle!
+    if (fillLum >= 160 && fillSat < 0.25) {
+      finalTextColor = '#ffffff';
+    } else if (fillLum >= 155 && isColoredFill && fillToBgDist >= 65) {
+      // Parlak altın/krem/sarı sistem veya anlatım yazısı: parlaklığını koruyarak orijinal tonunu ver
+      const boost = fillLum < 220 ? (220 - fillLum) * 0.5 : 0;
+      finalTextColor = rgbToHex(fillR + boost, fillG + boost, fillB + boost);
+    } else {
+      finalTextColor = '#ffffff';
+    }
   } else {
-    // Standart konuşma balonu: yüksek kontrastlı temiz diyalog rengi
-    if (isColoredFill && fillToBgDist >= 70) {
+    // Açık/beyaz konuşma balonu veya beyaz anlatım kutusu
+    if (isColoredFill && fillToBgDist >= 85 && fillLum < bgLum - 40) {
       finalTextColor = rgbToHex(fillR, fillG, fillB);
     } else {
-      finalTextColor = isDarkBg ? '#fafafa' : '#0c0c0c';
+      finalTextColor = '#0c0c0c';
     }
   }
 
-  // 5. Satır eğim açısı (rotationDeg): bileşen merkezlerinin doğrusal regresyonu
+  // 5. Satır eğim açısı (rotationDeg): YALNIZCA tek satırlık konturlu SFX yazılarında ve yüksek doğrusal korelasyon varsa
   let rotationDeg = 0;
-  if (kind === 'sfx' && compCenters.length >= 2) {
-    // Aynı satırdaki bileşenlerin eğimini ölç
+  if (kind === 'sfx' && hasOutline && origLineCount === 1 && compCenters.length >= 3) {
     const sortedC = [...compCenters].sort((a, b) => a.x - b.x);
     const totalSpanX = sortedC[sortedC.length - 1].x - sortedC[0].x;
-    if (totalSpanX >= medGlyphH * 0.8) {
+    if (totalSpanX >= medGlyphH * 1.2) {
       let sumX = 0;
       let sumY = 0;
       for (const c of sortedC) {
@@ -678,24 +671,27 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       const meanX = sumX / sortedC.length;
       const meanY = sumY / sortedC.length;
       let num = 0;
-      let den = 0;
+      let denX = 0;
+      let denY = 0;
       for (const c of sortedC) {
         const dx = c.x - meanX;
         const dy = c.y - meanY;
         num += dx * dy;
-        den += dx * dx;
+        denX += dx * dx;
+        denY += dy * dy;
       }
-      if (den > 10) {
-        const slope = num / den;
+      const rSquared = denX > 10 && denY > 4 ? (num * num) / (denX * denY) : 0;
+      if (denX > 10 && rSquared >= 0.78) {
+        const slope = num / denX;
         const deg = (Math.atan(slope) * 180) / Math.PI;
-        if (Math.abs(deg) >= 3.5 && Math.abs(deg) <= 28) {
+        if (Math.abs(deg) >= 4.5 && Math.abs(deg) <= 25) {
           rotationDeg = Number(deg.toFixed(1));
         }
       }
     }
   }
 
-  // 6. Font karakteri seçimi: harf en/boy oranı ve bölge türüne göre
+  // 6. Font karakteri seçimi
   const aspectRatio = medGlyphW / Math.max(1, medGlyphH);
   let fontFamily: ScanlationFontKey = 'shantell';
   let fontWeight = 700;
@@ -703,32 +699,19 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
 
   if (kind === 'sfx') {
     if (aspectRatio <= 0.68 || hasSignificantEnclosed) {
-      // "NO.", "FIRST MURDER." gibi uzun, dar, kalın konturlu dramatik yazılar
       fontFamily = 'anton';
-      fontWeight = 400; // Anton doğal olarak 900 ağırlığındadır
+      fontWeight = 400;
       letterSpacingEm = 0.03;
     } else if (Math.abs(rotationDeg) >= 5 || fillSat >= 0.45) {
-      // Dinamik açılı / renkli aksiyon yazıları
       fontFamily = 'bangers';
       fontWeight = 400;
       letterSpacingEm = 0.04;
     } else {
-      // Fırça / el yazısı vurgu
-      fontFamily = 'marker';
-      fontWeight = 400;
+      fontFamily = 'shantell';
+      fontWeight = 800;
       letterSpacingEm = 0.02;
     }
-  } else if (kind === 'narration' && aspectRatio <= 0.6) {
-    fontFamily = 'cinzel';
-    fontWeight = 700;
-    letterSpacingEm = 0.03;
   }
-
-  const shadowColor =
-    kind === 'sfx' || isDarkBg || fillLum > 165
-      ? 'rgba(0, 0, 0, 0.92)'
-      : undefined;
-  const shadowBlurEm = kind === 'sfx' ? 0.22 : isDarkBg ? 0.16 : undefined;
 
   return {
     kind,
@@ -741,8 +724,8 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     hasTextStroke: hasOutline,
     strokeColor: finalStrokeColor,
     strokeWidthEm,
-    shadowColor,
-    shadowBlurEm,
+    shadowColor: undefined,
+    shadowBlurEm: undefined,
     rotationDeg: rotationDeg !== 0 ? rotationDeg : undefined,
     letterSpacingEm,
     isDark: isDarkBg,

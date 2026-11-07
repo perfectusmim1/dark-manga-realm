@@ -84,9 +84,7 @@ export const TranslationOverlay: React.FC<{
 
         const textShadow = block.shadowColor
           ? `0 2px 5px ${block.shadowColor}, 0 0 3px ${block.shadowColor}`
-          : isLight && !block.hasTextStroke
-            ? '0 2px 4px rgba(0,0,0,0.95), 0 0 2px rgba(0,0,0,0.85), 1px 1px 2px rgba(0,0,0,0.9)'
-            : undefined;
+          : undefined;
 
         const transformParts: string[] = [];
         if (block.rotationDeg) transformParts.push(`rotate(${block.rotationDeg}deg)`);

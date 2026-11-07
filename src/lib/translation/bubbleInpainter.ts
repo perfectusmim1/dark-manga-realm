@@ -12,7 +12,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 4;
+export const TRANSLATION_BLOCK_VERSION = 5;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -379,6 +379,10 @@ export const inpaintAndRefineBlock = (
           // Beyaz kontur ve tam beyaz balon zemini pikselleri asla koyu harf maskesine giremez (Yalıtım Kalkanı)
           if (pixLum >= 225) continue;
 
+          // Zemin rengine çok yakın pikselleri kesinlikle dışla (mavi RPG kutusu veya kahverengi parşömendeki renkli zemin pikselleri koyu harf sanılmasın)
+          const dBg = Math.max(Math.abs(pr - bgR), Math.abs(pg - bgG), Math.abs(pb - bgB));
+          if (dBg < 26 && Math.abs(pixLum - bgLumInit) < 20) continue;
+
           const x0s = Math.max(0, x - R);
           const x1s = Math.min(ww, x + R + 1);
           const invArea = 1 / (spanY * (x1s - x0s));
@@ -417,10 +421,15 @@ export const inpaintAndRefineBlock = (
 
           // 1. Açık/gradyanlı zeminde standart veya güneş ışığında solmuş koyu/gri mürekkep
           //    (Sarı güneş hüzmelerinde yalnızca mavi kanal düştüğü için gerçek parlaklık düşüşü dLumMedDark şarttır!)
-          // 2. Koyu zemin üzerinde bile olsa beyaz dış konturun oluşturduğu parlak dar hale (tMeanLum >= 95) içindeki koyu harf gövdesi (pixLum < 155)!
+          // 2. Koyu zemin üzerinde bile olsa beyaz dış konturun oluşturduğu parlak dar hale (tMeanLum >= 135) içindeki koyu harf gövdesi (pixLum < 115)!
           if (
             (meanLum >= 160 && dLumMedDark > effLocal * 0.82 && dMedDark > effLocal) ||
-            (pixLum < 155 && tMeanLum >= 95 && dLumTightDark > effLocal * 0.75 && dTightDark > effLocal * 0.9)
+            (pixLum < 115 &&
+              tMeanLum >= 135 &&
+              tMeanLum > bgLumInit + 32 &&
+              (pixLum < bgLumInit - 26 || dBg >= 38) &&
+              dLumTightDark > effLocal * 0.75 &&
+              dTightDark > effLocal * 0.9)
           ) {
             fg[pIdx] = 1;
           }
@@ -579,7 +588,29 @@ export const inpaintAndRefineBlock = (
      * - Gerçek bir harf/kelime bileşeni OCR çekirdek kutusunun (cx0..cx1, cy0..cy1) içinde yoğun piksellere sahiptir (`coreRatio >= 0.16`).
      * - Balon çerçevesi ise pencere sınırına değer (`touchesBorder`) veya çekirdeğin dışından dolanan boş bir halkadır (`coreRatio < 0.12`).
      */
-    const preferLightFirst = bgLumInit < 45 && bh < 55;
+    let brighterCount = 0;
+    let darkerCount = 0;
+    for (let li = 0; li < lineCores.length; li += 1) {
+      const lc = lineCores[li];
+      for (let cy = lc.y0; cy <= lc.y1; cy += 1) {
+        const rowOff = cy * ww;
+        for (let cx = lc.x0; cx <= lc.x1; cx += 1) {
+          const cIdx = (rowOff + cx) * 3;
+          const pr = winRgb[cIdx];
+          const pg = winRgb[cIdx + 1];
+          const pb = winRgb[cIdx + 2];
+          const lum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+          if (lum > bgLumInit + 28 && Math.max(pr - bgR, pg - bgG, pb - bgB) > 30) {
+            brighterCount += 1;
+          }
+          if (lum < bgLumInit - 26 && Math.max(bgR - pr, bgG - pg, bgB - pb) > 28) {
+            darkerCount += 1;
+          }
+        }
+      }
+    }
+
+    const preferLightFirst = bgLumInit < 55 || (bgLumInit < 165 && brighterCount > darkerCount * 1.8);
     const isSingleOrDarkSfx = preferLightFirst;
 
     const isValidGlyphComponent = (c: ComponentInfo): boolean => {
@@ -632,10 +663,12 @@ export const inpaintAndRefineBlock = (
     }
 
     if (pass.accepted.size === 0 || pass.spanW < bw * 0.22) {
-      const altPass = runMaskPass(
-        preferLightFirst ? buildDarkForegroundMask(16, 26) : buildLightForegroundMask(18, 28),
-      );
-      if (altPass.spanW > pass.spanW) pass = altPass;
+      if (!(preferLightFirst && darkerCount < brighterCount * 0.25)) {
+        const altPass = runMaskPass(
+          preferLightFirst ? buildDarkForegroundMask(16, 26) : buildLightForegroundMask(18, 28),
+        );
+        if (altPass.spanW > pass.spanW) pass = altPass;
+      }
     }
 
     const { labels, comps, valid, accepted } = pass;
@@ -854,13 +887,51 @@ export const inpaintAndRefineBlock = (
     bgB,
   );
 
+  // Beyaz Dış Kontur Yutma (White Halo Absorption):
+  // Koyu renkli harflerin etrafında kalın beyaz dış kontur varsa ("weak spot!", "KIM JEONGHYUK"),
+  // dilasyon sadece harf gövdesinden başlarsa 3-5px'lik beyaz kontur silinmeyip arka planda beyaz leke bırakır.
+  // Bu yüzden harflere komşu olan parlak dış kontur piksellerini doğrudan maskeye dahil et!
+  const bgLumInit = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB;
+  let preDilateMask = combinedMask;
+  if (bgLumInit < 205) {
+    for (let step = 0; step < 4; step += 1) {
+      let haloAdded = 0;
+      const nextMask = new Uint8Array(preDilateMask);
+      for (let y = Math.max(1, gMinY - 6); y <= Math.min(wh - 2, gMaxY + 6); y += 1) {
+        const rOff = y * ww;
+        for (let x = Math.max(1, gMinX - 8); x <= Math.min(ww - 2, gMaxX + 8); x += 1) {
+          const idx = rOff + x;
+          if (preDilateMask[idx] || borderMask[idx]) continue;
+          if (
+            preDilateMask[idx - 1] ||
+            preDilateMask[idx + 1] ||
+            preDilateMask[idx - ww] ||
+            preDilateMask[idx + ww]
+          ) {
+            const cIdx = idx * 3;
+            const pr = winRgb[cIdx];
+            const pg = winRgb[cIdx + 1];
+            const pb = winRgb[cIdx + 2];
+            const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+            if (pLum >= 200 && pLum > bgLumInit + 28) {
+              nextMask[idx] = 1;
+              haloAdded += 1;
+            }
+          }
+        }
+      }
+      preDilateMask = nextMask;
+      if (haloAdded === 0) break;
+    }
+  }
+
   // Harf yüksekliğine ve kapalı kontur varlığına göre uyarlanır morfolojik genişletme (Adaptive Dilation)
   const dilateSteps = clamp(
     Math.round(medGlyphH * 0.11) + (enclosedCount > 20 ? 3 : 2),
     4,
     8,
   );
-  let mask: Uint8Array = combinedMask;
+  let mask: Uint8Array = preDilateMask;
   for (let d = 0; d < dilateSteps; d += 1) {
     mask = dilate3x3(mask, ww, wh);
   }
@@ -1021,7 +1092,7 @@ export const inpaintAndRefineBlock = (
     (hitRightWall ? 1 : 0) +
     (hitTopWall ? 1 : 0) +
     (hitBottomWall ? 1 : 0);
-  const hasClosedBubbleWalls = wallHits >= 2 || ringStd < 4.5;
+  const hasClosedBubbleWalls = wallHits >= 2 || ringStd < 8 || (bgLumInit >= 195 && ringStd < 14);
 
   // Stil Parmak İzini Çıkar (Renk, Kontur, Gradyan, Açı, Font Ailesi, Bölge Türü)
   const compCenters = accComps
@@ -1049,6 +1120,7 @@ export const inpaintAndRefineBlock = (
     fullWidth,
     hasClosedBubbleWalls,
     compCenters,
+    origLineCount: block.lines?.length ?? 1,
   });
 
   // 3 Kademeli Uyarlanır Inpainting:
@@ -1225,7 +1297,11 @@ export const inpaintAndRefineBlock = (
   const glyphW = Math.max(24, gMaxX - gMinX + 1);
   const glyphH = Math.max(18, gMaxY - gMinY + 1);
   const layoutCenterX =
-    hitLeftWall && hitRightWall && safeLocalRight > safeLocalLeft + 24
+    hitLeftWall &&
+    hitRightWall &&
+    safeLocalRight > safeLocalLeft + 24 &&
+    Math.abs(midLocalX - (safeLocalLeft + safeLocalRight) * 0.5) <=
+      (safeLocalRight - safeLocalLeft) * 0.18
       ? Math.round((safeLocalLeft + safeLocalRight) * 0.5)
       : midLocalX;
   const layoutCenterY =
@@ -1241,19 +1317,51 @@ export const inpaintAndRefineBlock = (
     glyphH * 0.55,
     Math.min(layoutCenterY - safeLocalTop, safeLocalBottom - layoutCenterY),
   );
-  const safeW = Math.max(glyphW, maxHalfW * 2);
+  let safeW = Math.max(glyphW, maxHalfW * 2);
+  if (!(hitLeftWall && hitRightWall)) {
+    safeW = Math.min(safeW, Math.max(glyphW * 1.24, medGlyphH * 8));
+  }
   const safeH = Math.max(glyphH * 1.1, maxHalfH * 2);
 
   // Hedef metin uzunluğuna, bölge türüne (SFX vs Diyalog) ve orijinal harf boyutuna göre akıllı dizgi
   const displayText = formatScanlationText(block.text, targetLang);
   const measureCtx = getSharedMeasureContext();
+  const origLineCount = block.lines?.length ?? 1;
+  const isSingleLineStat =
+    origLineCount === 1 &&
+    /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,26}:\s*\S/.test(displayText);
 
   let fontPx: number;
   let finalBoxW: number;
   let finalBoxH: number;
   let emphasisLastLineScale = block.emphasisLastLineScale;
 
-  if (style.kind === 'sfx') {
+  if (isSingleLineStat) {
+    // Tek satırlık RPG istatistik satırı ("CAN: 100", "BÜYÜ: 0", "SALDIRI: 2 (KEMİK KILIÇ +3)", "İSİM: JIANG CHENG" vb.)
+    // Kesinlikle 2 satıra sarılmaz! Tek satırda kalacak şekilde font boyutu hesaplanır ve orijinal sol sınıra kilitlenir.
+    const maxStatW = Math.max(
+      glyphW * 1.15,
+      Math.min(fullWidth - (wx0 + gMinX) - 8, (hitRightWall ? safeLocalRight : ww) - gMinX),
+    );
+    fontPx = clamp(medGlyphH * 1.05, fullWidth * 0.015, fullWidth * 0.034);
+    finalBoxW = glyphW;
+    finalBoxH = glyphH;
+    for (let step = 0; step < 12; step += 1) {
+      const lineW = measureStyledWordWidth(
+        measureCtx,
+        displayText,
+        fontPx,
+        style.fontFamily,
+        style.fontWeight,
+      );
+      if (lineW <= maxStatW || fontPx <= fullWidth * 0.015) {
+        finalBoxW = Math.max(glyphW, Math.min(maxStatW, lineW + 10));
+        finalBoxH = Math.max(glyphH, fontPx * 1.25);
+        break;
+      }
+      fontPx = Math.max(fullWidth * 0.015, fontPx * 0.93);
+    }
+  } else if (style.kind === 'sfx') {
     // SFX / Stilize Büyük Yazılar ("NO" -> "HAYIR.", "FIRST MURDER." -> "İLK CİNAYET."):
     // Orijinal yazının kapladığı alanı ve yüksekliği dolduracak şekilde dinamik ölçekle!
     emphasisLastLineScale = undefined; // SFX zaten tek bir vurgu bloğudur
@@ -1262,7 +1370,6 @@ export const inpaintAndRefineBlock = (
     fontPx = clamp(medGlyphH * 1.05, minSfxFontPx, maxSfxFontPx);
 
     // Tek satırlık orijinal SFX'te ("NO.", "FIRST MURDER.") çeviriyi de mümkün olduğunca 1-2 satırda geniş tut
-    const origLineCount = block.lines?.length ?? 1;
     finalBoxW =
       origLineCount === 1
         ? Math.max(glyphW * 1.38, safeW, fontPx * displayText.length * 0.58)
@@ -1343,10 +1450,17 @@ export const inpaintAndRefineBlock = (
     }
   }
 
-  const absCenterX = wx0 + layoutCenterX;
+  let refinedX0: number;
+  let refinedX1: number;
+  if (isSingleLineStat) {
+    refinedX0 = clamp(wx0 + gMinX, 0, fullWidth - finalBoxW);
+    refinedX1 = clamp(refinedX0 + finalBoxW, refinedX0 + 4, fullWidth);
+  } else {
+    const absCenterX = wx0 + layoutCenterX;
+    refinedX0 = clamp(absCenterX - finalBoxW * 0.5, 0, fullWidth - 4);
+    refinedX1 = clamp(absCenterX + finalBoxW * 0.5, refinedX0 + 4, fullWidth);
+  }
   const absCenterY = wy0 + layoutCenterY;
-  const refinedX0 = clamp(absCenterX - finalBoxW * 0.5, 0, fullWidth - 4);
-  const refinedX1 = clamp(absCenterX + finalBoxW * 0.5, refinedX0 + 4, fullWidth);
   const refinedY0 = clamp(absCenterY - finalBoxH * 0.5, 0, fullHeight - 4);
   const refinedY1 = clamp(absCenterY + finalBoxH * 0.5, refinedY0 + 4, fullHeight);
 

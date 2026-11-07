@@ -342,7 +342,7 @@ const VOCAL_TOKEN_REGEX =
 const SFX_WRAP_REGEX = /^[*({\[][^\n*)}\]]+[*)}\]][!?.~*^_\-\s]*$/;
 const PURE_PUNCT_REGEX = /^[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•]+$/;
 const CREDITS_START_REGEX =
-  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on))\b/i;
+  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|asurascans|asura\s*scans|reaperscans|flamescans|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on)|(?:tl|pr|cl|rd|ts|qc|ktl|tlc)\s*[:\-]?\s*[a-z0-9_]{2,14}$)\b/i;
 const CREDITS_INLINE_REGEX =
   /(?:^|[\/|•<\[])\s*(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|written\s+by|art\s+by|story\s+by|original\s+work|traducción|traduccion|edición|edicion|limpieza|typeset|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))\s*[:\-]/i;
 const WATERMARK_DOMAIN_REGEX =
@@ -352,6 +352,7 @@ const WATERMARK_DOMAIN_REGEX =
 export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   const t = text.trim();
   if (t.length <= 1) return true;
+  if (t.toUpperCase() === '[SFX]' || t === '[SFX]') return true;
   if (PURE_PUNCT_REGEX.test(t)) return true;
   if (SFX_WRAP_REGEX.test(t)) return true;
   if (WATERMARK_DOMAIN_REGEX.test(t) || isCreditOrPromoText(t)) return true;
@@ -510,7 +511,8 @@ export const translateBatchWithGeminiText = async (
     'STRICT RULES:',
     '1. Keep personal character names, honorifics (e.g. Oppa, Hyung, Sunbae, San, Kun, Chan, Sama, Sensei), and proper nouns in their original romanized spelling. NEVER localize names.',
     '2. Keep translations concise so they fit neatly inside speech bubbles.',
-    `3. Return a JSON object with a "translations" array of exactly ${payloadTexts.length} strings matching input order.`,
+    '3. SOUND EFFECTS (SFX) FILTERING: If an entry is purely an onomatopoeia / sound effect (SFX) representing a sound, reaction, or noise without dialogue/story narration (e.g., "Crack!", "STARTLE!", "Gasp", "Thump", "Whoosh", "Clang", "Swoosh", "Patter", "Rumble", "Flinch", "Twitch", "BAM", "Zzzt", "Doki doki", etc.), return exactly "[SFX]" or the unchanged original text. DO NOT translate meaningless sound effects. BUT DO TRANSLATE meaningful statements, exclamations, questions, dialogue, narration, and system text (e.g., "NO!", "ALONE?", "FIRST MURDER.", "HELP ME!", RPG status stats like "HEALTH: 100", etc.).',
+    `4. Return a JSON object with a "translations" array of exactly ${payloadTexts.length} strings matching input order.`,
     'Lines to translate:',
     JSON.stringify(payloadTexts),
   ].join('\n');
@@ -672,18 +674,32 @@ export const translatePageImage = async ({
   const normalizeForCompare = (s: string) =>
     s.toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]+/gu, '');
 
-  // Çeviri servisi sessizce başarısız olursa (tüm metinler aynen döner) sayfayı "çevrildi" sayma
+  // Yalnızca tüm balonlar çevrilmemiş VE metinler gerçek yabancı diyalog kelimeleri içeriyorsa (özel isim listesi değilse) hata fırlat
   const unchangedCount = rawBubbles.filter(
     (bubble, idx) => normalizeForCompare(translatedTexts[idx] || '') === normalizeForCompare(bubble.text),
   ).length;
-  if (targetLang !== 'en' && rawBubbles.length >= 2 && unchangedCount === rawBubbles.length) {
+  const hasTranslatableSentence = rawBubbles.some(
+    (b) => FOREIGN_STOPWORD_REGEX.test(b.text) || b.text.trim().split(/\s+/).length >= 3,
+  );
+  if (
+    targetLang !== 'en' &&
+    rawBubbles.length >= 2 &&
+    unchangedCount === rawBubbles.length &&
+    hasTranslatableSentence
+  ) {
     throw new Error('Çeviri servisi yanıt vermedi (timeout)');
   }
 
   const blocks = rawBubbles
     .map((bubble, idx) => {
       const translated = (translatedTexts[idx] || bubble.text).trim();
-      if (shouldSkipBlock(translated, targetLang)) return null;
+      if (
+        translated === '[SFX]' ||
+        translated.toUpperCase() === '[SFX]' ||
+        shouldSkipBlock(translated, targetLang)
+      ) {
+        return null;
+      }
       // Çeviri orijinalle aynıysa (özel isim, saf ses efekti) orijinal çizimi bozma
       if (normalizeForCompare(translated) === normalizeForCompare(bubble.text)) return null;
       return inpaintAndRefineBlock(
