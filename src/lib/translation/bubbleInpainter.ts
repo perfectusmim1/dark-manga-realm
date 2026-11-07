@@ -12,7 +12,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 7;
+export const TRANSLATION_BLOCK_VERSION = 8;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -258,6 +258,11 @@ export const inpaintAndRefineBlock = (
 
   const bw = boxX1 - boxX0;
   const bh = boxY1 - boxY0;
+  const displayText = formatScanlationText(block.text, targetLang);
+  const origLineCount = block.lines?.length ?? 1;
+  const isSingleLineStat =
+    origLineCount === 1 &&
+    /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,28}:\s*\S/.test(displayText);
 
   // Büyük/stilize harflerin ("NO", "FIRST MURDER.", "ALONE?") pencere sınırına çarpıp
   // balon çerçevesi sanılmasını önlemek ve yuvarlak/dikenli balonların üst-alt boşluğunu tam görmek için geniş arama penceresi
@@ -350,8 +355,6 @@ export const inpaintAndRefineBlock = (
         : Math.max(16, bh);
     const R = clamp(Math.round(Math.min(bw, bh) * 0.42), 24, 54);
     const RTight = clamp(Math.round(medLineH * 0.18), 8, 16);
-    const padCoreX = Math.max(32, Math.round(medLineH * 0.95));
-    const padCoreY = Math.max(28, Math.round(medLineH * 0.85));
 
     const isInsideAnyCore = (x: number, y: number): boolean => {
       for (let i = 0; i < lineCores.length; i += 1) {
@@ -359,26 +362,6 @@ export const inpaintAndRefineBlock = (
         if (x >= lc.x0 && x <= lc.x1 && y >= lc.y0 && y <= lc.y1) return true;
       }
       return x >= cx0 && x <= cx1 && y >= cy0 && y <= cy1;
-    };
-
-    const isNearAnyLineCore = (x: number, y: number): boolean => {
-      for (let i = 0; i < lineCores.length; i += 1) {
-        const lc = lineCores[i];
-        if (
-          x >= lc.x0 - padCoreX &&
-          x <= lc.x1 + padCoreX &&
-          y >= lc.y0 - padCoreY &&
-          y <= lc.y1 + padCoreY
-        ) {
-          return true;
-        }
-      }
-      return (
-        x >= cx0 - padCoreX &&
-        x <= cx1 + padCoreX &&
-        y >= cy0 - padCoreY &&
-        y <= cy1 + padCoreY
-      );
     };
 
     /**
@@ -560,8 +543,6 @@ export const inpaintAndRefineBlock = (
           let touchesBorder = false;
           let overlapsCore = false;
 
-          const startNearCore = isNearAnyLineCore(x, y);
-
           while (qHead < qTail) {
             const curr = queue[qHead++];
             const cy = (curr / ww) | 0;
@@ -588,11 +569,6 @@ export const inpaintAndRefineBlock = (
               for (let nx = nxMin; nx <= nxMax; nx += 1) {
                 const nIdx = rowOff + nx;
                 if (fg[nIdx] === 1 && labels[nIdx] === 0) {
-                  // Harf kuşağı (isNearAnyLineCore) içindeki piksellerin dışarıdaki arka plan çizgileri
-                  // veya balon çerçevesiyle birleşip touchesBorder=true olmasını engelle!
-                  if (!(bgLumInit < 45 && bh < 55) && startNearCore !== isNearAnyLineCore(nx, ny)) {
-                    continue;
-                  }
                   labels[nIdx] = curId;
                   queue[qTail++] = nIdx;
                 }
@@ -649,24 +625,83 @@ export const inpaintAndRefineBlock = (
     }
 
     const preferLightFirst = bgLumInit < 55 || (bgLumInit < 165 && brighterCount > darkerCount * 1.8);
-    const isSingleOrDarkSfx = preferLightFirst;
+    const isBlueOrMidPanel = bgB > bgR + 20 || bgLumInit >= 50;
+    const isSingleOrDarkSfx =
+      preferLightFirst &&
+      !isBlueOrMidPanel &&
+      !isSingleLineStat &&
+      origLineCount === 1 &&
+      displayText.length <= 16;
+
+    const isStructuralFrameOrDivider = (c: ComponentInfo): boolean => {
+      if (c.touchesBorder) return true;
+      const coreRatio = c.corePixels / Math.max(1, c.area);
+      const extendsOutsideCore =
+        c.minx < cx0 - 3 || c.maxx > cx1 + 3 || c.miny < cy0 - 3 || c.maxy > cy1 + 3;
+      // 1. Yatay ayırıcı çizgiler (RPG stat penceresindeki yatay beyaz/siyah ayraç çizgileri)
+      if (
+        c.w >= Math.max(medLineH * 2.4, Math.min(bw * 0.38, ww * 0.28)) &&
+        c.h <= Math.max(12, Math.round(medLineH * 0.45)) &&
+        c.w / Math.max(1, c.h) >= 5.5 &&
+        coreRatio < 0.45
+      ) {
+        return true;
+      }
+      // 2. Dikey ayırıcı / çerçeve duvarı parçaları
+      if (
+        c.h >= Math.max(bh * 1.15, medLineH * 1.75) &&
+        c.w <= Math.max(18, Math.round(medLineH * 0.65)) &&
+        c.h / Math.max(1, c.w) >= 3.5 &&
+        coreRatio < 0.3
+      ) {
+        return true;
+      }
+      // 3. Metin çekirdeğinin dışına taşan ve düşük çekirdek oranına sahip çerçeve/süsleme parçaları
+      if (
+        extendsOutsideCore &&
+        coreRatio < 0.28 &&
+        (c.w > medLineH * 2.2 || c.h > medLineH * 1.6 || c.area > medLineH * medLineH * 1.4)
+      ) {
+        return true;
+      }
+      // 4. Metin çekirdeğini dıştan kuşatan veya pencere/balon boyutuna ulaşan çerçeveler (dikenli halka, RPG kutusu çerçevesi)
+      if (
+        c.w >= ww * 0.75 ||
+        c.h >= wh * 0.75 ||
+        ((c.w > Math.max(bw * 0.82, medLineH * 3.6) || c.h > Math.max(bh * 1.22, medLineH * 1.85)) &&
+          coreRatio < 0.28) ||
+        (c.minx < cx0 - 4 &&
+          c.maxx > cx1 + 4 &&
+          c.miny < cy0 - 4 &&
+          c.maxy > cy1 + 4 &&
+          coreRatio < 0.35)
+      ) {
+        return true;
+      }
+      return false;
+    };
 
     const isValidGlyphComponent = (c: ComponentInfo): boolean => {
       if (c.area < 2) return false;
+      if (isStructuralFrameOrDivider(c)) return false;
       const coreRatio = c.corePixels / Math.max(1, c.area);
       const coreBoxArea = Math.max(1, bw * bh);
-      // Pencere kenarına değmiyorsa ve piksellerinin önemli kısmı OCR kutusu içindeyse boyutuna bakmaksızın HARFTİR!
-      if (!c.touchesBorder && coreRatio >= 0.22 && c.area <= coreBoxArea * 1.45) {
-        return true;
+      if (isSingleOrDarkSfx) {
+        if (coreRatio >= 0.22 && c.area <= coreBoxArea * 1.45) {
+          return true;
+        }
+        return c.w <= Math.max(bw * 1.35, ww * 0.9) && c.h <= Math.max(bh * 2.8, wh * 0.88);
       }
-      if (c.touchesBorder) return false;
-      const maxAllowedCompH = isSingleOrDarkSfx
-        ? Math.max(bh * 2.8, wh * 0.88)
-        : Math.max(bh * 1.35, wh * 0.84);
-      const maxAllowedCompW = isSingleOrDarkSfx
-        ? Math.max(bw * 1.35, ww * 0.9)
-        : Math.max(bw * 1.25, ww * 0.9);
-      return c.w <= maxAllowedCompW && c.h <= maxAllowedCompH;
+      const extendsOutsideCore =
+        c.minx < cx0 - 3 || c.maxx > cx1 + 3 || c.miny < cy0 - 3 || c.maxy > cy1 + 3;
+      if (extendsOutsideCore && coreRatio < 0.28 && c.area > 12) {
+        return false;
+      }
+      const maxAllowedCompH = Math.max(medLineH * 1.65, 28);
+      const maxAllowedCompW = coreRatio >= 0.45 ? Math.max(medLineH * 5.2, 96) : Math.max(medLineH * 3.2, 56);
+      if (c.h > maxAllowedCompH || c.w > maxAllowedCompW) return false;
+      if (c.area > medLineH * medLineH * 0.75 && coreRatio < 0.18) return false;
+      return true;
     };
 
     const getAcceptedSpanW = (acc: Set<number>, vList: ComponentInfo[]): number => {
@@ -690,12 +725,12 @@ export const inpaintAndRefineBlock = (
     // Arka plan koyuysa ("NO.", "FIRST MURDER.") parlak maskeden başla;
     // aksi halde ("KIM JEONGHYUK", "31 AÑOS" ve tüm konuşma balonları) koyu mürekkep maskesinden başla.
     let pass = runMaskPass(
-      preferLightFirst ? buildLightForegroundMask(20, 32) : buildDarkForegroundMask(20, 32),
+      preferLightFirst ? buildLightForegroundMask(16, 26) : buildDarkForegroundMask(20, 32),
     );
 
-    if (pass.accepted.size === 0 || pass.spanW < bw * 0.22) {
+    if (pass.accepted.size === 0 || pass.spanW < bw * (isSingleLineStat ? 0.62 : 0.32)) {
       const gentlePass = runMaskPass(
-        preferLightFirst ? buildLightForegroundMask(11, 18) : buildDarkForegroundMask(11, 18),
+        preferLightFirst ? buildLightForegroundMask(10, 16) : buildDarkForegroundMask(11, 18),
       );
       if (gentlePass.spanW > pass.spanW) pass = gentlePass;
     }
@@ -711,14 +746,14 @@ export const inpaintAndRefineBlock = (
 
     const { labels, comps, valid, accepted } = pass;
 
-    // OCR kutusunun kenarında kesilmiş harfleri ("?", "!", "ER.", "ALONE?") komşu balonlara veya
-    // balon dışı noktalı arka plan dokularına (screentone) sıçramadan kontrollü olarak büyüt
+    // OCR kutusunun kenarında kesilmiş harfleri ("?", "!", "ER.", "ALONE?") komşu balonlara,
+    // RPG çerçeve duvarlarına veya yatay ayraç çizgilerine sıçramadan kontrollü olarak büyüt
     const maxGrowX = isSingleOrDarkSfx
       ? Math.max(64, bh * 2.1, bw * 0.58)
-      : Math.max(26, bh * 0.8, bw * 0.18);
+      : Math.min(20, Math.max(10, Math.round(medLineH * 0.55)));
     const maxGrowY = isSingleOrDarkSfx
       ? Math.max(46, bh * 1.45)
-      : Math.max(18, bh * 0.42);
+      : Math.min(12, Math.max(6, Math.round(medLineH * 0.32)));
     const allowedMinX = Math.max(1, cx0 - maxGrowX);
     const allowedMaxX = Math.min(ww - 2, cx1 + maxGrowX);
     const allowedMinY = Math.max(1, cy0 - maxGrowY);
@@ -726,7 +761,7 @@ export const inpaintAndRefineBlock = (
 
     let changed = true;
     let growIter = 0;
-    const maxGrowIter = isSingleOrDarkSfx ? 4 : 3;
+    const maxGrowIter = isSingleOrDarkSfx ? 4 : 2;
     while (changed && growIter < maxGrowIter) {
       changed = false;
       growIter += 1;
@@ -738,11 +773,11 @@ export const inpaintAndRefineBlock = (
       const medH = heights.length > 0 ? medianOf(heights) : 20;
       const padX = Math.min(
         maxGrowX,
-        isSingleOrDarkSfx ? Math.max(18, medH * 1.35) : Math.max(14, medH * 1.15),
+        isSingleOrDarkSfx ? Math.max(18, medH * 1.35) : Math.max(8, Math.round(medH * 0.5)),
       );
       const padY = Math.min(
         maxGrowY,
-        isSingleOrDarkSfx ? Math.max(12, medH * 0.85) : Math.max(10, medH * 0.75),
+        isSingleOrDarkSfx ? Math.max(12, medH * 0.85) : Math.max(5, Math.round(medH * 0.3)),
       );
 
       let uMinX = Infinity;
@@ -762,7 +797,10 @@ export const inpaintAndRefineBlock = (
 
       const maxCompH = isSingleOrDarkSfx
         ? Math.max(medH * 3.8, maxH * 3.2, bh * 2.8)
-        : Math.max(medH * 3.0, maxH * 1.8);
+        : Math.max(medH * 1.45, medLineH * 1.45);
+      const maxCompW = isSingleOrDarkSfx
+        ? Math.max(medH * 6.0, bw * 1.2)
+        : Math.max(medH * 2.0, medLineH * 2.0);
       for (const c of valid) {
         if (accepted.has(c.id)) continue;
         if (c.minx < allowedMinX || c.maxx > allowedMaxX || c.miny < allowedMinY || c.maxy > allowedMaxY) {
@@ -770,7 +808,7 @@ export const inpaintAndRefineBlock = (
         }
         // Nokta gürültülerini (1-3px screentone beneklerini) dışarıdan toplama
         if (c.area < 6 && !c.overlapsCore) continue;
-        if (c.h > maxCompH || c.w > Math.max(medH * 6.0, bw * 1.2)) {
+        if (c.h > maxCompH || c.w > maxCompW) {
           continue;
         }
         if (c.maxx >= uMinX && c.minx <= uMaxX && c.maxy >= uMinY && c.miny <= uMaxY) {
@@ -829,6 +867,8 @@ export const inpaintAndRefineBlock = (
       comps,
       valid,
       accepted,
+      isStructuralFrameOrDivider,
+      medLineH,
       expandLeft,
       expandRight,
       expandTop,
@@ -874,6 +914,8 @@ export const inpaintAndRefineBlock = (
     comps,
     valid,
     accepted,
+    isStructuralFrameOrDivider,
+    medLineH,
   } = winResult;
 
   if (accepted.size === 0) {
@@ -881,30 +923,11 @@ export const inpaintAndRefineBlock = (
   }
 
   const bgLumInit = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB;
-  const displayText = formatScanlationText(block.text, targetLang);
-  const origLineCount = block.lines?.length ?? 1;
-  const isSingleLineStat =
-    origLineCount === 1 &&
-    /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,28}:\s*\S/.test(displayText);
 
-  // Yapısal balon sınırlarını ve metin kutusunu dıştan kuşatan çerçeveleri koruma maskesine al
+  // Yapısal balon sınırlarını, RPG çerçevelerini ve yatay/dikey ayraç çizgilerini koruma maskesine al
   const borderIds = new Set<number>(
     comps
-      .filter((c) => {
-        if (accepted.has(c.id)) return false;
-        if (c.touchesBorder || c.w >= ww * 0.92 || c.h >= wh * 0.88) return true;
-        const coreRatio = c.corePixels / Math.max(1, c.area);
-        if (
-          coreRatio < 0.08 &&
-          c.minx < cx0 - 6 &&
-          c.maxx > cx1 + 6 &&
-          c.miny < cy0 - 6 &&
-          c.maxy > cy1 + 6
-        ) {
-          return true;
-        }
-        return false;
-      })
+      .filter((c) => !accepted.has(c.id) && isStructuralFrameOrDivider(c))
       .map((c) => c.id),
   );
   const borderMask = new Uint8Array(numPixels);
@@ -929,35 +952,6 @@ export const inpaintAndRefineBlock = (
     if (c.maxx > gMaxX) gMaxX = c.maxx;
     if (c.miny < gMinY) gMinY = c.miny;
     if (c.maxy > gMaxY) gMaxY = c.maxy;
-  }
-
-  // Tek satırlık RPG istatistik satırlarında ("DEFENSE: 1", "ATTACK : 2 (BONE SWORD +3)")
-  // sol veya sağdaki harfler bileşen büyümesinde eksik kalsa bile OCR satır kutusu (cx0..cx1, cy0..cy1)
-  // içindeki tüm parlak harf piksellerini silme maskesine dahil et ve sol hizayı cx0'a sabitle!
-  if (isSingleLineStat && bgLumInit < 175) {
-    gMinX = Math.min(gMinX, cx0);
-    gMaxX = Math.max(gMaxX, cx1);
-    gMinY = Math.min(gMinY, cy0);
-    gMaxY = Math.max(gMaxY, cy1);
-    const sx0 = Math.max(1, gMinX - 3);
-    const sx1 = Math.min(ww - 2, gMaxX + 3);
-    const sy0 = Math.max(1, gMinY - 2);
-    const sy1 = Math.min(wh - 2, gMaxY + 2);
-    for (let y = sy0; y <= sy1; y += 1) {
-      const rOff = y * ww;
-      for (let x = sx0; x <= sx1; x += 1) {
-        const idx = rOff + x;
-        if (borderMask[idx] || rawGlyphMask[idx]) continue;
-        const cIdx = idx * 3;
-        const pr = winRgb[cIdx];
-        const pg = winRgb[cIdx + 1];
-        const pb = winRgb[cIdx + 2];
-        const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
-        if (pLum > bgLumInit + 22 && Math.max(pr - bgR, pg - bgG, pb - bgB) > 24) {
-          rawGlyphMask[idx] = 1;
-        }
-      }
-    }
   }
 
   const glyphHeights = accComps.filter((c) => c.h >= 7).map((c) => c.h);
@@ -1056,22 +1050,28 @@ export const inpaintAndRefineBlock = (
   // Kapalı açık renkli konuşma balonunun (ör. dikenli yuvarlak balon "SO / WEAK?!") iç boşluğunda kalan
   // fakat OCR kutusunun biraz dışında/üstünde kaldığı için `accepted` kümesine girmemiş olan tüm iç harf parçalarını
   // ("SO" veya kesilmiş harf üstleri) otomatik olarak yakala ve silme maskesine dahil et!
-  if (bgLumInit >= 195 && (hitLeftWall || hitRightWall)) {
-    const cavLeft = Math.max(2, safeLocalLeft - wallPadX + 4);
-    const cavRight = Math.min(ww - 3, safeLocalRight + wallPadX - 4);
-    const cavTop = Math.max(2, hitTopWall ? safeLocalTop - wallPadY + 4 : Math.max(2, gMinY - Math.round(medGlyphH * 2.4)));
-    const cavBottom = Math.min(wh - 3, hitBottomWall ? safeLocalBottom + wallPadY - 4 : Math.min(wh - 3, gMaxY + Math.round(medGlyphH * 1.6)));
+  if (bgLumInit >= 195 && hitLeftWall && hitRightWall) {
+    const cavLeft = Math.max(2, safeLocalLeft);
+    const cavRight = Math.min(ww - 3, safeLocalRight);
+    const cavTop = Math.max(
+      2,
+      hitTopWall ? safeLocalTop : Math.max(2, gMinY - Math.round(medGlyphH * 2.2)),
+    );
+    const cavBottom = Math.min(
+      wh - 3,
+      hitBottomWall ? safeLocalBottom : Math.min(wh - 3, gMaxY + Math.round(medGlyphH * 1.4)),
+    );
     let cavityAdded = false;
     for (const c of comps) {
       if (accepted.has(c.id) || borderIds.has(c.id)) continue;
-      if (c.area < 5 || c.touchesBorder) continue;
+      if (c.area < 5 || c.touchesBorder || isStructuralFrameOrDivider(c)) continue;
       if (
         c.minx >= cavLeft &&
         c.maxx <= cavRight &&
         c.miny >= cavTop &&
         c.maxy <= cavBottom &&
-        c.h <= Math.max(medGlyphH * 2.8, bh * 1.6) &&
-        c.w <= Math.max((cavRight - cavLeft) * 0.9, bw * 1.35)
+        c.h <= Math.max(medGlyphH * 1.85, medLineH * 1.85) &&
+        c.w <= Math.max(medGlyphH * 2.8, medLineH * 2.8)
       ) {
         accepted.add(c.id);
         cavityAdded = true;
@@ -1273,26 +1273,34 @@ export const inpaintAndRefineBlock = (
     ringStd < 6.5 || (bgLumInit >= 200 && ringMedLum >= 210 && hasClosedBubbleWalls);
 
   if (isFlatLightBubble) {
-    // Düz konuşma balonlarında harf kutusunun içinde unutulmuş hiçbir leke/mürekkep kalmaması için
-    // [gMinX..gMaxX, gMinY..gMaxY] içindeki zemin dışı tüm pikselleri de temizle
-    for (let y = Math.max(0, gMinY - 3); y <= Math.min(wh - 1, gMaxY + 3); y += 1) {
+    // Düz konuşma balonlarında dikenli/yuvarlak balon çerçevelerini asla dikdörtgen olarak silme;
+    // yalnızca mevcut silme maskesinin (eraseMask) 2px komşuluğundaki anti-aliasing/mürekkep kalıntılarını temizle!
+    const baseErase = new Uint8Array(eraseMask);
+    for (let y = Math.max(1, egMinY - 2); y <= Math.min(wh - 2, egMaxY + 2); y += 1) {
       const rOff = y * ww;
-      for (let x = Math.max(0, gMinX - 3); x <= Math.min(ww - 1, gMaxX + 3); x += 1) {
+      for (let x = Math.max(1, egMinX - 2); x <= Math.min(ww - 2, egMaxX + 2); x += 1) {
         const idx = rOff + x;
         if (borderMask[idx] || eraseMask[idx]) continue;
-        const cIdx = idx * 3;
-        const d = Math.max(
-          Math.abs(winRgb[cIdx] - ringMedR),
-          Math.abs(winRgb[cIdx + 1] - ringMedG),
-          Math.abs(winRgb[cIdx + 2] - ringMedB),
-        );
-        if (d > 14) {
-          eraseMask[idx] = 1;
-          eraseCount += 1;
-          if (x < egMinX) egMinX = x;
-          if (x > egMaxX) egMaxX = x;
-          if (y < egMinY) egMinY = y;
-          if (y > egMaxY) egMaxY = y;
+        if (
+          baseErase[idx - 1] ||
+          baseErase[idx + 1] ||
+          baseErase[idx - ww] ||
+          baseErase[idx + ww]
+        ) {
+          const cIdx = idx * 3;
+          const d = Math.max(
+            Math.abs(winRgb[cIdx] - ringMedR),
+            Math.abs(winRgb[cIdx + 1] - ringMedG),
+            Math.abs(winRgb[cIdx + 2] - ringMedB),
+          );
+          if (d > 14) {
+            eraseMask[idx] = 1;
+            eraseCount += 1;
+            if (x < egMinX) egMinX = x;
+            if (x > egMaxX) egMaxX = x;
+            if (y < egMinY) egMinY = y;
+            if (y > egMaxY) egMaxY = y;
+          }
         }
       }
     }
@@ -1440,6 +1448,12 @@ export const inpaintAndRefineBlock = (
   // ve tam iç genişliğini kullan (böylece yazı sağa/sola sıkışmaz, balonun tam ortasına yayılır).
   const glyphW = Math.max(24, gMaxX - gMinX + 1);
   const glyphH = Math.max(18, gMaxY - gMinY + 1);
+  const coreCenterY = Math.round((cy0 + cy1) * 0.5);
+  const baseMidY =
+    Math.abs(midLocalY - coreCenterY) <= Math.max(18, medGlyphH * 0.85)
+      ? midLocalY
+      : coreCenterY;
+  const wallCenterY = Math.round((safeLocalTop + safeLocalBottom) * 0.5);
   const layoutCenterX =
     hitLeftWall &&
     hitRightWall &&
@@ -1449,9 +1463,12 @@ export const inpaintAndRefineBlock = (
       ? Math.round((safeLocalLeft + safeLocalRight) * 0.5)
       : midLocalX;
   const layoutCenterY =
-    hitTopWall && hitBottomWall && safeLocalBottom > safeLocalTop + 20
-      ? Math.round((safeLocalTop + safeLocalBottom) * 0.5)
-      : midLocalY;
+    hitTopWall &&
+    hitBottomWall &&
+    safeLocalBottom > safeLocalTop + 20 &&
+    Math.abs(wallCenterY - baseMidY) <= Math.max(14, medGlyphH * 0.6)
+      ? wallCenterY
+      : baseMidY;
 
   const maxHalfW = Math.max(
     glyphW * 0.5,
@@ -1477,8 +1494,8 @@ export const inpaintAndRefineBlock = (
 
   if (isSingleLineStat) {
     // Tek satırlık RPG istatistik satırı ("SAĞLIK: 100", "BÜYÜ: 0", "SALDIRI: 2 (KEMİK KILIÇ +3)", "AD: JIANG CHENG" vb.)
-    // Kesinlikle 2 satıra sarılmaz! Tek satırda kalacak şekilde font boyutu hesaplanır ve orijinal sol sınıra (cx0) kilitlenir.
-    const statLeftLocalX = Math.min(gMinX, cx0);
+    // Kesinlikle 2 satıra sarılmaz! Tek satırda kalacak şekilde font boyutu hesaplanır ve orijinal ilk harfin sol sınırına (gMinX) kilitlenir.
+    const statLeftLocalX = gMinX;
     const maxStatW = Math.max(
       bw * 1.08,
       Math.min(
@@ -1610,8 +1627,8 @@ export const inpaintAndRefineBlock = (
   let refinedY0: number;
   let refinedY1: number;
   if (isSingleLineStat) {
-    const statLeftLocalX = Math.min(gMinX, cx0);
-    const statCenterLocalY = Math.round((cy0 + cy1) * 0.5);
+    const statLeftLocalX = gMinX;
+    const statCenterLocalY = Math.round((gMinY + gMaxY) * 0.5);
     refinedX0 = clamp(wx0 + statLeftLocalX, 0, fullWidth - finalBoxW);
     refinedX1 = clamp(refinedX0 + finalBoxW, refinedX0 + 4, fullWidth);
     const absStatCenterY = wy0 + statCenterLocalY;
