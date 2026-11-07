@@ -212,22 +212,35 @@ export const bakeTranslatedPageToBlob = async (
     const fontWeight = block.fontWeight ?? 700;
     const lineHeightRatio = getLineHeightRatioForBlock(block);
 
-    const wrapped = computeSmartWrappedLines(ctx, displayText, boxW * 0.88, baseFontPx, {
-      fontFamily: block.fontFamily,
-      fontWeight,
-      lineWidthsPct: block.lineWidthsPct,
-      emphasisLastLineScale: block.emphasisLastLineScale,
-      lineHeightRatio,
-    });
+    const isSingleLineStat =
+      !block.text.includes('\n') &&
+      displayText.length <= 48 &&
+      /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,28}:\s*\S/.test(displayText);
+
+    const wrapped = isSingleLineStat
+      ? {
+          lines: [{ text: displayText, widthPx: boxW, scale: 1 }],
+          maxWordWidth: boxW,
+          totalHeightPx: baseFontPx * lineHeightRatio,
+        }
+      : computeSmartWrappedLines(ctx, displayText, boxW * 0.88, baseFontPx, {
+          fontFamily: block.fontFamily,
+          fontWeight,
+          lineWidthsPct: block.lineWidthsPct,
+          emphasisLastLineScale: block.emphasisLastLineScale,
+          lineHeightRatio,
+        });
     if (wrapped.lines.length === 0) continue;
 
     const centerX = boxX + boxW * 0.5;
     const centerY = boxY + boxH * 0.5;
+    const drawX = isSingleLineStat ? boxX : centerX;
     const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
     const strokeColor = block.strokeColor || '#ffffff';
     const strokeWidthEm = block.strokeWidthEm ?? 0.12;
 
     ctx.save();
+    ctx.textAlign = isSingleLineStat ? 'left' : 'center';
     if (block.rotationDeg) {
       ctx.translate(centerX, centerY);
       ctx.rotate((block.rotationDeg * Math.PI) / 180);
@@ -256,14 +269,14 @@ export const bakeTranslatedPageToBlob = async (
       if (block.hasTextStroke) {
         ctx.strokeStyle = strokeColor;
         ctx.lineWidth = Math.max(1.2, lineFontPx * strokeWidthEm);
-        ctx.strokeText(line.text, centerX, lineY);
+        ctx.strokeText(line.text, drawX, lineY);
       }
 
       if (block.gradientStops && block.gradientStops.length === 2) {
         const grad = ctx.createLinearGradient(
-          centerX,
+          drawX,
           lineY - lineFontPx * 0.5,
-          centerX,
+          drawX,
           lineY + lineFontPx * 0.5,
         );
         grad.addColorStop(0, block.gradientStops[0]);
@@ -273,7 +286,7 @@ export const bakeTranslatedPageToBlob = async (
         ctx.fillStyle = textColor;
       }
 
-      ctx.fillText(line.text, centerX, lineY);
+      ctx.fillText(line.text, drawX, lineY);
 
       if (block.shadowColor) {
         ctx.restore();

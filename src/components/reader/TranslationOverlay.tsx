@@ -66,19 +66,29 @@ export const TranslationOverlay: React.FC<{
         // Referans 1000px genişlik üzerinden dengeli satırları ve vurgu ölçeğini hesapla (%12 yatay güvenlik payı)
         const refBoxW = Math.max(20, xmax - xmin);
         const refFontPx = (fontSizeCqw / 100) * 1000;
-        const wrapped = computeSmartWrappedLines(
-          measureCtx,
-          displayText,
-          refBoxW * 0.88,
-          refFontPx,
-          {
-            fontFamily: block.fontFamily,
-            fontWeight,
-            lineWidthsPct: block.lineWidthsPct,
-            emphasisLastLineScale: block.emphasisLastLineScale,
-            lineHeightRatio,
-          },
-        );
+        const isSingleLineStat =
+          !block.text.includes('\n') &&
+          displayText.length <= 48 &&
+          /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,28}:\s*\S/.test(displayText);
+        const wrapped = isSingleLineStat
+          ? {
+              lines: [{ text: displayText, widthPx: refBoxW, scale: 1 }],
+              maxWordWidth: refBoxW,
+              totalHeightPx: refFontPx * lineHeightRatio,
+            }
+          : computeSmartWrappedLines(
+              measureCtx,
+              displayText,
+              refBoxW * 0.88,
+              refFontPx,
+              {
+                fontFamily: block.fontFamily,
+                fontWeight,
+                lineWidthsPct: block.lineWidthsPct,
+                emphasisLastLineScale: block.emphasisLastLineScale,
+                lineHeightRatio,
+              },
+            );
 
         const textShadow = block.shadowColor
           ? `0 0 3px ${block.shadowColor}, 0 0 7px ${block.shadowColor}`
@@ -92,7 +102,10 @@ export const TranslationOverlay: React.FC<{
         return (
           <div
             key={`text-${index}`}
-            className="pointer-events-none absolute flex flex-col items-center justify-center select-none"
+            className={cn(
+              'pointer-events-none absolute flex flex-col justify-center select-none',
+              isSingleLineStat ? 'items-start' : 'items-center',
+            )}
             style={{
               top: `${ymin / 10}%`,
               left: `${xmin / 10}%`,
@@ -107,7 +120,10 @@ export const TranslationOverlay: React.FC<{
                 return (
                   <span
                     key={lineIdx}
-                    className="block w-full text-center whitespace-nowrap"
+                    className={cn(
+                      'block w-full whitespace-nowrap',
+                      isSingleLineStat ? 'text-left' : 'text-center',
+                    )}
                     style={
                       {
                         color: textColor,

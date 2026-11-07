@@ -698,8 +698,16 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       }
     }
   } else {
-    // Açık/beyaz konuşma balonu veya beyaz anlatım kutusu: her zaman net mürekkep siyahı (#0c0c0c)
-    if (isColoredFill && fillToBgDist >= 95 && fillLum < bgLum - 45 && fillSat >= 0.38) {
+    // Açık/beyaz zemin veya çerçeve sınırında duran başlıklar ("SYSTEM PROMPT" vb.)
+    if (fillLum >= 185 && (edgeLum <= fillLum - 25 || edgeB > edgeR + 20)) {
+      // İçi beyaz, dışı mavi/koyu konturlu başlık ("SYSTEM PROMPT" gibi)
+      finalTextColor = '#ffffff';
+      hasOutline = true;
+      finalStrokeColor = edgeB > edgeR + 14 ? '#3b78d4' : rgbToHex(edgeR, edgeG, edgeB);
+      strokeWidthEm = 0.11;
+      shadowColor = edgeB > edgeR + 14 ? '#5ca8ff' : undefined;
+      shadowBlurEm = shadowColor ? 0.14 : undefined;
+    } else if (isColoredFill && fillToBgDist >= 95 && fillLum < bgLum - 45 && fillSat >= 0.38) {
       finalTextColor = rgbToHex(fillR, fillG, fillB);
     } else {
       finalTextColor = '#0c0c0c';
@@ -838,6 +846,23 @@ export const inpaintTexturedRegion = (
       : 1.0;
 
   // 2. Yatay ve dikey span enterpolasyonu (başlangıç alanı + yönlü yapı koruma)
+  // Sınırda silinmemiş harf ucu veya parlak çerçeve çizgisi varsa (ringMed'den >58 sapma)
+  // o pikseli balon/kutu içine boydan boya sündürmemek için ringMed'e sabitle!
+  const isCleanBoundary = (pIdx: number): boolean => {
+    if (pIdx < 0 || pIdx >= numPixels || borderMask[pIdx] || eraseMask[pIdx]) return false;
+    const c3 = pIdx * 3;
+    return (
+      maxChannelDiff(
+        cleaned[c3],
+        cleaned[c3 + 1],
+        cleaned[c3 + 2],
+        ringMedR,
+        ringMedG,
+        ringMedB,
+      ) <= 58
+    );
+  };
+
   const hInterp = new Float32Array(cleaned);
   const hSpan = new Float32Array(numPixels);
   hSpan.fill(9999);
@@ -851,10 +876,12 @@ export const inpaintTexturedRegion = (
         while (x < ww && eraseMask[rOff + x]) x += 1;
         const xs1 = x;
 
-        const useLeft = xs0 > 0 && !borderMask[rOff + xs0 - 1];
-        const useRight = xs1 < ww && !borderMask[rOff + xs1];
-        const lIdx = (rOff + xs0 - 1) * 3;
-        const rIdx = (rOff + xs1) * 3;
+        const leftP = rOff + xs0 - 1;
+        const rightP = rOff + xs1;
+        const useLeft = xs0 > 0 && isCleanBoundary(leftP);
+        const useRight = xs1 < ww && isCleanBoundary(rightP);
+        const lIdx = leftP * 3;
+        const rIdx = rightP * 3;
 
         const lr = useLeft ? cleaned[lIdx] : useRight ? cleaned[rIdx] : ringMedR;
         const lg = useLeft ? cleaned[lIdx + 1] : useRight ? cleaned[rIdx + 1] : ringMedG;
@@ -894,8 +921,8 @@ export const inpaintTexturedRegion = (
 
         const topIdx = (ys0 - 1) * ww + x;
         const botIdx = ys1 * ww + x;
-        const useTop = ys0 > 0 && !borderMask[topIdx];
-        const useBot = ys1 < wh && !borderMask[botIdx];
+        const useTop = ys0 > 0 && isCleanBoundary(topIdx);
+        const useBot = ys1 < wh && isCleanBoundary(botIdx);
         const t3 = topIdx * 3;
         const b3 = botIdx * 3;
 
@@ -981,9 +1008,15 @@ export const inpaintTexturedRegion = (
         const dirFactor = dy === 0 ? anisoH : dx === 0 ? 1 / anisoH : 1.0;
         const w = dirFactor / distSq;
         const c3 = nIdx * 3;
-        rSum += cleaned[c3] * w;
-        gSum += cleaned[c3 + 1] * w;
-        bSum += cleaned[c3 + 2] * w;
+        const nr = cleaned[c3];
+        const ng = cleaned[c3 + 1];
+        const nb = cleaned[c3 + 2];
+        const isOutlier =
+          !eraseMask[nIdx] &&
+          maxChannelDiff(nr, ng, nb, ringMedR, ringMedG, ringMedB) > 58;
+        rSum += (isOutlier ? ringMedR : nr) * w;
+        gSum += (isOutlier ? ringMedG : ng) * w;
+        bSum += (isOutlier ? ringMedB : nb) * w;
         wSum += w;
       }
     }

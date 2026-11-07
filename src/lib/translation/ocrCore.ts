@@ -291,8 +291,8 @@ export const runPaddleOcr = async (
       checkAbort(signal);
       const rec = await recognizeBox(img, box, runners);
       const text = rec.text.trim();
-      // 48+ güvenli parçaları da tut; aynı satırdaki veya aynı balon içindeki yüksek güvenli satırların devamıysa kurtarılacak
-      if (!text || rec.confidence < 48) continue;
+      // 34+ güvenli parçaları da tut; aynı satırdaki veya aynı balon içindeki yüksek güvenli satırların devamıysa kurtarılacak
+      if (!text || rec.confidence < 34) continue;
       lines.push({
         text,
         confidence: rec.confidence,
@@ -322,7 +322,7 @@ export const runPaddleOcr = async (
  * Bu kelimeler büyük/stilize yazıldığında bile düşük güvenle elenmemelidir.
  */
 const SHORT_MEANINGFUL_WORD_REGEX =
-  /^(?:no|yes|go|so|up|in|on|ok|hi|me|us|we|he|do|to|or|if|my|by|am|is|it|at|be|oh|ah|why|who|how|now|run|die|out|off|get|let|see|say|can|not|all|one|two|too|bad|new|old|big|end|lie|cry|try|fly|sky|son|mom|dad|bro|sis|sir|god|war|sin|red|hit|cut)[!?.…,:;'"~-]*$/i;
+  /^(?:no|yes|go|so|up|in|on|ok|hi|me|us|we|he|do|to|or|if|my|by|am|is|it|at|be|oh|ah|eh|uh|hm|yo|ha|ho|aw|ow|oi|why|who|how|now|run|die|out|off|get|let|see|say|can|not|all|one|two|too|bad|new|old|big|end|lie|cry|try|fly|sky|son|mom|dad|bro|sis|sir|god|war|sin|red|hit|cut|weak|what|wait|stop|help|kill|dead|damn|shit|hell|sure|fine|good|nice|cool|real|true|fast|slow|hard|easy|high|low|full|none|zero|more|less|most|last|next|back|down|away|here|look|take|give|make|come|gone|done)[!?.…,:;'"~-]*$/i;
 
 /** OCR gürültüsünü (çizimden okunan sembol yığınları, düşük güvenli parçalar) eler. */
 export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDENCE): boolean => {
@@ -339,8 +339,11 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
       stripped || text,
     );
 
-  const effectiveMinConf =
-    isShortMeaningful || isCleanText ? Math.min(minConfidence, 58) : minConfidence;
+  const effectiveMinConf = isShortMeaningful
+    ? Math.min(minConfidence, 40)
+    : isCleanText
+      ? Math.min(minConfidence, 56)
+      : minConfidence;
 
   if (line.confidence < effectiveMinConf) return false;
   if (letters === 0) return false;
@@ -353,7 +356,7 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
   return true;
 };
 
-/** Baştaki/sondaki balon kenarı artıklarını ("|", "'", "\\" vb.) ve ASCII sözlük kaynaklı İspanyolca "¿" -> "C" okumalarını temizler. */
+/** Baştaki/sondaki balon kenarı artıklarını ("|", "'", "\\" vb.) ve harf içi "0" -> "O" okumalarını temizler. */
 export const cleanOcrText = (text: string): string => {
   const tokens = text.replace(/\s+/g, ' ').trim().split(' ');
   const isJunkToken = (tok: string) =>
@@ -364,6 +367,9 @@ export const cleanOcrText = (text: string): string => {
     .join(' ')
     .replace(/^[|\\/_=~^`]+/u, '')
     .replace(/[|\\/_=~^`]+$/u, '')
+    .replace(/(?<=[A-Za-z])0(?=[A-Za-z.!?,;:'"\s]|$)/g, 'O')
+    .replace(/(?:^|(?<=[\s"'([¡¿]))0(?=[A-Za-z]{1,})/g, 'O')
+    .replace(/^5[0O]([!?.…]*)$/i, 'SO$1')
     .replace(
       /\b[cC](?=(?:eh|ah|oh|que|quien|qlien|qle|como|cuando|cuanto|donde|por|para|podria|podrias|verdad|estaria|esta|eso|ese|ahora|acaso|sera|puede|puedo|tiene|hay)\b)/gi,
       '',
@@ -494,7 +500,7 @@ export const groupOcrLinesIntoBubbles = (
   // 2) Veya aynı konuşma balonu sütununda yüksek güvenli bir satırın hemen üstünde/altında kalan temiz satırları ("Esta", "I've found its" gibi) kurtar
   const rescuedLines = cleanedAll.filter((cand) => {
     if (isUsableOcrLine(cand, MIN_LINE_CONFIDENCE)) return false;
-    if (cand.confidence < 48) return false;
+    if (cand.confidence < 34) return false;
     const letters = cand.text.match(/\p{L}/gu)?.length ?? 0;
     const junk = cand.text.match(/[^\p{L}\p{N}\s.,!?'"“”‘’…:;()\-–—~&%+*]/gu)?.length ?? 0;
     if (letters < 1) return false;
@@ -512,17 +518,17 @@ export const groupOcrLinesIntoBubbles = (
       const centerYs = (sb.y0 + sb.y1) * 0.5;
       const minH = Math.min(ch, sh);
       const maxH = Math.max(ch, sh);
-      if (maxH / Math.max(1, minH) > 1.85) return false;
+      if (maxH / Math.max(1, minH) > 2.85) return false;
 
       // Yatay komşu ("FIRST MURD" + "ER.")
       const vOverlap = Math.min(cb.y1, sb.y1) - Math.max(cb.y0, sb.y0);
       const hGap = Math.max(cb.x0, sb.x0) - Math.min(cb.x1, sb.x1);
-      if (vOverlap >= minH * 0.5 && hGap >= -minH * 0.4 && hGap <= maxH * 1.65) {
+      if (maxH / Math.max(1, minH) <= 1.85 && vOverlap >= minH * 0.5 && hGap >= -minH * 0.4 && hGap <= maxH * 1.65) {
         return true;
       }
 
-      // Dikey balon içi komşu ("Esta" + "BEBIDA SABE", "I've found its" + "weak spot!" vb.)
-      if (letters >= 2 && junk <= 1 && cand.confidence >= 50) {
+      // Dikey balon içi komşu ("SO" + "WEAK?!", "Esta" + "BEBIDA SABE", "I've found its" + "weak spot!" vb.)
+      if (letters >= 2 && junk <= 1 && cand.confidence >= 36) {
         const vGap = Math.max(cb.y0, sb.y0) - Math.min(cb.y1, sb.y1);
         const hOverlap = Math.min(cb.x1, sb.x1) - Math.max(cb.x0, sb.x0);
         const narrow = Math.min(cw, sw);
@@ -530,10 +536,10 @@ export const groupOcrLinesIntoBubbles = (
         const centerYDist = Math.abs(centerYc - centerYs);
         if (
           vGap >= -minH * 0.62 &&
-          centerYDist >= minH * 0.48 &&
-          vGap <= maxH * 1.15 &&
-          hOverlap > narrow * 0.42 &&
-          centerDist < maxH * 1.75
+          centerYDist >= minH * 0.45 &&
+          vGap <= maxH * 1.55 &&
+          hOverlap > narrow * 0.32 &&
+          centerDist < maxH * 2.1
         ) {
           return true;
         }
@@ -613,7 +619,7 @@ export const groupOcrLinesIntoBubbles = (
         continue;
       }
 
-      if (b.y0 - a.y1 > maxH * 1.35) {
+      if (b.y0 - a.y1 > maxH * 1.55) {
         if (b.y0 - a.y1 > maxH * 4) break;
         continue;
       }
@@ -622,9 +628,21 @@ export const groupOcrLinesIntoBubbles = (
       const isStatB = KEY_VALUE_STAT_LINE_REGEX.test(lines[j].text);
       if (isStatA || isStatB) continue;
 
+      // Kutu çerçevesinin üst sınırında duran başlıkları ("SYSTEM PROMPT", "QUEST INFO" vb.)
+      // altındaki uzun/geniş gövde paragrafıyla ("YOU REQUIRE 90 MORE EVOLUTION POINTS BEFORE...") birleştirme!
+      const wordsA = lines[i].text.trim().split(/\s+/).length;
+      const wordsB = lines[j].text.trim().split(/\s+/).length;
+      if (
+        ha >= hb * 1.16 &&
+        wordsA <= 3 &&
+        (wordsB >= 5 || wb >= wa * 1.42)
+      ) {
+        continue;
+      }
+
       const vGap = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1);
       const centerYDist = Math.abs(centerYb - centerYa);
-      if (vGap > maxH * 1.15 || vGap < -minH * 0.62 || centerYDist < minH * 0.45) continue;
+      if (vGap > maxH * 1.5 || vGap < -minH * 0.62 || centerYDist < minH * 0.45) continue;
 
       // İki satır arasında dikeyde başka bir ara satır varsa (ör. 1. satır 2. satırı atlayıp 3. satırla birleşmeye çalışıyorsa) engelle
       let hasIntermediateRow = false;
@@ -660,19 +678,19 @@ export const groupOcrLinesIntoBubbles = (
         const aligned =
           (overlap > narrow * 0.35 && centerDist < Math.max(maxH * 2.2, Math.max(wa, wb) * 0.32)) ||
           (overlap > 0 && centerDist < maxH * 1.8);
-        if (aligned && vGap <= minH * 1.15) {
+        if (aligned && vGap <= minH * 1.35) {
           parent[find(j)] = find(i);
           continue;
         }
       }
 
-      // 3. Durum: Aynı balon içindeki vurgulu/büyük satır ("WHY DID YOU COME UP" + "ALONE?")
+      // 3. Durum: Aynı balon içindeki vurgulu/büyük satır ("SO" + "WEAK?!", "WHY DID YOU COME UP" + "ALONE?")
       // Yatay merkezleri hizalıysa ve dikey boşluk balon içi satır aralığı kadarsa 2.85x boyuta kadar birleştir
       if (heightRatio <= 2.85) {
         const stronglyAligned =
-          (overlap > narrow * 0.48 && centerDist < maxH * 1.35) ||
-          (overlap > narrow * 0.65 && centerDist < Math.max(wa, wb) * 0.42);
-        if (stronglyAligned && vGap >= -minH * 0.55 && vGap <= minH * 1.45) {
+          (overlap > narrow * 0.36 && centerDist < maxH * 1.55) ||
+          (overlap > narrow * 0.6 && centerDist < Math.max(wa, wb) * 0.45);
+        if (stronglyAligned && vGap >= -minH * 0.55 && vGap <= maxH * 1.45) {
           parent[find(j)] = find(i);
         }
       }
