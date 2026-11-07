@@ -12,7 +12,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 9;
+export const TRANSLATION_BLOCK_VERSION = 10;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -700,7 +700,7 @@ export const inpaintAndRefineBlock = (
         c.maxy <= cy1 + 6 &&
         c.h >= 8 &&
         c.h <= Math.max(medLineH * 2.5, 58) &&
-        c.w <= Math.max(bw * 1.08, medLineH * 9.5, 190);
+        c.w <= Math.max(bw * 1.25, ww * 0.95, 450);
       if (
         extendsOutsideCore &&
         coreRatio < 0.28 &&
@@ -715,7 +715,7 @@ export const inpaintAndRefineBlock = (
         ? Math.max(medLineH * 2.5, 58)
         : Math.max(medLineH * 1.65, 28);
       const maxAllowedCompW = isStrongCoreOrGlowingWord
-        ? Math.max(bw * 1.08, medLineH * 9.5, 190)
+        ? Math.max(bw * 1.25, ww * 0.95, 450)
         : coreRatio >= 0.45
           ? Math.max(medLineH * 5.2, 96)
           : Math.max(medLineH * 3.2, 56);
@@ -755,7 +755,7 @@ export const inpaintAndRefineBlock = (
                 c.maxy <= cy1 + 4 &&
                 c.h >= 10 &&
                 c.h <= Math.max(medLineH * 2.4, 56) &&
-                c.w <= Math.max(bw * 1.05, medLineH * 9.0, 180)),
+                c.w <= Math.max(bw * 1.2, ww * 0.95, 450)),
           )
           .map((c) => c.id),
       );
@@ -841,7 +841,7 @@ export const inpaintAndRefineBlock = (
       const maxCompW = isSingleOrDarkSfx
         ? Math.max(medH * 6.0, bw * 1.2)
         : preferLightFirst
-          ? Math.max(bw * 1.08, medLineH * 9.5, 180)
+          ? Math.max(bw * 1.2, ww * 0.95, 450)
           : Math.max(medH * 3.2, medLineH * 3.2, 72);
       for (const c of valid) {
         if (accepted.has(c.id)) continue;
@@ -911,6 +911,8 @@ export const inpaintAndRefineBlock = (
       accepted,
       isStructuralFrameOrDivider,
       medLineH,
+      preferLightFirst,
+      isBlueOrMidPanel,
       expandLeft,
       expandRight,
       expandTop,
@@ -958,6 +960,8 @@ export const inpaintAndRefineBlock = (
     accepted,
     isStructuralFrameOrDivider,
     medLineH,
+    preferLightFirst,
+    isBlueOrMidPanel,
   } = winResult;
 
   if (accepted.size === 0) {
@@ -1449,11 +1453,15 @@ export const inpaintAndRefineBlock = (
   }
   fullCtx.putImageData(imgData, wx0, wy0);
 
-  // Yalnızca silinen metin bölgesini saran sıkı dikdörtgeni (+2px dikiş payı) WebP yama olarak üret
-  const localPx0 = Math.max(0, egMinX - 2);
-  const localPy0 = Math.max(0, egMinY - 2);
-  const localPx1 = Math.min(ww, egMaxX + 3);
-  const localPy1 = Math.min(wh, egMaxY + 3);
+  // Yalnızca silinen metin bölgesini saran sıkı dikdörtgeni (kontur/ışıldama payı dahil) WebP yama olarak üret
+  const padX0 = preferLightFirst ? 3 : 2;
+  const padX1 = preferLightFirst ? 4 : 3;
+  const padY0 = preferLightFirst ? 3 : 2;
+  const padY1 = preferLightFirst || isBlueOrMidPanel ? 5 : 3;
+  const localPx0 = Math.max(0, egMinX - padX0);
+  const localPy0 = Math.max(0, egMinY - padY0);
+  const localPx1 = Math.min(ww, egMaxX + padX1);
+  const localPy1 = Math.min(wh, egMaxY + padY1);
   const patchW = Math.max(1, localPx1 - localPx0);
   const patchH = Math.max(1, localPy1 - localPy0);
 

@@ -11,7 +11,10 @@ import {
 } from '@/lib/translation/translationSettings';
 import {
   classifyTranslationError,
+  extractPageOcr,
+  ExtractedPageOcr,
   isAbortTranslationError,
+  translateAndInpaintPage,
   translatePageImage,
 } from '@/lib/translation/geminiTranslator';
 import {
@@ -29,6 +32,23 @@ interface QueueJob {
   chapterId: string;
   pageIndex: number;
 }
+
+interface TransJob {
+  epoch: number;
+  chapterId: string;
+  pageIndex: number;
+  ocrData: ExtractedPageOcr;
+}
+
+const getMaxOcrConcurrency = (): number => {
+  if (typeof navigator === 'undefined') return 1;
+  const isMobile = /Mobi|Android|iPhone|iPad/i.test(navigator.userAgent || '');
+  if (isMobile) return 1;
+  const cores = navigator.hardwareConcurrency || 4;
+  return cores >= 6 ? 2 : 1;
+};
+
+const MAX_TRANS_CONCURRENCY = 3;
 
 export interface TranslationTimingsLog {
   ocrMs: number;
@@ -99,6 +119,9 @@ export const useChapterTranslation = ({
 
   const chapterEpochRef = useRef(0);
   const queueRef = useRef<QueueJob[]>([]);
+  const transQueueRef = useRef<TransJob[]>([]);
+  const runningOcrRef = useRef(0);
+  const runningTransRef = useRef(0);
   const runningRef = useRef(0);
   const statesRef = useRef<Record<number, PageTranslationState>>({});
   const settingsRef = useRef(settings);
@@ -166,6 +189,9 @@ export const useChapterTranslation = ({
     abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     queueRef.current = [];
+    transQueueRef.current = [];
+    runningOcrRef.current = 0;
+    runningTransRef.current = 0;
     runningRef.current = 0;
     statesRef.current = {};
     setPageStates({});
@@ -272,13 +298,21 @@ export const useChapterTranslation = ({
   }, []);
 
   const runQueue = useCallback(() => {
-    // Sıralı çeviri (concurrency: 1): sıfır yarış durumu, tahmin edilebilir ve %100 kararlı.
-    while (runningRef.current < 1 && queueRef.current.length > 0) {
+    const currentEpoch = chapterEpochRef.current;
+    const currentChapter = chapterRef.current;
+    const activeKeys = getEffectiveApiKeys(settingsRef.current);
+    const langAtStart = settingsRef.current.targetLang;
+    const signal = abortControllerRef.current.signal;
+
+    // 1. AŞAMA: OCR İşlemcisi (CPU / WASM Worker)
+    // Mobil cihazlarda kesinlikle 1 (cihazı ısıtmaz/kasmayacak), 6+ çekirdekli PC'lerde 2 paralel OCR.
+    const maxOcr = getMaxOcrConcurrency();
+    while (runningOcrRef.current < maxOcr && queueRef.current.length > 0) {
       const job = queueRef.current.shift() as QueueJob;
       if (!job) break;
 
       // İş başka bir bölüme veya önceki bir oturuma aitse derhal atla
-      if (job.chapterId !== chapterRef.current || job.epoch !== chapterEpochRef.current) {
+      if (job.chapterId !== currentChapter || job.epoch !== currentEpoch) {
         continue;
       }
 
@@ -294,28 +328,98 @@ export const useChapterTranslation = ({
         continue;
       }
 
-      const chapterAtStart = chapterRef.current;
-      const epochAtStart = chapterEpochRef.current;
-      const langAtStart = settingsRef.current.targetLang;
-      const activeKeys = getEffectiveApiKeys(settingsRef.current);
-      const signal = abortControllerRef.current.signal;
-
-      runningRef.current += 1;
+      runningOcrRef.current += 1;
+      runningRef.current = runningOcrRef.current + runningTransRef.current;
       setPageState(index, { status: 'translating' });
 
-      translatePageImage({
+      extractPageOcr({
+        imageSrc: src,
+        targetLang: langAtStart,
+        signal,
+      })
+        .then(async (ocrData) => {
+          if (
+            signal.aborted ||
+            currentEpoch !== chapterEpochRef.current ||
+            chapterRef.current !== currentChapter ||
+            settingsRef.current.targetLang !== langAtStart
+          ) {
+            return;
+          }
+
+          // Eğer sayfada metin yoksa veya reklam/jenerik sayfasıysa Gemini'ye gitmeden direkt tamamla
+          if (ocrData.rawBubbles.length === 0) {
+            setPageState(index, { status: 'done', blocks: [] });
+            setLastFinishedPageNumber(index + 1);
+            setBatchTracker((prev) => ({
+              total: Math.max(prev.total, prev.done + 1),
+              done: prev.done + 1,
+            }));
+            await upsertPageTranslation(currentChapter, index, langAtStart, [], {
+              networkEnabled: networkEnabledRef.current,
+            });
+            return;
+          }
+
+          // Balonlar çıkarıldı! OCR işi bitti, hemen 2. aşama kuyruğuna devret
+          transQueueRef.current.push({
+            epoch: currentEpoch,
+            chapterId: currentChapter,
+            pageIndex: index,
+            ocrData,
+          });
+          runQueue();
+        })
+        .catch((err) => {
+          if (
+            isAbortTranslationError(err) ||
+            signal.aborted ||
+            currentEpoch !== chapterEpochRef.current ||
+            chapterRef.current !== currentChapter ||
+            settingsRef.current.targetLang !== langAtStart
+          ) {
+            return;
+          }
+          console.error('[OCR Error]', err);
+          setPageState(index, { status: 'error' });
+          setLastErrorMessage(classifyTranslationError(err));
+        })
+        .finally(() => {
+          if (currentEpoch === chapterEpochRef.current) {
+            runningOcrRef.current = Math.max(0, runningOcrRef.current - 1);
+            runningRef.current = runningOcrRef.current + runningTransRef.current;
+            runQueue();
+          }
+        });
+    }
+
+    // 2. AŞAMA: Çeviri & Inpaint İşlemcisi (Ağ I/O + WebP Inpaint)
+    // Gemini/Google metin çevirisi hafif HTTP isteğidir; 3 sayfaya kadar paralel çalışabilir.
+    while (runningTransRef.current < MAX_TRANS_CONCURRENCY && transQueueRef.current.length > 0) {
+      const transJob = transQueueRef.current.shift() as TransJob;
+      if (!transJob) break;
+
+      if (transJob.chapterId !== currentChapter || transJob.epoch !== currentEpoch) {
+        continue;
+      }
+
+      const index = transJob.pageIndex;
+      runningTransRef.current += 1;
+      runningRef.current = runningOcrRef.current + runningTransRef.current;
+
+      translateAndInpaintPage({
+        ocrData: transJob.ocrData,
         apiKey: activeKeys[0] || settingsRef.current.apiKey,
         apiKeys: activeKeys,
         provider: settingsRef.current.provider,
-        imageSrc: src,
         targetLang: langAtStart,
         signal,
       })
         .then(async ({ blocks, timings }) => {
           if (
             signal.aborted ||
-            epochAtStart !== chapterEpochRef.current ||
-            chapterRef.current !== chapterAtStart ||
+            currentEpoch !== chapterEpochRef.current ||
+            chapterRef.current !== currentChapter ||
             settingsRef.current.targetLang !== langAtStart
           ) {
             return;
@@ -333,7 +437,7 @@ export const useChapterTranslation = ({
             total: Math.max(prev.total, prev.done + 1),
             done: prev.done + 1,
           }));
-          await upsertPageTranslation(chapterAtStart, index, langAtStart, blocks, {
+          await upsertPageTranslation(currentChapter, index, langAtStart, blocks, {
             networkEnabled: networkEnabledRef.current,
           });
         })
@@ -341,8 +445,8 @@ export const useChapterTranslation = ({
           if (
             isAbortTranslationError(err) ||
             signal.aborted ||
-            epochAtStart !== chapterEpochRef.current ||
-            chapterRef.current !== chapterAtStart ||
+            currentEpoch !== chapterEpochRef.current ||
+            chapterRef.current !== currentChapter ||
             settingsRef.current.targetLang !== langAtStart
           ) {
             return;
@@ -352,26 +456,29 @@ export const useChapterTranslation = ({
           setLastErrorMessage(classifyTranslationError(err));
         })
         .finally(() => {
-          // Yalnızca aynı oturuma aitse sayacı düşür ve kuyruğu ilerlet
-          if (epochAtStart === chapterEpochRef.current) {
-            runningRef.current = Math.max(0, runningRef.current - 1);
-            if (
-              runningRef.current === 0 &&
-              queueRef.current.length === 0 &&
-              !wasCancelledManuallyRef.current &&
-              !abortControllerRef.current.signal.aborted
-            ) {
-              const hasDone = Object.values(statesRef.current).some((s) => s.status === 'done');
-              const hasErr = Object.values(statesRef.current).some((s) => s.status === 'error');
-              if (hasDone && !hasErr) {
-                setCompletedPulseAt(Date.now());
-              }
-              setBatchTracker({ done: 0, total: 0 });
-            } else {
-              runQueue();
-            }
+          if (currentEpoch === chapterEpochRef.current) {
+            runningTransRef.current = Math.max(0, runningTransRef.current - 1);
+            runningRef.current = runningOcrRef.current + runningTransRef.current;
+            runQueue();
           }
         });
+    }
+
+    // Tamamlanma Kontrolü:
+    if (
+      runningOcrRef.current === 0 &&
+      runningTransRef.current === 0 &&
+      queueRef.current.length === 0 &&
+      transQueueRef.current.length === 0 &&
+      !wasCancelledManuallyRef.current &&
+      !signal.aborted
+    ) {
+      const hasDone = Object.values(statesRef.current).some((s) => s.status === 'done');
+      const hasErr = Object.values(statesRef.current).some((s) => s.status === 'error');
+      if (hasDone && !hasErr) {
+        setCompletedPulseAt(Date.now());
+      }
+      setBatchTracker({ done: 0, total: 0 });
     }
   }, [setPageState]);
 
@@ -399,7 +506,11 @@ export const useChapterTranslation = ({
       if (!activeChapterId || indices.length === 0 || pagesRef.current.length === 0) return;
 
       wasCancelledManuallyRef.current = false;
-      const isCurrentlyBusy = runningRef.current > 0 || queueRef.current.length > 0;
+      const isCurrentlyBusy =
+        runningOcrRef.current > 0 ||
+        runningTransRef.current > 0 ||
+        queueRef.current.length > 0 ||
+        transQueueRef.current.length > 0;
       if (!isCurrentlyBusy) {
         setIsPillDismissed(false);
       }
@@ -436,7 +547,11 @@ export const useChapterTranslation = ({
       if (validAdditions.length === 0 && !options?.prioritize) return;
 
       setBatchTracker((prev) => {
-        const activeNow = runningRef.current + queueRef.current.length;
+        const activeNow =
+          runningOcrRef.current +
+          runningTransRef.current +
+          queueRef.current.length +
+          transQueueRef.current.length;
         if (activeNow === 0) {
           return { done: 0, total: validAdditions.length };
         }
@@ -510,6 +625,9 @@ export const useChapterTranslation = ({
     abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     queueRef.current = [];
+    transQueueRef.current = [];
+    runningOcrRef.current = 0;
+    runningTransRef.current = 0;
     runningRef.current = 0;
 
     const next = { ...statesRef.current };

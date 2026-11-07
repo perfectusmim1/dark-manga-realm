@@ -3,10 +3,10 @@ import { downloadPageBlob } from '@/lib/offline/downloadManager';
 import { isStoredMediaUrl, unwrapManagedMediaUrl } from '@/lib/mediaStorage';
 import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
-import { normalizeApiKeysList } from './translationSettings';
+import { TranslationProvider, normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 import { runFastWebtoonOcr } from './fastOcr';
-import { isCreditOrPromoText, isPureSoundEffect } from './ocrCore';
+import { isCreditOrPromoText, isPureSoundEffect, OcrBubble } from './ocrCore';
 
 const GEMINI_FLASH_MODEL = 'gemini-flash-lite-latest';
 const GEMINI_THINKING_LEVEL = ThinkingLevel.MINIMAL;
@@ -584,33 +584,37 @@ export interface TranslatePageResult {
 export interface TranslatePageOptions {
   apiKey?: string;
   apiKeys?: readonly string[];
-  provider?: 'gemini' | 'google';
+  provider?: TranslationProvider;
   imageSrc: string;
   targetLang: string;
   signal?: AbortSignal;
 }
 
+export interface ExtractedPageOcr {
+  fullCanvas: HTMLCanvasElement;
+  fullCtx: CanvasRenderingContext2D;
+  fullWidth: number;
+  fullHeight: number;
+  rawBubbles: OcrBubble[];
+  ocrMs: number;
+  tStart: number;
+}
+
 /**
- * Sayfayı yerel WASM OCR ile tarar ve seçilen motorla (Google veya Gemini Flash-Lite) çevirir.
- * Sıfır LLM Vision maliyeti vardır; görseller hiçbir uzak API'ye gönderilmez.
+ * 1. AŞAMA: Görseli yükler, hazırlar ve yerel WASM OCR (PaddleOCR ONNX Web Worker) ile metin balonlarını çıkarır.
+ * CPU/Worker ağırlıklıdır; tamamlandığı an sıradaki sayfanın OCR'ına hemen geçilebilir!
  */
-export const translatePageImage = async ({
-  apiKey,
-  apiKeys,
-  provider = 'gemini',
+export const extractPageOcr = async ({
   imageSrc,
   targetLang,
   signal,
-}: TranslatePageOptions): Promise<TranslatePageResult> => {
+}: {
+  imageSrc: string;
+  targetLang: string;
+  signal?: AbortSignal;
+}): Promise<ExtractedPageOcr> => {
   const tStart = performance.now();
   let ocrMs = 0;
-  let transMs = 0;
-
-  const effectiveKeys = normalizeApiKeysList(apiKeys, apiKey);
-  // Yalnızca Gemini motoru seçiliyse API anahtarı zorunludur; Google Çeviri ücretsizdir!
-  if (provider === 'gemini' && effectiveKeys.length === 0) {
-    throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
-  }
 
   const [blob] = await Promise.all([
     fetchTranslatableImageBlob(imageSrc, signal),
@@ -637,7 +641,7 @@ export const translatePageImage = async ({
   }
   fullCtx.drawImage(img, 0, 0);
 
-  // 1. ADIM: Yerel OCR (PaddleOCR ONNX, Web Worker) ile metin satırlarını bul ve balonlara grupla
+  // Yerel OCR ile metin satırlarını bul ve balonlara grupla
   const tOcrStart = performance.now();
   const ocr = await runFastWebtoonOcr(fullCanvas, signal);
   ocrMs = Math.round(performance.now() - tOcrStart);
@@ -647,6 +651,40 @@ export const translatePageImage = async ({
     ? []
     : ocr.bubbles.filter((bubble) => !shouldSkipBlock(bubble.text, targetLang));
 
+  return {
+    fullCanvas,
+    fullCtx,
+    fullWidth,
+    fullHeight,
+    rawBubbles,
+    ocrMs,
+    tStart,
+  };
+};
+
+/**
+ * 2. AŞAMA: Çıkarılan balon metinlerini API (Gemini Flash-Lite veya Google Çeviri) ile paralel çevirir
+ * ve ardından canvas üzerinde pürüzsüz inpaint ederek çevrilmiş blokları üretir.
+ * Ağ I/O ağırlıklıdır; OCR worker'ı bloke etmez.
+ */
+export const translateAndInpaintPage = async ({
+  ocrData,
+  apiKey,
+  apiKeys,
+  provider = 'gemini',
+  targetLang,
+  signal,
+}: {
+  ocrData: ExtractedPageOcr;
+  apiKey?: string;
+  apiKeys?: readonly string[];
+  provider?: TranslationProvider;
+  targetLang: string;
+  signal?: AbortSignal;
+}): Promise<TranslatePageResult> => {
+  const { fullCtx, fullWidth, fullHeight, rawBubbles, ocrMs, tStart } = ocrData;
+  let transMs = 0;
+
   if (rawBubbles.length === 0) {
     return {
       blocks: [],
@@ -654,7 +692,12 @@ export const translatePageImage = async ({
     };
   }
 
-  // 2. ADIM: Çeviri Motoru (Google Çeviri veya Gemini Flash-Lite Text)
+  const effectiveKeys = normalizeApiKeysList(apiKeys, apiKey);
+  if (provider === 'gemini' && effectiveKeys.length === 0) {
+    throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
+  }
+
+  // Çeviri Motoru (Google Çeviri veya Gemini Flash-Lite Text)
   const tTransStart = performance.now();
   const originalTexts = rawBubbles.map((b) => b.text);
   let translatedTexts: string[] = [];
@@ -671,11 +714,10 @@ export const translatePageImage = async ({
   }
   transMs = Math.round(performance.now() - tTransStart);
 
-  // 3. ADIM: Balonları inpaint et ve hedeflenen dilde yeniden diz
+  // Balonları inpaint et ve hedeflenen dilde yeniden diz
   const normalizeForCompare = (s: string) =>
     s.toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]+/gu, '');
 
-  // Yalnızca tüm balonlar çevrilmemiş VE metinler gerçek yabancı diyalog kelimeleri içeriyorsa (özel isim listesi değilse) hata fırlat
   const unchangedCount = rawBubbles.filter(
     (bubble, idx) => normalizeForCompare(translatedTexts[idx] || '') === normalizeForCompare(bubble.text),
   ).length;
@@ -705,7 +747,6 @@ export const translatePageImage = async ({
       ) {
         return null;
       }
-      // Çeviri orijinalle aynıysa (özel isim, saf ses efekti) orijinal çizimi bozma
       if (normalizeForCompare(translated) === normalizeForCompare(bubble.text)) return null;
       return inpaintAndRefineBlock(
         fullCtx,
@@ -731,4 +772,32 @@ export const translatePageImage = async ({
       totalMs: Math.round(performance.now() - tStart),
     },
   };
+};
+
+/**
+ * Sayfayı yerel WASM OCR ile tarar ve seçilen motorla (Google veya Gemini Flash-Lite) çevirir.
+ * Sıfır LLM Vision maliyeti vardır; görseller hiçbir uzak API'ye gönderilmez.
+ */
+export const translatePageImage = async (
+  options: TranslatePageOptions,
+): Promise<TranslatePageResult> => {
+  const effectiveKeys = normalizeApiKeysList(options.apiKeys, options.apiKey);
+  if (options.provider === 'gemini' && effectiveKeys.length === 0) {
+    throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
+  }
+
+  const ocrData = await extractPageOcr({
+    imageSrc: options.imageSrc,
+    targetLang: options.targetLang,
+    signal: options.signal,
+  });
+
+  return translateAndInpaintPage({
+    ocrData,
+    apiKey: options.apiKey,
+    apiKeys: options.apiKeys,
+    provider: options.provider,
+    targetLang: options.targetLang,
+    signal: options.signal,
+  });
 };
