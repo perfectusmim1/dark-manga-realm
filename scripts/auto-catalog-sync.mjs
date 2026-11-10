@@ -2366,6 +2366,7 @@ class SmartCatalogStore {
       groupName: ch.groupName || (existingIdx !== -1 ? manga.chapters[existingIdx].groupName : ''),
       pages: ch.pages || [],
       releaseDate: ch.releaseDate || ch.release_date || new Date().toISOString(),
+      createdAt: ch.createdAt || ch.created_at || (existingIdx !== -1 ? manga.chapters[existingIdx].createdAt : new Date().toISOString()),
       views: Number(ch.views) || 0,
       _sourceLink: ch.link || ch._sourceLink,
     };
@@ -2442,6 +2443,7 @@ class SmartCatalogStore {
               title: chTitle,
               pages: ch.pages || [],
               releaseDate: ch.releaseDate || ch.release_date || now,
+              createdAt: now,
               views: 0,
               _sourceLink: ch.link,
             });
@@ -2506,6 +2508,7 @@ class SmartCatalogStore {
         title: cleanChapterTitle(ch.title, Number(ch.chapterNumber ?? ch.number ?? 0), cleanedTitle),
         pages: ch.pages || [],
         releaseDate: ch.releaseDate || ch.release_date || now,
+        createdAt: now,
         views: 0,
         _sourceLink: ch.link,
       })),
@@ -3689,67 +3692,97 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
       }
     };
 
-    try {
-      // Sync only touched mangas if we are in a normal incremental run and < 200 mangas were touched; otherwise sync all mangas in chunks
-      const mangasToSync =
-        !FULL_CHAPTERS_SYNC && touchedMangaIds.size > 0 && touchedMangaIds.size < 250
-          ? tablesPayload.mangas.filter((m) => touchedMangaIds.has(m.id))
-          : tablesPayload.mangas;
-
-      await syncTableInChunks('mangas', mangasToSync, 400);
-      await syncTableInChunks('characters', tablesPayload.characters, 600);
-      await syncTableInChunks('authors', tablesPayload.authors, 600);
-      await syncTableInChunks('artists', tablesPayload.artists, 600);
-      await syncTableInChunks('tags', tablesPayload.tags, 600);
-      await syncTableInChunks('manga_characters', tablesPayload.manga_characters, 1500);
-      await syncTableInChunks('manga_authors', tablesPayload.manga_authors, 1500);
-      await syncTableInChunks('manga_artists', tablesPayload.manga_artists, 1500);
-      await syncTableInChunks('manga_tags', tablesPayload.manga_tags, 1500);
-
-      const callAutomationBatchRpc = async (payloadChunk) => {
-        for (let attempt = 1; attempt <= 3; attempt++) {
-          try {
-            const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/sync_chapter_automations_batch`, {
-              method: 'POST',
-              headers: {
-                'Content-Type': 'application/json',
-                apikey: SUPABASE_ANON_KEY,
-                Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-              },
-              body: JSON.stringify({
-                p_admin_token: CATALOG_ADMIN_TOKEN,
-                p_payload: payloadChunk,
-              }),
-              signal: AbortSignal.timeout(60000),
-            });
-            if (!res.ok) {
-              const errText = await res.text().catch(() => '');
-              throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
-            }
-            return await res.json();
-          } catch (err) {
-            if (attempt === 3) throw err;
-            await sleep(1500 * attempt);
+    const callAutomationBatchRpc = async (payloadChunk) => {
+      for (let attempt = 1; attempt <= 3; attempt++) {
+        try {
+          const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/sync_chapter_automations_batch`, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              apikey: SUPABASE_ANON_KEY,
+              Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+            },
+            body: JSON.stringify({
+              p_admin_token: CATALOG_ADMIN_TOKEN,
+              p_payload: payloadChunk,
+            }),
+            signal: AbortSignal.timeout(60000),
+          });
+          if (!res.ok) {
+            const errText = await res.text().catch(() => '');
+            throw new Error(`HTTP ${res.status}: ${errText.slice(0, 200)}`);
           }
+          return await res.json();
+        } catch (err) {
+          if (attempt === 3) throw err;
+          await sleep(1500 * attempt);
         }
-      };
-
-      const pruneIds = tablesPayload.prune_automation_ids || [];
-      for (let i = 0; i < pruneIds.length; i += 400) {
-        await callSupabaseRpc({ delete_automation_ids: pruneIds.slice(i, i + 400) });
       }
+    };
 
-      const autoRows = tablesPayload.chapter_automations || [];
-      for (let i = 0; i < autoRows.length; i += 500) {
-        await callAutomationBatchRpc({ chapter_automations: autoRows.slice(i, i + 500) });
+    // ======================================================================
+    // 1. AŞAMA: BÖLÜMLER & BAĞLI MANGALAR (BİRİNCİL VE İZOLASYONLU ÖNCELİK)
+    // Sitenin kalbi burasıdır; yeni bölümler asla yan tablolardaki hatalara kurban edilemez!
+    // ======================================================================
+    const chaptersToSync = FULL_CHAPTERS_SYNC
+      ? tablesPayload.chapters || []
+      : (tablesPayload.chapters || []).filter((ch) => touchedMangaIds.has(ch.manga_id));
+
+    const chapterMangaIds = new Set(chaptersToSync.map((ch) => ch.manga_id));
+    const touchedMangaIdsSet = new Set(touchedMangaIds);
+    const criticalMangasToSync = FULL_CHAPTERS_SYNC
+      ? tablesPayload.mangas
+      : tablesPayload.mangas.filter((m) => chapterMangaIds.has(m.id) || touchedMangaIdsSet.has(m.id));
+
+    // 1.A: Önce bölümlerin bağlı olduğu mangaları Supabase'e yaz (Foreign Key & chapter_count güvenliği)
+    if (criticalMangasToSync.length > 0) {
+      try {
+        await syncTableInChunks('mangas', criticalMangasToSync, 100);
+        logInfo(`Supabase kritik seri indeksleri senkronize edildi: ${criticalMangasToSync.length} manga.`);
+      } catch (err) {
+        logError(`Supabase manga senkronizasyon hatası: ${err.message}`);
       }
+    }
 
-      const runRows = tablesPayload.chapter_automation_runs || [];
-      for (let i = 0; i < runRows.length; i += 500) {
-        await callAutomationBatchRpc({ chapter_automation_runs: runRows.slice(i, i + 500) });
+    // 1.B: Hemen ardından bölümleri Supabase'e yaz (pages='{}' hafif indeks)
+    if (chaptersToSync.length > 0) {
+      try {
+        let syncedChaptersTotal = 0;
+        const chunkSize = 1000;
+        for (let i = 0; i < chaptersToSync.length; i += chunkSize) {
+          const chChunk = chaptersToSync.slice(i, i + chunkSize);
+          const chRes = await callSupabaseRpc({ chapters: chChunk });
+          syncedChaptersTotal += Number(chRes?.chapters_synced || chChunk.length);
+        }
+        logInfo(`✅ Supabase BÖLÜM İNDEKSLERİ SENKRONİZE EDİLDİ: ${syncedChaptersTotal} yeni/güncel bölüm yayında!`);
+      } catch (err) {
+        logError(`Supabase bölüm senkronizasyon hatası: ${err.message}`);
       }
+    }
 
-      // Persist details & status patches (lastDeltaCheckAt, lastSourceActivityAt, lastChapterAddedAt) even if last_updated is unchanged
+    // 1.C: Manga bölüm istatistiklerini (chapter_count & latest_chapters) anında tazele
+    if (chaptersToSync.length > 0 || criticalMangasToSync.length > 0) {
+      try {
+        await fetch(`${SUPABASE_URL}/rest/v1/rpc/refresh_all_manga_chapter_stats`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            apikey: SUPABASE_ANON_KEY,
+            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
+          },
+          body: '{}',
+          signal: AbortSignal.timeout(45000),
+        });
+        logInfo('✅ Supabase manga bölüm istatistikleri (chapter_count & latest_chapters) güncellendi.');
+      } catch (err) {
+        logWarn(`Bölüm istatistikleri yenileme uyarısı: ${err.message}`);
+      }
+    }
+
+    // ======================================================================
+    // 2. AŞAMA: OTOMASYON DURUMU & AYRINTI YAMALARI (İKİNCİL ÖNCELİK)
+    // ======================================================================
+    try {
       if (touchedMangaIds.size > 0) {
         const statePatches = Array.from(touchedMangaIds)
           .map((id) => store.mangas.get(id))
@@ -3776,42 +3809,39 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
         }
       }
 
-      logInfo(
-        `Supabase ana tablolar senkronize edildi: ${mangasToSync.length} manga, ${tablesPayload.characters.length} karakter, ${autoRows.length} aktif otomasyon (${pruneIds.length} tamamlanan/>3 ay inaktif/silinen otomasyondan çıkarıldı).`
-      );
-
-      // Step B: Sync chapters (incremental for touchedMangaIds by default, or full if --full-chapters-sync)
-      const chaptersToSync = FULL_CHAPTERS_SYNC
-        ? tablesPayload.chapters || []
-        : (tablesPayload.chapters || []).filter((ch) => touchedMangaIds.has(ch.manga_id));
-
-      if (chaptersToSync.length > 0) {
-        let syncedChaptersTotal = 0;
-        const chunkSize = 2500;
-        for (let i = 0; i < chaptersToSync.length; i += chunkSize) {
-          const chChunk = chaptersToSync.slice(i, i + chunkSize);
-          const chRes = await callSupabaseRpc({ chapters: chChunk });
-          syncedChaptersTotal += Number(chRes?.chapters_synced || chChunk.length);
-        }
-        logInfo(`Supabase bölüm indeksleri senkronize edildi: ${syncedChaptersTotal} bölüm (pages='{}').`);
+      const pruneIds = tablesPayload.prune_automation_ids || [];
+      for (let i = 0; i < pruneIds.length; i += 400) {
+        await callSupabaseRpc({ delete_automation_ids: pruneIds.slice(i, i + 400) }).catch(() => {});
       }
 
-      // Step C: Refresh precomputed chapter_count & latest_chapters on mangas when chapters or mangas changed
-      if (chaptersToSync.length > 0 || touchedMangaIds.size > 0 || FULL_CHAPTERS_SYNC) {
-        await fetch(`${SUPABASE_URL}/rest/v1/rpc/refresh_all_manga_chapter_stats`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            apikey: SUPABASE_ANON_KEY,
-            Authorization: `Bearer ${SUPABASE_ANON_KEY}`,
-          },
-          body: '{}',
-          signal: AbortSignal.timeout(45000),
-        }).catch(() => {});
-        logInfo('Supabase manga bölüm istatistikleri (chapter_count & latest_chapters) güncellendi.');
+      const autoRows = tablesPayload.chapter_automations || [];
+      for (let i = 0; i < autoRows.length; i += 500) {
+        await callAutomationBatchRpc({ chapter_automations: autoRows.slice(i, i + 500) }).catch(() => {});
       }
-    } catch (err) {
-      logError(`Supabase senkronizasyon hatası: ${err.message}`);
+
+      const runRows = tablesPayload.chapter_automation_runs || [];
+      for (let i = 0; i < runRows.length; i += 500) {
+        await callAutomationBatchRpc({ chapter_automation_runs: runRows.slice(i, i + 500) }).catch(() => {});
+      }
+    } catch (autoErr) {
+      logWarn(`Supabase otomasyon tabloları senkronizasyon uyarısı: ${autoErr.message}`);
+    }
+
+    // ======================================================================
+    // 3. AŞAMA: YAN TAKSONOMİ TABLOLARI (KARAKTERLER, YAZARLAR, ETİKETLER)
+    // ======================================================================
+    try {
+      await syncTableInChunks('characters', tablesPayload.characters, 600);
+      await syncTableInChunks('authors', tablesPayload.authors, 600);
+      await syncTableInChunks('artists', tablesPayload.artists, 600);
+      await syncTableInChunks('tags', tablesPayload.tags, 600);
+      await syncTableInChunks('manga_characters', tablesPayload.manga_characters, 1500);
+      await syncTableInChunks('manga_authors', tablesPayload.manga_authors, 1500);
+      await syncTableInChunks('manga_artists', tablesPayload.manga_artists, 1500);
+      await syncTableInChunks('manga_tags', tablesPayload.manga_tags, 1500);
+      logInfo('Supabase yan taksonomi tabloları senkronize edildi.');
+    } catch (metaErr) {
+      logWarn(`Supabase yan taksonomi senkronizasyon uyarısı: ${metaErr.message}`);
     }
   }
 };
@@ -3838,9 +3868,9 @@ const main = async () => {
     try {
       logInfo('Cloudflare R2 mevcut katalog ve otomasyon kuyruğu yükleniyor...');
       const [snapRes, tablesRes, autoStateRes] = await Promise.all([
-        fetch(`${CATALOG_WORKER_URL}/v1/catalog/snapshot`, { signal: AbortSignal.timeout(20000) }),
-        fetch(`${CATALOG_WORKER_URL}/v1/catalog/tables?exclude=chapters`, { signal: AbortSignal.timeout(20000) }),
-        fetch(`${CATALOG_WORKER_URL}/v1/catalog/automation-state`, { signal: AbortSignal.timeout(15000) }),
+        fetch(`${CATALOG_WORKER_URL}/v1/catalog/snapshot`, { signal: AbortSignal.timeout(90000) }),
+        fetch(`${CATALOG_WORKER_URL}/v1/catalog/tables?exclude=chapters`, { signal: AbortSignal.timeout(60000) }),
+        fetch(`${CATALOG_WORKER_URL}/v1/catalog/automation-state`, { signal: AbortSignal.timeout(30000) }),
       ]);
 
       if (snapRes.ok) {
@@ -4072,6 +4102,8 @@ const main = async () => {
 
     eligibleForDelta.sort((a, b) => {
       if (a.isHot !== b.isHot) return a.isHot ? -1 : 1;
+      const prioDiff = (SOURCE_PRIORITIES[b.locked?.source] || 0) - (SOURCE_PRIORITIES[a.locked?.source] || 0);
+      if (prioDiff !== 0) return prioDiff;
       return a.lastCheckTs - b.lastCheckTs;
     });
 
@@ -4144,6 +4176,7 @@ const main = async () => {
               title: cleanChapterTitle(ch.title, Number(ch.chapterNumber), manga.title),
               pages,
               releaseDate: ch.releaseDate || ch.release_date || checkTimeIso,
+              createdAt: checkTimeIso,
               views: 0,
               _sourceLink: ch.link,
             };
