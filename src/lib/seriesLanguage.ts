@@ -265,12 +265,9 @@ export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage
     return titleLower.includes('raw') ? 'raw' : 'en';
   }
   if (
-    primarySource === 'comix' ||
     primarySource === 'madaradex' ||
     primarySource === 'mgread' ||
-    primarySource === 'ezmanga' ||
-    primarySource === 'asurascans' ||
-    primarySource === 'asura'
+    primarySource === 'ezmanga'
   ) {
     return 'en';
   }

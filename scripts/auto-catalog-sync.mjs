@@ -25,12 +25,6 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync, unlinkSync } from '
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { createHash, randomUUID } from 'node:crypto';
-import {
-  fetchComixApi,
-  extractComixHid,
-  isAdultRating as isComixAdultRating,
-  mapComixType,
-} from './comix-crypto.mjs';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -127,7 +121,6 @@ const PRIMARY_SOURCES = [
   'siyahmelek',
   'hattorimanga',
   'mangadass',
-  'comix',
 ];
 const SOURCE_PRIORITIES = {
   webtoonhatti: 100,
@@ -135,7 +128,6 @@ const SOURCE_PRIORITIES = {
   siyahmelek: 90,
   hattorimanga: 80,
   mangadass: 50,
-  comix: 95,
 };
 const CHAPTER_CONCURRENCY = 6;
 const SERIES_CONCURRENCY = Math.max(1, parseNonNegInt(getArgValue('--series-concurrency', '4'), 4));
@@ -361,7 +353,7 @@ const deriveMangaType = ({ countryOfOrigin = '', isAdult = false, primarySource 
   if (gStr.includes('manga') || tStr.includes('manga') || /\b(?:no|wa|ni|ga|wo|san|kun|chan|sama|senpai|sensei|isekai)\b/i.test(tStr)) {
     return isAdult ? 'hentai' : 'manga';
   }
-  if (gStr.includes('manhwa') || tStr.includes('manhwa') || primarySource === 'mangadass' || primarySource === 'comix' || primarySource === 'madaradex' || primarySource === 'golgebahcesi' || primarySource === 'siyahmelek') {
+  if (gStr.includes('manhwa') || tStr.includes('manhwa') || primarySource === 'mangadass' || primarySource === 'madaradex' || primarySource === 'golgebahcesi' || primarySource === 'siyahmelek') {
     return isAdult ? 'webtoon_hentai' : 'manhwa';
   }
 
@@ -668,7 +660,6 @@ const fetchUpstream = async (targetUrl, options = {}) => {
     domain.includes('okutoon') ||
     domain.includes('hattorimanga') ||
     domain.includes('mangadass') ||
-    domain.includes('comix.to') ||
     domain.includes('madaradex') ||
     domain.includes('anime-planet') ||
     domain.includes('anisearch') ||
@@ -811,7 +802,6 @@ const verifiedDomainCache = new Map([
   ['uploads.mangadex.org', true],
   ['cdn.okutoon.com', true],
   ['om-cdn.okutoon.com', true],
-  ['comix.to', true],
   ['cdn.madaradex.org', true],
 ]);
 const verifiedUrlCache = new Map();
@@ -834,8 +824,6 @@ const verifyImageUrl = async (url, options = {}) => {
     !isCover &&
     (verifiedDomainCache.get(domain) === true ||
       domain.includes('mangadass.com') ||
-      domain.includes('comix.to') ||
-      domain.endsWith('.site') ||
       domain.includes('madaradex.org'))
   ) {
     return true;
@@ -843,19 +831,11 @@ const verifyImageUrl = async (url, options = {}) => {
   if (verifiedUrlCache.size > 3000) verifiedUrlCache.clear();
 
   try {
-    const isComixCdn = domain.endsWith('.site') || domain.includes('comix.to');
     const reqHeaders = {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       Range: 'bytes=0-1024',
+      'Referer': `${new URL(cleanUrl).origin}/`,
     };
-    if (isComixCdn) {
-      reqHeaders['Accept'] = 'image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8';
-      reqHeaders['Sec-Fetch-Dest'] = 'image';
-      reqHeaders['Sec-Fetch-Mode'] = 'no-cors';
-      reqHeaders['Sec-Fetch-Site'] = 'cross-site';
-    } else {
-      reqHeaders['Referer'] = `${new URL(cleanUrl).origin}/`;
-    }
 
     const res = await fetch(cleanUrl, {
       method: 'GET',
@@ -1106,66 +1086,6 @@ const scanFrontPageFeed = async (source, maxPages = 2) => {
           }
         }
       }
-    }
-  } else if (source === 'comix') {
-    // Comix.to API Tabanlı 80k Keşif ve Güncel Arşiv Tarayıcısı
-    for (let page = 1; page <= effectiveMaxPages; page++) {
-      let res = null;
-      try {
-        res = await fetchComixApi('/manga', {
-          page,
-          limit: 50,
-          'order[updated_at]': 'desc',
-        });
-      } catch (err) {
-        logWarn(`[Comix Arşiv] Sayfa ${page} çekilemedi: ${err.message}`);
-        continue;
-      }
-      const items = res?.items || (Array.isArray(res) ? res : []);
-      if (!items || items.length === 0) {
-        logInfo(`[Comix Arşiv] Sayfa ${page} boş (arşiv sonuna ulaşıldı).`);
-        break;
-      }
-      let newOnPage = 0;
-      for (const item of items) {
-        // Kural: Çalışan bölümü olmayan veya ölü serileri doğrudan ele
-        if (!item.hasChapters || Number(item.latestChapter || 0) <= 0) continue;
-
-        const hid = item.hid || String(item.id);
-        const link = `https://comix.to/comic/${hid}`;
-        if (seen.has(link)) continue;
-        seen.add(link);
-        newOnPage++;
-
-        const title = cleanSeriesTitle(item.title || '');
-        const cover = item.poster?.large || item.poster?.medium || '';
-        const isAdult = isComixAdultRating(item.contentRating);
-        const formatType = mapComixType(item.type);
-        const altTitles = Array.isArray(item.altTitles) ? item.altTitles : [];
-        const genres = Array.isArray(item.genres)
-          ? item.genres.map((g) => normalizeGenreToTurkish(typeof g === 'object' ? g.name : g)).filter(Boolean)
-          : [];
-        if (genres.length === 0) genres.push(formatType === 'manga' ? 'Manga' : 'Webtoon', 'Aksiyon');
-
-        cards.push({
-          source: 'comix',
-          title,
-          link,
-          cover,
-          isAdult,
-          genres,
-          alternativeTitles: altTitles,
-          details: {
-            language: item.originalLanguage === 'ko' ? 'ko' : item.originalLanguage === 'ja' ? 'ja' : 'en',
-            hid,
-            type: formatType,
-            hasChapters: item.hasChapters,
-            latestChapter: item.latestChapter,
-          },
-        });
-      }
-      logInfo(`[Comix Arşiv] Sayfa ${page} tarandı (+${newOnPage} yeni seri, toplam: ${cards.length})`);
-      if (page >= 30) break;
     }
   }
 
@@ -1601,117 +1521,6 @@ const fetchSeriesDetailFromSource = async (source, seriesUrl, fallbackTitle = ''
     };
   }
 
-  if (source === 'comix') {
-    const hid = extractComixHid(seriesUrl);
-    if (!hid) return null;
-
-    let mangaDetail = null;
-    try {
-      mangaDetail = await fetchComixApi(`/manga/${hid}`);
-    } catch (err) {
-      logWarn(`[Comix Detay] ${hid} detay çekilemedi: ${err.message}`);
-    }
-
-    const title = cleanSeriesTitle(mangaDetail?.title || fallbackTitle);
-    const cover = mangaDetail?.poster?.large || mangaDetail?.poster?.medium || fallbackCover;
-    let description = mangaDetail?.synopsis || '';
-    if (description && !isLikelyTurkish(description)) {
-      try {
-        description = (await translateTextGtx(description)) || description;
-      } catch {}
-    }
-
-    const alternativeTitles = Array.isArray(mangaDetail?.altTitles) ? mangaDetail.altTitles : [];
-    const author = mangaDetail?.authors?.[0]?.name || 'Bilinmiyor';
-    const artist = mangaDetail?.artists?.[0]?.name || author;
-    const isAdult = isComixAdultRating(mangaDetail?.contentRating) || fallbackIsAdult;
-    const formatType = mapComixType(mangaDetail?.type);
-
-    const genres = Array.isArray(mangaDetail?.genres)
-      ? mangaDetail.genres.map((g) => normalizeGenreToTurkish(typeof g === 'object' ? g.name : g)).filter(Boolean)
-      : [];
-    if (genres.length === 0) genres.push(formatType === 'manga' ? 'Manga' : 'Webtoon', 'Aksiyon');
-
-    // Comix Bölümleri Çekimi (Sayfalı, En İyi Çeviri Grubu Seçimli)
-    const chapterMap = new Map();
-    let chPage = 1;
-    let hasMore = true;
-
-    while (hasMore && chPage <= 15) {
-      let chRes = null;
-      try {
-        chRes = await fetchComixApi(`/manga/${hid}/chapters`, {
-          limit: 100,
-          page: chPage,
-          'order[number]': 'asc',
-        });
-      } catch (err) {
-        logWarn(`[Comix Bölümler] ${hid} chPage ${chPage} hatası: ${err.message}`);
-        break;
-      }
-
-      const items = chRes?.items || (Array.isArray(chRes) ? chRes : []);
-      if (!items || items.length === 0) break;
-
-      for (const item of items) {
-        const chNum = Number(item.number ?? 0);
-        const chLang = (item.language || 'en').toLowerCase();
-        const chKey = `${chNum}_${chLang}`;
-        const votes = Number(item.votes || 0);
-        const groupName = item.group?.name || '';
-
-        // En iyi grup seçimi (Yüksek oy ve dominant grup önceliği)
-        if (!chapterMap.has(chKey) || chapterMap.get(chKey).votes < votes) {
-          chapterMap.set(chKey, {
-            title: chNum === 0 ? `Bölüm 0 [${chLang.toUpperCase()}]` : `Bölüm ${chNum} [${chLang.toUpperCase()}]`,
-            link: `https://comix.to/chapter/${item.id}`,
-            chapterNumber: chNum,
-            language: chLang,
-            groupName,
-            votes,
-            id: String(item.id),
-          });
-        }
-      }
-
-      if (items.length < 100) {
-        hasMore = false;
-      } else {
-        chPage++;
-        await sleep(350);
-      }
-    }
-
-    const rawChapters = Array.from(chapterMap.values()).sort((a, b) => a.chapterNumber - b.chapterNumber);
-
-    // Kural: Çalışan bölümü olmayan seriler reddedilir
-    if (rawChapters.length === 0) {
-      logInfo(`[Comix Eleme] Seri elendi (0 çalışan bölüm): ${title}`);
-      return null;
-    }
-
-    return {
-      source: 'comix',
-      title,
-      link: seriesUrl,
-      cover,
-      description,
-      alternativeTitles,
-      author,
-      artist,
-      status: mangaDetail?.status === 'finished' ? 'completed' : 'ongoing',
-      genres,
-      isAdult,
-      chapters: rawChapters,
-      mangaType: formatType,
-      details: {
-        language: 'en',
-        hid,
-        type: formatType,
-      },
-    };
-  }
-
   return null;
 };
 
@@ -1828,21 +1637,6 @@ const fetchChapterPagesFromSource = async (source, chapterLink) => {
       if (m[1] && !isJunkImageUrl(m[1])) imgs.push(m[1].trim());
     }
     return await verifyAndFilterImageUrls(imgs);
-  }
-
-  if (source === 'comix') {
-    const chapterId = extractComixHid(chapterLink);
-    if (!chapterId) return [];
-
-    try {
-      const chData = await fetchComixApi(`/chapters/${chapterId}`);
-      const pageItems = chData?.pages?.items || [];
-      const imgUrls = pageItems.map((p) => p.url).filter(Boolean);
-      return await verifyAndFilterImageUrls(imgUrls);
-    } catch (err) {
-      logWarn(`[Comix Sayfa] Bölüm ${chapterId} sayfaları çekilemedi: ${err.message}`);
-      return [];
-    }
   }
 
   return [];
@@ -2719,7 +2513,7 @@ class SmartCatalogStore {
       details: {
         primarySource: scraped.source,
         primarySourceUrl: scraped.link,
-        language: scraped.details?.language || (scraped.source === 'comix' || scraped.source === 'madaradex' || scraped.source === 'mgread' ? 'en' : scraped.title.toLowerCase().includes('(raw)') ? 'raw' : 'tr'),
+        language: scraped.details?.language || (scraped.source === 'madaradex' || scraped.source === 'mgread' ? 'en' : scraped.title.toLowerCase().includes('(raw)') ? 'raw' : 'tr'),
         lastChapterAddedAt: now,
         lastSourceActivityAt: now,
         lastDeltaCheckAt: now,
@@ -4413,7 +4207,7 @@ const main = async () => {
           // Eksik bölümleri kontrol et ve tamamla (Backfill - Çift Dil: TR ve EN bölümler birbirini ezmez)
           const detail = await fetchSeriesDetailFromSource(card.source, card.link, card.title, card.cover, card.isAdult);
           if (detail && Array.isArray(detail.chapters) && detail.chapters.length > 0) {
-            const isEnglishSource = card.source === 'comix' || (card.source === 'mangadass' && !card.genres?.includes('RAW'));
+            const isEnglishSource = card.source === 'mangadass' && !card.genres?.includes('RAW');
             const defaultLang = isEnglishSource ? 'en' : 'tr';
             const existingNumAndLang = new Set(
               (existing.chapters || []).map((c) => {
@@ -4495,7 +4289,7 @@ const main = async () => {
           }
 
           // Eksik bölümleri kontrol et ve tamamla (Backfill - Çift Dil: TR ve EN bölümler birbirini ezmez)
-          const isEnglishSource = card.source === 'comix' || (card.source === 'mangadass' && !card.genres?.includes('RAW'));
+          const isEnglishSource = card.source === 'mangadass' && !card.genres?.includes('RAW');
           const defaultLang = isEnglishSource ? 'en' : 'tr';
           const existingNumAndLang = new Set(
             (existing.chapters || []).map((c) => {
