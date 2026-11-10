@@ -208,19 +208,36 @@ function findDuplicateInSupabase(unpackedComix, anilistMeta, dedupeIndex) {
   return null;
 }
 
-async function uploadR2SeriesJson(slug, payload) {
-  const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${encodeURIComponent(slug)}?onlySeries=1`, {
-    method: 'PUT',
-    headers: {
-      'Content-Type': 'application/json',
-      'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
-    },
-    body: JSON.stringify(payload),
-    signal: AbortSignal.timeout(25000),
-  });
-  if (!res.ok) {
-    const errText = await res.text().catch(() => '');
-    throw new Error(`R2 seri yazma hatası (${res.status}): ${errText}`);
+async function uploadR2SeriesJson(slug, payload, maxRetries = 5) {
+  for (let attempt = 1; attempt <= maxRetries; attempt++) {
+    try {
+      const res = await fetch(`${CATALOG_WORKER_URL}/v1/admin/series/${encodeURIComponent(slug)}?onlySeries=1`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
+        },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(25000),
+      });
+      if (res.ok) {
+        return;
+      }
+      const errText = await res.text().catch(() => '');
+      if (attempt === maxRetries) {
+        throw new Error(`R2 seri yazma hatası (${res.status}): ${errText}`);
+      }
+      const delayMs = Math.min(10000, 1000 * Math.pow(2, attempt - 1));
+      console.warn(`[UYARI] R2 yazma yanıtı (${res.status}), ${delayMs}ms sonra yeniden deneniyor (${attempt}/${maxRetries}): ${slug}`);
+      await sleep(delayMs);
+    } catch (err) {
+      if (attempt === maxRetries) {
+        throw err;
+      }
+      const delayMs = Math.min(10000, 1000 * Math.pow(2, attempt - 1));
+      console.warn(`[UYARI] R2 bağlantı sorunu (${err.message}), ${delayMs}ms sonra yeniden deneniyor (${attempt}/${maxRetries}): ${slug}`);
+      await sleep(delayMs);
+    }
   }
 }
 
@@ -578,7 +595,9 @@ async function main() {
 
     let pageRes = null;
     let pageFetchOk = false;
-    for (let retry = 0; retry < 5; retry++) {
+    let pageAttempt = 0;
+    while (!pageFetchOk) {
+      pageAttempt++;
       try {
         pageRes = await fetchComixApi('/manga', {
           page: currentPage,
@@ -586,16 +605,11 @@ async function main() {
           [`order[${ORDER_BY}]`]: 'desc',
         });
         pageFetchOk = true;
-        break;
       } catch (err) {
-        console.warn(`[UYARI] Sayfa ${currentPage} çekilemedi (${retry + 1}/5): ${err.message}`);
-        await new Promise((resolve) => setTimeout(resolve, (retry + 1) * 3000));
+        const waitSec = Math.min(30, pageAttempt * 5);
+        console.warn(`[UYARI] Sayfa ${currentPage} çekilemedi (Deneme ${pageAttempt}: ${err.message}). İnternet/bağlantı bekleniyor, ${waitSec}sn sonra tekrar denenecek...`);
+        await new Promise((resolve) => setTimeout(resolve, waitSec * 1000));
       }
-    }
-
-    if (!pageFetchOk) {
-      console.error(`[HATA] Sayfa ${currentPage} 5 denemeden sonra çekilemedi. Yeniden deneme için çıkılıyor...`);
-      process.exit(1);
     }
 
     const rawItems = pageRes?.items || (Array.isArray(pageRes) ? pageRes : []);
@@ -655,7 +669,14 @@ async function main() {
     state.processedHids = Array.from(processedHids);
     state.shardSummaries = shardSummariesMap;
     saveHarvestState(state);
-    await syncShardsToR2(shardSummariesMap);
+
+    if (pagesProcessed % 5 === 0 || (totalLastPage && currentPage >= totalLastPage)) {
+      try {
+        await syncShardsToR2(shardSummariesMap);
+      } catch (shardErr) {
+        console.warn(`[UYARI] Shard senkronizasyon uyarısı: ${shardErr.message}`);
+      }
+    }
 
     if (totalLastPage && currentPage >= totalLastPage) {
       console.log(`[BİLGİ] Son sayfaya (${totalLastPage}) ulaşıldı.`);
