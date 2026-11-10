@@ -554,8 +554,7 @@ export type ChapterAutomationSource =
   | 'siyahmelek'
   | 'hattorimanga'
   | 'hayalistic'
-  | 'mangadass'
-  | 'comix';
+  | 'mangadass';
 export type ChapterAutomationProxyProvider = 'cloudflare';
 export type ChapterAutomationRunStatus = 'idle' | 'running' | 'success' | 'no_changes' | 'error';
 export type ChapterAutomationTestStatus = 'idle' | 'running' | 'success' | 'error';

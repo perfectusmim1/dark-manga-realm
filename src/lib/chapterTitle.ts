@@ -18,9 +18,6 @@ export const isChapterEnglish = (
     if (mangaLanguage === 'en' || mangaLanguage === 'english') {
         return true;
     }
-    if (Array.isArray(chapter.pages) && chapter.pages.some((p) => typeof p === 'string' && (p.includes('comix') || /\/hi\/[A-Za-z0-9_-]+/.test(p)))) {
-        return true;
-    }
     return false;
 };
 

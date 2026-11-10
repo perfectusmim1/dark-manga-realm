@@ -82,7 +82,6 @@ import { sanitizeCharacterDescription, sanitizeMangaDescription } from '@/lib/de
 import { sanitizeEntityImageUrl } from '@/lib/entityImages';
 import { normalizeComparableText } from '@/lib/textMatching';
 import { getReactionScore, type ReactionType } from './reactions';
-import { extractComixChapterId, resolveComixChapterPagesById } from '@/lib/chapterOnDemandResolver';
 import { getSeriesLanguage, resolveChapterLanguageCode } from '@/lib/seriesLanguage';
 
 const normalizeNamedEntityValue = (value?: string | null) =>
@@ -1715,49 +1714,14 @@ export const getMangaSummaries = async (
             mangaSummariesPromise[audienceCacheKey] = pendingRequest;
         }
         const rawSummaries = await pendingRequest;
-        const r2ShardSummaries = await fetchR2ComixArchiveShards().catch(() => [] as Manga[]);
         const seenSummaryIds = new Set<string>();
-        const seenSummarySlugs = new Set<string>();
-        const seenNormalizedTitles = new Set<string>();
         const summaries: Manga[] = [];
-
-        const registerSummaryKeys = (item: any) => {
-            if (item?.id) seenSummaryIds.add(item.id);
-            if (item?.slug) seenSummarySlugs.add(String(item.slug).toLowerCase());
-            const mainKey = normalizeNamedEntityKey(item?.title);
-            if (mainKey) seenNormalizedTitles.add(mainKey);
-            const alts = item?.alternativeTitles || item?.alternative_titles || [];
-            if (Array.isArray(alts)) {
-                for (const alt of alts) {
-                    const altKey = normalizeNamedEntityKey(String(alt || ''));
-                    if (altKey) seenNormalizedTitles.add(altKey);
-                }
-            }
-        };
 
         for (const item of rawSummaries) {
             if (item?.id && !seenSummaryIds.has(item.id)) {
-                registerSummaryKeys(item);
+                seenSummaryIds.add(item.id);
                 summaries.push(item);
             }
-        }
-
-        for (const shardItem of r2ShardSummaries) {
-            if (!shardItem?.id || seenSummaryIds.has(shardItem.id)) continue;
-            if (!includePrivate && !includeAdult && shardItem.isAdult) continue;
-            const slugKey = String((shardItem as any)?.slug || '').toLowerCase();
-            if (slugKey && seenSummarySlugs.has(slugKey)) continue;
-            const titleKey = normalizeNamedEntityKey(shardItem.title);
-            if (titleKey && seenNormalizedTitles.has(titleKey)) continue;
-            const altMatch = Array.isArray(shardItem.alternativeTitles) && shardItem.alternativeTitles.some((alt) => {
-                const k = normalizeNamedEntityKey(alt);
-                return Boolean(k && seenNormalizedTitles.has(k));
-            });
-            if (altMatch) continue;
-            if ((shardItem.chapterCount ?? shardItem.chapters?.length ?? 0) <= 0) continue;
-
-            registerSummaryKeys(shardItem);
-            summaries.push(shardItem);
         }
 
         if (!includePrivate && summaries.length > 0) {
@@ -2127,10 +2091,7 @@ const r2SeriesInFlightBySlug = new Map<string, Promise<any>>();
 const r2ChapterMetaById = new Map<string, R2CachedChapterEntry>();
 const r2MangaSlugById = new Map<string, string>();
 const r2ShardSeriesByIdOrSlug = new Map<string, any>();
-let r2ComixShardsCache: { fetchedAt: number; items: Manga[] } | null = null;
-let r2ComixShardsPromise: Promise<Manga[]> | null = null;
 const R2_SERIES_CACHE_TTL_MS = 60_000;
-const R2_SHARDS_CACHE_TTL_MS = 5 * 60_000;
 
 const mapChapterRowToChapter = (row: any, options?: { includePages?: boolean }): Chapter => {
     const includePages = options?.includePages === true;
@@ -2264,72 +2225,11 @@ const mapR2ShardRowToMangaSummary = (raw: any): Manga | null => {
     } as Manga;
 };
 
-const fetchR2ComixArchiveShards = async (): Promise<Manga[]> => {
-    if (r2ComixShardsCache && Date.now() - r2ComixShardsCache.fetchedAt < R2_SHARDS_CACHE_TTL_MS) {
-        return r2ComixShardsCache.items;
-    }
-    if (r2ComixShardsPromise) {
-        return r2ComixShardsPromise;
-    }
-
-    const workerUrl = getCatalogWorkerBaseUrl();
-    if (!workerUrl) return [];
-
-    r2ComixShardsPromise = (async () => {
-        try {
-            const manifestData = await fetchR2SeriesBySlug('comix-shard-manifest');
-            const shardSlugs: string[] = Array.isArray(manifestData?.shards) && manifestData.shards.length > 0
-                ? manifestData.shards.map((s: any) => String(typeof s === 'string' ? s : s?.slug || '')).filter(Boolean)
-                : ['comix-shard-page-1'];
-
-            const shardPayloads = await Promise.all(
-                shardSlugs.slice(0, 20).map((s) => fetchR2SeriesBySlug(s))
-            );
-
-            const items: Manga[] = [];
-            const seenIds = new Set<string>();
-            for (const payload of shardPayloads) {
-                const list = Array.isArray(payload?.series)
-                    ? payload.series
-                    : Array.isArray(payload?.items)
-                    ? payload.items
-                    : Array.isArray(payload)
-                    ? payload
-                    : [];
-                for (const raw of list) {
-                    const mapped = mapR2ShardRowToMangaSummary(raw);
-                    if (mapped && !seenIds.has(mapped.id)) {
-                        seenIds.add(mapped.id);
-                        items.push(mapped);
-                    }
-                }
-            }
-
-            r2ComixShardsCache = { fetchedAt: Date.now(), items };
-            return items;
-        } catch {
-            return [];
-        } finally {
-            r2ComixShardsPromise = null;
-        }
-    })();
-
-    return r2ComixShardsPromise;
-};
-
 export const getChapterById = async (chapterId: string): Promise<{ chapter: Chapter; mangaId: string } | null> => {
     try {
         const cachedR2 = r2ChapterMetaById.get(chapterId);
         if (cachedR2) {
             const ch = { ...cachedR2.chapter, pages: [...(cachedR2.chapter.pages || [])] };
-            if (ch.pages.length === 0) {
-                const comixChId = extractComixChapterId(ch);
-                if (comixChId) {
-                    ch.pages = await resolveComixChapterPagesById(comixChId);
-                    ch.pageCount = ch.pages.length;
-                    cachedR2.chapter.pages = ch.pages;
-                }
-            }
             return {
                 chapter: ch,
                 mangaId: cachedR2.mangaId,
@@ -2344,33 +2244,9 @@ export const getChapterById = async (chapterId: string): Promise<{ chapter: Chap
 
         if (!error && data) {
             const chapter = mapChapterRowToChapter(data, { includePages: true });
-            if (chapter.pages.length === 0) {
-                const comixChId = extractComixChapterId(chapter);
-                if (comixChId) {
-                    chapter.pages = await resolveComixChapterPagesById(comixChId);
-                    chapter.pageCount = chapter.pages.length;
-                }
-            }
             return {
                 chapter,
                 mangaId: data.manga_id,
-            };
-        }
-
-        const comixChId = extractComixChapterId({ id: chapterId });
-        if (comixChId) {
-            const pages = await resolveComixChapterPagesById(comixChId);
-            return {
-                chapter: {
-                    id: chapterId,
-                    number: 1,
-                    title: '',
-                    pages,
-                    pageCount: pages.length,
-                    releaseDate: new Date().toISOString(),
-                    views: 0,
-                },
-                mangaId: '',
             };
         }
 
@@ -2615,30 +2491,6 @@ export const getChapterPagesByIds = async (chapterIds: string[]): Promise<Record
         );
     }
 
-    // Resolve any remaining Comix chapters on-demand via Comix /chapters/:id API
-    const unresolvedIds = uniqueIds.filter((id) => !map[id] || map[id].length === 0);
-    if (unresolvedIds.length > 0) {
-        const resolveChunks = chunkArray(unresolvedIds, 6);
-        for (const batch of resolveChunks) {
-            await Promise.all(
-                batch.map(async (targetId) => {
-                    const cachedEntry = r2ChapterMetaById.get(targetId);
-                    const comixChId = extractComixChapterId(
-                        cachedEntry?.chapter || { id: targetId }
-                    );
-                    if (!comixChId) return;
-                    const resolvedPages = await resolveComixChapterPagesById(comixChId);
-                    if (resolvedPages.length > 0) {
-                        map[targetId] = resolvedPages;
-                        if (cachedEntry) {
-                            cachedEntry.chapter.pages = resolvedPages;
-                        }
-                    }
-                })
-            );
-        }
-    }
-
     return map;
 };
 
@@ -2691,9 +2543,6 @@ export const getMangaById = async (
     }
 
     if (!data) {
-        if (!r2ComixShardsCache) {
-            await fetchR2ComixArchiveShards().catch(() => []);
-        }
         const shardCandidate = r2ShardSeriesByIdOrSlug.get(mangaId) || r2ShardSeriesByIdOrSlug.get(mangaId.toLowerCase());
         const targetSlug = shardCandidate?.slug || (!isUuid ? mangaId : r2MangaSlugById.get(mangaId));
         const r2SeriesPayload = targetSlug ? await fetchR2SeriesBySlug(targetSlug) : null;

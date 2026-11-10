@@ -89,7 +89,6 @@ const SOURCE_OPTIONS: Array<{ value: ChapterAutomationSource; label: string }> =
   { value: 'webtoonhatti', label: 'WebtoonHattı' },
   { value: 'okutoon', label: 'OkuToon' },
   { value: 'mangadass', label: 'Mangadass (+18 & Raw)' },
-  { value: 'comix', label: 'Comix.to' },
   { value: 'siyahmelek', label: 'SiyahMelek' },
   { value: 'hattorimanga', label: 'HattoriManga' },
   { value: 'mangacix', label: 'MangaCix' },
@@ -220,8 +219,6 @@ const getSourceUrlPlaceholder = (source: ChapterAutomationSource) => {
       return 'https://okutoon.com/...';
     case 'mangadass':
       return 'https://mangadass.com/manga/ornek-seri-raw';
-    case 'comix':
-      return 'https://comix.to/comic/rn3v...';
     case 'mangacix':
       return 'https://mangacix.net/books/...';
     case 'golgebahcesi':

@@ -192,14 +192,6 @@ export function resolveChapterLanguageCode(
   if (titleLower.includes('[en]') || titleLower.includes('(en)') || titleLower.includes('[english]')) {
     return 'en';
   }
-  if (
-    Array.isArray(chapter.pages) &&
-    chapter.pages.some((p) => typeof p === 'string' && (p.includes('comix') || /\/hi\/[A-Za-z0-9_-]+/.test(p)))
-  ) {
-    return fallbackSeriesLang && fallbackSeriesLang !== 'tr'
-      ? normalizeLanguageCode(fallbackSeriesLang)
-      : 'en';
-  }
   return normalizeLanguageCode(fallbackSeriesLang || 'tr');
 }
 
@@ -296,7 +288,6 @@ export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage
     const src = (s.source || '').toLowerCase();
     const url = (s.url || '').toLowerCase();
     return (
-      src.includes('comix') ||
       src.includes('madaradex') ||
       src.includes('mgread') ||
       src.includes('mangadex') ||

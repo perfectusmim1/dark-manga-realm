@@ -39,9 +39,8 @@ export const configuredOfflineImageProxyUrls: string[] = buildConfiguredProxyPoo
 // Per-session memory of proxy origins that rejected (401/403) a specific upstream image hostname.
 const rejectedProxiesByHost = new Map<string, Set<string>>();
 
-// Primary worker (`caganherdil.workers.dev`) has latest Comix cover & /hi/ mirror failover rules.
+// Primary worker (`caganherdil.workers.dev`) has special mirror failover rules.
 const PRIMARY_WORKER_ONLY_HOST_SUFFIXES: string[] = [
-  'comix.to',
   'kkplayer.wtf',
   'wowpic.org',
   'homeandheartshop.site',
