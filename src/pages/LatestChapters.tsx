@@ -5,6 +5,7 @@ import { tr } from 'date-fns/locale';
 import { BookOpen, Clock } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Badge } from '@/components/ui/badge';
+import { LanguageFlag } from '@/components/ui/LanguageFlag';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
 import { getLatestChapters, getLatestChaptersFeedStats, LatestChapterFeedItem } from '@/lib/database';
@@ -218,8 +219,8 @@ const LatestChapters: React.FC = () => {
                                                     if (chTitle.includes('[en]') || chTitle.includes('(en)')) {
                                                         const enLang = getLanguageInfoByCode('en');
                                                         return (
-                                                            <Badge variant="outline" className="text-xs leading-none px-1.5 py-0.5 border-sky-500/40 bg-sky-500/15 text-sky-400">
-                                                                {enLang.flag}
+                                                            <Badge variant="outline" className="px-1 py-0.5 border-sky-500/40 bg-sky-500/15 text-sky-400">
+                                                                <LanguageFlag code="en" label={enLang.label} className="h-3.5 w-5" />
                                                             </Badge>
                                                         );
                                                     }
@@ -229,12 +230,13 @@ const LatestChapters: React.FC = () => {
                                                         <Badge
                                                             variant="outline"
                                                             className={cn(
-                                                                'px-1.5 py-0.5',
-                                                                lang.language === 'raw' ? 'text-[10px] font-black uppercase' : 'text-xs leading-none',
+                                                                lang.language === 'raw'
+                                                                    ? 'px-1.5 py-0.5 text-[10px] font-black uppercase'
+                                                                    : 'px-1 py-0.5',
                                                                 lang.badgeClassName,
                                                             )}
                                                         >
-                                                            {lang.flag}
+                                                            <LanguageFlag code={lang.language} label={lang.label} className="h-3.5 w-5" />
                                                         </Badge>
                                                     );
                                                 })()}

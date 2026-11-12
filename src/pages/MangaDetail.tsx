@@ -102,6 +102,7 @@ import {
   resolveChapterLanguageCode,
 } from '@/lib/seriesLanguage';
 import { Progress } from "@/components/ui/progress";
+import { LanguageFlag } from "@/components/ui/LanguageFlag";
 import { Textarea } from "@/components/ui/textarea";
 import {
   Dialog,
@@ -2939,13 +2940,13 @@ const MangaDetail: React.FC = () => {
                       <Badge
                         variant="outline"
                         className={cn(
-                          'h-5 shrink-0 px-1.5 py-0 transition-all hover:scale-105',
-                          langInfo.language === 'raw' ? 'text-[10px] font-black' : 'text-xs leading-none',
+                          'h-5 shrink-0 transition-all hover:scale-105',
+                          langInfo.language === 'raw' ? 'px-1.5 py-0 text-[10px] font-black' : 'px-1 py-0',
                           langInfo.badgeClass,
                           variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                         )}
                       >
-                        {langInfo.flag}
+                        <LanguageFlag code={langInfo.language} label={langInfo.label} className="h-3.5 w-5" />
                       </Badge>
                     </Link>
                   );

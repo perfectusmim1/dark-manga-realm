@@ -32,6 +32,7 @@ import {
   resolveChapterLanguageCode,
 } from '@/lib/seriesLanguage';
 import { Input } from '@/components/ui/input';
+import { LanguageFlag } from '@/components/ui/LanguageFlag';
 import {
   Popover,
   PopoverContent,
@@ -504,7 +505,10 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {entry.info.flag} ({entry.count})
+              <span className="inline-flex items-center gap-1.5">
+                <LanguageFlag code={entry.info.language} label={entry.info.label} className="h-3 w-4" />
+                <span>({entry.count})</span>
+              </span>
             </button>
           ))}
         </div>
@@ -588,14 +592,14 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                             }
                           }}
                           className={cn(
-                            'inline-flex shrink-0 items-center justify-center rounded border px-1.5 py-0.5 leading-none transition-all hover:scale-105',
-                            langInfo.language === 'raw' ? 'text-[9px] font-black' : 'text-xs',
+                            'inline-flex shrink-0 items-center justify-center rounded border transition-all hover:scale-105',
+                            langInfo.language === 'raw' ? 'px-1.5 py-0.5 text-[9px] font-black' : 'px-1 py-0.5',
                             langInfo.badgeClass,
                             variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                           )}
                           title={`${langInfo.label} olarak aç`}
                         >
-                          {langInfo.flag}
+                          <LanguageFlag code={langInfo.language} label={langInfo.label} className="h-3 w-4" />
                         </span>
                       );
                     })}
