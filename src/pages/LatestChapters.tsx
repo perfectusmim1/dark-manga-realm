@@ -12,7 +12,7 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
 import OptimizedImage from '@/components/media/OptimizedImage';
-import { getSeriesLanguageInfo } from '@/lib/seriesLanguage';
+import { getLanguageInfoByCode, getSeriesLanguageInfo } from '@/lib/seriesLanguage';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
@@ -216,9 +216,10 @@ const LatestChapters: React.FC = () => {
                                                         );
                                                     }
                                                     if (chTitle.includes('[en]') || chTitle.includes('(en)')) {
+                                                        const enLang = getLanguageInfoByCode('en');
                                                         return (
-                                                            <Badge variant="outline" className="text-[10px] font-black uppercase px-1.5 py-0.5 border-sky-500/40 bg-sky-500/15 text-sky-400">
-                                                                EN
+                                                            <Badge variant="outline" className="text-xs leading-none px-1.5 py-0.5 border-sky-500/40 bg-sky-500/15 text-sky-400">
+                                                                {enLang.flag}
                                                             </Badge>
                                                         );
                                                     }
@@ -227,9 +228,13 @@ const LatestChapters: React.FC = () => {
                                                     return (
                                                         <Badge
                                                             variant="outline"
-                                                            className={cn('text-[10px] font-black uppercase px-1.5 py-0.5', lang.badgeClassName)}
+                                                            className={cn(
+                                                                'px-1.5 py-0.5',
+                                                                lang.language === 'raw' ? 'text-[10px] font-black uppercase' : 'text-xs leading-none',
+                                                                lang.badgeClassName,
+                                                            )}
                                                         >
-                                                            {lang.shortLabel}
+                                                            {lang.flag}
                                                         </Badge>
                                                     );
                                                 })()}

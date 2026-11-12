@@ -3,7 +3,7 @@ type ChapterBatchSortable = {
     mangaId?: string | null;
 };
 
-const CHAPTER_BATCH_WINDOW_IN_MS = 15_000;
+const CHAPTER_BATCH_WINDOW_IN_MS = 60_000;
 const FALLBACK_CHAPTER_ORDER = Number.MAX_SAFE_INTEGER;
 
 const getTimestamp = (value?: string | null) => {

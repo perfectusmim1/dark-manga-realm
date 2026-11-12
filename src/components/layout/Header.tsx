@@ -602,12 +602,35 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   }, [isRandomRolling, navigate, randomQueue]);
 
   const buildRandomQueue = (mangas: Manga[]) => {
-    const shuffled = [...mangas].sort(() => Math.random() - 0.5);
-    const selectedManga = shuffled[Math.floor(Math.random() * shuffled.length)];
-    const fillerPool = shuffled.filter((manga) => manga.id !== selectedManga.id);
-    const fillers = Array.from({ length: 10 }).map((_, index) => fillerPool[index % fillerPool.length] || selectedManga);
+    const pool = [...mangas];
+    for (let i = pool.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [pool[i], pool[j]] = [pool[j], pool[i]];
+    }
+    const selectedManga = pool[Math.floor(Math.random() * pool.length)];
+    const fillerPool = pool.filter((manga) => manga.id !== selectedManga.id);
+    const fillers = Array.from({ length: 10 }).map(
+      (_, index) => fillerPool[index % Math.max(1, fillerPool.length)] || selectedManga,
+    );
 
     return [...fillers, selectedManga];
+  };
+
+  const preloadRandomCovers = (queue: Manga[]) => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const seen = new Set<string>();
+    for (const item of queue) {
+      const url = resolveDisplayImageUrl(item.cover);
+      if (!url || seen.has(url)) {
+        continue;
+      }
+      seen.add(url);
+      const img = new Image();
+      img.decoding = 'async';
+      img.src = url;
+    }
   };
 
   const handleRandomManga = async () => {
@@ -638,9 +661,10 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
 
       if (mangas && mangas.length > 0) {
         const queue = buildRandomQueue(mangas);
+        preloadRandomCovers(queue);
         setRandomQueue(queue);
         setRandomSpinIndex(0);
-        setRandomTransitionMs(90);
+        setRandomTransitionMs(85);
         setIsRandomDialogOpen(true);
         setIsRandomRolling(true);
       } else if (!isOnline) {
@@ -1267,55 +1291,78 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
           setIsRandomDialogOpen(open);
         }}
       >
-        <DialogContent className="w-[calc(100vw-1.25rem)] max-w-[calc(100vw-1.25rem)] overflow-hidden rounded-[2rem] border-primary/20 bg-card/95 p-0 backdrop-blur-xl sm:max-w-md sm:rounded-2xl">
-          <DialogHeader className="border-b border-border/60 px-4 py-4 sm:px-6 sm:py-5">
-            <div className="flex items-center gap-2 text-primary">
-              <Sparkles className="h-4 w-4" />
-              <span className="text-xs font-semibold uppercase tracking-[0.24em] text-primary/80">Rastgele Seri</span>
-            </div>
-            <DialogTitle className="pt-2 text-center text-[1.85rem] font-black leading-tight tracking-tight sm:text-left sm:text-2xl">
-              Şansın Kimi Seçecek?
+        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-md overflow-hidden rounded-2xl border border-border/70 bg-card p-0 shadow-2xl">
+          <DialogHeader className="border-b border-border/60 px-5 py-4 text-left">
+            <DialogTitle className="flex items-center gap-2 text-base font-bold tracking-tight text-foreground">
+              <Dices className="h-4 w-4 text-primary" />
+              <span>Rastgele Seri</span>
             </DialogTitle>
-            <DialogDescription className="text-center text-sm leading-relaxed sm:text-left">
-              Seri kartları slot gibi akıyor, seçilen manganın üstünde durunca sayfaya geçeceksin.
+            <DialogDescription className="sr-only">
+              Rastgele seri seçiliyor
             </DialogDescription>
           </DialogHeader>
 
-          <div className="relative px-4 py-4 sm:px-6 sm:py-6">
-            <div className="pointer-events-none absolute inset-x-4 top-4 z-20 h-12 rounded-t-3xl bg-gradient-to-b from-card via-card/80 to-transparent sm:inset-x-6 sm:top-6 sm:h-16" />
-            <div className="pointer-events-none absolute inset-x-4 bottom-4 z-20 h-12 rounded-b-3xl bg-gradient-to-t from-card via-card/80 to-transparent sm:inset-x-6 sm:bottom-6 sm:h-16" />
-            <div className="pointer-events-none absolute inset-x-5 top-[calc(50%-20px)] z-20 h-[84px] -translate-y-1/2 rounded-[22px] border border-primary/30 bg-primary/10 shadow-[0_0_32px_rgba(59,130,246,0.18)] sm:inset-x-7 sm:h-[96px] sm:rounded-[26px] sm:shadow-[0_0_40px_rgba(59,130,246,0.18)]" />
+          <div className="p-4 sm:p-5">
+            <div className="relative h-[264px] overflow-hidden rounded-xl border border-border/60 bg-background/70 sm:h-[300px]">
+              <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-14 bg-gradient-to-b from-background via-background/70 to-transparent sm:h-16" />
+              <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-14 bg-gradient-to-t from-background via-background/70 to-transparent sm:h-16" />
 
-            <div className="h-[272px] overflow-hidden rounded-[28px] border border-border/60 bg-background/70 sm:h-[312px] sm:rounded-[28px]">
               <div
-                className="[--random-card-step:84px] px-3 py-[94px] sm:[--random-card-step:96px] sm:px-4 sm:py-[108px]"
+                className="[--random-card-step:84px] px-3 py-[95px] sm:[--random-card-step:96px] sm:px-3.5 sm:py-[107px]"
                 style={{
-                  transform: `translateY(calc(-${randomSpinIndex} * var(--random-card-step)))`,
+                  transform: `translate3d(0, calc(-${randomSpinIndex} * var(--random-card-step)), 0)`,
                   transitionProperty: 'transform',
                   transitionDuration: `${randomTransitionMs}ms`,
                   transitionTimingFunction: 'cubic-bezier(0.22, 1, 0.36, 1)',
+                  willChange: 'transform',
                 }}
               >
                 <div className="space-y-3">
                   {randomQueue.map((manga, index) => {
                     const isActive = index === randomSpinIndex;
+                    const coverUrl = resolveDisplayImageUrl(manga.cover);
+                    const authorText = manga.author && manga.author.trim() && manga.author.trim().toLowerCase() !== 'bilinmiyor'
+                      ? manga.author.trim()
+                      : null;
 
                     return (
                       <div
                         key={`${manga.id}-${index}`}
-                        className={`flex h-[72px] items-center gap-3 rounded-[1.4rem] border px-3 transition-all sm:h-[84px] sm:gap-4 sm:rounded-2xl ${isActive ? 'border-primary/50 bg-primary/10 shadow-[0_0_24px_rgba(59,130,246,0.12)]' : 'border-border/50 bg-card/50 opacity-70'}`}
+                        className={cn(
+                          'flex h-[72px] w-full items-center gap-3 overflow-hidden rounded-xl border px-2.5 transition-colors duration-150 sm:h-[84px] sm:gap-3.5 sm:px-3',
+                          isActive
+                            ? 'border-primary/60 bg-primary/10 text-foreground'
+                            : 'border-border/40 bg-card/60 opacity-65',
+                        )}
                       >
-                        <img
-                          src={manga.cover}
-                          alt={manga.title}
-                          className="h-14 w-10 rounded-lg object-cover shadow-md sm:h-16 sm:w-12 sm:rounded-xl"
-                        />
+                        <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-secondary sm:h-16 sm:w-12">
+                          {coverUrl ? (
+                            <img
+                              src={coverUrl}
+                              alt={manga.title}
+                              loading="eager"
+                              decoding="async"
+                              className="h-full w-full object-cover"
+                              onError={(e) => {
+                                e.currentTarget.style.display = 'none';
+                              }}
+                            />
+                          ) : null}
+                        </div>
                         <div className="min-w-0 flex-1">
-                          <p className="truncate text-[13px] font-semibold sm:text-sm">{manga.title}</p>
-                          <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground sm:text-[11px]">
-                            <span className="uppercase">{manga.type}</span>
-                            <span className="h-1 w-1 rounded-full bg-border" />
-                            <span className="truncate">{manga.author}</span>
+                          <p className="truncate text-[13px] font-semibold leading-snug sm:text-sm">
+                            {manga.title}
+                          </p>
+                          <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+                            <span className="shrink-0 font-medium uppercase tracking-wide">
+                              {manga.type || 'MANGA'}
+                            </span>
+                            {authorText && (
+                              <>
+                                <span className="h-1 w-1 shrink-0 rounded-full bg-border" />
+                                <span className="truncate">{authorText}</span>
+                              </>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1324,10 +1371,6 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                 </div>
               </div>
             </div>
-
-            <p className="pt-3 text-center text-[11px] text-muted-foreground sm:pt-4 sm:text-xs">
-              {isRandomRolling ? 'Karıştırılıyor...' : 'Seçim tamamlandı, seri açılıyor...'}
-            </p>
           </div>
         </DialogContent>
       </Dialog>

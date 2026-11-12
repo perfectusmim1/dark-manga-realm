@@ -1102,7 +1102,7 @@ const Index: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [authLoading, hasPersistedAuthSession, homeAudienceKey, isOnline]);
+  }, [homeAudienceKey, isOnline]);
 
   useEffect(() => {
     let active = true;

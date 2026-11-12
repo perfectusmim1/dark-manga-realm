@@ -2939,12 +2939,13 @@ const MangaDetail: React.FC = () => {
                       <Badge
                         variant="outline"
                         className={cn(
-                          'h-5 shrink-0 px-1.5 py-0 text-[10px] font-black transition-all hover:scale-105',
+                          'h-5 shrink-0 px-1.5 py-0 transition-all hover:scale-105',
+                          langInfo.language === 'raw' ? 'text-[10px] font-black' : 'text-xs leading-none',
                           langInfo.badgeClass,
                           variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                         )}
                       >
-                        {langInfo.shortLabel}
+                        {langInfo.flag}
                       </Badge>
                     </Link>
                   );

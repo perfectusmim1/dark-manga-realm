@@ -136,10 +136,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     () => resolveChapterLanguageCode(currentChapter, fallbackLangCode),
     [currentChapter, fallbackLangCode],
   );
-  const currentLangInfo = useMemo(
-    () => getChapterLanguageInfo(currentChapter, fallbackLangCode),
-    [currentChapter, fallbackLangCode],
-  );
 
   const chapterVariantsByNumber = useMemo(() => {
     const map = new Map<number, Chapter[]>();
@@ -197,13 +193,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
   const [hoverPage, setHoverPage] = useState<number | null>(null);
   const [hoverPercent, setHoverPercent] = useState<number | null>(null);
-
-  const sameNumberChapters = useMemo(() => {
-    const num = typeof currentChapter.number === 'number'
-      ? currentChapter.number
-      : parseFloat(String(currentChapter.number)) || 0;
-    return chapterVariantsByNumber.get(num) || [currentChapter];
-  }, [chapterVariantsByNumber, currentChapter]);
   const [isScrubbing, setIsScrubbing] = useState(false);
   const [scrubPage, setScrubPage] = useState<number | null>(null);
   const [scrubPercent, setScrubPercent] = useState<number | null>(null);
@@ -515,7 +504,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                   : 'text-muted-foreground hover:text-foreground',
               )}
             >
-              {entry.info.shortLabel} ({entry.count})
+              {entry.info.flag} ({entry.count})
             </button>
           ))}
         </div>
@@ -564,18 +553,12 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               className={cn(
                 'group flex w-full items-center justify-between gap-2.5 rounded-xl border px-3.5 py-2.5 text-left transition-all duration-150 focus-visible:border-primary/70 focus-visible:ring-1 focus-visible:ring-primary/40',
                 isCurrentChapter
-                  ? 'border-primary/60 bg-primary/10 text-primary shadow-[0_0_16px_hsl(var(--primary)/0.12)] font-semibold'
+                  ? 'border-primary/60 bg-primary/10 text-primary font-semibold'
                   : 'border-border/50 bg-secondary/30 text-foreground/85 hover:border-border/80 hover:bg-secondary/60 hover:text-foreground',
                 navigatingChapterId === ch.id && 'opacity-60 pointer-events-none',
               )}
             >
               <div className="flex min-w-0 flex-1 items-center gap-2.5">
-                {isCurrentChapter && (
-                  <span
-                    aria-hidden="true"
-                    className="h-4 w-1 shrink-0 rounded-full bg-primary shadow-[0_0_8px_hsl(var(--primary))]"
-                  />
-                )}
                 <div className="min-w-0 flex-1">
                   <div className="flex flex-wrap items-center gap-1.5">
                     <p
@@ -605,13 +588,14 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                             }
                           }}
                           className={cn(
-                            'shrink-0 rounded border px-1 py-0 text-[9px] font-black transition-all hover:scale-105',
+                            'inline-flex shrink-0 items-center justify-center rounded border px-1.5 py-0.5 leading-none transition-all hover:scale-105',
+                            langInfo.language === 'raw' ? 'text-[9px] font-black' : 'text-xs',
                             langInfo.badgeClass,
                             variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                           )}
                           title={`${langInfo.label} olarak aç`}
                         >
-                          {langInfo.shortLabel}
+                          {langInfo.flag}
                         </span>
                       );
                     })}
@@ -693,72 +677,6 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
           </div>
 
           <div className="flex shrink-0 items-center gap-1 sm:gap-2">
-            {sameNumberChapters.length > 1 ? (
-              <Popover>
-                <PopoverTrigger asChild>
-                  <button
-                    type="button"
-                    className={cn(
-                      'inline-flex h-8 items-center gap-1 rounded-lg border px-2 text-[11px] font-black transition-all hover:opacity-90 sm:h-9 sm:px-2.5 sm:text-xs',
-                      currentLangInfo.badgeClass,
-                    )}
-                    aria-label="Bölüm dilini değiştir"
-                    title="Bölüm dilini değiştir"
-                  >
-                    <span>{currentLangInfo.shortLabel}</span>
-                  </button>
-                </PopoverTrigger>
-                <PopoverContent
-                  align="end"
-                  className="w-44 rounded-xl border border-border/80 bg-popover p-1.5 shadow-xl"
-                >
-                  <div className="space-y-1">
-                    {sameNumberChapters.map((altCh) => {
-                      const altInfo = getChapterLanguageInfo(altCh);
-                      const isActive = altCh.id === currentChapter.id;
-                      return (
-                        <button
-                          key={altCh.id}
-                          type="button"
-                          onClick={() => {
-                            if (!isActive) {
-                              void handleChapterNavigation(altCh);
-                            }
-                          }}
-                          className={cn(
-                            'flex w-full items-center justify-between rounded-lg px-2.5 py-1.5 text-xs font-medium transition-colors',
-                            isActive
-                              ? 'bg-primary/15 text-primary font-semibold'
-                              : 'text-foreground/85 hover:bg-secondary/60 hover:text-foreground',
-                          )}
-                        >
-                          <span>{altInfo.label}</span>
-                          <span
-                            className={cn(
-                              'rounded border px-1.5 py-0 text-[10px] font-black',
-                              altInfo.badgeClass,
-                            )}
-                          >
-                            {altInfo.shortLabel}
-                          </span>
-                        </button>
-                      );
-                    })}
-                  </div>
-                </PopoverContent>
-              </Popover>
-            ) : (
-              <span
-                className={cn(
-                  'inline-flex h-7 items-center rounded-md border px-1.5 text-[10px] font-black sm:h-8 sm:px-2 sm:text-[11px]',
-                  currentLangInfo.badgeClass,
-                )}
-                title={currentLangInfo.label}
-              >
-                {currentLangInfo.shortLabel}
-              </span>
-            )}
-
             <Button
               variant="ghost"
               size="icon"

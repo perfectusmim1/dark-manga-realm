@@ -155,12 +155,30 @@ export const getOrCreateDeviceInstallationId = async () => {
 
     const cookieValue = readCookieValue();
     const windowNameValue = readWindowNameValue();
-    const indexedDbValue = await readIndexedDbValue();
-    const existing = localStorageValue || cookieValue || indexedDbValue || windowNameValue;
+    const fastExisting = localStorageValue || cookieValue || windowNameValue;
 
-    if (existing) {
-        await writeInstallationIdEverywhere(existing);
-        return existing;
+    if (fastExisting) {
+        if (!localStorageValue) {
+            try {
+                window.localStorage.setItem(DEVICE_INSTALLATION_KEY, fastExisting);
+            } catch {
+                // Ignore localStorage quota errors
+            }
+        }
+        if (!cookieValue) {
+            writeCookieValue(fastExisting);
+        }
+        if (!windowNameValue) {
+            writeWindowNameValue(fastExisting);
+        }
+        void writeIndexedDbValue(fastExisting);
+        return fastExisting;
+    }
+
+    const indexedDbValue = await readIndexedDbValue();
+    if (indexedDbValue) {
+        await writeInstallationIdEverywhere(indexedDbValue);
+        return indexedDbValue;
     }
 
     const created = crypto.randomUUID();

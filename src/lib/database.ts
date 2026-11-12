@@ -1123,53 +1123,23 @@ const getMangaAdultColumnAvailability = async (): Promise<boolean> => {
     return mangaAdultColumnAvailablePromise;
 };
 
-const getCurrentViewerAdultModePreference = async (): Promise<boolean> => {
+let currentViewerAdultModeCache: {
+    authUserId: string | null;
+    fetchedAt: number;
+    enabled: boolean;
+} | null = null;
+let currentViewerAccessPromise: Promise<{ role: User['role'] | undefined; adultModeEnabled: boolean }> | null = null;
+
+const getCurrentViewerAccessProfile = async (): Promise<{
+    role: User['role'] | undefined;
+    adultModeEnabled: boolean;
+}> => {
     const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
     if (sessionError) {
         if (!isExpectedAccessControlError(sessionError)) {
             console.error('Current viewer session fetch error:', sessionError);
         }
-        return false;
-    }
-
-    const authUserId = sessionData.session?.user?.id;
-    if (!authUserId) {
-        return false;
-    }
-
-    const cachedPreferences = getCachedPreferencesForUser(authUserId);
-    if (cachedPreferences) {
-        return cachedPreferences.content?.adult_mode === true;
-    }
-
-    const metaPrefs = sessionData.session?.user?.user_metadata?.preferences as any;
-    if (metaPrefs && typeof metaPrefs?.content?.adult_mode === 'boolean') {
-        return metaPrefs.content.adult_mode === true;
-    }
-
-    const { data: profileRow, error } = await supabase
-        .from('users')
-        .select('preferences')
-        .eq('id', authUserId)
-        .maybeSingle();
-
-    if (error) {
-        if (!isExpectedAccessControlError(error)) {
-            console.error('Current viewer preferences fetch error:', error);
-        }
-        return false;
-    }
-
-    return (profileRow as any)?.preferences?.content?.adult_mode === true;
-};
-
-const getCurrentViewerRole = async (): Promise<User['role'] | undefined> => {
-    const { data: sessionData, error: sessionError } = await supabase.auth.getSession();
-    if (sessionError) {
-        if (!isExpectedAccessControlError(sessionError)) {
-            console.error('Current viewer session fetch error:', sessionError);
-        }
-        return undefined;
+        return { role: undefined, adultModeEnabled: false };
     }
 
     const authUserId = sessionData.session?.user?.id || null;
@@ -1181,61 +1151,95 @@ const getCurrentViewerRole = async (): Promise<User['role'] | undefined> => {
             fetchedAt: Date.now(),
             role: undefined,
         };
-        return undefined;
+        currentViewerAdultModeCache = {
+            authUserId: null,
+            fetchedAt: Date.now(),
+            enabled: false,
+        };
+        return { role: undefined, adultModeEnabled: false };
     }
 
-    if (
+    const now = Date.now();
+    const roleCacheFresh =
         currentViewerRoleCache?.authUserId === authUserId
-        && Date.now() - currentViewerRoleCache.fetchedAt < STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS
-    ) {
-        return currentViewerRoleCache.role || sessionRole;
+        && now - currentViewerRoleCache.fetchedAt < STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS;
+    const cachedPreferences = getCachedPreferencesForUser(authUserId);
+    const metaPrefs = sessionData.session?.user?.user_metadata?.preferences as any;
+    const hasMetaAdultMode = metaPrefs && typeof metaPrefs?.content?.adult_mode === 'boolean';
+    const adultCacheFresh =
+        currentViewerAdultModeCache?.authUserId === authUserId
+        && now - currentViewerAdultModeCache.fetchedAt < STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS;
+
+    if (roleCacheFresh && (cachedPreferences || hasMetaAdultMode || adultCacheFresh)) {
+        const adultModeEnabled = cachedPreferences
+            ? cachedPreferences.content?.adult_mode === true
+            : hasMetaAdultMode
+            ? metaPrefs.content.adult_mode === true
+            : Boolean(currentViewerAdultModeCache?.enabled);
+        return {
+            role: currentViewerRoleCache?.role || sessionRole,
+            adultModeEnabled,
+        };
     }
 
-    if (currentViewerRolePromise && currentViewerRoleCache?.authUserId === authUserId) {
-        return currentViewerRolePromise;
+    if (currentViewerAccessPromise) {
+        return currentViewerAccessPromise;
     }
 
-    currentViewerRolePromise = (async () => {
+    currentViewerAccessPromise = (async () => {
         const { data: profile, error } = await supabase
             .from('users')
-            .select('role')
+            .select('role, preferences')
             .eq('id', authUserId)
             .maybeSingle();
 
         if (error) {
             if (!isExpectedAccessControlError(error)) {
-                console.error('Current viewer role fetch error:', error);
+                console.error('Current viewer access profile fetch error:', error);
             }
-            return sessionRole;
+            return {
+                role: sessionRole,
+                adultModeEnabled: hasMetaAdultMode ? metaPrefs.content.adult_mode === true : false,
+            };
         }
 
-        return (profile?.role as User['role'] | undefined) || sessionRole;
+        const role = ((profile as any)?.role as User['role'] | undefined) || sessionRole;
+        const adultModeEnabled = cachedPreferences
+            ? cachedPreferences.content?.adult_mode === true
+            : (profile as any)?.preferences?.content?.adult_mode === true;
+
+        return { role, adultModeEnabled };
     })()
-        .then((role) => {
+        .then((result) => {
+            const settledAt = Date.now();
             currentViewerRoleCache = {
                 authUserId,
-                fetchedAt: Date.now(),
-                role,
+                fetchedAt: settledAt,
+                role: result.role,
             };
-            return role;
+            currentViewerAdultModeCache = {
+                authUserId,
+                fetchedAt: settledAt,
+                enabled: result.adultModeEnabled,
+            };
+            return result;
         })
         .finally(() => {
-            currentViewerRolePromise = null;
+            currentViewerAccessPromise = null;
         });
 
-    return currentViewerRolePromise;
+    return currentViewerAccessPromise;
 };
 
 const resolveMangaVisibilityAccess = async (includePrivateOverride?: boolean) => {
-    const [visibilityColumnAvailable, adultColumnAvailable, role, adultModeEnabled] = await Promise.all([
+    const [visibilityColumnAvailable, adultColumnAvailable, accessProfile] = await Promise.all([
         getMangaVisibilityColumnAvailability(),
         getMangaAdultColumnAvailability(),
-        getCurrentViewerRole(),
-        getCurrentViewerAdultModePreference(),
+        getCurrentViewerAccessProfile(),
     ]);
-    const isStaff = role === 'admin' || role === 'moderator';
+    const isStaff = accessProfile.role === 'admin' || accessProfile.role === 'moderator';
     const includePrivate = includePrivateOverride === true;
-    const includeAdult = includePrivate || isStaff || adultModeEnabled;
+    const includeAdult = includePrivate || isStaff || accessProfile.adultModeEnabled;
 
     return {
         includePrivate,
@@ -1951,8 +1955,69 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return list;
     };
 
+    const mapPrecomputedHomeSectionRows = (rows: any[]): Manga[] => {
+        if (!Array.isArray(rows) || rows.length === 0) {
+            return [];
+        }
+        const seen = new Set<string>();
+        const list: Manga[] = [];
+        for (const manga of rows) {
+            const id = typeof manga?.id === 'string' ? manga.id : '';
+            if (!id || seen.has(id)) {
+                continue;
+            }
+            if (!includePrivate && (manga?.is_public === false || (!includeAdult && manga?.is_adult === true))) {
+                continue;
+            }
+            seen.add(id);
+            const precomputedChapters = Array.isArray(manga.latest_chapters)
+                ? manga.latest_chapters
+                    .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
+                    .filter((ch: any) => ch.id)
+                : [];
+            list.push({
+                ...manga,
+                author: cleanPlaceholderNamedEntityString(manga.author) || manga.author,
+                artist: cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
+                ...mapMangaBaseFields(manga),
+                chapters: precomputedChapters,
+                ratings: [],
+                chapterCount: Number(manga.chapter_count ?? manga.chapterCount) || precomputedChapters.length || 0,
+                averageRating: Number(manga.average_rating ?? 0),
+                reviewCount: Number(manga.review_count ?? 0),
+                authorsDetails: [],
+                artistsDetails: [],
+            } as Manga);
+        }
+        return list;
+    };
+
     try {
         const fetchSections = async () => {
+            if (!includePrivate) {
+                try {
+                    const { data: rpcData, error: rpcError } = await supabase.rpc('get_home_page_sections', {
+                        p_newly_added_limit: HOME_PAGE_SECTION_LIMITS.newlyAdded,
+                        p_recently_updated_limit: HOME_PAGE_SECTION_LIMITS.recentlyUpdated,
+                        p_trending_limit: HOME_PAGE_SECTION_LIMITS.trending,
+                    });
+
+                    if (!rpcError && rpcData && typeof rpcData === 'object') {
+                        const rpcPayload = rpcData as Record<string, any>;
+                        const mappedSections: HomePageMangaSections = {
+                            trendingManga: mapPrecomputedHomeSectionRows(rpcPayload.trending),
+                            newlyAddedSeries: mapPrecomputedHomeSectionRows(rpcPayload.newly_added),
+                            recentlyUpdated: mapPrecomputedHomeSectionRows(rpcPayload.recently_updated),
+                        };
+                        if (hasHomePageSectionData(mappedSections)) {
+                            return mappedSections;
+                        }
+                    }
+                } catch (rpcErr) {
+                    console.warn('get_home_page_sections rpc error, falling back to multi-query:', rpcErr);
+                }
+            }
+
             const [
                 { data: newlyAddedRows, error: newlyAddedError },
                 { data: recentlyUpdatedRows, error: recentlyUpdatedError },
@@ -3034,17 +3099,21 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
         });
 
         if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
-            return rpcData.map((row: any) => ({
-                chapterId: String(row.chapter_id),
-                mangaId: String(row.manga_id),
-                mangaTitle: String(row.manga_title || ''),
-                mangaCover: String(row.manga_cover || ''),
-                mangaType: row.manga_type || 'manga',
-                chapterNumber: Number(row.chapter_number),
-                chapterTitle: row.chapter_title || undefined,
-                addedAt: row.added_at,
-                releaseDate: row.release_date || undefined,
-            } satisfies LatestChapterFeedItem));
+            return sortChapterBatchItems(
+                rpcData.map((row: any) => ({
+                    chapterId: String(row.chapter_id),
+                    mangaId: String(row.manga_id),
+                    mangaTitle: String(row.manga_title || ''),
+                    mangaCover: String(row.manga_cover || ''),
+                    mangaType: row.manga_type || 'manga',
+                    chapterNumber: Number(row.chapter_number),
+                    chapterTitle: row.chapter_title || undefined,
+                    addedAt: row.added_at,
+                    releaseDate: row.release_date || undefined,
+                } satisfies LatestChapterFeedItem)),
+                (chapter) => chapter.addedAt,
+                (chapter) => chapter.chapterId
+            );
         }
     } catch (rpcErr) {
         console.warn('get_latest_chapters_feed rpc error, falling back to direct query:', rpcErr);
@@ -7750,7 +7819,10 @@ export const getTopTenMangaIds = async (timeframe: TopTenTimeframe = 'today'): P
 
     topTenMangaIdsPromises[timeframe] = (async () => {
         try {
-            const { data, error } = await supabase.rpc('get_top_engaged_mangas', { time_filter: timeframe });
+            let { data, error } = await supabase.rpc('get_top_engaged_manga_ids', { time_filter: timeframe });
+            if (error) {
+                ({ data, error } = await supabase.rpc('get_top_engaged_mangas', { time_filter: timeframe }));
+            }
             if (error || !Array.isArray(data)) {
                 if (error) {
                     console.error('getTopTenMangaIds error:', error);
