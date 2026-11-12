@@ -1,6 +1,7 @@
 import React, { Suspense, lazy, useDeferredValue, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import InstallAppButton from '@/components/pwa/InstallAppButton';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import {
   Search,
   Bell,
@@ -1291,10 +1292,10 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
           setIsRandomDialogOpen(open);
         }}
       >
-        <DialogContent className="w-[calc(100vw-1.5rem)] max-w-md overflow-hidden rounded-2xl border border-border/70 bg-card p-0 shadow-2xl">
-          <DialogHeader className="border-b border-border/60 px-5 py-4 text-left">
+        <DialogContent className="flex w-[calc(100vw-1.5rem)] max-w-md flex-col gap-0 overflow-hidden rounded-2xl border border-border/70 bg-card p-0 shadow-2xl">
+          <DialogHeader className="min-w-0 w-full border-b border-border/60 px-5 py-4 text-left">
             <DialogTitle className="flex items-center gap-2 text-base font-bold tracking-tight text-foreground">
-              <Dices className="h-4 w-4 text-primary" />
+              <Dices className="h-4 w-4 shrink-0 text-primary" />
               <span>Rastgele Seri</span>
             </DialogTitle>
             <DialogDescription className="sr-only">
@@ -1302,13 +1303,13 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="p-4 sm:p-5">
-            <div className="relative h-[264px] overflow-hidden rounded-xl border border-border/60 bg-background/70 sm:h-[300px]">
+          <div className="min-w-0 w-full p-4 sm:p-5">
+            <div className="relative h-[264px] w-full overflow-hidden rounded-xl border border-border/60 bg-background/70 sm:h-[300px]">
               <div className="pointer-events-none absolute inset-x-0 top-0 z-20 h-14 bg-gradient-to-b from-background via-background/70 to-transparent sm:h-16" />
               <div className="pointer-events-none absolute inset-x-0 bottom-0 z-20 h-14 bg-gradient-to-t from-background via-background/70 to-transparent sm:h-16" />
 
               <div
-                className="[--random-card-step:84px] px-3 py-[95px] sm:[--random-card-step:96px] sm:px-3.5 sm:py-[107px]"
+                className="w-full min-w-0 [--random-card-step:84px] px-3 py-[95px] sm:[--random-card-step:96px] sm:px-3.5 sm:py-[107px]"
                 style={{
                   transform: `translate3d(0, calc(-${randomSpinIndex} * var(--random-card-step)), 0)`,
                   transitionProperty: 'transform',
@@ -1317,10 +1318,9 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                   willChange: 'transform',
                 }}
               >
-                <div className="space-y-3">
+                <div className="min-w-0 w-full space-y-3">
                   {randomQueue.map((manga, index) => {
                     const isActive = index === randomSpinIndex;
-                    const coverUrl = resolveDisplayImageUrl(manga.cover);
                     const authorText = manga.author && manga.author.trim() && manga.author.trim().toLowerCase() !== 'bilinmiyor'
                       ? manga.author.trim()
                       : null;
@@ -1329,26 +1329,21 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
                       <div
                         key={`${manga.id}-${index}`}
                         className={cn(
-                          'flex h-[72px] w-full items-center gap-3 overflow-hidden rounded-xl border px-2.5 transition-colors duration-150 sm:h-[84px] sm:gap-3.5 sm:px-3',
+                          'flex h-[72px] w-full min-w-0 items-center gap-3 overflow-hidden rounded-xl border px-2.5 transition-colors duration-150 sm:h-[84px] sm:gap-3.5 sm:px-3',
                           isActive
                             ? 'border-primary/60 bg-primary/10 text-foreground'
                             : 'border-border/40 bg-card/60 opacity-65',
                         )}
                       >
-                        <div className="relative h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-secondary sm:h-16 sm:w-12">
-                          {coverUrl ? (
-                            <img
-                              src={coverUrl}
-                              alt={manga.title}
-                              loading="eager"
-                              decoding="async"
-                              className="h-full w-full object-cover"
-                              onError={(e) => {
-                                e.currentTarget.style.display = 'none';
-                              }}
-                            />
-                          ) : null}
-                        </div>
+                        <OptimizedImage
+                          priority
+                          allowProxy
+                          src={manga.cover}
+                          alt={manga.title}
+                          transform={{ width: 96, quality: 75 }}
+                          containerClassName="h-14 w-10 shrink-0 overflow-hidden rounded-lg bg-secondary sm:h-16 sm:w-12"
+                          className="h-full w-full object-cover"
+                        />
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-[13px] font-semibold leading-snug sm:text-sm">
                             {manga.title}
