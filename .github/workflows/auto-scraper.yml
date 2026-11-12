@@ -23,7 +23,7 @@ on:
       max_delta_checks:
         description: 'Mevcut serilerde yeni bölüm kontrol limiti'
         required: false
-        default: '200'
+        default: '800'
         type: string
       max_enrich_checks:
         description: 'Çalışma başına maksimum metadata zenginleştirme limiti'
@@ -72,12 +72,12 @@ jobs:
           CATALOG_ADMIN_TOKEN: ${{ secrets.CATALOG_ADMIN_TOKEN }}
           INPUT_MODE: ${{ github.event.inputs.mode || 'smart' }}
           INPUT_BATCH_SIZE: ${{ github.event.inputs.batch_size || '50' }}
-          INPUT_MAX_DELTA_CHECKS: ${{ github.event.inputs.max_delta_checks || '200' }}
+          INPUT_MAX_DELTA_CHECKS: ${{ github.event.inputs.max_delta_checks || '800' }}
           INPUT_MAX_ENRICH_CHECKS: ${{ github.event.inputs.max_enrich_checks || '80' }}
           INPUT_SOURCE: ${{ github.event.inputs.source || '' }}
         run: |
           if ! [[ "$INPUT_BATCH_SIZE" =~ ^[0-9]+$ ]]; then INPUT_BATCH_SIZE="50"; fi
-          if ! [[ "$INPUT_MAX_DELTA_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_DELTA_CHECKS="200"; fi
+          if ! [[ "$INPUT_MAX_DELTA_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_DELTA_CHECKS="800"; fi
           if ! [[ "$INPUT_MAX_ENRICH_CHECKS" =~ ^[0-9]+$ ]]; then INPUT_MAX_ENRICH_CHECKS="80"; fi
           ARGS=(
             --mode "$INPUT_MODE"

@@ -94,7 +94,7 @@ const parseNonNegInt = (val, fallback) => {
 
 const MODE = getArgValue('--mode', 'smart'); // 'smart' | 'delta-only' | 'enrich-only' | 'discover'
 const BATCH_SIZE = parseNonNegInt(getArgValue('--batch-size', '50'), 50);
-const MAX_DELTA_CHECKS = parseNonNegInt(getArgValue('--max-delta-checks', '200'), 200);
+const MAX_DELTA_CHECKS = parseNonNegInt(getArgValue('--max-delta-checks', '800'), 800);
 const MAX_ENRICH_CHECKS = parseNonNegInt(
   getArgValue('--max-enrich-checks', MODE === 'enrich-only' ? '120' : MODE === 'delta-only' ? '0' : '80'),
   MODE === 'enrich-only' ? 120 : MODE === 'delta-only' ? 0 : 80
@@ -130,6 +130,7 @@ const SOURCE_PRIORITIES = {
   mangadass: 50,
 };
 const CHAPTER_CONCURRENCY = 6;
+const DELTA_CONCURRENCY = Math.max(1, parseNonNegInt(getArgValue('--delta-concurrency', '5'), 5));
 const SERIES_CONCURRENCY = Math.max(1, parseNonNegInt(getArgValue('--series-concurrency', '4'), 4));
 const FAST_INGEST = hasFlag('--fast') || hasFlag('--skip-enrich') || hasFlag('--archive-mode');
 
@@ -212,10 +213,10 @@ const GENRE_ALIAS_TO_TURKISH = {
   magic: 'Büyü',
   superpower: 'Süper Güç',
   'super power': 'Süper Güç',
-  adult: 'Yetişkin',
-  smut: 'Yetişkin',
+  adult: 'Olgun',
+  smut: 'Smut',
   mature: 'Olgun',
-  erotica: 'Yetişkin',
+  erotica: 'Erotik',
   tragedy: 'Trajedi',
   reincarnation: 'Reenkarnasyon',
   revenge: 'İntikam',
@@ -689,11 +690,14 @@ const fetchUpstream = async (targetUrl, options = {}) => {
       if (directRes.ok && !isBlocked && text.length > 50) {
         return { ok: true, status: directRes.status, content: text, url: directRes.url };
       }
-      if (!isBlocked) {
+      const isTransientFailure = directRes.status >= 500 || directRes.status === 429;
+      if (!isBlocked && !isTransientFailure) {
         return { ok: false, status: directRes.status, content: text, url: directRes.url };
       }
     } catch {
-      return { ok: false, status: 0, content: '', url: targetUrl };
+      if (SCRAPER_PROXY_URLS.length === 0) {
+        return { ok: false, status: 0, content: '', url: targetUrl };
+      }
     }
   }
 
@@ -886,8 +890,12 @@ const extractRegexMatches = (html, regex) => {
 // ============================================================================
 // ADULT / +18 INTELLIGENT CONTENT DETECTION ENGINE
 // ============================================================================
-const ADULT_GENRE_REGEX = /\b(18\+|\+18|yeti[şs]kin|adult|erotik|erotica|pornographic|nsfw|mature|r-?18|ecchi|smut|hentai)\b/i;
+const STRICT_ADULT_SOURCES = new Set(['hentaiturk', 'mangadass', 'madaradex']);
+const MIXED_GENERAL_SOURCES = new Set(['webtoonhatti', 'okutoon', 'dxdfansub', 'golgebahcesi']);
+const ADULT_GENRE_REGEX = /(?:^|\s)(?:erotik|erotica|pornographic|nsfw|smut|hentai|b[üu]y[üu]kler\s*i[çc]in)(?:\s|$)/i;
+const ADULT_SITE_GENRE_REGEX = /(?:^|\s)(?:18\+|\+18|yeti[şs]kin|adult|erotik|erotica|pornographic|nsfw|smut|hentai|b[üu]y[üu]kler\s*i[çc]in)(?:\s|$)/i;
 const ADULT_TITLE_REGEX = /\b(\+18|18\+|hentai|sans[üu]rs[üu]z|uncensored|erotik|smut)\b/i;
+const SPURIOUS_ADULT_GENRE_FILTER_REGEX = /^(?:\+18|18\+|yeti[şs]kin|adult|hentai|erotik|erotica|pornographic|nsfw|smut)$/i;
 
 const detectIsAdult = ({
   source = '',
@@ -899,33 +907,41 @@ const detectIsAdult = ({
   description = '',
   fallbackIsAdult = false,
 } = {}) => {
+  if (STRICT_ADULT_SOURCES.has(source)) return true;
+
   // Explicit adult URL paths
-  if (url && (/\/adult\/|\/webtoon-tur\/adult\//i.test(url) || /\b18\+\b|\+18\b/i.test(url))) return true;
+  if (url && /\/adult\/|\/webtoon-tur\/adult\/|\/tur\/yetiskin\//i.test(url)) return true;
 
-  // 1. Check explicit adult genre badges or attributes in cardBlock or HTML metadata
-  if (cardBlock) {
-    if (/<span class=["'][^"']*badge-age[^"']*["'][\s\S]*?18\+/i.test(cardBlock)) return true;
-    if (/<span[^>]+class=["'][^"']*uk-text-small[^"']*["']>\s*18\+\s*<\/span>/i.test(cardBlock)) return true;
-    if (/\/tur\/yetiskin\//i.test(cardBlock)) return true;
-  }
-  if (html) {
-    if (/<span class=["'][^"']*badge-age[^"']*["'][\s\S]*?18\+/i.test(html)) return true;
-    if (/<span[^>]+class=["'][^"']*uk-text-small[^"']*["']>\s*18\+\s*<\/span>/i.test(html)) return true;
-    if (/itemprop=["']contentRating["']\s+content=["'](?:18\+|Adult)["']/i.test(html)) return true;
-    if (/class=["']manga-genre["'][^>]*href="https:\/\/siyahmelek\.my\/tur\/yetiskin\/"/i.test(html)) return true;
+  const isMixedGeneral = MIXED_GENERAL_SOURCES.has(source);
+
+  // Mixed general Turkish sites (okutoon, webtoonhatti, dxdfansub, golgebahcesi) tag violent/gore shounen-seinen
+  // titles with "+18" / "18+" badges — never let those turn regular webtoons into 18+ adult entries.
+  if (!isMixedGeneral) {
+    if (cardBlock) {
+      if (/<span class=["'][^"']*badge-age[^"']*["'][\s\S]*?18\+/i.test(cardBlock)) return true;
+      if (/<span[^>]+class=["'][^"']*uk-text-small[^"']*["']>\s*18\+\s*<\/span>/i.test(cardBlock)) return true;
+      if (/\/tur\/yetiskin\//i.test(cardBlock)) return true;
+    }
+    if (html) {
+      if (/<span class=["'][^"']*badge-age[^"']*["'][\s\S]*?18\+/i.test(html)) return true;
+      if (/<span[^>]+class=["'][^"']*uk-text-small[^"']*["']>\s*18\+\s*<\/span>/i.test(html)) return true;
+      if (/itemprop=["']contentRating["']\s+content=["'](?:18\+|Adult)["']/i.test(html)) return true;
+      if (/class=["']manga-genre["'][^>]*href="https:\/\/siyahmelek\.my\/tur\/yetiskin\/"/i.test(html)) return true;
+    }
   }
 
-  // 2. Check genres array
+  // Check genres: mixed general sites only honor explicit pornographic genres, whereas adult-tagged sites like siyahmelek honor Yetişkin/+18 too
   const genreStr = (genres || []).join(' ');
-  if (genreStr && ADULT_GENRE_REGEX.test(genreStr)) return true;
+  const activeGenreRegex = isMixedGeneral ? ADULT_GENRE_REGEX : ADULT_SITE_GENRE_REGEX;
+  if (genreStr && activeGenreRegex.test(genreStr)) return true;
 
-  // 3. Check title
+  // Check title
   if (title && ADULT_TITLE_REGEX.test(title)) return true;
 
-  // 4. Check description only for explicit adult keywords
+  // Check description only for explicit adult keywords
   if (description && /\b(hentai|sans[üu]rs[üu]z|uncensored)\b/i.test(description)) return true;
 
-  return Boolean(fallbackIsAdult);
+  return isMixedGeneral ? false : Boolean(fallbackIsAdult);
 };
 
 // ============================================================================
@@ -2098,35 +2114,74 @@ class SmartCatalogStore {
         this.malIdIndex.set(Number(malId), id);
       }
 
-      // Adult / +18 sanitization: explicit hentai sources stay adult, mixed webtoon sources are sanitized
+      // Adult / +18 sanitization: explicit hentai/adult sources stay adult, mixed webtoon/manga sources are sanitized
+      if (!this.sanitizedCleanedIds) this.sanitizedCleanedIds = new Set();
+      const wasAdult = Boolean(m.isAdult ?? m.is_adult ?? false);
+      const prevGenreLen = Array.isArray(m.genres) ? m.genres.length : 0;
+      const primarySource = m.details?.primarySource || '';
+      const primarySourceUrl = m.details?.primarySourceUrl || '';
+      const fallbackSourceLink = (m.sourceLinks || []).find(
+        (l) => l?.source && !['anilist', 'myanimelist', 'mangadex', 'mangaupdates', 'animeplanet', 'anisearch'].includes(l.source)
+      );
+      const effectiveSource = primarySource || fallbackSourceLink?.source || '';
+      const effectiveUrl = primarySourceUrl || fallbackSourceLink?.url || '';
+      const titleAdult = ADULT_TITLE_REGEX.test([m.title, ...(m.alternativeTitles || [])].join(' '));
+
       if (m.id === 'fe8ad643-1f42-4104-a5b5-4c694ba032e7' || m.slug === 'heroes-never-rest') {
         m.isAdult = false;
         m.is_adult = false;
         m.type = 'manhwa';
-        m.genres = (m.genres || []).filter(
-          (g) => !/^(?:\+18|18\+|yeti[şs]kin|adult|hentai|erotik|smut)$/i.test(g.trim())
-        );
-      } else {
-        const titleAdult = ADULT_TITLE_REGEX.test(
-          [m.title, ...(m.alternativeTitles || [])].join(' ')
-        );
-        const hasRealAdultGenre = (m.genres || []).some((g) =>
-          /^(?:hentai|erotik|erotica|pornographic|nsfw|smut|\+18|18\+|yeti[şs]kin|adult)$/i.test(g.trim())
-        );
-        if (m.type === 'hentai' || m.details?.primarySource === 'hentaiturk') {
+        m.genres = (m.genres || []).filter((g) => !SPURIOUS_ADULT_GENRE_FILTER_REGEX.test(g.trim()));
+      } else if (STRICT_ADULT_SOURCES.has(effectiveSource)) {
+        m.isAdult = true;
+        m.is_adult = true;
+      } else if (MIXED_GENERAL_SOURCES.has(effectiveSource) || (!effectiveSource && m.details?.anilistIsAdult === false)) {
+        const hasExplicitAdultUrl = /\/adult\/|\/webtoon-tur\/adult\/|\/tur\/yetiskin\//i.test(effectiveUrl);
+        const confirmedAdult = m.details?.anilistIsAdult === true || hasExplicitAdultUrl || titleAdult;
+        if (confirmedAdult) {
           m.isAdult = true;
           m.is_adult = true;
-        } else if (!hasRealAdultGenre && !titleAdult) {
+        } else {
+          m.isAdult = false;
+          m.is_adult = false;
+          m.genres = (m.genres || []).filter((g) => !SPURIOUS_ADULT_GENRE_FILTER_REGEX.test(g.trim()));
+          if (m.type === 'hentai' || m.type === 'webtoon_hentai') {
+            m.type = deriveMangaType({ isAdult: false, primarySource: effectiveSource, fallbackType: 'manhwa', title: m.title, genres: m.genres });
+          }
+        }
+      } else {
+        const hasSiteAdultGenre = (m.genres || []).some((g) =>
+          /^(?:hentai|erotik|erotica|pornographic|nsfw|smut|\+18|18\+|yeti[şs]kin|b[üu]y[üu]kler\s*i[çc]in|adult)$/i.test(g.trim())
+        );
+        if (m.type === 'hentai' || effectiveSource === 'hentaiturk' || hasSiteAdultGenre || titleAdult) {
+          m.isAdult = true;
+          m.is_adult = true;
+        } else {
           m.isAdult = false;
           m.is_adult = false;
           if (m.type === 'webtoon_hentai') m.type = 'manhwa';
-          m.genres = (m.genres || []).filter(
-            (g) => !/^(?:\+18|18\+|yeti[şs]kin|adult|hentai|erotik|smut)$/i.test(g.trim())
-          );
-        } else {
-          m.isAdult = true;
-          m.is_adult = true;
+          m.genres = (m.genres || []).filter((g) => !SPURIOUS_ADULT_GENRE_FILTER_REGEX.test(g.trim()));
         }
+      }
+
+      if ((wasAdult && !m.isAdult) || (Array.isArray(m.genres) && m.genres.length < prevGenreLen)) {
+        this.sanitizedCleanedIds.add(id);
+      }
+    }
+
+    if (Array.isArray(this.mangaTags) && this.mangaTags.length > 0 && this.tags?.size > 0) {
+      const spuriousAdultTagIds = new Set();
+      for (const [tagId, tagObj] of this.tags.entries()) {
+        if (tagObj?.name && SPURIOUS_ADULT_GENRE_FILTER_REGEX.test(String(tagObj.name).trim())) {
+          spuriousAdultTagIds.add(tagId);
+        }
+      }
+      if (spuriousAdultTagIds.size > 0) {
+        this.mangaTags = this.mangaTags.filter((mt) => {
+          if (!spuriousAdultTagIds.has(mt.tag_id)) return true;
+          const m = this.mangas.get(mt.manga_id);
+          return Boolean(m?.isAdult);
+        });
       }
     }
   }
@@ -2717,6 +2772,8 @@ class SmartCatalogStore {
         }
 
         if (anilistData.isAdult !== undefined && anilistData.isAdult !== null) {
+          if (!target.details) target.details = {};
+          target.details.anilistIsAdult = Boolean(anilistData.isAdult);
           if (anilistData.isAdult === true) {
             target.isAdult = true;
             if (!target.genres.includes('Yetişkin')) target.genres.push('Yetişkin');
@@ -2728,7 +2785,7 @@ class SmartCatalogStore {
             if (!titleAdult) {
               target.isAdult = false;
               target.genres = (target.genres || []).filter(
-                (g) => !/^(?:\+18|18\+|yeti[şs]kin|adult|hentai|erotik|smut)$/i.test(g.trim())
+                (g) => !SPURIOUS_ADULT_GENRE_FILTER_REGEX.test(g.trim())
               );
             }
           }
@@ -2930,7 +2987,10 @@ class SmartCatalogStore {
         currentManga.releaseYear = muData.year;
       }
       if (muData.genres?.length) {
-        const mapped = muData.genres.map(normalizeGenreToTurkish).filter(Boolean);
+        const allowAdultFromMu = Boolean(currentManga.isAdult) || currentManga.details?.anilistIsAdult === true;
+        const mapped = muData.genres
+          .map(normalizeGenreToTurkish)
+          .filter((g) => g && (allowAdultFromMu || !SPURIOUS_ADULT_GENRE_FILTER_REGEX.test(g.trim())));
         currentManga.genres = Array.from(new Set([...(currentManga.genres || []), ...mapped]));
         this.syncScrapedTaxonomies(finalId, { genres: mapped });
       }
@@ -3892,6 +3952,14 @@ const main = async () => {
       logInfo(
         `Katalog yüklendi: ${store.mangas.size} seri, ${store.characters.size} karakter, ${store.authors.size} yazar, ${store.tags.size} etiket.`
       );
+      if (store.sanitizedCleanedIds?.size > 0) {
+        for (const cleanedId of store.sanitizedCleanedIds) {
+          touchedMangaIds.add(cleanedId);
+          const cleanedManga = store.mangas.get(cleanedId);
+          if (cleanedManga?.slug) touchedSlugs.add(cleanedManga.slug);
+        }
+        logInfo(`[Temizlik] ${store.sanitizedCleanedIds.size} serideki hatalı +18 / Yetişkin etiketi otomatik temizlendi.`);
+      }
     } catch (err) {
       logWarn(`R2 başlangıç yükleme uyarısı: ${err.message}`);
     }
@@ -4100,25 +4168,50 @@ const main = async () => {
       });
     }
 
-    eligibleForDelta.sort((a, b) => {
-      if (a.isHot !== b.isHot) return a.isHot ? -1 : 1;
-      const prioDiff = (SOURCE_PRIORITIES[b.locked?.source] || 0) - (SOURCE_PRIORITIES[a.locked?.source] || 0);
-      if (prioDiff !== 0) return prioDiff;
-      return a.lastCheckTs - b.lastCheckTs;
-    });
+    const bySourceBuckets = new Map();
+    for (const item of eligibleForDelta) {
+      const srcKey = item.locked?.source || 'unknown';
+      if (!bySourceBuckets.has(srcKey)) bySourceBuckets.set(srcKey, []);
+      bySourceBuckets.get(srcKey).push(item);
+    }
+    const sortedSourceKeys = Array.from(bySourceBuckets.keys()).sort(
+      (a, b) => (SOURCE_PRIORITIES[b] || 0) - (SOURCE_PRIORITIES[a] || 0)
+    );
+    for (const srcKey of sortedSourceKeys) {
+      bySourceBuckets.get(srcKey).sort((a, b) => {
+        if (a.isHot !== b.isHot) return a.isHot ? -1 : 1;
+        return a.lastCheckTs - b.lastCheckTs;
+      });
+    }
 
-    const targetDeltaList = eligibleForDelta.slice(0, MAX_DELTA_CHECKS);
+    // Kaynak açlığını (starvation) önlemek için kaynaklar arası round-robin seçimi yap
+    const interleavedDelta = [];
+    let roundIdx = 0;
+    while (interleavedDelta.length < MAX_DELTA_CHECKS) {
+      let pickedInRound = false;
+      for (const srcKey of sortedSourceKeys) {
+        const bucket = bySourceBuckets.get(srcKey);
+        if (roundIdx < bucket.length) {
+          interleavedDelta.push(bucket[roundIdx]);
+          pickedInRound = true;
+          if (interleavedDelta.length >= MAX_DELTA_CHECKS) break;
+        }
+      }
+      if (!pickedInRound) break;
+      roundIdx++;
+    }
+
+    const targetDeltaList = interleavedDelta;
+    const sourceBreakdown = sortedSourceKeys
+      .map((s) => `${s}:${targetDeltaList.filter((i) => (i.locked?.source || 'unknown') === s).length}`)
+      .join(', ');
     logInfo(
-      `Filtreleme Raporu -> Atlanan Tamamlanmış/İptal: ${skippedCompleted} | Atlanan >3 Ay İnaktif: ${skippedDormant} | Duraklatılan: ${skippedPaused} | Cooldown: ${skippedCooldown} | Şimdi Kontrol Edilecek: ${targetDeltaList.length}`
+      `Filtreleme Raporu -> Atlanan Tamamlanmış/İptal: ${skippedCompleted} | Atlanan >3 Ay İnaktif: ${skippedDormant} | Duraklatılan: ${skippedPaused} | Cooldown: ${skippedCooldown} | Şimdi Kontrol Edilecek: ${targetDeltaList.length} (${sourceBreakdown || 'yok'})`
     );
 
     let deltaIdx = 0;
-    for (const item of targetDeltaList) {
-      if (isTimeBudgetExceeded()) {
-        logInfo('Çalışma süresi bütçesi doldu, delta kontrol döngüsü güvenli sonlandırılıyor...');
-        break;
-      }
-      deltaIdx++;
+    const processDeltaItem = async (item) => {
+      const myIdx = ++deltaIdx;
       const { manga, locked } = item;
       const checkTimeIso = new Date().toISOString();
       if (!manga.details) manga.details = {};
@@ -4128,8 +4221,8 @@ const main = async () => {
       const detail = await fetchSeriesDetailFromSource(locked.source, locked.url, manga.title, manga.cover, manga.isAdult);
       if (!detail || !Array.isArray(detail.chapters)) {
         manga.details.lastRunStatus = 'error';
-        logProgress(deltaIdx, targetDeltaList.length, manga.title, `Kaynak okunamadı (${locked.source})`);
-        continue;
+        logProgress(myIdx, targetDeltaList.length, manga.title, `Kaynak okunamadı (${locked.source})`);
+        return;
       }
 
       if (detail.status === 'completed' || detail.status === 'cancelled' || detail.status === 'hiatus') {
@@ -4149,12 +4242,12 @@ const main = async () => {
       if (missingChapters.length === 0) {
         manga.details.lastRunStatus = 'no_changes';
         manga.details.lastAddedChapterCount = 0;
-        logProgress(deltaIdx, targetDeltaList.length, manga.title, `Güncel (${manga.chapters.length} bölüm, yeni bölüm yok)`);
-        continue;
+        logProgress(myIdx, targetDeltaList.length, manga.title, `Güncel (${manga.chapters.length} bölüm, yeni bölüm yok)`);
+        return;
       }
 
       logProgress(
-        deltaIdx,
+        myIdx,
         targetDeltaList.length,
         manga.title,
         `${missingChapters.length} YENİ BÖLÜM bulundu, görseller doğrulanıyor...`
@@ -4198,11 +4291,26 @@ const main = async () => {
         touchedSlugs.add(manga.slug);
         touchedMangaIds.add(manga.id);
         await uploadSeriesFileToR2(manga);
-        logProgress(deltaIdx, targetDeltaList.length, manga.title, `+${newValidChapters.length} yeni bölüm eklendi!`);
+        logProgress(myIdx, targetDeltaList.length, manga.title, `+${newValidChapters.length} yeni bölüm eklendi!`);
       } else {
         manga.details.lastRunStatus = 'no_changes';
         manga.details.lastAddedChapterCount = 0;
       }
+    };
+
+    for (let i = 0; i < targetDeltaList.length; i += DELTA_CONCURRENCY) {
+      if (isTimeBudgetExceeded()) {
+        logInfo('Çalışma süresi bütçesi doldu, delta kontrol döngüsü güvenli sonlandırılıyor...');
+        break;
+      }
+      const chunk = targetDeltaList.slice(i, i + DELTA_CONCURRENCY);
+      await Promise.all(
+        chunk.map((item) =>
+          processDeltaItem(item).catch((err) => {
+            logWarn(`[Delta Hata Atlandı] ${item?.manga?.title || '?'}: ${err.message}`);
+          })
+        )
+      );
     }
   }
 
