@@ -243,8 +243,27 @@
 }
 
 @layer utilities {
+  @keyframes swiftSlideUp {
+    from {
+      transform: translate3d(0, 8px, 0);
+    }
+
+    to {
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .animate-fade-up,
+    .animate-card-reveal-fast {
+      animation: none !important;
+      opacity: 1 !important;
+      transform: none !important;
+    }
+  }
+
   .animate-fade-up {
-    animation: fadeUp 0.5s ease-out forwards;
+    animation: swiftSlideUp 0.22s cubic-bezier(0.22, 1, 0.36, 1) backwards;
   }
 
   .animate-fade-in {
@@ -252,8 +271,8 @@
   }
 
   .animate-card-reveal-fast {
-    animation: cardRevealFast 0.18s cubic-bezier(0.22, 1, 0.36, 1) forwards;
-    will-change: transform, opacity;
+    animation: swiftSlideUp 0.16s cubic-bezier(0.22, 1, 0.36, 1) backwards;
+    /* no heavy compositor layer lock */
   }
 
   .animate-scale-in {

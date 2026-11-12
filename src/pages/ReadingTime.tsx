@@ -198,7 +198,7 @@ const OverviewCard = ({
     index: number;
 }) => (
     <div
-        className="animate-fade-up aspect-[1.05/1] min-h-[8.5rem] rounded-3xl border border-border bg-card/50 p-4 opacity-0 sm:aspect-auto sm:min-h-0 sm:rounded-2xl sm:p-5"
+        className="animate-fade-up aspect-[1.05/1] min-h-[8.5rem] rounded-3xl border border-border bg-card/50 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl sm:p-5"
         style={{ animationDelay: `${0.1 + index * 0.03}s`, animationFillMode: 'forwards' }}
     >
         <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">{label}</p>
@@ -901,7 +901,7 @@ const ReadingTime: React.FC = () => {
                 )}
 
                 <div
-                    className="mt-6 animate-fade-up rounded-3xl border border-border bg-card/35 p-4 opacity-0 sm:mt-8 sm:p-5 md:p-6"
+                    className="mt-6 animate-fade-up rounded-3xl border border-border bg-card/35 p-4 sm:mt-8 sm:p-5 md:p-6"
                     style={{ animationDelay: '0.18s', animationFillMode: 'forwards' }}
                 >
                     <Tabs
@@ -1143,21 +1143,21 @@ const ReadingTime: React.FC = () => {
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
-                            <div className="animate-fade-up aspect-[1.02/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 opacity-0 sm:aspect-auto sm:min-h-0 sm:rounded-2xl" style={{ animationDelay: '0.22s', animationFillMode: 'forwards' }}>
+                            <div className="animate-fade-up aspect-[1.02/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl">
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <Flame className="h-4 w-4 text-primary" />
                                     <span className="line-clamp-2 text-sm leading-snug">Seçili Süre</span>
                                 </div>
                                 <p className="mt-3 break-words text-[clamp(1.45rem,5.2vw,2rem)] font-bold leading-tight">{formatReadingDuration(selectedTotalSeconds)}</p>
                             </div>
-                            <div className="animate-fade-up aspect-[1.02/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 opacity-0 sm:aspect-auto sm:min-h-0 sm:rounded-2xl" style={{ animationDelay: '0.26s', animationFillMode: 'forwards' }}>
+                            <div className="animate-fade-up aspect-[1.02/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl">
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <CalendarDays className="h-4 w-4 text-sky-400" />
                                     <span className="line-clamp-2 text-sm leading-snug">Aktif Gün</span>
                                 </div>
                                 <p className="mt-3 break-words text-[clamp(1.45rem,5.2vw,2rem)] font-bold leading-tight">{timeline.length}</p>
                             </div>
-                            <div className="animate-fade-up col-span-2 aspect-[2.08/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 opacity-0 sm:aspect-auto sm:min-h-0 sm:rounded-2xl md:col-span-1" style={{ animationDelay: '0.3s', animationFillMode: 'forwards' }}>
+                            <div className="animate-fade-up col-span-2 aspect-[2.08/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl md:col-span-1">
                                 <div className="flex items-center gap-2 text-muted-foreground">
                                     <LineChartIcon className="h-4 w-4 text-emerald-400" />
                                     <span className="line-clamp-2 text-sm leading-snug">En Yoğun Gün</span>
@@ -1242,16 +1242,13 @@ const ReadingTime: React.FC = () => {
                                                             type="button"
                                                             onClick={() => setSelectedDayDate(day.date)}
                                                             className={cn(
-                                                                'animate-fade-up aspect-square rounded-2xl border p-3 text-left opacity-0 transition-[transform,background-color,border-color,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                                                'animate-fade-up aspect-square rounded-2xl border p-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                                                                 isSelected
                                                                     ? 'scale-[1.015] -translate-y-0.5 border-primary/45 bg-primary/10 shadow-[0_10px_24px_rgba(59,130,246,0.12),0_0_0_1px_rgba(59,130,246,0.18)]'
                                                                     : 'border-border bg-background/40',
                                                             )}
                                                             style={{
-                                                                animationDelay: `${0.06 + Math.min(index, 15) * 0.02}s`,
-                                                                animationFillMode: 'forwards',
-                                                                contentVisibility: 'auto',
-                                                                containIntrinsicSize: '180px',
+                                                                animationDelay: `${0.04 + Math.min(index, 12) * 0.015}s`,
                                                             }}
                                                         >
                                                             <div className="flex h-full flex-col justify-between">
@@ -1307,12 +1304,9 @@ const ReadingTime: React.FC = () => {
                                             return (
                                                 <div
                                                     key={day.date}
-                                                    className="animate-fade-up rounded-2xl border border-border bg-background/40 p-3 opacity-0 sm:p-4"
+                                                    className="animate-fade-up rounded-2xl border border-border bg-background/40 p-3 sm:p-4"
                                                     style={{
-                                                        animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`,
-                                                        animationFillMode: 'forwards',
-                                                        contentVisibility: 'auto',
-                                                        containIntrinsicSize: '320px',
+                                                        animationDelay: `${0.04 + Math.min(index, 8) * 0.02}s`,
                                                     }}
                                                 >
                                                     <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">

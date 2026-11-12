@@ -606,7 +606,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         enabled: Boolean(user && (user.role === 'admin' || user.role === 'moderator')),
     });
     const { isOnline } = useEffectiveOnlineStatus();
-    const canModerateComments = access.canAccessAdminPanel;
+    const canModerateComments = Boolean(access?.canAccessAdminPanel);
     const location = useLocation();
     const entityId = propEntityId || propMangaId || '';
     const entityType = propEntityType;

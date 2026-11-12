@@ -33,8 +33,8 @@ const AdminLayout: React.FC = () => {
     const [mobileSidebarOpen, setMobileSidebarOpen] = useState(false);
     const { user, isLoading, logout } = useAuth();
     const { access, isLoading: accessLoading } = useAdminAccess({ requireOnlineValidation: false });
-    const isAdmin = access.canAccessAdminPanel;
-    const canUseScrapers = isAdmin && access.role === 'admin';
+    const isAdmin = Boolean(access?.canAccessAdminPanel);
+    const canUseScrapers = isAdmin && access?.role === 'admin';
 
     useEffect(() => {
         if (!isLoading && !accessLoading && !isAdmin) {
@@ -47,7 +47,7 @@ const AdminLayout: React.FC = () => {
     }, [location.pathname]);
 
     // Yetki ilk kez belirlenene kadar render engelle; arka plan doğrulamalarında paneli asla unmount etme
-    if ((isLoading || accessLoading) && !access.canAccessAdminPanel) {
+    if ((isLoading || accessLoading) && !access?.canAccessAdminPanel) {
         return null;
     }
 
@@ -77,10 +77,10 @@ const AdminLayout: React.FC = () => {
         { icon: UserCircle, label: 'Kullanıcılar', path: '/admin/user-management' },
         { icon: LifeBuoy, label: 'Destek Talepleri', path: '/admin/tickets' },
         { icon: Send, label: 'Seri İstekleri', path: '/admin/series-requests' },
-        ...(access.isPrimaryAdmin ? [{ icon: Megaphone, label: 'Duyurular', path: '/admin/announcements' }] : []),
+        ...(access?.isPrimaryAdmin ? [{ icon: Megaphone, label: 'Duyurular', path: '/admin/announcements' }] : []),
         { icon: Flag, label: 'Bildirilenler', path: '/admin/reports' },
-        ...(access.isPrimaryAdmin ? [{ icon: Settings, label: 'Site Settings', path: '/admin/site-settings' }] : []),
-        ...(access.isPrimaryAdmin ? [{ icon: Users, label: 'Adminler', path: '/admin/users' }] : []),
+        ...(access?.isPrimaryAdmin ? [{ icon: Settings, label: 'Site Settings', path: '/admin/site-settings' }] : []),
+        ...(access?.isPrimaryAdmin ? [{ icon: Users, label: 'Adminler', path: '/admin/users' }] : []),
     ];
 
     const isActive = (path: string) => {
@@ -159,7 +159,7 @@ const AdminLayout: React.FC = () => {
                             {(sidebarOpen || mobileSidebarOpen) && (
                                 <div className="min-w-0 flex-1">
                                     <p className="truncate text-sm font-medium">{user.username}</p>
-                                    <p className="text-xs text-muted-foreground">{access.role || user.role}</p>
+                                    <p className="text-xs text-muted-foreground">{access?.role || user.role}</p>
                                 </div>
                             )}
                             {(sidebarOpen || mobileSidebarOpen) && (

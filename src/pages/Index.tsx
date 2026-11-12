@@ -808,7 +808,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   }
 
   return (
-    <section className={`${withTopSpacing ? 'mt-12 ' : ''}${disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}`} style={sectionStyle}>
+    <section className={`${withTopSpacing ? 'mt-12 ' : ''}${disableHeavyEffects ? '' : 'animate-fade-up'}`} style={sectionStyle}>
       <div className="mb-6 flex items-center justify-between">
         <div className="flex items-center gap-2">
           <Icon className={iconClassName} />
@@ -1362,12 +1362,12 @@ const Index: React.FC = () => {
       <Header />
 
       <main className="container pb-12 pt-20">
-        <div className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'} style={disableHeavyEffects ? undefined : { animationDelay: '0.06s', animationFillMode: 'forwards' }}>
+        <div className={disableHeavyEffects ? '' : 'animate-fade-up'}>
           <InstallAppBanner className="mb-8" />
         </div>
 
         {!isOnline && (
-          <section className={`mb-10 rounded-[28px] border border-blue-500/20 bg-blue-500/10 p-6 shadow-[0_20px_50px_rgba(14,165,233,0.08)] ${disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}`} style={disableHeavyEffects ? undefined : { animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+          <section className={`mb-10 rounded-[28px] border border-blue-500/20 bg-blue-500/10 p-6 shadow-[0_20px_50px_rgba(14,165,233,0.08)] ${disableHeavyEffects ? '' : 'animate-fade-up'}`}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
               <div className="flex items-start gap-3">
                 <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/15 text-blue-300">
@@ -1460,8 +1460,8 @@ const Index: React.FC = () => {
 
             <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin={blockDeferredRootMargin}>
               <section
-                className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
-                style={disableHeavyEffects ? undefined : { animationDelay: '0.45s', animationFillMode: 'forwards' }}
+                className={disableHeavyEffects ? '' : 'animate-fade-up'}
+                style={disableHeavyEffects ? undefined : { animationDelay: '0.06s' }}
               >
                 <div className="mb-6 flex items-center gap-2">
                   <TrendingUp className="h-5 w-5 text-primary" />
@@ -1493,8 +1493,8 @@ const Index: React.FC = () => {
         ) : (
           <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin} disabled>
             <section
-              className={disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}
-              style={disableHeavyEffects ? undefined : { animationDelay: '0.16s', animationFillMode: 'forwards' }}
+              className={disableHeavyEffects ? '' : 'animate-fade-up'}
+              style={disableHeavyEffects ? undefined : { animationDelay: '0.04s' }}
             >
               <div className="mb-5 flex items-center justify-between">
                 <div className="flex items-center gap-2">

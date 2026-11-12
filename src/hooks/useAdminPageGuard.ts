@@ -26,8 +26,8 @@ export const useAdminPageGuard = (options: UseAdminPageGuardOptions) => {
   });
 
   const isAllowed = options.requiredRole === 'primary-admin'
-    ? access.isPrimaryAdmin
-    : access.canAccessAdminPanel && access.role === 'admin';
+    ? Boolean(access?.isPrimaryAdmin)
+    : Boolean(access?.canAccessAdminPanel && access?.role === 'admin');
 
   useEffect(() => {
     if (authLoading || accessLoading) {

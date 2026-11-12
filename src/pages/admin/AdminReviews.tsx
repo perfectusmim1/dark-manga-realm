@@ -43,7 +43,7 @@ const AdminReviews: React.FC = () => {
     const [isLoadingMore, setIsLoadingMore] = useState(false);
     const [isRefreshing, setIsRefreshing] = useState(false);
     const loadMoreRef = useRef<HTMLDivElement | null>(null);
-    const canDeleteReviews = access.role === 'admin';
+    const canDeleteReviews = access?.role === 'admin';
 
     useEffect(() => {
         const timeout = window.setTimeout(() => {

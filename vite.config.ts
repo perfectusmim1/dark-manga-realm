@@ -55,11 +55,28 @@ export default defineConfig(({ mode }) => ({
       workbox: {
         skipWaiting: true,
         clientsClaim: true,
-        globPatterns: ["**/*.{js,css,html,ico,png,webp,svg,woff2}"],
-        navigateFallback: "/index.html",
+        navigateFallback: null as unknown as string,
+        globPatterns: ["**/*.{js,css,ico,png,webp,svg,woff2}"],
         cleanupOutdatedCaches: true,
         maximumFileSizeToCacheInBytes: 10 * 1024 * 1024,
         runtimeCaching: [
+          // HTML navigasyonları NetworkFirst ile yüklenir; F5/yenilemede bayat precache index.html yerine
+          // güncel dağıtım HTML'i alınır, çevrimdışıyken önbelleğe düşer.
+          {
+            urlPattern: ({ request }: any) => request.mode === "navigate",
+            handler: "NetworkFirst",
+            options: {
+              cacheName: "toonparrot-html-v1",
+              networkTimeoutSeconds: 3,
+              cacheableResponse: {
+                statuses: [200],
+              },
+              expiration: {
+                maxEntries: 30,
+                maxAgeSeconds: 60 * 60 * 24 * 7,
+              },
+            },
+          },
           // 0. Yerel OCR modelleri ve WASM çalışma zamanı (büyük, değişmeyen dosyalar):
           //    ilk indirmeden sonra her çeviride ağa gitmeden önbellekten yüklenir.
           {

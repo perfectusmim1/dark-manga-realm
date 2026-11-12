@@ -167,7 +167,7 @@ const Announcements: React.FC = () => {
                             return (
                                 <article
                                     key={announcement.id}
-                                    className={`rounded-2xl border p-6 transition-colors animate-fade-up opacity-0 ${isRead ? 'border-border bg-card/40' : 'border-amber-500/20 bg-amber-500/5'}`}
+                                    className={`rounded-2xl border p-6 transition-colors animate-fade-up ${isRead ? 'border-border bg-card/40' : 'border-amber-500/20 bg-amber-500/5'}`}
                                     style={{ animationDelay: `${0.05 + index * 0.03}s`, animationFillMode: 'forwards' }}
                                     onMouseEnter={() => void handleMarkAsRead(announcement.id)}
                                 >

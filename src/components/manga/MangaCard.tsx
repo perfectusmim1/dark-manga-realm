@@ -174,7 +174,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
   const cardContent = (
     <div
-      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background [transform:translateZ(0)] ${disableHeavyEffects ? '' : 'transition-all duration-300 hover-lift'} ${disableHeavyEffects || !enableEntryAnimation ? '' : `${entryAnimationClassName} opacity-0`}`}
+      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background [transform:translateZ(0)] ${disableHeavyEffects ? '' : 'transition-all duration-300 hover-lift'} ${disableHeavyEffects || !enableEntryAnimation ? '' : entryAnimationClassName}`}
       style={disableHeavyEffects || !enableEntryAnimation ? undefined : {
         animationDelay: `${index * entryAnimationDelayStepMs}ms`,
         animationDuration: `${entryAnimationDurationMs}ms`,

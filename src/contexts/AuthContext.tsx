@@ -905,11 +905,29 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
         // Tab wakeup in Supabase Auth emits SIGNED_IN after _recoverAndRefresh().
         // If the same user is already synced, silently update the session ref without
         // invalidating caches or re-rendering the entire AuthContext tree.
+        const persistAuthScopeKey = (scopeValue: string) => {
+          if (typeof window === 'undefined') return;
+          try {
+            window.sessionStorage.setItem('toonparrot_auth_user_id_v1', scopeValue);
+          } catch {
+            // ignore storage errors
+          }
+        };
+        const readAuthScopeKey = (): string | null => {
+          if (typeof window === 'undefined') return null;
+          try {
+            return window.sessionStorage.getItem('toonparrot_auth_user_id_v1');
+          } catch {
+            return null;
+          }
+        };
+
         if (
           event === 'SIGNED_IN'
           && currentSession?.user?.id
           && lastSyncedUserId === currentSession.user.id
         ) {
+          persistAuthScopeKey(currentSession.user.id);
           setSession(prev => prev?.user?.id === currentSession.user?.id ? prev : currentSession);
           return;
         }
@@ -921,11 +939,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           || event === 'INITIAL_SESSION'
           || event === 'MFA_CHALLENGE_VERIFIED'
         ) {
-          if (event === 'SIGNED_OUT' || event === 'USER_UPDATED' || (event === 'SIGNED_IN' && lastSyncedUserId !== currentSession?.user?.id)) {
+          const nextUserId = currentSession?.user?.id ?? null;
+          const persistedScope = readAuthScopeKey();
+          const previousKnownUserId = lastSyncedUserId ?? (persistedScope && persistedScope !== '__anon__' ? persistedScope : null);
+          const transitionedFromAnon = persistedScope === '__anon__' && Boolean(nextUserId);
+          const switchedSignedInUser = Boolean(previousKnownUserId && nextUserId && previousKnownUserId !== nextUserId);
+
+          if (event === 'INITIAL_SESSION') {
+            persistAuthScopeKey(nextUserId ?? '__anon__');
+          } else if (event === 'SIGNED_OUT') {
+            persistAuthScopeKey('__anon__');
             clearAccessCheckCache();
             void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
               invalidateMangaVisibilityCaches();
             }).catch(() => undefined);
+          } else if (event === 'USER_UPDATED' || (event === 'SIGNED_IN' && (transitionedFromAnon || switchedSignedInUser))) {
+            if (nextUserId) {
+              persistAuthScopeKey(nextUserId);
+            }
+            clearAccessCheckCache();
+            void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
+              invalidateMangaVisibilityCaches();
+            }).catch(() => undefined);
+          } else if (nextUserId) {
+            persistAuthScopeKey(nextUserId);
           }
           void enqueueAuthStateSync(currentSession);
         }

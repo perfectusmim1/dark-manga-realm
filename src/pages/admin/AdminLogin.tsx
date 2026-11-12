@@ -18,10 +18,10 @@ const AdminLogin: React.FC = () => {
     const [loading, setLoading] = useState(false);
 
     React.useEffect(() => {
-        if (!accessLoading && user && access.canAccessAdminPanel) {
+        if (!accessLoading && user && access?.canAccessAdminPanel) {
             navigate('/admin');
         }
-    }, [access.canAccessAdminPanel, accessLoading, user, navigate, loginWithGoogle]);
+    }, [access?.canAccessAdminPanel, accessLoading, user, navigate, loginWithGoogle]);
 
     const handleGoogleLogin = async () => {
         setLoading(true);

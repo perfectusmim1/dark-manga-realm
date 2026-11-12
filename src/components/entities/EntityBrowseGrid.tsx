@@ -126,7 +126,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
                 <Link
                   key={item.id}
                   to={buildHref(item)}
-                  className="group relative flex flex-col items-center pt-2 text-center animate-fade-up opacity-0"
+                  className="group relative flex flex-col items-center pt-2 text-center animate-fade-up"
                   style={{
                     animationDelay: `${0.06 + Math.min(index, PAGE_SIZE - 1) * 0.025}s`,
                     animationFillMode: 'forwards',

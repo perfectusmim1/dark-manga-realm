@@ -1954,6 +1954,78 @@ export const getMangaSummaries = async (
     }
 };
 
+export const getRandomMangaCandidates = async (limit: number = 36): Promise<Manga[]> => {
+    const safeLimit = Math.max(12, Math.min(limit, 60));
+    const {
+        includeAdult,
+        visibilityColumnAvailable,
+        adultColumnAvailable,
+        summarySelectColumns,
+    } = await resolveMangaVisibilityAccess(false);
+    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult);
+
+    const cachedSummaries = mangaSummariesCache[audienceCacheKey];
+    if (cachedSummaries && cachedSummaries.value.length > 0) {
+        return cachedSummaries.value;
+    }
+
+    const cachedAllMangas = allMangasCache[audienceCacheKey];
+    if (cachedAllMangas && cachedAllMangas.value.length > 0) {
+        return cachedAllMangas.value;
+    }
+
+    const persisted = await readPersistedQueryCache<Manga[]>(getPersistedMangaSummariesKey(audienceCacheKey));
+    if (persisted && Array.isArray(persisted.value) && persisted.value.length > 0) {
+        mangaSummariesCache[audienceCacheKey] = {
+            fetchedAt: persisted.fetchedAt,
+            value: persisted.value,
+        };
+        return persisted.value;
+    }
+
+    try {
+        const randomOffset = Math.floor(Math.random() * 240);
+        let response = await supabase.rpc('get_manga_catalog_rows', {
+            p_offset: randomOffset,
+            p_limit: safeLimit,
+            p_include_adult: includeAdult,
+        });
+
+        if (!response.error && Array.isArray(response.data) && response.data.length < 8 && randomOffset > 0) {
+            response = await supabase.rpc('get_manga_catalog_rows', {
+                p_offset: 0,
+                p_limit: safeLimit,
+                p_include_adult: includeAdult,
+            });
+        }
+
+        if (!response.error && Array.isArray(response.data) && response.data.length > 0) {
+            return deduplicateMangasById(response.data.map((row: any) => mapSummaryRowToManga(row)));
+        }
+    } catch {
+        // Fallback to direct range query below
+    }
+
+    const { data, error } = await applyPublicMangaFilter(
+        supabase
+            .from('mangas')
+            .select(summarySelectColumns)
+            .range(0, safeLimit - 1),
+        {
+            includePrivate: false,
+            includeAdult,
+            visibilityColumnAvailable,
+            adultColumnAvailable,
+        },
+    );
+
+    if (error || !Array.isArray(data)) {
+        return [];
+    }
+
+    return deduplicateMangasById(data.map((row: any) => mapSummaryRowToManga(row)));
+};
+
 export const getMangaSummariesByIds = async (
     mangaIds: string[],
     options?: { includePrivate?: boolean }

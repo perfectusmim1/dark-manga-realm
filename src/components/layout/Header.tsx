@@ -84,6 +84,7 @@ const AnnouncementDropdown = lazy(() => import('@/components/notifications/Annou
 
 type SearchDataModule = {
   getMangaSummaries: () => Promise<Manga[]>;
+  getRandomMangaCandidates: (limit?: number) => Promise<Manga[]>;
   getCharacters: () => Promise<Character[]>;
   getAuthors: () => Promise<Author[]>;
   getArtists: () => Promise<Artist[]>;
@@ -95,6 +96,7 @@ const loadSearchDataModule = () => {
   if (!searchDataModulePromise) {
     searchDataModulePromise = import('@/lib/database').then((module) => ({
       getMangaSummaries: module.getMangaSummaries,
+      getRandomMangaCandidates: module.getRandomMangaCandidates,
       getCharacters: module.getCharacters,
       getAuthors: module.getAuthors,
       getArtists: module.getArtists,
@@ -154,7 +156,7 @@ interface HeaderProps {
   persistent?: boolean;
 }
 
-const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
+const HeaderContent: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState('');
   const [quickResults, setQuickResults] = useState<Manga[]>([]);
@@ -170,8 +172,6 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   const headerShellSnapshot = useHeaderShellSnapshot();
   const navigate = useNavigate();
   const location = useLocation();
-  const globalHeaderEnabled = React.useContext(GlobalHeaderEnabledContext);
-  const shouldHideEmbeddedHeader = !persistent && globalHeaderEnabled && shouldRenderHeaderBootstrap(location.pathname);
   const shellUser = authLoading && !user ? headerShellSnapshot?.user ?? null : null;
   const displayUser = user ?? shellUser;
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
@@ -180,7 +180,7 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
     && user?.preferences?.content?.adult_mode === true
     && manga.isAdult === true
   );
-  const isAdmin = Boolean(displayUser && access.canAccessAdminPanel);
+  const isAdmin = Boolean(displayUser && access?.canAccessAdminPanel);
   const showHeaderOfflineToggle = appearancePreferences.show_header_offline_toggle;
   const canUseCachedHeaderCounts = Boolean(displayUser && headerShellSnapshot?.user?.id === displayUser.id);
   const cachedAnnouncementCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadAnnouncementCount || 0 : 0;
@@ -207,6 +207,7 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
   const characterSearchLoadPromiseRef = useRef<Promise<Character[]> | null>(null);
   const authorSearchLoadPromiseRef = useRef<Promise<Author[]> | null>(null);
   const artistSearchLoadPromiseRef = useRef<Promise<Artist[]> | null>(null);
+  const randomLoadInFlightRef = useRef(false);
   const deferredSearchQuery = useDeferredValue(searchQuery);
 
   const ensureMangasLoaded = async () => {
@@ -636,13 +637,13 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
 
   const handleRandomManga = async () => {
     try {
-      if (isRandomRolling) {
+      if (isRandomRolling || randomLoadInFlightRef.current) {
         return;
       }
 
-      const mangas = isOnline
-        ? (allMangas.length > 0 ? allMangas : await ensureMangasLoaded())
-        : snapshot.series.map(({ manga }) => ({
+      let mangas: Manga[] = [];
+      if (!isOnline) {
+        mangas = snapshot.series.map(({ manga }) => ({
           id: manga.mangaId,
           title: manga.title,
           cover: manga.cover,
@@ -659,6 +660,17 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
           lastUpdated: manga.lastUpdated,
           createdAt: manga.createdAt,
         } as Manga));
+      } else if (allMangas.length > 0) {
+        mangas = allMangas;
+      } else {
+        randomLoadInFlightRef.current = true;
+        try {
+          const module = await loadSearchDataModule();
+          mangas = await module.getRandomMangaCandidates(36);
+        } finally {
+          randomLoadInFlightRef.current = false;
+        }
+      }
 
       if (mangas && mangas.length > 0) {
         const queue = buildRandomQueue(mangas);
@@ -733,10 +745,6 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
       </TooltipContent>
     </Tooltip>
   );
-
-  if (shouldHideEmbeddedHeader) {
-    return null;
-  }
 
   return (
     <TooltipProvider>
@@ -1372,6 +1380,16 @@ const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
     </header>
     </TooltipProvider>
   );
+};
+
+const Header: React.FC<HeaderProps> = ({ persistent = false }) => {
+  const location = useLocation();
+  const globalHeaderEnabled = React.useContext(GlobalHeaderEnabledContext);
+  if (!persistent && globalHeaderEnabled && shouldRenderHeaderBootstrap(location.pathname)) {
+    return null;
+  }
+
+  return <HeaderContent />;
 };
 
 export default Header;

@@ -18,6 +18,7 @@ import Header from "./components/layout/Header";
 import { GlobalHeaderEnabledContext } from "./components/layout/Header";
 import { shouldRenderHeaderBootstrap } from "./components/layout/HeaderBootstrapShell";
 import NativeAppChrome from "./components/layout/NativeAppChrome";
+import AppErrorBoundary from "./components/common/AppErrorBoundary";
 import { initializeOfflineUserSync } from "@/lib/offline/userSync";
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -369,26 +370,28 @@ const persistOptions = {
 };
 
 const App = () => (
-  <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
-    <AuthProvider>
-      <TooltipProvider>
-        <SecurityWrapper>
-          <AppInitializer>
-            <Toaster />
-            <Sonner />
-            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-              <GlobalHeaderEnabledContext.Provider value>
-                <AccessGate>
-                  <MfaGate>
-                    <UserWarningGate />
-                    <OfflineStartupRedirect />
-                    <ScrollToTop />
-                    <PersistentHeader />
-                    <Suspense fallback={null}>
-                      <LazyAdBlockWarning />
-                    </Suspense>
-                    <Suspense fallback={<RouteFallback />}>
-                      <Routes>
+  <AppErrorBoundary>
+    <PersistQueryClientProvider client={queryClient} persistOptions={persistOptions}>
+      <AuthProvider>
+        <TooltipProvider>
+          <SecurityWrapper>
+            <AppInitializer>
+              <Toaster />
+              <Sonner />
+              <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+                <GlobalHeaderEnabledContext.Provider value>
+                  <AccessGate>
+                    <MfaGate>
+                      <UserWarningGate />
+                      <OfflineStartupRedirect />
+                      <ScrollToTop />
+                      <PersistentHeader />
+                      <Suspense fallback={null}>
+                        <LazyAdBlockWarning />
+                      </Suspense>
+                      <Suspense fallback={<RouteFallback />}>
+                        <AppErrorBoundary>
+                          <Routes>
                     {/* Public Routes */}
                     <Route path="/" element={<Index />} />
                     <Route path="/top-ten" element={<TopTen />} />
@@ -450,21 +453,23 @@ const App = () => (
                     </Route>
 
                     <Route path="*" element={<NotFound />} />
-                      </Routes>
-                    </Suspense>
-                    <NativeAppChrome />
-                    <Suspense fallback={null}>
-                      <LazyDownloadDock />
-                    </Suspense>
-                  </MfaGate>
-                </AccessGate>
-              </GlobalHeaderEnabledContext.Provider>
-            </BrowserRouter>
-          </AppInitializer>
-        </SecurityWrapper>
-      </TooltipProvider>
-    </AuthProvider>
-  </PersistQueryClientProvider>
+                          </Routes>
+                        </AppErrorBoundary>
+                      </Suspense>
+                      <NativeAppChrome />
+                      <Suspense fallback={null}>
+                        <LazyDownloadDock />
+                      </Suspense>
+                    </MfaGate>
+                  </AccessGate>
+                </GlobalHeaderEnabledContext.Provider>
+              </BrowserRouter>
+            </AppInitializer>
+          </SecurityWrapper>
+        </TooltipProvider>
+      </AuthProvider>
+    </PersistQueryClientProvider>
+  </AppErrorBoundary>
 );
 
 export default App;

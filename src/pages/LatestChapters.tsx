@@ -14,10 +14,19 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { getLanguageInfoByCode, getSeriesLanguageInfo } from '@/lib/seriesLanguage';
+import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 30;
+const LATEST_CHAPTERS_PAGE_CACHE_TTL_MS = 60_000;
+const latestChaptersPageCache = new Map<string, { fetchedAt: number; chapters: LatestChapterFeedItem[] }>();
+let latestChaptersStatsCache: {
+    audienceKey: string;
+    fetchedAt: number;
+    recentChapterCount: number;
+    totalChaptersCount: number;
+} | null = null;
 
 const LatestChaptersSkeleton: React.FC = () => (
     <div className="min-h-screen bg-background">
@@ -73,18 +82,144 @@ const LatestChaptersSkeleton: React.FC = () => (
 
 const LatestChapters: React.FC = () => {
     const { isOnline } = useEffectiveOnlineStatus();
+    const { user } = useAuth();
     const [searchParams, setSearchParams] = useSearchParams();
     const pageParam = parseInt(searchParams.get('page') || '1', 10);
     const currentPage = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
+    const isStaff = user?.role === 'admin' || user?.role === 'moderator';
+    const audienceKey = isStaff || user?.preferences?.content?.adult_mode === true ? 'adult' : 'safe';
+    const initialCacheKey = `${audienceKey}:${currentPage}`;
+    const initialCached = latestChaptersPageCache.get(initialCacheKey);
+    const hasFreshInitialCache = Boolean(
+        initialCached && Date.now() - initialCached.fetchedAt < LATEST_CHAPTERS_PAGE_CACHE_TTL_MS,
+    );
 
-    const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>([]);
+    const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>(
+        hasFreshInitialCache && initialCached ? initialCached.chapters : [],
+    );
     const [mangaLangMap, setMangaLangMap] = React.useState<Record<string, ReturnType<typeof getSeriesLanguageInfo>>>({});
-    const [isLoading, setIsLoading] = React.useState(true);
-    const [recentChapterCount, setRecentChapterCount] = React.useState(0);
-    const [totalChaptersCount, setTotalChaptersCount] = React.useState(0);
-    const countsLoadedRef = React.useRef(false);
+    const [isLoading, setIsLoading] = React.useState(!hasFreshInitialCache);
+    const [recentChapterCount, setRecentChapterCount] = React.useState(
+        latestChaptersStatsCache && latestChaptersStatsCache.audienceKey === audienceKey
+            ? latestChaptersStatsCache.recentChapterCount
+            : 0,
+    );
+    const [totalChaptersCount, setTotalChaptersCount] = React.useState(
+        latestChaptersStatsCache && latestChaptersStatsCache.audienceKey === audienceKey
+            ? latestChaptersStatsCache.totalChaptersCount
+            : 0,
+    );
+    const countsLoadedRef = React.useRef(
+        Boolean(
+            latestChaptersStatsCache
+            && latestChaptersStatsCache.audienceKey === audienceKey
+            && Date.now() - latestChaptersStatsCache.fetchedAt < LATEST_CHAPTERS_PAGE_CACHE_TTL_MS,
+        ),
+    );
+    const requestGenerationRef = React.useRef(0);
 
     const totalPages = Math.max(1, Math.ceil(totalChaptersCount / PAGE_SIZE));
+
+    const resolveChapterLanguages = React.useCallback((data: LatestChapterFeedItem[]) => {
+        const preResolvedLangMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
+        const missingLangMangaIds: string[] = [];
+        for (const item of data) {
+            if (item.langCode) {
+                preResolvedLangMap[item.mangaId] = getLanguageInfoByCode(item.langCode);
+            } else {
+                missingLangMangaIds.push(item.mangaId);
+            }
+        }
+        if (Object.keys(preResolvedLangMap).length > 0) {
+            setMangaLangMap((prev) => ({ ...prev, ...preResolvedLangMap }));
+        }
+
+        const uniqueMissingIds = Array.from(new Set(missingLangMangaIds));
+        if (uniqueMissingIds.length > 0) {
+            void Promise.resolve(
+                supabase
+                    .from('mangas')
+                    .select('id, title, genres, details, source_links')
+                    .in('id', uniqueMissingIds),
+            )
+                .then(({ data: mangasData }) => {
+                    if (mangasData) {
+                        const langMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
+                        for (const m of mangasData) {
+                            langMap[m.id] = getSeriesLanguageInfo(m as any);
+                        }
+                        setMangaLangMap((prev) => ({ ...prev, ...langMap }));
+                    }
+                })
+                .catch(() => undefined);
+        }
+    }, []);
+
+    const loadChapters = React.useCallback(async (page: number) => {
+        if (!isOnline) {
+            setIsLoading(false);
+            return;
+        }
+
+        if (!countsLoadedRef.current) {
+            void getLatestChaptersFeedStats()
+                .then((stats) => {
+                    setRecentChapterCount(stats.recentChapterCount);
+                    setTotalChaptersCount(stats.totalChaptersCount);
+                    countsLoadedRef.current = true;
+                    latestChaptersStatsCache = {
+                        audienceKey,
+                        fetchedAt: Date.now(),
+                        recentChapterCount: stats.recentChapterCount,
+                        totalChaptersCount: stats.totalChaptersCount,
+                    };
+                })
+                .catch(() => {});
+        }
+
+        const cacheKey = `${audienceKey}:${page}`;
+        const cached = latestChaptersPageCache.get(cacheKey);
+        if (cached && Date.now() - cached.fetchedAt < LATEST_CHAPTERS_PAGE_CACHE_TTL_MS) {
+            setChapters(cached.chapters);
+            setIsLoading(false);
+            resolveChapterLanguages(cached.chapters);
+            return;
+        }
+
+        const requestGeneration = ++requestGenerationRef.current;
+        setIsLoading(true);
+        try {
+            const offset = (page - 1) * PAGE_SIZE;
+
+            const data = await getLatestChapters(PAGE_SIZE, offset);
+            if (requestGeneration !== requestGenerationRef.current) {
+                return;
+            }
+
+            latestChaptersPageCache.set(cacheKey, {
+                fetchedAt: Date.now(),
+                chapters: data,
+            });
+            setChapters(data);
+            resolveChapterLanguages(data);
+        } catch (error) {
+            if (requestGeneration === requestGenerationRef.current) {
+                console.error('Latest chapters page error:', error);
+            }
+        } finally {
+            if (requestGeneration === requestGenerationRef.current) {
+                setIsLoading(false);
+            }
+        }
+    }, [audienceKey, isOnline, resolveChapterLanguages]);
+
+    React.useEffect(() => {
+        void loadChapters(currentPage);
+    }, [currentPage, loadChapters]);
+
+    const handlePageChange = (newPage: number) => {
+        setSearchParams(newPage > 1 ? { page: String(newPage) } : {});
+    };
 
     if (!isOnline) {
         return (
@@ -96,75 +231,6 @@ const LatestChapters: React.FC = () => {
         );
     }
 
-    const loadChapters = React.useCallback(async (page: number) => {
-        if (page > 1) {
-            setIsLoading(true);
-        }
-        try {
-            const offset = (page - 1) * PAGE_SIZE;
-
-            if (!countsLoadedRef.current) {
-                void getLatestChaptersFeedStats()
-                    .then((stats) => {
-                        if (!countsLoadedRef.current) {
-                            setRecentChapterCount(stats.recentChapterCount);
-                            setTotalChaptersCount(stats.totalChaptersCount);
-                            countsLoadedRef.current = true;
-                        }
-                    })
-                    .catch(() => {});
-            }
-
-            const data = await getLatestChapters(PAGE_SIZE, offset);
-            setChapters(data);
-
-            const preResolvedLangMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
-            const missingLangMangaIds: string[] = [];
-            for (const item of data) {
-                if (item.langCode) {
-                    preResolvedLangMap[item.mangaId] = getLanguageInfoByCode(item.langCode);
-                } else {
-                    missingLangMangaIds.push(item.mangaId);
-                }
-            }
-            if (Object.keys(preResolvedLangMap).length > 0) {
-                setMangaLangMap((prev) => ({ ...prev, ...preResolvedLangMap }));
-            }
-
-            const uniqueMissingIds = Array.from(new Set(missingLangMangaIds));
-            if (uniqueMissingIds.length > 0) {
-                void Promise.resolve(
-                    supabase
-                        .from('mangas')
-                        .select('id, title, genres, details, source_links')
-                        .in('id', uniqueMissingIds),
-                )
-                    .then(({ data: mangasData }) => {
-                        if (mangasData) {
-                            const langMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
-                            for (const m of mangasData) {
-                                langMap[m.id] = getSeriesLanguageInfo(m as any);
-                            }
-                            setMangaLangMap((prev) => ({ ...prev, ...langMap }));
-                        }
-                    })
-                    .catch(() => undefined);
-            }
-        } catch (error) {
-            console.error('Latest chapters page error:', error);
-        } finally {
-            setIsLoading(false);
-        }
-    }, []);
-
-    React.useEffect(() => {
-        loadChapters(currentPage);
-    }, [currentPage, loadChapters]);
-
-    const handlePageChange = (newPage: number) => {
-        setSearchParams(newPage > 1 ? { page: String(newPage) } : {});
-    };
-
     if (isLoading && chapters.length === 0) {
         return <LatestChaptersSkeleton />;
     }
@@ -174,7 +240,7 @@ const LatestChapters: React.FC = () => {
             <Header />
 
             <main className="container pb-12 pt-20">
-                <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+                <div className="mb-8 animate-fade-up">
                     <div className="flex items-center gap-3">
                         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
                             <Clock className="h-6 w-6" />
@@ -192,16 +258,12 @@ const LatestChapters: React.FC = () => {
                 </div>
 
                 {chapters.length > 0 ? (
-                    <div className="grid gap-4 xl:grid-cols-3">
-                        {chapters.map((chapter, index) => (
+                    <div className={cn('grid gap-4 xl:grid-cols-3 transition-opacity duration-150', isLoading && 'opacity-65 pointer-events-none')}>
+                        {chapters.map((chapter) => (
                             <Link
                                 key={chapter.chapterId}
                                 to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
-                                className="group flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 opacity-0 transition-all duration-200 hover:border-primary/40 hover:bg-card animate-card-reveal-fast sm:gap-5"
-                                style={{
-                                    animationDelay: `${index * 12}ms`,
-                                    animationFillMode: 'forwards',
-                                }}
+                                className="group flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 transition-all duration-200 hover:border-primary/40 hover:bg-card animate-card-reveal-fast sm:gap-5"
                             >
                                 <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-secondary/40 shadow-sm sm:h-28 sm:w-28 lg:h-32 lg:w-32">
                                     <OptimizedImage

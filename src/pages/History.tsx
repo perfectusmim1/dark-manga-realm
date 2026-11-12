@@ -73,12 +73,9 @@ const matchesHistorySearch = (
 
 const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: number }) => (
   <article
-    className="group relative animate-fade-up overflow-hidden rounded-[28px] border border-border/70 bg-card/60 opacity-0 shadow-[0_20px_50px_rgba(0,0,0,0.18)] transition-all duration-300 hover:border-primary/35 hover:bg-card"
+    className="group relative animate-fade-up overflow-hidden rounded-[28px] border border-border/70 bg-card/60 shadow-[0_20px_50px_rgba(0,0,0,0.18)] transition-all duration-300 hover:border-primary/35 hover:bg-card"
     style={{
-      animationDelay: `${0.08 + Math.min(index, 9) * 0.03}s`,
-      animationFillMode: 'forwards',
-      contentVisibility: 'auto',
-      containIntrinsicSize: '720px 180px',
+      animationDelay: `${0.04 + Math.min(index, 6) * 0.02}s`,
     }}
   >
     <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_45%)] opacity-0 transition-opacity duration-300 group-hover:opacity-100" />
@@ -156,12 +153,9 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
 const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index: number }) => (
   <Link
     to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}
-    className="group animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 opacity-0 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:bg-card"
+    className="group animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:bg-card"
     style={{
-      animationDelay: `${0.08 + Math.min(index, 11) * 0.02}s`,
-      animationFillMode: 'forwards',
-      contentVisibility: 'auto',
-      containIntrinsicSize: '220px 300px',
+      animationDelay: `${0.04 + Math.min(index, 8) * 0.015}s`,
     }}
   >
     <div className="relative aspect-square overflow-hidden">
@@ -312,8 +306,7 @@ const History: React.FC = () => {
 
       <main className="container pb-12 pt-20">
         <div
-          className="mb-8 animate-fade-up opacity-0"
-          style={{ animationDelay: '0.08s', animationFillMode: 'forwards' }}
+          className="mb-8 animate-fade-up"
         >
           <div className="rounded-[32px] border border-border/60 bg-card/40 p-6 shadow-[0_30px_60px_rgba(0,0,0,0.16)] backdrop-blur-sm sm:p-8">
             <div className="flex flex-col gap-6 lg:flex-row lg:items-end lg:justify-between">

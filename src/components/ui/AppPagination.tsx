@@ -36,7 +36,7 @@ export const AppPagination: React.FC<AppPaginationProps> = ({
     }
     onPageChange(page);
     if (scrollToTop && typeof window !== 'undefined') {
-      window.scrollTo({ top: 0, behavior: 'smooth' });
+      window.scrollTo({ top: 0, behavior: 'auto' });
     }
   };
 

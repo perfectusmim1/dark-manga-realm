@@ -285,7 +285,7 @@ const ReadingTimeMangaDetail: React.FC = () => {
                             {groupedDays.map((day, index) => (
                                 <div
                                     key={day.date}
-                                    className="animate-fade-up rounded-3xl border border-border bg-card/35 p-4 opacity-0 sm:p-5"
+                                    className="animate-fade-up rounded-3xl border border-border bg-card/35 p-4 sm:p-5"
                                     style={{ animationDelay: `${0.06 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
                                 >
                                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">

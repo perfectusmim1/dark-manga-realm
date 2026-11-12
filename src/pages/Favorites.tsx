@@ -258,7 +258,7 @@ const Favorites: React.FC = () => {
       <Header />
 
       <main className="container pb-12 pt-20">
-        <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+        <div className="mb-8 animate-fade-up" style={{ animationDelay: '0.04s' }}>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Favorilerim</h1>
           <p className="mt-2 text-muted-foreground">
             {favoriteManga.length} manga
@@ -345,7 +345,7 @@ const Favorites: React.FC = () => {
                   renderItem={(list, index) => (
                     <Link
                       to={`/reading-lists/${list.id}`}
-                      className="group animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 opacity-0 transition-all hover:border-primary/40 hover:bg-card"
+                      className="group animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 transition-all hover:border-primary/40 hover:bg-card"
                       style={{
                         animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                         animationFillMode: 'forwards',

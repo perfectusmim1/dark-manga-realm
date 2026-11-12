@@ -417,15 +417,12 @@ const TopTenAudienceBlock: React.FC<{
 
   return (
     <section
-      className={`min-w-0 ${disableHeavyEffects ? '' : 'animate-fade-up opacity-0'}`}
+      className={`min-w-0 ${disableHeavyEffects ? '' : 'animate-fade-up'}`}
       style={
         disableHeavyEffects
-          ? { contentVisibility: 'auto', containIntrinsicSize: '920px 1000px' }
+          ? undefined
           : {
-              animationDelay: audience === 'safe' ? '0.12s' : '0.18s',
-              animationFillMode: 'forwards',
-              contentVisibility: 'auto',
-              containIntrinsicSize: '920px 1000px',
+              animationDelay: audience === 'safe' ? '0.02s' : '0.05s',
             }
       }
     >

@@ -19,23 +19,7 @@ if (typeof window !== "undefined") {
     }
   });
 
-  window.addEventListener("unhandledrejection", (event) => {
-    const msg = String(event.reason?.message || event.reason || "");
-    const stack = String(event.reason?.stack || "");
-    if (
-      msg.includes("M_ID") ||
-      stack.includes("200.js") ||
-      stack.includes("chrome-extension://")
-    ) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }
-  });
-
-  // Yeni deploy sonrası eski lazy chunk'lar 404 verirse (PWA cache'li kullanıcılarda
-  // sayfa/bölüm açılamaması olarak görünür) bir kez sayfayı yenile.
-  window.addEventListener("vite:preloadError", (event) => {
-    event.preventDefault();
+  const triggerChunkRecoveryReload = () => {
     const recoveryKey = "toonparrot-preload-recovery-at";
     try {
       const lastRecoveryAt = Number(window.sessionStorage.getItem(recoveryKey) || 0);
@@ -46,7 +30,49 @@ if (typeof window !== "undefined") {
     } catch {
       // sessionStorage yoksa yine de devam et
     }
+
+    if ("serviceWorker" in navigator) {
+      void navigator.serviceWorker
+        .getRegistration()
+        .then((reg) => reg?.update().catch(() => undefined))
+        .catch(() => undefined)
+        .finally(() => {
+          window.location.reload();
+        });
+      return;
+    }
+
     window.location.reload();
+  };
+
+  window.addEventListener("unhandledrejection", (event) => {
+    const msg = String(event.reason?.message || event.reason || "");
+    const stack = String(event.reason?.stack || "");
+    if (
+      msg.includes("M_ID") ||
+      stack.includes("200.js") ||
+      stack.includes("chrome-extension://")
+    ) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      return;
+    }
+
+    if (
+      msg.includes("Failed to fetch dynamically imported module") ||
+      msg.includes("Importing a module script failed") ||
+      msg.includes("error loading dynamically imported module")
+    ) {
+      event.preventDefault();
+      triggerChunkRecoveryReload();
+    }
+  });
+
+  // Yeni deploy sonrası eski lazy chunk'lar 404 verirse (PWA cache'li kullanıcılarda
+  // sayfa/bölüm açılamaması olarak görünür) bir kez sayfayı yenile.
+  window.addEventListener("vite:preloadError", (event) => {
+    event.preventDefault();
+    triggerChunkRecoveryReload();
   });
 }
 
@@ -62,11 +88,11 @@ const registerServiceWorkerWhenIdle = () => {
   };
 
   if ("requestIdleCallback" in globalThis) {
-    globalThis.requestIdleCallback(run, { timeout: 2000 });
+    globalThis.requestIdleCallback(run, { timeout: 400 });
     return;
   }
 
-  globalThis.setTimeout(run, 1200);
+  globalThis.setTimeout(run, 300);
 };
 
 if (typeof window !== "undefined" && !isNativeApp()) {

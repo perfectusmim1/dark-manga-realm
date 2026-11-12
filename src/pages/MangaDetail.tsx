@@ -3143,7 +3143,7 @@ const MangaDetail: React.FC = () => {
           <div className="container relative z-10 py-6 sm:py-8">
             <div className="flex flex-col gap-6 md:flex-row md:gap-8">
               {/* Cover */}
-              <div className="mx-auto w-full max-w-[220px] shrink-0 animate-fade-up opacity-0 md:mx-0 md:w-64 md:max-w-none" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+              <div className="mx-auto w-full max-w-[220px] shrink-0 animate-fade-up md:mx-0 md:w-64 md:max-w-none">
                 <OptimizedImage
                   src={manga.cover}
                   alt={manga.title}
@@ -3158,7 +3158,7 @@ const MangaDetail: React.FC = () => {
               </div>
 
               {/* Info */}
-              <div className="min-w-0 flex flex-1 flex-col gap-4 animate-fade-up opacity-0" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
+              <div className="min-w-0 flex flex-1 flex-col gap-4 animate-fade-up">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant="default"
@@ -4091,7 +4091,7 @@ const MangaDetail: React.FC = () => {
                         <Link
                           key={`${bookmark.chapterId}-${bookmark.page}-${bookmark.createdAt || index}`}
                           to={`/manga/${manga.id}/chapter/${bookmark.chapterId}?page=${bookmark.page}${bookmark.pageOffsetRatio && bookmark.pageOffsetRatio > 0.005 ? `&offset=${bookmark.pageOffsetRatio.toFixed(3)}` : ''}`}
-                          className="group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6 animate-fade-up opacity-0 [transform:translateZ(0)]"
+                          className="group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6 animate-fade-up [transform:translateZ(0)]"
                           style={{ animationDelay: `${0.08 + index * 0.04}s`, animationFillMode: 'forwards' }}
                         >
                           <BookmarkPagePreview

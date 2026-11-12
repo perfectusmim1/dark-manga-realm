@@ -137,7 +137,7 @@ const TierLists: React.FC = () => {
                         {lists.map((list, index) => (
                             <div
                                 key={list.id}
-                                className="group animate-fade-up relative overflow-hidden rounded-xl border border-border bg-card p-6 opacity-0 transition-all hover:border-primary/50"
+                                className="group animate-fade-up relative overflow-hidden rounded-xl border border-border bg-card p-6 transition-all hover:border-primary/50"
                                 style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
                             >
                                 <div className="absolute top-4 right-4 flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">

@@ -22,7 +22,7 @@ const SecurityWrapper: React.FC<{ children: React.ReactNode }> = ({ children }) 
     const { access, isLoading: adminAccessLoading } = useAdminAccess({
         enabled: shouldValidateAdminBypass,
     });
-    const isAdmin = user?.role === 'admin' || access.role === 'admin';
+    const isAdmin = user?.role === 'admin' || access?.role === 'admin';
     const shouldEnforce = settings.devtoolsProtectionEnabled
         && (!user || (!adminAccessLoading && !isAdmin));
 

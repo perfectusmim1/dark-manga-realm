@@ -240,7 +240,7 @@ const Downloads: React.FC = () => {
           ].map((item, index) => (
             <div
               key={item.label}
-              className="animate-fade-up aspect-[1/1] min-h-[8.25rem] rounded-2xl border border-border bg-card/40 p-4 opacity-0 backdrop-blur-sm sm:aspect-auto sm:min-h-0 sm:p-5"
+              className="animate-fade-up aspect-[1/1] min-h-[8.25rem] rounded-2xl border border-border bg-card/40 p-4 backdrop-blur-sm sm:aspect-auto sm:min-h-0 sm:p-5"
               style={{ animationDelay: `${0.08 + index * 0.03}s`, animationFillMode: 'forwards' }}
             >
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-xs">{item.label}</p>
@@ -254,7 +254,7 @@ const Downloads: React.FC = () => {
         </p>
 
         <section
-          className="mt-6 animate-fade-up rounded-2xl border border-border bg-card/35 p-4 opacity-0 backdrop-blur-sm sm:p-5"
+          className="mt-6 animate-fade-up rounded-2xl border border-border bg-card/35 p-4 backdrop-blur-sm sm:p-5"
           style={{ animationDelay: '0.22s', animationFillMode: 'forwards' }}
         >
           <div className="flex flex-col gap-3 sm:gap-4 md:flex-row md:items-center md:justify-between">
@@ -303,7 +303,7 @@ const Downloads: React.FC = () => {
           </section>
         )}
 
-        <div className="mt-8 animate-fade-up flex flex-wrap gap-2 opacity-0" style={{ animationDelay: '0.28s', animationFillMode: 'forwards' }}>
+        <div className="mt-8 animate-fade-up flex flex-wrap gap-2">
           {FILTERS.map((filter) => (
             <Button
               key={filter}
@@ -345,7 +345,7 @@ const Downloads: React.FC = () => {
               return (
                 <section
                   key={entry.manga.mangaId}
-                  className="animate-fade-up overflow-hidden rounded-3xl border border-border bg-card/35 opacity-0 backdrop-blur-sm"
+                  className="animate-fade-up overflow-hidden rounded-3xl border border-border bg-card/35 backdrop-blur-sm"
                   style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.035}s`, animationFillMode: 'forwards' }}
                 >
                   <div className="p-4 sm:p-6">

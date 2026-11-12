@@ -339,7 +339,7 @@ const ReadingListDetail: React.FC = () => {
             <main className="container pb-12 pt-20">
                 <Link
                     to="/reading-lists"
-                    className="mb-6 flex w-fit animate-fade-up items-center gap-2 text-sm text-muted-foreground opacity-0 transition-colors hover:text-foreground"
+                    className="mb-6 flex w-fit animate-fade-up items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
                     style={{ animationDelay: '40ms', animationFillMode: 'forwards' }}
                 >
                     <ChevronLeft className="h-4 w-4" />
@@ -355,7 +355,7 @@ const ReadingListDetail: React.FC = () => {
                 )}
 
                 <div
-                    className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 opacity-0 backdrop-blur-sm"
+                    className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 backdrop-blur-sm"
                     style={{ animationDelay: '90ms', animationFillMode: 'forwards' }}
                 >
                     <ReadingListCover
@@ -522,7 +522,7 @@ const ReadingListDetail: React.FC = () => {
                     </>
                 ) : (
                     <div
-                        className="flex animate-fade-up flex-col items-center justify-center py-20 text-center opacity-0"
+                        className="flex animate-fade-up flex-col items-center justify-center py-20 text-center"
                         style={{ animationDelay: '140ms', animationFillMode: 'forwards' }}
                     >
                         <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />

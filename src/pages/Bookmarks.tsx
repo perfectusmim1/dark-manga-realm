@@ -165,7 +165,7 @@ const Bookmarks: React.FC = () => {
       <Header />
 
       <main className="container pb-12 pt-20">
-        <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+        <div className="mb-8 animate-fade-up" style={{ animationDelay: '0.04s' }}>
           <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Yer İmleri</h1>
           <p className="mt-2 text-muted-foreground">
             {searchQuery.trim()
@@ -229,7 +229,7 @@ const Bookmarks: React.FC = () => {
 
                 return (
                   <div
-                    className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-all hover:shadow-xl animate-fade-up opacity-0"
+                    className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-all hover:shadow-xl animate-fade-up"
                     style={{
                       animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                       animationFillMode: 'forwards',

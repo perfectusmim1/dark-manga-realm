@@ -213,7 +213,7 @@ const ReadingLists: React.FC = () => {
                         minRowsBeforeVirtualize={4}
                         renderItem={(list, index) => (
                             <div
-                                className="group relative animate-fade-up overflow-hidden rounded-xl border border-border bg-card opacity-0 transition-all hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
+                                className="group relative animate-fade-up overflow-hidden rounded-xl border border-border bg-card transition-all hover:border-primary/50 hover:shadow-xl hover:shadow-primary/5"
                                 style={{
                                     animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                                     animationFillMode: 'forwards',

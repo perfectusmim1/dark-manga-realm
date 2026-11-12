@@ -237,7 +237,7 @@ const Library: React.FC = () => {
                                 {libraryItems.map(({ favorite, manga, progress }, index) => (
                                     <div
                                         key={favorite.mangaId}
-                                        className="animate-fade-up flex flex-col gap-4 rounded-xl border border-border bg-card p-4 opacity-0 transition-shadow hover:shadow-lg sm:flex-row sm:items-center"
+                                        className="animate-fade-up flex flex-col gap-4 rounded-xl border border-border bg-card p-4 transition-shadow hover:shadow-lg sm:flex-row sm:items-center"
                                         style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
                                     >
                                         <Link to={`/manga/${manga!.id}`} className="mx-auto sm:mx-0">

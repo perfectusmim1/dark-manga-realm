@@ -166,7 +166,7 @@ const Notifications: React.FC = () => {
 
             <main className="container pt-20 pb-12">
                 {/* Page Header */}
-                <div className="mb-8 animate-fade-up opacity-0" style={{ animationDelay: '0.1s', animationFillMode: 'forwards' }}>
+                <div className="mb-8 animate-fade-up">
                     <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
                         <div className="flex items-center gap-3">
                             <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-primary/10">
@@ -227,7 +227,7 @@ const Notifications: React.FC = () => {
                 </div>
 
                 {/* Notifications List */}
-                <div className="space-y-3 animate-fade-up opacity-0" style={{ animationDelay: '0.2s', animationFillMode: 'forwards' }}>
+                <div className="space-y-3 animate-fade-up">
                     {filteredNotifications.length === 0 ? (
                         <div className="flex flex-col items-center justify-center py-20 rounded-xl border border-border bg-card/50">
                             <Bell className="h-16 w-16 text-muted-foreground/20 mb-4" />
@@ -246,7 +246,7 @@ const Notifications: React.FC = () => {
                             <button
                                 key={notification.id}
                                 onClick={() => handleNotificationClick(notification)}
-                                className={`w-full text-left rounded-xl border transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 flex gap-4 p-4 group animate-fade-up opacity-0 ${!notification.read
+                                className={`w-full text-left rounded-xl border transition-all hover:border-primary/30 hover:shadow-lg hover:shadow-primary/5 flex gap-4 p-4 group animate-fade-up ${!notification.read
                                     ? 'bg-primary/5 border-primary/20'
                                     : 'bg-card/50 border-border'
                                     }`}
