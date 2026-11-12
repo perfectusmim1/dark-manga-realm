@@ -798,6 +798,7 @@ export interface LatestChapterFeedItem {
     chapterTitle?: string;
     addedAt: string;
     releaseDate?: string;
+    langCode?: string;
 }
 
 export interface LikedReadingListPreview extends ReadingList {
@@ -949,12 +950,36 @@ const getPersistedHomeSectionsKey = (audienceCacheKey: MangaAudienceCacheKey) =>
     `${PERSISTED_HOME_SECTIONS_KEY_PREFIX}${audienceCacheKey}`
 );
 
+const PERSISTED_TOP_TEN_PAGE_KEY = 'top-ten-page-data-v2';
+const PERSISTED_LATEST_CHAPTERS_KEY_PREFIX = 'latest-chapters-v1:';
+const TOP_TEN_PAGE_CACHE_TTL_MS = 5 * 60_000;
+const LATEST_CHAPTERS_CACHE_TTL_MS = 2 * 60_000;
+
+let topTenPageDataCache: { fetchedAt: number; value: Record<'safe' | 'adult', Record<TopTenTimeframe, Manga[]>> } | null = null;
+let topTenPageDataPromise: Promise<Record<'safe' | 'adult', Record<TopTenTimeframe, Manga[]>>> | null = null;
+const latestChaptersFirstPageCache: Partial<Record<MangaAudienceCacheKey, { fetchedAt: number; value: LatestChapterFeedItem[] }>> = {};
+const latestChaptersFirstPagePromise: Partial<Record<MangaAudienceCacheKey, Promise<LatestChapterFeedItem[]>>> = {};
+const tagsListCache = new Map<string, { fetchedAt: number; value: Tag[] }>();
+const tagsListPromises = new Map<string, Promise<Tag[]>>();
+const trendingTagsCache = new Map<string, { fetchedAt: number; value: Tag[] }>();
+const trendingTagsPromises = new Map<string, Promise<Tag[]>>();
+
+const invalidateTagCaches = () => {
+    tagsListCache.clear();
+    tagsListPromises.clear();
+    trendingTagsCache.clear();
+    trendingTagsPromises.clear();
+};
+
 const clearPersistedCatalogCache = () => {
     void removePersistedQueryCache([
         getPersistedMangaSummariesKey('safe'),
         getPersistedMangaSummariesKey('adult'),
         getPersistedHomeSectionsKey('safe'),
         getPersistedHomeSectionsKey('adult'),
+        PERSISTED_TOP_TEN_PAGE_KEY,
+        `${PERSISTED_LATEST_CHAPTERS_KEY_PREFIX}safe`,
+        `${PERSISTED_LATEST_CHAPTERS_KEY_PREFIX}adult`,
         'named-entities-v1:characters:public',
         'named-entities-v1:authors:public',
         'named-entities-v1:artists:public',
@@ -1016,12 +1041,112 @@ const invalidateAllMangasCache = () => {
     topTenMangaIdsPromises.today = null;
     topTenMangaIdsPromises.week = null;
     topTenMangaIdsPromises.all = null;
+    topTenPageDataCache = null;
+    topTenPageDataPromise = null;
+    latestChaptersFirstPageCache.safe = undefined;
+    latestChaptersFirstPageCache.adult = undefined;
+    latestChaptersFirstPagePromise.safe = undefined;
+    latestChaptersFirstPagePromise.adult = undefined;
+    invalidateTagCaches();
     clearHomeFeedCache();
+};
+
+const VIEWER_ACCESS_SESSION_KEY = 'toonparrot_viewer_access_v1';
+
+const readPersistedViewerAccess = (
+    authUserId: string | null,
+): { role: User['role'] | undefined; adultModeEnabled: boolean } | null => {
+    if (!authUserId || typeof window === 'undefined') return null;
+    try {
+        const raw = window.sessionStorage.getItem(VIEWER_ACCESS_SESSION_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || parsed.authUserId !== authUserId) return null;
+        if (typeof parsed.fetchedAt !== 'number' || Date.now() - parsed.fetchedAt >= STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS) {
+            return null;
+        }
+        return {
+            role: parsed.role as User['role'] | undefined,
+            adultModeEnabled: parsed.adultModeEnabled === true,
+        };
+    } catch {
+        return null;
+    }
+};
+
+const writePersistedViewerAccess = (
+    authUserId: string | null,
+    access: { role: User['role'] | undefined; adultModeEnabled: boolean },
+) => {
+    if (typeof window === 'undefined') return;
+    try {
+        if (!authUserId) {
+            window.sessionStorage.removeItem(VIEWER_ACCESS_SESSION_KEY);
+            return;
+        }
+        window.sessionStorage.setItem(
+            VIEWER_ACCESS_SESSION_KEY,
+            JSON.stringify({
+                authUserId,
+                role: access.role,
+                adultModeEnabled: access.adultModeEnabled === true,
+                fetchedAt: Date.now(),
+            }),
+        );
+    } catch {
+        // Storage disabled/quota exceeded; memory cache remains active.
+    }
+};
+
+const ADMIN_ACCESS_SESSION_KEY = 'toonparrot_admin_access_v1';
+
+const readPersistedAdminAccessContext = (authUserId?: string | null): AdminAccessContext | null => {
+    if (!authUserId || typeof window === 'undefined') return null;
+    try {
+        const raw = window.sessionStorage.getItem(ADMIN_ACCESS_SESSION_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (!parsed || parsed.authUserId !== authUserId) return null;
+        if (typeof parsed.fetchedAt !== 'number' || Date.now() - parsed.fetchedAt >= STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS) {
+            return null;
+        }
+        return parsed.value as AdminAccessContext;
+    } catch {
+        return null;
+    }
+};
+
+const writePersistedAdminAccessContext = (
+    authUserId: string | null,
+    value?: AdminAccessContext,
+) => {
+    if (typeof window === 'undefined') return;
+    try {
+        if (!authUserId || !value) {
+            window.sessionStorage.removeItem(ADMIN_ACCESS_SESSION_KEY);
+            return;
+        }
+        window.sessionStorage.setItem(
+            ADMIN_ACCESS_SESSION_KEY,
+            JSON.stringify({
+                authUserId,
+                fetchedAt: Date.now(),
+                value,
+            }),
+        );
+    } catch {
+        // Ignore storage errors
+    }
 };
 
 export const invalidateMangaVisibilityCaches = () => {
     currentViewerRoleCache = null;
     currentViewerRolePromise = null;
+    currentViewerAdultModeCache = null;
+    currentViewerAccessPromise = null;
+    adminAccessContextCache = null;
+    writePersistedViewerAccess(null, { role: undefined, adultModeEnabled: false });
+    writePersistedAdminAccessContext(null);
     invalidateAllMangasCache();
 };
 
@@ -1156,30 +1281,50 @@ const getCurrentViewerAccessProfile = async (): Promise<{
             fetchedAt: Date.now(),
             enabled: false,
         };
+        writePersistedViewerAccess(null, { role: undefined, adultModeEnabled: false });
         return { role: undefined, adultModeEnabled: false };
     }
 
     const now = Date.now();
-    const roleCacheFresh =
-        currentViewerRoleCache?.authUserId === authUserId
-        && now - currentViewerRoleCache.fetchedAt < STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS;
+    const persistedAccess = readPersistedViewerAccess(authUserId);
     const cachedPreferences = getCachedPreferencesForUser(authUserId);
     const metaPrefs = sessionData.session?.user?.user_metadata?.preferences as any;
     const hasMetaAdultMode = metaPrefs && typeof metaPrefs?.content?.adult_mode === 'boolean';
+    const roleCacheFresh =
+        currentViewerRoleCache?.authUserId === authUserId
+        && now - currentViewerRoleCache.fetchedAt < STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS;
     const adultCacheFresh =
         currentViewerAdultModeCache?.authUserId === authUserId
         && now - currentViewerAdultModeCache.fetchedAt < STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS;
 
-    if (roleCacheFresh && (cachedPreferences || hasMetaAdultMode || adultCacheFresh)) {
-        const adultModeEnabled = cachedPreferences
-            ? cachedPreferences.content?.adult_mode === true
-            : hasMetaAdultMode
-            ? metaPrefs.content.adult_mode === true
-            : Boolean(currentViewerAdultModeCache?.enabled);
-        return {
-            role: currentViewerRoleCache?.role || sessionRole,
-            adultModeEnabled,
+    const resolveAdultModeEnabled = () => {
+        if (cachedPreferences) {
+            return cachedPreferences.content?.adult_mode === true;
+        }
+        if (hasMetaAdultMode) {
+            return metaPrefs.content.adult_mode === true;
+        }
+        if (adultCacheFresh && currentViewerAdultModeCache) {
+            return currentViewerAdultModeCache.enabled;
+        }
+        if (persistedAccess) {
+            return persistedAccess.adultModeEnabled;
+        }
+        return false;
+    };
+
+    if ((roleCacheFresh || persistedAccess || sessionRole) && (cachedPreferences || hasMetaAdultMode || adultCacheFresh || persistedAccess)) {
+        const resolved = {
+            role: currentViewerRoleCache?.role || persistedAccess?.role || sessionRole,
+            adultModeEnabled: resolveAdultModeEnabled(),
         };
+        if (!roleCacheFresh) {
+            currentViewerRoleCache = { authUserId, fetchedAt: now, role: resolved.role };
+        }
+        if (!adultCacheFresh) {
+            currentViewerAdultModeCache = { authUserId, fetchedAt: now, enabled: resolved.adultModeEnabled };
+        }
+        return resolved;
     }
 
     if (currentViewerAccessPromise) {
@@ -1187,9 +1332,10 @@ const getCurrentViewerAccessProfile = async (): Promise<{
     }
 
     currentViewerAccessPromise = (async () => {
+        // Select only column-level-readable `role`; reading `preferences` directly is revoked on public.users (403).
         const { data: profile, error } = await supabase
             .from('users')
-            .select('role, preferences')
+            .select('role')
             .eq('id', authUserId)
             .maybeSingle();
 
@@ -1198,17 +1344,16 @@ const getCurrentViewerAccessProfile = async (): Promise<{
                 console.error('Current viewer access profile fetch error:', error);
             }
             return {
-                role: sessionRole,
-                adultModeEnabled: hasMetaAdultMode ? metaPrefs.content.adult_mode === true : false,
+                role: persistedAccess?.role || sessionRole,
+                adultModeEnabled: resolveAdultModeEnabled(),
             };
         }
 
-        const role = ((profile as any)?.role as User['role'] | undefined) || sessionRole;
-        const adultModeEnabled = cachedPreferences
-            ? cachedPreferences.content?.adult_mode === true
-            : (profile as any)?.preferences?.content?.adult_mode === true;
-
-        return { role, adultModeEnabled };
+        const role = ((profile as any)?.role as User['role'] | undefined) || persistedAccess?.role || sessionRole;
+        return {
+            role,
+            adultModeEnabled: resolveAdultModeEnabled(),
+        };
     })()
         .then((result) => {
             const settledAt = Date.now();
@@ -1222,6 +1367,7 @@ const getCurrentViewerAccessProfile = async (): Promise<{
                 fetchedAt: settledAt,
                 enabled: result.adultModeEnabled,
             };
+            writePersistedViewerAccess(authUserId, result);
             return result;
         })
         .finally(() => {
@@ -1251,11 +1397,24 @@ const resolveMangaVisibilityAccess = async (includePrivateOverride?: boolean) =>
 };
 
 export const getCachedAdminAccessContext = (authUserId?: string | null): AdminAccessContext | null => {
-    if (!authUserId || adminAccessContextCache?.authUserId !== authUserId) {
+    if (!authUserId) {
         return null;
     }
 
-    return adminAccessContextCache.value;
+    if (adminAccessContextCache?.authUserId === authUserId) {
+        return adminAccessContextCache.value;
+    }
+
+    const persisted = readPersistedAdminAccessContext(authUserId);
+    if (persisted) {
+        adminAccessContextCache = {
+            authUserId,
+            value: persisted,
+        };
+        return persisted;
+    }
+
+    return null;
 };
 
 const hasUserBlockRelationship = async (viewerId?: string, ownerId?: string): Promise<boolean> => {
@@ -1473,6 +1632,93 @@ const fetchAllChapterMetaRows = async (
 
 // ==================== MANGA OPERATIONS ====================
 
+const CATALOG_RPC_CHUNK_SIZE = 1000;
+const CATALOG_RPC_CONCURRENCY = 5;
+
+const deduplicateMangasById = (items: Manga[]): Manga[] => {
+    const seenIds = new Set<string>();
+    const result: Manga[] = [];
+
+    for (const item of items) {
+        if (item?.id && !seenIds.has(item.id)) {
+            seenIds.add(item.id);
+            result.push(item);
+        }
+    }
+
+    return result;
+};
+
+const fetchCatalogRowsViaRpc = async (includeAdult: boolean): Promise<any[] | null> => {
+    try {
+        const rows: any[] = [];
+        let batchStartOffset = 0;
+
+        while (true) {
+            const offsets = Array.from(
+                { length: CATALOG_RPC_CONCURRENCY },
+                (_, idx) => batchStartOffset + idx * CATALOG_RPC_CHUNK_SIZE,
+            );
+            const responses = await Promise.all(
+                offsets.map((offset) =>
+                    supabase.rpc('get_manga_catalog_rows', {
+                        p_offset: offset,
+                        p_limit: CATALOG_RPC_CHUNK_SIZE,
+                        p_include_adult: includeAdult,
+                    }),
+                ),
+            );
+
+            let reachedEnd = false;
+            for (const response of responses) {
+                if (response.error || !Array.isArray(response.data)) {
+                    return null;
+                }
+                rows.push(...response.data);
+                if (response.data.length < CATALOG_RPC_CHUNK_SIZE) {
+                    reachedEnd = true;
+                    break;
+                }
+            }
+
+            if (reachedEnd) {
+                break;
+            }
+            batchStartOffset += CATALOG_RPC_CONCURRENCY * CATALOG_RPC_CHUNK_SIZE;
+        }
+
+        return rows;
+    } catch {
+        return null;
+    }
+};
+
+const mapSummaryRowToManga = (
+    manga: any,
+    reviewStats?: { average: number; reviewCount: number },
+    includeSimplifiedRatings: boolean = false,
+): Manga => {
+    const precomputedChapters = Array.isArray(manga.latest_chapters)
+        ? manga.latest_chapters
+            .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
+            .filter((ch: any) => ch.id)
+        : [];
+    const average = reviewStats?.average ?? (Number(manga.average_rating ?? manga.averageRating) || 0);
+    const reviewCount = reviewStats?.reviewCount ?? (Number(manga.review_count ?? manga.reviewCount) || 0);
+
+    return {
+        ...manga,
+        author: cleanPlaceholderNamedEntityString(manga.author) || manga.author,
+        artist: cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
+        ...mapMangaBaseFields(manga),
+        chapters: precomputedChapters,
+        chapterCount: Number(manga.chapter_count ?? manga.chapterCount) || precomputedChapters.length || 0,
+        ratings: includeSimplifiedRatings ? Array(reviewCount).fill({ rating: average }) : [],
+        averageRating: average,
+        reviewCount,
+    } as Manga;
+};
+
 /**
  * Fetch all mangas from Supabase
  */
@@ -1499,6 +1745,15 @@ export const getAllMangas = async (
 
     try {
         const fetchManga = async () => {
+            if (!includePrivate) {
+                const rpcRows = await fetchCatalogRowsViaRpc(includeAdult);
+                if (rpcRows !== null) {
+                    return deduplicateMangasById(
+                        rpcRows.map((m) => mapSummaryRowToManga(m, undefined, true)),
+                    );
+                }
+            }
+
             const [
                 data,
                 { data: revData, error: reviewsError },
@@ -1514,51 +1769,10 @@ export const getAllMangas = async (
 
             if (reviewsError) console.error('Manga list review aggregate fetch error:', reviewsError);
 
-            const reviewStatsByMangaId = new Map<string, { average: number; reviewCount: number }>();
-            const reviewBuckets = new Map<string, { total: number; count: number }>();
-            for (const review of revData || []) {
-                const rating =
-                    (review.rating_story +
-                        review.rating_characters +
-                        review.rating_art +
-                        review.rating_progression +
-                        review.rating_engagement) / 5;
-
-                const currentBucket = reviewBuckets.get(review.manga_id) || { total: 0, count: 0 };
-                currentBucket.total += rating;
-                currentBucket.count += 1;
-                reviewBuckets.set(review.manga_id, currentBucket);
-            }
-
-            for (const [mangaId, bucket] of reviewBuckets.entries()) {
-                reviewStatsByMangaId.set(mangaId, {
-                    average: Math.round((bucket.total / bucket.count) * 10) / 10,
-                    reviewCount: bucket.count,
-                });
-            }
-
-            return (data || []).map((m) => {
-                const precomputedChapters = Array.isArray(m.latest_chapters)
-                    ? m.latest_chapters
-                        .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
-                        .filter((ch: any) => ch.id)
-                    : [];
-                const reviewStats = reviewStatsByMangaId.get(m.id);
-                const average = reviewStats?.average || 0;
-                const reviewCount = reviewStats?.reviewCount || 0;
-
-                return {
-                    ...m,
-                    author: cleanPlaceholderNamedEntityString(m.author) || m.author,
-                    artist: cleanPlaceholderNamedEntityString(m.artist) || m.artist,
-                    ...mapMangaBaseFields(m),
-                    chapters: precomputedChapters,
-                    chapterCount: Number(m.chapter_count ?? m.chapterCount) || precomputedChapters.length || 0,
-                    ratings: Array(reviewCount).fill({ rating: average }), // Simplified for list view
-                    averageRating: average,
-                    reviewCount,
-                } as any;
-            });
+            const reviewStatsByMangaId = buildReviewStatsByMangaId(revData || []);
+            return deduplicateMangasById(
+                (data || []).map((m) => mapSummaryRowToManga(m, reviewStatsByMangaId.get(m.id), true)),
+            );
         };
 
         const pendingRequest = runWithSupabaseBootstrapRetry({
@@ -1667,6 +1881,13 @@ export const getMangaSummaries = async (
 
     try {
         const fetchSummaries = async () => {
+            if (!includePrivate) {
+                const rpcRows = await fetchCatalogRowsViaRpc(includeAdult);
+                if (rpcRows !== null) {
+                    return rpcRows.map((manga: any) => mapSummaryRowToManga(manga));
+                }
+            }
+
             const [
                 mangaRows,
                 { data: reviewRows, error: reviewError },
@@ -1685,27 +1906,9 @@ export const getMangaSummaries = async (
             }
 
             const reviewStatsByMangaId = buildReviewStatsByMangaId(reviewRows || []);
-
-            return (mangaRows || []).map((manga: any) => {
-                const reviewStats = reviewStatsByMangaId.get(manga.id);
-                const precomputedChapters = Array.isArray(manga.latest_chapters)
-                    ? manga.latest_chapters
-                        .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
-                        .filter((ch: any) => ch.id)
-                    : [];
-
-                return {
-                    ...manga,
-                    author: cleanPlaceholderNamedEntityString(manga.author) || manga.author,
-                    artist: cleanPlaceholderNamedEntityString(manga.artist) || manga.artist,
-                    ...mapMangaBaseFields(manga),
-                    chapters: precomputedChapters,
-                    ratings: [],
-                    chapterCount: Number(manga.chapter_count ?? manga.chapterCount) || precomputedChapters.length || 0,
-                    averageRating: reviewStats?.average || 0,
-                    reviewCount: reviewStats?.reviewCount || 0,
-                } as Manga;
-            });
+            return (mangaRows || []).map((manga: any) =>
+                mapSummaryRowToManga(manga, reviewStatsByMangaId.get(manga.id)),
+            );
         };
 
         const pendingRequest = runWithSupabaseBootstrapRetry({
@@ -1717,16 +1920,7 @@ export const getMangaSummaries = async (
         if (!includePrivate) {
             mangaSummariesPromise[audienceCacheKey] = pendingRequest;
         }
-        const rawSummaries = await pendingRequest;
-        const seenSummaryIds = new Set<string>();
-        const summaries: Manga[] = [];
-
-        for (const item of rawSummaries) {
-            if (item?.id && !seenSummaryIds.has(item.id)) {
-                seenSummaryIds.add(item.id);
-                summaries.push(item);
-            }
-        }
+        const summaries = deduplicateMangasById(await pendingRequest);
 
         if (!includePrivate && summaries.length > 0) {
             mangaSummariesCache[audienceCacheKey] = {
@@ -2387,8 +2581,12 @@ export const getMangaChapters = async (
         return ch;
     });
 
+    const needsR2Chapters =
+        mapped.length === 0 ||
+        (includePages && mapped.some((ch) => !ch.pages || ch.pages.length === 0));
+
     try {
-        if (resolvedSlug) {
+        if (resolvedSlug && needsR2Chapters) {
             const seriesData = await fetchR2SeriesBySlug(resolvedSlug);
             if (seriesData && Array.isArray(seriesData.chapters)) {
                 indexR2SeriesChapters(seriesData, mangaId, resolvedSlug);
@@ -2660,7 +2858,6 @@ export const getMangaById = async (
         artistsDetails,
         relatedSeries,
         { count: characterCount },
-        r2SeriesData,
     ] = await Promise.all([
         supabase.from('reviews').select('*').eq('manga_id', realMangaId),
         getMangaChapters(realMangaId, {
@@ -2675,8 +2872,11 @@ export const getMangaById = async (
             .from('manga_characters')
             .select('manga_id', { count: 'exact', head: true })
             .eq('manga_id', realMangaId),
-        data.slug ? fetchR2SeriesBySlug(data.slug) : Promise.resolve(null),
     ]);
+
+    const r2SeriesData = data.slug && chapterRows.length === 0
+        ? await fetchR2SeriesBySlug(data.slug)
+        : null;
 
     const reviews = reviewData || [];
     let average = 0;
@@ -3081,26 +3281,86 @@ export const deleteChapter = async (mangaId: string, chapterId: string): Promise
     return !error;
 };
 
-export const getLatestChapters = async (limit?: number, offset: number = 0): Promise<LatestChapterFeedItem[]> => {
+const LATEST_CHAPTERS_PERSISTED_SWR_TTL_MS = 10 * 60_000;
+const persistedLatestChaptersRefreshInFlight = new Set<MangaAudienceCacheKey>();
+
+const deduplicateLatestChapterItems = (items: LatestChapterFeedItem[]): LatestChapterFeedItem[] => {
+    const seenIds = new Set<string>();
+    const result: LatestChapterFeedItem[] = [];
+
+    for (const item of items) {
+        if (item?.chapterId && !seenIds.has(item.chapterId)) {
+            seenIds.add(item.chapterId);
+            result.push(item);
+        }
+    }
+
+    return result;
+};
+
+export const getLatestChapters = async (
+    limit?: number,
+    offset: number = 0,
+    options?: { forceRefresh?: boolean },
+): Promise<LatestChapterFeedItem[]> => {
     const end = typeof limit === 'number' ? offset + limit - 1 : undefined;
+    const normalizedLimit = limit || 30;
     const {
         includePrivate,
         includeAdult,
         visibilityColumnAvailable,
         adultColumnAvailable,
     } = await resolveMangaVisibilityAccess();
+    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult);
+    const isFirstPageCacheable = !includePrivate && offset === 0 && normalizedLimit === 30;
+    const persistedKey = `${PERSISTED_LATEST_CHAPTERS_KEY_PREFIX}${audienceCacheKey}`;
 
-    // Fast path: use optimized RPC for instant response (<10ms) without statement timeout
-    try {
-        const { data: rpcData, error: rpcError } = await supabase.rpc('get_latest_chapters_feed', {
-            p_limit: limit || 30,
-            p_offset: offset || 0,
-            p_include_adult: Boolean(includeAdult),
-        });
+    if (isFirstPageCacheable && !options?.forceRefresh) {
+        const cachedFirstPage = latestChaptersFirstPageCache[audienceCacheKey];
+        if (cachedFirstPage && Date.now() - cachedFirstPage.fetchedAt < LATEST_CHAPTERS_CACHE_TTL_MS) {
+            return cachedFirstPage.value;
+        }
 
-        if (!rpcError && Array.isArray(rpcData) && rpcData.length > 0) {
-            return sortChapterBatchItems(
-                rpcData.map((row: any) => ({
+        const pendingFirstPage = latestChaptersFirstPagePromise[audienceCacheKey];
+        if (pendingFirstPage) {
+            return pendingFirstPage;
+        }
+
+        const persisted = await readPersistedQueryCache<LatestChapterFeedItem[]>(persistedKey);
+        if (persisted && Array.isArray(persisted.value) && persisted.value.length > 0) {
+            const age = Date.now() - persisted.fetchedAt;
+            if (age < LATEST_CHAPTERS_CACHE_TTL_MS) {
+                latestChaptersFirstPageCache[audienceCacheKey] = {
+                    fetchedAt: persisted.fetchedAt,
+                    value: persisted.value,
+                };
+                return persisted.value;
+            }
+
+            if (age < LATEST_CHAPTERS_PERSISTED_SWR_TTL_MS) {
+                latestChaptersFirstPageCache[audienceCacheKey] = {
+                    fetchedAt: persisted.fetchedAt,
+                    value: persisted.value,
+                };
+
+                if (!persistedLatestChaptersRefreshInFlight.has(audienceCacheKey)) {
+                    persistedLatestChaptersRefreshInFlight.add(audienceCacheKey);
+                    void getLatestChapters(normalizedLimit, 0, { forceRefresh: true })
+                        .catch(() => undefined)
+                        .finally(() => {
+                            persistedLatestChaptersRefreshInFlight.delete(audienceCacheKey);
+                        });
+                }
+
+                return persisted.value;
+            }
+        }
+    }
+
+    const fetchPage = async (): Promise<LatestChapterFeedItem[]> => {
+        const mapRpcRows = (rows: any[]): LatestChapterFeedItem[] => deduplicateLatestChapterItems(
+            sortChapterBatchItems(
+                rows.map((row: any) => ({
                     chapterId: String(row.chapter_id),
                     mangaId: String(row.manga_id),
                     mangaTitle: String(row.manga_title || ''),
@@ -3110,19 +3370,47 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
                     chapterTitle: row.chapter_title || undefined,
                     addedAt: row.added_at,
                     releaseDate: row.release_date || undefined,
+                    langCode: row.manga_lang_code || undefined,
                 } satisfies LatestChapterFeedItem)),
                 (chapter) => chapter.addedAt,
-                (chapter) => chapter.chapterId
-            );
-        }
-    } catch (rpcErr) {
-        console.warn('get_latest_chapters_feed rpc error, falling back to direct query:', rpcErr);
-    }
+                (chapter) => chapter.chapterId,
+            ),
+        );
 
-    let query = supabase
-        .from('chapters')
-        .select(visibilityColumnAvailable && !includePrivate
-            ? `
+        // Fast path: language-enriched RPC avoids N+1 follow-up query to `mangas`
+        try {
+            const { data: langRpcData, error: langRpcError } = await supabase.rpc('get_latest_chapters_feed_with_lang', {
+                p_limit: normalizedLimit,
+                p_offset: offset || 0,
+                p_include_adult: Boolean(includeAdult),
+            });
+
+            if (!langRpcError && Array.isArray(langRpcData) && (langRpcData.length > 0 || offset > 0)) {
+                return mapRpcRows(langRpcData);
+            }
+        } catch (langRpcErr) {
+            console.warn('get_latest_chapters_feed_with_lang rpc error, trying legacy RPC:', langRpcErr);
+        }
+
+        // Secondary RPC fallback if the with_lang wrapper isn't available yet
+        try {
+            const { data: rpcData, error: rpcError } = await supabase.rpc('get_latest_chapters_feed', {
+                p_limit: normalizedLimit,
+                p_offset: offset || 0,
+                p_include_adult: Boolean(includeAdult),
+            });
+
+            if (!rpcError && Array.isArray(rpcData) && (rpcData.length > 0 || offset > 0)) {
+                return mapRpcRows(rpcData);
+            }
+        } catch (rpcErr) {
+            console.warn('get_latest_chapters_feed rpc error, falling back to direct query:', rpcErr);
+        }
+
+        let query = supabase
+            .from('chapters')
+            .select(visibilityColumnAvailable && !includePrivate
+                ? `
                 id,
                 manga_id,
                 number,
@@ -3131,7 +3419,7 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
                 release_date,
                 mangas:manga_id!inner(id, title, cover, type, is_public${adultColumnAvailable ? ', is_adult' : ''})
             `
-            : `
+                : `
                 id,
                 manga_id,
                 number,
@@ -3140,53 +3428,77 @@ export const getLatestChapters = async (limit?: number, offset: number = 0): Pro
                 release_date,
                 mangas:manga_id(id, title, cover, type)
             `
-        )
-        .order('created_at', { ascending: false });
+            )
+            .order('created_at', { ascending: false });
 
-    if (visibilityColumnAvailable && !includePrivate) {
-        query = query.eq('mangas.is_public', true);
+        if (visibilityColumnAvailable && !includePrivate) {
+            query = query.eq('mangas.is_public', true);
+        }
+
+        if (adultColumnAvailable && !includePrivate && !includeAdult) {
+            query = query.eq('mangas.is_adult', false);
+        }
+
+        if (typeof end === 'number') {
+            query = query.range(offset, end);
+        }
+
+        const { data, error } = await query;
+
+        if (error) {
+            console.error('Latest chapters fetch error:', error);
+            return [];
+        }
+
+        return deduplicateLatestChapterItems(
+            sortChapterBatchItems(
+                (data || [])
+                    .map((chapter: any) => {
+                        const manga = Array.isArray(chapter.mangas) ? chapter.mangas[0] : chapter.mangas;
+
+                        if (!manga?.id) {
+                            return null;
+                        }
+
+                        return {
+                            chapterId: chapter.id,
+                            mangaId: manga.id,
+                            mangaTitle: manga.title,
+                            mangaCover: manga.cover,
+                            mangaType: manga.type,
+                            chapterNumber: Number(chapter.number),
+                            chapterTitle: chapter.title || undefined,
+                            addedAt: chapter.created_at || chapter.release_date,
+                            releaseDate: chapter.release_date || undefined,
+                        } satisfies LatestChapterFeedItem;
+                    })
+                    .filter(Boolean) as LatestChapterFeedItem[],
+                (chapter) => chapter.addedAt,
+                (chapter) => chapter.chapterId,
+            ),
+        );
+    };
+
+    const requestPromise = fetchPage();
+    if (isFirstPageCacheable) {
+        latestChaptersFirstPagePromise[audienceCacheKey] = requestPromise;
     }
 
-    if (adultColumnAvailable && !includePrivate && !includeAdult) {
-        query = query.eq('mangas.is_adult', false);
+    try {
+        const items = await requestPromise;
+        if (isFirstPageCacheable && items.length > 0) {
+            latestChaptersFirstPageCache[audienceCacheKey] = {
+                fetchedAt: Date.now(),
+                value: items,
+            };
+            void writePersistedQueryCache(persistedKey, items);
+        }
+        return items;
+    } finally {
+        if (isFirstPageCacheable) {
+            delete latestChaptersFirstPagePromise[audienceCacheKey];
+        }
     }
-
-    if (typeof end === 'number') {
-        query = query.range(offset, end);
-    }
-
-    const { data, error } = await query;
-
-    if (error) {
-        console.error('Latest chapters fetch error:', error);
-        return [];
-    }
-
-    return sortChapterBatchItems(
-        (data || [])
-            .map((chapter: any) => {
-                const manga = Array.isArray(chapter.mangas) ? chapter.mangas[0] : chapter.mangas;
-
-                if (!manga?.id) {
-                    return null;
-                }
-
-                return {
-                    chapterId: chapter.id,
-                    mangaId: manga.id,
-                    mangaTitle: manga.title,
-                    mangaCover: manga.cover,
-                    mangaType: manga.type,
-                    chapterNumber: Number(chapter.number),
-                    chapterTitle: chapter.title || undefined,
-                    addedAt: chapter.created_at || chapter.release_date,
-                    releaseDate: chapter.release_date || undefined,
-                } satisfies LatestChapterFeedItem;
-            })
-            .filter(Boolean) as LatestChapterFeedItem[],
-        (chapter) => chapter.addedAt,
-        (chapter) => chapter.chapterId
-    );
 };
 
 let latestChaptersFeedStatsCache: { fetchedAt: number; data: { recent_count: number; total_count: number } } | null = null;
@@ -3588,15 +3900,16 @@ const getAdminDirectoryViaEdgeFunction = async (): Promise<User[]> => {
     return data.users.map(mapAdminDirectoryUser);
 };
 
-export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
-    if (adminAccessContextPromise) {
+export const getAdminAccessContext = async (options?: { forceOnline?: boolean }): Promise<AdminAccessContext> => {
+    const forceOnline = options?.forceOnline === true;
+    if (!forceOnline && adminAccessContextPromise) {
         return adminAccessContextPromise;
     }
 
-    adminAccessContextPromise = (async () => {
-        // NOT: admin eriÅŸim kontrolÃ¼ local session'dan baÅŸlar. AÄŸdaki /auth/v1/user
-        // Ã§aÄŸrÄ±sÄ± yavaÅŸ olduÄŸunda 5 sn timeout alÄ±p yÃ¶neticiyi panelden atÄ±yordu.
-        // Yetkinin gerÃ§ek doÄŸrulamasÄ± aÅŸaÄŸÄ±daki admin-user-directory edge Ã§aÄŸrÄ±sÄ±nda yapÄ±lÄ±r.
+    const request = (async () => {
+        // NOT: admin erişim kontrolü local session'dan başlar. Ağdaki /auth/v1/user
+        // çağrısı yavaş olduğunda 5 sn timeout alıp yöneticiyi panelden atıyordu.
+        // Yetkinin gerçek doğrulaması aşağıdaki admin-user-directory edge çağrısında yapılır.
         const { data: sessionData, error: authError } = await supabase.auth.getSession();
         const authUser = sessionData.session?.user ?? null;
 
@@ -3609,8 +3922,11 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
 
         const authUserId = authUser.id;
 
-        if (adminAccessContextCache?.authUserId === authUserId) {
-            return adminAccessContextCache.value;
+        if (!forceOnline) {
+            const cached = getCachedAdminAccessContext(authUserId);
+            if (cached) {
+                return cached;
+            }
         }
 
         const persist = (value: AdminAccessContext) => {
@@ -3618,6 +3934,7 @@ export const getAdminAccessContext = async (): Promise<AdminAccessContext> => {
                 authUserId,
                 value,
             };
+            writePersistedAdminAccessContext(authUserId, value);
 
             return value;
         };
@@ -7151,20 +7468,48 @@ const mapTagRow = (tag: any, relation?: { is_discoverable?: boolean; added_by?: 
     createdAt: tag.created_at
 });
 
-export const getAllTags = async (options?: { includePending?: boolean }): Promise<Tag[]> => {
-    let query = supabase
-        .from('tags')
-        .select('*')
-        .order('usage_count', { ascending: false });
+const TAGS_LIST_CACHE_TTL_MS = 5 * 60_000;
+const TRENDING_TAGS_CACHE_TTL_MS = 2 * 60_000;
 
-    if (!options?.includePending) {
-        query = query.or(COMMUNITY_VISIBLE_TAG_FILTER);
+export const getAllTags = async (options?: { includePending?: boolean }): Promise<Tag[]> => {
+    const cacheKey = options?.includePending ? 'all' : 'public';
+    const cached = tagsListCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < TAGS_LIST_CACHE_TTL_MS) {
+        return cached.value;
     }
 
-    const { data, error } = await query;
+    const pending = tagsListPromises.get(cacheKey);
+    if (pending) {
+        return pending;
+    }
 
-    if (error) return [];
-    return filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
+    const request = (async (): Promise<Tag[]> => {
+        let query = supabase
+            .from('tags')
+            .select('*')
+            .order('usage_count', { ascending: false });
+
+        if (!options?.includePending) {
+            query = query.or(COMMUNITY_VISIBLE_TAG_FILTER);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return [];
+        const tags = filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
+        tagsListCache.set(cacheKey, {
+            fetchedAt: Date.now(),
+            value: tags,
+        });
+        return tags;
+    })();
+
+    tagsListPromises.set(cacheKey, request);
+    try {
+        return await request;
+    } finally {
+        tagsListPromises.delete(cacheKey);
+    }
 };
 
 export const getTagsByCategory = async (
@@ -7253,6 +7598,8 @@ export const createTag = async (
         console.error('Create tag error:', error);
         return null;
     }
+
+    invalidateTagCaches();
 
     return {
         ...mapTagRow(data),
@@ -7371,11 +7718,13 @@ export const updateTag = async (tagId: string, updates: Partial<{ name: string; 
 
     const { error } = await supabase.from('tags').update(updateData).eq('id', tagId);
     if (error) throw error;
+    invalidateTagCaches();
 };
 
 export const deleteTag = async (tagId: string): Promise<void> => {
     const { error } = await supabase.from('tags').delete().eq('id', tagId);
     if (error) throw error;
+    invalidateTagCaches();
 };
 
 export const getTagsForEntity = async (
@@ -7546,20 +7895,45 @@ export const getTrendingTags = async (
     limit: number = 10,
     options?: { includePending?: boolean }
 ): Promise<Tag[]> => {
-    let query = supabase
-        .from('tags')
-        .select('*')
-        .order('usage_count', { ascending: false })
-        .limit(limit);
-
-    if (!options?.includePending) {
-        query = query.or(COMMUNITY_VISIBLE_TAG_FILTER);
+    const cacheKey = `${limit}:${Boolean(options?.includePending)}`;
+    const cached = trendingTagsCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < TRENDING_TAGS_CACHE_TTL_MS) {
+        return cached.value;
     }
 
-    const { data, error } = await query;
+    const pending = trendingTagsPromises.get(cacheKey);
+    if (pending) {
+        return pending;
+    }
 
-    if (error) return [];
-    return filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
+    const request = (async (): Promise<Tag[]> => {
+        let query = supabase
+            .from('tags')
+            .select('*')
+            .order('usage_count', { ascending: false })
+            .limit(limit);
+
+        if (!options?.includePending) {
+            query = query.or(COMMUNITY_VISIBLE_TAG_FILTER);
+        }
+
+        const { data, error } = await query;
+
+        if (error) return [];
+        const tags = filterGloballyAvailableTagRows(data || [], options?.includePending).map((tag) => mapTagRow(tag));
+        trendingTagsCache.set(cacheKey, {
+            fetchedAt: Date.now(),
+            value: tags,
+        });
+        return tags;
+    })();
+
+    trendingTagsPromises.set(cacheKey, request);
+    try {
+        return await request;
+    } finally {
+        trendingTagsPromises.delete(cacheKey);
+    }
 };
 
 export const getMangasByTag = async (tagSlug: string): Promise<Manga[]> => {
@@ -7748,49 +8122,139 @@ export const getTopTenMangaBuckets = async (
     }
 };
 
+type TopTenPageData = Record<'safe' | 'adult', Record<TopTenTimeframe, Manga[]>>;
+
+let persistedTopTenRefreshInFlight = false;
+
+const createEmptyTopTenPageData = (): TopTenPageData => ({
+    safe: { today: [], week: [], all: [] },
+    adult: { today: [], week: [], all: [] },
+});
+
+const mapTopTenBucketRows = (rows: unknown, audience: 'safe' | 'adult'): Manga[] => {
+    const rawRows = Array.isArray(rows) ? rows : [];
+    if (rawRows.length === 0) {
+        return [];
+    }
+
+    return buildAudienceTopTen(
+        rawRows.map((row) => mapSummaryRowToManga(row)),
+        rawRows,
+        audience,
+    );
+};
+
+export const getTopTenPageData = async (
+    options?: { forceRefresh?: boolean },
+): Promise<TopTenPageData> => {
+    if (!options?.forceRefresh) {
+        if (topTenPageDataCache && Date.now() - topTenPageDataCache.fetchedAt < TOP_TEN_PAGE_CACHE_TTL_MS) {
+            return topTenPageDataCache.value;
+        }
+
+        if (topTenPageDataPromise) {
+            return topTenPageDataPromise;
+        }
+
+        const persisted = await readPersistedQueryCache<TopTenPageData>(PERSISTED_TOP_TEN_PAGE_KEY);
+        if (
+            persisted &&
+            persisted.value?.safe &&
+            persisted.value?.adult &&
+            (persisted.value.safe.today.length > 0 ||
+                persisted.value.safe.all.length > 0 ||
+                persisted.value.adult.today.length > 0 ||
+                persisted.value.adult.all.length > 0)
+        ) {
+            const age = Date.now() - persisted.fetchedAt;
+            topTenPageDataCache = {
+                fetchedAt: persisted.fetchedAt,
+                value: persisted.value,
+            };
+
+            if (age < TOP_TEN_PAGE_CACHE_TTL_MS) {
+                return persisted.value;
+            }
+
+            if (age < PERSISTED_CATALOG_CACHE_TTL_MS) {
+                if (!persistedTopTenRefreshInFlight) {
+                    persistedTopTenRefreshInFlight = true;
+                    void getTopTenPageData({ forceRefresh: true })
+                        .catch(() => undefined)
+                        .finally(() => {
+                            persistedTopTenRefreshInFlight = false;
+                        });
+                }
+                return persisted.value;
+            }
+        }
+    }
+
+    const requestPromise = (async (): Promise<TopTenPageData> => {
+        try {
+            const { data, error } = await supabase.rpc('get_top_ten_page_data');
+            if (error || !data || typeof data !== 'object') {
+                if (error) {
+                    console.error('getTopTenPageData rpc error:', error);
+                }
+                return createEmptyTopTenPageData();
+            }
+
+            const payload = data as any;
+            const mapped: TopTenPageData = {
+                safe: {
+                    today: mapTopTenBucketRows(payload.safe?.today, 'safe'),
+                    week: mapTopTenBucketRows(payload.safe?.week, 'safe'),
+                    all: mapTopTenBucketRows(payload.safe?.all, 'safe'),
+                },
+                adult: {
+                    today: mapTopTenBucketRows(payload.adult?.today, 'adult'),
+                    week: mapTopTenBucketRows(payload.adult?.week, 'adult'),
+                    all: mapTopTenBucketRows(payload.adult?.all, 'adult'),
+                },
+            };
+
+            const hasAnyEntries =
+                mapped.safe.today.length > 0 ||
+                mapped.safe.week.length > 0 ||
+                mapped.safe.all.length > 0 ||
+                mapped.adult.today.length > 0 ||
+                mapped.adult.week.length > 0 ||
+                mapped.adult.all.length > 0;
+
+            if (hasAnyEntries) {
+                topTenPageDataCache = {
+                    fetchedAt: Date.now(),
+                    value: mapped,
+                };
+                void writePersistedQueryCache(PERSISTED_TOP_TEN_PAGE_KEY, mapped);
+            }
+
+            return mapped;
+        } catch (error) {
+            console.error('getTopTenPageData exception:', error);
+            return createEmptyTopTenPageData();
+        }
+    })();
+
+    topTenPageDataPromise = requestPromise;
+    try {
+        return await requestPromise;
+    } finally {
+        if (topTenPageDataPromise === requestPromise) {
+            topTenPageDataPromise = null;
+        }
+    }
+};
+
 export const getTopTenPageBuckets = async (
     timeframe: 'today' | 'week' | 'all' = 'today',
 ): Promise<{ safe: Manga[]; adult: Manga[] }> => {
     try {
-        // NOT: Ã¶nce yalnÄ±zca 20 satÄ±rlÄ±k RPC sonuÃ§larÄ± alÄ±nÄ±r; tam katalog (4-6 MB)
-        // yerine sadece bu ID'lerin Ã¶zetleri Ã§ekilir.
-        const [
-            { data: safeRawData, error: safeError },
-            { data: adultRawData, error: adultError },
-        ] = await Promise.all([
-            supabase.rpc('get_top_engaged_mangas_by_audience', {
-                time_filter: timeframe,
-                target_audience: 'safe',
-                result_limit: 10,
-            }),
-            supabase.rpc('get_top_engaged_mangas_by_audience', {
-                time_filter: timeframe,
-                target_audience: 'adult',
-                result_limit: 10,
-            }),
-        ]);
-
-        if (safeError) {
-            console.error('getTopTenPageBuckets safe error:', safeError);
-        }
-
-        if (adultError) {
-            console.error('getTopTenPageBuckets adult error:', adultError);
-        }
-
-        const topMangaIds = [...new Set(
-            [...(safeRawData || []), ...(adultRawData || [])]
-                .map((item: any) => item?.id)
-                .filter((id: unknown): id is string => typeof id === 'string' && id.length > 0),
-        )];
-
-        const summaries = topMangaIds.length > 0
-            ? await getMangaSummariesByIds(topMangaIds)
-            : [];
-
+        const pageData = await getTopTenPageData();
         return {
-            safe: buildAudienceTopTen(summaries, safeRawData, 'safe'),
-            adult: buildAudienceTopTen(summaries, adultRawData, 'adult'),
+            safe: pageData.safe[timeframe] || [],
+            adult: pageData.adult[timeframe] || [],
         };
     } catch (error) {
         console.error('getTopTenPageBuckets exception:', error);

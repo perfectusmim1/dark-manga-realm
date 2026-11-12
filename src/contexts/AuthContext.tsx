@@ -3,7 +3,7 @@ import type { EmailOtpType, Factor, PostgrestSingleResponse } from '@supabase/su
 import { User as SupabaseUser, Session } from '@supabase/supabase-js';
 import { isAuthSessionUnavailableError, isExpectedAccessControlError, supabase, waitForUsableSupabaseSession } from '@/lib/supabase';
 import { User, UserAccessState } from '@/lib/types';
-import { checkCurrentAccess, recoverAccessCheckFailure, type AccessCheckResult } from '@/lib/security/deviceIdentity';
+import { checkCurrentAccess, clearAccessCheckCache, recoverAccessCheckFailure, type AccessCheckResult } from '@/lib/security/deviceIdentity';
 import { getDeviceIdentity } from '@/lib/security/deviceFingerprint';
 import { syncLocalChapterReadFallbackToRemote } from '@/lib/storage';
 import {
@@ -121,7 +121,7 @@ interface UserProfileRow {
 
 type TotpFactorRecord = Factor<'totp', 'verified' | 'unverified'>;
 
-const PROFILE_SELECT_COLUMNS = 'id, username, username_last_changed_at, avatar, role, is_banned, ban_reason, banned_at, active_ban_type, ban_expires_at, warning_count, unread_warning_count, created_at, preferences, two_factor_enabled';
+const PROFILE_SELECT_COLUMNS = 'id, username, username_last_changed_at, avatar, role, created_at';
 const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
   notifications: {
     new_chapter: true,
@@ -922,6 +922,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           || event === 'MFA_CHALLENGE_VERIFIED'
         ) {
           if (event === 'SIGNED_OUT' || event === 'USER_UPDATED' || (event === 'SIGNED_IN' && lastSyncedUserId !== currentSession?.user?.id)) {
+            clearAccessCheckCache();
             void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
               invalidateMangaVisibilityCaches();
             }).catch(() => undefined);
@@ -1205,6 +1206,7 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       setSession(null);
       setMfaState(DEFAULT_MFA_STATE);
       setAccessState(DEFAULT_ACCESS_STATE);
+      clearAccessCheckCache();
       void import('@/lib/database').then(({ invalidateMangaVisibilityCaches }) => {
         invalidateMangaVisibilityCaches();
       }).catch(() => undefined);

@@ -2164,6 +2164,40 @@ export const getUserLocal = (): any => {
     return data ? JSON.parse(data) : null;
 };
 
+type UserNotificationSettings = {
+    replies: boolean;
+    likes: boolean;
+    follows: boolean;
+    new_chapter: boolean;
+};
+
+const fetchUserNotificationSettingsMap = async (
+    userIds: string[],
+): Promise<Map<string, UserNotificationSettings>> => {
+    const result = new Map<string, UserNotificationSettings>();
+    const uniqueIds = Array.from(new Set(userIds.filter((id) => typeof id === 'string' && id.trim().length > 0)));
+    if (uniqueIds.length === 0) return result;
+
+    const { data, error } = await supabase.rpc('get_user_notification_settings', {
+        p_user_ids: uniqueIds,
+    });
+    if (error || !Array.isArray(data)) {
+        if (error) console.error('Notification settings fetch error:', error);
+        return result;
+    }
+
+    for (const row of data as Array<UserNotificationSettings & { user_id?: string }>) {
+        if (!row?.user_id) continue;
+        result.set(row.user_id, {
+            replies: row.replies !== false,
+            likes: row.likes !== false,
+            follows: row.follows !== false,
+            new_chapter: row.new_chapter !== false,
+        });
+    }
+    return result;
+};
+
 export const createCommentNotification = async (
     targetUserId: string,
     type: 'reply' | 'like',
@@ -2176,16 +2210,10 @@ export const createCommentNotification = async (
     entityType: string = 'manga',
     pageNumber?: number
 ) => {
-    // Check user preferences
-    const { data: userData } = await supabase
-        .from('users')
-        .select('preferences')
-        .eq('id', targetUserId)
-        .single();
-
-    const prefs = userData?.preferences;
-    if (type === 'reply' && prefs?.notifications?.replies === false) return;
-    if (type === 'like' && prefs?.notifications?.likes === false) return;
+    const settingsMap = await fetchUserNotificationSettingsMap([targetUserId]);
+    const settings = settingsMap.get(targetUserId);
+    if (type === 'reply' && settings?.replies === false) return;
+    if (type === 'like' && settings?.likes === false) return;
 
     const title = type === 'reply' ? 'Yeni Yanıt' : 'Yorum Beğenisi';
     const message = type === 'reply'
@@ -2235,14 +2263,9 @@ export const createFollowNotification = async (
         return;
     }
 
-    const { data: userData } = await supabase
-        .from('users')
-        .select('preferences')
-        .eq('id', targetUserId)
-        .single();
-
-    const prefs = userData?.preferences;
-    if (prefs?.notifications?.follows === false) return;
+    const settingsMap = await fetchUserNotificationSettingsMap([targetUserId]);
+    const settings = settingsMap.get(targetUserId);
+    if (settings?.follows === false) return;
 
     const { error } = await supabase.from('notifications').insert({
         user_id: targetUserId,
@@ -2277,29 +2300,11 @@ export const createNotificationForFollowers = async (
             return;
         }
 
-        // Get user preferences for each follower
         const userIds = followers.map(f => f.user_id);
-        const { data: usersData, error: usersError } = await supabase
-            .from('users')
-            .select('id, preferences')
-            .in('id', userIds);
-
-        if (usersError) {
-            console.error('User preferences fetch error:', usersError);
-            return;
-        }
-
-        // Create a map of user preferences
-        const userPrefsMap = new Map<string, any>();
-        usersData?.forEach(u => {
-            userPrefsMap.set(u.id, u.preferences);
-        });
+        const settingsMap = await fetchUserNotificationSettingsMap(userIds);
 
         // Filter followers who want new chapter notifications
-        const activeFollowers = followers.filter(f => {
-            const prefs = userPrefsMap.get(f.user_id);
-            return prefs?.notifications?.new_chapter !== false;
-        });
+        const activeFollowers = followers.filter(f => settingsMap.get(f.user_id)?.new_chapter !== false);
 
         if (activeFollowers.length === 0) return;
 

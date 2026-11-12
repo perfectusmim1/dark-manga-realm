@@ -97,26 +97,48 @@ const LatestChapters: React.FC = () => {
     }
 
     const loadChapters = React.useCallback(async (page: number) => {
-        setIsLoading(true);
+        if (page > 1) {
+            setIsLoading(true);
+        }
         try {
             const offset = (page - 1) * PAGE_SIZE;
-            const promises: [Promise<LatestChapterFeedItem[]>, Promise<{ recentChapterCount: number; totalChaptersCount: number }>?] = [
-                getLatestChapters(PAGE_SIZE, offset),
-            ];
 
             if (!countsLoadedRef.current) {
-                promises.push(getLatestChaptersFeedStats());
+                void getLatestChaptersFeedStats()
+                    .then((stats) => {
+                        if (!countsLoadedRef.current) {
+                            setRecentChapterCount(stats.recentChapterCount);
+                            setTotalChaptersCount(stats.totalChaptersCount);
+                            countsLoadedRef.current = true;
+                        }
+                    })
+                    .catch(() => {});
             }
 
-            const [data, stats] = await Promise.all(promises);
-
+            const data = await getLatestChapters(PAGE_SIZE, offset);
             setChapters(data);
-            if (data.length > 0) {
-                const ids = Array.from(new Set(data.map((c) => c.mangaId)));
-                supabase
-                    .from('mangas')
-                    .select('id, title, genres, details, source_links')
-                    .in('id', ids)
+
+            const preResolvedLangMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
+            const missingLangMangaIds: string[] = [];
+            for (const item of data) {
+                if (item.langCode) {
+                    preResolvedLangMap[item.mangaId] = getLanguageInfoByCode(item.langCode);
+                } else {
+                    missingLangMangaIds.push(item.mangaId);
+                }
+            }
+            if (Object.keys(preResolvedLangMap).length > 0) {
+                setMangaLangMap((prev) => ({ ...prev, ...preResolvedLangMap }));
+            }
+
+            const uniqueMissingIds = Array.from(new Set(missingLangMangaIds));
+            if (uniqueMissingIds.length > 0) {
+                void Promise.resolve(
+                    supabase
+                        .from('mangas')
+                        .select('id, title, genres, details, source_links')
+                        .in('id', uniqueMissingIds),
+                )
                     .then(({ data: mangasData }) => {
                         if (mangasData) {
                             const langMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
@@ -126,12 +148,7 @@ const LatestChapters: React.FC = () => {
                             setMangaLangMap((prev) => ({ ...prev, ...langMap }));
                         }
                     })
-                    .catch(() => {});
-            }
-            if (stats && !countsLoadedRef.current) {
-                setRecentChapterCount(stats.recentChapterCount);
-                setTotalChaptersCount(stats.totalChaptersCount);
-                countsLoadedRef.current = true;
+                    .catch(() => undefined);
             }
         } catch (error) {
             console.error('Latest chapters page error:', error);

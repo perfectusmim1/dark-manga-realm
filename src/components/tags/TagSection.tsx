@@ -6,7 +6,6 @@ import { Badge } from '@/components/ui/badge';
 import TagBadge from './TagBadge';
 import { Tag, TagCategory } from '@/lib/types';
 import {
-  getAllTags,
   searchTags,
   createTag,
   getTagsForEntity,
@@ -71,7 +70,6 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const [tags, setTags] = useState<Tag[]>([]);
-  const [allTags, setAllTags] = useState<Tag[]>([]);
   const [votes, setVotes] = useState<Record<string, { up: number; down: number }>>({});
   const [userVotes, setUserVotes] = useState<Record<string, 'up' | 'down'>>({});
   const [searchQuery, setSearchQuery] = useState('');
@@ -105,10 +103,9 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
     setIsLoading(true);
     try {
-      const [entityTags, tagVotes, all, currentUserVotes] = await Promise.all([
+      const [entityTags, tagVotes, currentUserVotes] = await Promise.all([
         getTagsForEntity(entityType, entityId),
         getTagVotes(entityType, entityId),
-        getAllTags(),
         user?.id
           ? getUserTagVotes(entityType, entityId, user.id)
           : Promise.resolve({} as Record<string, 'up' | 'down'>),
@@ -116,7 +113,6 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
       setTags(entityTags);
       setVotes(tagVotes);
-      setAllTags(all);
       setUserVotes(currentUserVotes);
     } finally {
       setIsLoading(false);

@@ -22,15 +22,27 @@ const ACCESS_CHECK_RETRY_DELAYS_MS = [0, 900, 1800];
 // NOT: Erişim kontrolü kullanıcı/cihaz seviyesinde; route'a bağlı değil. Bu yüzden
 // cache anahtarı path içermez ve TTL daha uzundur — her sayfa geçişinde Edge Function
 // çağrısı yapılmasını engeller.
-const ACCESS_CHECK_ALLOWED_CACHE_TTL_MS = 60_000;
+const ACCESS_CHECK_ALLOWED_CACHE_TTL_MS = 5 * 60_000;
 const ACCESS_CHECK_BLOCKED_CACHE_TTL_MS = 10_000;
 const ACCESS_CHECK_FAILURE_CACHE_TTL_MS = 5_000;
+const ACCESS_CHECK_SESSION_KEY = 'toonparrot_access_check_v1';
 const accessCheckInflightRequests = new Map<string, Promise<AccessCheckResult>>();
 const accessCheckResultCache = new Map<string, {
     fetchedAt: number;
     ttlMs: number;
     value: AccessCheckResult;
 }>();
+
+export const clearAccessCheckCache = () => {
+    accessCheckResultCache.clear();
+    if (typeof window !== 'undefined') {
+        try {
+            window.sessionStorage.removeItem(ACCESS_CHECK_SESSION_KEY);
+        } catch {
+            // Ignore storage errors
+        }
+    }
+};
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -105,34 +117,91 @@ const getAccessCheckResultCacheTtl = (result: AccessCheckResult) => {
 
 const readAccessCheckResultCache = (cacheKey: string): AccessCheckResult | null => {
     const cached = accessCheckResultCache.get(cacheKey);
-    if (!cached) {
-        return null;
-    }
-
-    if (Date.now() - cached.fetchedAt > cached.ttlMs) {
+    if (cached) {
+        if (Date.now() - cached.fetchedAt <= cached.ttlMs) {
+            return cloneAccessCheckResult(cached.value);
+        }
         accessCheckResultCache.delete(cacheKey);
-        return null;
     }
 
-    return cloneAccessCheckResult(cached.value);
+    if (typeof window !== 'undefined') {
+        try {
+            const raw = window.sessionStorage.getItem(ACCESS_CHECK_SESSION_KEY);
+            if (raw) {
+                const parsed = JSON.parse(raw);
+                if (
+                    parsed
+                    && parsed.cacheKey === cacheKey
+                    && typeof parsed.fetchedAt === 'number'
+                    && Date.now() - parsed.fetchedAt <= ACCESS_CHECK_ALLOWED_CACHE_TTL_MS
+                    && parsed.value?.allowed === true
+                    && parsed.value?.reason !== 'access_check_failed'
+                ) {
+                    const cloned = cloneAccessCheckResult(parsed.value as AccessCheckResult);
+                    accessCheckResultCache.set(cacheKey, {
+                        fetchedAt: parsed.fetchedAt,
+                        ttlMs: ACCESS_CHECK_ALLOWED_CACHE_TTL_MS,
+                        value: cloned,
+                    });
+                    return cloneAccessCheckResult(cloned);
+                }
+            }
+        } catch {
+            // Ignore storage errors
+        }
+    }
+
+    return null;
 };
 
 const writeAccessCheckResultCache = (cacheKey: string, result: AccessCheckResult) => {
+    const now = Date.now();
+    const cloned = cloneAccessCheckResult(result);
     accessCheckResultCache.set(cacheKey, {
-        fetchedAt: Date.now(),
+        fetchedAt: now,
         ttlMs: getAccessCheckResultCacheTtl(result),
-        value: cloneAccessCheckResult(result),
+        value: cloned,
     });
+
+    if (typeof window !== 'undefined' && result.allowed && result.reason !== 'access_check_failed') {
+        try {
+            window.sessionStorage.setItem(
+                ACCESS_CHECK_SESSION_KEY,
+                JSON.stringify({
+                    cacheKey,
+                    fetchedAt: now,
+                    value: cloned,
+                }),
+            );
+        } catch {
+            // Ignore quota errors
+        }
+    }
+};
+
+const extractJwtSub = (token?: string | null): string | null => {
+    if (!token) return null;
+    try {
+        const parts = token.split('.');
+        if (parts.length < 2) return null;
+        const b64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+        const payload = JSON.parse(atob(b64));
+        return typeof payload?.sub === 'string' && payload.sub.length > 0 ? payload.sub : null;
+    } catch {
+        return null;
+    }
 };
 
 const getAccessCheckCacheKey = async (
     _path: string,
     preferredAccessToken?: string | null,
 ) => {
-    const tokenKey = preferredAccessToken?.trim()
-        ? preferredAccessToken.trim().slice(-24)
-        : (await supabase.auth.getSession()).data.session?.access_token?.slice(-24) || 'anon';
-    return tokenKey;
+    const tokenSub = extractJwtSub(preferredAccessToken?.trim());
+    if (tokenSub) {
+        return tokenSub;
+    }
+    const sessionUserId = (await supabase.auth.getSession()).data.session?.user?.id;
+    return sessionUserId || 'anon';
 };
 
 export const checkCurrentAccess = async (

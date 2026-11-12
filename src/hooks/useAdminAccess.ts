@@ -10,7 +10,7 @@ const DEFAULT_ACCESS: AdminAccessContext = {
 };
 
 type AdminAccessModule = {
-    getAdminAccessContext: () => Promise<AdminAccessContext>;
+    getAdminAccessContext: (options?: { forceOnline?: boolean }) => Promise<AdminAccessContext>;
     getCachedAdminAccessContext: (authUserId?: string | null) => AdminAccessContext | null;
 };
 
@@ -65,15 +65,19 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean; en
 
             if (cachedAccess) {
                 setAccess(cachedAccess);
-                // Mevcut önbellek varsa arayüzü engelleme (SWR - akıcı arka plan doğrulaması)
                 setIsLoading(false);
+                if (!requireOnlineValidation) {
+                    return;
+                }
             } else {
                 setAccess(DEFAULT_ACCESS);
                 setIsLoading(true);
             }
 
             try {
-                const nextAccess = await getAdminAccessContext();
+                const nextAccess = await getAdminAccessContext({
+                    forceOnline: requireOnlineValidation,
+                });
 
                 if (!isCancelled) {
                     setAccess(nextAccess);

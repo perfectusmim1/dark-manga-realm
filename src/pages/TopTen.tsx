@@ -15,7 +15,7 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { ADULT_MODE_CHANGED_EVENT, AdultModeChangedDetail } from '@/lib/adultModeEvents';
-import { getTopTenPageBuckets } from '@/lib/database';
+import { getTopTenPageData } from '@/lib/database';
 import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { getMangaTypeLabel, isAdultMangaType } from '@/lib/mangaType';
 import { Manga } from '@/lib/types';
@@ -484,75 +484,71 @@ const TopTenAudienceBlock: React.FC<{
               )}
             </AnimatePresence>
 
-            <AnimatePresence mode="wait" initial={false}>
-              {isLoading ? (
-                <motion.div
-                  key={`${audience}-${timeframe}-loading`}
-                  initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
-                  transition={{ duration: disableHeavyEffects ? 0.12 : 0.16 }}
-                  className="flex w-full max-w-full min-w-0 gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2"
-                >
-                  {Array.from({ length: 4 }).map((_, index) => (
-                    <div key={`${audience}-${timeframe}-skeleton-${index}`} className={`shrink-0 ${TOP_TEN_CARD_WIDTH_CLASS} animate-pulse`}>
-                      <div className="mb-2 h-10 w-16 rounded-full bg-white/10" />
-                      <div className="overflow-hidden rounded-[20px] border border-white/10 bg-white/5 sm:rounded-[24px]">
-                        <div className="aspect-[3/4] bg-white/10" />
-                        <div className="space-y-2 border-t border-white/10 px-4 py-3">
-                          <div className="h-3 rounded bg-white/10" />
-                          <div className="h-3 w-2/3 rounded bg-white/10" />
-                        </div>
+            {isLoading ? (
+              <div
+                key={`${audience}-${timeframe}-loading`}
+                className="flex w-full max-w-full min-w-0 gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2"
+              >
+                {Array.from({ length: 4 }).map((_, index) => (
+                  <div key={`${audience}-${timeframe}-skeleton-${index}`} className={`shrink-0 ${TOP_TEN_CARD_WIDTH_CLASS} animate-pulse`}>
+                    <div className="mb-2 h-10 w-16 rounded-full bg-white/10" />
+                    <div className="overflow-hidden rounded-[20px] border border-white/10 bg-white/5 sm:rounded-[24px]">
+                      <div className="aspect-[3/4] bg-white/10" />
+                      <div className="space-y-2 border-t border-white/10 px-4 py-3">
+                        <div className="h-3 rounded bg-white/10" />
+                        <div className="h-3 w-2/3 rounded bg-white/10" />
                       </div>
                     </div>
-                  ))}
-                </motion.div>
-              ) : uniqueMangas.length > 0 ? (
-                <motion.div
-                  key={`${audience}-${timeframe}-content`}
-                  initial={{ opacity: 0 }}
-                  animate={{ opacity: 1 }}
-                  exit={{ opacity: 0 }}
-                  transition={{ duration: 0.16, ease: 'easeOut' }}
-                  className="min-w-0"
-                >
-                  <div
-                    ref={scrollRef}
-                    onScroll={updateArrows}
-                    className="flex w-full max-w-full min-w-0 snap-x snap-proximity gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2 scroll-smooth"
-                    style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
-                  >
-                    {uniqueMangas.map((item, index) => (
-                      <div
-                        key={`${audience}-${item.id}`}
-                        data-top-ten-card
-                        className={`shrink-0 snap-start ${TOP_TEN_CARD_WIDTH_CLASS}`}
-                      >
-                        <TopTenCard
-                          manga={item}
-                          index={index}
-                          audience={audience}
-                          disableHeavyEffects={disableHeavyEffects}
-                        />
-                      </div>
-                    ))}
                   </div>
-                </motion.div>
-              ) : (
-                <motion.div
-                  key={`${audience}-${timeframe}-empty`}
-                  initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
-                  transition={{ duration: disableHeavyEffects ? 0.12 : 0.16 }}
-                  className="rounded-[24px] border border-dashed border-white/15 bg-black/18 p-6 text-center sm:rounded-[28px] sm:p-8"
-                >
-                  <p className="text-[13px] text-white/68 sm:text-sm">
-                    {audienceMeta.emptyText}
-                  </p>
-                </motion.div>
-              )}
-            </AnimatePresence>
+                ))}
+              </div>
+            ) : (
+              <AnimatePresence initial={false}>
+                {uniqueMangas.length > 0 ? (
+                  <motion.div
+                    key={`${audience}-${timeframe}-content`}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    transition={{ duration: 0.16, ease: 'easeOut' }}
+                    className="min-w-0"
+                  >
+                    <div
+                      ref={scrollRef}
+                      onScroll={updateArrows}
+                      className="flex w-full max-w-full min-w-0 snap-x snap-proximity gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2 scroll-smooth"
+                      style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
+                    >
+                      {uniqueMangas.map((item, index) => (
+                        <div
+                          key={`${audience}-${item.id}`}
+                          data-top-ten-card
+                          className={`shrink-0 snap-start ${TOP_TEN_CARD_WIDTH_CLASS}`}
+                        >
+                          <TopTenCard
+                            manga={item}
+                            index={index}
+                            audience={audience}
+                            disableHeavyEffects={disableHeavyEffects}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </motion.div>
+                ) : (
+                  <motion.div
+                    key={`${audience}-${timeframe}-empty`}
+                    initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: disableHeavyEffects ? 0.12 : 0.16 }}
+                    className="rounded-[24px] border border-dashed border-white/15 bg-black/18 p-6 text-center sm:rounded-[28px] sm:p-8"
+                  >
+                    <p className="text-[13px] text-white/68 sm:text-sm">
+                      {audienceMeta.emptyText}
+                    </p>
+                  </motion.div>
+                )}
+              </AnimatePresence>
+            )}
           </div>
         </div>
       </div>
@@ -569,7 +565,10 @@ const TopTen: React.FC = () => {
     adult: 'today',
   });
   const [sections, setSections] = useState<TopTenSections>(() => readCachedTopTenSections());
-  const [isLoading, setIsLoading] = useState(true);
+  const [isLoading, setIsLoading] = useState(() => {
+    const cached = readCachedTopTenSections();
+    return cached.safe.today.length === 0 && cached.adult.today.length === 0;
+  });
   const [adultModeEnabled, setAdultModeEnabled] = useState(
     () => user?.preferences?.content?.adult_mode === true,
   );
@@ -602,33 +601,18 @@ const TopTen: React.FC = () => {
       };
     }
 
-    setSections(readCachedTopTenSections());
-    setIsLoading(true);
+    const cachedSections = readCachedTopTenSections();
+    const hasCachedCards = cachedSections.safe.today.length > 0 || cachedSections.adult.today.length > 0;
+    setSections(cachedSections);
+    setIsLoading(!hasCachedCards);
 
     const loadTopTenSections = async () => {
       try {
-        const [todayBuckets, weekBuckets, allBuckets] = await Promise.all([
-          getTopTenPageBuckets('today'),
-          getTopTenPageBuckets('week'),
-          getTopTenPageBuckets('all'),
-        ]);
+        const nextSections = await getTopTenPageData();
 
         if (!active) {
           return;
         }
-
-        const nextSections: TopTenSections = {
-          safe: {
-            today: todayBuckets.safe,
-            week: weekBuckets.safe,
-            all: allBuckets.safe,
-          },
-          adult: {
-            today: todayBuckets.adult,
-            week: weekBuckets.adult,
-            all: allBuckets.adult,
-          },
-        };
 
         TOP_TEN_PAGE_CACHE.safe.today = nextSections.safe.today;
         TOP_TEN_PAGE_CACHE.safe.week = nextSections.safe.week;
@@ -640,7 +624,7 @@ const TopTen: React.FC = () => {
         setSections(nextSections);
       } catch (error) {
         console.error('Top ten page loading error:', error);
-        if (active) {
+        if (active && !hasCachedCards) {
           setSections(EMPTY_TOP_TEN_SECTIONS);
         }
       } finally {

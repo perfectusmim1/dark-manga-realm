@@ -239,12 +239,78 @@ const getStableDeviceSeed = async () => {
     ].join('|');
 };
 
-export const getDeviceIdentity = async () => {
-    const installationId = await getOrCreateDeviceInstallationId();
-    const stableSeed = await getStableDeviceSeed();
+const DEVICE_IDENTITY_SESSION_KEY = 'toonparrot_device_identity_v1';
 
-    return {
-        deviceInstallationId: installationId,
-        deviceHash: await sha256Hex(stableSeed),
-    };
+type DeviceIdentity = {
+    deviceInstallationId: string;
+    deviceHash: string;
+};
+
+let memoizedDeviceIdentity: DeviceIdentity | null = null;
+let memoizedDeviceIdentityPromise: Promise<DeviceIdentity> | null = null;
+
+const readSessionDeviceIdentity = (): DeviceIdentity | null => {
+    if (!isBrowser()) return null;
+    try {
+        const raw = window.sessionStorage.getItem(DEVICE_IDENTITY_SESSION_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw);
+        if (
+            parsed
+            && typeof parsed.deviceInstallationId === 'string'
+            && parsed.deviceInstallationId.length >= 16
+            && typeof parsed.deviceHash === 'string'
+            && parsed.deviceHash.length >= 32
+        ) {
+            return {
+                deviceInstallationId: parsed.deviceInstallationId,
+                deviceHash: parsed.deviceHash,
+            };
+        }
+    } catch {
+        // Ignore storage parse/access errors
+    }
+    return null;
+};
+
+const writeSessionDeviceIdentity = (identity: DeviceIdentity) => {
+    if (!isBrowser()) return;
+    try {
+        window.sessionStorage.setItem(DEVICE_IDENTITY_SESSION_KEY, JSON.stringify(identity));
+    } catch {
+        // Ignore quota errors
+    }
+};
+
+export const getDeviceIdentity = async (): Promise<DeviceIdentity> => {
+    if (memoizedDeviceIdentity) {
+        return memoizedDeviceIdentity;
+    }
+
+    const sessionCached = readSessionDeviceIdentity();
+    if (sessionCached) {
+        memoizedDeviceIdentity = sessionCached;
+        return sessionCached;
+    }
+
+    if (!memoizedDeviceIdentityPromise) {
+        memoizedDeviceIdentityPromise = (async () => {
+            const [installationId, stableSeed] = await Promise.all([
+                getOrCreateDeviceInstallationId(),
+                getStableDeviceSeed(),
+            ]);
+
+            const identity = {
+                deviceInstallationId: installationId,
+                deviceHash: await sha256Hex(stableSeed),
+            };
+            memoizedDeviceIdentity = identity;
+            writeSessionDeviceIdentity(identity);
+            return identity;
+        })().finally(() => {
+            memoizedDeviceIdentityPromise = null;
+        });
+    }
+
+    return memoizedDeviceIdentityPromise;
 };
