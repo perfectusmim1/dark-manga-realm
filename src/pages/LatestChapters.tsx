@@ -219,25 +219,27 @@ const LatestChapters: React.FC = () => {
                                                     if (chTitle.includes('[en]') || chTitle.includes('(en)')) {
                                                         const enLang = getLanguageInfoByCode('en');
                                                         return (
-                                                            <Badge variant="outline" className="px-1 py-0.5 border-sky-500/40 bg-sky-500/15 text-sky-400">
+                                                            <span title={enLang.label} className="inline-flex shrink-0 items-center">
                                                                 <LanguageFlag code="en" label={enLang.label} className="h-3.5 w-5" />
-                                                            </Badge>
+                                                            </span>
                                                         );
                                                     }
                                                     const lang = mangaLangMap[chapter.mangaId] || getSeriesLanguageInfo({ title: chapter.mangaTitle });
                                                     if (lang.language === 'tr') return null;
+                                                    if (lang.language === 'raw') {
+                                                        return (
+                                                            <Badge
+                                                                variant="outline"
+                                                                className={cn('px-1.5 py-0.5 text-[10px] font-black uppercase', lang.badgeClassName)}
+                                                            >
+                                                                <LanguageFlag code={lang.language} label={lang.label} className="h-3.5 w-5" />
+                                                            </Badge>
+                                                        );
+                                                    }
                                                     return (
-                                                        <Badge
-                                                            variant="outline"
-                                                            className={cn(
-                                                                lang.language === 'raw'
-                                                                    ? 'px-1.5 py-0.5 text-[10px] font-black uppercase'
-                                                                    : 'px-1 py-0.5',
-                                                                lang.badgeClassName,
-                                                            )}
-                                                        >
+                                                        <span title={lang.label} className="inline-flex shrink-0 items-center">
                                                             <LanguageFlag code={lang.language} label={lang.label} className="h-3.5 w-5" />
-                                                        </Badge>
+                                                        </span>
                                                     );
                                                 })()}
                                                 <span className="text-[11px] text-muted-foreground">

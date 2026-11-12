@@ -592,9 +592,8 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                             }
                           }}
                           className={cn(
-                            'inline-flex shrink-0 items-center justify-center rounded border transition-all hover:scale-105',
-                            langInfo.language === 'raw' ? 'px-1.5 py-0.5 text-[9px] font-black' : 'px-1 py-0.5',
-                            langInfo.badgeClass,
+                            'inline-flex shrink-0 items-center justify-center transition-all hover:scale-105',
+                            langInfo.language === 'raw' && cn('rounded border px-1.5 py-0.5 text-[9px] font-black', langInfo.badgeClass),
                             variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                           )}
                           title={`${langInfo.label} olarak aç`}

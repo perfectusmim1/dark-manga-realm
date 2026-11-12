@@ -2935,19 +2935,29 @@ const MangaDetail: React.FC = () => {
                       key={variant.id}
                       to={`/manga/${manga.id}/chapter/${variant.id}`}
                       title={`${langInfo.label} (${formatChapterDisplayTitle(variant.number, variant.title)})`}
-                      className="inline-flex"
+                      className="inline-flex items-center"
                     >
-                      <Badge
-                        variant="outline"
-                        className={cn(
-                          'h-5 shrink-0 transition-all hover:scale-105',
-                          langInfo.language === 'raw' ? 'px-1.5 py-0 text-[10px] font-black' : 'px-1 py-0',
-                          langInfo.badgeClass,
-                          variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
-                        )}
-                      >
-                        <LanguageFlag code={langInfo.language} label={langInfo.label} className="h-3.5 w-5" />
-                      </Badge>
+                      {langInfo.language === 'raw' ? (
+                        <Badge
+                          variant="outline"
+                          className={cn(
+                            'h-5 shrink-0 px-1.5 py-0 text-[10px] font-black transition-all hover:scale-105',
+                            langInfo.badgeClass,
+                            variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
+                          )}
+                        >
+                          <LanguageFlag code={langInfo.language} label={langInfo.label} className="h-3.5 w-5" />
+                        </Badge>
+                      ) : (
+                        <span
+                          className={cn(
+                            'inline-flex shrink-0 items-center transition-transform hover:scale-105',
+                            variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
+                          )}
+                        >
+                          <LanguageFlag code={langInfo.language} label={langInfo.label} className="h-3.5 w-5" />
+                        </span>
+                      )}
                     </Link>
                   );
                 })}
