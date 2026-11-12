@@ -80,7 +80,7 @@ export const useAdminAccess = (options?: { requireOnlineValidation?: boolean; en
                 });
 
                 if (!isCancelled) {
-                    setAccess(nextAccess);
+                    setAccess(nextAccess ?? DEFAULT_ACCESS);
                 }
             } catch (error) {
                 if (!isExpectedAccessControlError(error)) {

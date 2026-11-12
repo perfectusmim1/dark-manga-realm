@@ -1110,6 +1110,9 @@ const readPersistedAdminAccessContext = (authUserId?: string | null): AdminAcces
         if (typeof parsed.fetchedAt !== 'number' || Date.now() - parsed.fetchedAt >= STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS) {
             return null;
         }
+        if (!parsed.value || typeof parsed.value.canAccessAdminPanel !== 'boolean') {
+            return null;
+        }
         return parsed.value as AdminAccessContext;
     } catch {
         return null;
@@ -4007,10 +4010,16 @@ export const getAdminAccessContext = async (options?: { forceOnline?: boolean })
         });
     })();
 
+    if (!forceOnline) {
+        adminAccessContextPromise = request;
+    }
+
     try {
-        return await adminAccessContextPromise;
+        return await request;
     } finally {
-        adminAccessContextPromise = null;
+        if (adminAccessContextPromise === request) {
+            adminAccessContextPromise = null;
+        }
     }
 };
 
