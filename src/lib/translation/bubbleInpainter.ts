@@ -12,7 +12,7 @@ import {
 } from './textLayout';
 import { ScanlationFontKey, TranslationBlock } from './types';
 
-export const TRANSLATION_BLOCK_VERSION = 10;
+export const TRANSLATION_BLOCK_VERSION = 11;
 export const SCANLATION_FONT_FAMILY = FONT_FAMILY_MAP.shantell;
 
 interface ComponentInfo {
@@ -26,6 +26,8 @@ interface ComponentInfo {
   area: number;
   corePixels: number;
   touchesBorder: boolean;
+  touchesSideOrWinEdge: boolean;
+  touchesImageSeamEdge: boolean;
   overlapsCore: boolean;
 }
 
@@ -266,13 +268,19 @@ export const inpaintAndRefineBlock = (
 
   // Büyük/stilize harflerin ("NO", "FIRST MURDER.", "ALONE?") pencere sınırına çarpıp
   // balon çerçevesi sanılmasını önlemek ve yuvarlak/dikenli balonların üst-alt boşluğunu tam görmek için geniş arama penceresi
-  const padWinX = Math.max(bh < 55 ? 64 : 48, bw * 0.48, bh * 0.95);
+  const nearTopSeam = boxY0 <= 90;
+  const nearBottomSeam = fullHeight - boxY1 <= 90;
+  const padWinX = Math.max(
+    nearTopSeam || nearBottomSeam ? 130 : bh < 55 ? 64 : 48,
+    bw * 0.48,
+    bh * 0.95,
+  );
   const padWinY = Math.max(bh < 55 ? 56 : 48, bh * 1.15, bw * 0.42);
 
   let wx0 = Math.max(0, Math.floor(boxX0 - padWinX));
   let wx1 = Math.min(fullWidth, Math.ceil(boxX1 + padWinX));
-  let wy0 = Math.max(0, Math.floor(boxY0 - padWinY));
-  let wy1 = Math.min(fullHeight, Math.ceil(boxY1 + padWinY));
+  let wy0 = nearTopSeam ? 0 : Math.max(0, Math.floor(boxY0 - padWinY));
+  let wy1 = nearBottomSeam ? fullHeight : Math.min(fullHeight, Math.ceil(boxY1 + padWinY));
 
   // Pencere analizini yapan iç yardımcı (pencere kenarına değen harf olursa pencereyi büyütüp tekrar çalıştırabilmek için)
   const analyzeWindow = (curWx0: number, curWy0: number, curWx1: number, curWy1: number) => {
@@ -541,6 +549,8 @@ export const inpaintAndRefineBlock = (
           let area = 0;
           let corePixels = 0;
           let touchesBorder = false;
+          let touchesSideOrWinEdge = false;
+          let touchesImageSeamEdge = false;
           let overlapsCore = false;
 
           while (qHead < qTail) {
@@ -553,7 +563,21 @@ export const inpaintAndRefineBlock = (
             if (cx > maxx) maxx = cx;
             if (cy < miny) miny = cy;
             if (cy > maxy) maxy = cy;
-            if (cx <= 1 || cx >= ww - 2 || cy <= 1 || cy >= wh - 2) touchesBorder = true;
+            const hitSideOrInner =
+              cx <= 1 ||
+              cx >= ww - 2 ||
+              (cy <= 1 && curWy0 > 0) ||
+              (cy >= wh - 2 && curWy1 < fullHeight);
+            const hitSeamEdge =
+              (curWy0 === 0 && cy <= 1) || (curWy1 === fullHeight && cy >= wh - 2);
+            if (hitSideOrInner) {
+              touchesSideOrWinEdge = true;
+              touchesBorder = true;
+            }
+            if (hitSeamEdge) {
+              touchesImageSeamEdge = true;
+              touchesBorder = true;
+            }
             if (isInsideAnyCore(cx, cy)) {
               overlapsCore = true;
               corePixels += 1;
@@ -587,6 +611,8 @@ export const inpaintAndRefineBlock = (
             area,
             corePixels,
             touchesBorder,
+            touchesSideOrWinEdge,
+            touchesImageSeamEdge,
             overlapsCore,
           });
         }
@@ -633,8 +659,18 @@ export const inpaintAndRefineBlock = (
       origLineCount === 1 &&
       displayText.length <= 16;
 
+    const isSeamCutGlyphCandidate = (c: ComponentInfo): boolean =>
+      c.touchesImageSeamEdge &&
+      !c.touchesSideOrWinEdge &&
+      c.w <= Math.max(medLineH * 3.8, 96) &&
+      c.h <= Math.max(medLineH * 2.0, 48) &&
+      c.area <= Math.max(medLineH * medLineH * 2.4, 950) &&
+      c.w / Math.max(1, c.h) < 6.0;
+
     const isStructuralFrameOrDivider = (c: ComponentInfo): boolean => {
-      if (c.touchesBorder) return true;
+      if (c.touchesSideOrWinEdge) return true;
+      const seamGlyph = isSeamCutGlyphCandidate(c);
+      if (c.touchesBorder && !seamGlyph) return true;
       const coreRatio = c.corePixels / Math.max(1, c.area);
       const extendsOutsideCore =
         c.minx < cx0 - 3 || c.maxx > cx1 + 3 || c.miny < cy0 - 3 || c.maxy > cy1 + 3;
@@ -658,6 +694,7 @@ export const inpaintAndRefineBlock = (
       }
       // 3. Metin çekirdeğinin dışına taşan ve düşük çekirdek oranına sahip çerçeve/süsleme parçaları
       if (
+        !seamGlyph &&
         extendsOutsideCore &&
         coreRatio < 0.28 &&
         (c.w > medLineH * 2.2 || c.h > medLineH * 1.6 || c.area > medLineH * medLineH * 1.4)
@@ -984,6 +1021,22 @@ export const inpaintAndRefineBlock = (
     if (lbl !== 0) {
       if (accepted.has(lbl)) rawGlyphMask[i] = 1;
       else if (borderIds.has(lbl)) borderMask[i] = 1;
+    } else if (bgLumInit >= 195) {
+      // Kalın siyah konuşma balonu/dikenli daire duvarlarının iç dolgusunu (~30-50px kalınlık),
+      // integral penceresi ortalaması (<160) yüzünden `fg` dışında kalmış olsa bile koruma maskesine al.
+      const ly = (i / ww) | 0;
+      const lx = i - ly * ww;
+      if (lx < cx0 - 2 || lx > cx1 + 2 || ly < cy0 - 2 || ly > cy1 + 2) {
+        const cIdx = i * 3;
+        const pr = winRgb[cIdx];
+        const pg = winRgb[cIdx + 1];
+        const pb = winRgb[cIdx + 2];
+        const pixLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+        const dBg = Math.max(Math.abs(pr - bgR), Math.abs(pg - bgG), Math.abs(pb - bgB));
+        if (pixLum < 105 && dBg >= 85) {
+          borderMask[i] = 1;
+        }
+      }
     }
   }
 
@@ -1099,26 +1152,54 @@ export const inpaintAndRefineBlock = (
   if (bgLumInit >= 195 && hitLeftWall && hitRightWall) {
     const cavLeft = Math.max(2, safeLocalLeft);
     const cavRight = Math.min(ww - 3, safeLocalRight);
-    const cavTop = Math.max(
-      2,
-      hitTopWall ? safeLocalTop : Math.max(2, gMinY - Math.round(medGlyphH * 2.2)),
-    );
-    const cavBottom = Math.min(
-      wh - 3,
-      hitBottomWall ? safeLocalBottom : Math.min(wh - 3, gMaxY + Math.round(medGlyphH * 1.4)),
-    );
+    const cavTop = hitTopWall
+      ? Math.max(2, safeLocalTop)
+      : wy0 === 0
+        ? 0
+        : Math.max(2, gMinY - Math.round(medGlyphH * 2.2));
+    const cavBottom = hitBottomWall
+      ? Math.min(wh - 3, safeLocalBottom)
+      : wy1 === fullHeight
+        ? wh - 1
+        : Math.min(wh - 3, gMaxY + Math.round(medGlyphH * 1.4));
     let cavityAdded = false;
     for (const c of comps) {
       if (accepted.has(c.id) || borderIds.has(c.id)) continue;
-      if (c.area < 5 || c.touchesBorder || isStructuralFrameOrDivider(c)) continue;
+      if (c.area < 5 || c.touchesSideOrWinEdge || isStructuralFrameOrDivider(c)) continue;
+      if (c.miny < cavTop || c.maxy > cavBottom) continue;
       if (
-        c.minx >= cavLeft &&
-        c.maxx <= cavRight &&
-        c.miny >= cavTop &&
-        c.maxy <= cavBottom &&
-        c.h <= Math.max(medGlyphH * 1.85, medLineH * 1.85) &&
-        c.w <= Math.max(medGlyphH * 2.8, medLineH * 2.8)
+        c.h > Math.max(medGlyphH * 1.85, medLineH * 1.85) ||
+        c.w > Math.max(medGlyphH * 3.8, medLineH * 3.8, 96)
       ) {
+        continue;
+      }
+      // Yuvarlak/dikenli balonlarda kesilen üst/alt satır ekvatora daha yakın ve daha geniş olabildiğinden,
+      // adayın kendi Y hizasında merkezden sağ/sol `borderMask` duvarlarını ölç.
+      const cMidY = clamp(Math.round((c.miny + c.maxy) * 0.5), 0, wh - 1);
+      const scanOriginX = clamp(midLocalXInit, 0, ww - 1);
+      let rowLeftWall = 0;
+      let rowHitLeft = false;
+      for (let x = scanOriginX; x >= 0; x -= 1) {
+        if (isStructuralWallAt(x, cMidY)) {
+          rowLeftWall = x;
+          rowHitLeft = true;
+          break;
+        }
+      }
+      let rowRightWall = ww - 1;
+      let rowHitRight = false;
+      for (let x = scanOriginX; x < ww; x += 1) {
+        if (isStructuralWallAt(x, cMidY)) {
+          rowRightWall = x;
+          rowHitRight = true;
+          break;
+        }
+      }
+      const fitsRowWalls =
+        rowHitLeft && rowHitRight && rowRightWall - rowLeftWall < ww - 6
+          ? c.minx >= rowLeftWall + 2 && c.maxx <= rowRightWall - 2
+          : c.minx >= cavLeft && c.maxx <= cavRight;
+      if (fitsRowWalls) {
         accepted.add(c.id);
         cavityAdded = true;
         if (c.minx < gMinX) gMinX = c.minx;
@@ -1326,16 +1407,16 @@ export const inpaintAndRefineBlock = (
     // Düz konuşma balonlarında dikenli/yuvarlak balon çerçevelerini asla dikdörtgen olarak silme;
     // yalnızca mevcut silme maskesinin (eraseMask) 2px komşuluğundaki anti-aliasing/mürekkep kalıntılarını temizle!
     const baseErase = new Uint8Array(eraseMask);
-    for (let y = Math.max(1, egMinY - 2); y <= Math.min(wh - 2, egMaxY + 2); y += 1) {
+    for (let y = Math.max(0, egMinY - 2); y <= Math.min(wh - 1, egMaxY + 2); y += 1) {
       const rOff = y * ww;
-      for (let x = Math.max(1, egMinX - 2); x <= Math.min(ww - 2, egMaxX + 2); x += 1) {
+      for (let x = Math.max(0, egMinX - 2); x <= Math.min(ww - 1, egMaxX + 2); x += 1) {
         const idx = rOff + x;
         if (borderMask[idx] || eraseMask[idx]) continue;
         if (
-          baseErase[idx - 1] ||
-          baseErase[idx + 1] ||
-          baseErase[idx - ww] ||
-          baseErase[idx + ww]
+          (x > 0 && baseErase[idx - 1]) ||
+          (x < ww - 1 && baseErase[idx + 1]) ||
+          (y > 0 && baseErase[idx - ww]) ||
+          (y < wh - 1 && baseErase[idx + ww])
         ) {
           const cIdx = idx * 3;
           const d = Math.max(

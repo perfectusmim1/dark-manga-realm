@@ -332,8 +332,14 @@ export const useChapterTranslation = ({
       runningRef.current = runningOcrRef.current + runningTransRef.current;
       setPageState(index, { status: 'translating' });
 
+      const prevSrc = index > 0 ? pagesRef.current[index - 1]?.src : undefined;
+      const nextSrc =
+        index + 1 < pagesRef.current.length ? pagesRef.current[index + 1]?.src : undefined;
+
       extractPageOcr({
         imageSrc: src,
+        prevImageSrc: prevSrc,
+        nextImageSrc: nextSrc,
         targetLang: langAtStart,
         signal,
       })

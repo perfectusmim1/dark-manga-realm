@@ -25,6 +25,8 @@ export interface OcrBubble {
   lines?: OcrBubbleLineBox[];
   /** Son satır vurgulu/büyük yazılmışsa ("ALONE?" gibi) büyüklük çarpanı */
   emphasisLastLineScale?: number;
+  /** Sayfa ek yerinden taşan aynı balonun küçük parçası: yalnızca orijinal mürekkebi siler, metin basmaz */
+  seamEraseOnly?: boolean;
 }
 
 export type OcrModelRunner = (
@@ -512,6 +514,7 @@ export const groupOcrLinesIntoBubbles = (
     const cw = cb.x1 - cb.x0;
     const centerXc = (cb.x0 + cb.x1) * 0.5;
     const centerYc = (cb.y0 + cb.y1) * 0.5;
+    const isEdgeTruncated = cb.y0 <= 4 || cb.y1 >= imgHeight - 4;
 
     return strongLines.some((s) => {
       const sb = s.bbox;
@@ -521,7 +524,7 @@ export const groupOcrLinesIntoBubbles = (
       const centerYs = (sb.y0 + sb.y1) * 0.5;
       const minH = Math.min(ch, sh);
       const maxH = Math.max(ch, sh);
-      if (maxH / Math.max(1, minH) > 2.85) return false;
+      if (!isEdgeTruncated && maxH / Math.max(1, minH) > 2.85) return false;
 
       // Yatay komşu ("FIRST MURD" + "ER.")
       const vOverlap = Math.min(cb.y1, sb.y1) - Math.max(cb.y0, sb.y0);
@@ -531,7 +534,10 @@ export const groupOcrLinesIntoBubbles = (
       }
 
       // Dikey balon içi komşu ("SO" + "WEAK?!", "Esta" + "BEBIDA SABE", "I've found its" + "weak spot!" vb.)
-      if (letters >= 2 && junk <= 1 && cand.confidence >= 36) {
+      const reqConf = isEdgeTruncated ? 34 : 36;
+      const maxJunk = isEdgeTruncated ? 2 : 1;
+      const minOverlapRatio = isEdgeTruncated ? 0.25 : 0.32;
+      if (letters >= 2 && junk <= maxJunk && cand.confidence >= reqConf) {
         const vGap = Math.max(cb.y0, sb.y0) - Math.min(cb.y1, sb.y1);
         const hOverlap = Math.min(cb.x1, sb.x1) - Math.max(cb.x0, sb.x0);
         const narrow = Math.min(cw, sw);
@@ -541,7 +547,7 @@ export const groupOcrLinesIntoBubbles = (
           vGap >= -minH * 0.62 &&
           centerYDist >= minH * 0.45 &&
           vGap <= maxH * 1.55 &&
-          hOverlap > narrow * 0.32 &&
+          hOverlap > narrow * minOverlapRatio &&
           centerDist < maxH * 2.1
         ) {
           return true;
@@ -632,13 +638,21 @@ export const groupOcrLinesIntoBubbles = (
       if (isStatA || isStatB) continue;
 
       // Kutu çerçevesinin üst sınırında duran başlıkları ("SYSTEM PROMPT", "QUEST INFO" vb.)
-      // altındaki uzun/geniş gövde paragrafıyla ("YOU REQUIRE 90 MORE EVOLUTION POINTS BEFORE...") birleştirme!
-      const wordsA = lines[i].text.trim().split(/\s+/).length;
-      const wordsB = lines[j].text.trim().split(/\s+/).length;
+      // altındaki uzun/geniş gövde paragrafıyla ("YOU REQUIRE 90 MORE EVOLUTION POINTS BEFORE...") birleştirme;
+      // ancak konuşma balonu üst satırlarını ("IF", "SO", "IT JUST" vb.) yanlışlıkla bölme!
+      const textA = lines[i].text.trim();
+      const textB = lines[j].text.trim();
+      const wordsA = textA.split(/\s+/).length;
+      const wordsB = textB.split(/\s+/).length;
+      const isSystemBoxHeader = (txt: string) =>
+        /^(?:SYSTEM(?:\s+PROMPT|\s+NOTICE|\s+MESSAGE|\s+ALERT|\s+WINDOW)?|QUEST(?:\s+INFO|\s+ALERT|\s+NOTICE|\s+UPDATED?)?|NOTICE|WARNING|ALERT|INFO|INFORMATION|NOTIFICATION|TIP|STATUS|PROFILE|STATS|SKILLS?|SKILLS?\s+LIST|INVENTORY|EVOLUTION|ANNOUNCEMENT|CONGRATULATIONS|HINT|OBJECTIVE)\b[:!]?$/i.test(
+          txt,
+        );
       if (
         ha >= hb * 1.16 &&
         wordsA <= 3 &&
-        (wordsB >= 5 || wb >= wa * 1.42)
+        (wordsB >= 5 || wb >= wa * 1.42) &&
+        isSystemBoxHeader(textA)
       ) {
         continue;
       }

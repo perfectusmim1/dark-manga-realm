@@ -600,16 +600,202 @@ export interface ExtractedPageOcr {
   tStart: number;
 }
 
+const SEAM_EDGE_THRESHOLD_NORM = 60;
+const SEAM_STRIP_HEIGHT_PX = 300;
+const MAX_SEAM_CACHE_ENTRIES = 24;
+
+interface SeamBubbleInfo {
+  yminPx: number;
+  xminPx: number;
+  ymaxPx: number;
+  xmaxPx: number;
+  text: string;
+}
+
+interface SeamOcrStripResult {
+  topW: number;
+  topH: number;
+  botW: number;
+  botH: number;
+  stripW: number;
+  seamY: number;
+  bubbles: SeamBubbleInfo[];
+}
+
+const seamOcrCache = new Map<string, Promise<SeamOcrStripResult | null>>();
+
+const loadCanvasFromImageSrc = async (
+  src: string,
+  signal?: AbortSignal,
+): Promise<HTMLCanvasElement> => {
+  const blob = await fetchTranslatableImageBlob(src, signal);
+  if (signal?.aborted) {
+    throw new DOMException('İptal edildi', 'AbortError');
+  }
+  const img = await loadImageElementFromBlob(blob);
+  const width = img.naturalWidth || img.width;
+  const height = img.naturalHeight || img.height;
+  if (width <= 0 || height <= 0) {
+    throw new Error('Komşu sayfa boyutları geçersiz');
+  }
+  const canvas = document.createElement('canvas');
+  canvas.width = width;
+  canvas.height = height;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) throw new Error('Komşu canvas bağlamı oluşturulamadı');
+  ctx.drawImage(img, 0, 0);
+  return canvas;
+};
+
+/**
+ * Ardışık iki webtoon sayfasının birleşim şeridini (üst sayfanın son 300px + alt sayfanın ilk 300px)
+ * tek görsel olarak OCR'dan geçirir ve dikişi (`seamY`) aşan konuşma balonlarını döndürür.
+ * Her komşu çifti oturum içi sınırlı önbellekte tutulur; iptal veya hata durumunda önbellekten düşülür.
+ */
+const getOrComputeSeamOcr = (
+  topSrc: string,
+  bottomSrc: string,
+  preloadedTop?: HTMLCanvasElement,
+  preloadedBottom?: HTMLCanvasElement,
+  signal?: AbortSignal,
+): Promise<SeamOcrStripResult | null> => {
+  const key = `${topSrc}::${bottomSrc}`;
+  const existing = seamOcrCache.get(key);
+  if (existing) return existing;
+
+  if (seamOcrCache.size >= MAX_SEAM_CACHE_ENTRIES) {
+    const oldestKey = seamOcrCache.keys().next().value;
+    if (oldestKey !== undefined) seamOcrCache.delete(oldestKey);
+  }
+
+  const job = (async (): Promise<SeamOcrStripResult | null> => {
+    const [topCanvas, botCanvas] = await Promise.all([
+      preloadedTop ? Promise.resolve(preloadedTop) : loadCanvasFromImageSrc(topSrc, signal),
+      preloadedBottom ? Promise.resolve(preloadedBottom) : loadCanvasFromImageSrc(bottomSrc, signal),
+    ]);
+    if (signal?.aborted) {
+      throw new DOMException('İptal edildi', 'AbortError');
+    }
+
+    const topW = topCanvas.width;
+    const topH = topCanvas.height;
+    const botW = botCanvas.width;
+    const botH = botCanvas.height;
+    const topSliceH = Math.min(SEAM_STRIP_HEIGHT_PX, topH);
+    const botSliceH = Math.min(SEAM_STRIP_HEIGHT_PX, botH);
+    if (topSliceH < 24 || botSliceH < 24) return null;
+
+    const stripW = Math.max(topW, botW);
+    const stripH = topSliceH + botSliceH;
+    const stripCanvas = document.createElement('canvas');
+    stripCanvas.width = stripW;
+    stripCanvas.height = stripH;
+    const stripCtx = stripCanvas.getContext('2d');
+    if (!stripCtx) return null;
+
+    stripCtx.drawImage(
+      topCanvas,
+      0,
+      topH - topSliceH,
+      topW,
+      topSliceH,
+      0,
+      0,
+      stripW,
+      topSliceH,
+    );
+    stripCtx.drawImage(
+      botCanvas,
+      0,
+      0,
+      botW,
+      botSliceH,
+      0,
+      topSliceH,
+      stripW,
+      botSliceH,
+    );
+
+    const ocr = await runFastWebtoonOcr(stripCanvas, signal);
+    const seamY = topSliceH;
+    const crossing = ocr.bubbles
+      .map((b) => ({
+        yminPx: (b.box[0] / 1000) * stripH,
+        xminPx: (b.box[1] / 1000) * stripW,
+        ymaxPx: (b.box[2] / 1000) * stripH,
+        xmaxPx: (b.box[3] / 1000) * stripW,
+        text: b.text,
+      }))
+      .filter((sb) => sb.yminPx < seamY - 2 && sb.ymaxPx > seamY + 2 && sb.text.trim().length > 0);
+
+    return {
+      topW,
+      topH,
+      botW,
+      botH,
+      stripW,
+      seamY,
+      bubbles: crossing,
+    };
+  })().catch((err) => {
+    seamOcrCache.delete(key);
+    if (err instanceof DOMException && err.name === 'AbortError') {
+      throw err;
+    }
+    console.warn('[Seam OCR Error]', err);
+    return null;
+  });
+
+  seamOcrCache.set(key, job);
+  return job;
+};
+
+const mergeSamePageSeamFragments = (
+  bubbles: OcrBubble[],
+  indices: number[],
+  seamText: string,
+  seamEraseOnly: boolean,
+): OcrBubble => {
+  let ymin = 1000;
+  let xmin = 1000;
+  let ymax = 0;
+  let xmax = 0;
+  const mergedLines: NonNullable<OcrBubble['lines']> = [];
+  let maxEmphasis: number | undefined;
+  for (const idx of indices) {
+    const b = bubbles[idx];
+    if (b.box[0] < ymin) ymin = b.box[0];
+    if (b.box[1] < xmin) xmin = b.box[1];
+    if (b.box[2] > ymax) ymax = b.box[2];
+    if (b.box[3] > xmax) xmax = b.box[3];
+    if (b.lines) mergedLines.push(...b.lines);
+    if (b.emphasisLastLineScale) {
+      maxEmphasis = Math.max(maxEmphasis ?? 1, b.emphasisLastLineScale);
+    }
+  }
+  return {
+    box: [ymin, xmin, ymax, xmax],
+    text: seamEraseOnly ? '' : seamText,
+    lines: mergedLines.length > 0 ? mergedLines : undefined,
+    emphasisLastLineScale: maxEmphasis,
+    seamEraseOnly,
+  };
+};
+
 /**
  * 1. AŞAMA: Görseli yükler, hazırlar ve yerel WASM OCR (PaddleOCR ONNX Web Worker) ile metin balonlarını çıkarır.
  * CPU/Worker ağırlıklıdır; tamamlandığı an sıradaki sayfanın OCR'ına hemen geçilebilir!
  */
 export const extractPageOcr = async ({
   imageSrc,
+  prevImageSrc,
+  nextImageSrc,
   targetLang,
   signal,
 }: {
   imageSrc: string;
+  prevImageSrc?: string;
+  nextImageSrc?: string;
   targetLang: string;
   signal?: AbortSignal;
 }): Promise<ExtractedPageOcr> => {
@@ -644,12 +830,120 @@ export const extractPageOcr = async ({
   // Yerel OCR ile metin satırlarını bul ve balonlara grupla
   const tOcrStart = performance.now();
   const ocr = await runFastWebtoonOcr(fullCanvas, signal);
+
+  let workingBubbles = ocr.isPromoPage ? [] : [...ocr.bubbles];
+
+  if (!ocr.isPromoPage && workingBubbles.length > 0) {
+    const hasTopEdgeBubble =
+      Boolean(prevImageSrc) && workingBubbles.some((b) => b.box[0] <= SEAM_EDGE_THRESHOLD_NORM);
+    const hasBottomEdgeBubble =
+      Boolean(nextImageSrc) && workingBubbles.some((b) => b.box[2] >= 1000 - SEAM_EDGE_THRESHOLD_NORM);
+
+    const [topSeam, bottomSeam] = await Promise.all([
+      hasTopEdgeBubble && prevImageSrc
+        ? getOrComputeSeamOcr(prevImageSrc, imageSrc, undefined, fullCanvas, signal)
+        : Promise.resolve(null),
+      hasBottomEdgeBubble && nextImageSrc
+        ? getOrComputeSeamOcr(imageSrc, nextImageSrc, fullCanvas, undefined, signal)
+        : Promise.resolve(null),
+    ]);
+
+    const applySeamResolution = (
+      seam: SeamOcrStripResult | null,
+      edgeSide: 'top' | 'bottom',
+    ) => {
+      if (!seam || seam.bubbles.length === 0) return;
+      const matchesBySeamIdx = new Map<number, number[]>();
+      for (let i = 0; i < workingBubbles.length; i += 1) {
+        const b = workingBubbles[i];
+        if (edgeSide === 'top' && b.box[0] > SEAM_EDGE_THRESHOLD_NORM) continue;
+        if (edgeSide === 'bottom' && b.box[2] < 1000 - SEAM_EDGE_THRESHOLD_NORM) continue;
+
+        const scaleX = seam.stripW / fullWidth;
+        const bx0 = (b.box[1] / 1000) * fullWidth * scaleX;
+        const bx1 = (b.box[3] / 1000) * fullWidth * scaleX;
+        const bwPx = Math.max(1, bx1 - bx0);
+        const by0Orig = (b.box[0] / 1000) * fullHeight;
+        const by1Orig = (b.box[2] / 1000) * fullHeight;
+        const by0Strip =
+          edgeSide === 'top'
+            ? seam.seamY + by0Orig
+            : seam.seamY - (fullHeight - by0Orig);
+        const by1Strip =
+          edgeSide === 'top'
+            ? seam.seamY + by1Orig
+            : seam.seamY - (fullHeight - by1Orig);
+
+        let bestSeamIdx = -1;
+        let bestOverlap = 0;
+        for (let sIdx = 0; sIdx < seam.bubbles.length; sIdx += 1) {
+          const sb = seam.bubbles[sIdx];
+          const sbW = Math.max(1, sb.xmaxPx - sb.xminPx);
+          const overlapX = Math.min(bx1, sb.xmaxPx) - Math.max(bx0, sb.xminPx);
+          const minW = Math.min(bwPx, sbW);
+          const bCenterX = (bx0 + bx1) * 0.5;
+          const horizontallyAligned =
+            overlapX > minW * 0.35 ||
+            (bCenterX >= sb.xminPx - 18 && bCenterX <= sb.xmaxPx + 18 && bwPx <= sbW * 1.4);
+          if (!horizontallyAligned) continue;
+
+          const verticallyValid =
+            edgeSide === 'top'
+              ? by0Strip <= sb.ymaxPx + 12 && by1Strip >= seam.seamY - 6
+              : by1Strip >= sb.yminPx - 12 && by0Strip <= seam.seamY + 6;
+          if (!verticallyValid) continue;
+
+          if (overlapX >= bestOverlap) {
+            bestOverlap = overlapX;
+            bestSeamIdx = sIdx;
+          }
+        }
+
+        if (bestSeamIdx >= 0) {
+          const list = matchesBySeamIdx.get(bestSeamIdx) ?? [];
+          list.push(i);
+          matchesBySeamIdx.set(bestSeamIdx, list);
+        }
+      }
+
+      if (matchesBySeamIdx.size === 0) return;
+
+      const consumed = new Set<number>();
+      const additions: OcrBubble[] = [];
+      for (const [sIdx, matchedIndices] of matchesBySeamIdx.entries()) {
+        const sb = seam.bubbles[sIdx];
+        const hAbove = Math.max(0, seam.seamY - sb.yminPx);
+        const hBelow = Math.max(0, sb.ymaxPx - seam.seamY);
+        const thisPageOwnsText = edgeSide === 'bottom' ? hAbove >= hBelow : hBelow > hAbove;
+        matchedIndices.forEach((idx) => consumed.add(idx));
+        additions.push(
+          mergeSamePageSeamFragments(
+            workingBubbles,
+            matchedIndices,
+            sb.text,
+            !thisPageOwnsText,
+          ),
+        );
+      }
+
+      workingBubbles = workingBubbles
+        .filter((_, idx) => !consumed.has(idx))
+        .concat(additions)
+        .sort((a, b) => a.box[0] - b.box[0] || a.box[1] - b.box[1]);
+    };
+
+    applySeamResolution(topSeam, 'top');
+    applySeamResolution(bottomSeam, 'bottom');
+  }
+
   ocrMs = Math.round(performance.now() - tOcrStart);
 
   // Jenerik / ekip listesi / reklam / duyuru sayfaları hiç çevrilmez
   const rawBubbles = ocr.isPromoPage
     ? []
-    : ocr.bubbles.filter((bubble) => !shouldSkipBlock(bubble.text, targetLang));
+    : workingBubbles.filter(
+        (bubble) => bubble.seamEraseOnly || !shouldSkipBlock(bubble.text, targetLang),
+      );
 
   return {
     fullCanvas,
@@ -692,42 +986,56 @@ export const translateAndInpaintPage = async ({
     };
   }
 
+  const translatableIndices: number[] = [];
+  rawBubbles.forEach((b, idx) => {
+    if (!b.seamEraseOnly && b.text.trim().length > 0) {
+      translatableIndices.push(idx);
+    }
+  });
+
   const effectiveKeys = normalizeApiKeysList(apiKeys, apiKey);
-  if (provider === 'gemini' && effectiveKeys.length === 0) {
+  if (translatableIndices.length > 0 && provider === 'gemini' && effectiveKeys.length === 0) {
     throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
   }
 
   // Çeviri Motoru (Google Çeviri veya Gemini Flash-Lite Text)
-  const tTransStart = performance.now();
-  const originalTexts = rawBubbles.map((b) => b.text);
-  let translatedTexts: string[] = [];
-
-  if (provider === 'google') {
-    translatedTexts = await translateBatchWithGoogleFree(originalTexts, targetLang, signal);
-  } else {
-    translatedTexts = await translateBatchWithGeminiText(
-      originalTexts,
-      targetLang,
-      effectiveKeys,
-      signal,
-    );
+  const translatedByIndex = new Map<number, string>();
+  if (translatableIndices.length > 0) {
+    const tTransStart = performance.now();
+    const originalTexts = translatableIndices.map((idx) => rawBubbles[idx].text);
+    const translatedTexts =
+      provider === 'google'
+        ? await translateBatchWithGoogleFree(originalTexts, targetLang, signal)
+        : await translateBatchWithGeminiText(
+            originalTexts,
+            targetLang,
+            effectiveKeys,
+            signal,
+          );
+    transMs = Math.round(performance.now() - tTransStart);
+    translatableIndices.forEach((origIdx, arrPos) => {
+      translatedByIndex.set(origIdx, translatedTexts[arrPos] ?? rawBubbles[origIdx].text);
+    });
   }
-  transMs = Math.round(performance.now() - tTransStart);
 
   // Balonları inpaint et ve hedeflenen dilde yeniden diz
   const normalizeForCompare = (s: string) =>
     s.toLocaleLowerCase('en-US').replace(/[^\p{L}\p{N}]+/gu, '');
 
-  const unchangedCount = rawBubbles.filter(
-    (bubble, idx) => normalizeForCompare(translatedTexts[idx] || '') === normalizeForCompare(bubble.text),
+  const unchangedCount = translatableIndices.filter(
+    (idx) =>
+      normalizeForCompare(translatedByIndex.get(idx) || '') ===
+      normalizeForCompare(rawBubbles[idx].text),
   ).length;
-  const hasTranslatableSentence = rawBubbles.some(
-    (b) => FOREIGN_STOPWORD_REGEX.test(b.text) || b.text.trim().split(/\s+/).length >= 3,
+  const hasTranslatableSentence = translatableIndices.some(
+    (idx) =>
+      FOREIGN_STOPWORD_REGEX.test(rawBubbles[idx].text) ||
+      rawBubbles[idx].text.trim().split(/\s+/).length >= 3,
   );
   if (
     targetLang !== 'en' &&
-    rawBubbles.length >= 2 &&
-    unchangedCount === rawBubbles.length &&
+    translatableIndices.length >= 2 &&
+    unchangedCount === translatableIndices.length &&
     hasTranslatableSentence
   ) {
     throw new Error('Çeviri servisi yanıt vermedi (timeout)');
@@ -735,7 +1043,22 @@ export const translateAndInpaintPage = async ({
 
   const blocks = rawBubbles
     .map((bubble, idx) => {
-      const translated = (translatedTexts[idx] || bubble.text)
+      if (bubble.seamEraseOnly) {
+        return inpaintAndRefineBlock(
+          fullCtx,
+          fullWidth,
+          fullHeight,
+          {
+            box: bubble.box,
+            text: '',
+            originalText: bubble.text,
+            lines: bubble.lines,
+          },
+          targetLang,
+        );
+      }
+
+      const translated = (translatedByIndex.get(idx) || bubble.text)
         .replace(/<[^>]{1,32}>/g, ' ')
         .replace(/[<>]+/g, ' ')
         .replace(/\s+/g, ' ')
