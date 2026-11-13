@@ -58,7 +58,7 @@ export const TranslationOverlay: React.FC<{
         const textColor = block.textColor || (block.isDark ? '#fafafa' : '#0c0c0c');
         const fontSizeCqw = block.fontSizeCqw ?? 2.85;
         const fontFamilyCss = getFontFamilyCss(block.fontFamily);
-        const fontWeight = block.fontWeight ?? 700;
+        const fontWeight = block.fontWeight ?? 600;
         const lineHeightRatio = getLineHeightRatioForBlock(block);
         const strokeColor = block.strokeColor || '#ffffff';
         const strokeWidthEm = block.strokeWidthEm ?? 0.12;
@@ -118,6 +118,16 @@ export const TranslationOverlay: React.FC<{
             {wrapped.lines.length > 0 ? (
               wrapped.lines.map((line, lineIdx) => {
                 const lineCqw = Number((fontSizeCqw * line.scale).toFixed(3));
+                const ls = block.lineStyles?.[lineIdx];
+                const lineColor = ls?.textColor ?? textColor;
+                const lineHasStroke = ls?.hasTextStroke ?? block.hasTextStroke;
+                const lineStrokeColor = ls?.strokeColor ?? strokeColor;
+                const lineStrokeWidthEm = ls?.strokeWidthEm ?? strokeWidthEm;
+                const lineShadow = ls?.shadowColor
+                  ? `0 0 3px ${ls.shadowColor}, 0 0 7px ${ls.shadowColor}`
+                  : ls && ls.hasTextStroke === false
+                    ? undefined
+                    : textShadow;
                 return (
                   <span
                     key={lineIdx}
@@ -127,17 +137,17 @@ export const TranslationOverlay: React.FC<{
                     )}
                     style={
                       {
-                        color: textColor,
+                        color: lineColor,
                         fontFamily: fontFamilyCss,
                         fontWeight,
                         fontStyle: block.fontStyle || 'normal',
                         fontSize: `${lineCqw}cqw`,
                         lineHeight: lineHeightRatio,
                         letterSpacing,
-                        textShadow,
-                        ...(block.hasTextStroke
+                        textShadow: lineShadow,
+                        ...(lineHasStroke
                           ? {
-                              WebkitTextStroke: `${strokeWidthEm}em ${strokeColor}`,
+                              WebkitTextStroke: `${lineStrokeWidthEm}em ${lineStrokeColor}`,
                               paintOrder: 'stroke fill',
                             }
                           : undefined),

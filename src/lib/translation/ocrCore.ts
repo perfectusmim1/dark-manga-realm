@@ -15,6 +15,7 @@ export interface OcrLine {
   /** 0..100 arası güven skoru */
   confidence: number;
   bbox: { x0: number; y0: number; x1: number; y1: number };
+  angleDeg?: number;
 }
 
 export interface OcrBubble {
@@ -111,6 +112,11 @@ interface DetBox {
   y0: number;
   x1: number;
   y1: number;
+  angleDeg?: number;
+  rotCenterX?: number;
+  rotCenterY?: number;
+  rotMajorSpan?: number;
+  rotMinorSpan?: number;
 }
 
 /** DBNet olasılık haritasından bağlı bileşen analizi ile metin kutularını çıkarır. */
@@ -133,6 +139,11 @@ const extractDetBoxes = (prob: Float32Array, w: number, h: number): DetBox[] => 
     let maxY = minY;
     let sum = 0;
     let count = 0;
+    let sumX = 0;
+    let sumY = 0;
+    let sumXX = 0;
+    let sumXY = 0;
+    let sumYY = 0;
 
     while (head < tail) {
       const p = queue[head++];
@@ -140,6 +151,11 @@ const extractDetBoxes = (prob: Float32Array, w: number, h: number): DetBox[] => 
       const px = p - py * w;
       sum += prob[p];
       count += 1;
+      sumX += px;
+      sumY += py;
+      sumXX += px * px;
+      sumXY += px * py;
+      sumYY += py * py;
       if (px < minX) minX = px;
       if (px > maxX) maxX = px;
       if (py < minY) minY = py;
@@ -166,16 +182,54 @@ const extractDetBoxes = (prob: Float32Array, w: number, h: number): DetBox[] => 
     const score = sum / count;
     if (score < DET_BOX_THRESH) continue;
 
+    let angleDeg: number | undefined;
+    let rotCenterX: number | undefined;
+    let rotCenterY: number | undefined;
+    let rotMajorSpan: number | undefined;
+    let rotMinorSpan: number | undefined;
+    if (count >= 24 && bw >= 18) {
+      const meanX = sumX / count;
+      const meanY = sumY / count;
+      const varX = sumXX / count - meanX * meanX;
+      const varY = sumYY / count - meanY * meanY;
+      const covXY = sumXY / count - meanX * meanY;
+      const diff = varX - varY;
+      const trace = varX + varY;
+      const disc = Math.sqrt(diff * diff + 4 * covXY * covXY);
+      const lambda1 = (trace + disc) * 0.5;
+      const lambda2 = Math.max(0.5, (trace - disc) * 0.5);
+      if (lambda1 / lambda2 >= 4.2 && lambda1 > 16) {
+        let deg = (0.5 * Math.atan2(2 * covXY, diff) * 180) / Math.PI;
+        if (deg > 90) deg -= 180;
+        if (deg < -90) deg += 180;
+        const absDeg = Math.abs(deg);
+        if (absDeg >= 5.0 && absDeg <= 35.0) {
+          const majorLen = Math.sqrt(12 * lambda1);
+          const minorLen = Math.max(4, Math.sqrt(12 * lambda2));
+          if (Math.abs(Math.sin((deg * Math.PI) / 180)) * majorLen >= 5.5) {
+            angleDeg = Number(deg.toFixed(1));
+            rotCenterX = meanX + 0.5;
+            rotCenterY = meanY + 0.5;
+            rotMajorSpan = majorLen + Math.max(12, minorLen * 1.1);
+            rotMinorSpan = minorLen + Math.max(6, minorLen * 0.85);
+          }
+        }
+      }
+    }
+
     // DBNet küçültülmüş çekirdeğini orijinal metin sınırına genişlet (unclip)
-    // Kalın konturlu/stilize SFX ve kenar harflerinin kesilmemesi için yatay ve dikey tolerans
+    // Kalın konturlu/stilize SFX, açılış parantezi '(' ve kenar harflerinin kesilmemesi için tolerans
     const d = (bw * bh * DET_UNCLIP_RATIO) / (2 * (bw + bh));
-    const dx = Math.max(d * 1.28, bh * 0.36);
-    const dy = Math.max(d * 1.05, bh * 0.22);
+    const dx = Math.max(d * 1.44, bh * 0.44);
+    const dy = Math.max(d * 1.02, bh * 0.20);
     boxes.push({
       x0: clamp(minX - dx, 0, w),
       y0: clamp(minY - dy, 0, h),
       x1: clamp(maxX + 1 + dx, 0, w),
       y1: clamp(maxY + 1 + dy, 0, h),
+      ...(angleDeg !== undefined
+        ? { angleDeg, rotCenterX, rotCenterY, rotMajorSpan, rotMinorSpan }
+        : {}),
     });
   }
   return boxes;
@@ -217,22 +271,153 @@ const ctcDecode = (
   return { text, confidence: probCount > 0 ? (probSum / probCount) * 100 : 0 };
 };
 
+const sampleRotatedToTensor = (
+  img: OcrImageBuffer,
+  cx: number,
+  cy: number,
+  majorW: number,
+  minorH: number,
+  angleRad: number,
+  tw: number,
+  th: number,
+  outW: number,
+  mean: readonly number[],
+  std: readonly number[],
+  out: Float32Array,
+) => {
+  const { data, width, height } = img;
+  const plane = outW * th;
+  const cosA = Math.cos(angleRad);
+  const sinA = Math.sin(angleRad);
+  const stepX = majorW / tw;
+  const stepY = minorH / th;
+  for (let y = 0; y < th; y += 1) {
+    const v = (y + 0.5) * stepY - minorH * 0.5;
+    for (let x = 0; x < tw; x += 1) {
+      const u = (x + 0.5) * stepX - majorW * 0.5;
+      const fx = clamp(cx + u * cosA - v * sinA, 0, width - 1);
+      const fy = clamp(cy + u * sinA + v * cosA, 0, height - 1);
+      const x0 = Math.floor(fx);
+      const x1 = Math.min(width - 1, x0 + 1);
+      const y0 = Math.floor(fy);
+      const y1 = Math.min(height - 1, y0 + 1);
+      const wx = fx - x0;
+      const wy = fy - y0;
+      const i00 = (y0 * width + x0) * 4;
+      const i01 = (y0 * width + x1) * 4;
+      const i10 = (y1 * width + x0) * 4;
+      const i11 = (y1 * width + x1) * 4;
+      const o = y * outW + x;
+      for (let c = 0; c < 3; c += 1) {
+        const top = data[i00 + c] * (1 - wx) + data[i01 + c] * wx;
+        const bot = data[i10 + c] * (1 - wx) + data[i11 + c] * wx;
+        const val = (top * (1 - wy) + bot * wy) / 255;
+        const ch = 2 - c;
+        out[ch * plane + o] = (val - mean[ch]) / std[ch];
+      }
+    }
+  }
+};
+
 const recognizeBox = async (
   img: OcrImageBuffer,
   box: DetBox,
   runners: OcrRunners,
 ): Promise<{ text: string; confidence: number }> => {
-  const cw = box.x1 - box.x0;
-  const ch = box.y1 - box.y0;
-  if (cw < 4 || ch < 4) return { text: '', confidence: 0 };
+  const cwRaw = box.x1 - box.x0;
+  const chRaw = box.y1 - box.y0;
+  if (cwRaw < 4 || chRaw < 4) return { text: '', confidence: 0 };
+
+  let sy0 = box.y0;
+  let sy1 = box.y1;
+  if (chRaw >= 18 && cwRaw >= 12 && box.angleDeg === undefined) {
+    const xStart = clamp(Math.floor(box.x0), 0, img.width - 1);
+    const xEnd = clamp(Math.ceil(box.x1) - 1, xStart, img.width - 1);
+    const yStart = clamp(Math.floor(box.y0), 0, img.height - 1);
+    const yEnd = clamp(Math.ceil(box.y1) - 1, yStart, img.height - 1);
+    const bgLums: number[] = [];
+    const stepBx = Math.max(1, Math.floor((xEnd - xStart) / 16));
+    for (let x = xStart; x <= xEnd; x += stepBx) {
+      for (const y of [yStart, yEnd]) {
+        const idx = (y * img.width + x) * 4;
+        bgLums.push(0.299 * img.data[idx] + 0.587 * img.data[idx + 1] + 0.114 * img.data[idx + 2]);
+      }
+    }
+    if (bgLums.length > 0) {
+      bgLums.sort((a, b) => a - b);
+      const bgLum = bgLums[bgLums.length >> 1];
+      let inkY0 = yEnd + 1;
+      let inkY1 = yStart - 1;
+      const stepX = Math.max(1, Math.floor((xEnd - xStart) / 48));
+      for (let y = yStart; y <= yEnd; y += 1) {
+        const rowOff = y * img.width * 4;
+        let activeCols = 0;
+        for (let x = xStart; x <= xEnd; x += stepX) {
+          const idx = rowOff + x * 4;
+          const lum =
+            0.299 * img.data[idx] + 0.587 * img.data[idx + 1] + 0.114 * img.data[idx + 2];
+          if (Math.abs(lum - bgLum) >= 34) {
+            activeCols += 1;
+            if (activeCols >= 2) break;
+          }
+        }
+        if (activeCols >= 2) {
+          if (y < inkY0) inkY0 = y;
+          if (y > inkY1) inkY1 = y;
+        }
+      }
+      const inkH = inkY1 - inkY0 + 1;
+      if (inkH >= 7 && inkH < chRaw * 0.82) {
+        const padY = clamp(Math.round(inkH * 0.14), 2, 7);
+        sy0 = Math.max(box.y0, inkY0 - padY);
+        sy1 = Math.min(box.y1, inkY1 + 1 + padY);
+      }
+    }
+  }
+
+  const cw = cwRaw;
+  const ch = Math.max(4, sy1 - sy0);
   const tw = clamp(Math.round((REC_H * cw) / ch), 16, REC_MAX_W);
   const outW = Math.ceil(tw / 8) * 8;
   const input = new Float32Array(3 * REC_H * outW);
-  sampleToTensor(img, box.x0, box.y0, cw, ch, tw, REC_H, outW, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], input);
+  sampleToTensor(img, box.x0, sy0, cw, ch, tw, REC_H, outW, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], input);
   const out = await runners.rec(input, [1, 3, REC_H, outW]);
-  const steps = out.dims[1];
-  const classes = out.dims[2];
-  return ctcDecode(out.data, steps, classes, runners.dictionary);
+  const axisRes = ctcDecode(out.data, out.dims[1], out.dims[2], runners.dictionary);
+
+  if (
+    box.angleDeg !== undefined &&
+    box.rotCenterX !== undefined &&
+    box.rotCenterY !== undefined &&
+    box.rotMajorSpan &&
+    box.rotMinorSpan
+  ) {
+    const rTw = clamp(Math.round((REC_H * box.rotMajorSpan) / box.rotMinorSpan), 16, REC_MAX_W);
+    const rOutW = Math.ceil(rTw / 8) * 8;
+    const rInput = new Float32Array(3 * REC_H * rOutW);
+    sampleRotatedToTensor(
+      img,
+      box.rotCenterX,
+      box.rotCenterY,
+      box.rotMajorSpan,
+      box.rotMinorSpan,
+      (box.angleDeg * Math.PI) / 180,
+      rTw,
+      REC_H,
+      rOutW,
+      [0.5, 0.5, 0.5],
+      [0.5, 0.5, 0.5],
+      rInput,
+    );
+    const rOut = await runners.rec(rInput, [1, 3, REC_H, rOutW]);
+    const rotRes = ctcDecode(rOut.data, rOut.dims[1], rOut.dims[2], runners.dictionary);
+    const rotScore = rotRes.confidence + rotRes.text.trim().length * 1.5;
+    const axisScore = axisRes.confidence + axisRes.text.trim().length * 1.5;
+    if (rotRes.text.trim().length > 0 && rotScore >= axisScore - 2) {
+      return rotRes;
+    }
+  }
+
+  return axisRes;
 };
 
 const iou = (a: OcrLine['bbox'], b: OcrLine['bbox']) => {
@@ -243,6 +428,17 @@ const iou = (a: OcrLine['bbox'], b: OcrLine['bbox']) => {
   const areaA = (a.x1 - a.x0) * (a.y1 - a.y0);
   const areaB = (b.x1 - b.x0) * (b.y1 - b.y0);
   return inter / Math.max(1, areaA + areaB - inter);
+};
+
+const isDuplicateOrNestedSubBox = (a: OcrLine['bbox'], b: OcrLine['bbox']): boolean => {
+  if (iou(a, b) > 0.45) return true;
+  const ix = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+  const iy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
+  if (ix <= 0 || iy <= 0) return false;
+  const inter = ix * iy;
+  const areaA = Math.max(1, (a.x1 - a.x0) * (a.y1 - a.y0));
+  const areaB = Math.max(1, (b.x1 - b.x0) * (b.y1 - b.y0));
+  return inter / Math.min(areaA, areaB) >= 0.78;
 };
 
 /**
@@ -280,11 +476,20 @@ export const runPaddleOcr = async (
       // Dilim sınırında yarım kesilen kutuları komşu dilime bırak
       if (!isFirst && b.y0 <= 2) continue;
       if (!isLast && b.y1 >= mapH - 2) continue;
-      const box = {
+      const box: DetBox = {
         x0: clamp(b.x0 * fx, 0, width),
         y0: clamp(b.y0 * fy + sy, 0, height),
         x1: clamp(b.x1 * fx, 0, width),
         y1: clamp(b.y1 * fy + sy, 0, height),
+        ...(b.angleDeg !== undefined
+          ? {
+              angleDeg: b.angleDeg,
+              rotCenterX: b.rotCenterX! * fx,
+              rotCenterY: b.rotCenterY! * fy + sy,
+              rotMajorSpan: b.rotMajorSpan! * Math.hypot(fx * Math.cos((b.angleDeg * Math.PI) / 180), fy * Math.sin((b.angleDeg * Math.PI) / 180)),
+              rotMinorSpan: b.rotMinorSpan! * Math.hypot(fx * Math.sin((b.angleDeg * Math.PI) / 180), fy * Math.cos((b.angleDeg * Math.PI) / 180)),
+            }
+          : {}),
       };
       const bw = box.x1 - box.x0;
       const bh = box.y1 - box.y0;
@@ -304,16 +509,17 @@ export const runPaddleOcr = async (
           x1: Math.round(box.x1),
           y1: Math.round(box.y1),
         },
+        ...(b.angleDeg !== undefined ? { angleDeg: b.angleDeg } : {}),
       });
     }
     if (isLast) break;
   }
 
-  // Dilim örtüşmelerinden gelen çift kutuları IoU ile tekilleştir
+  // Dilim örtüşmelerinden gelen çift ve iç içe geçmiş alt-kutu tekrarlarını IoU + kapsama ile tekilleştir
   const sorted = [...lines].sort((a, b) => b.confidence - a.confidence);
   const kept: OcrLine[] = [];
   for (const line of sorted) {
-    if (kept.some((k) => iou(k.bbox, line.bbox) > 0.45)) continue;
+    if (kept.some((k) => isDuplicateOrNestedSubBox(k.bbox, line.bbox))) continue;
     kept.push(line);
   }
   return kept;
@@ -676,6 +882,7 @@ const hasVerticalBubbleBarrier = (
 
   const bothLight = bgT >= 165 && bgB >= 165;
   const bothDark = bgT <= 105 && bgB <= 105;
+  const colBlocked = new Uint8Array(spanX);
   for (let y = gapY0; y <= gapY1; y += 1) {
     let darkCount = 0;
     let brightCount = 0;
@@ -685,9 +892,21 @@ const hasVerticalBubbleBarrier = (
       const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
       if (lum <= 145) darkCount += 1;
       if (lum >= 180) brightCount += 1;
+      if (bothLight && lum <= 115) colBlocked[x - ovX0] = 1;
+      if (bothDark && lum >= 185) colBlocked[x - ovX0] = 1;
     }
     if (bothLight && darkCount / spanX >= 0.45) return true;
     if (bothDark && brightCount / spanX >= 0.45) return true;
+  }
+
+  // Eğrisel/dikenli oval balon sınırları yatay bir satırda %45 doluluğa ulaşmasa da
+  // sütunların çoğunluğunu dikeyde keser
+  if (bothLight || bothDark) {
+    let blockedCols = 0;
+    for (let i = 0; i < spanX; i += 1) {
+      if (colBlocked[i]) blockedCols += 1;
+    }
+    if (blockedCols / spanX >= 0.62) return true;
   }
   return false;
 };
@@ -747,8 +966,16 @@ export const groupOcrLinesIntoBubbles = (
     if (isUsableOcrLine(cand, MIN_LINE_CONFIDENCE)) return false;
     if (cand.confidence < 34) return false;
     const letters = cand.text.match(/\p{L}/gu)?.length ?? 0;
+    const digits = cand.text.match(/\p{N}/gu)?.length ?? 0;
     const junk = cand.text.match(/[^\p{L}\p{N}\s.,!?'"“”‘’…:;()\-–—~&%+*]/gu)?.length ?? 0;
-    if (letters < 1) return false;
+    const isPureNumberNeighbor =
+      letters === 0 &&
+      digits >= 1 &&
+      digits <= 5 &&
+      junk === 0 &&
+      /^\d{1,5}(?:[.,]\d{1,3})?$/.test(cand.text.trim()) &&
+      cand.confidence >= 45;
+    if (letters < 1 && !isPureNumberNeighbor) return false;
     const cb = cand.bbox;
     const ch = cb.y1 - cb.y0;
     const cw = cb.x1 - cb.x0;
@@ -779,11 +1006,11 @@ export const groupOcrLinesIntoBubbles = (
         return true;
       }
 
-      // Dikey balon içi komşu ("SO" + "WEAK?!", "Esta" + "BEBIDA SABE", "I've found its" + "weak spot!" vb.)
+      // Dikey balon içi komşu ("SO" + "WEAK?!", "Esta" + "BEBIDA SABE", "300" + "GRAND.", "3" + "of them!")
       const reqConf = isEdgeTruncated ? 34 : 36;
       const maxJunk = isEdgeTruncated ? 2 : 1;
       const minOverlapRatio = isEdgeTruncated ? 0.25 : 0.32;
-      if (letters >= 2 && junk <= maxJunk && cand.confidence >= reqConf) {
+      if ((letters >= 2 || isPureNumberNeighbor) && junk <= maxJunk && cand.confidence >= reqConf) {
         const vGap = Math.max(cb.y0, sb.y0) - Math.min(cb.y1, sb.y1);
         const hOverlap = Math.min(cb.x1, sb.x1) - Math.max(cb.x0, sb.x0);
         const narrow = Math.min(cw, sw);
@@ -823,7 +1050,7 @@ export const groupOcrLinesIntoBubbles = (
       if (vGap < -Math.min(th, kh) * 0.4 || vGap > Math.max(th, kh) * 1.35) continue;
       const ovT = Math.min(tBox.x1, kBox.x1) - Math.max(tBox.x0, kBox.x0);
       const ovO = Math.min(oBox.x1, kBox.x1) - Math.max(oBox.x0, kBox.x0);
-      if (ovT > Math.min(tw, kBox.x1 - kBox.x0) * 0.42 && ovO <= 0) {
+      if (ovT > Math.min(tw, kBox.x1 - kBox.x0) * 0.42 && ovO <= Math.min(oBox.x1 - oBox.x0, kBox.x1 - kBox.x0) * 0.18) {
         return true;
       }
     }
@@ -882,12 +1109,15 @@ export const groupOcrLinesIntoBubbles = (
       // Not: Aralarındaki boşluk makul bir kelime/harf boşluğu kadarsa birleştir; iki ayrı balon/sütunsa birleştirme!
       const vOverlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
       const hGap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1);
+      const leftHorizontalLine = a.x0 <= b.x0 ? lines[i] : lines[j];
+      const leftHorizontalEndsPunct = /[.!?…]$/.test(leftHorizontalLine.text.trim());
       if (
         vOverlap >= minH * 0.52 &&
         hGap >= -minH * 0.35 &&
         hGap <= maxH * 0.45 &&
         maxH / Math.max(1, minH) <= 1.65 &&
         !(hasIndependentVerticalPartner(i, j) && hasIndependentVerticalPartner(j, i)) &&
+        !(leftHorizontalEndsPunct && (hasIndependentVerticalPartner(i, j) || hasIndependentVerticalPartner(j, i))) &&
         (!img || !hasHorizontalBubbleBarrier(img, lines[i], lines[j]))
       ) {
         parent[find(j)] = find(i);
@@ -955,6 +1185,24 @@ export const groupOcrLinesIntoBubbles = (
       const overlap = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
       const narrow = Math.min(wa, wb);
       const centerDist = Math.abs(centerXa - centerXb);
+
+      // Balon içi ALL-CAPS ana diyalog ile balon kenarı dışında kalan küçük el yazısı yan notların
+      // ("Nothing but stuff" / "a part timer~") birleşmesini önle
+      const upperA = (textA.match(/[A-Z]/g) || []).length;
+      const lowerA = (textA.match(/[a-z]/g) || []).length;
+      const upperB = (textB.match(/[A-Z]/g) || []).length;
+      const lowerB = (textB.match(/[a-z]/g) || []).length;
+      const allCapsA = upperA >= 4 && lowerA === 0;
+      const allCapsB = upperB >= 4 && lowerB === 0;
+      const mixedHandwritingA = lowerA >= 4 && lowerA >= upperA;
+      const mixedHandwritingB = lowerB >= 4 && lowerB >= upperB;
+      if (
+        ((allCapsA && mixedHandwritingB) || (allCapsB && mixedHandwritingA)) &&
+        minH / Math.max(1, maxH) <= 0.82 &&
+        (centerDist > maxH * 0.72 || vGap < -minH * 0.15)
+      ) {
+        continue;
+      }
 
       // 2. Durum: Standart benzer boyutlu balon satırları
       const heightRatio = maxH / Math.max(1, minH);
@@ -1042,6 +1290,7 @@ export const groupOcrLinesIntoBubbles = (
         text: item.text,
         confidence: item.confidence,
         bbox: { ...item.bbox },
+        ...(item.angleDeg !== undefined ? { angleDeg: item.angleDeg } : {}),
       });
     }
 
@@ -1084,6 +1333,7 @@ export const groupOcrLinesIntoBubbles = (
       ],
       text: r.text,
       confidence: Math.round(r.confidence),
+      ...(r.angleDeg !== undefined ? { angleDeg: r.angleDeg } : {}),
     }));
 
     const box: [number, number, number, number] = [
@@ -1115,7 +1365,7 @@ export const groupOcrLinesIntoBubbles = (
 };
 
 const CREDIT_LINE_REGEX =
-  /\b(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|rizz\s*fables|cosmic\s*scans|night\s*scans|void\s*scans|disaster\s*scans|surya\s*scans|templescan|thunderscans|philiascans|arven\s*comics|nex[o0c]*mic|[gc]radex[\s.\-]*(?:tan|tay)trums?|taytrums?|webtoon\s*xyz|kunmanga|manganato|mangakakalot|zinmanga|1stkissmanga|manhwaclub|manhwafreak|tappytoon|toomics|tapas|lezhin|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)\b|^dsns$|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$/i;
+  /(?<![\p{L}\p{N}_])(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|flame[\s-]*chan|reaper[\s-]*chan|asura[\s-]*chan|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|rizz\s*fables|cosmic\s*scans|night\s*scans|void\s*scans|disaster\s*scans|surya\s*scans|templescan|thunderscans|philiascans|arven\s*comics|nex[o0c]*mic|[gc]radex[\s.\-]*(?:tan|tay)trums?|taytrums?|webtoon\s*xyz|kunmanga|manganato|mangakakalot|zinmanga|1stkissmanga|manhwaclub|manhwafreak|tappytoon|toomics|tapas|lezhin|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|do\s+not\s+mirror|do\s+not\s+reupload|manga\s*stream|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)(?![\p{L}\p{N}_])|\.com\s*mirror\b|^mirror$|^dsns$|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$/iu;
 const URL_LINE_REGEX =
   /(?:https?:\/\/|www\.|discord\.gg|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
 const STRONG_PROMO_REGEX =

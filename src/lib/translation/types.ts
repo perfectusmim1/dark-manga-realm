@@ -9,6 +9,16 @@ export interface OcrBubbleLineBox {
   box: [number, number, number, number];
   text: string;
   confidence?: number;
+  angleDeg?: number;
+}
+
+export interface TranslationLineStyle {
+  textColor?: string;
+  hasTextStroke?: boolean;
+  strokeColor?: string;
+  strokeWidthEm?: number;
+  shadowColor?: string;
+  shadowBlurEm?: number;
 }
 
 export interface TranslationBlock {
@@ -39,6 +49,8 @@ export interface TranslationBlock {
   letterSpacingEm?: number;
   /** Oval/elips balonlarda her satır yüksekliğindeki yatay genişlik oranı (0.5 - 1.0) */
   lineWidthsPct?: number[];
+  /** Zıt parlaklıklı bölünmüş zeminlerde her sarılı satır için özel renk/kontur geçersiz kılması */
+  lineStyles?: TranslationLineStyle[];
   /** Son satır vurgulu/büyük yazılmışsa ("ALONE?" gibi) uygulanacak ölçek çarpanı */
   emphasisLastLineScale?: number;
 }

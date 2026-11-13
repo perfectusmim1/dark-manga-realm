@@ -210,7 +210,7 @@ export const bakeTranslatedPageToBlob = async (
     const fontSizeCqw = block.fontSizeCqw ?? 2.85;
     const baseFontPx = Math.max(11, (fontSizeCqw / 100) * width);
     const fontFamilyCss = getFontFamilyCss(block.fontFamily);
-    const fontWeight = block.fontWeight ?? 700;
+    const fontWeight = block.fontWeight ?? 600;
     const lineHeightRatio = getLineHeightRatioForBlock(block);
 
     const isSingleLineStat =
@@ -257,23 +257,31 @@ export const bakeTranslatedPageToBlob = async (
       const lineY = cursorY + lineH * 0.5;
       cursorY += lineH;
 
+      const ls = block.lineStyles?.[i];
+      const lineColor = ls?.textColor ?? textColor;
+      const lineHasStroke = ls?.hasTextStroke ?? block.hasTextStroke;
+      const lineStrokeColor = ls?.strokeColor ?? strokeColor;
+      const lineStrokeWidthEm = ls?.strokeWidthEm ?? strokeWidthEm;
+      const lineShadowColor = ls?.shadowColor ?? block.shadowColor;
+      const lineShadowBlurEm = ls?.shadowBlurEm ?? block.shadowBlurEm;
+
       ctx.font = `${block.fontStyle || 'normal'} ${fontWeight} ${lineFontPx}px ${fontFamilyCss}`;
 
-      if (block.shadowColor) {
+      if (lineShadowColor) {
         ctx.save();
-        ctx.shadowColor = block.shadowColor;
-        ctx.shadowBlur = Math.max(3, lineFontPx * (block.shadowBlurEm ?? 0.16));
+        ctx.shadowColor = lineShadowColor;
+        ctx.shadowBlur = Math.max(3, lineFontPx * (lineShadowBlurEm ?? 0.16));
         ctx.shadowOffsetX = 0;
         ctx.shadowOffsetY = 0;
       }
 
-      if (block.hasTextStroke) {
-        ctx.strokeStyle = strokeColor;
-        ctx.lineWidth = Math.max(1.2, lineFontPx * strokeWidthEm);
+      if (lineHasStroke) {
+        ctx.strokeStyle = lineStrokeColor;
+        ctx.lineWidth = Math.max(1.2, lineFontPx * lineStrokeWidthEm);
         ctx.strokeText(line.text, drawX, lineY);
       }
 
-      if (block.gradientStops && block.gradientStops.length === 2) {
+      if (!ls?.textColor && block.gradientStops && block.gradientStops.length === 2) {
         const grad = ctx.createLinearGradient(
           drawX,
           lineY - lineFontPx * 0.5,
@@ -284,12 +292,12 @@ export const bakeTranslatedPageToBlob = async (
         grad.addColorStop(1, block.gradientStops[1]);
         ctx.fillStyle = grad;
       } else {
-        ctx.fillStyle = textColor;
+        ctx.fillStyle = lineColor;
       }
 
       ctx.fillText(line.text, drawX, lineY);
 
-      if (block.shadowColor) {
+      if (lineShadowColor) {
         ctx.restore();
       }
     }

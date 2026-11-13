@@ -338,12 +338,12 @@ export const executeWithGeminiKeyPool = async <T>(
 };
 
 const VOCAL_TOKEN_REGEX =
-  /^(?:a+h+|o+h+|u+h+|u+g+h+|e+u+g+h+|a+a+h*|o+o+h*|n+g+h+|m+m+h*|h+m+m*|h+m+p+h*|h+a+a+|h+e+h+|t+s+k+|t+c+h+|p+f+f+t*|e+h+|h+a+h+|a+r+g+h+|a+g+h+|o+o+f+|u+a*f+|p+u+f+|o+f+|ö+f+|g+a+s+p+|s+i+g+h+|w+o+w+|h+u+h+|y+a+h+|k+y+a+h*|g+k+h+|u+r+k+|a+c+k+|e+e+p+|s+h+h+|h+ı+h*|ı+h+|b+a+h+|o+u+c+h+)$/i;
+  /^(?:a+h+|a+k+h*|o+h+|u+h+|u+n+g+h+|u+g+h+|e+u+g+h+|a+a+h*|o+o+h*|n+g+h+|m+m+h*|h+m+m*|h+m+p+h*|h+a+a+|h+e+h+|t+s+k+|t+c+h+|p+f+f+t*|e+h+|h+a+h+|a+r+g+h+|a+g+h+|o+o+f+|u+a*f+|p+u+f+|o+f+|ö+f+|g+a+s+p+|w+o+w+|h+u+h+|y+a+h+|k+y+a+h*|g+k+h+|u+r+k+|a+c+k+|e+e+p+|s+h+h+|h+ı+h*|ı+h+|b+a+h+|o+u+c+h+)$/i;
 
 const SFX_WRAP_REGEX = /^[*({\[][^\n*)}\]]+[*)}\]][!?.~*^_\-\s]*$/;
 const PURE_PUNCT_REGEX = /^[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•]+$/;
 const CREDITS_START_REGEX =
-  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|asurascans|asura\s*scans|reaperscans|flamescans|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on)|(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$)\b/i;
+  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on)|(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$)(?![\p{L}\p{N}_])/iu;
 const CREDITS_INLINE_REGEX =
   /(?:^|[\/|•<\[])\s*(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|written\s+by|art\s+by|story\s+by|original\s+work|traducción|traduccion|edición|edicion|limpieza|typeset|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))\s*[:\-]/i;
 const WATERMARK_DOMAIN_REGEX =
@@ -354,6 +354,10 @@ export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   const t = text.trim();
   if (t.length <= 1) return true;
   if (t.toUpperCase() === '[SFX]' || t === '[SFX]') return true;
+  if (/^(?:NON|MANGA\s*STREAM(?:\.COM)?|DO\s+NOT\s+MIRROR|MIRROR|SUCK|SLURP|LICK|ITUT|SLRP|goae|EHITS\s+ANNIVERS|VEDDING\s+KUNS|ONDERERSAR|CAN'T\s+TDOAT|HERE\.R\s+STHING|SUAL|to|of|in|on|at|by|an|as|the|and|or)$/i.test(t)) {
+    return true;
+  }
+  if (/^Mooo+W!?$/i.test(t) || /^\([A-Z]{6,}$/.test(t)) return true;
   if (PURE_PUNCT_REGEX.test(t)) return true;
   if (SFX_WRAP_REGEX.test(t)) return true;
   if (WATERMARK_DOMAIN_REGEX.test(t) || isCreditOrPromoText(t)) return true;
@@ -462,11 +466,22 @@ const SEGMENT_VOCAB = new Set([
   'place', 'room', 'door', 'house', 'city', 'land', 'empire', 'clan', 'sect', 'school', 'academy',
   'enough', 'almost', 'really', 'actually', 'simply', 'merely', 'already', 'quite', 'rather', 'pretty',
   'unlike', 'others', 'proper', 'principle', 'story', 'heavenly', 'stimulus', 'built', 'basic', 'physique', 'constitution',
+  'cherry', 'juicy', 'like', 'lips', 'universe', 'whole', 'womanly', 'slim', 'happy', 'wedding', 'dark', 'hero',
+  'genius', 'pitiful', 'soul', 'tell', 'happened', 'three', 'forever', 'morning', 'bloodbath', 'commence',
+  'lesson', 'part', 'timer', 'hired', 'week', 'trash', 'wants', 'pocket', 'change', 'devils', 'newly',
+  'era', 'begin', 'beginning', 'shake', 'jump', 'month', 'grand', 'balls', 'debt', 'interest', 'yen', 'dollar', 'dollars',
+]);
+
+const INTACT_SHORT_WORDS = new Set([
+  'tellme', 'whathas', // always split, never intact
 ]);
 
 const segmentGluedEnglishToken = (token: string): string => {
-  if (!/^[A-Za-z]{10,48}$/.test(token)) return token;
+  if (!/^[A-Za-z]{6,48}$/.test(token)) return token;
   const lower = token.toLowerCase();
+  if (token.length < 10 && !INTACT_SHORT_WORDS.has(lower) && !/(?:of|in|is|at|by|to|on)/.test(lower)) {
+    return token;
+  }
   if (INTACT_ENGLISH_WORDS.has(lower)) return token;
   if (SEGMENT_VOCAB.has(lower)) return token;
   if (/(?:tion|sion|ment|ness|able|ible|ship|hood|ally|edly|fulness)$/i.test(lower) && lower.length <= 14) {
@@ -501,6 +516,7 @@ const segmentGluedEnglishToken = (token: string): string => {
   if (parts.length < 2) return token;
   const hasRealContentWord = parts.some((p) => p.length >= 4);
   if (!hasRealContentWord) return token;
+  if (token.length < 10 && parts.some((p) => !SEGMENT_VOCAB.has(p))) return token;
   return parts.join(' ');
 };
 
@@ -560,7 +576,58 @@ const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): str
     .replace(/\boh\s+damn\b\s*[:;,]?/gi, 'oh crap,')
     .replace(/\bASF\b/gi, 'as hell')
     .replace(/\bWTF\b/gi, 'what the hell')
-    .replace(/\bOMG\b/gi, 'oh my god');
+    .replace(/\bOMG\b/gi, 'oh my god')
+    // Round 2 OCR glyph & fused-word repairs (JLICY -> JUICY, LINIVERSE -> UNIVERSE, 04 -> OH)
+    .replace(/\bJLICY/gi, 'JUICY')
+    .replace(/\bLINIVERSE/gi, 'UNIVERSE')
+    .replace(/\b04(?=\s+[A-Za-z]{2,})/g, 'OH')
+    .replace(/\b(pitiful|poor|lost|gentle)\s+[so]?oul\b/gi, '$1 soul')
+    .replace(/(?<=,\s*)BLT(?=$|[,.!?]|\s)/gi, 'but')
+    .replace(/\bYOL(?='(?:VE|RE|LL|D)\b|\s+(?:know|mean|are|were|have|can|want|need|think)\b)/gi, 'YOU')
+    .replace(/\b(?:itfumm|itumm|humm+)\b/gi, 'Hmm')
+    .replace(/\borever\b/gi, 'forever')
+    .replace(/\bwans\b/gi, 'wants')
+    .replace(/\beanly\b/gi, 'early')
+    .replace(/\byou['’]re\.\s+here\b/gi, "you're here")
+    .replace(/\bhere[.,]\s*we\s+go\b/gi, 'Here we go')
+    .replace(/\bnothing[.,]\s*ut\s*s\b/gi, 'Nothing but stuff')
+    .replace(/\bPARONET\b/g, 'Baronet')
+    .replace(/\bSeol\s*reim\b/gi, 'Seol Reim')
+    .replace(/\b(\d+)([Oo]+)\b/g, (_m, d: string, o: string) => `${d}${'0'.repeat(o.length)}`)
+    .replace(/\b(\d+)[Oo](\d+)\b/g, '$10$2')
+    .replace(/\bLEST(?:IE)?\b(?=\s*$)/g, 'Is this a lesson?')
+    .replace(/i['’`]?woul[il]?ve\s+hind\s+iht\s+ere\s+me[.,\s]*a?\s*part[\s-]*timer[~*]*/gi, 'If it were me, I would have hired a part-timer.')
+    // Deyim, sesteş kelime ve Türkçe konuşma dili uyarlamaları
+    .replace(/\b(\d[\d,.]*)\s+grand\b/gi, '$1 thousand dollars')
+    .replace(/^\s*grand\.?\s*$/gi, 'Thousand dollars.')
+    .replace(/\byou know the drill\b/gi, 'you know what to do')
+    .replace(/\bredeeming quality\b/gi, 'positive trait')
+    .replace(/\bsweet[\s-]+talks?\b/gi, 'charms')
+    .replace(/\bno resolve\b/gi, 'no determination')
+    .replace(/\bgive me a clip-on[.,]?\s*will you\??/gi, 'Can you give me a clip-on earring?')
+    .replace(/\bclip-on(?!\s+earring)\b/gi, 'clip-on earring')
+    .replace(/,\s*will you\?/gi, '?')
+    .replace(/^well([.!?…]*)$/i, 'Alright$1')
+    .replace(/^well,\s+/i, 'Alright, ')
+    .replace(/^during the day\b/gi, 'In the daytime')
+    .replace(/\bhow about you take it easy\b/gi, 'why do you not take it easy')
+    .replace(/\bis that so[.,]\s*do you think so\??/gi, 'Really? Do you think so?')
+    .replace(/\bgood\.\s*impression\b/gi, 'good impression')
+    .replace(/\bnewly\s+serialized\b/gi, 'newly published')
+    .replace(/\bserialized\b/gi, 'published')
+    .replace(/happy\s*wedding\s*lif[l1]/gi, 'Happy Wedding Life')
+    .replace(/\bandif\b/gi, 'and if')
+    .replace(/\bthat's([a-z]{2,})/gi, "that's $1")
+    .replace(/\bj[lu]icy\s*,?\s*cherry[\s-]*like\s*lips\b/gi, 'juicy, cherry-like lips')
+    .replace(/\bcherry\s+like\s+lips\b/gi, 'cherry-like lips')
+    .replace(/\bwomanly,?\s*yet\s+slim\s+body,?\s*(?:but|blt)\b/gi, 'feminine and slender body, though')
+    .replace(/\blol\b(?=[.!?\s]*$)/gi, 'haha')
+    .replace(/\bbusiness is booming\b/gi, 'business is thriving')
+    .replace(/\bsometimes\.\s*she\b/gi, 'Sometimes, she')
+    .replace(/^\.{1,3}\s*(?=[A-Za-z])/, '')
+    .replace(/\btotop\s+that\s+off\b/gi, 'to top it off')
+    .replace(/\bkillin'\s+one\s+devil's\b/gi, 'killing one devil')
+    .replace(/(?<=[a-z]{2})([A-Z][a-z]{2,})/g, ' $1');
 
   // Dengesiz tek tırnak/çift tırnak işaretini temizle
   if ((s.match(/"/g) || []).length === 1) {
@@ -568,9 +635,9 @@ const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): str
   }
   s = s.replace(/\bthat's\s+quite\s+the\s+disguise\b/gi, 'What a disguise');
 
-  // Bitişik kalmış uzun İngilizce kelimeleri ayır ("EVENASMALLSTIMULUSCAN" -> "even a small stimulus can")
+  // Bitişik kalmış İngilizce kelimeleri ayır ("EVENASMALLSTIMULUSCAN", "CHERRYLIKELIPS", "OFADARK")
   s = s
-    .replace(/\b[A-Za-z]{10,48}\b/g, (tok) => segmentGluedEnglishToken(tok))
+    .replace(/\b[A-Za-z]{6,48}\b/g, (tok) => segmentGluedEnglishToken(tok))
     .replace(/\bconstitution\s+built\s+for\b/gi, 'physique built for');
 
   // Baskın BÜYÜK HARF OCR metnini Google Çeviri'nin özel isim/kısaltma sanmaması için cümle düzenine indir
@@ -587,13 +654,22 @@ const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): str
     s = s.replace(/\bi\b/g, 'I').replace(/\bi(?='(?:m|ll|ve|d)\b)/g, 'I');
   }
 
-  // Kısa emir/ünlem kalıplarında sözlük mastarı ("BAKMAK.", "SINIRLI?") yerine gerçek konuşma karşılığını seç
+  // Özel isim ve Korece/Japonca hitapları Google Çeviri'nin yanlış çevirmesini önlemek için büyük harfle koru
+  s = s.replace(
+    /\b(haram|jung|hyemin|denji|pochita|koharu|seol|reim|noona|oppa|hyung|unnie|sunbae|penelope)\b/gi,
+    (w) => w[0].toUpperCase() + w.slice(1).toLowerCase(),
+  );
+
+  // Kısa emir/ünlem kalıplarında sözlük mastarı ("BAKMAK.", "KUYU", "İTMEK") yerine gerçek konuşma karşılığını seç
   if (targetLang === 'tr') {
     s = s
       .replace(/^([.…]*)my\.\s+(?=\p{L})/iu, '$1Oh my, ')
       .replace(/\bhey[.,]\s*look\s*([.,!…]*)$/i, 'Hey, look here$1')
       .replace(/^look\s*([.,!…]*)$/i, 'Look here$1')
+      .replace(/^well([.!?…]*)$/i, 'Well then$1')
+      .replace(/^push([.!]*)$/i, 'Push it$1')
       .replace(/^confined\?$/i, 'Imprisoned?')
+      .replace(/\bno one will miss (?:one|a) pair\b/gi, 'no one will notice a missing pair')
       .replace(/(?<='\p{L})["“”]/gu, '')
       .replace(
         /\bill(?=\s+(?:be|do|go|have|get|make|take|see|tell|give|come|show|try|let|find|use|kill|help|cut|handle|wait|say|stop|start|stay|leave|ask|keep|hold|put|bring|send)\b)/gi,
@@ -646,10 +722,40 @@ export const translateBatchWithGoogleFree = async (
       if (Array.isArray(json?.translations) && json.translations.length === payloadTexts.length) {
         const out = [...trimmedList];
         nonEmptyIndices.forEach((origIdx, i) => {
+          const origSrc = trimmedList[origIdx] || '';
           const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
-          const cand = rawCand
+          let cand = rawCand
             .replace(/\bAshgray\b/gi, 'Ash Gray')
             .replace(/[iİ]lk[iİ]'?y[iİ]/giu, 'ilkeyi');
+          if (targetLang === 'tr') {
+            if (/\bnoona\b/i.test(origSrc) && !/\bnoon\b/i.test(origSrc)) {
+              cand = cand.replace(/\böğlen(?:e|i|den)?\b/giu, 'Noona');
+            }
+            if (/\bharam\b/i.test(origSrc)) {
+              cand = cand.replace(/\bMescid-i\s+Haram/giu, 'Haram');
+              if (/\bjung\b/i.test(origSrc)) {
+                cand = cand.replace(/\byasadışı\b/giu, 'HARAM');
+              }
+            }
+            if (/\bdenji\b/i.test(origSrc)) {
+              cand = cand.replace(/\bworthy\b/giu, 'Denji');
+            }
+            if (/^\s*pochita[.!?…]*\s*$/i.test(origSrc)) {
+              cand = origSrc.replace(/pochita/i, 'Pochita');
+            }
+            if (/^\s*push\s*[.!]?\s*$/i.test(origSrc)) {
+              cand = 'İT';
+            }
+            if (/\bkendini\b/i.test(cand) && /\boldu[ğg]unuz\b/i.test(cand)) {
+              cand = cand
+                .replace(/\bolduğunuz\b/gu, 'olduğun')
+                .replace(/\bOLDUĞUNUZ\b/gu, 'OLDUĞUN')
+                .replace(/\bsize\b/giu, (m) => (m === m.toUpperCase() ? 'SANA' : 'sana'));
+            }
+            if (/[)\]]\s*$/.test(cand) && !cand.includes('(') && !cand.includes('[')) {
+              cand = cand.replace(/[)\]]+\s*$/, '').trim();
+            }
+          }
           if (cand) out[origIdx] = cand;
         });
         return out;

@@ -1,11 +1,11 @@
 import type { ScanlationFontKey, TranslationBlockKind } from './types';
 
 export const FONT_FAMILY_MAP: Record<ScanlationFontKey, string> = {
-  shantell: '"Shantell Sans", system-ui, -apple-system, sans-serif',
-  anton: '"Anton", "Shantell Sans", Impact, system-ui, sans-serif',
-  bangers: '"Bangers", "Shantell Sans", system-ui, sans-serif',
-  marker: '"Permanent Marker", "Shantell Sans", cursive, sans-serif',
-  cinzel: '"Cinzel", "Shantell Sans", Georgia, serif',
+  shantell: '"Patrick Hand", "Pangolin", "Shantell Sans", system-ui, -apple-system, sans-serif',
+  anton: '"Anton", "Patrick Hand", Impact, system-ui, sans-serif',
+  bangers: '"Bangers", "Patrick Hand", system-ui, sans-serif',
+  marker: '"Permanent Marker", "Patrick Hand", cursive, sans-serif',
+  cinzel: '"Cinzel", "Patrick Hand", Georgia, serif',
 };
 
 export const getFontFamilyCss = (key?: ScanlationFontKey): string =>
@@ -273,14 +273,38 @@ export const fillEnclosedGlyphInteriors = (
             bgLum < 52 &&
             (gMaxY - gMinY) >= 26;
 
+          const rawSatApprox = rgbSaturation(bgR, bgG, bgB);
+          const isColoredGlowAroundWhite =
+            rawLum <= 190 &&
+            rawSatApprox < 0.25 &&
+            holeLum >= 238 &&
+            holeLum >= rawLum + 48 &&
+            (gMaxY - gMinY) >= 22 &&
+            cTail >= 24 &&
+            (() => {
+              const stepR = Math.max(1, Math.floor(numPixels / 4000));
+              let glowSatHits = 0;
+              let rawSampleCount = 0;
+              for (let k = 0; k < numPixels; k += stepR) {
+                if (!rawMask[k]) continue;
+                rawSampleCount += 1;
+                const sc = k * 3;
+                if (rgbSaturation(winRgb[sc], winRgb[sc + 1], winRgb[sc + 2]) >= 0.35) {
+                  glowSatHits += 1;
+                }
+              }
+              return rawSampleCount >= 8 && glowSatHits >= rawSampleCount * 0.35;
+            })();
+
           const isBrightInsideDarkOutline =
-            rawLum <= 105 &&
-            holeLum >= Math.max(195, rawLum + 80) &&
-            (gMaxY - gMinY) >= 18 &&
-            (dHoleToBg >= 32 ||
-              maxDiffHoleBg >= 36 ||
-              (holeLum >= bgLum + 12 && bgLum < 225) ||
-              bgLum <= 185);
+            isColoredGlowAroundWhite ||
+            (rawLum <= 105 &&
+              holeLum >= Math.max(195, rawLum + 80) &&
+              (gMaxY - gMinY) >= 18 &&
+              (dHoleToBg >= 32 ||
+                maxDiffHoleBg >= 36 ||
+                (holeLum >= bgLum + 12 && bgLum < 225) ||
+                bgLum <= 185));
 
           if (isDarkCounterHole || isBrightInsideDarkOutline) {
             isTrueGlyphFill = true;
@@ -331,6 +355,7 @@ export interface StyleExtractionInput {
   fullWidth: number;
   hasClosedBubbleWalls: boolean;
   compCenters: Array<{ x: number; y: number; w: number; h: number }>;
+  lineBoxesLocal?: Array<{ x0: number; x1: number; y0: number; y1: number; angleDeg?: number }>;
   origLineCount?: number;
 }
 
@@ -355,6 +380,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     fullWidth,
     hasClosedBubbleWalls,
     compCenters,
+    lineBoxesLocal,
     origLineCount = 1,
   } = input;
 
@@ -560,12 +586,15 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const hasOuterHaloStroke =
     fillLum <= 125 &&
     haloLum >= 224 &&
-    whiteHaloRatio >= 0.52 &&
-    haloToFillDist >= 90 &&
+    whiteHaloRatio >= 0.48 &&
+    haloToFillDist >= 85 &&
     ((!hasClosedBubbleWalls &&
-      ((bgLum <= 228 && (haloLum > bgLum + 16 || haloToBgDist >= 26)) ||
-        (haloLum >= 232 && ringStd >= 18 && bgLum <= 248))) ||
-      (bgLum <= 228 && haloLum >= bgLum + 16 && haloToBgDist >= 18));
+      ((bgLum <= 242 &&
+        (haloLum >= bgLum + 8 || haloToBgDist >= 18 || ringStd >= 14)) ||
+        (haloLum >= 232 && ringStd >= 10 && bgLum <= 253))) ||
+      (haloLum >= 234 && ringStd >= 10 && haloToFillDist >= 110) ||
+      (bgLum <= 228 && haloLum >= bgLum + 16 && haloToBgDist >= 18) ||
+      (bgLum <= 240 && haloLum >= 240 && whiteHaloRatio >= 0.62 && haloToBgDist >= 10));
 
   const haloSat = rgbSaturation(haloR, haloG, haloB);
   const haloChroma = Math.max(haloR, haloG, haloB) - Math.min(haloR, haloG, haloB);
@@ -755,14 +784,23 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       finalStrokeColor = '#0a0a0c';
       strokeWidthEm = 0.14;
     } else if (finalTextColor === '#ffffff' && (bgChroma >= 18 || edgeChroma >= 22)) {
-      if (ringMedB > ringMedR + 14 || edgeB > edgeR + 18) {
+      const hasBrightBlueHaloGlow =
+        (ringMedB > ringMedR + 14 || edgeB > edgeR + 18) &&
+        ((haloB > haloR + 18 && haloLum >= bgLum + 10 && haloLum >= 58) ||
+          (edgeB > edgeR + 22 && edgeLum >= bgLum + 16 && edgeLum < 220));
+      const hasTrueColoredHalo =
+        haloLum >= bgLum + 10 ||
+        (edgeLum < 225 &&
+          colorDist(edgeR, edgeG, edgeB, ringMedR, ringMedG, ringMedB) >= 36 &&
+          edgeLum >= bgLum + 12);
+      if (hasBrightBlueHaloGlow) {
         // Mavi/lacivert sistem penceresi: içi saf beyaz, dışı hafif açık mavi çizgi ve yumuşak mavi ışıltı
         hasOutline = true;
         finalStrokeColor = '#5ca8ff';
         strokeWidthEm = 0.06;
         shadowColor = '#5ca8ff';
         shadowBlurEm = 0.16;
-      } else {
+      } else if (hasTrueColoredHalo && !(bgLum <= 65 && haloLum <= bgLum + 12)) {
         const mixR = ringMedR * 0.5 + edgeR * 0.5;
         const mixG = ringMedG * 0.5 + edgeG * 0.5;
         const mixB = ringMedB * 0.5 + edgeB * 0.5;
@@ -800,52 +838,138 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     }
   }
 
-  // 5. Satır eğim açısı (rotationDeg): YALNIZCA balon dışı tek satırlık büyük SFX yazılarında
+  // 5. Satır eğim açısı (rotationDeg): Açık sahne / başlık / not yazılarında veya belirgin eğimli balonlarda
+  //    normal yatay metni bozmadan yalnızca bariz ve doğrusal açılı metinlerde açı kopyala
   let rotationDeg = 0;
-  if (
-    kind === 'sfx' &&
-    !hasClosedBubbleWalls &&
-    relGlyphH >= 0.048 &&
-    origLineCount === 1 &&
-    compCenters.length >= 3 &&
-    compCenters.length <= 12
-  ) {
-    const sortedC = [...compCenters].sort((a, b) => a.x - b.x);
-    const totalSpanX = sortedC[sortedC.length - 1].x - sortedC[0].x;
-    if (totalSpanX >= medGlyphH * 1.4) {
-      let sumX = 0;
-      let sumY = 0;
-      for (const c of sortedC) {
-        sumX += c.x;
-        sumY += c.y;
-      }
-      const meanX = sumX / sortedC.length;
-      const meanY = sumY / sortedC.length;
-      let num = 0;
-      let denX = 0;
-      let denY = 0;
-      for (const c of sortedC) {
-        const dx = c.x - meanX;
-        const dy = c.y - meanY;
-        num += dx * dy;
-        denX += dx * dx;
-        denY += dy * dy;
-      }
-      const rSquared = denX > 10 && denY > 4 ? (num * num) / (denX * denY) : 0;
-      if (denX > 10 && rSquared >= 0.82) {
-        const slope = num / denX;
-        const deg = (Math.atan(slope) * 180) / Math.PI;
-        if (Math.abs(deg) >= 5 && Math.abs(deg) <= 24) {
-          rotationDeg = Number(deg.toFixed(1));
+  const fitSlopeOnPoints = (pts: Array<{ x: number; y: number }>) => {
+    if (pts.length < 4) return null;
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let sumX = 0;
+    let sumY = 0;
+    for (const p of pts) {
+      if (p.x < minX) minX = p.x;
+      if (p.x > maxX) maxX = p.x;
+      sumX += p.x;
+      sumY += p.y;
+    }
+    const spanX = maxX - minX;
+    if (spanX < Math.max(medGlyphH * 2.1, 40)) return null;
+    const meanX = sumX / pts.length;
+    const meanY = sumY / pts.length;
+    let num = 0;
+    let denX = 0;
+    let denY = 0;
+    for (const p of pts) {
+      const dx = p.x - meanX;
+      const dy = p.y - meanY;
+      num += dx * dy;
+      denX += dx * dx;
+      denY += dy * dy;
+    }
+    if (denX <= 12 || denY <= 4) return null;
+    const rSquared = (num * num) / (denX * denY);
+    const slope = num / denX;
+    const deg = (Math.atan(slope) * 180) / Math.PI;
+    const driftPx = Math.abs(slope) * spanX;
+    return { deg, rSquared, driftPx, spanX };
+  };
+
+  const minReqDeg = hasClosedBubbleWalls ? 7.0 : 4.8;
+  const maxAllowedDeg = hasClosedBubbleWalls ? 24.0 : 32.0;
+  const minReqR2 = hasClosedBubbleWalls ? 0.93 : 0.86;
+  const minReqDrift = hasClosedBubbleWalls
+    ? Math.max(10, medGlyphH * 0.42)
+    : Math.max(6.5, medGlyphH * 0.28);
+
+  if (lineBoxesLocal && lineBoxesLocal.length >= 1 && lineBoxesLocal.length <= 3) {
+    const lineDegs: number[] = [];
+    for (const lb of lineBoxesLocal) {
+      const lx0 = clamp(Math.floor(lb.x0) - 2, 0, ww - 1);
+      const lx1 = clamp(Math.ceil(lb.x1) + 2, lx0, ww - 1);
+      const ly0 = clamp(Math.floor(lb.y0) - 2, 0, wh - 1);
+      const ly1 = clamp(Math.ceil(lb.y1) + 2, ly0, wh - 1);
+      const colStep = Math.max(1, Math.floor((lx1 - lx0) / 36));
+      const pts: Array<{ x: number; y: number }> = [];
+      for (let x = lx0; x <= lx1; x += colStep) {
+        let cMinY = wh;
+        let cMaxY = -1;
+        for (let y = ly0; y <= ly1; y += 1) {
+          if (fullGlyphMask[y * ww + x]) {
+            if (y < cMinY) cMinY = y;
+            if (y > cMaxY) cMaxY = y;
+          }
+        }
+        const colH = cMaxY - cMinY + 1;
+        if (cMaxY >= cMinY && colH >= medGlyphH * 0.36 && colH <= medGlyphH * 1.95) {
+          pts.push({ x, y: (cMinY + cMaxY) * 0.5 });
         }
       }
+      const fit = pts.length >= 8 ? fitSlopeOnPoints(pts) : null;
+      const absFitDeg = fit ? Math.abs(fit.deg) : 0;
+      const longBannerRelax =
+        !hasClosedBubbleWalls &&
+        fit &&
+        absFitDeg >= 4.2 &&
+        fit.spanX >= medGlyphH * 4.5 &&
+        fit.rSquared >= 0.92 &&
+        fit.driftPx >= 11;
+      if (
+        fit &&
+        fit.rSquared >= minReqR2 &&
+        fit.driftPx >= minReqDrift &&
+        absFitDeg <= maxAllowedDeg &&
+        (absFitDeg >= minReqDeg || longBannerRelax)
+      ) {
+        lineDegs.push(fit.deg);
+      } else if (
+        lb.angleDeg !== undefined &&
+        Math.abs(lb.angleDeg) >= minReqDeg &&
+        Math.abs(lb.angleDeg) <= maxAllowedDeg &&
+        fit &&
+        Math.sign(fit.deg) === Math.sign(lb.angleDeg) &&
+        fit.rSquared >= minReqR2 - 0.08 &&
+        fit.driftPx >= minReqDrift * 0.8
+      ) {
+        lineDegs.push((fit.deg + lb.angleDeg) * 0.5);
+      }
+    }
+    if (lineDegs.length === lineBoxesLocal.length && lineDegs.length >= 1) {
+      const sameSign = lineDegs.every((d) => Math.sign(d) === Math.sign(lineDegs[0]));
+      const spread = Math.max(...lineDegs) - Math.min(...lineDegs);
+      if (sameSign && spread <= 6.0) {
+        rotationDeg = Number(medianOf(lineDegs).toFixed(1));
+      }
+    }
+  }
+
+  if (
+    rotationDeg === 0 &&
+    !hasClosedBubbleWalls &&
+    origLineCount === 1 &&
+    compCenters.length >= 3 &&
+    compCenters.length <= 28
+  ) {
+    const filteredC = compCenters.filter(
+      (c) => c.h >= medGlyphH * 0.58 && c.h <= medGlyphH * 1.55,
+    );
+    const fit = fitSlopeOnPoints(filteredC.length >= 3 ? filteredC : compCenters);
+    if (
+      fit &&
+      fit.spanX >= medGlyphH * 1.8 &&
+      fit.rSquared >= (compCenters.length <= 12 ? 0.84 : 0.88) &&
+      fit.driftPx >= minReqDrift &&
+      Math.abs(fit.deg) >= minReqDeg &&
+      Math.abs(fit.deg) <= maxAllowedDeg
+    ) {
+      rotationDeg = Number(fit.deg.toFixed(1));
     }
   }
 
   // 6. Tutarlı Font Ailesi: Balonlar ve kutular arasında rastgele font değişimi yapılmaz;
   // tüm diyalog, sistem ve anlatım metinlerinde okunaklı "shantell" kullanılır.
   const fontFamily: ScanlationFontKey = 'shantell';
-  const fontWeight = kind === 'sfx' ? 800 : 700;
+  const fontWeight = kind === 'sfx' ? 700 : 600;
   const letterSpacingEm = 0.01;
 
   return {
@@ -965,10 +1089,14 @@ export const inpaintTexturedRegion = (
     const dRing = maxChannelDiff(cr, cg, cb, ringMedR, ringMedG, ringMedB);
     // Koyu/orta/aydınlık doku üzerinde maskeden taşan siyah dış kontur parçalarını dışarı sündürme
     const darkAAFloor =
-      ringMedLum >= 140 ? Math.min(72, Math.round(ringMedLum * 0.45)) : 42;
+      ringMedLum >= 165 ? 44 : ringMedLum >= 140 ? Math.min(64, Math.round(ringMedLum * 0.4)) : 42;
     if (
-      (dRing > 48 && pLum < darkAAFloor && ringMedLum >= 52 && pLum < ringMedLum - 20) ||
-      (pLum <= 16 && ringMedLum >= 28 && dRing >= 20) ||
+      (dRing > 48 &&
+        pLum < darkAAFloor &&
+        ringMedLum >= 52 &&
+        pLum < ringMedLum - 20 &&
+        !(ringMedLum >= 150 && hasSmoothCleanNeighbor(pIdx, cr, cg, cb))) ||
+      (pLum <= Math.min(34, Math.round(ringMedLum * 0.72)) && ringMedLum >= 26 && dRing >= 14) ||
       (ringMedB > ringMedR + 14 && cb - cr <= 16 && pLum <= ringMedLum + 8 && dRing >= 18)
     ) {
       return false;
@@ -997,7 +1125,8 @@ export const inpaintTexturedRegion = (
     const baseLum =
       0.299 * cleaned[baseC] + 0.587 * cleaned[baseC + 1] + 0.114 * cleaned[baseC + 2];
     let bestLum = bestIdx >= 0 ? baseLum : -1;
-    const suspiciousDarkCut = Math.min(95, Math.max(40, ringMedLum - 35));
+    const suspiciousDarkCut =
+      ringMedLum >= 160 ? Math.min(58, Math.max(32, Math.round(ringMedLum * 0.34))) : Math.min(95, Math.max(40, ringMedLum - 35));
     const maxLook = bestIdx < 0 || baseLum < Math.max(70, ringMedLum - 15) ? 14 : 8;
     const maxTotalScan = 24;
     let cleanSteps = 0;

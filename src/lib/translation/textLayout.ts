@@ -18,7 +18,7 @@ export const measureStyledWordWidth = (
   word: string,
   fontPx: number,
   fontFamilyKey: ScanlationFontKey = 'shantell',
-  fontWeight = 700,
+  fontWeight = 600,
 ): number => {
   const familyCss = getFontFamilyCss(fontFamilyKey);
   if (ctx) {
@@ -30,8 +30,98 @@ export const measureStyledWordWidth = (
     }
   }
   const charFactor =
-    fontFamilyKey === 'anton' || fontFamilyKey === 'bangers' ? 0.56 : 0.61;
+    fontFamilyKey === 'anton' || fontFamilyKey === 'bangers' ? 0.56 : 0.54;
   return word.length * fontPx * charFactor;
+};
+
+const TR_VOWEL_RE = /[aeıioöuüAEIİOÖUÜ]/;
+
+/**
+ * Tek kelimenin balondan taşmasını veya o satırın ortada küçülmesini önlemek için
+ * yalnızca aşırı uzun (>= 11 harf) taşan kelimeleri Türkçe hece sınırından böler.
+ */
+const splitOversizedWordBySyllable = (
+  ctx: CanvasRenderingContext2D | null,
+  word: string,
+  maxWidthPx: number,
+  fontPx: number,
+  fontFamily: ScanlationFontKey,
+  fontWeight: number,
+  allowHyphenation = true,
+): string[] => {
+  const wordW = measureStyledWordWidth(ctx, word, fontPx, fontFamily, fontWeight);
+  if (wordW <= maxWidthPx * 0.96) return [word];
+
+  // Önce mevcut tire/kesme işaretlerinden bölmeyi dene
+  const dashIdx = word.indexOf('-');
+  if (dashIdx >= 3 && word.length - dashIdx >= 4) {
+    const first = word.slice(0, dashIdx + 1);
+    const second = word.slice(dashIdx + 1);
+    if (measureStyledWordWidth(ctx, first, fontPx, fontFamily, fontWeight) <= maxWidthPx * 0.96) {
+      return [
+        first,
+        ...splitOversizedWordBySyllable(
+          ctx,
+          second,
+          maxWidthPx,
+          fontPx,
+          fontFamily,
+          fontWeight,
+          allowHyphenation,
+        ),
+      ];
+    }
+  }
+
+  const alphaOnly = word.replace(/[^\p{L}]/gu, '');
+  if (!allowHyphenation || alphaOnly.length < 23) return [word];
+
+  // Türkçe hece başlangıç indislerini topla (Ünsüz + Ünlü öncesi hece başlar)
+  const chars = Array.from(word);
+  const candidateSplits: number[] = [];
+  for (let i = 4; i <= chars.length - 4; i += 1) {
+    if (!/\p{L}/u.test(chars[i - 1]) || !/\p{L}/u.test(chars[i])) continue;
+    const prevIsVowel = TR_VOWEL_RE.test(chars[i - 1]);
+    const currIsVowel = TR_VOWEL_RE.test(chars[i]);
+    const nextIsVowel = i + 1 < chars.length && TR_VOWEL_RE.test(chars[i + 1]);
+    if (!prevIsVowel && currIsVowel) {
+      // C + V: ünsüz sonraki hecenin başıdır -> ünsüzden hemen önce böl
+      if (i - 1 >= 4 && chars.length - (i - 1) >= 4) {
+        candidateSplits.push(i - 1);
+      }
+    } else if (prevIsVowel && !currIsVowel && !nextIsVowel) {
+      // V + C + C: iki ünsüz arasından böl
+      candidateSplits.push(i + 1);
+    }
+  }
+
+  if (candidateSplits.length === 0) return [word];
+
+  // Sığan en dengeli (ortaya en yakın) bölmeyi seç
+  const mid = chars.length * 0.52;
+  const sorted = [...new Set(candidateSplits)].sort(
+    (a, b) => Math.abs(a - mid) - Math.abs(b - mid),
+  );
+  let chosen = -1;
+  for (const idx of sorted) {
+    const leftPart = `${chars.slice(0, idx).join('')}-`;
+    if (measureStyledWordWidth(ctx, leftPart, fontPx, fontFamily, fontWeight) <= maxWidthPx * 0.96) {
+      chosen = idx;
+      break;
+    }
+  }
+  if (chosen < 0) {
+    // En kısa ilk heceli adayı dene
+    const earliest = Math.min(...sorted);
+    chosen = earliest;
+  }
+
+  const head = `${chars.slice(0, chosen).join('')}-`;
+  const tail = chars.slice(chosen).join('');
+  return [
+    head,
+    ...splitOversizedWordBySyllable(ctx, tail, maxWidthPx, fontPx, fontFamily, fontWeight),
+  ];
 };
 
 export interface SmartWrappedLine {
@@ -62,12 +152,16 @@ export const computeSmartWrappedLines = (
     lineWidthsPct?: number[];
     emphasisLastLineScale?: number;
     lineHeightRatio?: number;
+    allowHyphenation?: boolean;
   },
 ): SmartWrapResult => {
   const fontFamily = options?.fontFamily ?? 'shantell';
-  const fontWeight = options?.fontWeight ?? 700;
+  const fontWeight = options?.fontWeight ?? 600;
   const emphasisScale = options?.emphasisLastLineScale;
-  const lineHeightRatio = options?.lineHeightRatio ?? (fontFamily === 'anton' || fontFamily === 'bangers' ? 1.12 : 1.22);
+  const allowHyphenation = options?.allowHyphenation ?? true;
+  const lineHeightRatio =
+    options?.lineHeightRatio ??
+    (fontFamily === 'anton' || fontFamily === 'bangers' ? 1.09 : 1.09);
 
   const words = text.split(/\s+/).filter(Boolean);
   if (words.length === 0) {
@@ -85,6 +179,19 @@ export const computeSmartWrappedLines = (
     bodyWords = words.slice(0, splitIdx);
     emphasisText = words.slice(splitIdx).join(' ');
   }
+
+  // Yalnızca aşırı uzun taşan kelimeleri son çare olarak Türkçe hece sınırından böl
+  bodyWords = bodyWords.flatMap((w) =>
+    splitOversizedWordBySyllable(
+      ctx,
+      w,
+      maxWidthPx,
+      fontPx,
+      fontFamily,
+      fontWeight,
+      allowHyphenation,
+    ),
+  );
 
   const spaceW =
     measureStyledWordWidth(ctx, ' ', fontPx, fontFamily, fontWeight) || fontPx * 0.28;
@@ -126,9 +233,13 @@ export const computeSmartWrappedLines = (
     dp[n * (targetLineCount + 1) + 0] = 0;
 
     // Oval balonlarda orta satırlar biraz daha geniş, ilk/son satırlar biraz daha dar hedeflenir
+    const totalDisplayLines = targetLineCount + (emphasisText ? 1 : 0);
+    const hasExplicitLineWidths = Boolean(
+      options?.lineWidthsPct && options.lineWidthsPct.length === totalDisplayLines,
+    );
     const getLineTargetRatio = (lineIdx: number, totalLines: number): number => {
-      if (options?.lineWidthsPct && options.lineWidthsPct.length === totalLines) {
-        return options.lineWidthsPct[lineIdx];
+      if (hasExplicitLineWidths && options?.lineWidthsPct?.length === totalLines) {
+        return Math.max(0.45, Math.min(1, options.lineWidthsPct[lineIdx]));
       }
       if (totalLines <= 2) return 0.92;
       const normPos = (lineIdx + 0.5) / totalLines - 0.5; // -0.5 .. +0.5
@@ -137,9 +248,12 @@ export const computeSmartWrappedLines = (
 
     for (let remLines = 1; remLines <= targetLineCount; remLines += 1) {
       const lineIdx = targetLineCount - remLines;
-      const lineRatio = getLineTargetRatio(lineIdx, targetLineCount + (emphasisText ? 1 : 0));
-      const allowedMaxW = maxWidthPx * Math.min(1, lineRatio + 0.08);
+      const lineRatio = getLineTargetRatio(lineIdx, totalDisplayLines);
+      const allowedMaxW = hasExplicitLineWidths
+        ? maxWidthPx * lineRatio * 1.01
+        : maxWidthPx * Math.min(1, lineRatio + 0.08);
       const idealW = maxWidthPx * lineRatio * 0.85;
+      const overflowLimit = hasExplicitLineWidths ? maxWidthPx * lineRatio : maxWidthPx;
 
       for (let i = 0; i < n; i += 1) {
         let lineW = 0;
@@ -150,7 +264,7 @@ export const computeSmartWrappedLines = (
           const nextCost = dp[(j + 1) * (targetLineCount + 1) + (remLines - 1)];
           if (nextCost === Infinity) continue;
 
-          const overflowPenalty = lineW > maxWidthPx ? (lineW - maxWidthPx) * 50 : 0;
+          const overflowPenalty = lineW > overflowLimit ? (lineW - overflowLimit) * 50 : 0;
           const diff = idealW - lineW;
           // Son satırda tek kısa kelime ("yetim kelime") kalmasını cezalandır
           const orphanPenalty =
@@ -208,8 +322,8 @@ export const computeSmartWrappedLines = (
 
   let totalHeightPx = 0;
   for (const line of lines) {
-    if (line.widthPx * line.scale > maxWidthPx && line.widthPx > 0) {
-      line.scale = Number(Math.max(0.45, (maxWidthPx / line.widthPx) * line.scale).toFixed(3));
+    if (line.widthPx > maxWidthPx && line.widthPx > 0) {
+      line.scale = Number(Math.max(0.88, (maxWidthPx / line.widthPx) * line.scale).toFixed(3));
     }
     totalHeightPx += fontPx * line.scale * lineHeightRatio;
   }
@@ -240,4 +354,4 @@ export const isWhiteOrLightColor = (color: string, isDarkBubble?: boolean): bool
 };
 
 export const getLineHeightRatioForBlock = (block: TranslationBlock): number =>
-  block.fontFamily === 'anton' || block.fontFamily === 'bangers' ? 1.12 : 1.22;
+  block.fontFamily === 'anton' || block.fontFamily === 'bangers' ? 1.09 : 1.09;
