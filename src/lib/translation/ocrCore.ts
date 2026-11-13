@@ -608,7 +608,8 @@ const PURE_SFX_STEMS = new Set([
   // Darbe / Patlama / Çarpma
   'boom', 'kaboom', 'bam', 'baam', 'bang', 'clang', 'clank', 'clash', 'clack',
   'clatter', 'crash', 'crack', 'crackle', 'cruck', 'crach', 'grack', 'craek', 'krack',
-  'crunch', 'thud', 'thump', 'thwack', 'wham', 'whack', 'slam', 'smack', 'smash',
+  'crunch', 'frun', 'crun', 'frunch', 'cruch', 'grunch', 'krunch', 'cronch',
+  'thud', 'thump', 'thwack', 'wham', 'whack', 'slam', 'smack', 'smash',
   'pow', 'poof', 'bonk', 'boing', 'bong', 'ding', 'dong', 'kring', 'ting', 'plink',
   'plop', 'splat', 'sploosh', 'squelch', 'squish', 'thwip', 'twang', 'zing', 'zap',
   'zzt', 'zzzt', 'bzz', 'bzzt', 'vroom', 'screech', 'skrrt',
@@ -725,12 +726,18 @@ export const isRpgStatLine = (rawText: string): boolean => {
   return wordCount <= 3 && !/[!?]/.test(val) && /^[A-Z0-9+/().\s-]+$/.test(val);
 };
 
-const sampleLineCollarLum = (img: OcrImageBuffer, bbox: OcrLine['bbox']): number => {
+const sampleLineCollarRgb = (
+  img: OcrImageBuffer,
+  bbox: OcrLine['bbox'],
+): { lum: number; r: number; g: number; b: number } => {
   const { data, width, height } = img;
   const xStart = Math.max(0, Math.floor(bbox.x0));
   const xEnd = Math.min(width - 1, Math.ceil(bbox.x1));
   const stepX = Math.max(1, Math.floor((xEnd - xStart) / 14));
   const lums: number[] = [];
+  const rs: number[] = [];
+  const gs: number[] = [];
+  const bs: number[] = [];
   const sampleYs = [
     Math.max(0, Math.floor(bbox.y0) - 3),
     Math.max(0, Math.floor(bbox.y0) - 1),
@@ -741,13 +748,25 @@ const sampleLineCollarLum = (img: OcrImageBuffer, bbox: OcrLine['bbox']): number
     const rowOff = y * width * 4;
     for (let x = xStart; x <= xEnd; x += stepX) {
       const idx = rowOff + x * 4;
-      lums.push(0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      rs.push(r);
+      gs.push(g);
+      bs.push(b);
+      lums.push(0.299 * r + 0.587 * g + 0.114 * b);
     }
   }
-  if (lums.length === 0) return 255;
-  lums.sort((a, b) => a - b);
-  return lums[Math.floor(lums.length * 0.55)];
+  if (lums.length === 0) return { lum: 255, r: 255, g: 255, b: 255 };
+  const medPick = (arr: number[]) => {
+    const s = [...arr].sort((a, b) => a - b);
+    return s[Math.floor(s.length * 0.55)];
+  };
+  return { lum: medPick(lums), r: medPick(rs), g: medPick(gs), b: medPick(bs) };
 };
+
+const sampleLineCollarLum = (img: OcrImageBuffer, bbox: OcrLine['bbox']): number =>
+  sampleLineCollarRgb(img, bbox).lum;
 
 const hasHorizontalBubbleBarrier = (
   img: OcrImageBuffer,
@@ -755,9 +774,12 @@ const hasHorizontalBubbleBarrier = (
   lineB: OcrLine,
 ): boolean => {
   const [left, right] = lineA.bbox.x0 <= lineB.bbox.x0 ? [lineA, lineB] : [lineB, lineA];
-  const bgL = sampleLineCollarLum(img, left.bbox);
-  const bgR = sampleLineCollarLum(img, right.bbox);
-  if (Math.abs(bgL - bgR) >= 75) return true;
+  const colL = sampleLineCollarRgb(img, left.bbox);
+  const colR = sampleLineCollarRgb(img, right.bbox);
+  const bgL = colL.lum;
+  const bgR = colR.lum;
+  const rgbJump = Math.hypot(colL.r - colR.r, colL.g - colR.g, colL.b - colR.b);
+  if (Math.abs(bgL - bgR) >= 75 || rgbJump >= 95) return true;
 
   const { data, width, height } = img;
   const hGapPx = right.bbox.x0 - left.bbox.x1;
@@ -857,19 +879,62 @@ const hasVerticalBubbleBarrier = (
   lineA: OcrLine,
   lineB: OcrLine,
 ): boolean => {
+  const { data, width, height } = img;
   const [top, bot] = lineA.bbox.y0 <= lineB.bbox.y0 ? [lineA, lineB] : [lineB, lineA];
   const vGapPx = bot.bbox.y0 - top.bbox.y1;
-  const bgT = sampleLineCollarLum(img, top.bbox);
-  const bgB = sampleLineCollarLum(img, bot.bbox);
+  const colT = sampleLineCollarRgb(img, top.bbox);
+  const colB = sampleLineCollarRgb(img, bot.bbox);
+  const bgT = colT.lum;
+  const bgB = colB.lum;
+  const rgbJump = Math.hypot(colT.r - colB.r, colT.g - colB.g, colT.b - colB.b);
   // Kalın siyah konturlu orta ton sahne/anlatım yazılarında sıkı dikey yaka pikselinin biri siyah kontura denk gelebilir
   const fakeOutlineCollar =
     vGapPx <= 6 &&
     Math.min(bgT, bgB) <= 28 &&
     Math.max(bgT, bgB) >= 75 &&
     Math.max(bgT, bgB) < 220;
-  if (Math.abs(bgT - bgB) >= 75 && !fakeOutlineCollar) return true;
+  // Kırmızı başlık kutusu ("SAW") ile siyah/gri kaya ("CHAPTER 1:") arası gibi parlaklığı yakın
+  // veya üst-alt sınırları dışa taşan sıkı kutuları yan kanatlardan ve dikey boşluktan ayır!
+  const sampleFlankChromaRgb = (bbox: OcrLine['bbox'], fallback: { r: number; g: number; b: number }) => {
+    const midY = Math.round((bbox.y0 + bbox.y1) * 0.5);
+    const y0s = Math.max(0, midY - 4);
+    const y1s = Math.min(height - 1, midY + 4);
+    const xs: number[] = [];
+    for (let dx = 3; dx <= 8; dx += 2) {
+      const lx = Math.floor(bbox.x0) - dx;
+      const rx = Math.ceil(bbox.x1) + dx;
+      if (lx >= 0) xs.push(lx);
+      if (rx < width) xs.push(rx);
+    }
+    const rs: number[] = [];
+    const gs: number[] = [];
+    const bs: number[] = [];
+    for (let y = y0s; y <= y1s; y += 2) {
+      const rOff = y * width * 4;
+      for (const x of xs) {
+        const idx = rOff + x * 4;
+        rs.push(data[idx]);
+        gs.push(data[idx + 1]);
+        bs.push(data[idx + 2]);
+      }
+    }
+    if (rs.length === 0) return fallback;
+    const med = (a: number[]) => [...a].sort((u, v) => u - v)[a.length >> 1];
+    return { r: med(rs), g: med(gs), b: med(bs) };
+  };
+  const flankT = sampleFlankChromaRgb(top.bbox, colT);
+  const flankB = sampleFlankChromaRgb(bot.bbox, colB);
+  const flankJump = Math.hypot(flankT.r - flankB.r, flankT.g - flankB.g, flankT.b - flankB.b);
+  const flankHueJump =
+    Math.abs((flankT.r - flankT.g) - (flankB.r - flankB.g)) +
+    Math.abs((flankT.r - flankT.b) - (flankB.r - flankB.b));
+  const topBoxVivid = Math.max(flankT.r, flankT.g, flankT.b) - Math.min(flankT.r, flankT.g, flankT.b) >= 65;
+  const botBoxVivid = Math.max(flankB.r, flankB.g, flankB.b) - Math.min(flankB.r, flankB.g, flankB.b) >= 65;
+  const vividChromaBoxBoundary =
+    (rgbJump >= 90 && (vGapPx >= 4 || Math.max(colT.r - colT.g, colB.r - colB.g) >= 55)) ||
+    (vGapPx >= 6 && (flankJump >= 105 || flankHueJump >= 115 || (flankJump >= 85 && topBoxVivid !== botBoxVivid)));
+  if ((Math.abs(bgT - bgB) >= 75 || vividChromaBoxBoundary) && !fakeOutlineCollar) return true;
 
-  const { data, width, height } = img;
   if (vGapPx <= 1.5) return false;
   const gapY0 = Math.max(0, Math.floor(top.bbox.y1) + 1);
   const gapY1 = Math.min(height - 1, Math.ceil(bot.bbox.y0) - 1);
@@ -896,7 +961,7 @@ const hasVerticalBubbleBarrier = (
       if (bothDark && lum >= 185) colBlocked[x - ovX0] = 1;
     }
     if (bothLight && darkCount / spanX >= 0.45) return true;
-    if (bothDark && brightCount / spanX >= 0.45) return true;
+    if (vGapPx >= 4.5 && bothDark && brightCount / spanX >= 0.45) return true;
   }
 
   // Eğrisel/dikenli oval balon sınırları yatay bir satırda %45 doluluğa ulaşmasa da
@@ -1173,18 +1238,27 @@ export const groupOcrLinesIntoBubbles = (
       }
       if (hasIntermediateRow) continue;
 
+      const overlap = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
+      const narrow = Math.min(wa, wb);
+      const centerDist = Math.abs(centerXa - centerXb);
+
       // Eğer satırlardan biri iki ayrı yan yana sütunun üstünü kapatan geniş bir başlıksa ("KIM JEONGHYUK"), sütunlarla birleştirme
+      const angleDiff = Math.abs((lines[i].angleDeg ?? 0) - (lines[j].angleDeg ?? 0));
+      const sameHandwrittenNoteStack =
+        angleDiff < 11 &&
+        maxH <= 95 &&
+        maxH / Math.max(1, minH) <= 1.75 &&
+        overlap > narrow * 0.52 &&
+        vGap <= minH * 0.65 &&
+        (!img || Math.abs(sampleLineCollarLum(img, a) - sampleLineCollarLum(img, b)) < 35);
       if (
+        (angleDiff >= 3.8 && !sameHandwrittenNoteStack) ||
         spansSeparateSideBySideColumns(i, j) ||
         spansSeparateSideBySideColumns(j, i) ||
         (img && vGap >= -2 && hasVerticalBubbleBarrier(img, lines[i], lines[j]))
       ) {
         continue;
       }
-
-      const overlap = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
-      const narrow = Math.min(wa, wb);
-      const centerDist = Math.abs(centerXa - centerXb);
 
       // Balon içi ALL-CAPS ana diyalog ile balon kenarı dışında kalan küçük el yazısı yan notların
       // ("Nothing but stuff" / "a part timer~") birleşmesini önle
@@ -1246,8 +1320,11 @@ export const groupOcrLinesIntoBubbles = (
     group.sort((a, b) => {
       const ha = a.bbox.y1 - a.bbox.y0;
       const hb = b.bbox.y1 - b.bbox.y0;
+      const wa = a.bbox.x1 - a.bbox.x0;
+      const wb = b.bbox.x1 - b.bbox.x0;
       const vOv = Math.min(a.bbox.y1, b.bbox.y1) - Math.max(a.bbox.y0, b.bbox.y0);
-      if (vOv >= Math.min(ha, hb) * 0.5) {
+      const hOv = Math.min(a.bbox.x1, b.bbox.x1) - Math.max(a.bbox.x0, b.bbox.x0);
+      if (vOv >= Math.min(ha, hb) * 0.5 && hOv <= Math.min(wa, wb) * 0.35) {
         return a.bbox.x0 - b.bbox.x0;
       }
       return a.bbox.y0 - b.bbox.y0 || a.bbox.x0 - b.bbox.x0;
@@ -1260,12 +1337,16 @@ export const groupOcrLinesIntoBubbles = (
       if (prev) {
         const hp = prev.bbox.y1 - prev.bbox.y0;
         const hi = item.bbox.y1 - item.bbox.y0;
+        const wp = prev.bbox.x1 - prev.bbox.x0;
+        const wi = item.bbox.x1 - item.bbox.x0;
         const vOv = Math.min(prev.bbox.y1, item.bbox.y1) - Math.max(prev.bbox.y0, item.bbox.y0);
+        const hOv = Math.min(prev.bbox.x1, item.bbox.x1) - Math.max(prev.bbox.x0, item.bbox.x0);
         const hGap = item.bbox.x0 - prev.bbox.x1;
         const centerYp = (prev.bbox.y0 + prev.bbox.y1) * 0.5;
         const centerYi = (item.bbox.y0 + item.bbox.y1) * 0.5;
         if (
           vOv >= Math.min(hp, hi) * 0.52 &&
+          hOv <= Math.min(wp, wi) * 0.35 &&
           Math.abs(centerYp - centerYi) < Math.min(hp, hi) * 0.45 &&
           hGap >= -Math.min(hp, hi) * 0.4 &&
           hGap <= Math.min(hp, hi) * 0.65 &&
@@ -1343,7 +1424,14 @@ export const groupOcrLinesIntoBubbles = (
       toNormCoord(x1, imgWidth),
     ];
 
-    if (box[2] > box[0] && box[3] > box[1]) {
+    const isTinyCoverCopyrightOrPresentedBy =
+      box[2] - box[0] <= 24 &&
+      (box[0] >= 890 || box[2] <= 55 || /^presented\s+by\b/i.test(text)) &&
+      /^(?:presented\s+by|copyright|©|all\s+rights\s+reserved|monthly\s+young|weekly\s+shonen|kodansha|shueisha)/i.test(
+        text,
+      );
+
+    if (box[2] > box[0] && box[3] > box[1] && !isTinyCoverCopyrightOrPresentedBy) {
       bubbles.push({
         box,
         text,
@@ -1354,7 +1442,88 @@ export const groupOcrLinesIntoBubbles = (
     }
   });
 
+  // Eğimli telefon ekranı / SMS sohbet arayüzü / sıkışık mikro UI metin kümelerini filtrele
+  // (ör. elde tutulan -22° eğimli telefon ekranındaki üst üste yığılmış 7-22px SMS parçaları)
+  const microUiSkipIndices = new Set<number>();
+  const deTiltedLinePx = (l: OcrBubbleLineBox) => {
+    const rawH = ((l.box[2] - l.box[0]) * imgHeight) / 1000;
+    const rawW = ((l.box[3] - l.box[1]) * imgWidth) / 1000;
+    const rad = (Math.abs(l.angleDeg ?? 0) * Math.PI) / 180;
+    return rad >= 0.06 ? Math.max(8, rawH - rawW * Math.sin(rad) * 0.85) : rawH;
+  };
+  const isMicroClusterBlock = (b: (typeof bubbles)[number]) => {
+    const lhList = (b.lines ?? []).map(deTiltedLinePx);
+    const maxLinePx =
+      lhList.length > 0 ? Math.max(...lhList) : ((b.box[2] - b.box[0]) * imgHeight) / 1000;
+    return maxLinePx <= Math.max(25, imgHeight * 0.02);
+  };
+  const visitedMicro = new Uint8Array(bubbles.length);
+  for (let i = 0; i < bubbles.length; i += 1) {
+    if (visitedMicro[i] || !isMicroClusterBlock(bubbles[i])) continue;
+    const queue = [i];
+    const comp: number[] = [];
+    visitedMicro[i] = 1;
+    while (queue.length > 0) {
+      const cur = queue.shift()!;
+      comp.push(cur);
+      const cb = bubbles[cur].box;
+      for (let j = 0; j < bubbles.length; j += 1) {
+        if (visitedMicro[j] || !isMicroClusterBlock(bubbles[j])) continue;
+        const nb = bubbles[j].box;
+        const hDist = Math.max(0, nb[1] - cb[3], cb[1] - nb[3]);
+        const vDist = Math.max(0, nb[0] - cb[2], cb[0] - nb[2]);
+        if (hDist <= 95 && vDist <= 95) {
+          visitedMicro[j] = 1;
+          queue.push(j);
+        }
+      }
+    }
+    if (comp.length < 4) continue;
+    let cy0 = Infinity;
+    let cx0 = Infinity;
+    let cy1 = -Infinity;
+    let cx1 = -Infinity;
+    let tiltedCount = 0;
+    let overlapPairCount = 0;
+    const lineHeights: number[] = [];
+    for (const idx of comp) {
+      const b = bubbles[idx];
+      cy0 = Math.min(cy0, b.box[0]);
+      cx0 = Math.min(cx0, b.box[1]);
+      cy1 = Math.max(cy1, b.box[2]);
+      cx1 = Math.max(cx1, b.box[3]);
+      if ((b.lines ?? []).some((l) => Math.abs(l.angleDeg ?? 0) >= 6.5)) {
+        tiltedCount += 1;
+      }
+      for (const l of b.lines ?? []) {
+        lineHeights.push(deTiltedLinePx(l));
+      }
+    }
+    for (let a = 0; a < comp.length; a += 1) {
+      for (let bIdx = a + 1; bIdx < comp.length; bIdx += 1) {
+        const ba = bubbles[comp[a]].box;
+        const bb = bubbles[comp[bIdx]].box;
+        const iv = Math.min(ba[2], bb[2]) - Math.max(ba[0], bb[0]);
+        const ih = Math.min(ba[3], bb[3]) - Math.max(ba[1], bb[1]);
+        if (iv > 0 && ih > 0) overlapPairCount += 1;
+      }
+    }
+    lineHeights.sort((a, b) => a - b);
+    const medMicroH = lineHeights.length > 0 ? lineHeights[lineHeights.length >> 1] : 99;
+    const spanW = cx1 - cx0;
+    const spanH = cy1 - cy0;
+    if (
+      spanW <= 300 &&
+      spanH <= 260 &&
+      medMicroH <= Math.max(22, imgHeight * 0.018) &&
+      (tiltedCount >= 2 || overlapPairCount >= 2)
+    ) {
+      for (const idx of comp) microUiSkipIndices.add(idx);
+    }
+  }
+
   return bubbles
+    .filter((_, idx) => !microUiSkipIndices.has(idx))
     .sort((a, b) => a.y - b.y)
     .map(({ box, text, lines: lineBoxes, emphasisLastLineScale }) => ({
       box,
@@ -1389,11 +1558,117 @@ export const isCreditOrPromoText = (text: string): boolean => {
   return false;
 };
 
+const hasEnclosedComicSpeechBubble = (
+  img: ImageData | undefined,
+  bubbles: OcrBubble[],
+): boolean => {
+  if (!img || bubbles.length === 0) return false;
+  const { width, height, data } = img;
+  const lumAt = (x: number, y: number): { lum: number; sat: number } => {
+    const cx = Math.max(0, Math.min(width - 1, Math.round(x)));
+    const cy = Math.max(0, Math.min(height - 1, Math.round(y)));
+    const p = (cy * width + cx) * 4;
+    const r = data[p];
+    const g = data[p + 1];
+    const b = data[p + 2];
+    const maxC = Math.max(r, g, b);
+    const minC = Math.min(r, g, b);
+    return {
+      lum: 0.299 * r + 0.587 * g + 0.114 * b,
+      sat: (maxC - minC) / Math.max(1, maxC),
+    };
+  };
+  for (const b of bubbles) {
+    const x0 = (b.box[1] / 1000) * width;
+    const y0 = (b.box[0] / 1000) * height;
+    const x1 = (b.box[3] / 1000) * width;
+    const y1 = (b.box[2] / 1000) * height;
+    const bw = x1 - x0;
+    const bh = y1 - y0;
+    if (bw < 28 || bh < 20) continue;
+    const mx = (x0 + x1) * 0.5;
+    const my = (y0 + y1) * 0.5;
+    const maxRayX = Math.max(bw * 0.55, Math.min(bw * 1.15, 130));
+    const maxRayY = Math.max(bh * 0.55, Math.min(bh * 1.15, 130));
+    let enclosedDirs = 0;
+    const dirs: Array<[number, number, number]> = [
+      [-1, 0, maxRayX],
+      [1, 0, maxRayX],
+      [0, -1, maxRayY],
+      [0, 1, maxRayY],
+    ];
+    for (const [dx, dy, maxDist] of dirs) {
+      let lightSteps = 0;
+      let hitWall = false;
+      const startOffset = dx !== 0 ? bw * 0.5 + 2 : bh * 0.5 + 2;
+      for (let d = startOffset; d <= startOffset + maxDist; d += 2) {
+        const px = mx + dx * d;
+        const py = my + dy * d;
+        if (px < 1 || px >= width - 1 || py < 1 || py >= height - 1) break;
+        const { lum, sat } = lumAt(px, py);
+        if (lum >= 220 && sat < 0.15) {
+          lightSteps += 1;
+        } else if (lum <= 95 && sat < 0.35) {
+          if (lightSteps >= 3) hitWall = true;
+          break;
+        }
+      }
+      if (hitWall) enclosedDirs += 1;
+    }
+    if (enclosedDirs >= 3) return true;
+  }
+  return false;
+};
+
 /**
- * Sayfa çoğunlukla jenerik, ekip listesi, reklam veya duyuru içeriyorsa true döner.
+ * Sayfa çoğunlukla jenerik, ekip listesi, reklam, duyuru veya bağımsız seri/cilt kapak görseli içeriyorsa true döner.
  * Bu sayfalar çeviriye ve inpaint'e hiç sokulmaz.
  */
-export const isCreditsOrPromoPage = (bubbles: OcrBubble[]): boolean => {
+export const isCreditsOrPromoPage = (
+  bubbles: OcrBubble[],
+  rawLines?: OcrLine[],
+  imgWidth?: number,
+  imgHeight?: number,
+  ocrImg?: ImageData,
+): boolean => {
+  // Bağımsız Manga / Cilt Kapak İllüstrasyonu Kontrolü (örn. şömiz/cilt kapağı, konuşma balonu olmayan poster kapağı):
+  // Kapak künyesi / telif / "presented by" / yazar imzası taşıyan ve kapalı konuşma balonu içermeyen kapaklar atlanır.
+  if (rawLines && rawLines.length > 0 && imgWidth && imgHeight && !hasEnclosedComicSpeechBubble(ocrImg, bubbles)) {
+    const rawTexts = rawLines.map((l) => l.text.trim());
+    const hasPresentedByOrCopyright = rawTexts.some((t) =>
+      /\bpresented\s+by\b|©|\bcopyright\b|\ball\s+rights\s+reserved\b/i.test(t),
+    );
+    const hasPublisherOrMag = rawTexts.some((t) =>
+      /\b(?:kodansha|shueisha|shogakukan|hakusensha|kadokawa|monthly\s+young|weekly\s+shonen|young\s+magazine|isbn)\b/i.test(
+        t,
+      ),
+    );
+    const hasVolumeBadge = rawTexts.some((t) => /^(?:vol\.?\s*0?\d{1,3}|volume\s+0?\d{1,3}|0\d)$/i.test(t));
+    const isLandscapeCoverSpread = imgWidth >= imgHeight * 1.15;
+    const hasBottomEdgeBlurbOrSubtitle = bubbles.some(
+      (b) => b.box[2] >= 960 && b.box[1] <= 860 && b.text.trim().length >= 12,
+    );
+    const hasBottomRightAuthorBadge = bubbles.some(
+      (b) =>
+        b.box[0] >= 840 &&
+        b.box[1] >= 750 &&
+        /^[A-Z0-9.\-]{2,12}$/.test(b.text.trim()),
+    );
+    const hasStylizedCoverLogoToken = bubbles.some((b) =>
+      /^[A-Z]{1,3}-[A-Z]{2,}[a-z]{3,}$/.test(b.text.trim()),
+    );
+    if (
+      (hasPresentedByOrCopyright && (isLandscapeCoverSpread || hasPublisherOrMag || hasVolumeBadge)) ||
+      (hasPublisherOrMag && hasVolumeBadge && isLandscapeCoverSpread) ||
+      (isLandscapeCoverSpread &&
+        bubbles.length >= 4 &&
+        hasBottomEdgeBlurbOrSubtitle &&
+        (hasBottomRightAuthorBadge || hasStylizedCoverLogoToken))
+    ) {
+      return true;
+    }
+  }
+
   if (bubbles.length === 0) return false;
   const promo = bubbles.filter((b) => isCreditOrPromoText(b.text)).length;
   if (promo === 0) return false;

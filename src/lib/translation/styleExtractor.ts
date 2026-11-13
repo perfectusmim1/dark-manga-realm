@@ -537,39 +537,86 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const fillLum = 0.299 * fillR + 0.587 * fillG + 0.114 * fillB;
   const edgeLum = 0.299 * edgeR + 0.587 * edgeG + 0.114 * edgeB;
 
-  // Sahne üstü koyu harflerin etrafındaki parlak beyaz dış kontur ("KIM JEONGHYUK", "31 AÑOS" vb.)
-  const haloRs: number[] = [];
-  const haloGs: number[] = [];
-  const haloBs: number[] = [];
-  let whiteHaloCount = 0;
+  // Sahne üstü koyu harflerin etrafındaki parlak beyaz dış kontur ("KIM JEONGHYUK", "PUSH", "BLOODBATH" vb.)
+  // Kalın AA/glow kenarlı düşük çözünürlüklü fırçalarda d=2 gri geçiş pikseli taşıyabileceğinden d=2 ve d=3 ayrı ölçülüp en temiz hale seçilir.
+  const halo2Rs: number[] = [];
+  const halo2Gs: number[] = [];
+  const halo2Bs: number[] = [];
+  const halo3Rs: number[] = [];
+  const halo3Gs: number[] = [];
+  const halo3Bs: number[] = [];
+  let whiteHalo2Count = 0;
+  let whiteHalo3Count = 0;
   let darkHaloCount = 0;
-  for (let y = 2; y < wh - 2; y += 1) {
+  for (let y = 3; y < wh - 3; y += 1) {
     const rOff = y * ww;
-    for (let x = 2; x < ww - 2; x += 1) {
+    for (let x = 3; x < ww - 3; x += 1) {
       const idx = rOff + x;
       if (fullGlyphMask[idx]) continue;
+      // 1px AA geçiş halkasını atla
       if (
+        fullGlyphMask[idx - 1] ||
+        fullGlyphMask[idx + 1] ||
+        fullGlyphMask[idx - ww] ||
+        fullGlyphMask[idx + ww]
+      ) {
+        continue;
+      }
+      const isDist2 =
         fullGlyphMask[idx - 2] ||
         fullGlyphMask[idx + 2] ||
         fullGlyphMask[idx - 2 * ww] ||
-        fullGlyphMask[idx + 2 * ww]
-      ) {
-        const cIdx = idx * 3;
-        const hr = winRgb[cIdx];
-        const hg = winRgb[cIdx + 1];
-        const hb = winRgb[cIdx + 2];
-        haloRs.push(hr);
-        haloGs.push(hg);
-        haloBs.push(hb);
-        const hLum = 0.299 * hr + 0.587 * hg + 0.114 * hb;
-        if (hLum >= 210 && rgbSaturation(hr, hg, hb) < 0.2) {
-          whiteHaloCount += 1;
-        } else if (hLum <= 90 && rgbSaturation(hr, hg, hb) < 0.32) {
+        fullGlyphMask[idx + 2 * ww];
+      const isDist3 =
+        !isDist2 &&
+        (fullGlyphMask[idx - 3] ||
+          fullGlyphMask[idx + 3] ||
+          fullGlyphMask[idx - 3 * ww] ||
+          fullGlyphMask[idx + 3 * ww]);
+      if (!isDist2 && !isDist3) continue;
+
+      const cIdx = idx * 3;
+      const hr = winRgb[cIdx];
+      const hg = winRgb[cIdx + 1];
+      const hb = winRgb[cIdx + 2];
+      const hLum = 0.299 * hr + 0.587 * hg + 0.114 * hb;
+      const hSat = rgbSaturation(hr, hg, hb);
+      if (isDist2) {
+        halo2Rs.push(hr);
+        halo2Gs.push(hg);
+        halo2Bs.push(hb);
+        if (hLum >= 210 && hSat < 0.2) {
+          whiteHalo2Count += 1;
+        } else if (hLum <= 90 && hSat < 0.32) {
           darkHaloCount += 1;
+        }
+      } else {
+        halo3Rs.push(hr);
+        halo3Gs.push(hg);
+        halo3Bs.push(hb);
+        if (hLum >= 210 && hSat < 0.2) {
+          whiteHalo3Count += 1;
         }
       }
     }
   }
+  const whiteRatio2 = halo2Rs.length > 0 ? whiteHalo2Count / halo2Rs.length : 0;
+  const whiteRatio3 = halo3Rs.length > 0 ? whiteHalo3Count / halo3Rs.length : 0;
+  const haloBaseRingLum = 0.299 * ringMedR + 0.587 * ringMedG + 0.114 * ringMedB;
+  const lum2 =
+    halo2Rs.length > 0
+      ? 0.299 * medianOf(halo2Rs) + 0.587 * medianOf(halo2Gs) + 0.114 * medianOf(halo2Bs)
+      : haloBaseRingLum;
+  const lum3 =
+    halo3Rs.length > 0
+      ? 0.299 * medianOf(halo3Rs) + 0.587 * medianOf(halo3Gs) + 0.114 * medianOf(halo3Bs)
+      : haloBaseRingLum;
+  const useDist3Halo =
+    halo3Rs.length >= 16 && whiteRatio3 > whiteRatio2 + 0.08 && lum3 > lum2 + 10 && lum3 >= 215;
+  const haloRs = useDist3Halo ? halo3Rs : halo2Rs;
+  const haloGs = useDist3Halo ? halo3Gs : halo2Gs;
+  const haloBs = useDist3Halo ? halo3Bs : halo2Bs;
+  const whiteHaloCount = useDist3Halo ? whiteHalo3Count : whiteHalo2Count;
   const haloR = haloRs.length > 0 ? Math.round(medianOf(haloRs)) : ringMedR;
   const haloG = haloGs.length > 0 ? Math.round(medianOf(haloGs)) : ringMedG;
   const haloB = haloBs.length > 0 ? Math.round(medianOf(haloBs)) : ringMedB;
@@ -585,16 +632,16 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
 
   const hasOuterHaloStroke =
     fillLum <= 125 &&
-    haloLum >= 224 &&
-    whiteHaloRatio >= 0.48 &&
+    haloLum >= 218 &&
+    whiteHaloRatio >= 0.34 &&
     haloToFillDist >= 85 &&
     ((!hasClosedBubbleWalls &&
-      ((bgLum <= 242 &&
-        (haloLum >= bgLum + 8 || haloToBgDist >= 18 || ringStd >= 14)) ||
-        (haloLum >= 232 && ringStd >= 10 && bgLum <= 253))) ||
-      (haloLum >= 234 && ringStd >= 10 && haloToFillDist >= 110) ||
+      ((bgLum <= 245 &&
+        (haloLum >= bgLum + 6 || haloToBgDist >= 15 || ringStd >= 11)) ||
+        (haloLum >= 230 && ringStd >= 9 && bgLum <= 253))) ||
+      (haloLum >= 232 && ringStd >= 10 && haloToFillDist >= 110) ||
       (bgLum <= 228 && haloLum >= bgLum + 16 && haloToBgDist >= 18) ||
-      (bgLum <= 240 && haloLum >= 240 && whiteHaloRatio >= 0.62 && haloToBgDist >= 10));
+      (bgLum <= 242 && haloLum >= 238 && whiteHaloRatio >= 0.52 && haloToBgDist >= 10));
 
   const haloSat = rgbSaturation(haloR, haloG, haloB);
   const haloChroma = Math.max(haloR, haloG, haloB) - Math.min(haloR, haloG, haloB);
@@ -751,16 +798,34 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       }
     }
   } else if (isDarkBg) {
-    // Koyu veya renkli kutu (RPG sistem ekranı, lacivert/kahverengi anlatım kutusu vb.):
-    // Yazının içi her zaman saf beyazdır (#ffffff) (yalnızca belirgin altın/sarı başlıklar kendi rengini korur).
-    const isWarmGoldText =
-      fillLum >= 165 &&
-      fillR > fillB + 45 &&
-      fillG > fillB + 25 &&
-      fillSat >= 0.3 &&
-      fillToBgDist >= 70;
+    // Koyu veya renkli kutu (RPG sistem ekranı, lacivert/kahverengi anlatım kutusu, kırmızı şerit vb.):
+    // Parlak kırmızı/renkli şerit ("#cd0f14") üzerindeki katı siyah mürekkebi ("THE BEGINNING OF A NEW ERA!") koru;
+    // aksi halde beyaz/altın metni al.
+    const ringMaxCh = Math.max(ringMedR, ringMedG, ringMedB);
+    const ringMinCh = Math.min(ringMedR, ringMedG, ringMedB);
+    const ringChroma = ringMaxCh - ringMinCh;
+    const isDarkInkOnColorBanner =
+      !hasDarkOuterHaloStroke &&
+      whiteHaloRatio < 0.35 &&
+      fillLum <= 68 &&
+      fillLum < bgLum - 18 &&
+      fillToBgDist >= 72 &&
+      ringMaxCh >= 125 &&
+      ringChroma >= 45;
 
-    if (isWarmGoldText) {
+    const isWarmGoldText =
+      fillLum >= 175 &&
+      fillR >= 205 &&
+      fillG >= 165 &&
+      fillB <= 115 &&
+      fillR - fillB >= 95 &&
+      fillG - fillB >= 55 &&
+      fillSat >= 0.42 &&
+      fillToBgDist >= 80;
+
+    if (isDarkInkOnColorBanner) {
+      finalTextColor = '#0c0c0c';
+    } else if (isWarmGoldText) {
       const boost = fillLum < 225 ? (225 - fillLum) * 0.5 : 0;
       finalTextColor = rgbToHex(fillR + boost, fillG + boost, fillB + boost);
     } else {
@@ -816,7 +881,26 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     }
   } else {
     // Açık/beyaz zemin veya çerçeve sınırında duran başlıklar ("SYSTEM PROMPT" vb.)
+    // Gerçek erimiş vuruş piksellerinin (rawGlyphMask) çoğunluğu koyu siyahsa ("I couldn't control my Lust")
+    // harf içi boşluklarından (o/d/e) dolayı asla beyaz dolgulu yazı sanma!
+    let rawDarkStrokes = 0;
+    let rawTotalStrokes = 0;
+    const rawStep = Math.max(1, Math.floor(numPixels / 3500));
+    for (let i = 0; i < numPixels; i += rawStep) {
+      if (!rawGlyphMask[i]) continue;
+      const cIdx = i * 3;
+      const pLum = 0.299 * winRgb[cIdx] + 0.587 * winRgb[cIdx + 1] + 0.114 * winRgb[cIdx + 2];
+      rawTotalStrokes += 1;
+      if (pLum <= 92) rawDarkStrokes += 1;
+    }
+    const isThinDarkCursiveWithWhiteHalo =
+      rawTotalStrokes >= 10 &&
+      rawDarkStrokes / rawTotalStrokes >= 0.58 &&
+      (enclosedCount < rawTotalStrokes * rawStep * 0.5 ||
+        (haloLum >= 218 && whiteHaloRatio >= 0.34));
+
     if (
+      !isThinDarkCursiveWithWhiteHalo &&
       fillLum >= 185 &&
       (edgeLum <= fillLum - 25 ||
         edgeB > edgeR + 20 ||
@@ -833,6 +917,20 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       shadowBlurEm = shadowColor ? 0.14 : undefined;
     } else if (isColoredFill && fillToBgDist >= 95 && fillLum < bgLum - 45 && fillSat >= 0.38) {
       finalTextColor = rgbToHex(fillR, fillG, fillB);
+    } else if (
+      isColoredFill &&
+      fillLum >= 175 &&
+      fillR > fillB + 60 &&
+      fillG > fillB + 40 &&
+      fillToBgDist >= 75
+    ) {
+      // Açık/gri sahne üzerinde parlak sarı/altın başlık yazısı ("THE GENIUS BEHIND FIREPUNCH...")
+      finalTextColor = rgbToHex(fillR, fillG, fillB);
+      if (bgLum >= 120) {
+        hasOutline = true;
+        finalStrokeColor = '#121214';
+        strokeWidthEm = 0.09;
+      }
     } else {
       finalTextColor = '#0c0c0c';
     }
@@ -882,7 +980,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     ? Math.max(10, medGlyphH * 0.42)
     : Math.max(6.5, medGlyphH * 0.28);
 
-  if (lineBoxesLocal && lineBoxesLocal.length >= 1 && lineBoxesLocal.length <= 3) {
+  if (lineBoxesLocal && lineBoxesLocal.length >= 1 && lineBoxesLocal.length <= 8) {
     const lineDegs: number[] = [];
     for (const lb of lineBoxesLocal) {
       const lx0 = clamp(Math.floor(lb.x0) - 2, 0, ww - 1);
@@ -934,11 +1032,31 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         lineDegs.push((fit.deg + lb.angleDeg) * 0.5);
       }
     }
-    if (lineDegs.length === lineBoxesLocal.length && lineDegs.length >= 1) {
+    const ocrDegs = lineBoxesLocal
+      .map((lb) => lb.angleDeg)
+      .filter(
+        (d): d is number =>
+          d !== undefined && Math.abs(d) >= minReqDeg && Math.abs(d) <= maxAllowedDeg,
+      );
+    const minAgreeLines =
+      lineBoxesLocal.length <= 2
+        ? lineBoxesLocal.length
+        : Math.max(2, Math.ceil(lineBoxesLocal.length * 0.65));
+    if (lineDegs.length >= minAgreeLines) {
       const sameSign = lineDegs.every((d) => Math.sign(d) === Math.sign(lineDegs[0]));
       const spread = Math.max(...lineDegs) - Math.min(...lineDegs);
       if (sameSign && spread <= 6.0) {
         rotationDeg = Number(medianOf(lineDegs).toFixed(1));
+      }
+    } else if (
+      ocrDegs.length >= Math.max(2, Math.ceil(lineBoxesLocal.length * 0.75)) ||
+      (!hasClosedBubbleWalls && lineBoxesLocal.length === 1 && ocrDegs.length === 1)
+    ) {
+      const sameSign = ocrDegs.every((d) => Math.sign(d) === Math.sign(ocrDegs[0]));
+      const spread = Math.max(...ocrDegs) - Math.min(...ocrDegs);
+      const medOcr = medianOf(ocrDegs);
+      if (sameSign && spread <= 3.5 && Math.abs(medOcr) >= 5.5) {
+        rotationDeg = Number(medOcr.toFixed(1));
       }
     }
   }
@@ -1091,6 +1209,7 @@ export const inpaintTexturedRegion = (
     const darkAAFloor =
       ringMedLum >= 165 ? 44 : ringMedLum >= 140 ? Math.min(64, Math.round(ringMedLum * 0.4)) : 42;
     if (
+      (ringMedLum <= 38 && pLum >= 115 && dRing >= 70) ||
       (dRing > 48 &&
         pLum < darkAAFloor &&
         ringMedLum >= 52 &&
@@ -1381,9 +1500,76 @@ export const inpaintTexturedRegion = (
         ? 0.06
         : vSpan[idx] / Math.max(1e-4, hSpan[idx] + vSpan[idx]);
     const wvW = 1 - whW;
-    const spanR = whW * hInterp[cIdx] + wvW * vInterp[cIdx];
-    const spanG = whW * hInterp[cIdx + 1] + wvW * vInterp[cIdx + 1];
-    const spanB = whW * hInterp[cIdx + 2] + wvW * vInterp[cIdx + 2];
+    let spanR = whW * hInterp[cIdx] + wvW * vInterp[cIdx];
+    let spanG = whW * hInterp[cIdx + 1] + wvW * vInterp[cIdx + 1];
+    let spanB = whW * hInterp[cIdx + 2] + wvW * vInterp[cIdx + 2];
+
+    // Çapraz ahşap / taramalı doku desenlerinde ("PUSH" ahşap kapı şeridi vb.) yatay/dikey uçlar uyumsuzsa
+    // sol ve sağ temiz kenarları eğimli çizgi boyunca eşleştirerek doku şeridini kesintisiz devam ettir
+    if (!strongHorizLine && !strongVertLine && (hDiff >= 18 || hvMismatch >= 20) && vDiff >= 18) {
+      const diagSlopes = [-0.65, -0.45, -0.3, -0.18, 0.18, 0.3, 0.45, 0.65];
+      let bestDiagDiff = Math.min(hDiff, vDiff) - 12;
+      let diagR = spanR;
+      let diagG = spanG;
+      let diagB = spanB;
+      let foundDiag = false;
+      for (let si = 0; si < diagSlopes.length; si += 1) {
+        const slope = diagSlopes[si];
+        let lIdx = -1;
+        let lDist = 0;
+        for (let step = 1; step <= 44; step += 1) {
+          const lx = x - step;
+          const ly = Math.round(y - slope * step);
+          if (lx < 0 || ly < 0 || ly >= wh) break;
+          const p = ly * ww + lx;
+          if (borderMask[p]) break;
+          if (!eraseMask[p] && isCleanBoundary(p)) {
+            lIdx = p;
+            lDist = step;
+            break;
+          }
+        }
+        if (lIdx < 0) continue;
+        let rIdx = -1;
+        let rDist = 0;
+        for (let step = 1; step <= 44; step += 1) {
+          const rx = x + step;
+          const ry = Math.round(y + slope * step);
+          if (rx >= ww || ry < 0 || ry >= wh) break;
+          const p = ry * ww + rx;
+          if (borderMask[p]) break;
+          if (!eraseMask[p] && isCleanBoundary(p)) {
+            rIdx = p;
+            rDist = step;
+            break;
+          }
+        }
+        if (rIdx < 0) continue;
+        const l3 = lIdx * 3;
+        const r3 = rIdx * 3;
+        const dDiff = maxChannelDiff(
+          cleaned[l3],
+          cleaned[l3 + 1],
+          cleaned[l3 + 2],
+          cleaned[r3],
+          cleaned[r3 + 1],
+          cleaned[r3 + 2],
+        );
+        if (dDiff <= 24 && dDiff < bestDiagDiff) {
+          bestDiagDiff = dDiff;
+          const dt = lDist / Math.max(1, lDist + rDist);
+          diagR = (1 - dt) * cleaned[l3] + dt * cleaned[r3];
+          diagG = (1 - dt) * cleaned[l3 + 1] + dt * cleaned[r3 + 1];
+          diagB = (1 - dt) * cleaned[l3 + 2] + dt * cleaned[r3 + 2];
+          foundDiag = true;
+        }
+      }
+      if (foundDiag) {
+        spanR = 0.88 * diagR + 0.12 * spanR;
+        spanG = 0.88 * diagG + 0.12 * spanG;
+        spanB = 0.88 * diagB + 0.12 * spanB;
+      }
+    }
 
     for (let ny = rMinY; ny <= rMaxY; ny += 1) {
       const nrOff = ny * ww;
