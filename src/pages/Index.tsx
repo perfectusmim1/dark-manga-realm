@@ -900,6 +900,7 @@ const Index: React.FC = () => {
   const { snapshot: offlineSnapshot, isOnline } = useOfflineLibrary();
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
+  const adultModeEnabled = Boolean(user?.id) && user?.preferences?.content?.adult_mode === true;
   const canSeeAdultContent = Boolean(user?.id) && (
     user?.role === 'admin'
       || user?.role === 'moderator'
@@ -1316,8 +1317,14 @@ const Index: React.FC = () => {
           || snapshotManga
           || buildContinueReadingFallbackManga(entry);
 
-        if (!canSeeAdultContent) {
-          if (liveManga?.isAdult === true || entry.mangaSnapshot?.isAdult === true) {
+        if (!adultModeEnabled) {
+          if (
+            liveManga?.isAdult === true
+            || entry.mangaSnapshot?.isAdult === true
+            || manga?.isAdult === true
+            || manga?.type === 'webtoon_hentai'
+            || manga?.type === 'manga_hentai'
+          ) {
             return null;
           }
 
@@ -1339,7 +1346,7 @@ const Index: React.FC = () => {
         } satisfies ContinueReadingEntry;
       })
       .filter(Boolean) as ContinueReadingEntry[]
-  ), [canSeeAdultContent, continueReadingSeed, mangaById]);
+  ), [adultModeEnabled, continueReadingSeed, mangaById]);
 
   const {
     trendingManga,
