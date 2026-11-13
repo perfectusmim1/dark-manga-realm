@@ -8,6 +8,7 @@ import { getStaffTextClassName } from '@/lib/staffRoles';
 import type { User } from '@/lib/types';
 import { cn } from '@/lib/utils';
 import ReadingListCover from '@/components/manga/ReadingListCover';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import StaffBadge from '@/components/user/StaffBadge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -31,6 +32,7 @@ interface LeaderboardEntry {
   ownerName?: string;
   ownerRole?: User['role'];
   avatarUrl?: string;
+  bannerUrl?: string;
   coverUrl?: string;
   previewCovers?: string[];
   value: number;
@@ -88,6 +90,7 @@ const LeadersTab: React.FC = () => {
   >({});
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
   const [isLoading, setIsLoading] = useState(true);
+  const [failedBannerIds, setFailedBannerIds] = useState<Record<string, boolean>>({});
   const [presenceCounts, setPresenceCounts] = useState<{ online: number; offline: number }>({
     online: 0,
     offline: 0,
@@ -251,6 +254,7 @@ const LeadersTab: React.FC = () => {
                 if (!list) return null;
                 const owner = usersMap.get(list.user_id);
                 const previewCovers = previewCoversMap.get(list.id) || [];
+                const bannerUrl = list.image_url?.trim() || undefined;
                 return {
                   id: list.id,
                   title: list.name,
@@ -258,8 +262,9 @@ const LeadersTab: React.FC = () => {
                   ownerLink: owner ? `/profile/${owner.id}` : undefined,
                   ownerName: owner?.username || 'Kullanıcı',
                   ownerRole: owner?.role,
-                  coverUrl: list.image_url || previewCovers[0] || undefined,
-                  previewCovers: list.image_url ? undefined : previewCovers,
+                  bannerUrl,
+                  coverUrl: previewCovers.length === 0 ? bannerUrl : undefined,
+                  previewCovers: previewCovers.length > 0 ? previewCovers : undefined,
                   value: likeCountMap.get(listId) || 0,
                   unitLabel: 'beğeni',
                 };
@@ -305,6 +310,36 @@ const LeadersTab: React.FC = () => {
   const restEntries = entries.slice(3, visibleCount);
   const hasMore = entries.length > visibleCount;
   const isReadingListMode = activeCategory === 'reading_lists';
+
+  const markBannerFailed = (entryId: string) => {
+    setFailedBannerIds((prev) => (prev[entryId] ? prev : { ...prev, [entryId]: true }));
+  };
+
+  const renderBannerBackdrop = (
+    entry: LeaderboardEntry,
+    { priority = false, scrimClassName }: { priority?: boolean; scrimClassName: string },
+  ) => {
+    if (!isReadingListMode || !entry.bannerUrl || failedBannerIds[entry.id]) {
+      return null;
+    }
+
+    return (
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
+        <OptimizedImage
+          src={entry.bannerUrl}
+          alt=""
+          priority={priority}
+          allowProxy
+          transform={{ width: 640, quality: 75 }}
+          containerClassName="h-full w-full"
+          placeholderClassName="rounded-none bg-transparent"
+          className="h-full w-full object-cover object-center"
+          onError={() => markBannerFailed(entry.id)}
+        />
+        <div className={cn('absolute inset-0', scrimClassName)} />
+      </div>
+    );
+  };
 
   return (
     <div className="space-y-6 min-w-0">
@@ -391,17 +426,30 @@ const LeadersTab: React.FC = () => {
                     : 'border-amber-700/40 bg-card/60';
 
               const nameRole = isReadingListMode ? entry.ownerRole : entry.role;
+              const hasBanner = Boolean(
+                isReadingListMode && entry.bannerUrl && !failedBannerIds[entry.id],
+              );
 
               return (
                 <div
                   key={entry.id}
                   className={cn(
-                    'rounded-xl border p-4 sm:p-5 flex flex-col items-center text-center gap-3 min-w-0',
+                    'relative overflow-hidden rounded-xl border p-4 sm:p-5 flex flex-col items-center text-center gap-3 min-w-0',
                     rankAccentClass,
                     desktopOrderClass,
                   )}
                 >
-                  <div className="flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-muted-foreground">
+                  {renderBannerBackdrop(entry, {
+                    priority: true,
+                    scrimClassName: 'bg-gradient-to-b from-black/50 via-black/60 to-black/80',
+                  })}
+
+                  <div
+                    className={cn(
+                      'relative z-10 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider',
+                      hasBanner ? 'text-white/85' : 'text-muted-foreground',
+                    )}
+                  >
                     {rank === 1 ? (
                       <Crown className="h-4 w-4 text-amber-400" />
                     ) : (
@@ -415,13 +463,17 @@ const LeadersTab: React.FC = () => {
                     <span>#{rank}</span>
                   </div>
 
-                  <Link to={entry.link} className="shrink-0">
+                  <Link to={entry.link} className="relative z-10 shrink-0">
                     {isReadingListMode ? (
                       <ReadingListCover
                         imageUrl={entry.coverUrl}
                         previewCovers={entry.previewCovers}
+                        priority
                         alt={entry.title}
-                        className="h-20 w-16 rounded-xl border border-border/60"
+                        className={cn(
+                          'h-20 w-16 rounded-xl border shadow-md',
+                          hasBanner ? 'border-white/25' : 'border-border/60',
+                        )}
                         iconClassName="h-6 w-6"
                         showLabel={false}
                       />
@@ -440,12 +492,13 @@ const LeadersTab: React.FC = () => {
                     )}
                   </Link>
 
-                  <div className="w-full min-w-0 space-y-1">
+                  <div className="relative z-10 w-full min-w-0 space-y-1">
                     <div className="flex items-center justify-center gap-1.5 min-w-0">
                       <Link
                         to={entry.link}
                         className={cn(
                           'font-semibold text-sm sm:text-base hover:underline truncate',
+                          hasBanner && 'text-white drop-shadow-sm',
                           !isReadingListMode && getStaffTextClassName(nameRole),
                         )}
                       >
@@ -455,7 +508,12 @@ const LeadersTab: React.FC = () => {
                     </div>
 
                     {isReadingListMode && entry.ownerName && entry.ownerLink && (
-                      <div className="flex items-center justify-center gap-1 text-xs text-muted-foreground min-w-0">
+                      <div
+                        className={cn(
+                          'flex items-center justify-center gap-1 text-xs min-w-0',
+                          hasBanner ? 'text-white/80' : 'text-muted-foreground',
+                        )}
+                      >
                         <Link
                           to={entry.ownerLink}
                           className={cn(
@@ -470,10 +528,20 @@ const LeadersTab: React.FC = () => {
                     )}
                   </div>
 
-                  <div className="inline-flex items-center gap-1.5 text-sm font-bold text-foreground tabular-nums">
+                  <div
+                    className={cn(
+                      'relative z-10 inline-flex items-center gap-1.5 text-sm font-bold tabular-nums',
+                      hasBanner ? 'text-white' : 'text-foreground',
+                    )}
+                  >
                     {isReadingListMode && <Heart className="h-3.5 w-3.5 text-rose-500 fill-current" />}
                     <span>{entry.value.toLocaleString('tr-TR')}</span>
-                    <span className="text-xs font-normal text-muted-foreground">
+                    <span
+                      className={cn(
+                        'text-xs font-normal',
+                        hasBanner ? 'text-white/80' : 'text-muted-foreground',
+                      )}
+                    >
                       {entry.unitLabel}
                     </span>
                   </div>
@@ -484,17 +552,32 @@ const LeadersTab: React.FC = () => {
 
           {/* Ranked List #4+ */}
           {restEntries.length > 0 && (
-            <div className="rounded-xl border border-border/60 bg-card/40 divide-y divide-border/50">
+            <div className="rounded-xl border border-border/60 bg-card/40 divide-y divide-border/50 overflow-hidden">
               {restEntries.map((entry, idx) => {
                 const rank = idx + 4;
+                const hasBanner = Boolean(
+                  isReadingListMode && entry.bannerUrl && !failedBannerIds[entry.id],
+                );
 
                 return (
                   <div
                     key={entry.id}
-                    className="flex items-center justify-between gap-3 px-4 py-3 hover:bg-muted/20 transition-colors min-w-0"
+                    className={cn(
+                      'relative overflow-hidden flex items-center justify-between gap-3 px-4 py-3 transition-colors min-w-0',
+                      !hasBanner && 'hover:bg-muted/20',
+                    )}
                   >
-                    <div className="flex items-center gap-3 min-w-0">
-                      <span className="w-8 text-xs font-semibold text-muted-foreground tabular-nums shrink-0">
+                    {renderBannerBackdrop(entry, {
+                      scrimClassName: 'bg-gradient-to-r from-black/75 via-black/65 to-black/75',
+                    })}
+
+                    <div className="relative z-10 flex items-center gap-3 min-w-0">
+                      <span
+                        className={cn(
+                          'w-8 text-xs font-semibold tabular-nums shrink-0',
+                          hasBanner ? 'text-white/80' : 'text-muted-foreground',
+                        )}
+                      >
                         #{rank}
                       </span>
 
@@ -504,7 +587,10 @@ const LeadersTab: React.FC = () => {
                             imageUrl={entry.coverUrl}
                             previewCovers={entry.previewCovers}
                             alt={entry.title}
-                            className="h-10 w-9 rounded-lg border border-border/60"
+                            className={cn(
+                              'h-10 w-9 rounded-lg border',
+                              hasBanner ? 'border-white/25' : 'border-border/60',
+                            )}
                             iconClassName="h-4 w-4"
                             showLabel={false}
                           />
@@ -524,6 +610,7 @@ const LeadersTab: React.FC = () => {
                             to={entry.link}
                             className={cn(
                               'text-sm font-medium hover:underline truncate',
+                              hasBanner && 'text-white',
                               !isReadingListMode && getStaffTextClassName(entry.role),
                             )}
                           >
@@ -533,7 +620,12 @@ const LeadersTab: React.FC = () => {
                         </div>
 
                         {isReadingListMode && entry.ownerName && entry.ownerLink && (
-                          <div className="flex items-center gap-1 text-xs text-muted-foreground min-w-0">
+                          <div
+                            className={cn(
+                              'flex items-center gap-1 text-xs min-w-0',
+                              hasBanner ? 'text-white/80' : 'text-muted-foreground',
+                            )}
+                          >
                             <Link
                               to={entry.ownerLink}
                               className={cn(
@@ -549,11 +641,23 @@ const LeadersTab: React.FC = () => {
                       </div>
                     </div>
 
-                    <div className="text-right shrink-0 tabular-nums">
-                      <span className="text-sm font-semibold text-foreground">
+                    <div className="relative z-10 text-right shrink-0 tabular-nums">
+                      <span
+                        className={cn(
+                          'text-sm font-semibold',
+                          hasBanner ? 'text-white' : 'text-foreground',
+                        )}
+                      >
                         {entry.value.toLocaleString('tr-TR')}
                       </span>{' '}
-                      <span className="text-xs text-muted-foreground">{entry.unitLabel}</span>
+                      <span
+                        className={cn(
+                          'text-xs',
+                          hasBanner ? 'text-white/80' : 'text-muted-foreground',
+                        )}
+                      >
+                        {entry.unitLabel}
+                      </span>
                     </div>
                   </div>
                 );

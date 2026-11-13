@@ -6,6 +6,7 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 interface ReadingListCoverProps {
     imageUrl?: string | null;
     previewCovers?: string[];
+    priority?: boolean;
     alt: string;
     className?: string;
     imageClassName?: string;
@@ -17,6 +18,7 @@ interface ReadingListCoverProps {
 const ReadingListCover: React.FC<ReadingListCoverProps> = ({
     imageUrl,
     previewCovers,
+    priority = false,
     alt,
     className,
     imageClassName,
@@ -55,6 +57,7 @@ const ReadingListCover: React.FC<ReadingListCoverProps> = ({
                     <OptimizedImage
                         src={effectiveSingleImage as string}
                         alt={alt}
+                        priority={priority}
                         allowProxy
                         transform={{ width: 240, quality: 80 }}
                         rootMargin="420px 0px"
@@ -78,6 +81,7 @@ const ReadingListCover: React.FC<ReadingListCoverProps> = ({
                             key={`${src}-${index}`}
                             src={src}
                             alt={`${alt} kapak ${index + 1}`}
+                            priority={priority}
                             allowProxy
                             transform={{ width: 160, quality: 75 }}
                             containerClassName="h-full w-full bg-muted"
