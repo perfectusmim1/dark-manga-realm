@@ -908,7 +908,7 @@ export interface AdminAccessContext {
 }
 
 type TopTenTimeframe = 'today' | 'week' | 'all';
-type MangaAudienceCacheKey = 'safe' | 'adult';
+type MangaAudienceCacheKey = 'safe' | 'adult' | 'staff-safe' | 'staff-adult';
 
 const PRIMARY_ADMIN_EMAIL = (import.meta.env.VITE_PRIMARY_ADMIN_EMAIL || '').trim().toLowerCase();
 let adminAccessContextCache:
@@ -1030,9 +1030,15 @@ const topTenMangaIdsPromises: Record<TopTenTimeframe, Promise<Set<string>> | nul
     all: null,
 };
 
-const getMangaAudienceCacheKey = (includeAdult: boolean): MangaAudienceCacheKey => (
-    includeAdult ? 'adult' : 'safe'
-);
+const getMangaAudienceCacheKey = (
+    includeAdult: boolean,
+    includePrivate = false
+): MangaAudienceCacheKey => {
+    if (includePrivate) {
+        return includeAdult ? 'staff-adult' : 'staff-safe';
+    }
+    return includeAdult ? 'adult' : 'safe';
+};
 
 const invalidateAllMangasCache = () => {
     allMangasCache = {};
@@ -1053,10 +1059,10 @@ const invalidateAllMangasCache = () => {
     topTenMangaIdsPromises.all = null;
     topTenPageDataCache = null;
     topTenPageDataPromise = null;
-    latestChaptersFirstPageCache.safe = undefined;
-    latestChaptersFirstPageCache.adult = undefined;
-    latestChaptersFirstPagePromise.safe = undefined;
-    latestChaptersFirstPagePromise.adult = undefined;
+    for (const key of ['safe', 'adult', 'staff-safe', 'staff-adult'] as MangaAudienceCacheKey[]) {
+        delete latestChaptersFirstPageCache[key];
+        delete latestChaptersFirstPagePromise[key];
+    }
     invalidateTagCaches();
     clearHomeFeedCache();
 };
@@ -1743,15 +1749,15 @@ export const getAllMangas = async (
         visibilityColumnAvailable,
         adultColumnAvailable,
     } = await resolveMangaVisibilityAccess(options?.includePrivate);
-    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult);
+    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult, includePrivate);
     const cachedAllMangas = allMangasCache[audienceCacheKey];
     const pendingAllMangas = allMangasPromise[audienceCacheKey];
 
-    if (!includePrivate && cachedAllMangas && Date.now() - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (cachedAllMangas && Date.now() - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         return cachedAllMangas.value;
     }
 
-    if (!includePrivate && pendingAllMangas) {
+    if (pendingAllMangas) {
         return pendingAllMangas;
     }
 
@@ -1793,12 +1799,10 @@ export const getAllMangas = async (
             timeoutMessage: 'Manga fetch timeout',
             shouldRetryResult: (result) => Array.isArray(result) && result.length === 0,
         });
-        if (!includePrivate) {
-            allMangasPromise[audienceCacheKey] = pendingRequest;
-        }
+        allMangasPromise[audienceCacheKey] = pendingRequest;
         const mangas = await pendingRequest;
 
-        if (!includePrivate && mangas.length > 0) {
+        if (mangas.length > 0) {
             allMangasCache[audienceCacheKey] = {
                 fetchedAt: Date.now(),
                 value: mangas,
@@ -1807,15 +1811,12 @@ export const getAllMangas = async (
 
         return mangas;
     } catch (error) {
-        if (!includePrivate) {
-            invalidateAllMangasCache();
-        }
+        delete allMangasCache[audienceCacheKey];
+        delete allMangasPromise[audienceCacheKey];
         console.error('Manga fetch global error:', error);
         return [];
     } finally {
-        if (!includePrivate) {
-            delete allMangasPromise[audienceCacheKey];
-        }
+        delete allMangasPromise[audienceCacheKey];
     }
 };
 
@@ -1829,16 +1830,16 @@ export const getMangaSummaries = async (
         adultColumnAvailable,
         summarySelectColumns,
     } = await resolveMangaVisibilityAccess(options?.includePrivate);
-    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult);
+    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult, includePrivate);
     const cachedMangaSummaries = mangaSummariesCache[audienceCacheKey];
     const cachedAllMangas = allMangasCache[audienceCacheKey];
     const pendingMangaSummaries = mangaSummariesPromise[audienceCacheKey];
 
-    if (!includePrivate && cachedMangaSummaries && Date.now() - cachedMangaSummaries.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (cachedMangaSummaries && Date.now() - cachedMangaSummaries.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         return cachedMangaSummaries.value;
     }
 
-    if (!includePrivate && cachedAllMangas && Date.now() - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (cachedAllMangas && Date.now() - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const summarized = cachedAllMangas.value.map((manga) => ({
             ...manga,
             chapters: manga.chapters.length > 1
@@ -1854,7 +1855,7 @@ export const getMangaSummaries = async (
         return summarized;
     }
 
-    if (!includePrivate && pendingMangaSummaries) {
+    if (pendingMangaSummaries) {
         return pendingMangaSummaries;
     }
 
@@ -1930,32 +1931,30 @@ export const getMangaSummaries = async (
             timeoutMessage: 'Manga summary fetch timeout',
             shouldRetryResult: (result) => Array.isArray(result) && result.length === 0,
         });
-        if (!includePrivate) {
-            mangaSummariesPromise[audienceCacheKey] = pendingRequest;
-        }
+        mangaSummariesPromise[audienceCacheKey] = pendingRequest;
         const summaries = deduplicateMangasById(await pendingRequest);
 
-        if (!includePrivate && summaries.length > 0) {
+        if (summaries.length > 0) {
             mangaSummariesCache[audienceCacheKey] = {
                 fetchedAt: Date.now(),
                 value: summaries,
             };
-            void writePersistedQueryCache(getPersistedMangaSummariesKey(audienceCacheKey), summaries);
-            for (const listener of mangaSummariesUpdatedListeners) {
-                try {
-                    listener(summaries);
-                } catch {
-                    // ignore subscriber errors
+            if (!includePrivate) {
+                void writePersistedQueryCache(getPersistedMangaSummariesKey(audienceCacheKey), summaries);
+                for (const listener of mangaSummariesUpdatedListeners) {
+                    try {
+                        listener(summaries);
+                    } catch {
+                        // ignore subscriber errors
+                    }
                 }
             }
         }
 
         return summaries;
     } catch (error) {
-        if (!includePrivate) {
-            delete mangaSummariesCache[audienceCacheKey];
-            delete mangaSummariesPromise[audienceCacheKey];
-        }
+        delete mangaSummariesCache[audienceCacheKey];
+        delete mangaSummariesPromise[audienceCacheKey];
         // AÄŸ hatasÄ±nda elimizde bayat da olsa kalÄ±cÄ± Ã¶nbellek varsa onu kullan.
         if (persistedSummaries) {
             return persistedSummaries;
@@ -1965,9 +1964,7 @@ export const getMangaSummaries = async (
         }
         return [];
     } finally {
-        if (!includePrivate) {
-            delete mangaSummariesPromise[audienceCacheKey];
-        }
+        delete mangaSummariesPromise[audienceCacheKey];
     }
 };
 
@@ -2059,7 +2056,7 @@ export const getMangaSummariesByIds = async (
         adultColumnAvailable,
         summarySelectColumns,
     } = await resolveMangaVisibilityAccess(options?.includePrivate);
-    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult);
+    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult, includePrivate);
     const fetchMangaRowsForIds = async (ids: string[], filterOptions: any) => {
         if (ids.length === 0) return { data: [], error: null };
         if (ids.length <= 100) {
@@ -2092,58 +2089,11 @@ export const getMangaSummariesByIds = async (
         return { data: allData, error: firstErr };
     };
 
-    if (includePrivate) {
-        const { data: mangaRows, error: mangaError } = await fetchMangaRowsForIds(
-            uniqueMangaIds,
-            { includePrivate: true, includeAdult: true, visibilityColumnAvailable, adultColumnAvailable },
-        );
-
-        if (mangaError) {
-            if (!isExpectedAccessControlError(mangaError)) {
-                console.error('Manga summary by ids fetch error:', mangaError);
-            }
-            return [];
-        }
-
-        const fetchedSummaries = await buildMangaSummariesForRows(
-            mangaRows || [],
-            { logContext: 'Manga summary by ids', includePrivate: true, includeAdult: true },
-        );
-        const summaryMap = new Map(fetchedSummaries.map((manga) => [manga.id, manga]));
-
-        return uniqueMangaIds
-            .map((mangaId) => summaryMap.get(mangaId))
-            .filter(Boolean) as Manga[];
-    }
-
-    const requestedIdSet = new Set(uniqueMangaIds);
-    const summaryMap = new Map<string, Manga>();
-    const now = Date.now();
-
-    const cachedMangaSummaries = mangaSummariesCache[audienceCacheKey];
-    const cachedAllMangas = allMangasCache[audienceCacheKey];
-
-    if (cachedMangaSummaries && now - cachedMangaSummaries.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
-        cachedMangaSummaries.value.forEach((manga) => {
-            if (requestedIdSet.has(manga.id)) {
-                summaryMap.set(manga.id, manga);
-            }
-        });
-    }
-
-    if (cachedAllMangas && now - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
-        cachedAllMangas.value.forEach((manga) => {
-            if (requestedIdSet.has(manga.id) && !summaryMap.has(manga.id)) {
-                summaryMap.set(manga.id, manga);
-            }
-        });
-    }
-
     const missingIds = uniqueMangaIds.filter((mangaId) => !summaryMap.has(mangaId));
     if (missingIds.length > 0) {
         const { data: mangaRows, error: mangaError } = await fetchMangaRowsForIds(
             missingIds,
-            { includePrivate: false, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
+            { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
         );
 
         if (mangaError) {
@@ -2153,7 +2103,7 @@ export const getMangaSummariesByIds = async (
         } else {
             const fetchedSummaries = await buildMangaSummariesForRows(
                 mangaRows || [],
-                { logContext: 'Manga summary by ids', includePrivate: false, includeAdult },
+                { logContext: 'Manga summary by ids', includePrivate, includeAdult },
             );
 
             fetchedSummaries.forEach((manga) => {
@@ -2175,21 +2125,20 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         adultColumnAvailable,
         summarySelectColumns,
     } = await resolveMangaVisibilityAccess();
-    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult);
+    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult, includePrivate);
     const cachedHomeSections = homePageMangaSectionsCache[audienceCacheKey];
     const cachedAllMangas = allMangasCache[audienceCacheKey];
     const cachedMangaSummaries = mangaSummariesCache[audienceCacheKey];
     const pendingHomeSections = homePageMangaSectionsPromise[audienceCacheKey];
 
     if (
-        !includePrivate &&
         cachedHomeSections
         && Date.now() - cachedHomeSections.fetchedAt < ALL_MANGAS_CACHE_TTL_MS
     ) {
         return cachedHomeSections.value;
     }
 
-    if (!includePrivate && cachedAllMangas && Date.now() - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (cachedAllMangas && Date.now() - cachedAllMangas.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const sections = buildHomePageSectionsFromCollection(cachedAllMangas.value);
         homePageMangaSectionsCache[audienceCacheKey] = {
             fetchedAt: cachedAllMangas.fetchedAt,
@@ -2198,7 +2147,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return sections;
     }
 
-    if (!includePrivate && cachedMangaSummaries && Date.now() - cachedMangaSummaries.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
+    if (cachedMangaSummaries && Date.now() - cachedMangaSummaries.fetchedAt < ALL_MANGAS_CACHE_TTL_MS) {
         const sections = buildHomePageSectionsFromCollection(cachedMangaSummaries.value);
         homePageMangaSectionsCache[audienceCacheKey] = {
             fetchedAt: cachedMangaSummaries.fetchedAt,
@@ -2207,7 +2156,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         return sections;
     }
 
-    if (!includePrivate && pendingHomeSections) {
+    if (pendingHomeSections) {
         return pendingHomeSections;
     }
 
@@ -2370,17 +2319,17 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
             timeoutMessage: 'Homepage manga fetch timeout',
             shouldRetryResult: (result) => !hasHomePageSectionData(result),
         });
-        if (!includePrivate) {
-            homePageMangaSectionsPromise[audienceCacheKey] = pendingRequest;
-        }
+        homePageMangaSectionsPromise[audienceCacheKey] = pendingRequest;
 
         const sections = await pendingRequest;
-        if (!includePrivate && hasHomePageSectionData(sections)) {
+        if (hasHomePageSectionData(sections)) {
             homePageMangaSectionsCache[audienceCacheKey] = {
                 fetchedAt: Date.now(),
                 value: sections,
             };
-            void writePersistedQueryCache(getPersistedHomeSectionsKey(audienceCacheKey), sections);
+            if (!includePrivate) {
+                void writePersistedQueryCache(getPersistedHomeSectionsKey(audienceCacheKey), sections);
+            }
         }
 
         return sections;
@@ -2395,9 +2344,7 @@ export const getHomePageMangaSections = async (): Promise<HomePageMangaSections>
         }
         return createEmptyHomePageMangaSections();
     } finally {
-        if (!includePrivate) {
-            delete homePageMangaSectionsPromise[audienceCacheKey];
-        }
+        delete homePageMangaSectionsPromise[audienceCacheKey];
     }
 };
 
@@ -3403,11 +3350,12 @@ export const getLatestChapters = async (
         visibilityColumnAvailable,
         adultColumnAvailable,
     } = await resolveMangaVisibilityAccess();
-    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult);
-    const isFirstPageCacheable = !includePrivate && offset === 0 && normalizedLimit === 30;
+    const audienceCacheKey = getMangaAudienceCacheKey(includeAdult, includePrivate);
+    const isMemoryFirstPageCacheable = offset === 0 && normalizedLimit === 30;
+    const isPersistedFirstPageCacheable = !includePrivate && isMemoryFirstPageCacheable;
     const persistedKey = `${PERSISTED_LATEST_CHAPTERS_KEY_PREFIX}${audienceCacheKey}`;
 
-    if (isFirstPageCacheable && !options?.forceRefresh) {
+    if (isMemoryFirstPageCacheable && !options?.forceRefresh) {
         const cachedFirstPage = latestChaptersFirstPageCache[audienceCacheKey];
         if (cachedFirstPage && Date.now() - cachedFirstPage.fetchedAt < LATEST_CHAPTERS_CACHE_TTL_MS) {
             return cachedFirstPage.value;
@@ -3418,33 +3366,35 @@ export const getLatestChapters = async (
             return pendingFirstPage;
         }
 
-        const persisted = await readPersistedQueryCache<LatestChapterFeedItem[]>(persistedKey);
-        if (persisted && Array.isArray(persisted.value) && persisted.value.length > 0) {
-            const age = Date.now() - persisted.fetchedAt;
-            if (age < LATEST_CHAPTERS_CACHE_TTL_MS) {
-                latestChaptersFirstPageCache[audienceCacheKey] = {
-                    fetchedAt: persisted.fetchedAt,
-                    value: persisted.value,
-                };
-                return persisted.value;
-            }
-
-            if (age < LATEST_CHAPTERS_PERSISTED_SWR_TTL_MS) {
-                latestChaptersFirstPageCache[audienceCacheKey] = {
-                    fetchedAt: persisted.fetchedAt,
-                    value: persisted.value,
-                };
-
-                if (!persistedLatestChaptersRefreshInFlight.has(audienceCacheKey)) {
-                    persistedLatestChaptersRefreshInFlight.add(audienceCacheKey);
-                    void getLatestChapters(normalizedLimit, 0, { forceRefresh: true })
-                        .catch(() => undefined)
-                        .finally(() => {
-                            persistedLatestChaptersRefreshInFlight.delete(audienceCacheKey);
-                        });
+        if (isPersistedFirstPageCacheable) {
+            const persisted = await readPersistedQueryCache<LatestChapterFeedItem[]>(persistedKey);
+            if (persisted && Array.isArray(persisted.value) && persisted.value.length > 0) {
+                const age = Date.now() - persisted.fetchedAt;
+                if (age < LATEST_CHAPTERS_CACHE_TTL_MS) {
+                    latestChaptersFirstPageCache[audienceCacheKey] = {
+                        fetchedAt: persisted.fetchedAt,
+                        value: persisted.value,
+                    };
+                    return persisted.value;
                 }
 
-                return persisted.value;
+                if (age < LATEST_CHAPTERS_PERSISTED_SWR_TTL_MS) {
+                    latestChaptersFirstPageCache[audienceCacheKey] = {
+                        fetchedAt: persisted.fetchedAt,
+                        value: persisted.value,
+                    };
+
+                    if (!persistedLatestChaptersRefreshInFlight.has(audienceCacheKey)) {
+                        persistedLatestChaptersRefreshInFlight.add(audienceCacheKey);
+                        void getLatestChapters(normalizedLimit, 0, { forceRefresh: true })
+                            .catch(() => undefined)
+                            .finally(() => {
+                                persistedLatestChaptersRefreshInFlight.delete(audienceCacheKey);
+                            });
+                    }
+
+                    return persisted.value;
+                }
             }
         }
     }
@@ -3572,22 +3522,24 @@ export const getLatestChapters = async (
     };
 
     const requestPromise = fetchPage();
-    if (isFirstPageCacheable) {
+    if (isMemoryFirstPageCacheable) {
         latestChaptersFirstPagePromise[audienceCacheKey] = requestPromise;
     }
 
     try {
         const items = await requestPromise;
-        if (isFirstPageCacheable && items.length > 0) {
+        if (isMemoryFirstPageCacheable && items.length > 0) {
             latestChaptersFirstPageCache[audienceCacheKey] = {
                 fetchedAt: Date.now(),
                 value: items,
             };
-            void writePersistedQueryCache(persistedKey, items);
+            if (isPersistedFirstPageCacheable) {
+                void writePersistedQueryCache(persistedKey, items);
+            }
         }
         return items;
     } finally {
-        if (isFirstPageCacheable) {
+        if (isMemoryFirstPageCacheable) {
             delete latestChaptersFirstPagePromise[audienceCacheKey];
         }
     }

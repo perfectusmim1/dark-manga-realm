@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { BookOpen, Loader2, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -64,6 +65,7 @@ const ForumTopicComposerModal: React.FC<ForumTopicComposerModalProps> = ({
   onSaved,
 }) => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
   const isEditMode = Boolean(editTopic);
 
   const [category, setCategory] = useState<ForumCategoryId>(defaultCategory);
@@ -269,6 +271,7 @@ const ForumTopicComposerModal: React.FC<ForumTopicComposerModalProps> = ({
           });
         }
         toast.success('Konu güncellendi.');
+        void queryClient.invalidateQueries({ queryKey: ['community', 'forum'] });
       } else {
         const createdTopic = await createForumTopic({
           userId: user.id,
@@ -280,6 +283,7 @@ const ForumTopicComposerModal: React.FC<ForumTopicComposerModalProps> = ({
           chapterId: selectedManga && selectedChapterId ? selectedChapterId : null,
           isSpoiler,
         });
+        void queryClient.invalidateQueries({ queryKey: ['community', 'forum'] });
         onSaved(createdTopic);
         toast.success('Konu oluşturuldu.');
       }

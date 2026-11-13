@@ -318,22 +318,22 @@ const TopTenSection: React.FC = () => {
 
                         <Link
                           to={`/manga/${manga.id}`}
-                          className={`relative z-10 block w-full aspect-[2/3] overflow-hidden rounded-xl bg-background shadow-2xl ${disableHeavyEffects ? '' : 'transform-gpu transition-all duration-300 group-hover:-translate-y-1 group-hover:shadow-primary/20'}`}
+                          className="relative z-10 block w-full aspect-[2/3] overflow-hidden rounded-xl bg-background shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                         >
                           <ProxyImage
                             src={manga.cover}
                             alt={manga.title}
                             transform={TOP_TEN_COVER_TRANSFORM}
-                            className={`h-full w-full object-cover ${disableHeavyEffects ? '' : 'transition-transform duration-700'}`}
+                            className="h-full w-full object-cover"
                             loading={index < 3 ? 'eager' : 'lazy'}
                             decoding="async"
                             fetchPriority={index < 2 ? 'high' : 'low'}
                           />
 
-                          <div className={`pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black via-black/20 to-transparent ${disableHeavyEffects ? 'opacity-100' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100'}`} />
+                          <div className={`pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black via-black/20 to-transparent ${disableHeavyEffects ? 'opacity-100' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-within:opacity-100'}`} />
 
-                          <div className={`absolute bottom-0 left-0 right-0 p-3 sm:p-5 ${disableHeavyEffects ? '' : 'translate-y-full transition-transform duration-300 group-hover:translate-y-0'}`}>
-                            <h3 className="mb-2 truncate text-[13px] font-black uppercase tracking-tight text-white drop-shadow-lg sm:text-[15px]">
+                          <div className={`absolute bottom-0 left-0 right-0 p-3 sm:p-5 ${disableHeavyEffects ? '' : 'translate-y-full transition-transform duration-300 group-hover:translate-y-0 group-focus-within:translate-y-0'}`}>
+                            <h3 className="mb-2 truncate text-[13px] font-black uppercase tracking-tight text-white drop-shadow-lg transition-colors group-hover:text-primary group-focus-within:text-primary sm:text-[15px]">
                               {manga.title}
                             </h3>
                             <div className="flex items-center gap-3">

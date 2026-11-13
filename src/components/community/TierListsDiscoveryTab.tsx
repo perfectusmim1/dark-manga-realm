@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -30,6 +31,47 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 
 const PAGE_SIZE = 18;
+const TIER_LISTS_CACHE_STALE_MS = 2 * 60_000;
+
+interface TierListsCatalogCacheData {
+  items: PublicTierListCard[];
+  hasMore: boolean;
+}
+
+const compareTierListCards = (
+  a: PublicTierListCard,
+  b: PublicTierListCard,
+  sortMode: TierListDiscoverySort,
+): number => {
+  if (sortMode === 'popular' && b.likeCount !== a.likeCount) {
+    return b.likeCount - a.likeCount;
+  }
+  if (sortMode === 'most_items' && b.itemsCount !== a.itemsCount) {
+    return b.itemsCount - a.itemsCount;
+  }
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+};
+
+const patchTierListLike = (
+  entry: TierListsCatalogCacheData | undefined,
+  tierListId: string,
+  nextLiked: boolean,
+  delta: number,
+): TierListsCatalogCacheData | undefined => {
+  if (!entry) return entry;
+  return {
+    ...entry,
+    items: entry.items.map((row) =>
+      row.id === tierListId
+        ? {
+            ...row,
+            viewerHasLiked: nextLiked,
+            likeCount: Math.max(0, row.likeCount + delta),
+          }
+        : row,
+    ),
+  };
+};
 
 const TYPE_FILTERS: Array<{ value: TierListTypeFilter; label: string }> = [
   { value: 'all', label: 'Tümü' },
@@ -63,19 +105,16 @@ const formatRelativeDate = (isoDate?: string | null): string => {
 
 const TierListsDiscoveryTab: React.FC = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const viewerKey = user?.id ?? 'anon';
 
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [typeFilter, setTypeFilter] = useState<TierListTypeFilter>('all');
   const [sort, setSort] = useState<TierListDiscoverySort>('popular');
 
-  const [items, setItems] = useState<PublicTierListCard[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [likingIds, setLikingIds] = useState<Record<string, boolean>>({});
-
-  const requestIdRef = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -84,11 +123,43 @@ const TierListsDiscoveryTab: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  const loadCatalog = useCallback(async () => {
-    const requestId = ++requestIdRef.current;
-    setIsLoading(true);
+  const isBaselineView = typeFilter === 'all' && sort === 'popular' && !debouncedSearch;
+  const baselineQueryKey = useMemo(
+    () => ['community', 'tier-lists', 'baseline', viewerKey] as const,
+    [viewerKey],
+  );
 
-    try {
+  const baselineQuery = useQuery<TierListsCatalogCacheData>({
+    queryKey: baselineQueryKey,
+    queryFn: async () => {
+      const res = await getPublicTierListsCatalog({
+        type: 'all',
+        sort: 'popular',
+        limit: PAGE_SIZE,
+        offset: 0,
+      });
+      return {
+        items: dedupeById(res.items),
+        hasMore: res.hasMore,
+      };
+    },
+    staleTime: TIER_LISTS_CACHE_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
+
+  const hasCompleteBaseline = Boolean(baselineQuery.data && !baselineQuery.data.hasMore);
+  const canUseClientBaseline = !debouncedSearch && hasCompleteBaseline;
+
+  const filteredQueryKey = useMemo(
+    () =>
+      ['community', 'tier-lists', 'filtered', typeFilter, sort, debouncedSearch, viewerKey] as const,
+    [typeFilter, sort, debouncedSearch, viewerKey],
+  );
+
+  const filteredQuery = useQuery<TierListsCatalogCacheData>({
+    queryKey: filteredQueryKey,
+    enabled: !isBaselineView && !canUseClientBaseline,
+    queryFn: async () => {
       const res = await getPublicTierListsCatalog({
         search: debouncedSearch || undefined,
         type: typeFilter,
@@ -96,42 +167,88 @@ const TierListsDiscoveryTab: React.FC = () => {
         limit: PAGE_SIZE,
         offset: 0,
       });
+      return {
+        items: dedupeById(res.items),
+        hasMore: res.hasMore,
+      };
+    },
+    staleTime: TIER_LISTS_CACHE_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
 
-      if (requestId !== requestIdRef.current) return;
-      setItems(dedupeById(res.items));
-      setHasMore(res.hasMore);
-    } catch (error) {
-      if (requestId !== requestIdRef.current) return;
-      console.error('Tier listeleri yüklenemedi:', error);
-      toast.error('Tier listeleri yüklenirken bir hata oluştu.');
-    } finally {
-      if (requestId === requestIdRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [debouncedSearch, typeFilter, sort]);
+  const activeError =
+    isBaselineView || canUseClientBaseline ? baselineQuery.error : filteredQuery.error;
 
   useEffect(() => {
-    loadCatalog();
-  }, [loadCatalog]);
+    if (activeError) {
+      console.error('Tier listeleri yüklenemedi:', activeError);
+      toast.error('Tier listeleri yüklenirken bir hata oluştu.');
+    }
+  }, [activeError]);
+
+  const { items, hasMore } = useMemo<TierListsCatalogCacheData>(() => {
+    if (canUseClientBaseline && baselineQuery.data) {
+      const typeMatched =
+        typeFilter === 'all'
+          ? baselineQuery.data.items
+          : baselineQuery.data.items.filter((item) => item.type === typeFilter);
+      return {
+        items: [...typeMatched].sort((a, b) => compareTierListCards(a, b, sort)),
+        hasMore: false,
+      };
+    }
+
+    if (isBaselineView && baselineQuery.data) {
+      return baselineQuery.data;
+    }
+
+    if (!isBaselineView && filteredQuery.data) {
+      return filteredQuery.data;
+    }
+
+    return { items: [], hasMore: false };
+  }, [
+    baselineQuery.data,
+    canUseClientBaseline,
+    filteredQuery.data,
+    isBaselineView,
+    sort,
+    typeFilter,
+  ]);
+
+  const isLoading = canUseClientBaseline
+    ? false
+    : isBaselineView
+      ? baselineQuery.isPending && !baselineQuery.data
+      : filteredQuery.isPending && !filteredQuery.data;
+
+  const activeQueryKey = isBaselineView ? baselineQueryKey : filteredQueryKey;
 
   const handleLoadMore = async () => {
-    if (isLoadingMore || !hasMore) return;
-    const requestId = requestIdRef.current;
+    if (isLoadingMore || !hasMore || canUseClientBaseline) return;
     setIsLoadingMore(true);
 
     try {
       const res = await getPublicTierListsCatalog({
-        search: debouncedSearch || undefined,
-        type: typeFilter,
-        sort,
+        search: !isBaselineView && debouncedSearch ? debouncedSearch : undefined,
+        type: isBaselineView ? 'all' : typeFilter,
+        sort: isBaselineView ? 'popular' : sort,
         limit: PAGE_SIZE,
         offset: items.length,
       });
 
-      if (requestId !== requestIdRef.current) return;
-      setItems((prev) => dedupeById([...prev, ...res.items]));
-      setHasMore(res.hasMore);
+      queryClient.setQueryData<TierListsCatalogCacheData>(activeQueryKey, (prev) => {
+        if (!prev) {
+          return {
+            items: dedupeById(res.items),
+            hasMore: res.hasMore,
+          };
+        }
+        return {
+          items: dedupeById([...prev.items, ...res.items]),
+          hasMore: res.hasMore,
+        };
+      });
     } catch (error) {
       console.error('Daha fazla tier list yüklenemedi:', error);
       toast.error('Sıralamaların devamı yüklenemedi.');
@@ -151,16 +268,9 @@ const TierListsDiscoveryTab: React.FC = () => {
     const delta = currentlyLiked ? -1 : 1;
 
     setLikingIds((prev) => ({ ...prev, [item.id]: true }));
-    setItems((prev) =>
-      prev.map((entry) =>
-        entry.id === item.id
-          ? {
-              ...entry,
-              viewerHasLiked: !currentlyLiked,
-              likeCount: Math.max(0, entry.likeCount + delta),
-            }
-          : entry,
-      ),
+    queryClient.setQueriesData<TierListsCatalogCacheData>(
+      { queryKey: ['community', 'tier-lists'] },
+      (prev) => patchTierListLike(prev, item.id, !currentlyLiked, delta),
     );
 
     try {
@@ -171,16 +281,9 @@ const TierListsDiscoveryTab: React.FC = () => {
       });
     } catch (error) {
       console.error('Tier list beğeni hatası:', error);
-      setItems((prev) =>
-        prev.map((entry) =>
-          entry.id === item.id
-            ? {
-                ...entry,
-                viewerHasLiked: currentlyLiked,
-                likeCount: Math.max(0, entry.likeCount - delta),
-              }
-            : entry,
-        ),
+      queryClient.setQueriesData<TierListsCatalogCacheData>(
+        { queryKey: ['community', 'tier-lists'] },
+        (prev) => patchTierListLike(prev, item.id, currentlyLiked, -delta),
       );
       toast.error('Beğeni işlemi tamamlanamadı.');
     } finally {
@@ -327,7 +430,7 @@ const TierListsDiscoveryTab: React.FC = () => {
                 key={item.id}
                 className="rounded-xl border border-border/60 bg-card/60 hover:border-primary/40 transition-colors flex flex-col justify-between overflow-hidden min-w-0"
               >
-                <Link to={`/tier-lists/${item.id}`} className="block p-4 space-y-3 group">
+                <Link to={`/tier-lists/${item.id}`} className="block p-4 space-y-3 group focus-visible:outline-none">
                   {/* S / A / B Mini Preview Strips */}
                   <div className="rounded-lg border border-border/50 bg-background/60 overflow-hidden divide-y divide-border/50">
                     {visiblePreviewTiers.length === 0 ? (
@@ -377,7 +480,7 @@ const TierListsDiscoveryTab: React.FC = () => {
 
                   {/* Title & Metadata */}
                   <div className="space-y-1 min-w-0">
-                    <h3 className="text-base font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                    <h3 className="text-base font-semibold text-foreground group-hover:text-primary group-focus-visible:text-primary transition-colors truncate">
                       {item.title}
                     </h3>
                     <div className="flex items-center gap-2 text-xs text-muted-foreground flex-wrap">

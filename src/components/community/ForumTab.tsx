@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -51,6 +52,63 @@ import ForumTopicComposerModal from '@/components/community/ForumTopicComposerMo
 
 const TOPICS_PAGE_SIZE = 20;
 const INITIAL_PINNED_VISIBLE = 3;
+const FORUM_CACHE_STALE_MS = 2 * 60_000;
+
+const EMPTY_CATEGORY_COUNTS: Record<ForumCategoryId, number> = {
+  'genel-sohbet': 0,
+  tanisma: 0,
+  'seri-sohbetleri': 0,
+  'bolum-tartismalari': 0,
+  'oneri-tavsiye': 0,
+  'site-geri-bildirim': 0,
+};
+
+interface ForumFeedCacheData {
+  pinnedTopics: ForumTopic[];
+  topics: ForumTopic[];
+  pinnedHasMore: boolean;
+  hasMore: boolean;
+}
+
+const compareForumTopics = (a: ForumTopic, b: ForumTopic, sortMode: ForumSortOption): number => {
+  if (sortMode === 'most_liked' && b.likeCount !== a.likeCount) {
+    return b.likeCount - a.likeCount;
+  }
+  if (sortMode === 'most_replied' && b.replyCount !== a.replyCount) {
+    return b.replyCount - a.replyCount;
+  }
+  if (sortMode === 'newest') {
+    const diffCreated = new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    if (diffCreated !== 0) return diffCreated;
+  }
+  const diffLast = new Date(b.lastPostAt).getTime() - new Date(a.lastPostAt).getTime();
+  if (diffLast !== 0) return diffLast;
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+};
+
+const patchForumFeedTopicLike = (
+  entry: ForumFeedCacheData | undefined,
+  topicId: string,
+  nextLiked: boolean,
+  delta: number,
+): ForumFeedCacheData | undefined => {
+  if (!entry) return entry;
+  const updateList = (list: ForumTopic[]) =>
+    list.map((item) =>
+      item.id === topicId
+        ? {
+            ...item,
+            viewerHasLiked: nextLiked,
+            likeCount: Math.max(0, item.likeCount + delta),
+          }
+        : item,
+    );
+  return {
+    ...entry,
+    pinnedTopics: updateList(entry.pinnedTopics),
+    topics: updateList(entry.topics),
+  };
+};
 
 const SORT_OPTIONS: Array<{ value: ForumSortOption; label: string }> = [
   { value: 'latest', label: 'Son Aktivite' },
@@ -77,7 +135,9 @@ const getInitials = (name?: string | null): string => {
 const ForumTab: React.FC = () => {
   const { user } = useAuth();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
+  const viewerKey = user?.id ?? 'anon';
 
   const initialCategoryParam = searchParams.get('category');
   const initialCategory: ForumCategoryId | null = isValidCategoryId(initialCategoryParam)
@@ -90,27 +150,10 @@ const ForumTab: React.FC = () => {
   const [debouncedSearch, setDebouncedSearch] = useState<string>(initialQuery.trim());
   const [sort, setSort] = useState<ForumSortOption>('latest');
 
-  const [totalCount, setTotalCount] = useState<number>(0);
-  const [categoryCounts, setCategoryCounts] = useState<Record<ForumCategoryId, number>>(() => ({
-    'genel-sohbet': 0,
-    tanisma: 0,
-    'seri-sohbetleri': 0,
-    'bolum-tartismalari': 0,
-    'oneri-tavsiye': 0,
-    'site-geri-bildirim': 0,
-  }));
-
-  const [pinnedTopics, setPinnedTopics] = useState<ForumTopic[]>([]);
   const [showAllPinned, setShowAllPinned] = useState(false);
-
-  const [topics, setTopics] = useState<ForumTopic[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [likingTopicIds, setLikingTopicIds] = useState<Record<string, boolean>>({});
   const [isComposerOpen, setIsComposerOpen] = useState(false);
-
-  const feedRequestIdRef = useRef(0);
 
   // 300ms search debounce
   useEffect(() => {
@@ -150,27 +193,79 @@ const ForumTab: React.FC = () => {
     );
   }, [selectedCategory, debouncedSearch, searchParams, setSearchParams]);
 
-  const loadCounts = useCallback(async () => {
-    try {
-      const summary = await getForumCategoryCounts();
-      setTotalCount(summary.totalCount);
-      setCategoryCounts(summary.counts);
-    } catch (error) {
-      console.error('Forum kategori sayıları alınamadı:', error);
-    }
-  }, []);
+  const countsQuery = useQuery({
+    queryKey: ['community', 'forum', 'counts', viewerKey],
+    queryFn: getForumCategoryCounts,
+    staleTime: FORUM_CACHE_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
 
-  useEffect(() => {
-    loadCounts();
-  }, [loadCounts]);
+  const totalCount = countsQuery.data?.totalCount ?? 0;
+  const categoryCounts = countsQuery.data?.counts ?? EMPTY_CATEGORY_COUNTS;
 
   const showPinnedSection = sort === 'latest' && !debouncedSearch;
+  const isBaselineView = selectedCategory === null && sort === 'latest' && !debouncedSearch;
+  const baselineQueryKey = useMemo(
+    () => ['community', 'forum', 'feed', 'baseline', viewerKey] as const,
+    [viewerKey],
+  );
 
-  const loadFeed = useCallback(async () => {
-    const requestId = ++feedRequestIdRef.current;
-    setIsLoading(true);
+  const baselineQuery = useQuery<ForumFeedCacheData>({
+    queryKey: baselineQueryKey,
+    queryFn: async () => {
+      const [pinnedResult, mainResult] = await Promise.all([
+        getForumTopicsFeed({
+          category: null,
+          sort: 'latest',
+          pinnedMode: 'pinned',
+          limit: 30,
+          offset: 0,
+        }),
+        getForumTopicsFeed({
+          category: null,
+          sort: 'latest',
+          pinnedMode: 'unpinned',
+          limit: TOPICS_PAGE_SIZE,
+          offset: 0,
+        }),
+      ]);
 
-    try {
+      return {
+        pinnedTopics: dedupeById(pinnedResult.topics),
+        topics: dedupeById(mainResult.topics),
+        pinnedHasMore: pinnedResult.hasMore,
+        hasMore: mainResult.hasMore,
+      };
+    },
+    staleTime: FORUM_CACHE_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
+
+  // İlk tam katalog bellekteyse kategori/sıralama değişimlerinde 0ms istemci içi filtreleme yap.
+  const hasCompleteBaseline = Boolean(
+    baselineQuery.data && !baselineQuery.data.pinnedHasMore && !baselineQuery.data.hasMore,
+  );
+  const canUseClientBaseline = !debouncedSearch && hasCompleteBaseline;
+
+  const filteredQueryKey = useMemo(
+    () =>
+      [
+        'community',
+        'forum',
+        'feed',
+        'filtered',
+        selectedCategory || 'all',
+        sort,
+        debouncedSearch,
+        viewerKey,
+      ] as const,
+    [selectedCategory, sort, debouncedSearch, viewerKey],
+  );
+
+  const filteredQuery = useQuery<ForumFeedCacheData>({
+    queryKey: filteredQueryKey,
+    enabled: !isBaselineView && !canUseClientBaseline,
+    queryFn: async () => {
       if (showPinnedSection) {
         const [pinnedResult, mainResult] = await Promise.all([
           getForumTopicsFeed({
@@ -189,58 +284,131 @@ const ForumTab: React.FC = () => {
           }),
         ]);
 
-        if (requestId !== feedRequestIdRef.current) return;
-        setPinnedTopics(dedupeById(pinnedResult.topics));
-        setTopics(dedupeById(mainResult.topics));
-        setHasMore(mainResult.hasMore);
-      } else {
-        const mainResult = await getForumTopicsFeed({
-          category: selectedCategory,
-          search: debouncedSearch || undefined,
-          sort,
-          pinnedMode: 'all',
-          limit: TOPICS_PAGE_SIZE,
-          offset: 0,
-        });
+        return {
+          pinnedTopics: dedupeById(pinnedResult.topics),
+          topics: dedupeById(mainResult.topics),
+          pinnedHasMore: pinnedResult.hasMore,
+          hasMore: mainResult.hasMore,
+        };
+      }
 
-        if (requestId !== feedRequestIdRef.current) return;
-        setPinnedTopics([]);
-        setTopics(dedupeById(mainResult.topics));
-        setHasMore(mainResult.hasMore);
-      }
-    } catch (error) {
-      if (requestId !== feedRequestIdRef.current) return;
-      console.error('Forum akışı yüklenemedi:', error);
-      toast.error('Forum konuları yüklenirken bir hata oluştu.');
-    } finally {
-      if (requestId === feedRequestIdRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [selectedCategory, debouncedSearch, sort, showPinnedSection]);
+      const mainResult = await getForumTopicsFeed({
+        category: selectedCategory,
+        search: debouncedSearch || undefined,
+        sort,
+        pinnedMode: 'all',
+        limit: TOPICS_PAGE_SIZE,
+        offset: 0,
+      });
+
+      return {
+        pinnedTopics: [],
+        topics: dedupeById(mainResult.topics),
+        pinnedHasMore: false,
+        hasMore: mainResult.hasMore,
+      };
+    },
+    staleTime: FORUM_CACHE_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
+
+  const activeFeedError =
+    isBaselineView || canUseClientBaseline ? baselineQuery.error : filteredQuery.error;
 
   useEffect(() => {
-    loadFeed();
-  }, [loadFeed]);
+    if (activeFeedError) {
+      console.error('Forum akışı yüklenemedi:', activeFeedError);
+      toast.error('Forum konuları yüklenirken bir hata oluştu.');
+    }
+  }, [activeFeedError]);
+
+  const { pinnedTopics, topics, hasMore } = useMemo<
+    Pick<ForumFeedCacheData, 'pinnedTopics' | 'topics' | 'hasMore'>
+  >(() => {
+    if (canUseClientBaseline && baselineQuery.data) {
+      const combinedTopics = dedupeById([
+        ...baselineQuery.data.pinnedTopics,
+        ...baselineQuery.data.topics,
+      ]);
+      const categoryFiltered = selectedCategory
+        ? combinedTopics.filter((item) => item.category === selectedCategory)
+        : combinedTopics;
+
+      if (showPinnedSection) {
+        return {
+          pinnedTopics: categoryFiltered
+            .filter((item) => item.isPinned)
+            .sort((a, b) => compareForumTopics(a, b, 'latest')),
+          topics: categoryFiltered
+            .filter((item) => !item.isPinned)
+            .sort((a, b) => compareForumTopics(a, b, 'latest')),
+          hasMore: false,
+        };
+      }
+
+      return {
+        pinnedTopics: [],
+        topics: [...categoryFiltered].sort((a, b) => compareForumTopics(a, b, sort)),
+        hasMore: false,
+      };
+    }
+
+    if (isBaselineView && baselineQuery.data) {
+      return baselineQuery.data;
+    }
+
+    if (!isBaselineView && filteredQuery.data) {
+      return filteredQuery.data;
+    }
+
+    return { pinnedTopics: [], topics: [], hasMore: false };
+  }, [
+    baselineQuery.data,
+    canUseClientBaseline,
+    filteredQuery.data,
+    isBaselineView,
+    selectedCategory,
+    showPinnedSection,
+    sort,
+  ]);
+
+  const isLoading = canUseClientBaseline
+    ? false
+    : isBaselineView
+      ? baselineQuery.isPending && !baselineQuery.data
+      : filteredQuery.isPending && !filteredQuery.data;
+
+  const activeQueryKey = isBaselineView ? baselineQueryKey : filteredQueryKey;
 
   const handleLoadMore = async () => {
-    if (isLoadingMore || !hasMore) return;
-    const requestId = feedRequestIdRef.current;
+    if (isLoadingMore || !hasMore || canUseClientBaseline) return;
     setIsLoadingMore(true);
 
     try {
       const nextResult = await getForumTopicsFeed({
-        category: selectedCategory,
-        search: debouncedSearch || undefined,
-        sort,
+        category: isBaselineView ? null : selectedCategory,
+        search: !isBaselineView && debouncedSearch ? debouncedSearch : undefined,
+        sort: isBaselineView ? 'latest' : sort,
         pinnedMode: showPinnedSection ? 'unpinned' : 'all',
         limit: TOPICS_PAGE_SIZE,
         offset: topics.length,
       });
 
-      if (requestId !== feedRequestIdRef.current) return;
-      setTopics((prev) => dedupeById([...prev, ...nextResult.topics]));
-      setHasMore(nextResult.hasMore);
+      queryClient.setQueryData<ForumFeedCacheData>(activeQueryKey, (prev) => {
+        if (!prev) {
+          return {
+            pinnedTopics: [],
+            topics: dedupeById(nextResult.topics),
+            pinnedHasMore: false,
+            hasMore: nextResult.hasMore,
+          };
+        }
+        return {
+          ...prev,
+          topics: dedupeById([...prev.topics, ...nextResult.topics]),
+          hasMore: nextResult.hasMore,
+        };
+      });
     } catch (error) {
       console.error('Daha fazla konu yüklenemedi:', error);
       toast.error('Konuların devamı yüklenemedi.');
@@ -259,8 +427,20 @@ const ForumTab: React.FC = () => {
   };
 
   const handleTopicSaved = (savedTopic: ForumTopic) => {
-    setTopics((prev) => dedupeById([savedTopic, ...prev]));
-    loadCounts();
+    queryClient.setQueryData<ForumFeedCacheData>(baselineQueryKey, (prev) => {
+      if (!prev) return prev;
+      if (savedTopic.isPinned) {
+        return {
+          ...prev,
+          pinnedTopics: dedupeById([savedTopic, ...prev.pinnedTopics]),
+        };
+      }
+      return {
+        ...prev,
+        topics: dedupeById([savedTopic, ...prev.topics]),
+      };
+    });
+    void queryClient.invalidateQueries({ queryKey: ['community', 'forum'] });
     navigate(`/community/topic/${savedTopic.id}`);
   };
 
@@ -275,27 +455,9 @@ const ForumTab: React.FC = () => {
     const delta = currentlyLiked ? -1 : 1;
 
     setLikingTopicIds((prev) => ({ ...prev, [topic.id]: true }));
-    setTopics((prev) =>
-      prev.map((item) =>
-        item.id === topic.id
-          ? {
-              ...item,
-              viewerHasLiked: !currentlyLiked,
-              likeCount: Math.max(0, item.likeCount + delta),
-            }
-          : item,
-      ),
-    );
-    setPinnedTopics((prev) =>
-      prev.map((item) =>
-        item.id === topic.id
-          ? {
-              ...item,
-              viewerHasLiked: !currentlyLiked,
-              likeCount: Math.max(0, item.likeCount + delta),
-            }
-          : item,
-      ),
+    queryClient.setQueriesData<ForumFeedCacheData>(
+      { queryKey: ['community', 'forum', 'feed'] },
+      (prev) => patchForumFeedTopicLike(prev, topic.id, !currentlyLiked, delta),
     );
 
     try {
@@ -309,27 +471,9 @@ const ForumTab: React.FC = () => {
       });
     } catch (error) {
       console.error('Konu beğeni hatası:', error);
-      setTopics((prev) =>
-        prev.map((item) =>
-          item.id === topic.id
-            ? {
-                ...item,
-                viewerHasLiked: currentlyLiked,
-                likeCount: Math.max(0, item.likeCount - delta),
-              }
-            : item,
-        ),
-      );
-      setPinnedTopics((prev) =>
-        prev.map((item) =>
-          item.id === topic.id
-            ? {
-                ...item,
-                viewerHasLiked: currentlyLiked,
-                likeCount: Math.max(0, item.likeCount - delta),
-              }
-            : item,
-        ),
+      queryClient.setQueriesData<ForumFeedCacheData>(
+        { queryKey: ['community', 'forum', 'feed'] },
+        (prev) => patchForumFeedTopicLike(prev, topic.id, currentlyLiked, -delta),
       );
       toast.error('Beğeni işlemi tamamlanamadı.');
     } finally {
@@ -686,7 +830,7 @@ const ForumTab: React.FC = () => {
                   <div className="mt-2 space-y-1.5 min-w-0">
                     <Link
                       to={`/community/topic/${topic.id}`}
-                      className="block text-base sm:text-[17px] font-semibold text-foreground hover:text-primary transition-colors break-words leading-snug"
+                      className="block text-base sm:text-[17px] font-semibold text-foreground hover:text-primary focus-visible:text-primary focus-visible:outline-none transition-colors break-words leading-snug"
                     >
                       {topic.title}
                     </Link>

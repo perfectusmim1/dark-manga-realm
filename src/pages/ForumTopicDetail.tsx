@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { format, formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -150,6 +151,7 @@ const ForumTopicDetail: React.FC = () => {
   const { topicId } = useParams<{ topicId: string }>();
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const { access } = useAdminAccess({
@@ -499,6 +501,7 @@ const ForumTopicDetail: React.FC = () => {
         topicTitle: topic.title,
         actorUsername: user.username,
       });
+      void queryClient.invalidateQueries({ queryKey: ['community', 'forum', 'feed'] });
     } catch (error) {
       console.error('Konu beğeni hatası:', error);
       setTopic((prev) =>
@@ -533,6 +536,7 @@ const ForumTopicDetail: React.FC = () => {
     try {
       await updateForumTopic(topic.id, { isPinned: nextPinned });
       setTopic((prev) => (prev ? { ...prev, isPinned: nextPinned } : prev));
+      void queryClient.invalidateQueries({ queryKey: ['community', 'forum', 'feed'] });
       toast.success(nextPinned ? 'Konu sabitlendi.' : 'Konu sabitlemesi kaldırıldı.');
     } catch (error) {
       console.error('Sabitleme hatası:', error);
@@ -550,6 +554,7 @@ const ForumTopicDetail: React.FC = () => {
     try {
       await updateForumTopic(topic.id, { isLocked: nextLocked });
       setTopic((prev) => (prev ? { ...prev, isLocked: nextLocked } : prev));
+      void queryClient.invalidateQueries({ queryKey: ['community', 'forum', 'feed'] });
       toast.success(nextLocked ? 'Konu kilitlendi.' : 'Konunun kilidi açıldı.');
     } catch (error) {
       console.error('Kilitleme hatası:', error);
@@ -565,6 +570,7 @@ const ForumTopicDetail: React.FC = () => {
 
     try {
       await deleteForumTopic(topic.id);
+      void queryClient.invalidateQueries({ queryKey: ['community', 'forum'] });
       toast.success('Konu silindi.');
       navigate('/community?tab=forum', { replace: true });
     } catch (error) {
@@ -577,6 +583,7 @@ const ForumTopicDetail: React.FC = () => {
   const refreshAfterPostCreate = async (createdPostId: string, rootThreadId?: string) => {
     if (!topic) return;
     setTopic((prev) => (prev ? { ...prev, replyCount: prev.replyCount + 1 } : prev));
+    void queryClient.invalidateQueries({ queryKey: ['community', 'forum', 'feed'] });
     if (rootThreadId) {
       setExpandedThreads((prev) => ({ ...prev, [rootThreadId]: true }));
     }
@@ -858,6 +865,7 @@ const ForumTopicDetail: React.FC = () => {
 
     try {
       await deleteForumPost(deletePostTarget.id);
+      void queryClient.invalidateQueries({ queryKey: ['community', 'forum', 'feed'] });
       setPosts((prev) => prev.filter((item) => item.id !== deletePostTarget.id));
       setTopic((prev) =>
         prev ? { ...prev, replyCount: Math.max(0, prev.replyCount - 1) } : prev,

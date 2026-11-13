@@ -1,4 +1,5 @@
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
@@ -30,6 +31,47 @@ import {
 import { Skeleton } from '@/components/ui/skeleton';
 
 const PAGE_SIZE = 18;
+const READING_LISTS_CACHE_STALE_MS = 2 * 60_000;
+
+interface ReadingListsCatalogCacheData {
+  items: PublicReadingListCard[];
+  hasMore: boolean;
+}
+
+const compareReadingListCards = (
+  a: PublicReadingListCard,
+  b: PublicReadingListCard,
+  sortMode: ReadingListDiscoverySort,
+): number => {
+  if (sortMode === 'popular' && b.likeCount !== a.likeCount) {
+    return b.likeCount - a.likeCount;
+  }
+  if (sortMode === 'most_items' && b.itemsCount !== a.itemsCount) {
+    return b.itemsCount - a.itemsCount;
+  }
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+};
+
+const patchReadingListLike = (
+  entry: ReadingListsCatalogCacheData | undefined,
+  listId: string,
+  nextLiked: boolean,
+  delta: number,
+): ReadingListsCatalogCacheData | undefined => {
+  if (!entry) return entry;
+  return {
+    ...entry,
+    items: entry.items.map((row) =>
+      row.id === listId
+        ? {
+            ...row,
+            viewerHasLiked: nextLiked,
+            likeCount: Math.max(0, row.likeCount + delta),
+          }
+        : row,
+    ),
+  };
+};
 
 const SORT_OPTIONS: Array<{ value: ReadingListDiscoverySort; label: string }> = [
   { value: 'popular', label: 'En Popüler' },
@@ -71,7 +113,7 @@ const renderCoverPreview = (item: PublicReadingListCard) => {
           alt={item.name}
           transform={{ width: 480, quality: 80 }}
           containerClassName="h-full w-full"
-          className="h-full w-full scale-100 object-cover transition-transform duration-300 group-hover:scale-105"
+          className="h-full w-full object-cover"
         />
       </div>
     );
@@ -129,18 +171,15 @@ const renderCoverPreview = (item: PublicReadingListCard) => {
 
 const ReadingListsDiscoveryTab: React.FC = () => {
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const viewerKey = user?.id ?? 'anon';
 
   const [searchInput, setSearchInput] = useState('');
   const [debouncedSearch, setDebouncedSearch] = useState('');
   const [sort, setSort] = useState<ReadingListDiscoverySort>('popular');
 
-  const [items, setItems] = useState<PublicReadingListCard[]>([]);
-  const [hasMore, setHasMore] = useState(false);
-  const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
   const [likingIds, setLikingIds] = useState<Record<string, boolean>>({});
-
-  const requestIdRef = useRef(0);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -149,52 +188,117 @@ const ReadingListsDiscoveryTab: React.FC = () => {
     return () => window.clearTimeout(timer);
   }, [searchInput]);
 
-  const loadCatalog = useCallback(async () => {
-    const requestId = ++requestIdRef.current;
-    setIsLoading(true);
+  const isBaselineView = sort === 'popular' && !debouncedSearch;
+  const baselineQueryKey = useMemo(
+    () => ['community', 'reading-lists', 'baseline', viewerKey] as const,
+    [viewerKey],
+  );
 
-    try {
+  const baselineQuery = useQuery<ReadingListsCatalogCacheData>({
+    queryKey: baselineQueryKey,
+    queryFn: async () => {
+      const res = await getPublicReadingListsCatalog({
+        sort: 'popular',
+        limit: PAGE_SIZE,
+        offset: 0,
+      });
+      return {
+        items: dedupeById(res.items),
+        hasMore: res.hasMore,
+      };
+    },
+    staleTime: READING_LISTS_CACHE_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
+
+  const hasCompleteBaseline = Boolean(baselineQuery.data && !baselineQuery.data.hasMore);
+  const canUseClientBaseline = !debouncedSearch && hasCompleteBaseline;
+
+  const filteredQueryKey = useMemo(
+    () => ['community', 'reading-lists', 'filtered', sort, debouncedSearch, viewerKey] as const,
+    [sort, debouncedSearch, viewerKey],
+  );
+
+  const filteredQuery = useQuery<ReadingListsCatalogCacheData>({
+    queryKey: filteredQueryKey,
+    enabled: !isBaselineView && !canUseClientBaseline,
+    queryFn: async () => {
       const res = await getPublicReadingListsCatalog({
         search: debouncedSearch || undefined,
         sort,
         limit: PAGE_SIZE,
         offset: 0,
       });
+      return {
+        items: dedupeById(res.items),
+        hasMore: res.hasMore,
+      };
+    },
+    staleTime: READING_LISTS_CACHE_STALE_MS,
+    placeholderData: keepPreviousData,
+  });
 
-      if (requestId !== requestIdRef.current) return;
-      setItems(dedupeById(res.items));
-      setHasMore(res.hasMore);
-    } catch (error) {
-      if (requestId !== requestIdRef.current) return;
-      console.error('Okuma listeleri yüklenemedi:', error);
-      toast.error('Okuma listeleri yüklenirken bir hata oluştu.');
-    } finally {
-      if (requestId === requestIdRef.current) {
-        setIsLoading(false);
-      }
-    }
-  }, [debouncedSearch, sort]);
+  const activeError =
+    isBaselineView || canUseClientBaseline ? baselineQuery.error : filteredQuery.error;
 
   useEffect(() => {
-    loadCatalog();
-  }, [loadCatalog]);
+    if (activeError) {
+      console.error('Okuma listeleri yüklenemedi:', activeError);
+      toast.error('Okuma listeleri yüklenirken bir hata oluştu.');
+    }
+  }, [activeError]);
+
+  const { items, hasMore } = useMemo<ReadingListsCatalogCacheData>(() => {
+    if (canUseClientBaseline && baselineQuery.data) {
+      return {
+        items: [...baselineQuery.data.items].sort((a, b) => compareReadingListCards(a, b, sort)),
+        hasMore: false,
+      };
+    }
+
+    if (isBaselineView && baselineQuery.data) {
+      return baselineQuery.data;
+    }
+
+    if (!isBaselineView && filteredQuery.data) {
+      return filteredQuery.data;
+    }
+
+    return { items: [], hasMore: false };
+  }, [baselineQuery.data, canUseClientBaseline, filteredQuery.data, isBaselineView, sort]);
+
+  const isLoading = canUseClientBaseline
+    ? false
+    : isBaselineView
+      ? baselineQuery.isPending && !baselineQuery.data
+      : filteredQuery.isPending && !filteredQuery.data;
+
+  const activeQueryKey = isBaselineView ? baselineQueryKey : filteredQueryKey;
 
   const handleLoadMore = async () => {
-    if (isLoadingMore || !hasMore) return;
-    const requestId = requestIdRef.current;
+    if (isLoadingMore || !hasMore || canUseClientBaseline) return;
     setIsLoadingMore(true);
 
     try {
       const res = await getPublicReadingListsCatalog({
-        search: debouncedSearch || undefined,
-        sort,
+        search: !isBaselineView && debouncedSearch ? debouncedSearch : undefined,
+        sort: isBaselineView ? 'popular' : sort,
         limit: PAGE_SIZE,
         offset: items.length,
       });
 
-      if (requestId !== requestIdRef.current) return;
-      setItems((prev) => dedupeById([...prev, ...res.items]));
-      setHasMore(res.hasMore);
+      queryClient.setQueryData<ReadingListsCatalogCacheData>(activeQueryKey, (prev) => {
+        if (!prev) {
+          return {
+            items: dedupeById(res.items),
+            hasMore: res.hasMore,
+          };
+        }
+        return {
+          items: dedupeById([...prev.items, ...res.items]),
+          hasMore: res.hasMore,
+        };
+      });
     } catch (error) {
       console.error('Daha fazla okuma listesi yüklenemedi:', error);
       toast.error('Listelerin devamı yüklenemedi.');
@@ -214,16 +318,9 @@ const ReadingListsDiscoveryTab: React.FC = () => {
     const delta = currentlyLiked ? -1 : 1;
 
     setLikingIds((prev) => ({ ...prev, [item.id]: true }));
-    setItems((prev) =>
-      prev.map((entry) =>
-        entry.id === item.id
-          ? {
-              ...entry,
-              viewerHasLiked: !currentlyLiked,
-              likeCount: Math.max(0, entry.likeCount + delta),
-            }
-          : entry,
-      ),
+    queryClient.setQueriesData<ReadingListsCatalogCacheData>(
+      { queryKey: ['community', 'reading-lists'] },
+      (prev) => patchReadingListLike(prev, item.id, !currentlyLiked, delta),
     );
 
     try {
@@ -234,16 +331,9 @@ const ReadingListsDiscoveryTab: React.FC = () => {
       });
     } catch (error) {
       console.error('Okuma listesi beğeni hatası:', error);
-      setItems((prev) =>
-        prev.map((entry) =>
-          entry.id === item.id
-            ? {
-                ...entry,
-                viewerHasLiked: currentlyLiked,
-                likeCount: Math.max(0, entry.likeCount - delta),
-              }
-            : entry,
-        ),
+      queryClient.setQueriesData<ReadingListsCatalogCacheData>(
+        { queryKey: ['community', 'reading-lists'] },
+        (prev) => patchReadingListLike(prev, item.id, currentlyLiked, -delta),
       );
       toast.error('Beğeni işlemi tamamlanamadı.');
     } finally {
@@ -360,13 +450,13 @@ const ReadingListsDiscoveryTab: React.FC = () => {
                 key={item.id}
                 className="rounded-xl border border-border/60 bg-card/60 hover:border-primary/40 transition-colors flex flex-col justify-between overflow-hidden min-w-0"
               >
-                <Link to={`/reading-lists/${item.id}`} className="block group min-w-0">
+                <Link to={`/reading-lists/${item.id}`} className="block group min-w-0 focus-visible:outline-none">
                   <div className="border-b border-border/50 overflow-hidden">
                     {renderCoverPreview(item)}
                   </div>
 
                   <div className="p-4 space-y-1.5 min-w-0">
-                    <h3 className="text-base font-semibold text-foreground group-hover:text-primary transition-colors truncate">
+                    <h3 className="text-base font-semibold text-foreground group-hover:text-primary group-focus-visible:text-primary transition-colors truncate">
                       {item.name}
                     </h3>
 

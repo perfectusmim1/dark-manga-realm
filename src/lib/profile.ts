@@ -954,26 +954,28 @@ const getReadingTimeEntries = async (
 
     const logs = data || [];
     const mangaIds = [...new Set(logs.map((log: any) => log.manga_id).filter(Boolean))];
-    const { data: mangaRows } = mangaIds.length > 0
+    const { data: mangaRows, error: mangaRowsError } = mangaIds.length > 0
         ? await supabase.from('mangas').select('id, title, cover').in('id', mangaIds)
-        : { data: [] as any[] };
+        : { data: [] as any[], error: null };
 
     const mangaMap = new Map((mangaRows || []).map((manga: any) => [manga.id, manga]));
 
-    return logs.map((log: any) => {
-        const manga = mangaMap.get(log.manga_id);
+    return logs
+        .filter((log: any) => mangaRowsError || mangaMap.has(log.manga_id))
+        .map((log: any) => {
+            const manga = mangaMap.get(log.manga_id);
 
-        return {
-            id: log.id,
-            mangaId: log.manga_id,
-            mangaTitle: manga?.title || 'Seri',
-            mangaCover: manga?.cover || undefined,
-            chapterId: log.chapter_id || undefined,
-            chapterNumber: log.chapter_number ? Number(log.chapter_number) : undefined,
-            readAt: log.read_at,
-            secondsSpent: clampReadingSeconds(log.seconds_spent || 0),
-        } satisfies ReadingTimeEntry;
-    });
+            return {
+                id: log.id,
+                mangaId: log.manga_id,
+                mangaTitle: manga?.title || 'Seri',
+                mangaCover: manga?.cover || undefined,
+                chapterId: log.chapter_id || undefined,
+                chapterNumber: log.chapter_number ? Number(log.chapter_number) : undefined,
+                readAt: log.read_at,
+                secondsSpent: clampReadingSeconds(log.seconds_spent || 0),
+            } satisfies ReadingTimeEntry;
+        });
 };
 
 export const getReadingTimeTimeline = async (

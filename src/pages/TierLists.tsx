@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
+import { useQueryClient } from '@tanstack/react-query';
 import { Plus, Book, Trash2, Edit2, Globe, Lock, ChevronRight } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
@@ -25,6 +26,7 @@ const TierLists: React.FC = () => {
     const { user } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const [lists, setLists] = useState<any[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
@@ -70,6 +72,7 @@ const TierLists: React.FC = () => {
             const { error } = await supabase.from('tier_lists').delete().eq('id', deleteConfirmId);
             if (error) throw error;
             setLists(prev => prev.filter(l => l.id !== deleteConfirmId));
+            void queryClient.invalidateQueries({ queryKey: ['community', 'tier-lists'] });
             toast.success('Tier listesi başarıyla silindi.');
         } catch (err) {
             toast.error('Tier listesi silinemedi.');

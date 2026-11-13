@@ -88,7 +88,7 @@ const Community: React.FC = () => {
                   onClick={() => handleSelectTab(tab.id)}
                   aria-current={isActive ? 'page' : undefined}
                   className={cn(
-                    'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors',
+                    'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',

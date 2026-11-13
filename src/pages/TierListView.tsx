@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
@@ -57,6 +58,7 @@ export default function TierListView() {
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
 
   const [tierList, setTierList] = useState<TierListRecord | null>(null);
   const [tierState, setTierState] = useState<Record<string, TierDisplayItem[]>>({});
@@ -142,6 +144,7 @@ export default function TierListView() {
         userId: user.id,
         currentlyLiked,
       });
+      void queryClient.invalidateQueries({ queryKey: ['community', 'tier-lists'] });
     } catch (error) {
       console.error('Tier list beğeni hatası:', error);
       setViewerHasLiked(currentlyLiked);

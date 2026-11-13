@@ -1,4 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useState } from 'react';
+import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import { BookOpen, Crown, Heart, ListChecks, Medal, MessageSquare, Users } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
@@ -85,228 +86,204 @@ const fetchUsersMap = async (userIds: string[]): Promise<Map<string, UserSummary
   return map;
 };
 
+const LEADERS_CACHE_STALE_MS = 2 * 60_000;
+
+const fetchPublicPresenceCounts = async (): Promise<{ online: number; offline: number }> => {
+  try {
+    const { data, error } = await supabase.rpc('get_public_user_presence_counts');
+    if (error) {
+      throw error;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    return {
+      online: Number(row?.online_count || 0),
+      offline: Number(row?.offline_count || 0),
+    };
+  } catch (err) {
+    console.error('Kullanıcı çevrimiçi sayıları alınamadı:', err);
+    return { online: 0, offline: 0 };
+  }
+};
+
+const fetchLeaderboardEntries = async (category: LeaderCategory): Promise<LeaderboardEntry[]> => {
+  try {
+    if (category === 'chapters') {
+      const countsByUser = await getCompletedChapterCountsByUser();
+      const ranked = Object.entries(countsByUser)
+        .filter(([, count]) => count > 0)
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 60);
+
+      const usersMap = await fetchUsersMap(ranked.map(([userId]) => userId));
+      return dedupeById(
+        ranked
+          .map(([userId, count]): LeaderboardEntry | null => {
+            const profile = usersMap.get(userId);
+            if (!profile) return null;
+            return {
+              id: profile.id,
+              title: profile.username,
+              link: `/profile/${profile.id}`,
+              avatarUrl: profile.avatar,
+              role: profile.role,
+              value: count,
+              unitLabel: 'bölüm',
+            };
+          })
+          .filter((item): item is LeaderboardEntry => item !== null),
+      );
+    }
+
+    if (category === 'comments') {
+      const { data, error } = await supabase.from('comments').select('user_id');
+      if (error) throw error;
+
+      const countMap = new Map<string, number>();
+      for (const row of (data || []) as Array<{ user_id: string | null }>) {
+        if (!row.user_id) continue;
+        countMap.set(row.user_id, (countMap.get(row.user_id) || 0) + 1);
+      }
+
+      const ranked = Array.from(countMap.entries())
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 60);
+
+      const usersMap = await fetchUsersMap(ranked.map(([userId]) => userId));
+      return dedupeById(
+        ranked
+          .map(([userId, count]): LeaderboardEntry | null => {
+            const profile = usersMap.get(userId);
+            if (!profile) return null;
+            return {
+              id: profile.id,
+              title: profile.username,
+              link: `/profile/${profile.id}`,
+              avatarUrl: profile.avatar,
+              role: profile.role,
+              value: count,
+              unitLabel: 'yorum',
+            };
+          })
+          .filter((item): item is LeaderboardEntry => item !== null),
+      );
+    }
+
+    const { data: likeRows, error: likesError } = await supabase
+      .from('reading_list_likes')
+      .select('list_id');
+    if (likesError) throw likesError;
+
+    const likeCountMap = new Map<string, number>();
+    for (const row of (likeRows || []) as Array<{ list_id: string | null }>) {
+      if (!row.list_id) continue;
+      likeCountMap.set(row.list_id, (likeCountMap.get(row.list_id) || 0) + 1);
+    }
+
+    const topListIds = Array.from(likeCountMap.entries())
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 60)
+      .map(([listId]) => listId);
+
+    if (topListIds.length === 0) {
+      return [];
+    }
+
+    const [{ data: listsData, error: listsError }, { data: itemRows }] = await Promise.all([
+      supabase
+        .from('reading_lists')
+        .select('id, name, user_id, image_url, is_public')
+        .in('id', topListIds)
+        .eq('is_public', true),
+      supabase
+        .from('reading_list_items')
+        .select('list_id, created_at, mangas:manga_id(cover)')
+        .in('list_id', topListIds)
+        .order('created_at', { ascending: true }),
+    ]);
+    if (listsError) throw listsError;
+
+    const previewCoversMap = new Map<string, string[]>();
+    for (const row of (itemRows || []) as Array<{
+      list_id?: string | null;
+      mangas?: { cover?: string | null } | Array<{ cover?: string | null }> | null;
+    }>) {
+      const listId = row.list_id;
+      if (!listId) continue;
+      const mangaObj = Array.isArray(row.mangas) ? row.mangas[0] : row.mangas;
+      const cover = mangaObj?.cover?.trim();
+      if (!cover) continue;
+      const existing = previewCoversMap.get(listId) || [];
+      if (existing.length < 4 && !existing.includes(cover)) {
+        existing.push(cover);
+        previewCoversMap.set(listId, existing);
+      }
+    }
+
+    const listRows = (listsData || []) as Array<{
+      id: string;
+      name: string;
+      user_id: string;
+      image_url?: string | null;
+    }>;
+    const listMap = new Map(listRows.map((row) => [row.id, row]));
+    const usersMap = await fetchUsersMap(listRows.map((row) => row.user_id));
+
+    return dedupeById(
+      topListIds
+        .map((listId): LeaderboardEntry | null => {
+          const list = listMap.get(listId);
+          if (!list) return null;
+          const owner = usersMap.get(list.user_id);
+          const previewCovers = previewCoversMap.get(list.id) || [];
+          const bannerUrl = list.image_url?.trim() || undefined;
+          return {
+            id: list.id,
+            title: list.name,
+            link: `/reading-lists/${list.id}`,
+            ownerLink: owner ? `/profile/${owner.id}` : undefined,
+            ownerName: owner?.username || 'Kullanıcı',
+            ownerRole: owner?.role,
+            bannerUrl,
+            coverUrl: previewCovers.length === 0 ? bannerUrl : undefined,
+            previewCovers: previewCovers.length > 0 ? previewCovers : undefined,
+            value: likeCountMap.get(listId) || 0,
+            unitLabel: 'beğeni',
+          };
+        })
+        .filter((item): item is LeaderboardEntry => item !== null),
+    );
+  } catch (err) {
+    console.error('Liderlik verisi yüklenemedi:', err);
+    return [];
+  }
+};
+
 const LeadersTab: React.FC = () => {
   const [activeCategory, setActiveCategory] = useState<LeaderCategory>('chapters');
-  const [entriesByCategory, setEntriesByCategory] = useState<
-    Partial<Record<LeaderCategory, LeaderboardEntry[]>>
-  >({});
   const [visibleCount, setVisibleCount] = useState(INITIAL_VISIBLE_COUNT);
-  const [isLoading, setIsLoading] = useState(true);
   const [failedBannerIds, setFailedBannerIds] = useState<Record<string, boolean>>({});
-  const [presenceCounts, setPresenceCounts] = useState<{ online: number; offline: number }>({
-    online: 0,
-    offline: 0,
+
+  const presenceQuery = useQuery({
+    queryKey: ['community', 'leaders', 'presence'],
+    queryFn: fetchPublicPresenceCounts,
+    staleTime: LEADERS_CACHE_STALE_MS,
+    placeholderData: keepPreviousData,
   });
 
-  // Fetch public user presence counts once
-  useEffect(() => {
-    let cancelled = false;
-    const loadPresence = async () => {
-      try {
-        const { data, error } = await supabase.rpc('get_public_user_presence_counts');
-        if (error || cancelled) return;
-        const row = Array.isArray(data) ? data[0] : data;
-        setPresenceCounts({
-          online: Number(row?.online_count || 0),
-          offline: Number(row?.offline_count || 0),
-        });
-      } catch (err) {
-        console.error('Kullanıcı çevrimiçi sayıları alınamadı:', err);
-      }
-    };
-
-    loadPresence();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
+  const leaderboardQuery = useQuery({
+    queryKey: ['community', 'leaders', activeCategory],
+    queryFn: () => fetchLeaderboardEntries(activeCategory),
+    staleTime: LEADERS_CACHE_STALE_MS,
+  });
 
   // Reset visible pagination when switching leaderboard category
   useEffect(() => {
     setVisibleCount(INITIAL_VISIBLE_COUNT);
   }, [activeCategory]);
 
-  // Fetch leaderboard for active category if not yet cached
-  useEffect(() => {
-    if (entriesByCategory[activeCategory]) {
-      setIsLoading(false);
-      return;
-    }
-
-    let cancelled = false;
-    const loadLeaderboard = async () => {
-      setIsLoading(true);
-      try {
-        let loaded: LeaderboardEntry[] = [];
-
-        if (activeCategory === 'chapters') {
-          const countsByUser = await getCompletedChapterCountsByUser();
-          const ranked = Object.entries(countsByUser)
-            .filter(([, count]) => count > 0)
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 60);
-
-          const usersMap = await fetchUsersMap(ranked.map(([userId]) => userId));
-          loaded = ranked
-            .map(([userId, count]): LeaderboardEntry | null => {
-              const profile = usersMap.get(userId);
-              if (!profile) return null;
-              return {
-                id: profile.id,
-                title: profile.username,
-                link: `/profile/${profile.id}`,
-                avatarUrl: profile.avatar,
-                role: profile.role,
-                value: count,
-                unitLabel: 'bölüm',
-              };
-            })
-            .filter((item): item is LeaderboardEntry => item !== null);
-        } else if (activeCategory === 'comments') {
-          const { data, error } = await supabase.from('comments').select('user_id');
-          if (error) throw error;
-
-          const countMap = new Map<string, number>();
-          for (const row of (data || []) as Array<{ user_id: string | null }>) {
-            if (!row.user_id) continue;
-            countMap.set(row.user_id, (countMap.get(row.user_id) || 0) + 1);
-          }
-
-          const ranked = Array.from(countMap.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 60);
-
-          const usersMap = await fetchUsersMap(ranked.map(([userId]) => userId));
-          loaded = ranked
-            .map(([userId, count]): LeaderboardEntry | null => {
-              const profile = usersMap.get(userId);
-              if (!profile) return null;
-              return {
-                id: profile.id,
-                title: profile.username,
-                link: `/profile/${profile.id}`,
-                avatarUrl: profile.avatar,
-                role: profile.role,
-                value: count,
-                unitLabel: 'yorum',
-              };
-            })
-            .filter((item): item is LeaderboardEntry => item !== null);
-        } else {
-          const { data: likeRows, error: likesError } = await supabase
-            .from('reading_list_likes')
-            .select('list_id');
-          if (likesError) throw likesError;
-
-          const likeCountMap = new Map<string, number>();
-          for (const row of (likeRows || []) as Array<{ list_id: string | null }>) {
-            if (!row.list_id) continue;
-            likeCountMap.set(row.list_id, (likeCountMap.get(row.list_id) || 0) + 1);
-          }
-
-          const topListIds = Array.from(likeCountMap.entries())
-            .sort((a, b) => b[1] - a[1])
-            .slice(0, 60)
-            .map(([listId]) => listId);
-
-          if (topListIds.length > 0) {
-            const [{ data: listsData, error: listsError }, { data: itemRows }] = await Promise.all([
-              supabase
-                .from('reading_lists')
-                .select('id, name, user_id, image_url, is_public')
-                .in('id', topListIds)
-                .eq('is_public', true),
-              supabase
-                .from('reading_list_items')
-                .select('list_id, created_at, mangas:manga_id(cover)')
-                .in('list_id', topListIds)
-                .order('created_at', { ascending: true }),
-            ]);
-            if (listsError) throw listsError;
-
-            const previewCoversMap = new Map<string, string[]>();
-            for (const row of (itemRows || []) as Array<{
-              list_id?: string | null;
-              mangas?: { cover?: string | null } | Array<{ cover?: string | null }> | null;
-            }>) {
-              const listId = row.list_id;
-              if (!listId) continue;
-              const mangaObj = Array.isArray(row.mangas) ? row.mangas[0] : row.mangas;
-              const cover = mangaObj?.cover?.trim();
-              if (!cover) continue;
-              const existing = previewCoversMap.get(listId) || [];
-              if (existing.length < 4 && !existing.includes(cover)) {
-                existing.push(cover);
-                previewCoversMap.set(listId, existing);
-              }
-            }
-
-            const listRows = (listsData || []) as Array<{
-              id: string;
-              name: string;
-              user_id: string;
-              image_url?: string | null;
-            }>;
-            const listMap = new Map(listRows.map((row) => [row.id, row]));
-            const usersMap = await fetchUsersMap(listRows.map((row) => row.user_id));
-
-            loaded = topListIds
-              .map((listId): LeaderboardEntry | null => {
-                const list = listMap.get(listId);
-                if (!list) return null;
-                const owner = usersMap.get(list.user_id);
-                const previewCovers = previewCoversMap.get(list.id) || [];
-                const bannerUrl = list.image_url?.trim() || undefined;
-                return {
-                  id: list.id,
-                  title: list.name,
-                  link: `/reading-lists/${list.id}`,
-                  ownerLink: owner ? `/profile/${owner.id}` : undefined,
-                  ownerName: owner?.username || 'Kullanıcı',
-                  ownerRole: owner?.role,
-                  bannerUrl,
-                  coverUrl: previewCovers.length === 0 ? bannerUrl : undefined,
-                  previewCovers: previewCovers.length > 0 ? previewCovers : undefined,
-                  value: likeCountMap.get(listId) || 0,
-                  unitLabel: 'beğeni',
-                };
-              })
-              .filter((item): item is LeaderboardEntry => item !== null);
-          }
-        }
-
-        if (!cancelled) {
-          const deduped = dedupeById(loaded);
-          setEntriesByCategory((prev) => ({
-            ...prev,
-            [activeCategory]: deduped,
-          }));
-        }
-      } catch (err) {
-        console.error('Liderlik verisi yüklenemedi:', err);
-        if (!cancelled) {
-          setEntriesByCategory((prev) => ({
-            ...prev,
-            [activeCategory]: [],
-          }));
-        }
-      } finally {
-        if (!cancelled) {
-          setIsLoading(false);
-        }
-      }
-    };
-
-    loadLeaderboard();
-    return () => {
-      cancelled = true;
-    };
-  }, [activeCategory, entriesByCategory]);
-
-  const entries = useMemo(
-    () => entriesByCategory[activeCategory] || [],
-    [entriesByCategory, activeCategory],
-  );
+  const presenceCounts = presenceQuery.data ?? { online: 0, offline: 0 };
+  const entries = leaderboardQuery.data ?? [];
+  const isLoading = leaderboardQuery.isPending && !leaderboardQuery.data;
 
   const podiumEntries = entries.slice(0, 3);
   const restEntries = entries.slice(3, visibleCount);
@@ -477,7 +454,7 @@ const LeadersTab: React.FC = () => {
                   <Link
                     to={entry.link}
                     aria-label={entry.title}
-                    className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                   />
 
                   <div
@@ -592,7 +569,7 @@ const LeadersTab: React.FC = () => {
                     <Link
                       to={entry.link}
                       aria-label={entry.title}
-                      className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary"
                     />
 
                     <div className="pointer-events-none relative z-20 flex items-center gap-3 min-w-0">

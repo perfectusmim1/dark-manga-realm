@@ -210,17 +210,9 @@ const Downloads: React.FC = () => {
 
       <main className="container pb-12 pt-24">
         <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
-          <div>
-            <div className="flex items-center gap-2 text-primary">
-              <HardDriveDownload className="h-5 w-5" />
-              <span className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">
-                Çevrimdışı Okuma
-              </span>
-            </div>
-            <h1 className="mt-2 text-3xl font-black tracking-tight md:text-4xl">İndirilenler</h1>
-            <p className="mt-2 max-w-2xl text-sm text-muted-foreground">
-              İndirdiğin serileri, aktif kuyrukları ve depolama kullanımını buradan yönetebilirsin.
-            </p>
+          <div className="flex items-center gap-3">
+            <HardDriveDownload className="h-8 w-8 shrink-0 text-primary md:h-9 md:w-9" />
+            <h1 className="text-3xl font-black tracking-tight md:text-4xl">İndirilenler</h1>
           </div>
 
           {!isOnline && (
@@ -250,10 +242,6 @@ const Downloads: React.FC = () => {
           ))}
         </div>
 
-        <p className="mt-3 text-xs text-muted-foreground">
-          Kullanılabilir alan, tarayıcının bu site için verdiği tahmini kota bilgisidir. Sabit ayrılmış disk alanı değildir; cihaz ve tarayıcıya göre değişebilir.
-        </p>
-
         <section
           className="mt-6 animate-fade-up rounded-2xl border border-border bg-card/35 p-4 backdrop-blur-sm sm:p-5"
           style={{ animationDelay: '0.22s' }}
@@ -264,13 +252,6 @@ const Downloads: React.FC = () => {
                 <p className="text-sm font-bold">Sıkıştırılmış İndirme</p>
                 <Badge variant="secondary">Önerilen</Badge>
               </div>
-              <p className="mt-2 hidden max-w-3xl text-sm text-muted-foreground sm:block">
-                Yeni indirmelerde sayfalar kaliteyi neredeyse fark edilmeyecek seviyede koruyarak WebP olarak optimize edilir.
-                Bu, özellikle uzun bölümlerde dosya boyutunu ciddi şekilde düşürür.
-              </p>
-              <p className="mt-2 hidden text-xs text-muted-foreground sm:block">
-                Not: Bu ayar yeni indirilen sayfalara uygulanır. Mevcut indirilmiş bölümler aynı kalır.
-              </p>
             </div>
 
             <div className="flex w-full shrink-0 items-center justify-between gap-3 rounded-full border border-border/70 bg-background/50 px-4 py-3 sm:w-auto">
@@ -278,7 +259,6 @@ const Downloads: React.FC = () => {
                 <p className="text-sm font-semibold">
                   {preferences.compressedDownloads ? 'Açık' : 'Kapalı'}
                 </p>
-                <p className="hidden text-xs text-muted-foreground sm:block">Yeni indirmelerde geçerli</p>
               </div>
               <Switch
                 checked={preferences.compressedDownloads}

@@ -4122,7 +4122,7 @@ const MangaDetail: React.FC = () => {
                               )}
                             </div>
 
-                            <h3 className="mt-2 line-clamp-2 text-lg font-semibold sm:mt-3 sm:text-xl">
+                            <h3 className="mt-2 line-clamp-2 text-lg font-semibold transition-colors group-hover:text-primary group-focus-visible:text-primary sm:mt-3 sm:text-xl">
                               {chapterLabel}
                             </h3>
 

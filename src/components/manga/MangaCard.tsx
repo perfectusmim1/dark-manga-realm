@@ -313,7 +313,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
       </div>
 
       <div className="pointer-events-none p-2">
-        <h3 className={`h-8 line-clamp-2 text-[13px] font-bold leading-tight text-foreground ${disableHeavyEffects ? '' : 'transition-colors group-hover:text-primary'}`}>
+        <h3 className={`h-8 line-clamp-2 text-[13px] font-bold leading-tight text-foreground transition-colors group-hover:text-primary group-focus-visible:text-primary`}>
           {manga.title}
         </h3>
         <p className="mt-1 min-h-[16px] line-clamp-1 text-[11px] text-muted-foreground">

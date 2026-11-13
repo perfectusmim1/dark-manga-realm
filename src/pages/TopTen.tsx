@@ -238,7 +238,10 @@ const TopTenCard: React.FC<{
           : 'bg-primary text-primary-foreground';
 
   return (
-    <Link to={`/manga/${manga.id}`} className="group block">
+    <Link
+      to={`/manga/${manga.id}`}
+      className="group block rounded-[17px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:rounded-[24px]"
+    >
       <div className="mb-1.5 flex items-end justify-between gap-1.5 overflow-visible sm:mb-3 sm:gap-3">
         <span className={cn('inline-flex shrink-0 pr-[0.04em] text-[1.6rem] font-black leading-[0.86] tracking-[-0.05em] sm:pr-[0.08em] sm:text-[3.75rem]', rankClassName)}>
           {String(index + 1).padStart(2, '0')}
@@ -265,7 +268,6 @@ const TopTenCard: React.FC<{
             className={cn(
               'h-full w-full object-cover',
               shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
-              disableHeavyEffects ? '' : 'scale-100 transition-transform duration-500 group-hover:scale-105',
             )}
           />
           <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black/28 via-transparent to-transparent" />
@@ -282,7 +284,7 @@ const TopTenCard: React.FC<{
           </div>
 
           <div className="absolute inset-x-0 bottom-0 p-2.5 sm:p-4">
-            <h3 className="line-clamp-2 text-[0.82rem] font-black tracking-tight text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.72)] sm:text-lg">
+            <h3 className="line-clamp-2 text-[0.82rem] font-black tracking-tight text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.72)] transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-lg">
               {manga.title}
             </h3>
             <div className="mt-1 flex items-center justify-between gap-1.5 text-[8px] text-white/84 sm:mt-2 sm:gap-3 sm:text-xs">

@@ -102,7 +102,10 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
       <div className="min-w-0 flex-1">
         <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
           <div className="min-w-0">
-            <Link to={`/manga/${item.mangaId}`}>
+            <Link
+              to={`/manga/${item.mangaId}`}
+              className="rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+            >
               <h2 className="line-clamp-2 text-xl font-black tracking-tight transition-colors group-hover:text-primary">
                 {item.mangaTitle}
               </h2>
@@ -153,7 +156,7 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
 const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index: number }) => (
   <Link
     to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}
-    className="group flex flex-col animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-[border-color,background-color,box-shadow] duration-200 hover:border-primary/35 hover:bg-card"
+    className="group flex flex-col animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-[border-color,background-color,box-shadow] duration-200 hover:border-primary/35 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     style={{
       animationDelay: `${0.04 + Math.min(index, 8) * 0.015}s`,
     }}
@@ -190,7 +193,7 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
         <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/95 [text-shadow:0_2px_8px_rgba(0,0,0,0.98),0_1px_2px_rgba(0,0,0,0.95)]">
           Bölüm {item.chapterNumber}
         </p>
-        <h3 className="mt-1 line-clamp-2 text-sm font-bold text-white [text-shadow:0_2px_8px_rgba(0,0,0,0.98),0_1px_2px_rgba(0,0,0,0.95)]">
+        <h3 className="mt-1 line-clamp-2 text-sm font-bold text-white transition-colors [text-shadow:0_2px_8px_rgba(0,0,0,0.98),0_1px_2px_rgba(0,0,0,0.95)] group-hover:text-primary group-focus-visible:text-primary">
           {item.mangaTitle}
         </h3>
       </div>

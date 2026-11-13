@@ -33,6 +33,7 @@ type BrowseContentFilter = 'all' | 'safe' | 'adult';
 type BrowseTypeFilter = 'all' | 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'adult';
 
 const browsePageCache: Partial<Record<BrowseAudienceCacheKey, Manga[]>> = {};
+let browsePageCacheUserId: string | null | undefined = undefined;
 const ADULT_GENRE_EQUIVALENTS = new Set(['Yetişkin', 'Hentai', 'Webtoon Hentai']);
 
 const normalizeBrowseTypeFilter = (value: string | null): BrowseTypeFilter => {
@@ -153,8 +154,12 @@ const Browse: React.FC = () => {
   }, [canSeeAdultContent, typeFilter]);
 
   useEffect(() => {
-    browsePageCache.safe = undefined;
-    browsePageCache.adult = undefined;
+    const nextUserKey = user?.id ?? null;
+    if (browsePageCacheUserId !== undefined && browsePageCacheUserId !== nextUserKey) {
+      browsePageCache.safe = undefined;
+      browsePageCache.adult = undefined;
+    }
+    browsePageCacheUserId = nextUserKey;
   }, [user?.id]);
 
   useEffect(() => {
@@ -177,6 +182,13 @@ const Browse: React.FC = () => {
 
     const fetchMangas = async () => {
       try {
+        const nextUserKey = user?.id ?? null;
+        if (browsePageCacheUserId !== undefined && browsePageCacheUserId !== nextUserKey) {
+          browsePageCache.safe = undefined;
+          browsePageCache.adult = undefined;
+        }
+        browsePageCacheUserId = nextUserKey;
+
         const memoryCache = browsePageCache[browseAudienceKey];
         if (memoryCache && memoryCache.length > 0) {
           setMangas(memoryCache);

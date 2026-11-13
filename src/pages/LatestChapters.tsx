@@ -19,8 +19,10 @@ import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 
 const PAGE_SIZE = 30;
-const LATEST_CHAPTERS_PAGE_CACHE_TTL_MS = 60_000;
+const LATEST_CHAPTERS_PAGE_CACHE_TTL_MS = 3 * 60_000;
+const LATEST_CHAPTERS_PAGE_STALE_TTL_MS = 15 * 60_000;
 const latestChaptersPageCache = new Map<string, { fetchedAt: number; chapters: LatestChapterFeedItem[] }>();
+let latestChaptersPageCacheUserId: string | null | undefined = undefined;
 let latestChaptersStatsCache: {
     audienceKey: string;
     fetchedAt: number;
@@ -89,15 +91,20 @@ const LatestChapters: React.FC = () => {
     const audienceKey = user?.preferences?.content?.adult_mode === true ? 'adult' : 'safe';
     const initialCacheKey = `${audienceKey}:${currentPage}`;
     const initialCached = latestChaptersPageCache.get(initialCacheKey);
-    const hasFreshInitialCache = Boolean(
-        initialCached && Date.now() - initialCached.fetchedAt < LATEST_CHAPTERS_PAGE_CACHE_TTL_MS,
+    const isSameCachedUser =
+        latestChaptersPageCacheUserId === undefined || latestChaptersPageCacheUserId === (user?.id ?? null);
+    const hasUsableInitialCache = Boolean(
+        isSameCachedUser
+        && initialCached
+        && initialCached.chapters.length > 0
+        && Date.now() - initialCached.fetchedAt < LATEST_CHAPTERS_PAGE_STALE_TTL_MS,
     );
 
     const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>(
-        hasFreshInitialCache && initialCached ? initialCached.chapters : [],
+        hasUsableInitialCache && initialCached ? initialCached.chapters : [],
     );
     const [mangaLangMap, setMangaLangMap] = React.useState<Record<string, ReturnType<typeof getSeriesLanguageInfo>>>({});
-    const [isLoading, setIsLoading] = React.useState(!hasFreshInitialCache);
+    const [isLoading, setIsLoading] = React.useState(!hasUsableInitialCache);
     const [recentChapterCount, setRecentChapterCount] = React.useState(
         latestChaptersStatsCache && latestChaptersStatsCache.audienceKey === audienceKey
             ? latestChaptersStatsCache.recentChapterCount
@@ -154,11 +161,29 @@ const LatestChapters: React.FC = () => {
         }
     }, []);
 
+    React.useEffect(() => {
+        const nextUserKey = user?.id ?? null;
+        if (latestChaptersPageCacheUserId !== undefined && latestChaptersPageCacheUserId !== nextUserKey) {
+            latestChaptersPageCache.clear();
+            latestChaptersStatsCache = null;
+            countsLoadedRef.current = false;
+        }
+        latestChaptersPageCacheUserId = nextUserKey;
+    }, [user?.id]);
+
     const loadChapters = React.useCallback(async (page: number) => {
         if (!isOnline) {
             setIsLoading(false);
             return;
         }
+
+        const nextUserKey = user?.id ?? null;
+        if (latestChaptersPageCacheUserId !== undefined && latestChaptersPageCacheUserId !== nextUserKey) {
+            latestChaptersPageCache.clear();
+            latestChaptersStatsCache = null;
+            countsLoadedRef.current = false;
+        }
+        latestChaptersPageCacheUserId = nextUserKey;
 
         if (!countsLoadedRef.current) {
             void getLatestChaptersFeedStats()
@@ -178,15 +203,26 @@ const LatestChapters: React.FC = () => {
 
         const cacheKey = `${audienceKey}:${page}`;
         const cached = latestChaptersPageCache.get(cacheKey);
-        if (cached && Date.now() - cached.fetchedAt < LATEST_CHAPTERS_PAGE_CACHE_TTL_MS) {
+        const cacheAge = cached ? Date.now() - cached.fetchedAt : Infinity;
+        if (cached && cacheAge < LATEST_CHAPTERS_PAGE_CACHE_TTL_MS) {
             setChapters(cached.chapters);
             setIsLoading(false);
             resolveChapterLanguages(cached.chapters);
             return;
         }
 
+        const hasStaleCachedData = Boolean(
+            cached && cached.chapters.length > 0 && cacheAge < LATEST_CHAPTERS_PAGE_STALE_TTL_MS,
+        );
+        if (hasStaleCachedData && cached) {
+            setChapters(cached.chapters);
+            setIsLoading(false);
+            resolveChapterLanguages(cached.chapters);
+        } else {
+            setIsLoading(true);
+        }
+
         const requestGeneration = ++requestGenerationRef.current;
-        setIsLoading(true);
         try {
             const offset = (page - 1) * PAGE_SIZE;
 
@@ -210,7 +246,7 @@ const LatestChapters: React.FC = () => {
                 setIsLoading(false);
             }
         }
-    }, [audienceKey, isOnline, resolveChapterLanguages]);
+    }, [audienceKey, isOnline, resolveChapterLanguages, user?.id]);
 
     React.useEffect(() => {
         void loadChapters(currentPage);
@@ -257,12 +293,12 @@ const LatestChapters: React.FC = () => {
                 </div>
 
                 {chapters.length > 0 ? (
-                    <div className={cn('grid gap-4 xl:grid-cols-3 transition-opacity duration-150', isLoading && 'opacity-65 pointer-events-none')}>
+                    <div className="grid gap-4 xl:grid-cols-3">
                         {chapters.map((chapter) => (
                             <Link
                                 key={chapter.chapterId}
                                 to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
-                                className="group flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 transition-all duration-200 hover:border-primary/40 hover:bg-card animate-card-reveal-fast sm:gap-5"
+                                className="group flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 transition-[border-color,background-color] duration-200 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background animate-card-reveal-fast sm:gap-5"
                             >
                                 <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-secondary/40 shadow-sm sm:h-28 sm:w-28 lg:h-32 lg:w-32">
                                     <OptimizedImage
@@ -329,7 +365,7 @@ const LatestChapters: React.FC = () => {
                                                     })}
                                                 </span>
                                             </div>
-                                            <h2 className="line-clamp-1 font-semibold transition-colors group-hover:text-primary">
+                                            <h2 className="line-clamp-1 font-semibold transition-colors group-hover:text-primary group-focus-visible:text-primary">
                                                 {chapter.mangaTitle}
                                             </h2>
                                             <p className="mt-1 line-clamp-1 text-sm text-primary">

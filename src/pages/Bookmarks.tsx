@@ -238,14 +238,14 @@ const Bookmarks: React.FC = () => {
 
                 return (
                   <div
-                    className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-[border-color,box-shadow,background-color] hover:shadow-xl animate-fade-up"
+                    className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-[border-color,box-shadow,background-color] hover:border-primary/35 hover:shadow-xl animate-fade-up"
                     style={{
                       animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                     }}
                   >
                     <Link
                       to={bookmarkHref}
-                      className="relative block aspect-[4/3] w-full overflow-hidden bg-black sm:aspect-square"
+                      className="relative block aspect-[4/3] w-full overflow-hidden bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-inset sm:aspect-square"
                     >
                       {previewImage ? (
                         !isOnline
@@ -297,8 +297,11 @@ const Bookmarks: React.FC = () => {
                     </Link>
 
                     <div className="flex flex-1 flex-col p-3 sm:p-4">
-                      <Link to={`/manga/${item.mangaId}`} className="transition-colors hover:text-primary">
-                        <h3 className="line-clamp-2 text-sm font-bold leading-5 sm:line-clamp-1 sm:text-base">{mangaTitle}</h3>
+                      <Link
+                        to={`/manga/${item.mangaId}`}
+                        className="rounded transition-colors hover:text-primary focus-visible:text-primary focus-visible:outline-none"
+                      >
+                        <h3 className="line-clamp-2 text-sm font-bold leading-5 transition-colors group-hover:text-primary sm:line-clamp-1 sm:text-base">{mangaTitle}</h3>
                       </Link>
 
                       <div className="mt-1 flex items-center justify-between">

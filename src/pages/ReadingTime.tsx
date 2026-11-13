@@ -135,6 +135,10 @@ const formatCompactReadingDuration = (seconds: number) => {
     const hours = Math.floor(normalized / 3600);
     const minutes = Math.floor((normalized % 3600) / 60);
 
+    if (hours <= 0 && minutes <= 0) {
+        return `${normalized} sn`;
+    }
+
     if (hours <= 0) {
         return `${minutes} dk`;
     }
@@ -229,6 +233,12 @@ const aggregateEntriesByManga = (entries: ReadingTimeEntry[]): ReadingTimeMangaA
             existing.totalSeconds += entry.secondsSpent;
             existing.sessionCount += 1;
             existing.chapterKeys.add(chapterKey);
+            if ((!existing.mangaTitle || existing.mangaTitle === 'Seri') && entry.mangaTitle && entry.mangaTitle !== 'Seri') {
+                existing.mangaTitle = entry.mangaTitle;
+            }
+            if (!existing.mangaCover && entry.mangaCover) {
+                existing.mangaCover = entry.mangaCover;
+            }
 
             if (new Date(entry.readAt).getTime() > new Date(existing.lastReadAt).getTime()) {
                 existing.lastReadAt = entry.readAt;
@@ -321,7 +331,7 @@ const ReadingTimeMangaCard = ({
         </div>
 
         <div className="mt-3 flex flex-1 flex-col lg:mt-2.5">
-            <h4 className="line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]">{aggregate.mangaTitle}</h4>
+            <h4 className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-[15px]">{aggregate.mangaTitle}</h4>
             {aggregate.latestChapterNumber ? (
                 <p className="mt-1 text-[11px] text-muted-foreground">
                     Son bölüm {aggregate.latestChapterNumber}
@@ -380,21 +390,18 @@ const SelectedDayPanel = ({
         >
             <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
                 <div>
-                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">{title}</p>
-                    <h3 className="mt-1 text-xl font-bold capitalize tracking-tight">{day.label}</h3>
-                    <p className="mt-1 text-sm text-muted-foreground">
+                    <h3 className="text-xl font-bold capitalize tracking-tight">
                         {new Date(`${day.date}T00:00:00`).toLocaleDateString('tr-TR', {
                             weekday: 'long',
                             day: 'numeric',
                             month: 'long',
                             year: 'numeric',
                         })}
-                    </p>
+                    </h3>
                 </div>
 
                 <div className="text-left lg:text-right">
                     <p className="text-2xl font-bold text-primary">{formatReadingDuration(day.seconds)}</p>
-                    <p className="text-xs text-muted-foreground">Toplam okuma süresi</p>
                 </div>
             </div>
 
@@ -865,10 +872,8 @@ const ReadingTime: React.FC = () => {
 
             <main className="container pb-12 pt-20">
                 <div className="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-end lg:justify-between">
-                    <div>
-                        <div className="mb-3 flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                            <Clock3 className="h-6 w-6" />
-                        </div>
+                    <div className="flex items-center gap-3">
+                        <Clock3 className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" />
                         <h1 className="text-3xl font-bold tracking-tight">Okuma Süresi</h1>
                     </div>
 
@@ -1040,7 +1045,7 @@ const ReadingTime: React.FC = () => {
                                                                                     type="button"
                                                                                     onClick={() => applyHistoricalWeek(week)}
                                                                                     className={cn(
-                                                                                        'w-full rounded-xl border px-3 py-2 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:border-primary/35 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:py-2.5',
+                                                                                        'group w-full rounded-xl border px-3 py-2 text-left transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:border-primary/35 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:py-2.5',
                                                                                         isActive
                                                                                             ? 'border-primary/40 bg-primary/10 shadow-[0_10px_24px_rgba(59,130,246,0.12)]'
                                                                                             : 'border-border bg-background/40',
@@ -1048,7 +1053,7 @@ const ReadingTime: React.FC = () => {
                                                                                 >
                                                                                     <div className="flex items-start justify-between gap-3">
                                                                                         <div className="min-w-0">
-                                                                                            <p className="text-[0.95rem] font-semibold sm:text-sm">{week.label}</p>
+                                                                                            <p className="text-[0.95rem] font-semibold transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-sm">{week.label}</p>
                                                                                             <p className="mt-1 text-[11px] text-muted-foreground">
                                                                                                 {formatWeekRange(week.startDate, week.endDate)}
                                                                                             </p>
@@ -1219,9 +1224,9 @@ const ReadingTime: React.FC = () => {
                                                             type="button"
                                                             onClick={() => setSelectedDayDate(day.date)}
                                                             className={cn(
-                                                                'animate-fade-up aspect-square rounded-2xl border p-3 text-left transition-[transform,background-color,border-color,box-shadow] duration-300 ease-out hover:-translate-y-0.5 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                                                'group animate-fade-up aspect-square rounded-2xl border p-3 text-left transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
                                                                 isSelected
-                                                                    ? 'scale-[1.015] -translate-y-0.5 border-primary/45 bg-primary/10 shadow-[0_10px_24px_rgba(59,130,246,0.12),0_0_0_1px_rgba(59,130,246,0.18)]'
+                                                                    ? 'border-primary/50 bg-primary/10 shadow-[0_10px_24px_rgba(59,130,246,0.12),0_0_0_1px_rgba(59,130,246,0.18)]'
                                                                     : 'border-border bg-background/40',
                                                             )}
                                                             style={{
@@ -1233,7 +1238,12 @@ const ReadingTime: React.FC = () => {
                                                                     <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
                                                                         {dateParts.weekday}
                                                                     </p>
-                                                                    <p className="mt-2 text-2xl font-bold leading-none">{dateParts.day}</p>
+                                                                    <p className={cn(
+                                                                        'mt-2 text-2xl font-bold leading-none transition-colors group-hover:text-primary group-focus-visible:text-primary',
+                                                                        isSelected && 'text-primary',
+                                                                    )}>
+                                                                        {dateParts.day}
+                                                                    </p>
                                                                     <p className="mt-1 text-xs text-muted-foreground">{dateParts.month}</p>
                                                                 </div>
 

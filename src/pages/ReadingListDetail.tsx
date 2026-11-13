@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
     ChevronLeft,
@@ -47,6 +48,7 @@ const ReadingListDetail: React.FC = () => {
     const { isOnline } = useEffectiveOnlineStatus();
     const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
     const navigate = useNavigate();
+    const queryClient = useQueryClient();
     const [list, setList] = useState<ReadingList | undefined>();
     const [isLoading, setIsLoading] = useState(true);
     const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -185,6 +187,8 @@ const ReadingListDetail: React.FC = () => {
                     .eq('user_id', user.id);
                 setLikesCount(prev => Math.max(0, prev - 1));
                 setIsLiked(false);
+                void queryClient.invalidateQueries({ queryKey: ['community', 'reading-lists'] });
+                void queryClient.invalidateQueries({ queryKey: ['community', 'leaders', 'reading_lists'] });
                 toast.success('Beğenmekten vazgeçildi');
             } else {
                 const { data: existingLikes, error: existingLikesError } = await supabase
@@ -218,6 +222,8 @@ const ReadingListDetail: React.FC = () => {
 
                 setLikesCount(prev => prev + 1);
                 setIsLiked(true);
+                void queryClient.invalidateQueries({ queryKey: ['community', 'reading-lists'] });
+                void queryClient.invalidateQueries({ queryKey: ['community', 'leaders', 'reading_lists'] });
                 toast.success('Liste beğenildi');
             }
         } catch (err) {

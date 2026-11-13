@@ -585,12 +585,12 @@ const Profile: React.FC = () => {
                       </div>
                       <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {profileData.recentReads.map((read: any) => (
-                          <Link key={read.manga_id} to={`/manga/${read.manga_id}`} className="group block rounded-lg overflow-hidden border border-border bg-secondary/30 hover:bg-secondary/50 transition-colors">
-                            <div className="relative aspect-[3/4] overflow-hidden">
-                              <img src={read.mangas?.cover} alt={read.mangas?.title} className="image-downscale-quality w-full h-full object-cover " />
-                              <div className="absolute inset-0 bg-gradient-to-t from-black/80 to-transparent flex flex-col justify-end p-3">
-                                <p className="text-white font-medium text-sm line-clamp-1">{read.mangas?.title}</p>
-                                <p className="text-primary text-xs font-bold mt-0.5">Bölüm {read.chapter_number}</p>
+                          <Link key={read.manga_id} to={`/manga/${read.manga_id}`} className="group block overflow-hidden rounded-lg border border-border bg-secondary/30 transition-[border-color,background-color] duration-200 hover:border-primary/40 hover:bg-secondary/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+                            <div className="relative aspect-[3/4] overflow-hidden bg-black">
+                              <img src={read.mangas?.cover} alt={read.mangas?.title} className="image-downscale-quality block h-full w-full object-cover" />
+                              <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 flex flex-col justify-end bg-gradient-to-t from-black/90 via-black/35 to-transparent p-3">
+                                <p className="line-clamp-1 text-sm font-semibold text-white drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)] transition-colors group-hover:text-primary group-focus-visible:text-primary">{read.mangas?.title}</p>
+                                <p className="mt-0.5 text-xs font-bold text-primary drop-shadow-[0_2px_6px_rgba(0,0,0,0.9)]">Bölüm {read.chapter_number}</p>
                               </div>
                             </div>
                           </Link>

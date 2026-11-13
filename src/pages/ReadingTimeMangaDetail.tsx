@@ -83,7 +83,7 @@ const groupEntriesByDay = (entries: ReadingTimeEntry[]) => {
 const ReadingTimeSessionCard = ({ entry }: { entry: ReadingTimeEntry }) => (
     <Link
         to={entry.chapterId ? `/manga/${entry.mangaId}/chapter/${entry.chapterId}` : `/manga/${entry.mangaId}`}
-        className="flex items-start gap-3 rounded-2xl border border-border bg-card/45 p-3 transition-[transform,background-color,border-color] duration-300 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-card"
+        className="group flex items-start gap-3 rounded-2xl border border-border bg-card/45 p-3 transition-[background-color,border-color] duration-200 hover:border-primary/35 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
         {entry.mangaCover ? (
             <img
@@ -98,7 +98,7 @@ const ReadingTimeSessionCard = ({ entry }: { entry: ReadingTimeEntry }) => (
         )}
 
         <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 text-sm font-semibold leading-snug sm:text-base">{entry.mangaTitle}</p>
+            <p className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-base">{entry.mangaTitle}</p>
             <p className="mt-1 text-xs text-muted-foreground">
                 {entry.chapterNumber ? `Bölüm ${entry.chapterNumber}` : 'Okuma kaydı'}
             </p>
