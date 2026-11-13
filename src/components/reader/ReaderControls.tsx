@@ -730,7 +730,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               >
                 <MessageCircle className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
                 {commentCount > 0 && (
-                  <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-slate-950 shadow-sm tabular-nums">
+                  <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-primary px-1 text-[10px] font-bold leading-none text-primary-foreground shadow-sm tabular-nums">
                     {commentCount > 99 ? '99+' : commentCount}
                   </span>
                 )}

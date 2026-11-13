@@ -499,68 +499,20 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
 
     return (
         <div className="space-y-2.5">
-            <div className="relative overflow-visible rounded-xl border border-border/70 bg-card/90 transition-colors focus-within:border-primary/60">
-                <RichTextToolbar
-                    textareaRef={activeTextareaRef}
-                    value={draft.body}
-                    onChange={(nextBody) => setField('body', nextBody)}
-                    onTriggerSeriesTag={seriesMention.triggerManually}
-                    leftSlot={
-                        username ? (
-                            <div className="flex items-center gap-2 pr-1">
-                                <Avatar className="h-6 w-6">
-                                    <AvatarImage src={avatar} />
-                                    <AvatarFallback className="text-[10px]">
-                                        {username[0]?.toUpperCase() || '?'}
-                                    </AvatarFallback>
-                                </Avatar>
-                                {!compact && (
-                                    <span className="max-w-[110px] truncate text-xs font-semibold text-foreground">
-                                        {username}
-                                    </span>
-                                )}
-                            </div>
-                        ) : undefined
-                    }
-                    rightSlot={
-                        <div className="flex items-center gap-0.5">
-                            <button
-                                type="button"
-                                onClick={onOpenGifPicker}
-                                title="GIF Ekle"
-                                aria-label="GIF ekle"
-                                className={cn(
-                                    'inline-flex h-7 items-center justify-center rounded-md px-1.5 text-[10px] font-bold tracking-tight transition-colors',
-                                    draft.gifUrl
-                                        ? 'bg-emerald-500/15 text-emerald-400'
-                                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
-                                )}
-                            >
-                                GIF
-                            </button>
-                            <button
-                                type="button"
-                                onClick={() => {
-                                    if (draft.mediaUrls.length === 0) {
-                                        addMediaField();
-                                    } else {
-                                        setShowMediaFields((previous) => !previous);
-                                    }
-                                }}
-                                title="Görsel Bağlantısı Ekle"
-                                aria-label="Görsel bağlantısı ekle"
-                                className={cn(
-                                    'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors',
-                                    draft.mediaUrls.some(Boolean)
-                                        ? 'bg-emerald-500/15 text-emerald-400'
-                                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
-                                )}
-                            >
-                                <Image className="h-3.5 w-3.5" />
-                            </button>
-                        </div>
-                    }
-                />
+            <div className="relative overflow-visible rounded-xl border border-border/75 bg-background/60 shadow-sm transition-colors focus-within:border-primary/60 focus-within:ring-1 focus-within:ring-primary/20">
+                {!compact && username && (
+                    <div className="flex items-center gap-2 border-b border-border/40 px-3 py-1.5">
+                        <Avatar className="h-5 w-5">
+                            <AvatarImage src={avatar} />
+                            <AvatarFallback className="text-[10px]">
+                                {username[0]?.toUpperCase() || '?'}
+                            </AvatarFallback>
+                        </Avatar>
+                        <span className="max-w-[160px] truncate text-xs font-medium text-muted-foreground">
+                            {username}
+                        </span>
+                    </div>
+                )}
 
                 <div className="relative">
                     <Textarea
@@ -598,6 +550,52 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                         onClose={seriesMention.closePopover}
                     />
                 </div>
+
+                <RichTextToolbar
+                    textareaRef={activeTextareaRef}
+                    value={draft.body}
+                    onChange={(nextBody) => setField('body', nextBody)}
+                    onTriggerSeriesTag={seriesMention.triggerManually}
+                    className="border-t border-b-0 border-border/50 bg-secondary/20"
+                    rightSlot={
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                type="button"
+                                onClick={onOpenGifPicker}
+                                title="GIF Ekle"
+                                aria-label="GIF ekle"
+                                className={cn(
+                                    'inline-flex h-7 items-center justify-center rounded-md px-1.5 text-[10px] font-bold tracking-tight transition-colors',
+                                    draft.gifUrl
+                                        ? 'bg-primary/15 text-primary'
+                                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                                )}
+                            >
+                                GIF
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (draft.mediaUrls.length === 0) {
+                                        addMediaField();
+                                    } else {
+                                        setShowMediaFields((previous) => !previous);
+                                    }
+                                }}
+                                title="Görsel Bağlantısı Ekle"
+                                aria-label="Görsel bağlantısı ekle"
+                                className={cn(
+                                    'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+                                    draft.mediaUrls.some(Boolean)
+                                        ? 'bg-primary/15 text-primary'
+                                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                                )}
+                            >
+                                <Image className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                    }
+                />
             </div>
 
             {(draft.gifUrl || draft.mediaUrls.some(Boolean)) && (
@@ -681,7 +679,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
 
                     <Button
                         size="sm"
-                        className="h-8 gap-1.5 rounded-lg bg-emerald-500 px-3.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                        className="h-8 gap-1.5 rounded-lg bg-primary px-3.5 text-xs font-semibold text-primary-foreground hover:bg-primary/90"
                         onClick={onSubmit}
                         disabled={!hasContent}
                     >
@@ -2319,8 +2317,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                             onClick={() => handleLike(reply.id)}
                                             disabled={Boolean(pendingCommentReactions[reply.id])}
                                             className={cn(
-                                                'transition-all duration-200 ease-out hover:bg-emerald-500/10 hover:text-emerald-500',
-                                                hasReaction(reply, user?.id, 'like') && 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15 hover:text-emerald-500',
+                                                'transition-all duration-200 ease-out hover:bg-primary/10 hover:text-primary',
+                                                hasReaction(reply, user?.id, 'like') && 'bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary',
                                                 animatedCommentReactions[reply.id] && 'scale-[1.06] -translate-y-0.5'
                                             )}
                                         >
@@ -2881,8 +2879,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                             data-liked={hasReaction(comment, user?.id, 'like')}
                                                             disabled={Boolean(pendingCommentReactions[comment.id])}
                                                             className={cn(
-                                                                'h-7 px-2 text-xs transition-all duration-200 ease-out hover:bg-emerald-500/10 hover:text-emerald-500 sm:h-8 sm:px-2.5',
-                                                                hasReaction(comment, user?.id, 'like') && 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15 hover:text-emerald-500',
+                                                                'h-7 px-2 text-xs transition-all duration-200 ease-out hover:bg-primary/10 hover:text-primary sm:h-8 sm:px-2.5',
+                                                                hasReaction(comment, user?.id, 'like') && 'bg-primary/15 text-primary hover:bg-primary/20 hover:text-primary',
                                                                 animatedCommentReactions[comment.id] && 'scale-[1.06] -translate-y-0.5'
                                                             )}
                                                         >

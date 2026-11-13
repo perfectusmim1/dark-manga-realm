@@ -551,11 +551,6 @@ export const mapCachedReadingListToReadingList = (list: CachedReadingList): Read
   imageUrl: list.imageUrl,
   isPublic: list.isPublic,
   createdAt: list.createdAt,
-  itemsCount: list.mangaIds?.length ?? list.itemSummaries?.length ?? 0,
-  previewCovers: (list.itemSummaries || [])
-    .map((item) => item.cover)
-    .filter((cover): cover is string => typeof cover === 'string' && cover.trim().length > 0)
-    .slice(0, 4),
 });
 
 export const mapMangaToCachedReadingListItem = (manga: Manga): CachedReadingListItem => ({

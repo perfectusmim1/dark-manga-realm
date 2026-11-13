@@ -504,7 +504,7 @@ const ForumTab: React.FC = () => {
         <Button
           type="button"
           onClick={handleOpenComposer}
-          className="w-full h-10 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold gap-2 shadow-sm"
+          className="w-full h-10 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold gap-2 shadow-sm"
         >
           <Plus className="h-4 w-4" />
           Yeni konu
@@ -567,7 +567,7 @@ const ForumTab: React.FC = () => {
             <Button
               type="button"
               onClick={handleOpenComposer}
-              className="lg:hidden h-9 bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold gap-1.5 px-3"
+              className="lg:hidden h-9 bg-primary hover:bg-primary/90 text-primary-foreground font-semibold gap-1.5 px-3"
             >
               <Plus className="h-4 w-4" />
               Yeni konu
@@ -765,7 +765,7 @@ const ForumTab: React.FC = () => {
                 type="button"
                 size="sm"
                 onClick={handleOpenComposer}
-                className="bg-emerald-500 hover:bg-emerald-400 text-zinc-950 font-semibold gap-1.5"
+                className="bg-primary hover:bg-primary/90 text-primary-foreground font-semibold gap-1.5"
               >
                 <Plus className="h-4 w-4" />
                 İlk Konuyu Aç

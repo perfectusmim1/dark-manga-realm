@@ -31,13 +31,11 @@ import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
 import CommentSection from '@/components/comments/CommentSection';
 import ReadingListModal from '@/components/manga/ReadingListModal';
-import { SeriesReadersModal } from '@/components/manga/SeriesReadersModal';
 import { RichTextToolbar } from '@/components/common/RichTextToolbar';
 import { SeriesTagPopover } from '@/components/common/SeriesTagPopover';
 import { useSeriesMention } from '@/hooks/useSeriesMention';
 import { renderRichContent } from '@/lib/richTextRender';
 import StaffBadge from '@/components/user/StaffBadge';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
@@ -67,10 +65,8 @@ import {
   getMangaCharacters,
   createMangaReport,
   createReviewReport,
-  getMangaReadersSummary,
   getChapterLikesSummary,
   toggleChapterLike,
-  MangaReadersSummary,
   ChapterLikeInfo,
 } from '@/lib/database';
 import { formatChapterDisplayTitle, isChapterEnglish, isChapterRaw } from '@/lib/chapterTitle';
@@ -125,6 +121,7 @@ import {
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { getStaffTextClassName } from '@/lib/staffRoles';
 import { toast } from 'sonner';
 import MangaDetailSkeleton from '@/components/skeletons/MangaDetailSkeleton';
@@ -658,14 +655,6 @@ const MangaDetail: React.FC = () => {
   const charactersLoadPromiseRef = React.useRef<Promise<Character[]> | null>(null);
   const similarLoadPromiseRef = React.useRef<Promise<Manga[]> | null>(null);
   const reviewTextareaRef = React.useRef<HTMLTextAreaElement | null>(null);
-
-  const [readersSummary, setReadersSummary] = useState<MangaReadersSummary>({
-    activeCount: 0,
-    libraryCount: 0,
-    activeAvatars: [],
-    libraryAvatars: [],
-  });
-  const [readersModalOpen, setReadersModalOpen] = useState(false);
   const [chapterLikesMap, setChapterLikesMap] = useState<Record<string, ChapterLikeInfo>>({});
   const [togglingChapterLikeId, setTogglingChapterLikeId] = useState<string | null>(null);
 
@@ -682,14 +671,15 @@ const MangaDetail: React.FC = () => {
     }
 
     let cancelled = false;
-    void Promise.all([
-      getMangaReadersSummary(targetId),
-      getChapterLikesSummary(targetId),
-    ]).then(([summary, chapterLikes]) => {
-      if (cancelled) return;
-      setReadersSummary(summary);
-      setChapterLikesMap(chapterLikes);
-    }).catch(() => undefined);
+    void getChapterLikesSummary(targetId)
+      .then((chapterLikes) => {
+        if (!cancelled) {
+          setChapterLikesMap(chapterLikes);
+        }
+      })
+      .catch(() => {
+        // ignore chapter likes lookup errors
+      });
 
     return () => {
       cancelled = true;
@@ -3075,8 +3065,8 @@ const MangaDetail: React.FC = () => {
                       disabled={togglingChapterLikeId === chapter.id}
                       aria-label={likeInfo.viewerLiked ? 'Bölüm beğenisini kaldır' : 'Bölümü beğen'}
                       className={cn(
-                        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-rose-500/10 hover:text-rose-400',
-                        likeInfo.viewerLiked ? 'text-rose-400 font-medium' : 'text-muted-foreground',
+                        'inline-flex items-center gap-1 rounded-md px-1.5 py-0.5 transition-colors hover:bg-primary/10 hover:text-primary',
+                        likeInfo.viewerLiked ? 'text-primary font-medium' : 'text-muted-foreground',
                       )}
                     >
                       <Heart className={cn('h-3 w-3', likeInfo.viewerLiked && 'fill-current')} />
@@ -3251,41 +3241,41 @@ const MangaDetail: React.FC = () => {
           <div className="container relative z-10 py-6 sm:py-8">
             <div className="flex flex-col gap-6 md:flex-row md:gap-8">
               {/* Cover */}
-              <div className="mx-auto w-full max-w-[184px] shrink-0 animate-fade-up md:mx-0 md:w-52 md:max-w-none">
+              <div className="mx-auto w-full max-w-[220px] shrink-0 animate-fade-up md:mx-0 md:w-64 md:max-w-none">
                 <OptimizedImage
                   src={manga.cover}
                   alt={manga.title}
                   priority
                   transform={MANGA_DETAIL_COVER_TRANSFORM}
-                  containerClassName="mx-auto aspect-[5/7] w-full overflow-hidden rounded-xl"
+                  containerClassName="mx-auto"
                   className={cn(
-                    'h-full w-full rounded-xl object-cover shadow-xl shadow-black/30',
+                    'mx-auto h-auto w-full rounded-xl object-cover shadow-2xl shadow-primary/10 md:h-96',
                     shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
                   )}
                 />
               </div>
 
               {/* Info */}
-              <div className="min-w-0 flex flex-1 flex-col gap-3 animate-fade-up">
+              <div className="min-w-0 flex flex-1 flex-col gap-4 animate-fade-up">
                 <div className="flex flex-wrap items-center gap-2">
                   <Badge
                     variant="default"
-                    className={`border-none text-[11px] font-semibold ${manga.type === 'manhwa' ? 'bg-orange-600 text-white shadow-sm' :
-                      manga.type === 'manhua' ? 'bg-emerald-600 text-white shadow-sm' :
-                        manga.type === 'webtoon' ? 'bg-sky-600 text-white shadow-sm' :
-            manga.type === 'hentai' ? 'bg-pink-600 text-white shadow-sm' :
-                            manga.type === 'webtoon_hentai' ? 'bg-rose-600 text-white shadow-sm' :
-                          'bg-primary text-primary-foreground shadow-sm'
+                    className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' :
+                      manga.type === 'manhua' ? 'bg-emerald-600 text-white shadow-lg shadow-emerald-500/20' :
+                        manga.type === 'webtoon' ? 'bg-sky-600 text-white shadow-lg shadow-sky-500/20' :
+            manga.type === 'hentai' ? 'bg-pink-600 text-white shadow-lg shadow-pink-500/20' :
+                            manga.type === 'webtoon_hentai' ? 'bg-rose-600 text-white shadow-lg shadow-rose-500/20' :
+                          'bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                       }`}
                   >
                     {getMangaTypeLabel(manga.type)}
                   </Badge>
-                  <Badge variant="outline" className="text-[11px]">
+                  <Badge variant="outline">
                     {manga.status === 'completed' ? 'Tamamlandı' : manga.status === 'ongoing' ? 'Devam Ediyor' : 'Ara Verildi'}
                   </Badge>
                 </div>
 
-                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl leading-tight">{manga.title}</h1>
+                <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{manga.title}</h1>
 
                 {alternativeTitlesText && (
                   <div ref={alternativeTitlesContainerRef} className="relative space-y-1">
@@ -3394,68 +3384,33 @@ const MangaDetail: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">
+                <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-base sm:text-lg">
                   {averageRating.count > 0 && (
                     <div className="flex items-center gap-1.5 text-yellow-400">
-                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
-                      <span className="font-semibold tracking-tight tabular-nums">{averageRating.average}/10</span>
-                      <span className="text-xs font-medium text-yellow-100/80">({averageRating.count})</span>
+                      <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
+                      <span className="font-semibold tracking-tight">{averageRating.average}/10</span>
+                      <span className="text-sm font-medium text-yellow-100/85 sm:text-base">({averageRating.count})</span>
                     </div>
                   )}
-                  <div className="flex items-center gap-1.5 text-foreground/90">
-                    <Eye className="h-4 w-4 text-muted-foreground" />
-                    <span className="font-medium tracking-tight tabular-nums">{formatViews(manga.views || 0)} görüntülenme</span>
+                  <div className="flex items-center gap-1.5 text-white">
+                    <Eye className="h-5 w-5 text-white/90" />
+                    <span className="font-medium tracking-tight">{formatViews(manga.views || 0)} görüntülenme</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-emerald-400">
-                    <BookOpen className="h-4 w-4 text-emerald-400" />
-                    <span className="font-semibold tracking-tight tabular-nums">{uniqueChapterCount} bölüm</span>
+                    <BookOpen className="h-5 w-5 text-emerald-400" />
+                    <span className="font-semibold tracking-tight">{uniqueChapterCount} bölüm</span>
                   </div>
-
-                  <button
-                    type="button"
-                    onClick={() => setReadersModalOpen(true)}
-                    className="inline-flex items-center gap-2 rounded-full border border-border/70 bg-secondary/40 px-3 py-1 text-xs font-medium text-foreground/90 transition-colors hover:border-emerald-500/40 hover:bg-secondary/70"
-                    title="Aktif okuyanları ve kitaplığında tutanları gör"
-                  >
-                    <span
-                      className={cn(
-                        'h-2 w-2 rounded-full',
-                        readersSummary.activeCount > 0 ? 'bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.7)]' : 'bg-muted-foreground/50',
-                      )}
-                    />
-                    {(readersSummary.activeAvatars.length > 0 || readersSummary.libraryAvatars.length > 0) && (
-                      <span className="flex -space-x-1.5 overflow-hidden">
-                        {(readersSummary.activeAvatars.length > 0
-                          ? readersSummary.activeAvatars
-                          : readersSummary.libraryAvatars
-                        ).slice(0, 3).map((readerAvatar) => (
-                          <Avatar key={readerAvatar.id} className="h-[18px] w-[18px] ring-2 ring-background">
-                            <AvatarImage src={readerAvatar.avatar || undefined} />
-                            <AvatarFallback className="text-[9px] font-semibold">
-                              {readerAvatar.username[0]?.toUpperCase() || '?'}
-                            </AvatarFallback>
-                          </Avatar>
-                        ))}
-                      </span>
-                    )}
-                    <span className="tabular-nums">
-                      <strong className="font-semibold text-foreground">{readersSummary.activeCount}</strong> kişi okuyor
-                      <span className="mx-1 text-muted-foreground">·</span>
-                      <strong className="font-semibold text-foreground">{readersSummary.libraryCount}</strong> kitaplıkta
-                    </span>
-                  </button>
-
                   {user && (
                     <div className="flex items-center gap-1.5 text-red-400">
-                      <Clock3 className="h-4 w-4" />
+                      <Clock3 className="h-5 w-5" />
                       <span className="font-medium tracking-tight">
-                        {isSeriesReadingTimeLoading ? 'yükleniyor...' : formatReadingDuration(seriesReadingSeconds)}
+                        Bu seride {isSeriesReadingTimeLoading ? 'yükleniyor...' : formatReadingDuration(seriesReadingSeconds)}
                       </span>
                     </div>
                   )}
                   {offlineSeriesEntry && offlineSeriesEntry.downloadedChapters > 0 && (
                     <div className="flex items-center gap-1.5 text-blue-400">
-                      <Download className="h-4 w-4" />
+                      <Download className="h-5 w-5" />
                       <span className="font-medium tracking-tight">{offlineSeriesEntry.downloadedChapters} bölüm çevrimdışı hazır</span>
                     </div>
                   )}
@@ -3565,12 +3520,12 @@ const MangaDetail: React.FC = () => {
                     </Button>
                   ) : null}
 
-                  <div className="mt-2.5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
+                  <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
                     <Button
                       variant={favorite ? 'default' : 'outline'}
-                      size="default"
+                      size="lg"
                       onClick={toggleFavorite}
-                      className={cn('h-10 w-full text-sm sm:w-auto', favorite && 'bg-destructive hover:bg-destructive/90')}
+                      className={cn('h-11 w-full text-sm sm:h-12 sm:w-auto sm:text-base', favorite && 'bg-destructive hover:bg-destructive/90')}
                     >
                       <Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} />
                       {favorite ? 'Favorilerde' : 'Favorilere Ekle'}
@@ -3578,9 +3533,9 @@ const MangaDetail: React.FC = () => {
 
                     <Button
                       variant={isFollowing ? 'default' : 'outline'}
-                      size="default"
+                      size="lg"
                       onClick={toggleFollow}
-                      className={cn('h-10 w-full text-sm sm:w-auto', isFollowing && 'bg-primary/20 text-primary border-primary/50 hover:bg-primary/30')}
+                      className={cn('h-11 w-full text-sm sm:h-12 sm:w-auto sm:text-base', isFollowing && 'bg-primary/20 text-primary border-primary/50 hover:bg-primary/30')}
                     >
                       {isFollowing ? (
                         <BellOff className="h-4 w-4" />
@@ -3592,9 +3547,9 @@ const MangaDetail: React.FC = () => {
 
                     <Button
                       variant="outline"
-                      size="default"
+                      size="lg"
                       onClick={handleAddToList}
-                      className="group h-10 w-full border-primary/30 text-sm transition-all hover:border-primary/60 hover:bg-primary/5 sm:w-auto"
+                      className="group h-11 w-full border-primary/30 text-sm transition-all hover:border-primary/60 hover:bg-primary/5 sm:h-12 sm:w-auto sm:text-base"
                     >
                       <List className="h-4 w-4 text-primary transition-transform group-hover:scale-110" />
                       Listeye Ekle
@@ -3602,10 +3557,10 @@ const MangaDetail: React.FC = () => {
 
                     <Button
                       variant="outline"
-                      size="default"
+                      size="lg"
                       disabled={primaryOfflineJob?.status === 'running'}
                       onClick={openSeriesDownloadDialog}
-                      className="group h-10 w-full border-blue-500/30 text-sm hover:border-blue-400/60 hover:bg-blue-500/10 sm:w-auto"
+                      className="group h-11 w-full border-blue-500/30 text-sm hover:border-blue-400/60 hover:bg-blue-500/10 sm:h-12 sm:w-auto sm:text-base"
                     >
                       <Download className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
                       {primaryOfflineJob?.status === 'running'
@@ -4412,17 +4367,17 @@ const MangaDetail: React.FC = () => {
                      </div>
                   </div>
                 ) : (
-                  <div className="rounded-xl border border-border bg-card/50 p-4 shadow-sm sm:p-6">
+                  <div className="rounded-xl border border-border bg-card/50 p-4 shadow-xl sm:p-8">
                   {/* Reviews Summary */}
-                  <div className="mb-8 grid grid-cols-1 items-center gap-6 md:grid-cols-2 lg:grid-cols-3 lg:gap-8">
-                    <div className="text-center md:border-r border-border py-3">
-                      <div className="text-5xl font-black mb-1.5 tracking-tighter text-foreground tabular-nums">{averageRating.average || '0'}</div>
-                      <div className="flex justify-center gap-0.5 mb-1.5">
+                  <div className="mb-10 grid grid-cols-1 items-center gap-8 md:grid-cols-2 lg:grid-cols-3 lg:gap-12">
+                    <div className="text-center md:border-r border-border py-4">
+                      <div className="text-7xl font-black mb-2 tracking-tighter text-foreground">{averageRating.average || '0'}</div>
+                      <div className="flex justify-center gap-0.5 mb-2">
                         {[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].map((star) => (
-                          <Star key={star} className={`h-3.5 w-3.5 ${star <= Math.round(averageRating.average) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`} />
+                          <Star key={star} className={`h-4 w-4 ${star <= Math.round(averageRating.average) ? 'fill-yellow-400 text-yellow-400' : 'text-muted-foreground'}`} />
                         ))}
                       </div>
-                      <div className="text-xs text-muted-foreground font-medium">{reviewCount} inceleme</div>
+                      <div className="text-muted-foreground font-medium">{reviewCount} inceleme</div>
                     </div>
 
                     <div className="lg:col-span-2 space-y-3">
@@ -4506,7 +4461,7 @@ const MangaDetail: React.FC = () => {
                             <div className="flex items-center justify-between gap-3">
                               <label className="text-sm font-medium">İncelemeniz</label>
                               <span className={cn(
-                                'text-xs tabular-nums',
+                                'text-xs',
                                 (userReview.content?.length || 0) > REVIEW_CONTENT_MAX_LENGTH * 0.9
                                   ? 'text-primary'
                                   : 'text-muted-foreground',
@@ -4515,17 +4470,6 @@ const MangaDetail: React.FC = () => {
                               </span>
                             </div>
                             <div className="relative overflow-visible rounded-xl border border-border/70 bg-secondary/20 focus-within:border-primary/60">
-                              <RichTextToolbar
-                                textareaRef={reviewTextareaRef}
-                                value={userReview.content || ''}
-                                onChange={(nextContent) =>
-                                  setUserReview((prev) => ({
-                                    ...prev,
-                                    content: nextContent.slice(0, REVIEW_CONTENT_MAX_LENGTH),
-                                  }))
-                                }
-                                onTriggerSeriesTag={reviewMention.triggerManually}
-                              />
                               <Textarea
                                 ref={reviewTextareaRef}
                                 placeholder="Manga hakkındaki düşünceleriniz... (# ile seri etiketleyebilirsiniz)"
@@ -4540,6 +4484,18 @@ const MangaDetail: React.FC = () => {
                                   reviewMention.handleKeyDown(e);
                                 }}
                                 maxLength={REVIEW_CONTENT_MAX_LENGTH}
+                              />
+                              <RichTextToolbar
+                                textareaRef={reviewTextareaRef}
+                                value={userReview.content || ''}
+                                onChange={(nextContent) =>
+                                  setUserReview((prev) => ({
+                                    ...prev,
+                                    content: nextContent.slice(0, REVIEW_CONTENT_MAX_LENGTH),
+                                  }))
+                                }
+                                onTriggerSeriesTag={reviewMention.triggerManually}
+                                className="border-t border-b-0 border-border/50 bg-secondary/20"
                               />
                               <SeriesTagPopover
                                 open={reviewMention.isPopoverOpen}
@@ -5094,15 +5050,6 @@ const MangaDetail: React.FC = () => {
           </DialogFooter>
         </DialogContent>
       </Dialog>
-
-      {manga && (
-        <SeriesReadersModal
-          open={readersModalOpen}
-          onOpenChange={setReadersModalOpen}
-          mangaId={manga.id}
-          summary={readersSummary}
-        />
-      )}
 
       {user && manga && (
         <ReadingListModal

@@ -16,6 +16,7 @@ import { dedupeById } from '@/lib/forum';
 import { getStaffTextClassName } from '@/lib/staffRoles';
 import { cn } from '@/lib/utils';
 import ReadingListCover from '@/components/manga/ReadingListCover';
+import OptimizedImage from '@/components/media/OptimizedImage';
 import StaffBadge from '@/components/user/StaffBadge';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -85,6 +86,87 @@ const formatRelativeDate = (isoDate?: string | null): string => {
   const parsed = new Date(isoDate);
   if (Number.isNaN(parsed.getTime())) return '';
   return formatDistanceToNow(parsed, { addSuffix: true, locale: tr });
+};
+
+const renderCoverPreview = (item: PublicReadingListCard) => {
+  if (item.imageUrl) {
+    return (
+      <ReadingListCover
+        imageUrl={item.imageUrl}
+        alt={item.name}
+        className="h-44 w-full"
+        showLabel={false}
+      />
+    );
+  }
+
+  const covers = item.previewCovers.filter(Boolean).slice(0, 4);
+  if (covers.length === 0) {
+    return <ReadingListCover alt={item.name} className="h-44 w-full" showLabel />;
+  }
+
+  if (covers.length === 1) {
+    return (
+      <div className="relative h-44 w-full overflow-hidden bg-muted/60">
+        <OptimizedImage
+          src={covers[0]}
+          alt={item.name}
+          transform={{ width: 480, quality: 80 }}
+          containerClassName="h-full w-full"
+          className="h-full w-full object-cover"
+        />
+      </div>
+    );
+  }
+
+  if (covers.length === 2) {
+    return (
+      <div className="grid grid-cols-2 gap-0.5 h-44 w-full overflow-hidden bg-border/40">
+        {covers.map((src, idx) => (
+          <OptimizedImage
+            key={idx}
+            src={src}
+            alt={`${item.name} kapak ${idx + 1}`}
+            transform={{ width: 320, quality: 78 }}
+            containerClassName="h-full w-full bg-muted"
+            className="h-full w-full object-cover"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  if (covers.length === 3) {
+    return (
+      <div className="grid grid-cols-3 gap-0.5 h-44 w-full overflow-hidden bg-border/40">
+        {covers.map((src, idx) => (
+          <OptimizedImage
+            key={idx}
+            src={src}
+            alt={`${item.name} kapak ${idx + 1}`}
+            transform={{ width: 260, quality: 78 }}
+            containerClassName="h-full w-full bg-muted"
+            className="h-full w-full object-cover"
+          />
+        ))}
+      </div>
+    );
+  }
+
+  return (
+    <div className="grid grid-cols-2 grid-rows-2 gap-0.5 h-44 w-full overflow-hidden bg-border/40">
+      {covers.map((src, idx) => (
+        <OptimizedImage
+          key={idx}
+          src={src}
+          alt={`${item.name} kapak ${idx + 1}`}
+          transform={{ width: 260, quality: 75 }}
+          containerClassName="h-full w-full bg-muted"
+          className="h-full w-full object-cover"
+        />
+      ))}
+    </div>
+  );
 };
 
 const ReadingListsDiscoveryTab: React.FC = () => {
@@ -264,41 +346,38 @@ const ReadingListsDiscoveryTab: React.FC = () => {
   };
 
   return (
-    <div className="space-y-4 min-w-0">
+    <div className="space-y-5 min-w-0">
       {/* Header & Secondary Link */}
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-        <div className="flex items-baseline gap-2.5 min-w-0">
-          <h2 className="text-lg sm:text-xl font-bold tracking-tight">Okuma Listeleri</h2>
-          {!isLoading && items.length > 0 && (
-            <span className="text-xs text-muted-foreground tabular-nums">({items.length}{hasMore ? '+' : ''})</span>
-          )}
+        <div className="min-w-0">
+          <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Okuma Listeleri</h2>
         </div>
 
-        <Button asChild variant="outline" size="sm" className="w-fit h-8 gap-1.5 shrink-0 text-xs">
+        <Button asChild variant="outline" size="sm" className="w-fit gap-1.5 shrink-0">
           <Link to="/reading-lists">
-            <Library className="h-3.5 w-3.5" />
+            <Library className="h-4 w-4" />
             <span>Listelerim</span>
           </Link>
         </Button>
       </div>
 
       {/* Filters Row */}
-      <div className="flex flex-wrap items-center gap-2.5">
-        <div className="relative flex-1 min-w-[200px]">
-          <Search className="h-3.5 w-3.5 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
+      <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+        <div className="relative flex-1 min-w-0">
+          <Search className="h-4 w-4 text-muted-foreground absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
           <Input
             value={searchInput}
             onChange={(event) => setSearchInput(event.target.value)}
             placeholder="Liste veya kullanıcı ara..."
             aria-label="Liste veya kullanıcı ara"
-            className="pl-8 pr-8 h-9 text-sm bg-card/60"
+            className="pl-9 pr-9 h-10 bg-card/60"
           />
           {searchInput && (
             <button
               type="button"
               onClick={() => setSearchInput('')}
               aria-label="Aramayı temizle"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 rounded"
+              className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground p-1 rounded"
             >
               <X className="h-3.5 w-3.5" />
             </button>
@@ -306,7 +385,7 @@ const ReadingListsDiscoveryTab: React.FC = () => {
         </div>
 
         <Select value={sort} onValueChange={(value) => setSort(value as ReadingListDiscoverySort)}>
-          <SelectTrigger className="w-[155px] h-9 text-sm bg-card/60 shrink-0" aria-label="Listeleri sırala">
+          <SelectTrigger className="w-[165px] h-10 bg-card/60 shrink-0" aria-label="Listeleri sırala">
             <SelectValue />
           </SelectTrigger>
           <SelectContent>
@@ -317,50 +396,34 @@ const ReadingListsDiscoveryTab: React.FC = () => {
             ))}
           </SelectContent>
         </Select>
-
-        {(searchInput || sort !== 'popular') && (
-          <Button
-            type="button"
-            variant="ghost"
-            size="sm"
-            onClick={() => {
-              setSearchInput('');
-              setSort('popular');
-            }}
-            className="h-9 px-2.5 text-xs text-muted-foreground hover:text-foreground gap-1"
-          >
-            <X className="h-3.5 w-3.5" />
-            <span>Sıfırla</span>
-          </Button>
-        )}
       </div>
 
       {/* Catalog Grid */}
       {isLoading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {Array.from({ length: 6 }).map((_, index) => (
             <div
               key={index}
-              className="rounded-xl border border-border/60 bg-card/50 p-3.5 space-y-3"
+              className="rounded-xl border border-border/60 bg-card/50 overflow-hidden"
             >
-              <div className="flex items-center justify-between">
-                <Skeleton className="h-4 w-36" />
-                <Skeleton className="h-4 w-10" />
+              <Skeleton className="h-44 w-full" />
+              <div className="p-4 space-y-2.5">
+                <Skeleton className="h-5 w-2/3" />
+                <Skeleton className="h-4 w-full" />
+                <div className="flex items-center justify-between pt-2">
+                  <Skeleton className="h-5 w-28" />
+                  <Skeleton className="h-5 w-12" />
+                </div>
               </div>
-              <div className="space-y-1.5">
-                <Skeleton className="h-4 w-2/3" />
-                <Skeleton className="h-3.5 w-full" />
-              </div>
-              <Skeleton className="aspect-[20/7] w-full rounded-lg" />
             </div>
           ))}
         </div>
       ) : items.length === 0 ? (
-        <div className="rounded-xl border border-border/60 bg-card/40 p-8 text-center space-y-2.5">
-          <BookMarked className="h-8 w-8 mx-auto text-muted-foreground/60" />
+        <div className="rounded-xl border border-border/60 bg-card/40 p-10 text-center space-y-3">
+          <BookMarked className="h-9 w-9 mx-auto text-muted-foreground/60" />
           <div className="space-y-1">
-            <p className="text-sm font-semibold">Okuma listesi bulunamadı</p>
-            <p className="text-xs text-muted-foreground">
+            <p className="text-base font-semibold">Okuma listesi bulunamadı</p>
+            <p className="text-sm text-muted-foreground">
               {debouncedSearch
                 ? 'Aramanıza uygun herkese açık okuma listesi bulunamadı.'
                 : 'Henüz herkese açık paylaşılan bir okuma listesi bulunmuyor.'}
@@ -378,31 +441,65 @@ const ReadingListsDiscoveryTab: React.FC = () => {
           )}
         </div>
       ) : (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3.5">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map((item) => {
             const dateLabel = formatRelativeDate(item.createdAt);
 
             return (
               <article
                 key={item.id}
-                className="group rounded-xl border border-border/60 bg-card/70 hover:border-primary/45 hover:bg-card/90 transition-colors flex flex-col justify-between p-3.5 gap-2.5 min-w-0"
+                className="rounded-xl border border-border/60 bg-card/60 hover:border-primary/40 transition-colors flex flex-col justify-between overflow-hidden min-w-0"
               >
-                {/* Top Creator + Metadata Row */}
-                <div className="flex items-center justify-between gap-2 min-w-0">
-                  <div className="flex items-center gap-1.5 min-w-0 text-[11px] text-muted-foreground">
+                <Link to={`/reading-lists/${item.id}`} className="block group min-w-0 focus-visible:outline-none">
+                  <div className="border-b border-border/50 overflow-hidden">
+                    {renderCoverPreview(item)}
+                  </div>
+
+                  <div className="p-4 space-y-1.5 min-w-0">
+                    <h3 className="text-base font-semibold text-foreground group-hover:text-primary group-focus-visible:text-primary transition-colors truncate">
+                      {item.name}
+                    </h3>
+
+                    {item.description ? (
+                      <p className="text-sm text-muted-foreground line-clamp-2 break-words min-h-[2.5rem]">
+                        {item.description}
+                      </p>
+                    ) : (
+                      <p className="text-xs text-muted-foreground/75 italic min-h-[2.5rem] flex items-center">
+                        Açıklama eklenmemiş.
+                      </p>
+                    )}
+
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground pt-1 flex-wrap">
+                      <span className="tabular-nums font-medium text-foreground/85">
+                        {item.itemsCount} seri
+                      </span>
+                      {dateLabel && (
+                        <>
+                          <span>·</span>
+                          <span>{dateLabel}</span>
+                        </>
+                      )}
+                    </div>
+                  </div>
+                </Link>
+
+                {/* Owner & Like Footer */}
+                <div className="px-4 py-2.5 border-t border-border/50 bg-muted/20 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2 min-w-0">
                     <Link
                       to={`/profile/${item.userId}`}
-                      className="flex items-center gap-1.5 min-w-0 hover:text-foreground transition-colors"
+                      className="flex items-center gap-2 min-w-0 hover:opacity-90"
                     >
-                      <Avatar className="h-5 w-5 shrink-0 border border-border/60">
+                      <Avatar className="h-6 w-6 shrink-0 border border-border/60">
                         <AvatarImage src={item.ownerAvatar || undefined} alt={item.ownerUsername} />
-                        <AvatarFallback className="text-[9px]">
+                        <AvatarFallback className="text-[10px]">
                           {getInitials(item.ownerUsername)}
                         </AvatarFallback>
                       </Avatar>
                       <span
                         className={cn(
-                          'font-medium truncate max-w-[110px]',
+                          'text-xs font-medium truncate max-w-[140px]',
                           getStaffTextClassName(item.ownerRole),
                         )}
                       >
@@ -410,16 +507,6 @@ const ReadingListsDiscoveryTab: React.FC = () => {
                       </span>
                     </Link>
                     <StaffBadge role={item.ownerRole} compact />
-                    <span className="shrink-0 opacity-60">·</span>
-                    <span className="shrink-0 tabular-nums font-medium text-foreground/80">
-                      {item.itemsCount} seri
-                    </span>
-                    {dateLabel && (
-                      <>
-                        <span className="shrink-0 opacity-60 hidden sm:inline">·</span>
-                        <span className="truncate hidden sm:inline">{dateLabel}</span>
-                      </>
-                    )}
                   </div>
 
                   <button
@@ -428,53 +515,17 @@ const ReadingListsDiscoveryTab: React.FC = () => {
                     disabled={Boolean(likingIds[item.id])}
                     aria-label={item.viewerHasLiked ? 'Beğeniyi kaldır' : 'Beğen'}
                     className={cn(
-                      'inline-flex items-center gap-1 text-[11px] transition-colors tabular-nums shrink-0 px-1.5 py-0.5 rounded-md hover:bg-muted',
+                      'inline-flex items-center gap-1 text-xs transition-colors tabular-nums shrink-0 px-2 py-1 rounded-md hover:bg-muted',
                       item.viewerHasLiked
                         ? 'text-rose-500 font-medium'
                         : 'text-muted-foreground hover:text-rose-500',
                     )}
                   >
                     <Heart
-                      className={cn('h-3 w-3', item.viewerHasLiked && 'fill-current')}
+                      className={cn('h-3.5 w-3.5', item.viewerHasLiked && 'fill-current')}
                     />
                     <span>{item.likeCount}</span>
                   </button>
-                </div>
-
-                {/* Title & Description */}
-                <Link
-                  to={`/reading-lists/${item.id}`}
-                  className="block space-y-0.5 min-w-0 focus-visible:outline-none"
-                >
-                  <h3 className="text-sm sm:text-base font-bold leading-snug text-foreground group-hover:text-primary transition-colors truncate">
-                    {item.name}
-                  </h3>
-                  <p className="text-xs text-muted-foreground line-clamp-1 break-words min-h-[1rem]">
-                    {item.description || 'Herkese açık okuma listesi.'}
-                  </p>
-                </Link>
-
-                {/* Comix-style 4-cover preview strip */}
-                <Link to={`/reading-lists/${item.id}`} className="block focus-visible:outline-none">
-                  <ReadingListCover
-                    variant="strip"
-                    imageUrl={item.imageUrl}
-                    previewCovers={item.previewCovers}
-                    totalCount={item.itemsCount}
-                    alt={item.name}
-                    className={item.imageUrl ? 'aspect-[20/7] w-full rounded-lg' : undefined}
-                  />
-                </Link>
-
-                {/* Footer Link */}
-                <div className="flex items-center justify-between text-[11px] text-muted-foreground pt-0.5">
-                  <span>Herkese Açık</span>
-                  <Link
-                    to={`/reading-lists/${item.id}`}
-                    className="font-medium text-primary hover:underline"
-                  >
-                    Tümünü gör →
-                  </Link>
                 </div>
               </article>
             );

@@ -4,7 +4,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { QueryClient } from "@tanstack/react-query";
 import { PersistQueryClientProvider } from "@tanstack/react-query-persist-client";
 import { idbPersister } from "@/lib/cache/idbPersister";
-import { BrowserRouter, Routes, Route, Navigate, useLocation, useNavigate } from "react-router-dom";
+import { BrowserRouter, Routes, Route, useLocation, useNavigate } from "react-router-dom";
 import { AuthProvider } from "@/contexts/AuthContext";
 import { Suspense, lazy, useEffect, useRef, useState } from "react";
 import { initializeMockData } from "@/lib/mockData";
@@ -382,7 +382,6 @@ const App = () => (
                               {/* Public Routes */}
                               <Route path="/" element={<Index />} />
                               <Route path="/top-ten" element={<TopTen />} />
-                              <Route path="/top-10" element={<Navigate to="/top-ten" replace />} />
                               <Route path="/community" element={<Community />} />
                               <Route path="/community/topic/:topicId" element={<ForumTopicDetail />} />
                     <Route path="/browse" element={<Browse />} />

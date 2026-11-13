@@ -138,7 +138,7 @@ const renderInlineSegments = (
           key={key}
           to={`/manga/${encodeURIComponent(seriesIdMd)}`}
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[0.92em] font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20 hover:text-emerald-300 align-baseline"
+          className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[0.92em] font-medium text-primary transition-colors hover:bg-primary/20 hover:text-primary align-baseline"
         >
           <BookOpen className="h-3 w-3 shrink-0" />
           <span>{seriesTitleMd}</span>
@@ -150,7 +150,7 @@ const renderInlineSegments = (
           key={key}
           to={`/manga/${encodeURIComponent(seriesIdLegacy)}`}
           onClick={(e) => e.stopPropagation()}
-          className="inline-flex items-center gap-1 rounded-md border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 text-[0.92em] font-medium text-emerald-400 transition-colors hover:bg-emerald-500/20 hover:text-emerald-300 align-baseline"
+          className="inline-flex items-center gap-1 rounded-md border border-primary/30 bg-primary/10 px-1.5 py-0.5 text-[0.92em] font-medium text-primary transition-colors hover:bg-primary/20 hover:text-primary align-baseline"
         >
           <BookOpen className="h-3 w-3 shrink-0" />
           <span>{seriesTitleLegacy}</span>

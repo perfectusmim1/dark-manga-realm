@@ -181,180 +181,190 @@ const TopTenSection: React.FC = () => {
     requestArrowUpdate();
   }, [displayedFilter, requestArrowUpdate, scrollNode, showLoadingSkeletons]);
 
-  const uniqueMangas = React.useMemo(() => {
-    const seen = new Set<string>();
-    return mangas.filter((item) => {
-      if (!item?.id || seen.has(item.id)) return false;
-      seen.add(item.id);
-      return true;
-    }).slice(0, 10);
-  }, [mangas]);
-
   return (
-    <section className="py-8 relative group/section overflow-visible">
+    <section className="py-12 relative group/section overflow-visible">
       {/* Header Area */}
-      <div className="container mx-auto max-w-7xl px-4">
-        <div className="mb-4 flex flex-wrap items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <h2 className="text-lg sm:text-xl font-bold tracking-tight text-foreground">
-              {FILTER_LABELS[timeFilter]} Top 10
-            </h2>
-            <Link
-              to="/top-10"
-              className="text-xs font-medium text-primary hover:underline shrink-0"
-            >
-              Tümü →
-            </Link>
+      <div className="flex flex-col md:flex-row md:items-end justify-between gap-6 mb-2 px-4 sm:px-10 lg:px-16">
+        <div className="space-y-2">
+          <div className="flex items-center gap-3">
+            <span className="px-1.5 py-0.5 rounded bg-primary text-[10px] font-black text-primary-foreground uppercase shadow-lg shadow-primary/20">
+              Top 10
+            </span>
+            <AnimatePresence mode="wait" initial={false}>
+              <motion.h2
+                key={timeFilter}
+                initial={{ opacity: 0, y: 8 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -8 }}
+                transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
+                className="text-3xl sm:text-4xl font-black tracking-tighter text-white uppercase italic"
+              >
+                {FILTER_LABELS[timeFilter]} Top 10
+              </motion.h2>
+            </AnimatePresence>
           </div>
-
-          <div className="flex items-center gap-2">
-            {/* Time Filter Pills */}
-            <div className="inline-flex items-center rounded-lg border border-border/60 bg-card/70 p-0.5">
-              {(['today', 'week', 'all'] as const).map((filter) => (
-                <button
-                  key={filter}
-                  type="button"
-                  onClick={() => {
-                    if (filter !== timeFilter) {
-                      setTimeFilter(filter);
-                    }
-                  }}
-                  className={cn(
-                    'relative overflow-hidden rounded-md px-2.5 py-1 text-xs font-medium transition-colors whitespace-nowrap',
-                    timeFilter === filter
-                      ? 'text-primary-foreground'
-                      : 'text-muted-foreground hover:text-foreground',
-                  )}
-                  disabled={isFilterSwitching && timeFilter === filter}
-                >
-                  {timeFilter === filter && (
-                    <motion.span
-                      layoutId="top-ten-filter-pill"
-                      className="absolute inset-0 rounded-md bg-primary shadow-sm"
-                      transition={
-                        disableHeavyEffects
-                          ? { duration: 0.14, ease: 'easeOut' }
-                          : { type: 'spring', stiffness: 420, damping: 34, mass: 0.6 }
-                      }
-                    />
-                  )}
-                  <span className="relative z-10">{FILTER_LABELS[filter]}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Header-integrated Carousel Arrows */}
-            {showArrowControls && (
-              <div className="hidden sm:flex items-center gap-1">
-                <button
-                  type="button"
-                  onClick={() => scroll('left')}
-                  disabled={!showLeftArrow}
-                  aria-label="Sola kaydır"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card/70 text-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-35 disabled:pointer-events-none"
-                >
-                  <ChevronLeft className="h-4 w-4" />
-                </button>
-                <button
-                  type="button"
-                  onClick={() => scroll('right')}
-                  disabled={!showRightArrow && !( !hasMeasuredArrows && estimatedHasOverflow && !showLoadingSkeletons )}
-                  aria-label="Sağa kaydır"
-                  className="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-card/70 text-foreground transition-colors hover:border-primary/50 hover:text-primary disabled:opacity-35 disabled:pointer-events-none"
-                >
-                  <ChevronRight className="h-4 w-4" />
-                </button>
-              </div>
-            )}
-          </div>
+          <p className="text-[11px] font-black tracking-[0.2em] text-primary/60 uppercase">
+            Popülerlik skoruna göre sıralı
+          </p>
         </div>
 
-        {/* Scrollable Cards */}
-        <div className="relative min-h-[250px]">
+        {/* Time Filter Buttons */}
+        <div className={`grid w-full max-w-[20rem] grid-cols-3 items-stretch rounded-full border border-white/10 bg-white/5 p-1 sm:w-auto sm:max-w-[22rem] ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`}>
+          {(['today', 'week', 'all'] as const).map((filter) => (
+            <button
+              key={filter}
+              onClick={() => {
+                if (filter === timeFilter) {
+                  return;
+                }
+
+                setTimeFilter(filter);
+              }}
+              className={cn(
+                "relative min-h-[2.85rem] w-full overflow-hidden rounded-full px-3 py-2 text-center text-[10px] font-black uppercase leading-tight tracking-[0.12em] transition-colors duration-200 sm:min-h-[3rem] sm:text-[11px]",
+                timeFilter === filter 
+                  ? "text-primary-foreground" 
+                  : "text-white/40 hover:text-white"
+              )}
+              disabled={isFilterSwitching && timeFilter === filter}
+            >
+              {timeFilter === filter && (
+                <motion.span
+                  layoutId="top-ten-filter-pill"
+                  className="absolute inset-0 rounded-full bg-primary shadow-lg shadow-primary/30"
+                  transition={
+                    disableHeavyEffects
+                      ? { duration: 0.16, ease: 'easeOut' }
+                      : { type: 'spring', stiffness: 420, damping: 34, mass: 0.6 }
+                  }
+                />
+              )}
+              <span className="relative z-10">{FILTER_LABELS[filter]}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="relative group/carousel">
+        {/* Adjusted Navigation Arrows - Centered precisely on the poster height */}
+        {showArrowControls && <AnimatePresence>
+          {showLeftArrow && (
+            <motion.button
+              key="top-ten-arrow-left"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => scroll('left')}
+              className="group/arrow absolute left-2 sm:left-4 top-16 bottom-20 my-auto z-50 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-label="Sola kaydır"
+            >
+              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:-translate-x-0.5" strokeWidth={2.25} />
+            </motion.button>
+          )}
+
+          {(showRightArrow || (!hasMeasuredArrows && estimatedHasOverflow && !showLoadingSkeletons)) && (
+            <motion.button
+              key="top-ten-arrow-right"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => scroll('right')}
+              className="group/arrow absolute right-2 sm:right-4 top-16 bottom-20 my-auto z-50 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              aria-label="Sağa kaydır"
+            >
+              <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:translate-x-0.5" strokeWidth={2.25} />
+            </motion.button>
+          )}
+        </AnimatePresence>}
+
+        {/* Scrollable Container with enough top space for the huge numbers */}
+        <div className="relative min-h-[360px] sm:min-h-[420px]">
           <AnimatePresence mode="wait" initial={false}>
             <motion.div
               key={showLoadingSkeletons ? `loading-${timeFilter}` : `content-${displayedFilter}`}
-              initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 6 }}
+              initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 10 }}
               animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -6 }}
-              transition={{ duration: disableHeavyEffects ? 0.12 : 0.16, ease: 'easeOut' }}
+              exit={{ opacity: 0, y: disableHeavyEffects ? 0 : -8 }}
+              transition={{
+                duration: disableHeavyEffects ? 0.14 : 0.2,
+                ease: [0.22, 1, 0.36, 1],
+              }}
             >
-              <div
+              <div 
                 ref={(node) => {
                   scrollRef.current = node;
                   setScrollNode(node);
                 }}
                 onScroll={updateArrows}
-                className="flex gap-3 sm:gap-3.5 overflow-x-auto scrollbar-hide pb-2 scroll-smooth"
+                className="flex gap-4 sm:gap-6 overflow-x-auto overflow-y-visible scrollbar-hide pt-16 pb-20 px-4 sm:px-10 lg:px-16 scroll-smooth"
                 style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
               >
                 {showLoadingSkeletons ? (
-                  Array.from({ length: 6 }).map((_, i) => (
-                    <div key={i} className="w-[42vw] max-w-[165px] sm:w-[175px] md:w-[185px] shrink-0 space-y-2 animate-pulse">
-                      <div className="aspect-[5/7] w-full rounded-lg bg-muted/60" />
-                      <div className="h-3.5 w-4/5 rounded bg-muted/60" />
-                      <div className="h-3 w-1/2 rounded bg-muted/60" />
-                    </div>
+                  Array.from({ length: 5 }).map((_, i) => (
+                    <div key={i} className={`relative shrink-0 ${cardWidthClass} aspect-[2/3] animate-pulse bg-white/5 rounded-2xl`} />
                   ))
                 ) : (
-                  uniqueMangas.map((manga, index) => {
-                    const rankClass =
-                      index === 0
-                        ? 'bg-amber-500 text-black border-amber-300/60'
-                        : index === 1
-                          ? 'bg-zinc-200 text-zinc-950 border-white/60'
-                          : index === 2
-                            ? 'bg-amber-700 text-white border-amber-500/50'
-                            : 'bg-black/80 text-white border-white/15';
+                  mangas.map((manga, index) => {
+                    const posterContent = (
+                      <>
+                        <div className={`absolute -left-6 -top-8 z-40 pointer-events-none select-none ${disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105'} sm:-left-10`}>
+                          <span
+                            className={`block text-[96px] font-black leading-none text-transparent underline-none sm:text-[144px] ${disableHeavyEffects ? 'stroke-netflix-lite' : 'stroke-netflix-balanced transition-all duration-300'}`}
+                            style={{ fontFamily: '"Arial Black", sans-serif', letterSpacing: '-0.08em' }}
+                          >
+                            {index + 1}
+                          </span>
+                        </div>
 
-                    return (
-                      <Link
-                        key={manga.id}
-                        to={`/manga/${manga.id}`}
-                        className="group relative w-[42vw] max-w-[165px] sm:w-[175px] md:w-[185px] shrink-0 block focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 rounded-lg"
-                      >
-                        <div className="relative aspect-[5/7] w-full overflow-hidden rounded-lg border border-border/60 bg-muted transition-colors group-hover:border-primary/50">
+                        <Link
+                          to={`/manga/${manga.id}`}
+                          className="relative z-10 block w-full aspect-[2/3] overflow-hidden rounded-xl bg-background shadow-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        >
                           <ProxyImage
                             src={manga.cover}
                             alt={manga.title}
                             transform={TOP_TEN_COVER_TRANSFORM}
-                            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
-                            loading={index < 5 ? 'eager' : 'lazy'}
+                            className="h-full w-full object-cover"
+                            loading={index < 3 ? 'eager' : 'lazy'}
                             decoding="async"
                             fetchPriority={index < 2 ? 'high' : 'low'}
                           />
-                          <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-black/55 via-transparent to-transparent" />
 
-                          <span
-                            className={cn(
-                              'absolute left-2 top-2 inline-flex items-center justify-center rounded-md border px-2 py-0.5 text-xs font-bold tabular-nums shadow-sm',
-                              rankClass,
-                            )}
-                          >
-                            #{index + 1}
-                          </span>
+                          <div className={`pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black via-black/20 to-transparent ${disableHeavyEffects ? 'opacity-100' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100 group-focus-within:opacity-100'}`} />
 
-                          <span className="absolute right-2 top-2 rounded bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white/95 backdrop-blur-sm">
-                            {getMangaTypeLabel(manga.type)}
-                          </span>
-                        </div>
-
-                        <div className="mt-1.5 space-y-0.5 px-0.5 min-w-0">
-                          <h3 className="truncate text-xs sm:text-sm font-semibold text-foreground group-hover:text-primary transition-colors">
-                            {manga.title}
-                          </h3>
-                          <div className="flex items-center gap-1.5 text-[11px] text-muted-foreground">
-                            <span className="inline-flex items-center gap-0.5 font-medium text-amber-400">
-                              <Star className="h-3 w-3 fill-current" />
-                              {Number(manga.averageRating || 0).toFixed(1)}
-                            </span>
-                            <span className="opacity-50">·</span>
-                            <span className="truncate tabular-nums">
-                              {manga.chapterCount || manga.chapters?.length || 0} bölüm
-                            </span>
+                          <div className={`absolute bottom-0 left-0 right-0 p-3 sm:p-5 ${disableHeavyEffects ? '' : 'translate-y-full transition-transform duration-300 group-hover:translate-y-0 group-focus-within:translate-y-0'}`}>
+                            <h3 className="mb-2 truncate text-[13px] font-black uppercase tracking-tight text-white drop-shadow-lg transition-colors group-hover:text-primary group-focus-within:text-primary sm:text-[15px]">
+                              {manga.title}
+                            </h3>
+                            <div className="flex items-center gap-3">
+                              <span className="rounded bg-primary px-2 py-0.5 text-[9px] font-black uppercase text-primary-foreground shadow shadow-primary/30">
+                                {getMangaTypeLabel(manga.type)}
+                              </span>
+                              <div className="flex items-center gap-1 text-[11px] font-black text-white">
+                                <Star className="h-3 w-3 fill-primary text-primary" />
+                                {Number(manga.averageRating || 0).toFixed(1)}
+                              </div>
+                            </div>
                           </div>
+                        </Link>
+                      </>
+                    );
+
+                    if (disableHeavyEffects) {
+                      return (
+                        <div key={manga.id} className={`group relative shrink-0 ${cardWidthClass}`}>
+                          {posterContent}
                         </div>
-                      </Link>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={manga.id}
+                        className={`group relative shrink-0 ${cardWidthClass}`}
+                      >
+                        {posterContent}
+                      </div>
                     );
                   })
                 )}
@@ -368,11 +378,13 @@ const TopTenSection: React.FC = () => {
                 initial={{ opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={{ opacity: 0 }}
-                transition={{ duration: 0.12, ease: 'easeOut' }}
-                className="absolute inset-0 z-20 rounded-xl bg-background/50 backdrop-blur-[2px] flex items-center justify-center"
+                transition={{ duration: 0.14, ease: 'easeOut' }}
+                className="absolute inset-x-4 top-16 bottom-20 z-20 rounded-[28px] border border-white/10 bg-background/45 backdrop-blur-[2px] sm:inset-x-10 lg:inset-x-16"
               >
-                <div className="rounded-lg border border-border/60 bg-card/90 px-3.5 py-1.5 text-xs font-medium text-foreground">
-                  {FILTER_LABELS[timeFilter]} hazırlanıyor...
+                <div className="flex h-full items-center justify-center">
+                  <div className="rounded-full border border-white/10 bg-black/35 px-4 py-2 text-[11px] font-black uppercase tracking-[0.18em] text-white/75">
+                    {FILTER_LABELS[timeFilter]} hazırlanıyor
+                  </div>
                 </div>
               </motion.div>
             )}
@@ -383,6 +395,26 @@ const TopTenSection: React.FC = () => {
       <style dangerouslySetInnerHTML={{ __html: `
         .scrollbar-hide::-webkit-scrollbar {
           display: none;
+        }
+        .stroke-netflix-balanced {
+          -webkit-text-stroke: 4px rgba(255,255,255,0.9);
+          text-shadow: 0 6px 18px rgba(0,0,0,0.72);
+        }
+        .stroke-netflix-lite {
+          -webkit-text-stroke: 4px rgba(255,255,255,0.92);
+          text-shadow: 0 2px 10px rgba(0,0,0,0.75);
+        }
+        .group:hover .stroke-netflix-balanced {
+          -webkit-text-stroke: 3px rgba(255,255,255,1);
+          text-shadow: 0 8px 22px rgba(255,255,255,0.16);
+        }
+        @media (min-width: 640px) {
+          .stroke-netflix-balanced {
+            -webkit-text-stroke: 6px rgba(255,255,255,1);
+          }
+          .stroke-netflix-lite {
+            -webkit-text-stroke: 6px rgba(255,255,255,0.96);
+          }
         }
       `}} />
     </section>

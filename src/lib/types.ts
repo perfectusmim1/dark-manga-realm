@@ -316,10 +316,6 @@ export interface User {
       followed_manga_visibility?: 'public' | 'members' | 'mutuals' | 'private';
     };
     externalSync?: ExternalSyncPreferences;
-    profile?: {
-      bio?: string;
-      banner_url?: string;
-    };
   };
   twoFactorEnabled?: boolean;
 }
@@ -457,8 +453,6 @@ export interface ReadingList {
   isPublic: boolean;
   createdAt: string;
   items?: Manga[];
-  itemsCount?: number;
-  previewCovers?: string[];
 }
 
 export interface ReadingListItem {

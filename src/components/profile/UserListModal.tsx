@@ -70,7 +70,7 @@ const UserListModal: React.FC<UserListModalProps> = ({ isOpen, onClose, userId, 
         </DialogHeader>
         
         <div 
-          className="h-[400px] overflow-y-auto overscroll-contain custom-scrollbar" 
+          className="h-[400px] overflow-y-auto custom-scrollbar" 
           onScroll={handleScroll}
         >
           <div className="p-4 space-y-4">

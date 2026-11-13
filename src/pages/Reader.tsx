@@ -12,7 +12,6 @@ import {
   toggleChapterLike,
 } from '@/lib/database';
 import { supabase } from '@/lib/supabase';
-import { notifyReaderPresenceChange } from '@/lib/readerPresence';
 import {
   getReaderSettings,
   getLocalChapterReadProgressEntry,
@@ -26,7 +25,7 @@ import { logChapterRead } from '../lib/profile';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff, FileQuestion, Heart, MessageCircle } from 'lucide-react';
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
@@ -607,23 +606,12 @@ const Reader: React.FC = () => {
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
     localStorage.setItem('toonparrot_incognito', val.toString());
-    notifyReaderPresenceChange();
     if (val) {
         toast.info("Gizli mod açıldı. Okuma verileriniz kaydedilmeyecek.");
     } else {
         toast.info("Gizli mod kapatıldı.");
     }
   };
-
-  useEffect(() => {
-    if (!mangaId || !chapterId) {
-      return;
-    }
-    notifyReaderPresenceChange();
-    return () => {
-      notifyReaderPresenceChange();
-    };
-  }, [mangaId, chapterId]);
 
   useEffect(() => {
     if (!mangaId || !canUseNetworkReaderFeatures) {
@@ -2128,12 +2116,15 @@ const Reader: React.FC = () => {
         >
           <DialogHeader className="shrink-0 border-b border-border/60 px-4 py-3 sm:px-5">
             <DialogTitle className="flex items-center gap-2 text-base font-bold">
-              <MessageCircle className="h-4 w-4 text-emerald-400" />
+              <MessageCircle className="h-4 w-4 text-primary" />
               <span>Yorumlar</span>
               <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
                 {chapterCommentCount}
               </span>
             </DialogTitle>
+            <DialogDescription className="sr-only">
+              Bu bölüm hakkında yapılan yorumlar ve yeni yorum ekleme alanı.
+            </DialogDescription>
           </DialogHeader>
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
             {canUseNetworkReaderFeatures ? (
@@ -2317,7 +2308,7 @@ const Reader: React.FC = () => {
                 onClick={() => setChapterCommentsOpen(true)}
                 className="h-8 gap-1.5 rounded-lg text-xs font-semibold"
               >
-                <MessageCircle className="h-3.5 w-3.5 text-emerald-400" />
+                <MessageCircle className="h-3.5 w-3.5 text-primary" />
                 <span>Yorum Penceresi ({chapterCommentCount})</span>
               </Button>
             </div>
