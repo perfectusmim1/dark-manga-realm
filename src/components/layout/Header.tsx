@@ -1014,17 +1014,17 @@ const HeaderContent: React.FC = () => {
       className={`fixed top-0 left-0 right-0 z-50 border-b border-border/50 ${disableHeavyEffects ? 'bg-background/95' : 'bg-background/80 backdrop-blur-xl'}`}
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      <div className="container flex h-16 items-center justify-between gap-4">
+      <div className="container flex h-14 items-center justify-between gap-4">
         {/* Logo */}
         <Link
           to="/"
           className="-ml-2 flex items-center gap-2 md:-ml-3"
         >
-                <img src="/logo.webp" alt="Logo" className="h-12 w-auto object-contain" decoding="async" />
+                <img src="/logo.webp" alt="Logo" className="h-9 sm:h-10 w-auto object-contain" decoding="async" />
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden items-center gap-6 lg:flex">
+        <nav className="hidden items-center gap-5 lg:flex">
           {navLinks.map((link) => {
             const Icon = link.icon;
             const isActiveLink = link.path === '/characters'

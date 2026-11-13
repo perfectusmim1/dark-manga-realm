@@ -1248,3 +1248,234 @@ export const getUserComments = async (userId: string, page: number = 1, limit: n
         error 
     };
 };
+
+export interface ProfileFollowerPreview {
+    id: string;
+    username: string;
+    avatar?: string | null;
+}
+
+export interface ProfileWallPost {
+    id: string;
+    profileUserId: string;
+    authorUserId: string;
+    authorUsername: string;
+    authorAvatar?: string | null;
+    authorRole?: string | null;
+    content: string;
+    createdAt: string;
+}
+
+export interface ProfileLibraryItem {
+    id: string;
+    title: string;
+    cover?: string | null;
+    type?: string | null;
+    status?: string | null;
+    chapterCount: number;
+    readChaptersCount: number;
+    lastReadChapter?: number | null;
+    followedAt?: string | null;
+}
+
+export interface ProfileMonthlyReadingPoint {
+    monthKey: string;
+    monthIndex: number;
+    count: number;
+}
+
+export interface ProfileTopReadSeriesItem {
+    id: string;
+    title: string;
+    cover?: string | null;
+    readChapters: number;
+}
+
+export interface ProfileForumActivityItem {
+    id: string;
+    kind: 'topic' | 'reply';
+    topicId: string;
+    topicTitle: string;
+    category?: string | null;
+    excerpt: string;
+    likeCount: number;
+    createdAt: string;
+}
+
+export interface ProfileExtendedData {
+    bio: string;
+    bannerUrl: string;
+    followerPreviews: ProfileFollowerPreview[];
+    achievements: Array<{ achievementId: string; progress: number; unlockedAt: string }>;
+    wallPosts: ProfileWallPost[];
+    wallPostCount: number;
+    libraryItems: ProfileLibraryItem[];
+    completedSeriesCount: number;
+    readingDaysCount: number;
+    monthlyReading: ProfileMonthlyReadingPoint[];
+    topGenres: Array<{ genre: string; count: number }>;
+    typeCounts: Array<{ type: string; count: number }>;
+    ratingDistribution: Array<{ stars: number; count: number }>;
+    ratingAverage: number;
+    topReadSeries: ProfileTopReadSeriesItem[];
+    forumActivity: ProfileForumActivityItem[];
+    forumCount: number;
+    communityStats: {
+        commentCount: number;
+        reviewCount: number;
+        topicCount: number;
+        forumReplyCount: number;
+        wallPostCount: number;
+        likesReceived: number;
+    };
+}
+
+export const getProfileExtendedData = async (
+    targetUserId: string,
+): Promise<ProfileExtendedData | null> => {
+    if (!targetUserId?.trim()) {
+        return null;
+    }
+
+    const { data, error } = await supabase.rpc('get_profile_extended_data', {
+        p_target_user_id: targetUserId,
+    });
+
+    if (error || !data || typeof data !== 'object') {
+        if (error) {
+            console.error('Profil genişletilmiş verisi alınamadı:', error);
+        }
+        return null;
+    }
+
+    const payload = data as Record<string, any>;
+    return {
+        bio: typeof payload.bio === 'string' ? payload.bio : '',
+        bannerUrl: typeof payload.bannerUrl === 'string' ? payload.bannerUrl : '',
+        followerPreviews: Array.isArray(payload.followerPreviews) ? payload.followerPreviews : [],
+        achievements: Array.isArray(payload.achievements) ? payload.achievements : [],
+        wallPosts: Array.isArray(payload.wallPosts) ? payload.wallPosts : [],
+        wallPostCount: Number(payload.wallPostCount ?? 0) || 0,
+        libraryItems: Array.isArray(payload.libraryItems) ? payload.libraryItems : [],
+        completedSeriesCount: Number(payload.completedSeriesCount ?? 0) || 0,
+        readingDaysCount: Number(payload.readingDaysCount ?? 0) || 0,
+        monthlyReading: Array.isArray(payload.monthlyReading) ? payload.monthlyReading : [],
+        topGenres: Array.isArray(payload.topGenres) ? payload.topGenres : [],
+        typeCounts: Array.isArray(payload.typeCounts) ? payload.typeCounts : [],
+        ratingDistribution: Array.isArray(payload.ratingDistribution) ? payload.ratingDistribution : [],
+        ratingAverage: Number(payload.ratingAverage ?? 0) || 0,
+        topReadSeries: Array.isArray(payload.topReadSeries) ? payload.topReadSeries : [],
+        forumActivity: Array.isArray(payload.forumActivity) ? payload.forumActivity : [],
+        forumCount: Number(payload.forumCount ?? 0) || 0,
+        communityStats: {
+            commentCount: Number(payload.communityStats?.commentCount ?? 0) || 0,
+            reviewCount: Number(payload.communityStats?.reviewCount ?? 0) || 0,
+            topicCount: Number(payload.communityStats?.topicCount ?? 0) || 0,
+            forumReplyCount: Number(payload.communityStats?.forumReplyCount ?? 0) || 0,
+            wallPostCount: Number(payload.communityStats?.wallPostCount ?? 0) || 0,
+            likesReceived: Number(payload.communityStats?.likesReceived ?? 0) || 0,
+        },
+    };
+};
+
+export const createProfileWallPost = async (
+    profileUserId: string,
+    authorUserId: string,
+    content: string,
+): Promise<ProfileWallPost> => {
+    const trimmed = content.trim();
+    if (!trimmed) {
+        throw new Error('WALL_POST_EMPTY');
+    }
+
+    const { data, error } = await supabase
+        .from('profile_wall_posts')
+        .insert({
+            profile_user_id: profileUserId,
+            author_user_id: authorUserId,
+            content: trimmed,
+        })
+        .select(`
+            id,
+            profile_user_id,
+            author_user_id,
+            content,
+            created_at,
+            author:author_user_id (username, avatar, role)
+        `)
+        .single();
+
+    if (error || !data) {
+        throw error || new Error('WALL_POST_CREATE_FAILED');
+    }
+
+    const row = data as any;
+    const author = Array.isArray(row.author) ? row.author[0] : row.author;
+    return {
+        id: String(row.id),
+        profileUserId: String(row.profile_user_id),
+        authorUserId: String(row.author_user_id),
+        authorUsername: String(author?.username || 'Kullanıcı'),
+        authorAvatar: author?.avatar ? String(author.avatar) : null,
+        authorRole: author?.role ? String(author.role) : null,
+        content: String(row.content),
+        createdAt: String(row.created_at),
+    };
+};
+
+export const deleteProfileWallPost = async (postId: string): Promise<void> => {
+    const { error } = await supabase
+        .from('profile_wall_posts')
+        .delete()
+        .eq('id', postId);
+
+    if (error) {
+        throw error;
+    }
+};
+
+export const updateProfileCustomization = async (
+    currentPreferences: any = {},
+    updates: { bio?: string; bannerUrl?: string },
+): Promise<Record<string, any>> => {
+    const safeBio = typeof updates.bio === 'string'
+        ? updates.bio.trim().slice(0, 280)
+        : (currentPreferences?.profile?.bio ?? '');
+
+    const rawBanner = typeof updates.bannerUrl === 'string'
+        ? updates.bannerUrl.trim().slice(0, 500)
+        : (currentPreferences?.profile?.banner_url ?? '');
+
+    let safeBanner = '';
+    if (rawBanner) {
+        try {
+            const parsed = new URL(rawBanner);
+            if (parsed.protocol === 'http:' || parsed.protocol === 'https:') {
+                safeBanner = rawBanner;
+            }
+        } catch {
+            safeBanner = '';
+        }
+    }
+
+    const updatedPreferences = {
+        ...(currentPreferences && typeof currentPreferences === 'object' ? currentPreferences : {}),
+        profile: {
+            ...(currentPreferences?.profile && typeof currentPreferences.profile === 'object'
+                ? currentPreferences.profile
+                : {}),
+            bio: safeBio,
+            banner_url: safeBanner,
+        },
+    };
+
+    const { error } = await supabase.rpc('update_current_user_preferences', {
+        p_preferences: updatedPreferences,
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    return updatedPreferences;
+};

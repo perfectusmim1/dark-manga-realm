@@ -68,15 +68,15 @@ const Community: React.FC = () => {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container max-w-6xl mx-auto px-4 pt-24 pb-16 space-y-6">
-        <div className="space-y-4">
+      <main className="container max-w-6xl mx-auto px-4 pt-20 pb-12 space-y-5">
+        <div className="space-y-3">
           <div>
-            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Topluluk</h1>
+            <h1 className="text-xl sm:text-2xl font-bold tracking-tight">Topluluk</h1>
           </div>
 
           <nav
             aria-label="Topluluk sekmeleri"
-            className="flex flex-wrap items-center gap-2 border-b border-border/60 pb-3"
+            className="flex items-center gap-1.5 overflow-x-auto scrollbar-hide border-b border-border/60 pb-2.5"
           >
             {COMMUNITY_TABS.map((tab) => {
               const Icon = tab.icon;
@@ -88,13 +88,13 @@ const Community: React.FC = () => {
                   onClick={() => handleSelectTab(tab.id)}
                   aria-current={isActive ? 'page' : undefined}
                   className={cn(
-                    'inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
+                    'inline-flex shrink-0 items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs sm:text-sm font-medium whitespace-nowrap transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60',
                     isActive
                       ? 'bg-primary text-primary-foreground shadow-sm'
                       : 'text-muted-foreground hover:text-foreground hover:bg-muted/60',
                   )}
                 >
-                  <Icon className="h-4 w-4 shrink-0" />
+                  <Icon className="h-3.5 w-3.5 sm:h-4 sm:w-4 shrink-0" />
                   <span>{tab.label}</span>
                 </button>
               );

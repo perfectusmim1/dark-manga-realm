@@ -257,24 +257,24 @@ const Favorites: React.FC = () => {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container pb-12 pt-20">
-        <div className="mb-8 animate-fade-up" style={{ animationDelay: '0.04s' }}>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Favorilerim</h1>
-          <p className="mt-2 text-muted-foreground">
+      <main className="container mx-auto max-w-7xl px-4 pb-12 pt-20">
+        <div className="mb-6 animate-fade-up" style={{ animationDelay: '0.04s' }}>
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Favorilerim</h1>
+          <p className="mt-1 text-xs sm:text-sm text-muted-foreground">
             {favoriteManga.length} manga
-            {hasLoadedLists ? ` ve ${favoriteLists.length} beğenilen okuma listesi` : ''}
+            {hasLoadedLists ? ` · ${favoriteLists.length} beğenilen okuma listesi` : ''}
           </p>
         </div>
 
-        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'manga' | 'lists')} className="space-y-6">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-secondary/40 p-1 sm:inline-flex sm:w-auto sm:flex-wrap">
-            <TabsTrigger value="manga" className="gap-2 px-3 text-xs sm:text-sm">
-              <Heart className="h-4 w-4" />
+        <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'manga' | 'lists')} className="space-y-5">
+          <TabsList className="inline-flex h-9 items-center rounded-lg border border-border/60 bg-card/70 p-0.5">
+            <TabsTrigger value="manga" className="h-8 gap-1.5 rounded-md px-3 text-xs font-medium">
+              <Heart className="h-3.5 w-3.5" />
               <span className="sm:hidden">Mangalar</span>
               <span className="hidden sm:inline">Favori Mangalar</span>
             </TabsTrigger>
-            <TabsTrigger value="lists" className="gap-2 px-3 text-xs sm:text-sm">
-              <List className="h-4 w-4" />
+            <TabsTrigger value="lists" className="h-8 gap-1.5 rounded-md px-3 text-xs font-medium">
+              <List className="h-3.5 w-3.5" />
               <span className="sm:hidden">Listeler</span>
               <span className="hidden sm:inline">Beğenilen Okuma Listeleri</span>
             </TabsTrigger>

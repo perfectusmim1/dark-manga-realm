@@ -1,19 +1,34 @@
 ﻿import React, { startTransition, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ArrowRight, TrendingUp, Clock, Sparkles, Play, ChevronLeft, ChevronRight, Download, WifiOff } from 'lucide-react';
+import {
+  ArrowRight,
+  BookMarked,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  Heart,
+  Layers,
+  Play,
+  Sparkles,
+  TrendingUp,
+  WifiOff,
+} from 'lucide-react';
 import Header from '@/components/layout/Header';
 import useDocumentTitle from '@/hooks/useDocumentTitle';
 import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import MangaCard from '@/components/manga/MangaCard';
+import ReadingListCover from '@/components/manga/ReadingListCover';
+import AppPagination from '@/components/ui/AppPagination';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import type { HomePageMangaSections } from '@/lib/database';
+import { getPublicReadingListsCatalog, type PublicReadingListCard } from '@/lib/communityCatalog';
 import TagBadge from '@/components/tags/TagBadge';
 import type { ReadingHistoryEntry } from '@/lib/storage';
 import { supabaseUrl } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Manga, Tag } from '@/lib/types';
-import { AnimatePresence, motion } from 'framer-motion';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
@@ -139,6 +154,7 @@ const CONTINUE_READING_DESCRIPTION_LIMIT = 280;
 
 type HomeDataModule = {
   getHomePageMangaSections: () => Promise<HomePageMangaSections>;
+  getMangaCatalogPage: typeof import('@/lib/database').getMangaCatalogPage;
   getMangaSummariesByIds: (mangaIds: string[], options?: { includePrivate?: boolean }) => Promise<Manga[]>;
   getTopTenMangaIds: (timeframe?: 'today' | 'week' | 'all') => Promise<Set<string>>;
   getTrendingTags: (limit?: number, options?: { includePending?: boolean }) => Promise<Tag[]>;
@@ -155,6 +171,7 @@ const loadHomeDataModule = () => {
   if (!homeDataModulePromise) {
     homeDataModulePromise = import('@/lib/database').then((module) => ({
       getHomePageMangaSections: module.getHomePageMangaSections,
+      getMangaCatalogPage: module.getMangaCatalogPage,
       getMangaSummariesByIds: module.getMangaSummariesByIds,
       getTopTenMangaIds: module.getTopTenMangaIds,
       getTrendingTags: module.getTrendingTags,
@@ -480,7 +497,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
         </Button>
       </div>
 
-      <div className="relative overflow-hidden rounded-[30px] border border-primary/15 bg-card shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
+      <div className="relative overflow-hidden rounded-2xl border border-primary/15 bg-card shadow-[0_16px_45px_rgba(15,23,42,0.16)]">
         {continueReadingArtwork && (
           <div className="absolute inset-0">
             <OptimizedImage
@@ -493,32 +510,32 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
               containerClassName="h-full w-full"
               placeholderClassName="rounded-none"
               className={cn(
-                'h-full w-full object-cover object-top opacity-30',
+                'h-full w-full object-cover object-top opacity-25',
                 shouldBlurFeaturedArtwork && 'scale-[1.04] blur-md',
               )}
             />
           </div>
         )}
 
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(244,114,182,0.12),transparent_34%)]" />
+        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.14),transparent_42%),radial-gradient(circle_at_bottom_right,rgba(244,114,182,0.1),transparent_36%)]" />
         <div className="absolute inset-0 bg-gradient-to-br from-background via-background/92 to-background/78" />
         <div className="absolute inset-y-0 left-0 w-[76%] bg-gradient-to-r from-background/94 via-background/76 to-transparent sm:w-[68%] lg:w-[58%]" />
 
-        <div className="relative z-10 grid grid-cols-[minmax(0,1fr)_8.75rem] items-start gap-3 px-3 py-3 min-[430px]:grid-cols-[minmax(0,1fr)_10rem] min-[430px]:gap-4 sm:gap-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1.15fr)_240px] lg:items-end lg:gap-10 lg:px-10 lg:py-10">
+        <div className="relative z-10 grid grid-cols-[minmax(0,1fr)_7.5rem] items-center gap-3 px-4 py-4 min-[430px]:grid-cols-[minmax(0,1fr)_8.75rem] min-[430px]:gap-4 sm:gap-6 sm:px-6 sm:py-6 lg:grid-cols-[minmax(0,1.2fr)_185px] lg:gap-8 lg:px-8 lg:py-6">
           <div className="order-1 min-w-0">
-            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary ${continueReadingGlassLabelClass}`}>
+            <div className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-[0.16em] text-primary ${continueReadingGlassLabelClass}`}>
               Son kaldığın seri
             </div>
 
-            <h3 className="mt-3 max-w-3xl pb-[0.08em] pr-1 text-[1.85rem] font-black leading-[1.02] tracking-tight text-white [text-shadow:0_8px_30px_rgba(0,0,0,0.38)] min-[430px]:text-[2.05rem] sm:mt-4 sm:text-4xl sm:leading-[1.06] lg:text-[2.75rem] lg:leading-[1.04]">
+            <h3 className="mt-2 max-w-3xl text-lg font-bold leading-snug tracking-tight text-foreground sm:mt-3 sm:text-2xl lg:text-3xl line-clamp-2">
               {featured.manga.title}
             </h3>
 
-            <p className="mt-3 hidden max-w-2xl text-sm leading-6 text-white/80 [text-shadow:0_2px_18px_rgba(0,0,0,0.32)] sm:line-clamp-2 sm:block sm:text-[15px]">
+            <p className="mt-2 hidden max-w-2xl text-xs leading-relaxed text-foreground/75 sm:line-clamp-2 sm:block sm:text-sm">
               {featuredDescription}
             </p>
 
-            <div className="mt-4 flex flex-wrap gap-2 sm:mt-5">
+            <div className="mt-3 flex flex-wrap gap-1.5 sm:mt-4">
               <Badge variant="secondary" className={continueReadingGlassBadgeClass}>
                 Bölüm {featured.chapterNumber}
               </Badge>
@@ -535,26 +552,26 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
               )}
             </div>
 
-            <div className="mt-5 flex flex-col gap-2.5 sm:mt-6 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-              <Button asChild variant="glow" className="w-full rounded-full border border-primary/35 px-5 shadow-[0_18px_36px_rgba(37,99,235,0.38)] sm:w-auto">
+            <div className="mt-4 flex flex-col gap-2 sm:mt-5 sm:flex-row sm:flex-wrap sm:items-center sm:gap-2.5">
+              <Button asChild variant="glow" size="sm" className="h-9 rounded-lg border border-primary/35 px-4 shadow-md sm:w-auto">
                 <Link to={continueHref}>
-                  <Play className="mr-2 h-4 w-4" />
+                  <Play className="mr-1.5 h-3.5 w-3.5" />
                   Devam Et
                 </Link>
               </Button>
-              <Button asChild variant="outline" className={`w-full rounded-full px-5 sm:w-auto ${continueReadingGlassButtonClass}`}>
+              <Button asChild variant="outline" size="sm" className={`h-9 rounded-lg px-4 sm:w-auto ${continueReadingGlassButtonClass}`}>
                 <Link to={detailsHref}>Seri Sayfası</Link>
               </Button>
               <p className={`${continueReadingGlassMetaClass} hidden sm:inline-flex sm:ml-1`}>{formatContinueReadingLastRead(featured.lastRead)}</p>
             </div>
           </div>
 
-          <div className="order-2 flex justify-end self-start lg:justify-end">
+          <div className="order-2 flex justify-end self-center">
             <Link
               to={continueHref}
-              className="group block w-full max-w-[8.75rem] min-[430px]:max-w-[10rem] sm:w-[14rem] sm:max-w-none lg:w-full lg:max-w-[16rem]"
+              className="group block w-full max-w-[7.5rem] min-[430px]:max-w-[8.75rem] sm:w-[11rem] sm:max-w-none lg:w-full lg:max-w-[11.5rem]"
             >
-              <div className="relative aspect-[3/4] overflow-hidden rounded-[24px] border border-white/10 bg-black/20 shadow-[0_20px_40px_rgba(0,0,0,0.28)] sm:rounded-[28px]">
+              <div className="relative aspect-[5/7] overflow-hidden rounded-xl border border-white/10 bg-black/20 shadow-xl">
                 <OptimizedImage
                   src={featured.manga.cover}
                   alt={featured.manga.title}
@@ -566,17 +583,16 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                   rootMargin="640px 0px"
                   transform={CONTINUE_READING_COVER_TRANSFORM}
                   containerClassName="h-full w-full"
-                  placeholderClassName="rounded-[24px] sm:rounded-[28px]"
+                  placeholderClassName="rounded-xl"
                   className={cn(
-                    'h-full w-full object-cover',
+                    'h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]',
                     shouldBlurFeaturedArtwork && 'scale-[1.03] blur-md',
-                    ''
                   )}
                 />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                <div className="absolute inset-x-0 bottom-0 p-3 sm:p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Devam Noktan</p>
-                  <p className="mt-1 text-base font-black text-white sm:text-lg">Bölüm {featured.chapterNumber}</p>
+                <div className="absolute inset-0 bg-gradient-to-t from-black/75 via-transparent to-transparent" />
+                <div className="absolute inset-x-0 bottom-0 p-2.5 sm:p-3">
+                  <p className="text-[10px] font-semibold uppercase tracking-[0.16em] text-white/75">Devam Noktan</p>
+                  <p className="mt-0.5 text-sm font-bold text-white sm:text-base">Bölüm {featured.chapterNumber}</p>
                 </div>
               </div>
             </Link>
@@ -650,12 +666,47 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   const [showLeftArrow, setShowLeftArrow] = useState(false);
   const [showRightArrow, setShowRightArrow] = useState(false);
   const [itemWidth, setItemWidth] = useState(0);
+  const [activeTypeFilter, setActiveTypeFilter] = useState<'all' | Manga['type']>('all');
   const [scrollMetrics, setScrollMetrics] = useState(() => ({
     clientWidth: typeof window === 'undefined' ? 0 : window.innerWidth,
     viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth,
   }));
   const showArrowControls = !isCoarsePointer && !disableHeavyEffects;
-  const visibleManga = manga;
+  const availableTypeFilters = useMemo(() => {
+    const presentTypes = new Set<Manga['type']>();
+    manga.forEach((item) => {
+      if (item.type) {
+        presentTypes.add(item.type);
+      }
+    });
+    if (presentTypes.size < 2) {
+      return [];
+    }
+    return [
+      { value: 'all' as const, label: 'Tümü' },
+      ...Array.from(presentTypes).map((type) => ({
+        value: type,
+        label: getMangaTypeLabel(type),
+      })),
+    ];
+  }, [manga]);
+
+  const visibleManga = useMemo(() => {
+    const seenIds = new Set<string>();
+    return manga.filter((item) => {
+      if (seenIds.has(item.id)) return false;
+      if (activeTypeFilter !== 'all' && item.type !== activeTypeFilter) return false;
+      seenIds.add(item.id);
+      return true;
+    });
+  }, [activeTypeFilter, manga]);
+
+  useEffect(() => {
+    if (activeTypeFilter !== 'all' && visibleManga.length === 0 && manga.length > 0) {
+      setActiveTypeFilter('all');
+    }
+  }, [activeTypeFilter, manga.length, visibleManga.length]);
+
   const visibleCoverPriorityCount = Math.max(
     priorityCount,
     getInitialVisibleHomeSectionCardCount(scrollMetrics.viewportWidth, isCoarsePointer),
@@ -712,6 +763,16 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     });
   }, [updateLayoutMetrics]);
 
+  const handleTypeFilterSelect = useCallback((nextFilter: 'all' | Manga['type']) => {
+    setActiveTypeFilter(nextFilter);
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({ left: 0, behavior: 'auto' });
+    }
+    if (typeof window !== 'undefined') {
+      window.requestAnimationFrame(() => requestLayoutMetricsUpdate());
+    }
+  }, [requestLayoutMetricsUpdate]);
+
   useEffect(() => {
     if (typeof window === 'undefined') {
       return;
@@ -721,11 +782,11 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     window.addEventListener('resize', requestLayoutMetricsUpdate, { passive: true });
 
     return () => window.removeEventListener('resize', requestLayoutMetricsUpdate);
-  }, [manga.length, requestLayoutMetricsUpdate, showArrowControls]);
+  }, [visibleManga.length, requestLayoutMetricsUpdate, showArrowControls]);
 
   useEffect(() => {
     requestLayoutMetricsUpdate();
-  }, [manga.length, requestLayoutMetricsUpdate]);
+  }, [visibleManga.length, requestLayoutMetricsUpdate]);
 
   useEffect(() => () => {
     if (typeof window === 'undefined') {
@@ -764,14 +825,13 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
     observer.observe(probe);
     return () => observer.disconnect();
-  }, [manga.length, requestLayoutMetricsUpdate]);
+  }, [visibleManga.length, requestLayoutMetricsUpdate]);
 
   const gapPx = scrollMetrics.viewportWidth >= 640 ? 16 : 12;
   const effectiveItemWidth = itemWidth > 0
     ? itemWidth
     : getEstimatedHomeCarouselItemWidth(scrollMetrics.viewportWidth, scrollMetrics.clientWidth);
   const itemStride = effectiveItemWidth > 0 ? effectiveItemWidth + gapPx : 0;
-  const posterCenterY = effectiveItemWidth > 0 ? Math.round(effectiveItemWidth * 0.75) : undefined;
 
   const scroll = useCallback((direction: 'left' | 'right') => {
     const scroller = scrollRef.current;
@@ -807,54 +867,73 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   }
 
   return (
-    <section className={`${withTopSpacing ? 'mt-12 ' : ''}${disableHeavyEffects ? '' : 'animate-fade-up'}`} style={sectionStyle}>
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-2">
-          <Icon className={iconClassName} />
-          <h2 className="text-xl font-bold tracking-tight md:text-2xl">{title}</h2>
+    <section className={`${withTopSpacing ? 'mt-10 ' : ''}${disableHeavyEffects ? '' : 'animate-fade-up'}`} style={sectionStyle}>
+      <div className="mb-4 flex flex-wrap items-center justify-between gap-2.5 sm:mb-5">
+        <div className="flex min-w-0 flex-wrap items-center gap-3">
+          <div className="flex items-center gap-2">
+            <Icon className={iconClassName} />
+            <h2 className="text-lg font-bold tracking-tight sm:text-xl md:text-2xl">{title}</h2>
+          </div>
+
+          {availableTypeFilters.length > 0 && (
+            <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide">
+              {availableTypeFilters.map((filterOption) => {
+                const isActive = activeTypeFilter === filterOption.value;
+                return (
+                  <button
+                    key={filterOption.value}
+                    type="button"
+                    onClick={() => handleTypeFilterSelect(filterOption.value)}
+                    className={cn(
+                      'shrink-0 rounded-full px-2.5 py-1 text-xs font-medium transition-colors',
+                      isActive
+                        ? 'bg-primary text-primary-foreground'
+                        : 'bg-secondary/60 text-muted-foreground hover:bg-secondary hover:text-foreground',
+                    )}
+                  >
+                    {filterOption.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
-        <Button asChild variant="ghost" size="sm">
-          <Link to={linkTo}>
-            Tümünü Gör
-            <ArrowRight className="ml-1 h-4 w-4" />
-          </Link>
-        </Button>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {showArrowControls && (showLeftArrow || showRightArrow) && (
+            <div className="flex items-center gap-1 mr-0.5">
+              <button
+                type="button"
+                onClick={() => scroll('left')}
+                disabled={!showLeftArrow}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-card/70 text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-35"
+                aria-label={`${title} sola kaydır`}
+              >
+                <ChevronLeft className="h-4 w-4" />
+              </button>
+              <button
+                type="button"
+                onClick={() => scroll('right')}
+                disabled={!showRightArrow}
+                className="flex h-8 w-8 items-center justify-center rounded-full border border-border/80 bg-card/70 text-foreground transition-colors hover:bg-accent disabled:pointer-events-none disabled:opacity-35"
+                aria-label={`${title} sağa kaydır`}
+              >
+                <ChevronRight className="h-4 w-4" />
+              </button>
+            </div>
+          )}
+
+          <Button asChild variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:text-sm text-muted-foreground hover:text-foreground">
+            <Link to={linkTo}>
+              Tümü
+              <ArrowRight className="ml-1 h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </div>
       </div>
 
-      <div className="relative group/carousel">
-        {showArrowControls && <AnimatePresence>
-          {showLeftArrow && (
-            <motion.button
-              key={`${title}-arrow-left`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => scroll('left')}
-              style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
-              className="group/arrow absolute left-2 sm:left-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              aria-label={`${title} sola kaydır`}
-            >
-              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:-translate-x-0.5" strokeWidth={2.25} />
-            </motion.button>
-          )}
-
-          {showRightArrow && (
-            <motion.button
-              key={`${title}-arrow-right`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => scroll('right')}
-              style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
-              className="group/arrow absolute right-2 sm:right-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-all duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              aria-label={`${title} sağa kaydır`}
-            >
-              <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:translate-x-0.5" strokeWidth={2.25} />
-            </motion.button>
-          )}
-        </AnimatePresence>}
-
-        {manga[0] && (
+      <div className="relative">
+        {visibleManga[0] && (
           <div aria-hidden className="pointer-events-none absolute left-0 top-0 -z-10 opacity-0">
             <div
               ref={probeRef}
@@ -920,6 +999,24 @@ const Index: React.FC = () => {
     readHomeFeedSeed().trendingTags?.value ?? []
   ));
   const [tagsLoading, setTagsLoading] = useState(() => readHomeFeedSeed().trendingTags === null);
+  const [publicCollections, setPublicCollections] = useState<{ items: PublicReadingListCard[]; loading: boolean }>({
+    items: [],
+    loading: true,
+  });
+  const [catalogSort, setCatalogSort] = useState<'updated' | 'popular' | 'newest'>('updated');
+  const [catalogPage, setCatalogPage] = useState(1);
+  const [catalogState, setCatalogState] = useState<{
+    items: Manga[];
+    totalCount: number;
+    totalPages: number;
+    loading: boolean;
+  }>({
+    items: [],
+    totalCount: 0,
+    totalPages: 1,
+    loading: true,
+  });
+  const catalogSectionRef = useRef<HTMLElement | null>(null);
   const blurAdultArtwork = appearancePreferences.adult_cover_blur && user?.preferences?.content?.adult_mode === true;
   const mangas = useMemo(() => {
     const uniqueMangaById = new Map<string, Manga>();
@@ -1016,6 +1113,7 @@ const Index: React.FC = () => {
       setTopTenWeekIds(null);
       setContinueReadingSeed([]);
       setContinueReadingLoading(Boolean(user?.id));
+      setCatalogPage(1);
     };
 
     window.addEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
@@ -1099,6 +1197,94 @@ const Index: React.FC = () => {
       active = false;
     };
   }, [homeAudienceKey, isOnline]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      setPublicCollections({ items: [], loading: false });
+      return;
+    }
+
+    let active = true;
+    setPublicCollections((prev) => ({ ...prev, loading: prev.items.length === 0 }));
+
+    void getPublicReadingListsCatalog({ sort: 'popular', limit: 3 })
+      .then(({ items }) => {
+        if (!active) return;
+        const seenIds = new Set<string>();
+        const deduped = items.filter((item) => {
+          if (seenIds.has(item.id)) return false;
+          seenIds.add(item.id);
+          return true;
+        });
+        setPublicCollections({ items: deduped, loading: false });
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error('Popular collections loading error:', err);
+        setPublicCollections({ items: [], loading: false });
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [isOnline]);
+
+  useEffect(() => {
+    if (!isOnline) {
+      setCatalogState({ items: [], totalCount: 0, totalPages: 1, loading: false });
+      return;
+    }
+
+    let active = true;
+    setCatalogState((prev) => ({ ...prev, loading: true }));
+
+    void loadHomeDataModule()
+      .then(({ getMangaCatalogPage }) => (
+        getMangaCatalogPage({
+          page: catalogPage,
+          pageSize: 24,
+          sort: catalogSort,
+          includeAdult: canSeeAdultContent,
+        })
+      ))
+      .then((result) => {
+        if (!active) return;
+        const seenIds = new Set<string>();
+        const dedupedItems = result.items.filter((item) => {
+          if (seenIds.has(item.id)) return false;
+          seenIds.add(item.id);
+          return true;
+        });
+        setCatalogState({
+          items: dedupedItems,
+          totalCount: result.totalCount,
+          totalPages: Math.max(1, result.totalPages),
+          loading: false,
+        });
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error('Home catalog loading error:', err);
+        setCatalogState((prev) => ({ ...prev, loading: false }));
+      });
+
+    return () => {
+      active = false;
+    };
+  }, [canSeeAdultContent, catalogPage, catalogSort, isOnline]);
+
+  const handleCatalogSortChange = useCallback((nextSort: 'updated' | 'popular' | 'newest') => {
+    setCatalogSort(nextSort);
+    setCatalogPage(1);
+  }, []);
+
+  const handleCatalogPageChange = useCallback((nextPage: number) => {
+    setCatalogPage(nextPage);
+    if (typeof window !== 'undefined' && catalogSectionRef.current) {
+      const top = catalogSectionRef.current.getBoundingClientRect().top + window.scrollY - 76;
+      window.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
+    }
+  }, []);
 
   useEffect(() => {
     let active = true;
@@ -1319,7 +1505,7 @@ const Index: React.FC = () => {
             || entry.mangaSnapshot?.isAdult === true
             || manga?.isAdult === true
             || manga?.type === 'webtoon_hentai'
-            || manga?.type === 'manga_hentai'
+            || (manga?.type as string) === 'manga_hentai'
           ) {
             return null;
           }
@@ -1409,7 +1595,7 @@ const Index: React.FC = () => {
 
         {isOnline ? (
           <>
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled>
+            <DeferredMount className="mt-10" placeholderMinHeight={380} rootMargin={sectionDeferredRootMargin} disabled>
               <HorizontalMangaSection
                 title="Yeni Çıkan Seriler"
                 icon={Sparkles}
@@ -1426,7 +1612,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
+            <DeferredMount className="mt-10" placeholderMinHeight={380} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Son Güncellenenler"
                 icon={Clock}
@@ -1443,7 +1629,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
+            <DeferredMount className="mt-10" placeholderMinHeight={380} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Trend Olanlar"
                 icon={TrendingUp}
@@ -1460,29 +1646,122 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin={blockDeferredRootMargin}>
+            {(publicCollections.loading || publicCollections.items.length > 0) && (
+              <section className="mt-10">
+                <div className="mb-4 flex items-center justify-between gap-3">
+                  <div className="flex items-center gap-2">
+                    <BookMarked className="h-5 w-5 text-primary" />
+                    <h2 className="text-lg font-bold tracking-tight sm:text-xl md:text-2xl">Popüler Koleksiyonlar</h2>
+                  </div>
+                  <Button asChild variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:text-sm text-muted-foreground hover:text-foreground">
+                    <Link to="/community?tab=reading-lists">
+                      Tümü
+                      <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
+                </div>
+
+                {publicCollections.loading ? (
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {Array.from({ length: 3 }).map((_, index) => (
+                      <div key={index} className="rounded-xl border border-border/70 bg-card/40 p-3.5">
+                        <Skeleton className="h-4 w-32" />
+                        <Skeleton className="mt-2 h-5 w-48" />
+                        <Skeleton className="mt-3 aspect-[20/7] w-full rounded-lg" />
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+                    {publicCollections.items.map((list) => (
+                      <Link
+                        key={list.id}
+                        to={`/reading-lists/${list.id}`}
+                        className="group flex flex-col justify-between rounded-xl border border-border/75 bg-card/55 p-3.5 transition-colors hover:border-primary/40 hover:bg-card"
+                      >
+                        <div>
+                          <div className="mb-2.5 flex items-center justify-between gap-2 text-xs text-muted-foreground">
+                            <div className="flex min-w-0 items-center gap-2">
+                              {list.ownerAvatar ? (
+                                <OptimizedImage
+                                  src={list.ownerAvatar}
+                                  alt={list.ownerUsername}
+                                  transform={{ width: 48, quality: 75 }}
+                                  containerClassName="h-5 w-5 shrink-0 overflow-hidden rounded-full bg-muted"
+                                  className="h-full w-full object-cover"
+                                />
+                              ) : (
+                                <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-primary/15 text-[10px] font-bold text-primary">
+                                  {(list.ownerUsername || 'U').slice(0, 1).toUpperCase()}
+                                </span>
+                              )}
+                              <span className="truncate font-medium text-foreground/90">{list.ownerUsername}</span>
+                            </div>
+
+                            <div className="flex shrink-0 items-center gap-2.5 tabular-nums">
+                              <span>{list.itemsCount} seri</span>
+                              <span className="inline-flex items-center gap-1">
+                                <Heart className={cn('h-3 w-3', list.viewerHasLiked ? 'fill-rose-500 text-rose-500' : '')} />
+                                {list.likeCount}
+                              </span>
+                            </div>
+                          </div>
+
+                          <h3 className="line-clamp-1 text-sm font-bold text-foreground transition-colors group-hover:text-primary sm:text-base">
+                            {list.name}
+                          </h3>
+                          {list.description && (
+                            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
+                              {list.description}
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="mt-3">
+                          <ReadingListCover
+                            variant="strip"
+                            imageUrl={list.imageUrl}
+                            previewCovers={list.previewCovers}
+                            totalCount={list.itemsCount}
+                            alt={list.name}
+                            showLabel={false}
+                          />
+                        </div>
+                      </Link>
+                    ))}
+                  </div>
+                )}
+              </section>
+            )}
+
+            <DeferredMount className="mt-10" placeholderMinHeight={180} rootMargin={blockDeferredRootMargin}>
               <section
                 className={disableHeavyEffects ? '' : 'animate-fade-up'}
                 style={disableHeavyEffects ? undefined : { animationDelay: '0.06s' }}
               >
-                <div className="mb-6 flex items-center gap-2">
-                  <TrendingUp className="h-5 w-5 text-primary" />
-                  <h2 className="text-2xl font-bold tracking-tight">Trend Etiketler</h2>
-                  <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2 h-5 text-[10px]">
-                    Bu Hafta
-                  </Badge>
+                <div className="mb-4 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <TrendingUp className="h-5 w-5 text-primary" />
+                    <h2 className="text-lg font-bold tracking-tight sm:text-xl md:text-2xl">Trend Etiketler</h2>
+                  </div>
+                  <Button asChild variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:text-sm text-muted-foreground hover:text-foreground">
+                    <Link to="/browse">
+                      Filtrele
+                      <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
                 </div>
-                <div className={`flex flex-wrap gap-2.5 rounded-2xl border border-border bg-card/30 p-8 ${disableHeavyEffects ? '' : 'backdrop-blur-sm'}`}>
+                <div className="flex flex-wrap gap-2 rounded-xl border border-border/75 bg-card/35 p-4 sm:p-5">
                   {tagsLoading ? (
-                    Array.from({ length: 15 }).map((_, i) => (
-                      <div key={i} className="h-8 rounded-full bg-secondary/30 animate-pulse" style={{ width: `${60 + (i % 5) * 20}px` }} />
+                    Array.from({ length: 14 }).map((_, i) => (
+                      <div key={i} className="h-7 rounded-full bg-secondary/40 animate-pulse" style={{ width: `${56 + (i % 5) * 18}px` }} />
                     ))
                   ) : (
                     trendingTags.map((tag, index) => (
                       <Link
                         key={tag.id}
                         to={`/browse?tags=${tag.slug}`}
-                        className="inline-block rounded-full transition-transform duration-200 hover:scale-105 active:scale-95 focus-visible:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        className="inline-block rounded-full transition-transform duration-150 hover:scale-[1.03] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
                       >
                         <TagBadge tag={tag} size={index < 5 ? 'md' : 'sm'} />
                       </Link>
@@ -1491,6 +1770,98 @@ const Index: React.FC = () => {
                 </div>
               </section>
             </DeferredMount>
+
+            <section ref={catalogSectionRef} className="mt-12 scroll-mt-20">
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:mb-5">
+                <div className="flex items-center gap-2.5">
+                  <Layers className="h-5 w-5 text-primary" />
+                  <h2 className="text-lg font-bold tracking-tight sm:text-xl md:text-2xl">Tüm Seriler</h2>
+                  {catalogState.totalCount > 0 && (
+                    <span className="rounded-full bg-secondary/80 px-2.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                      {catalogState.totalCount}
+                    </span>
+                  )}
+                </div>
+
+                <div className="flex flex-wrap items-center gap-2">
+                  <div className="inline-flex items-center rounded-lg border border-border/75 bg-card/60 p-0.5">
+                    {(
+                      [
+                        { id: 'updated', label: 'Güncel' },
+                        { id: 'popular', label: 'Popüler' },
+                        { id: 'newest', label: 'Yeni' },
+                      ] as const
+                    ).map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        onClick={() => handleCatalogSortChange(option.id)}
+                        className={cn(
+                          'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
+                          catalogSort === option.id
+                            ? 'bg-primary text-primary-foreground'
+                            : 'text-muted-foreground hover:text-foreground',
+                        )}
+                      >
+                        {option.label}
+                      </button>
+                    ))}
+                  </div>
+
+                  <Button asChild variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:text-sm text-muted-foreground hover:text-foreground">
+                    <Link to="/browse">
+                      Keşfet
+                      <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                    </Link>
+                  </Button>
+                </div>
+              </div>
+
+              {catalogState.loading && catalogState.items.length === 0 ? (
+                <div className="grid grid-cols-2 gap-3 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 sm:gap-4">
+                  {Array.from({ length: 12 }).map((_, index) => (
+                    <div key={index} className="space-y-2">
+                      <Skeleton className="aspect-[5/7] w-full rounded-lg" />
+                      <Skeleton className="h-4 w-4/5" />
+                      <Skeleton className="h-3 w-1/2" />
+                    </div>
+                  ))}
+                </div>
+              ) : catalogState.items.length > 0 ? (
+                <>
+                  <div
+                    className={cn(
+                      'grid grid-cols-2 gap-3 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 sm:gap-4 transition-opacity duration-200',
+                      catalogState.loading ? 'opacity-60' : 'opacity-100',
+                    )}
+                  >
+                    {catalogState.items.map((item, index) => (
+                      <MangaCard
+                        key={item.id}
+                        manga={item}
+                        index={index}
+                        topTenWeekIds={topTenWeekIds}
+                        disableHeavyEffects={disableHeavyEffects}
+                        coverPriority={false}
+                        coverRootMargin={homeCardImageRootMargin}
+                      />
+                    ))}
+                  </div>
+
+                  <AppPagination
+                    currentPage={catalogPage}
+                    totalPages={catalogState.totalPages}
+                    onPageChange={handleCatalogPageChange}
+                    scrollToTop={false}
+                    className="mt-8"
+                  />
+                </>
+              ) : (
+                <div className="rounded-xl border border-dashed border-border/80 bg-card/30 px-6 py-10 text-center text-sm text-muted-foreground">
+                  Gösterilecek seri bulunamadı.
+                </div>
+              )}
+            </section>
           </>
         ) : (
           <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin} disabled>

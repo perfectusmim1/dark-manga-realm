@@ -1,7 +1,18 @@
 import React, { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { cn } from '@/lib/utils';
-import { getChapterById, getChapterPagesByIds, getMangaById, incrementChapterViews, incrementMangaViews } from '@/lib/database';
+import {
+  ChapterLikeInfo,
+  getChapterById,
+  getChapterLikesSummary,
+  getChapterPagesByIds,
+  getMangaById,
+  incrementChapterViews,
+  incrementMangaViews,
+  toggleChapterLike,
+} from '@/lib/database';
+import { supabase } from '@/lib/supabase';
+import { notifyReaderPresenceChange } from '@/lib/readerPresence';
 import {
   getReaderSettings,
   getLocalChapterReadProgressEntry,
@@ -15,7 +26,8 @@ import { logChapterRead } from '../lib/profile';
 import { useAuth } from '@/contexts/AuthContext';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
-import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff, FileQuestion } from 'lucide-react';
+import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import { ArrowUpToLine, ArrowDownToLine, Download, WifiOff, FileQuestion, Heart, MessageCircle } from 'lucide-react';
 import ReaderControls from '@/components/reader/ReaderControls';
 import VerticalReader from '@/components/reader/VerticalReader';
 import HorizontalReader from '@/components/reader/HorizontalReader';
@@ -233,6 +245,10 @@ const Reader: React.FC = () => {
   const [isInitialViewportReady, setIsInitialViewportReady] = useState(false);
   const [isContentReady, setIsContentReady] = useState(false);
   const [pageCommentModalOpen, setPageCommentModalOpen] = useState(false);
+  const [chapterCommentsOpen, setChapterCommentsOpen] = useState(false);
+  const [chapterCommentCount, setChapterCommentCount] = useState(0);
+  const [chapterLikesMap, setChapterLikesMap] = useState<Record<string, ChapterLikeInfo>>({});
+  const [chapterLikePending, setChapterLikePending] = useState(false);
 
   // Sayfaların ve bölüm objesinin gerçekten mevcut URL'deki chapterId'ye ait olduğunu doğrula.
   // Bölüm geçişi anında eski bölümün sayfaları asla yeni bölüme sızamaz.
@@ -591,12 +607,111 @@ const Reader: React.FC = () => {
   const toggleIncognito = (val: boolean) => {
     setIsIncognito(val);
     localStorage.setItem('toonparrot_incognito', val.toString());
+    notifyReaderPresenceChange();
     if (val) {
         toast.info("Gizli mod açıldı. Okuma verileriniz kaydedilmeyecek.");
     } else {
         toast.info("Gizli mod kapatıldı.");
     }
   };
+
+  useEffect(() => {
+    if (!mangaId || !chapterId) {
+      return;
+    }
+    notifyReaderPresenceChange();
+    return () => {
+      notifyReaderPresenceChange();
+    };
+  }, [mangaId, chapterId]);
+
+  useEffect(() => {
+    if (!mangaId || !canUseNetworkReaderFeatures) {
+      return;
+    }
+
+    let cancelled = false;
+    void getChapterLikesSummary(mangaId)
+      .then((summary) => {
+        if (!cancelled) {
+          setChapterLikesMap(summary);
+        }
+      })
+      .catch(() => undefined);
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mangaId, canUseNetworkReaderFeatures, user?.id]);
+
+  useEffect(() => {
+    if (!mangaId || !chapterId || !canUseNetworkReaderFeatures) {
+      setChapterCommentCount(0);
+      return;
+    }
+
+    let cancelled = false;
+    void (async () => {
+      try {
+        const { count } = await supabase
+          .from('comments')
+          .select('id', { count: 'exact', head: true })
+          .eq('manga_id', mangaId)
+          .eq('chapter_id', chapterId);
+        if (!cancelled && typeof count === 'number') {
+          setChapterCommentCount(count);
+        }
+      } catch {
+        // ignore count error
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [mangaId, chapterId, canUseNetworkReaderFeatures]);
+
+  const currentChapterLike = chapterId ? (chapterLikesMap[chapterId] ?? { likeCount: 0, viewerLiked: false }) : { likeCount: 0, viewerLiked: false };
+
+  const handleToggleChapterLike = useCallback(async () => {
+    if (!mangaId || !chapterId || !canUseNetworkReaderFeatures) {
+      return;
+    }
+    if (!user) {
+      toast.error('Bölümü beğenmek için giriş yapmalısınız.');
+      return;
+    }
+    if (chapterLikePending) {
+      return;
+    }
+
+    const previous = chapterLikesMap[chapterId] ?? { likeCount: 0, viewerLiked: false };
+    const optimisticLiked = !previous.viewerLiked;
+    const optimisticCount = Math.max(0, previous.likeCount + (optimisticLiked ? 1 : -1));
+
+    setChapterLikesMap((prev) => ({
+      ...prev,
+      [chapterId]: { likeCount: optimisticCount, viewerLiked: optimisticLiked },
+    }));
+    setChapterLikePending(true);
+
+    try {
+      const res = await toggleChapterLike(chapterId, mangaId);
+      setChapterLikesMap((prev) => ({
+        ...prev,
+        [chapterId]: { likeCount: res.likeCount, viewerLiked: res.liked },
+      }));
+    } catch (error) {
+      setChapterLikesMap((prev) => ({
+        ...prev,
+        [chapterId]: previous,
+      }));
+      console.error('Bölüm beğeni hatası:', error);
+      toast.error('Beğeni kaydedilemedi.');
+    } finally {
+      setChapterLikePending(false);
+    }
+  }, [canUseNetworkReaderFeatures, chapterId, chapterLikePending, chapterLikesMap, mangaId, user]);
 
   const flushReadingSession = useCallback(async (minimumSeconds = 0, resetTimer = true) => {
     const startedAt = readingSessionStartedAt.current;
@@ -1998,7 +2113,47 @@ const Reader: React.FC = () => {
         isOnline={canUseNetworkReaderFeatures}
         forceOfflineRead={forceOfflineRead}
         onBeforeChapterChange={handleBeforeChapterChange}
+        commentCount={chapterCommentCount}
+        onOpenComments={canUseNetworkReaderFeatures ? () => setChapterCommentsOpen(true) : undefined}
+        chapterLikeCount={currentChapterLike.likeCount}
+        isChapterLiked={currentChapterLike.viewerLiked}
+        chapterLikeLoading={chapterLikePending}
+        onToggleChapterLike={canUseNetworkReaderFeatures ? handleToggleChapterLike : undefined}
       />
+
+      <Dialog open={chapterCommentsOpen} onOpenChange={setChapterCommentsOpen}>
+        <DialogContent
+          className="flex max-h-[85vh] w-[min(94vw,48rem)] max-w-none flex-col overflow-hidden rounded-2xl border-border/80 bg-background/95 p-0 backdrop-blur-xl"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <DialogHeader className="shrink-0 border-b border-border/60 px-4 py-3 sm:px-5">
+            <DialogTitle className="flex items-center gap-2 text-base font-bold">
+              <MessageCircle className="h-4 w-4 text-emerald-400" />
+              <span>Yorumlar</span>
+              <span className="rounded-full bg-secondary px-2 py-0.5 text-xs font-medium text-muted-foreground tabular-nums">
+                {chapterCommentCount}
+              </span>
+            </DialogTitle>
+          </DialogHeader>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 py-4 sm:px-5">
+            {canUseNetworkReaderFeatures ? (
+              <CommentSection
+                mangaId={manga.id}
+                chapterId={chapterId}
+                totalReaderPages={totalPageCount}
+                enablePageComments
+                pagePreviewUrls={commentPagePreviewUrls}
+                compactModal
+                onCommentCountChange={setChapterCommentCount}
+              />
+            ) : (
+              <div className="py-8 text-center text-sm text-muted-foreground">
+                Yorumlar için internet bağlantısı gerekiyor.
+              </div>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
 
       {!isReaderTransitionActive && canUseNetworkReaderFeatures && showPageCommentRail && (
         <PageCommentRail
@@ -2127,10 +2282,48 @@ const Reader: React.FC = () => {
 
       {/* Yorum Bölümü */}
       <div
-        className="mx-auto mt-6 max-w-4xl border-t border-border px-3 pt-6 pb-28 sm:mt-8 sm:px-4 sm:pt-8 md:pb-32"
+        className="mx-auto mt-6 max-w-4xl border-t border-border px-3 pt-5 pb-28 sm:mt-8 sm:px-4 sm:pt-6 md:pb-32"
         style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 7rem)' }}
         onClick={(e) => e.stopPropagation()}
       >
+        {canUseNetworkReaderFeatures && (
+          <div className="mb-5 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-border/60 bg-card/60 px-4 py-2.5">
+            <span className="text-xs sm:text-sm text-muted-foreground">
+              Bu bölümü beğendiysen destek olmayı unutma
+            </span>
+            <div className="flex items-center gap-2">
+              <Button
+                type="button"
+                variant={currentChapterLike.viewerLiked ? 'secondary' : 'outline'}
+                size="sm"
+                disabled={chapterLikePending}
+                onClick={handleToggleChapterLike}
+                aria-pressed={currentChapterLike.viewerLiked}
+                className={cn(
+                  'h-8 gap-1.5 rounded-lg text-xs font-semibold',
+                  currentChapterLike.viewerLiked && 'border-rose-500/40 bg-rose-500/15 text-rose-400 hover:bg-rose-500/20',
+                )}
+              >
+                <Heart className={cn('h-3.5 w-3.5', currentChapterLike.viewerLiked && 'fill-current')} />
+                <span>Beğen</span>
+                {currentChapterLike.likeCount > 0 && (
+                  <span className="tabular-nums">({currentChapterLike.likeCount})</span>
+                )}
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                onClick={() => setChapterCommentsOpen(true)}
+                className="h-8 gap-1.5 rounded-lg text-xs font-semibold"
+              >
+                <MessageCircle className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Yorum Penceresi ({chapterCommentCount})</span>
+              </Button>
+            </div>
+          </div>
+        )}
+
         {canUseNetworkReaderFeatures ? (
           <DeferredMount
             rootMargin="320px 0px"
@@ -2144,6 +2337,7 @@ const Reader: React.FC = () => {
                 totalReaderPages={totalPageCount}
                 enablePageComments
                 pagePreviewUrls={commentPagePreviewUrls}
+                onCommentCountChange={setChapterCommentCount}
               />
             </div>
           </DeferredMount>

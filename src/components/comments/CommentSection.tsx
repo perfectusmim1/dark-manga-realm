@@ -64,8 +64,14 @@ import {
     addCommentV2,
     setCommentPinned,
     createCommentReport,
+    getCommentLikePreviews,
+    CommentLikePreviewUser,
 } from '@/lib/database';
 import { commentHasRenderableContent, isValidCommentMediaUrls, stripCommentFormatting } from '@/lib/commentContent';
+import { renderRichContent } from '@/lib/richTextRender';
+import { RichTextToolbar } from '@/components/common/RichTextToolbar';
+import { SeriesTagPopover } from '@/components/common/SeriesTagPopover';
+import { useSeriesMention } from '@/hooks/useSeriesMention';
 import { blockUser, getBlockedUserIds } from '@/lib/profile';
 import { createCommentNotification } from '@/lib/storage';
 import {
@@ -93,6 +99,8 @@ interface CommentSectionProps {
     totalReaderPages?: number;
     enablePageComments?: boolean;
     pagePreviewUrls?: string[];
+    compactModal?: boolean;
+    onCommentCountChange?: (count: number) => void;
 }
 
 const TENOR_API_KEY = 'AIzaSyAyimkuYQYF_FXVALexPuGQctUWRURdCYQ';
@@ -186,17 +194,13 @@ const getCommentMediaUrls = (comment: Comment) => {
 const hasCommentMedia = (comment: Comment) => getCommentMediaUrls(comment).length > 0;
 const hasCommentGif = (comment: Comment) => Boolean(comment.gifUrl);
 
-const renderFormattedText = (content: string, mentionUserIdByUsername: Record<string, string>) => {
-    const plainText = stripCommentFormatting(content).replace(/\r\n/g, '\n');
-    const lines = plainText.split('\n');
-
-    return lines.map((line, index) => (
-        <React.Fragment key={`${line}-${index}`}>
-            {index > 0 && <br />}
-            {highlightMentions(line, mentionUserIdByUsername)}
-        </React.Fragment>
-    ));
-};
+const renderFormattedText = (content: string, mentionUserIdByUsername: Record<string, string>) =>
+    renderRichContent(content, {
+        resolveMentionHref: (username) => {
+            const mentionedUserId = mentionUserIdByUsername[username.toLowerCase()];
+            return mentionedUserId ? `/profile/${mentionedUserId}` : undefined;
+        },
+    });
 
 const getStaffCommentCardClassName = (role?: Comment['userRole'], variant: 'parent' | 'reply' = 'parent') => {
     if (role === 'admin') {
@@ -360,7 +364,7 @@ interface CommentComposerProps {
     onOpenGifPicker: () => void;
     onSubmit: () => void;
     onCancel?: () => void;
-    textareaRef?: React.Ref<HTMLTextAreaElement>;
+    textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
 interface AnimatedComposerProps {
@@ -448,6 +452,18 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
         gifUrl: draft.gifUrl,
     });
     const [showMediaFields, setShowMediaFields] = useState(draft.mediaUrls.length > 0);
+    const internalTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+    const activeTextareaRef = textareaRef || internalTextareaRef;
+
+    const seriesMention = useSeriesMention({
+        value: draft.body,
+        onChange: (nextBody) =>
+            onDraftChange({
+                ...draft,
+                body: nextBody,
+            }),
+        textareaRef: activeTextareaRef,
+    });
 
     useEffect(() => {
         if (draft.mediaUrls.length > 0) {
@@ -482,111 +498,196 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
     };
 
     return (
-        <div className={cn('rounded-2xl border border-border/70 bg-card/80', compact ? 'p-2.5 sm:p-3' : 'p-2.5 sm:p-4')}>
-            <div className="flex items-start gap-3">
-                {username && (
-                    <Avatar className={cn('shrink-0', compact ? 'h-8 w-8' : 'h-10 w-10')}>
-                        <AvatarImage src={avatar} />
-                        <AvatarFallback>{username[0]?.toUpperCase() || '?'}</AvatarFallback>
-                    </Avatar>
-                )}
+        <div className="space-y-2.5">
+            <div className="relative overflow-visible rounded-xl border border-border/70 bg-card/90 transition-colors focus-within:border-primary/60">
+                <RichTextToolbar
+                    textareaRef={activeTextareaRef}
+                    value={draft.body}
+                    onChange={(nextBody) => setField('body', nextBody)}
+                    onTriggerSeriesTag={seriesMention.triggerManually}
+                    leftSlot={
+                        username ? (
+                            <div className="flex items-center gap-2 pr-1">
+                                <Avatar className="h-6 w-6">
+                                    <AvatarImage src={avatar} />
+                                    <AvatarFallback className="text-[10px]">
+                                        {username[0]?.toUpperCase() || '?'}
+                                    </AvatarFallback>
+                                </Avatar>
+                                {!compact && (
+                                    <span className="max-w-[110px] truncate text-xs font-semibold text-foreground">
+                                        {username}
+                                    </span>
+                                )}
+                            </div>
+                        ) : undefined
+                    }
+                    rightSlot={
+                        <div className="flex items-center gap-0.5">
+                            <button
+                                type="button"
+                                onClick={onOpenGifPicker}
+                                title="GIF Ekle"
+                                aria-label="GIF ekle"
+                                className={cn(
+                                    'inline-flex h-7 items-center justify-center rounded-md px-1.5 text-[10px] font-bold tracking-tight transition-colors',
+                                    draft.gifUrl
+                                        ? 'bg-emerald-500/15 text-emerald-400'
+                                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                                )}
+                            >
+                                GIF
+                            </button>
+                            <button
+                                type="button"
+                                onClick={() => {
+                                    if (draft.mediaUrls.length === 0) {
+                                        addMediaField();
+                                    } else {
+                                        setShowMediaFields((previous) => !previous);
+                                    }
+                                }}
+                                title="Görsel Bağlantısı Ekle"
+                                aria-label="Görsel bağlantısı ekle"
+                                className={cn(
+                                    'inline-flex h-7 w-7 items-center justify-center rounded-md transition-colors',
+                                    draft.mediaUrls.some(Boolean)
+                                        ? 'bg-emerald-500/15 text-emerald-400'
+                                        : 'text-muted-foreground hover:bg-secondary hover:text-foreground',
+                                )}
+                            >
+                                <Image className="h-3.5 w-3.5" />
+                            </button>
+                        </div>
+                    }
+                />
 
-                <div className="min-w-0 flex-1 space-y-3">
+                <div className="relative">
                     <Textarea
-                        ref={textareaRef}
+                        ref={activeTextareaRef}
                         placeholder={placeholder}
                         value={draft.body}
-                        onChange={(event) => setField('body', event.target.value)}
-                        className={compact ? 'min-h-[80px] sm:min-h-[88px]' : 'min-h-[104px] sm:min-h-[120px]'}
+                        onChange={(event) => {
+                            const nextBody = event.target.value;
+                            setField('body', nextBody);
+                            seriesMention.syncTriggerFromTextarea(nextBody, event.target.selectionStart);
+                        }}
+                        onKeyDown={(event) => {
+                            if (seriesMention.handleKeyDown(event)) {
+                                return;
+                            }
+                            if ((event.ctrlKey || event.metaKey) && event.key === 'Enter' && hasContent) {
+                                event.preventDefault();
+                                onSubmit();
+                            }
+                        }}
+                        className={cn(
+                            'resize-y border-0 bg-transparent px-3 py-2.5 text-sm shadow-none focus-visible:ring-0 focus-visible:ring-offset-0',
+                            compact ? 'min-h-[72px]' : 'min-h-[86px] sm:min-h-[96px]',
+                        )}
                     />
+                    <SeriesTagPopover
+                        open={seriesMention.isPopoverOpen}
+                        query={seriesMention.mentionQuery}
+                        includeAdult
+                        anchorEl={activeTextareaRef.current}
+                        highlightedIndex={seriesMention.highlightedIndex}
+                        onHighlightedIndexChange={seriesMention.setHighlightedIndex}
+                        onResultsChange={seriesMention.setResults}
+                        onSelect={seriesMention.selectSeries}
+                        onClose={seriesMention.closePopover}
+                    />
+                </div>
+            </div>
 
-                    {(draft.gifUrl || draft.mediaUrls.length > 0) && (
-                        <div className="flex flex-wrap gap-3">
-                            {draft.gifUrl && (
-                                <div className="relative overflow-hidden rounded-xl border border-border bg-background/70">
-                                    <img src={draft.gifUrl} alt="Seçili GIF" className="max-h-32 rounded-xl object-cover" />
-                                    <Button size="icon" variant="destructive" className="absolute right-2 top-2 h-7 w-7" onClick={() => setField('gifUrl', null)}>
-                                        <X className="h-4 w-4" />
-                                    </Button>
-                                </div>
-                            )}
-
-                            {draft.mediaUrls.filter(Boolean).map((mediaUrl, index) => (
-                                <div key={`${mediaUrl}-${index}`} className="flex w-full min-w-0 items-center gap-2 rounded-xl border border-border bg-background/70 px-3 py-2 text-sm text-muted-foreground sm:min-w-[220px] sm:w-auto">
-                                    <Link2 className="h-4 w-4 shrink-0" />
-                                    <span className="truncate">{mediaUrl}</span>
-                                </div>
-                            ))}
-                        </div>
-                    )}
-
-                    {showMediaFields && (
-                        <div className="space-y-2 rounded-xl border border-border/60 bg-background/30 p-3">
-                            {draft.mediaUrls.map((mediaUrl, index) => (
-                                <div key={index} className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                                    <Input
-                                        placeholder={`Görsel Linki ${index + 1}`}
-                                        value={mediaUrl}
-                                        onChange={(event) => updateMediaUrl(index, event.target.value)}
-                                        className="h-10"
-                                    />
-                                    <Button type="button" variant="ghost" size="sm" className="justify-start sm:justify-center" onClick={() => removeMediaField(index)}>
-                                        Kaldır
-                                    </Button>
-                                </div>
-                            ))}
-
-                            <Button type="button" variant="outline" size="sm" onClick={addMediaField}>
-                                Bir Tane Daha Ekle
+            {(draft.gifUrl || draft.mediaUrls.some(Boolean)) && (
+                <div className="flex flex-wrap gap-2">
+                    {draft.gifUrl && (
+                        <div className="relative overflow-hidden rounded-lg border border-border bg-background/70">
+                            <img src={draft.gifUrl} alt="Seçili GIF" className="max-h-28 rounded-lg object-cover" />
+                            <Button
+                                size="icon"
+                                variant="destructive"
+                                className="absolute right-1.5 top-1.5 h-6 w-6"
+                                onClick={() => setField('gifUrl', null)}
+                            >
+                                <X className="h-3.5 w-3.5" />
                             </Button>
                         </div>
                     )}
 
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                        <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center sm:gap-2">
-                            <Button variant="ghost" size="sm" className="h-8 justify-center px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm" onClick={onOpenGifPicker}>
-                                <Image className="mr-2 h-4 w-4" />
-                                GIF Ekle
-                            </Button>
-                            <Button variant="ghost" size="sm" className="h-8 justify-center px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm" onClick={() => {
-                                if (draft.mediaUrls.length === 0) {
-                                    addMediaField();
-                                } else {
-                                    setShowMediaFields((previous) => !previous);
-                                }
-                            }}>
-                                <Link2 className="mr-2 h-4 w-4" />
-                                Görsel Ekle
-                            </Button>
+                    {draft.mediaUrls.filter(Boolean).map((mediaUrl, index) => (
+                        <div
+                            key={`${mediaUrl}-${index}`}
+                            className="flex max-w-full items-center gap-2 rounded-lg border border-border bg-background/70 px-2.5 py-1.5 text-xs text-muted-foreground"
+                        >
+                            <Link2 className="h-3.5 w-3.5 shrink-0" />
+                            <span className="truncate max-w-[220px]">{mediaUrl}</span>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {showMediaFields && (
+                <div className="space-y-2 rounded-xl border border-border/60 bg-background/40 p-2.5">
+                    {draft.mediaUrls.map((mediaUrl, index) => (
+                        <div key={index} className="flex items-center gap-2">
+                            <Input
+                                placeholder={`Görsel Linki ${index + 1}`}
+                                value={mediaUrl}
+                                onChange={(event) => updateMediaUrl(index, event.target.value)}
+                                className="h-8 text-xs"
+                            />
                             <Button
                                 type="button"
                                 variant="ghost"
                                 size="sm"
-                                aria-pressed={draft.isSpoiler}
-                                className={cn(
-                                    'col-span-2 h-8 justify-center px-2.5 text-xs sm:col-span-1 sm:h-9 sm:px-3 sm:text-sm',
-                                    draft.isSpoiler && 'border border-primary/40 bg-primary/10 text-primary hover:bg-primary/15 hover:text-primary',
-                                )}
-                                onClick={() => setField('isSpoiler', !draft.isSpoiler)}
+                                className="h-8 px-2 text-xs"
+                                onClick={() => removeMediaField(index)}
                             >
-                                {draft.isSpoiler ? <EyeOff className="mr-2 h-4 w-4" /> : <Eye className="mr-2 h-4 w-4" />}
-                                Spoiler Olarak İşaretle
+                                Kaldır
                             </Button>
                         </div>
+                    ))}
 
-                        <div className="flex w-full flex-col-reverse gap-2 sm:w-auto sm:flex-row sm:items-center">
-                            {onCancel && (
-                                <Button variant="ghost" size="sm" className="w-full sm:w-auto" onClick={onCancel}>
-                                    İptal
-                                </Button>
-                            )}
+                    <Button type="button" variant="outline" size="sm" className="h-7 text-xs" onClick={addMediaField}>
+                        Görsel Ekle
+                    </Button>
+                </div>
+            )}
 
-                            <Button size="sm" className="w-full sm:w-auto" onClick={onSubmit} disabled={!hasContent}>
-                                <Send className="mr-2 h-4 w-4" />
-                                {submitLabel}
-                            </Button>
-                        </div>
-                    </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+                <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    aria-pressed={draft.isSpoiler}
+                    className={cn(
+                        'h-8 gap-1.5 px-2.5 text-xs text-muted-foreground',
+                        draft.isSpoiler && 'border border-amber-500/40 bg-amber-500/10 text-amber-300 hover:bg-amber-500/15',
+                    )}
+                    onClick={() => setField('isSpoiler', !draft.isSpoiler)}
+                >
+                    {draft.isSpoiler ? <EyeOff className="h-3.5 w-3.5" /> : <Eye className="h-3.5 w-3.5" />}
+                    <span>Spoiler</span>
+                </Button>
+
+                <div className="flex items-center gap-2">
+                    {onCancel && (
+                        <Button variant="ghost" size="sm" className="h-8 px-3 text-xs" onClick={onCancel}>
+                            İptal
+                        </Button>
+                    )}
+
+                    <Button
+                        size="sm"
+                        className="h-8 gap-1.5 rounded-lg bg-emerald-500 px-3.5 text-xs font-semibold text-slate-950 hover:bg-emerald-400"
+                        onClick={onSubmit}
+                        disabled={!hasContent}
+                    >
+                        <Send className="h-3.5 w-3.5" />
+                        {submitLabel}
+                    </Button>
                 </div>
             </div>
         </div>
@@ -602,6 +703,8 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     totalReaderPages = 0,
     enablePageComments = false,
     pagePreviewUrls = [],
+    compactModal = false,
+    onCommentCountChange,
 }) => {
     const { user } = useAuth();
     const { access } = useAdminAccess({
@@ -664,6 +767,7 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     const [reportDetails, setReportDetails] = useState('');
     const [isSubmittingReport, setIsSubmittingReport] = useState(false);
     const [commentsRefreshTick, setCommentsRefreshTick] = useState(0);
+    const [likePreviewsByCommentId, setLikePreviewsByCommentId] = useState<Record<string, CommentLikePreviewUser[]>>({});
     const highlightTimeoutRef = useRef<number | null>(null);
     const processedTargetCommentRef = useRef<string | null>(null);
     const newCommentTextareaRef = useRef<HTMLTextAreaElement | null>(null);
@@ -1469,6 +1573,58 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         [visibleComments]
     );
 
+    useEffect(() => {
+        onCommentCountChange?.(visibleComments.length);
+    }, [onCommentCountChange, visibleComments.length]);
+
+    const likerPreviewIds = useMemo(
+        () => displayedParentComments.filter((comment) => comment.likes > 0).map((comment) => comment.id),
+        [displayedParentComments]
+    );
+    const likerPreviewFetchKey = likerPreviewIds.join('|');
+
+    useEffect(() => {
+        if (!isOnline || likerPreviewIds.length === 0) {
+            return;
+        }
+
+        let cancelled = false;
+        void getCommentLikePreviews(likerPreviewIds, entityType)
+            .then((previews) => {
+                if (!cancelled && previews && Object.keys(previews).length > 0) {
+                    setLikePreviewsByCommentId((prev) => ({ ...prev, ...previews }));
+                }
+            })
+            .catch(() => undefined);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [entityType, isOnline, likerPreviewFetchKey]);
+
+    const getDistinctReplyAuthors = useCallback((parentId: string) => {
+        const result: Array<{ id: string; username: string; avatar?: string }> = [];
+        const seen = new Set<string>();
+        const stack = [...(commentChildrenMap[parentId] || [])];
+
+        while (stack.length > 0 && result.length < 3) {
+            const current = stack.shift()!;
+            if (current.userId && !seen.has(current.userId)) {
+                seen.add(current.userId);
+                result.push({
+                    id: current.userId,
+                    username: current.username,
+                    avatar: current.userAvatar,
+                });
+            }
+            const children = commentChildrenMap[current.id];
+            if (children?.length) {
+                stack.push(...children);
+            }
+        }
+        return result;
+    }, [commentChildrenMap]);
+
     const getCommentRootParentId = (commentId: string) => {
         let current = commentById[commentId];
 
@@ -2105,9 +2261,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                     ) : (
                                         <div className="space-y-2">
                                             {reply.title && <h4 className="font-bold text-foreground">{reply.title}</h4>}
-                                            <p className="text-sm leading-relaxed text-foreground/90">
+                                            <div className="text-sm leading-relaxed text-foreground/90">
                                                 {renderFormattedText(reply.content, mentionUserIdByUsername)}
-                                            </p>
+                                            </div>
                                             {hasCommentMedia(reply) && (
                                                 <CommentRevealPanel
                                                     expanded={Boolean(expandedMedia[reply.id])}
@@ -2238,38 +2394,40 @@ const CommentSection: React.FC<CommentSectionProps> = ({
     };
 
     return (
-        <div className="space-y-8">
-            <div className="space-y-6 border-b border-border/50 py-6 pb-10 text-center sm:pb-12">
-                <div className="space-y-1">
-                    <h2 className="text-xl font-black tracking-tight sm:text-2xl">Ne Düşünüyorsun?</h2>
-                    <p className="text-xs text-muted-foreground font-medium uppercase tracking-widest">Tepkiler</p>
-                </div>
+        <div className={compactModal ? 'space-y-4' : 'space-y-6'}>
+            {!compactModal && (
+                <div className="space-y-5 border-b border-border/50 py-4 pb-8 text-center sm:pb-10">
+                    <div className="space-y-1">
+                        <h2 className="text-lg font-bold tracking-tight sm:text-xl">Ne Düşünüyorsun?</h2>
+                        <p className="text-[11px] text-muted-foreground font-medium uppercase tracking-widest">Tepkiler</p>
+                    </div>
 
-                <div className="flex flex-wrap justify-center gap-3 sm:gap-4">
-                    {reactionTypes.map((r) => (
-                        <div key={r.type} className="flex flex-col items-center gap-2">
-                            <button
-                                onClick={() => handleReaction(r.type)}
-                                disabled={pendingReaction}
-                                className={`group flex items-center gap-2 rounded-full border-2 px-4 py-2 text-sm transition-all duration-200 ease-out will-change-transform sm:px-6 sm:py-2.5 ${userReaction === r.type
-                                    ? 'bg-primary/20 border-primary text-primary shadow-lg shadow-primary/10'
-                                    : 'bg-card border-border hover:border-primary/50 hover:bg-secondary/50'
-                                    } ${animatedReactionType === r.type ? 'scale-[1.04] -translate-y-0.5 shadow-[0_10px_24px_rgba(59,130,246,0.16)]' : 'scale-100'} ${pendingReaction ? 'opacity-90' : ''} cursor-pointer disabled:cursor-pointer`}
-                            >
-                                <span className={`text-xl transition-transform duration-200 ${animatedReactionType === r.type ? 'scale-110' : 'group-hover:scale-110'}`}>
-                                    {r.emoji}
+                    <div className="flex flex-wrap justify-center gap-2.5 sm:gap-3.5">
+                        {reactionTypes.map((r) => (
+                            <div key={r.type} className="flex flex-col items-center gap-1.5">
+                                <button
+                                    onClick={() => handleReaction(r.type)}
+                                    disabled={pendingReaction}
+                                    className={`group flex items-center gap-1.5 rounded-full border px-3.5 py-1.5 text-sm transition-all duration-200 ease-out will-change-transform sm:px-5 sm:py-2 ${userReaction === r.type
+                                        ? 'bg-primary/20 border-primary text-primary shadow-md shadow-primary/10'
+                                        : 'bg-card border-border hover:border-primary/50 hover:bg-secondary/50'
+                                        } ${animatedReactionType === r.type ? 'scale-[1.04] -translate-y-0.5' : 'scale-100'} ${pendingReaction ? 'opacity-90' : ''} cursor-pointer disabled:cursor-pointer`}
+                                >
+                                    <span className={`text-lg transition-transform duration-200 ${animatedReactionType === r.type ? 'scale-110' : 'group-hover:scale-110'}`}>
+                                        {r.emoji}
+                                    </span>
+                                    <span className="font-bold text-xs min-w-[2ch] tabular-nums sm:text-sm">
+                                        {reactions[r.type] || 0}
+                                    </span>
+                                </button>
+                                <span className={`text-[11px] font-semibold ${userReaction === r.type ? 'text-primary' : 'text-muted-foreground'}`}>
+                                    {r.label}
                                 </span>
-                                <span className="font-bold text-sm min-w-[2ch]">
-                                    {reactions[r.type] || 0}
-                                </span>
-                            </button>
-                            <span className={`text-xs font-semibold ${userReaction === r.type ? 'text-primary' : 'text-muted-foreground'}`}>
-                                {r.label}
-                            </span>
-                        </div>
-                    ))}
+                            </div>
+                        ))}
+                    </div>
                 </div>
-            </div>
+            )}
 
             <div ref={commentSectionHeaderRef} className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
                 <div className="space-y-3">
@@ -2647,9 +2805,9 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         ) : (
                                                             <>
                                                                 {comment.title && <h4 className="font-bold text-foreground">{comment.title}</h4>}
-                                                                <p className="text-foreground/90 leading-relaxed font-sans">
+                                                                <div className="text-foreground/90 leading-relaxed font-sans">
                                                                     {renderFormattedText(comment.content, mentionUserIdByUsername)}
-                                                                </p>
+                                                                </div>
 
                                                                 {comment.isSpoiler && (
                                                                     <Button
@@ -2714,22 +2872,52 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     </div>
                                                 )}
 
-                                                <div className="mt-3 flex flex-wrap items-center gap-1 sm:gap-3">
-                                                    <Button
-                                                        variant="ghost"
-                                                        size="sm"
-                                                        onClick={() => handleLike(comment.id)}
-                                                        data-liked={hasReaction(comment, user?.id, 'like')}
-                                                        disabled={Boolean(pendingCommentReactions[comment.id])}
-                                                        className={cn(
-                                                            'h-8 px-2.5 text-xs transition-all duration-200 ease-out hover:bg-emerald-500/10 hover:text-emerald-500 sm:h-9 sm:px-3 sm:text-sm',
-                                                            hasReaction(comment, user?.id, 'like') && 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15 hover:text-emerald-500',
-                                                            animatedCommentReactions[comment.id] && 'scale-[1.06] -translate-y-0.5'
+                                                <div className="mt-2.5 flex flex-wrap items-center gap-1.5 sm:gap-2.5">
+                                                    <div className="inline-flex items-center gap-1.5">
+                                                        <Button
+                                                            variant="ghost"
+                                                            size="sm"
+                                                            onClick={() => handleLike(comment.id)}
+                                                            data-liked={hasReaction(comment, user?.id, 'like')}
+                                                            disabled={Boolean(pendingCommentReactions[comment.id])}
+                                                            className={cn(
+                                                                'h-7 px-2 text-xs transition-all duration-200 ease-out hover:bg-emerald-500/10 hover:text-emerald-500 sm:h-8 sm:px-2.5',
+                                                                hasReaction(comment, user?.id, 'like') && 'bg-emerald-500/10 text-emerald-500 hover:bg-emerald-500/15 hover:text-emerald-500',
+                                                                animatedCommentReactions[comment.id] && 'scale-[1.06] -translate-y-0.5'
+                                                            )}
+                                                        >
+                                                            <ThumbsUp className="mr-1 h-3.5 w-3.5" />
+                                                            <span className="tabular-nums">{comment.likes}</span>
+                                                        </Button>
+
+                                                        {comment.likes > 0 && (likePreviewsByCommentId[comment.id]?.length ?? 0) > 0 && (
+                                                            <div className="flex items-center gap-1">
+                                                                <div className="flex -space-x-1.5 overflow-hidden">
+                                                                    {likePreviewsByCommentId[comment.id].slice(0, 3).map((liker) => (
+                                                                        <Link
+                                                                            key={liker.id}
+                                                                            to={`/profile/${liker.id}`}
+                                                                            title={liker.username}
+                                                                            className="relative inline-block rounded-full ring-2 ring-background transition-transform hover:z-10 hover:scale-110"
+                                                                        >
+                                                                            <Avatar className="h-[18px] w-[18px]">
+                                                                                <AvatarImage src={liker.avatar || undefined} />
+                                                                                <AvatarFallback className="text-[9px] font-semibold">
+                                                                                    {liker.username[0]?.toUpperCase() || '?'}
+                                                                                </AvatarFallback>
+                                                                            </Avatar>
+                                                                        </Link>
+                                                                    ))}
+                                                                </div>
+                                                                {comment.likes > likePreviewsByCommentId[comment.id].slice(0, 3).length && (
+                                                                    <span className="text-[11px] font-medium text-muted-foreground tabular-nums">
+                                                                        +{comment.likes - likePreviewsByCommentId[comment.id].slice(0, 3).length}
+                                                                    </span>
+                                                                )}
+                                                            </div>
                                                         )}
-                                                    >
-                                                        <ThumbsUp className="mr-1 h-4 w-4" />
-                                                        {comment.likes}
-                                                    </Button>
+                                                    </div>
+
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
@@ -2737,50 +2925,71 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         data-disliked={hasReaction(comment, user?.id, 'dislike')}
                                                         disabled={Boolean(pendingCommentReactions[comment.id])}
                                                         className={cn(
-                                                            'h-8 px-2.5 text-xs transition-all duration-200 ease-out hover:bg-red-500/10 hover:text-red-500 sm:h-9 sm:px-3 sm:text-sm',
+                                                            'h-7 px-2 text-xs transition-all duration-200 ease-out hover:bg-red-500/10 hover:text-red-500 sm:h-8 sm:px-2.5',
                                                             hasReaction(comment, user?.id, 'dislike') && 'bg-red-500/10 text-red-500 hover:bg-red-500/15 hover:text-red-500',
                                                             animatedCommentReactions[comment.id] && 'scale-[1.06] -translate-y-0.5'
                                                         )}
                                                     >
-                                                        <ThumbsDown className="mr-1 h-4 w-4" />
-                                                        {comment.dislikes}
+                                                        <ThumbsDown className="mr-1 h-3.5 w-3.5" />
+                                                        <span className="tabular-nums">{comment.dislikes}</span>
                                                     </Button>
                                                     <Button
                                                         variant="ghost"
                                                         size="sm"
-                                                        className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm"
+                                                        className="h-7 px-2 text-xs sm:h-8 sm:px-2.5"
                                                         onClick={() => openReplyComposer(comment)}
                                                     >
-                                                        <Reply className="mr-1 h-4 w-4" />
+                                                        <Reply className="mr-1 h-3.5 w-3.5" />
                                                         Yanıtla
                                                     </Button>
                                                     {user && user.id !== comment.userId && (
                                                         <Button
                                                             variant="ghost"
                                                             size="sm"
-                                                            className="h-8 px-2.5 text-xs text-muted-foreground hover:text-amber-200 sm:h-9 sm:px-3 sm:text-sm"
+                                                            className="h-7 px-2 text-xs text-muted-foreground hover:text-amber-200 sm:h-8 sm:px-2.5"
                                                             onClick={() => openCommentReport(comment)}
                                                         >
-                                                            <Flag className="mr-1 h-4 w-4" />
+                                                            <Flag className="mr-1 h-3.5 w-3.5" />
                                                             Bildir
                                                         </Button>
                                                     )}
-                                                    {getReplies(comment.id).length > 0 && (
-                                                        <Button variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:h-9 sm:px-3 sm:text-sm" onClick={() => toggleReplies(comment.id)}>
-                                                            {expandedReplies[comment.id] ? (
-                                                                <>
-                                                                    <ChevronUp className="mr-1 h-4 w-4" />
-                                                                    Yanıtları Gizle
-                                                                </>
-                                                            ) : (
-                                                                <>
-                                                                    <ChevronDown className="mr-1 h-4 w-4" />
-                                                                    Yanıtları Göster ({getReplyCount(comment.id)})
-                                                                </>
-                                                            )}
-                                                        </Button>
-                                                    )}
                                                 </div>
+
+                                                {getReplies(comment.id).length > 0 && (() => {
+                                                    const replyCount = getReplyCount(comment.id);
+                                                    const replyAuthors = getDistinctReplyAuthors(comment.id);
+                                                    const isExpanded = Boolean(expandedReplies[comment.id]);
+                                                    return (
+                                                        <div className="mt-2 pl-2 border-l-2 border-border/50">
+                                                            <button
+                                                                type="button"
+                                                                onClick={() => toggleReplies(comment.id)}
+                                                                className="inline-flex items-center gap-2 rounded-lg px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary/60 hover:text-foreground"
+                                                            >
+                                                                {!isExpanded && replyAuthors.length > 0 && (
+                                                                    <span className="flex -space-x-1.5 overflow-hidden">
+                                                                        {replyAuthors.map((author) => (
+                                                                            <Avatar key={author.id} className="h-[18px] w-[18px] ring-2 ring-background">
+                                                                                <AvatarImage src={author.avatar} />
+                                                                                <AvatarFallback className="text-[9px] font-semibold">
+                                                                                    {author.username[0]?.toUpperCase() || '?'}
+                                                                                </AvatarFallback>
+                                                                            </Avatar>
+                                                                        ))}
+                                                                    </span>
+                                                                )}
+                                                                <span>
+                                                                    {isExpanded ? 'Yanıtları Gizle' : `${replyCount} yanıt`}
+                                                                </span>
+                                                                {isExpanded ? (
+                                                                    <ChevronUp className="h-3.5 w-3.5" />
+                                                                ) : (
+                                                                    <ChevronDown className="h-3.5 w-3.5" />
+                                                                )}
+                                                            </button>
+                                                        </div>
+                                                    );
+                                                })()}
 
                                                 <AnimatedComposer open={replyingTo === comment.id && Boolean(user)}>
                                                     {user && (

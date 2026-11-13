@@ -17,6 +17,8 @@ import {
   Languages,
   ArrowDown,
   ArrowUp,
+  MessageCircle,
+  Heart,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ReaderSettings, Chapter, ResolvedReaderPage } from '@/lib/types';
@@ -87,6 +89,12 @@ interface ReaderControlsProps {
   onBeforeChapterChange?: (chapter?: Chapter) => Promise<void> | void;
   translation: ReaderTranslationApi;
   onQueueOfflineChapter?: () => Promise<void>;
+  commentCount?: number;
+  onOpenComments?: () => void;
+  chapterLikeCount?: number;
+  isChapterLiked?: boolean;
+  chapterLikeLoading?: boolean;
+  onToggleChapterLike?: () => void;
 }
 
 const normalizeChapterSearchValue = (value?: string | null) =>
@@ -120,6 +128,12 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
   onBeforeChapterChange,
   translation,
   onQueueOfflineChapter,
+  commentCount = 0,
+  onOpenComments,
+  chapterLikeCount = 0,
+  isChapterLiked = false,
+  chapterLikeLoading = false,
+  onToggleChapterLike,
 }) => {
   const navigate = useNavigate();
   const { isMobile } = useDeviceProfile();
@@ -683,15 +697,54 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             </div>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1 sm:gap-2">
+          <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+            {onToggleChapterLike && (
+              <Button
+                variant="ghost"
+                size="sm"
+                disabled={chapterLikeLoading}
+                onClick={onToggleChapterLike}
+                aria-label={isChapterLiked ? 'Bölüm beğenisini kaldır' : 'Bölümü beğen'}
+                aria-pressed={isChapterLiked}
+                className={cn(
+                  'h-8 sm:h-9 px-2 gap-1 rounded-lg transition-colors touch-manipulation',
+                  isChapterLiked
+                    ? 'text-rose-400 bg-rose-500/10 hover:bg-rose-500/15 hover:text-rose-300'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Heart className={cn('h-4 w-4 sm:h-[18px] sm:w-[18px]', isChapterLiked && 'fill-current')} />
+                {chapterLikeCount > 0 && (
+                  <span className="text-[11px] font-semibold tabular-nums">{chapterLikeCount}</span>
+                )}
+              </Button>
+            )}
+
+            {onOpenComments && (
+              <Button
+                variant="ghost"
+                size="icon"
+                className="relative h-8 w-8 sm:h-9 sm:w-9 touch-manipulation"
+                onClick={onOpenComments}
+                aria-label={`Bölüm yorumlarını aç (${commentCount})`}
+              >
+                <MessageCircle className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+                {commentCount > 0 && (
+                  <span className="pointer-events-none absolute -top-0.5 -right-0.5 flex h-[17px] min-w-[17px] items-center justify-center rounded-full bg-emerald-500 px-1 text-[10px] font-bold leading-none text-slate-950 shadow-sm tabular-nums">
+                    {commentCount > 99 ? '99+' : commentCount}
+                  </span>
+                )}
+              </Button>
+            )}
+
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 sm:h-10 sm:w-10"
+              className="h-8 w-8 sm:h-9 sm:w-9 touch-manipulation"
               onClick={onAddBookmark}
               aria-label="Yer İmlerime Ekle"
             >
-              <BookmarkPlus className="h-4 w-4 sm:h-5 sm:w-5" />
+              <BookmarkPlus className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
             </Button>
 
             {isMobile ? (

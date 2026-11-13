@@ -2057,6 +2057,15 @@ export const getMangaSummariesByIds = async (
         summarySelectColumns,
     } = await resolveMangaVisibilityAccess(options?.includePrivate);
     const audienceCacheKey = getMangaAudienceCacheKey(includeAdult, includePrivate);
+    const summaryMap = new Map<string, Manga>();
+    const cachedSummaries = mangaSummariesCache[audienceCacheKey];
+    if (cachedSummaries?.value) {
+        cachedSummaries.value.forEach((manga) => summaryMap.set(manga.id, manga));
+    }
+    const cachedAllMangas = allMangasCache[audienceCacheKey];
+    if (cachedAllMangas?.value) {
+        cachedAllMangas.value.forEach((manga) => summaryMap.set(manga.id, manga));
+    }
     const fetchMangaRowsForIds = async (ids: string[], filterOptions: any) => {
         if (ids.length === 0) return { data: [], error: null };
         if (ids.length <= 100) {
@@ -8475,4 +8484,307 @@ export const validateCurrentSession = async (accessTokenOverride?: string | null
     }
 
     return data.isActive === true;
+};
+
+export type HomeCatalogSort = 'updated' | 'popular' | 'newest';
+
+export interface HomeCatalogPageResult {
+    items: Manga[];
+    totalCount: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+}
+
+export interface CommentLikePreviewUser {
+    id: string;
+    username: string;
+    avatar?: string | null;
+}
+
+export interface MangaMentionResult {
+    id: string;
+    title: string;
+    cover?: string | null;
+    type?: string | null;
+}
+
+export interface MangaReaderAvatar {
+    id: string;
+    username: string;
+    avatar?: string | null;
+}
+
+export interface MangaReadersSummary {
+    activeCount: number;
+    libraryCount: number;
+    activeAvatars: MangaReaderAvatar[];
+    libraryAvatars: MangaReaderAvatar[];
+}
+
+export interface MangaReaderItem {
+    id: string;
+    username: string;
+    avatar?: string | null;
+    role?: string | null;
+    activityAt?: string | null;
+    isFollowing: boolean;
+}
+
+export interface ChapterLikeInfo {
+    likeCount: number;
+    viewerLiked: boolean;
+}
+
+export const getMangaCatalogPage = async (options: {
+    page?: number;
+    pageSize?: number;
+    sort?: HomeCatalogSort;
+    includeAdult?: boolean;
+} = {}): Promise<HomeCatalogPageResult> => {
+    const page = Math.max(1, options.page ?? 1);
+    const pageSize = Math.min(Math.max(options.pageSize ?? 24, 6), 48);
+    const sort = options.sort ?? 'updated';
+    const includeAdult = Boolean(options.includeAdult);
+
+    const { data, error } = await supabase.rpc('get_manga_catalog_page', {
+        p_page: page,
+        p_page_size: pageSize,
+        p_sort: sort,
+        p_include_adult: includeAdult,
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    const payload = (data && typeof data === 'object' ? data : {}) as Record<string, any>;
+    const rawItems = Array.isArray(payload.items) ? payload.items : [];
+    const seen = new Set<string>();
+    const items: Manga[] = [];
+
+    for (const row of rawItems) {
+        const id = typeof row?.id === 'string' ? row.id : '';
+        if (!id || seen.has(id)) {
+            continue;
+        }
+        seen.add(id);
+
+        const precomputedChapters = Array.isArray(row.latest_chapters)
+            ? row.latest_chapters
+                .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
+                .filter((ch: any) => ch.id)
+            : [];
+
+        items.push({
+            ...row,
+            author: cleanPlaceholderNamedEntityString(row.author) || row.author,
+            artist: cleanPlaceholderNamedEntityString(row.artist) || row.artist,
+            ...mapMangaBaseFields(row),
+            chapters: precomputedChapters,
+            ratings: [],
+            chapterCount: Number(row.chapter_count ?? row.chapterCount) || precomputedChapters.length || 0,
+            averageRating: Number(row.average_rating ?? 0),
+            reviewCount: Number(row.review_count ?? 0),
+            authorsDetails: [],
+            artistsDetails: [],
+        } as Manga);
+    }
+
+    return {
+        items,
+        totalCount: Number(payload.totalCount ?? items.length) || 0,
+        page: Number(payload.page ?? page) || page,
+        pageSize: Number(payload.pageSize ?? pageSize) || pageSize,
+        totalPages: Math.max(1, Number(payload.totalPages ?? 1) || 1),
+    };
+};
+
+export const getCommentLikePreviews = async (
+    commentIds: string[],
+    entityType: 'manga' | 'character' | 'author' | 'artist' = 'manga',
+): Promise<Record<string, CommentLikePreviewUser[]>> => {
+    const cleanIds = Array.from(new Set(commentIds.map((id) => String(id || '').trim()).filter(Boolean))).slice(0, 60);
+    if (cleanIds.length === 0) {
+        return {};
+    }
+
+    const { data, error } = await supabase.rpc('get_comment_like_previews', {
+        p_comment_ids: cleanIds,
+        p_entity_type: entityType,
+    });
+
+    if (error || !data || typeof data !== 'object') {
+        return {};
+    }
+
+    const result: Record<string, CommentLikePreviewUser[]> = {};
+    for (const [commentId, list] of Object.entries(data as Record<string, unknown>)) {
+        if (!Array.isArray(list)) continue;
+        result[commentId] = list
+            .filter((item): item is Record<string, any> => Boolean(item && typeof item === 'object' && item.id))
+            .map((item) => ({
+                id: String(item.id),
+                username: String(item.username || 'Kullanıcı'),
+                avatar: item.avatar ? String(item.avatar) : null,
+            }));
+    }
+    return result;
+};
+
+export const searchMangaMentions = async (
+    query: string,
+    limit: number = 8,
+    includeAdult: boolean = false,
+): Promise<MangaMentionResult[]> => {
+    const { data, error } = await supabase.rpc('search_manga_mentions', {
+        p_query: query.trim(),
+        p_limit: Math.min(Math.max(limit, 1), 15),
+        p_include_adult: includeAdult,
+    });
+
+    if (error || !Array.isArray(data)) {
+        return [];
+    }
+
+    const seen = new Set<string>();
+    const results: MangaMentionResult[] = [];
+    for (const row of data as any[]) {
+        const id = typeof row?.id === 'string' ? row.id : '';
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        results.push({
+            id,
+            title: String(row.title || ''),
+            cover: row.cover ? String(row.cover) : null,
+            type: row.type ? String(row.type) : null,
+        });
+    }
+    return results;
+};
+
+export const getMangaReadersSummary = async (mangaId: string): Promise<MangaReadersSummary> => {
+    if (!mangaId?.trim()) {
+        return { activeCount: 0, libraryCount: 0, activeAvatars: [], libraryAvatars: [] };
+    }
+
+    const { data, error } = await supabase.rpc('get_manga_readers_summary', {
+        p_manga_id: mangaId,
+    });
+
+    if (error || !data || typeof data !== 'object') {
+        return { activeCount: 0, libraryCount: 0, activeAvatars: [], libraryAvatars: [] };
+    }
+
+    const payload = data as Record<string, any>;
+    const mapAvatars = (raw: unknown): MangaReaderAvatar[] =>
+        Array.isArray(raw)
+            ? raw
+                .filter((item): item is Record<string, any> => Boolean(item && typeof item === 'object' && item.id))
+                .map((item) => ({
+                    id: String(item.id),
+                    username: String(item.username || 'Okur'),
+                    avatar: item.avatar ? String(item.avatar) : null,
+                }))
+            : [];
+
+    return {
+        activeCount: Number(payload.activeCount ?? 0) || 0,
+        libraryCount: Number(payload.libraryCount ?? 0) || 0,
+        activeAvatars: mapAvatars(payload.activeAvatars),
+        libraryAvatars: mapAvatars(payload.libraryAvatars),
+    };
+};
+
+export const getMangaReadersList = async (
+    mangaId: string,
+    tab: 'reading' | 'library' = 'reading',
+    limit: number = 30,
+    offset: number = 0,
+): Promise<{ items: MangaReaderItem[]; hasMore: boolean }> => {
+    if (!mangaId?.trim()) {
+        return { items: [], hasMore: false };
+    }
+
+    const { data, error } = await supabase.rpc('get_manga_readers_list', {
+        p_manga_id: mangaId,
+        p_tab: tab,
+        p_limit: Math.min(Math.max(limit, 1), 60),
+        p_offset: Math.max(offset, 0),
+    });
+
+    if (error || !data || typeof data !== 'object') {
+        return { items: [], hasMore: false };
+    }
+
+    const payload = data as Record<string, any>;
+    const rawItems = Array.isArray(payload.items) ? payload.items : [];
+    const seen = new Set<string>();
+    const items: MangaReaderItem[] = [];
+
+    for (const row of rawItems) {
+        const id = typeof row?.id === 'string' ? row.id : '';
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        items.push({
+            id,
+            username: String(row.username || 'Okur'),
+            avatar: row.avatar ? String(row.avatar) : null,
+            role: row.role ? String(row.role) : null,
+            activityAt: row.activityAt ? String(row.activityAt) : null,
+            isFollowing: Boolean(row.isFollowing),
+        });
+    }
+
+    return {
+        items,
+        hasMore: Boolean(payload.hasMore),
+    };
+};
+
+export const getChapterLikesSummary = async (
+    mangaId: string,
+): Promise<Record<string, ChapterLikeInfo>> => {
+    if (!mangaId?.trim()) {
+        return {};
+    }
+
+    const { data, error } = await supabase.rpc('get_chapter_likes_summary', {
+        p_manga_id: mangaId,
+    });
+
+    if (error || !Array.isArray(data)) {
+        return {};
+    }
+
+    const map: Record<string, ChapterLikeInfo> = {};
+    for (const row of data as any[]) {
+        const chapterId = typeof row?.chapter_id === 'string' ? row.chapter_id : '';
+        if (!chapterId) continue;
+        map[chapterId] = {
+            likeCount: Number(row.like_count ?? 0) || 0,
+            viewerLiked: Boolean(row.viewer_liked),
+        };
+    }
+    return map;
+};
+
+export const toggleChapterLike = async (
+    chapterId: string,
+    mangaId: string,
+): Promise<{ liked: boolean; likeCount: number }> => {
+    const { data, error } = await supabase.rpc('toggle_chapter_like', {
+        p_chapter_id: chapterId,
+        p_manga_id: mangaId,
+    });
+
+    if (error) {
+        throw error;
+    }
+
+    const payload = (data && typeof data === 'object' ? data : {}) as Record<string, any>;
+    return {
+        liked: Boolean(payload.liked),
+        likeCount: Number(payload.likeCount ?? 0) || 0,
+    };
 };

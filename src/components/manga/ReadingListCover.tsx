@@ -6,6 +6,8 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 interface ReadingListCoverProps {
     imageUrl?: string | null;
     previewCovers?: string[];
+    totalCount?: number;
+    variant?: 'default' | 'strip';
     priority?: boolean;
     alt: string;
     className?: string;
@@ -18,6 +20,8 @@ interface ReadingListCoverProps {
 const ReadingListCover: React.FC<ReadingListCoverProps> = ({
     imageUrl,
     previewCovers,
+    totalCount,
+    variant = 'default',
     priority = false,
     alt,
     className,
@@ -33,7 +37,7 @@ const ReadingListCover: React.FC<ReadingListCoverProps> = ({
     }, [imageUrl]);
 
     const normalizedPreviewCovers = useMemo(
-        () => (previewCovers || []).map((cover) => cover?.trim()).filter(Boolean).slice(0, 4),
+        () => Array.from(new Set((previewCovers || []).map((cover) => cover?.trim()).filter(Boolean))).slice(0, 4),
         [previewCovers],
     );
 
@@ -41,11 +45,66 @@ const ReadingListCover: React.FC<ReadingListCoverProps> = ({
         if (imageUrl && !hasError) {
             return imageUrl;
         }
-        if (normalizedPreviewCovers.length === 1) {
+        if (variant !== 'strip' && normalizedPreviewCovers.length === 1) {
             return normalizedPreviewCovers[0];
         }
         return undefined;
-    }, [hasError, imageUrl, normalizedPreviewCovers]);
+    }, [hasError, imageUrl, normalizedPreviewCovers, variant]);
+
+    if (variant === 'strip' && !(imageUrl && !hasError)) {
+        const extraCount = typeof totalCount === 'number' && totalCount > 4 ? totalCount - 4 : 0;
+        const slotIndices = [0, 1, 2, 3];
+
+        return (
+            <div className={cn('relative overflow-hidden rounded-lg bg-secondary/40 p-1.5', className)}>
+                {normalizedPreviewCovers.length > 0 ? (
+                    <div className="grid grid-cols-4 gap-1.5">
+                        {slotIndices.map((slotIndex) => {
+                            const src = normalizedPreviewCovers[slotIndex];
+                            const showMoreOverlay = slotIndex === 3 && extraCount > 0 && Boolean(src);
+
+                            if (!src) {
+                                return (
+                                    <div
+                                        key={`empty-slot-${slotIndex}`}
+                                        className="aspect-[5/7] w-full rounded-md border border-border/30 bg-muted/35"
+                                    />
+                                );
+                            }
+
+                            return (
+                                <div
+                                    key={`${src}-${slotIndex}`}
+                                    className="relative aspect-[5/7] w-full overflow-hidden rounded-md border border-border/40 bg-muted"
+                                >
+                                    <OptimizedImage
+                                        src={src}
+                                        alt={`${alt} kapak ${slotIndex + 1}`}
+                                        priority={priority}
+                                        allowProxy
+                                        transform={{ width: 160, quality: 75 }}
+                                        containerClassName="h-full w-full"
+                                        placeholderClassName="rounded-none"
+                                        className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-[1.03]"
+                                        sizes="120px"
+                                    />
+                                    {showMoreOverlay && (
+                                        <div className="absolute inset-0 flex items-center justify-center bg-black/65 text-xs font-bold text-white backdrop-blur-[1px]">
+                                            +{extraCount}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="flex aspect-[20/7] w-full items-center justify-center rounded-md border border-dashed border-border/50 bg-[radial-gradient(circle_at_top,_rgba(59,130,246,0.14),_transparent_60%)]">
+                        <BookOpen className={cn('h-7 w-7 text-muted-foreground/60', iconClassName)} />
+                    </div>
+                )}
+            </div>
+        );
+    }
 
     const showCollage = !imageUrl && normalizedPreviewCovers.length >= 2;
     const showSingleImage = Boolean(effectiveSingleImage);

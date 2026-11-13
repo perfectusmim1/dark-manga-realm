@@ -361,20 +361,20 @@ const ReadingListDetail: React.FC = () => {
                 )}
 
                 <div
-                    className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 backdrop-blur-sm"
+                    className="mb-6 animate-fade-up overflow-hidden rounded-xl border border-border bg-card/60 backdrop-blur-sm"
                     style={{ animationDelay: '90ms' }}
                 >
                     <ReadingListCover
                         imageUrl={list.imageUrl}
                         alt={list.name}
-                        className="h-56 w-full"
-                        iconClassName="h-14 w-14"
+                        className="h-40 sm:h-48 w-full"
+                        iconClassName="h-12 w-12"
                     />
-                    <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-                        <div className="flex-1">
-                            <div className="mb-2 flex flex-wrap items-center gap-3">
-                                <h1 className="text-2xl font-bold sm:text-3xl">{list.name}</h1>
-                                <Badge variant="secondary" className="gap-1">
+                    <div className="flex flex-col gap-3 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                        <div className="flex-1 min-w-0">
+                            <div className="mb-1.5 flex flex-wrap items-center gap-2.5">
+                                <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{list.name}</h1>
+                                <Badge variant="secondary" className="gap-1 text-xs">
                                     {list.isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
                                     {list.isPublic ? 'Herkese Açık' : 'Özel'}
                                 </Badge>
@@ -382,27 +382,27 @@ const ReadingListDetail: React.FC = () => {
                                     <Button
                                         variant="ghost"
                                         size="icon"
-                                        className="h-8 w-8 rounded-full"
+                                        className="h-7 w-7 rounded-full"
                                         onClick={() => setIsEditModalOpen(true)}
                                     >
-                                        <Edit2 className="h-4 w-4" />
+                                        <Edit2 className="h-3.5 w-3.5" />
                                     </Button>
                                 )}
                             </div>
-                            <p className="max-w-2xl text-muted-foreground">{list.description || 'Açıklama belirtilmemiş.'}</p>
+                            <p className="max-w-2xl text-sm text-muted-foreground">{list.description || 'Açıklama belirtilmemiş.'}</p>
                         </div>
                         
-                        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-secondary/30 px-4 py-3 text-sm text-muted-foreground sm:w-auto sm:flex-nowrap sm:py-2">
+                        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-secondary/35 px-3.5 py-2 text-xs text-muted-foreground sm:w-auto sm:flex-nowrap shrink-0">
                             <div className="flex cursor-pointer items-center gap-1 transition-colors hover:text-red-500" onClick={handleToggleLike}>
-                                <Heart className={`h-4 w-4 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
+                                <Heart className={`h-3.5 w-3.5 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
                                 <span>{likesCount} Beğeni</span>
                             </div>
                             <div className="flex items-center gap-1">
-                                <BookOpen className="h-4 w-4" />
+                                <BookOpen className="h-3.5 w-3.5" />
                                 <span>{list.items?.length || 0} Seri</span>
                             </div>
                             <div className="flex items-center gap-1">
-                                <Clock className="h-4 w-4" />
+                                <Clock className="h-3.5 w-3.5" />
                                 <span>{new Date(list.createdAt).toLocaleDateString('tr-TR')}</span>
                             </div>
                         </div>

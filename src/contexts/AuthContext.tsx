@@ -229,6 +229,12 @@ const normalizeUserPreferences = (preferences?: User['preferences']): NonNullabl
       },
     },
   },
+  profile: preferences?.profile
+    ? {
+        bio: typeof preferences.profile.bio === 'string' ? preferences.profile.bio : '',
+        banner_url: typeof preferences.profile.banner_url === 'string' ? preferences.profile.banner_url : '',
+      }
+    : undefined,
 });
 
 const getErrorMessage = (error: unknown, fallback = 'Bir hata oluştu') => (
@@ -837,6 +843,24 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
     };
 
+    const getActiveReaderMangaId = (): string | null => {
+      if (typeof window === 'undefined') {
+        return null;
+      }
+      const match = window.location.pathname.match(/^\/manga\/([^/]+)\/chapter\/([^/]+)(?:\/|$)/);
+      if (!match?.[1]) {
+        return null;
+      }
+      try {
+        if (window.localStorage.getItem('toonparrot_incognito') === 'true') {
+          return null;
+        }
+        return decodeURIComponent(match[1]);
+      } catch {
+        return null;
+      }
+    };
+
     const pushPresenceHeartbeat = async () => {
       if (!isEffectivelyOnline() || !isDocumentVisible()) {
         return;
@@ -848,13 +872,30 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       try {
-        await supabase.rpc('update_user_presence', { p_user_id: activeSession.user.id });
+        const activeMangaId = getActiveReaderMangaId();
+        if (activeMangaId) {
+          await supabase.rpc('update_user_presence', {
+            p_user_id: activeSession.user.id,
+            p_manga_id: activeMangaId,
+          });
+        } else {
+          await supabase.rpc('update_user_presence', { p_user_id: activeSession.user.id });
+        }
       } catch (error) {
         if (!isExpectedAccessControlError(error)) {
           console.error('Presence heartbeat failed:', error);
         }
       }
     };
+
+    let readerPresenceSyncTimer: number | undefined;
+    const handleReaderPresenceEvent = () => {
+      window.clearTimeout(readerPresenceSyncTimer);
+      readerPresenceSyncTimer = window.setTimeout(() => {
+        void pushPresenceHeartbeat();
+      }, 650);
+    };
+    window.addEventListener('toonparrot:reader-presence-change', handleReaderPresenceEvent);
 
     const enqueueAuthStateSync = (currentSession: Session | null) => {
       latestSessionSnapshot = currentSession;
@@ -973,6 +1014,8 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       mounted = false;
       subscription.unsubscribe();
       window.clearInterval(presenceInterval);
+      window.clearTimeout(readerPresenceSyncTimer);
+      window.removeEventListener('toonparrot:reader-presence-change', handleReaderPresenceEvent);
     };
   }, [ensureProfile, refreshMfaState]);
 
