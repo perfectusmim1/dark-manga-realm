@@ -3,7 +3,7 @@ import { downloadPageBlob } from '@/lib/offline/downloadManager';
 import { isStoredMediaUrl, unwrapManagedMediaUrl } from '@/lib/mediaStorage';
 import { TranslationBlock } from './types';
 import { getLanguageName } from './languages';
-import { TranslationProvider, normalizeApiKeysList } from './translationSettings';
+import { TranslationSettings, normalizeApiKeysList } from './translationSettings';
 import { ensureScanlationFontReady, inpaintAndRefineBlock } from './bubbleInpainter';
 import { runFastWebtoonOcr } from './fastOcr';
 import { isCreditOrPromoText, isPureSoundEffect, OcrBubble } from './ocrCore';
@@ -343,7 +343,7 @@ const VOCAL_TOKEN_REGEX =
 const SFX_WRAP_REGEX = /^[*({\[][^\n*)}\]]+[*)}\]][!?.~*^_\-\s]*$/;
 const PURE_PUNCT_REGEX = /^[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•]+$/;
 const CREDITS_START_REGEX =
-  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|asurascans|asura\s*scans|reaperscans|flamescans|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on)|(?:tl|pr|cl|rd|ts|qc|ktl|tlc)\s*[:\-]?\s*[a-z0-9_]{2,14}$)\b/i;
+  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|asurascans|asura\s*scans|reaperscans|flamescans|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on)|(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$)\b/i;
 const CREDITS_INLINE_REGEX =
   /(?:^|[\/|•<\[])\s*(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|written\s+by|art\s+by|story\s+by|original\s+work|traducción|traduccion|edición|edicion|limpieza|typeset|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))\s*[:\-]/i;
 const WATERMARK_DOMAIN_REGEX =
@@ -375,6 +375,7 @@ export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   if (
     wordTokens.length >= 1 &&
     wordTokens.length <= 4 &&
+    !/\?\s*$/.test(stripped) &&
     wordTokens.every((tok) => VOCAL_TOKEN_REGEX.test(tok))
   ) {
     return true;
@@ -398,7 +399,7 @@ const getTranslateProxyEndpoint = (): string => {
 const STRICT_TURKISH_CHAR_REGEX = /[çğıİşÇĞŞ]/;
 const STRICT_TURKISH_CHAR_GLOBAL = /[çğıİşÇĞŞ]/g;
 const STRICT_TURKISH_WORD_REGEX =
-  /\b(?:için|fakat|ancak|değil|kadar|sonra|önce|nasıl|neden|niye|nerede|benim|senin|onun|bizim|sizin|evet|hayır|tamam|lütfen|teşekkür|merhaba|olacak|olduğu|olarak|böyle|şöyle|ಚ|keşke|acaba|belki|çünkü|rağmen|doğru|yanlış|güzel|büyük|küçük)\b/i;
+  /\b(?:için|fakat|ancak|değil|kadar|sonra|önce|nasıl|neden|niye|nerede|benim|senin|onun|bizim|sizin|evet|hayır|tamam|lütfen|teşekkür|merhaba|olacak|olduğu|olarak|böyle|şöyle|keşke|acaba|belki|çünkü|rağmen|doğru|yanlış|güzel|büyük|küçük)\b/i;
 const FOREIGN_STOPWORD_REGEX =
   /\b(?:the|and|you|your|are|was|were|have|has|had|with|this|that|what|when|where|why|how|from|they|them|their|there|here|would|could|should|will|can't|don't|didn't|isn't|aren't|wasn't|I'm|you're|he's|she's|it's|we're|they're|el|la|los|las|un|una|unos|unas|del|al|por|para|con|sin|pero|como|cuando|donde|quien|que|mas|muy|este|esta|estos|estas|ese|esa|esos|esas|todo|toda|todos|todas|hacer|hace|hizo|haber|ha|han|habia|soy|eres|somos|son|estoy|estan|estaba|tengo|tienes|tiene|tienen|tenia|voy|vas|van|puedo|puede|pueden|quiero|quiere|quieren|debi|debia|despues|antes|ahora|aqui|solo|maldita|maldito|mierda|carajo|anos|ano)\b/i;
 
@@ -412,6 +413,195 @@ export const isLikelyAlreadyTranslated = (text: string, targetLang: string): boo
     if (STRICT_TURKISH_CHAR_REGEX.test(t) && STRICT_TURKISH_WORD_REGEX.test(t)) return true;
   }
   return false;
+};
+
+const INTACT_ENGLISH_WORDS = new Set([
+  'together', 'understand', 'undertake', 'overcome', 'everyone', 'someone', 'anyone', 'nobody',
+  'something', 'anything', 'everything', 'nothing', 'without', 'within', 'inside', 'outside',
+  'another', 'whatever', 'whenever', 'wherever', 'however', 'therefore', 'meanwhile', 'otherwise',
+  'instead', 'already', 'almost', 'although', 'always', 'anyway', 'became', 'become', 'before',
+  'behind', 'below', 'beneath', 'beside', 'besides', 'between', 'beyond', 'forever', 'forgive',
+  'forget', 'forgot', 'forward', 'herself', 'himself', 'itself', 'myself', 'yourself', 'themselves',
+  'ourselves', 'sometimes', 'anywhere', 'everywhere', 'somewhere', 'nowhere', 'overnight', 'overhead',
+  'cannot', 'today', 'tonight', 'tomorrow', 'yesterday', 'awakening', 'background', 'gentleman',
+  'nevertheless', 'nonetheless', 'afterward', 'afterwards', 'suddenly', 'originally', 'completely',
+  'unfortunately', 'congratulations', 'imagination', 'information', 'exclamation', 'explanation',
+  'disappear', 'disappointed', 'interesting', 'important', 'impossible', 'difference', 'different', 'amplification',
+]);
+
+const SEGMENT_VOCAB = new Set([
+  'a', 'i', 'an', 'the', 'this', 'that', 'these', 'those', 'my', 'your', 'his', 'her', 'its', 'our', 'their',
+  'is', 'am', 'are', 'was', 'were', 'be', 'been', 'being', 'have', 'has', 'had', 'do', 'does', 'did',
+  'can', 'could', 'will', 'would', 'shall', 'should', 'may', 'might', 'must',
+  'in', 'on', 'at', 'to', 'for', 'of', 'with', 'from', 'by', 'as', 'into', 'onto', 'upon', 'over', 'under',
+  'through', 'about', 'after', 'before', 'around', 'against', 'between', 'even', 'just', 'only', 'also',
+  'still', 'yet', 'ever', 'never', 'always', 'very', 'too', 'so', 'more', 'most', 'less', 'much', 'many',
+  'such', 'some', 'any', 'no', 'not', 'yes', 'all', 'both', 'each', 'every', 'other', 'same', 'own', 'than',
+  'and', 'or', 'but', 'if', 'then', 'when', 'where', 'why', 'how', 'what', 'who', 'whom', 'whose', 'which',
+  'while', 'though', 'since', 'until', 'again', 'further', 'once', 'neither', 'nor',
+  'he', 'she', 'it', 'we', 'they', 'you', 'me', 'him', 'us', 'them', 'one', 'two', 'three', 'first', 'last',
+  'small', 'big', 'large', 'great', 'good', 'bad', 'high', 'low', 'long', 'short', 'new', 'old', 'real', 'true',
+  'original', 'martial', 'unique', 'special', 'hidden', 'normal', 'strange', 'weird', 'ancient', 'supreme',
+  'body', 'soul', 'mind', 'heart', 'hand', 'eyes', 'head', 'blood', 'bone', 'sword', 'constitution',
+  'magic', 'mana', 'power', 'force', 'energy', 'aura', 'qi', 'spirit', 'skill', 'skills', 'level', 'rank',
+  'point', 'points', 'stat', 'stats', 'status', 'system', 'world', 'human', 'people', 'person', 'man', 'woman',
+  'boy', 'girl', 'master', 'lord', 'king', 'queen', 'prince', 'princess', 'knight', 'wizard', 'mage', 'hero',
+  'demon', 'monster', 'beast', 'dragon', 'skeleton', 'ghost', 'god', 'angel', 'devil', 'dark', 'light',
+  'stimulus', 'effect', 'cause', 'reason', 'way', 'time', 'day', 'night', 'life', 'death', 'kill', 'die', 'dead',
+  'draw', 'amplify', 'amplification', 'absorb', 'trigger', 'activate', 'boost', 'grow', 'growth', 'increase',
+  'ability', 'abilities', 'talent', 'talents', 'limit', 'limits', 'beyond', 'reach', 'raise', 'protect', 'heal',
+  'make', 'made', 'take', 'took', 'give', 'gave', 'get', 'got', 'go', 'went', 'come', 'came', 'see', 'saw',
+  'look', 'looked', 'find', 'found', 'know', 'knew', 'think', 'thought', 'feel', 'felt', 'want', 'wanted',
+  'need', 'needed', 'use', 'used', 'try', 'tried', 'keep', 'kept', 'hold', 'held', 'turn', 'turned',
+  'leave', 'left', 'put', 'set', 'say', 'said', 'tell', 'told', 'ask', 'asked', 'work', 'call', 'called',
+  'live', 'lived', 'move', 'moved', 'play', 'wait', 'stop', 'help', 'fight', 'fought', 'win', 'won', 'lose', 'lost',
+  'able', 'back', 'down', 'up', 'out', 'off', 'away', 'here', 'there', 'now', 'well', 'right', 'left',
+  'strong', 'weak', 'hard', 'easy', 'fast', 'slow', 'full', 'empty', 'free', 'sure', 'fine', 'okay',
+  'disguise', 'chance', 'mistake', 'secret', 'truth', 'lie', 'plan', 'order', 'quest', 'reward', 'danger',
+  'enemy', 'friend', 'family', 'brother', 'sister', 'father', 'mother', 'son', 'daughter', 'child', 'kids',
+  'place', 'room', 'door', 'house', 'city', 'land', 'empire', 'clan', 'sect', 'school', 'academy',
+  'enough', 'almost', 'really', 'actually', 'simply', 'merely', 'already', 'quite', 'rather', 'pretty',
+  'unlike', 'others', 'proper', 'principle', 'story', 'heavenly', 'stimulus', 'built', 'basic', 'physique', 'constitution',
+]);
+
+const segmentGluedEnglishToken = (token: string): string => {
+  if (!/^[A-Za-z]{10,48}$/.test(token)) return token;
+  const lower = token.toLowerCase();
+  if (INTACT_ENGLISH_WORDS.has(lower)) return token;
+  if (SEGMENT_VOCAB.has(lower)) return token;
+  if (/(?:tion|sion|ment|ness|able|ible|ship|hood|ally|edly|fulness)$/i.test(lower) && lower.length <= 14) {
+    return token;
+  }
+
+  const n = lower.length;
+  const dp: Array<{ score: number; prev: number } | null> = new Array(n + 1).fill(null);
+  dp[0] = { score: 0, prev: -1 };
+  for (let i = 0; i < n; i += 1) {
+    if (!dp[i]) continue;
+    for (let j = i + 1; j <= Math.min(n, i + 16); j += 1) {
+      const sub = lower.slice(i, j);
+      if (!SEGMENT_VOCAB.has(sub)) continue;
+      if (sub.length === 1 && sub !== 'a' && sub !== 'i') continue;
+      const pieceScore = sub.length * sub.length - (sub.length <= 2 ? 2.5 : 0);
+      const nextScore = dp[i]!.score + pieceScore;
+      if (!dp[j] || nextScore > dp[j]!.score) {
+        dp[j] = { score: nextScore, prev: i };
+      }
+    }
+  }
+  if (!dp[n]) return token;
+  const parts: string[] = [];
+  let cur = n;
+  while (cur > 0 && dp[cur]) {
+    const p = dp[cur]!.prev;
+    parts.push(lower.slice(p, cur));
+    cur = p;
+  }
+  parts.reverse();
+  if (parts.length < 2) return token;
+  const hasRealContentWord = parts.some((p) => p.length >= 4);
+  if (!hasRealContentWord) return token;
+  return parts.join(' ');
+};
+
+const SAFE_Z_WORD_REGEX =
+  /^(?:jazz|buzz|fuzz|fizz|quiz|whiz|frizz|blitz|ritz|waltz|quartz|topaz|klutz|chintz|pizzazz|ersatz|spritz|fez|wiz|biz|ad[sz]|plz|cuz|ghz|mhz|khz|hz)$/i;
+
+const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): string => {
+  let s = raw
+    .trim()
+    .replace(/\s+/g, ' ')
+    // Tek kalan yetim çift tırnak Google cümle ayırıcısını bozar ("THAT'S" QUITE..." -> "BU TAM BİR TARTIŞMA")
+    .replace(/(?<=\p{L})["“”](?=(?:s|t|m|d|re|ve|ll)\b)/giu, "'")
+    // Kelime içi OCR '!' -> 'i' ("L!KE" -> "LIKE")
+    .replace(/(?<=[A-Za-z])!(?=[A-Za-z])/g, 'i')
+    // OCR 'I"ll.' / 'i'll.' hatalarını temizle ("I'll. FINALLY" -> "I'll finally")
+    .replace(/(?:^|(?<=\s))[Il1]["“”'`]?ll\.(?=\s+\p{L})/gu, "I'll")
+    // Kısaltmalardan sonra gelen yanlış noktayı kaldır ("Don't. WORRY" -> "Don't WORRY")
+    .replace(
+      /\b(i'll|i'm|i've|i'd|you're|we're|they're|he's|she's|it's|that's|what's|let's|don't|didn't|doesn't|isn't|aren't|wasn't|weren't|haven't|hasn't|hadn't|won't|can't|couldn't|wouldn't|shouldn't)\.(?=\s+\p{L})/giu,
+      '$1',
+    )
+    // OCR '?' -> 'z' düzeltmesi ("HOWz", "DiffiCultz", "HUHz")
+    .replace(
+      /\b([A-Za-z]{2,})[zZ]\b(?=(?:\s|$|[.!?"'”’]))/g,
+      (full, stem: string, offset: number, src: string) => {
+        if (SAFE_Z_WORD_REGEX.test(full)) return full;
+        if (
+          /^(?:huh|eh|uh|ah|what|why|how|who|when|where|really|right|wait|difficult|serious(?:ly)?|sure|true|wrong|done|mine|yours|it|that|this|you|he|she|we|they|now|here|there|then|so|more|else|again|already|yet)$/i.test(
+            stem,
+          )
+        ) {
+          return `${stem}?`;
+        }
+        // Sonu ünsüz + z ile biten ("DiffiCultz", "HOWz", "WAITz") İngilizce olmayan OCR artıklarını '?' yap
+        const nextChar = src.slice(offset + full.length).trimStart()[0];
+        if (/[bcdfghjklmnpqrstvwxy]$/i.test(stem) && (!nextChar || /[A-Z0-9"“'¿¡(]/.test(nextChar))) {
+          return `${stem}?`;
+        }
+        return full;
+      },
+    )
+    .replace(/\bevem\b/gi, 'even')
+    .replace(/\bdiscui[sz]e\b/gi, 'disguise')
+    .replace(/\bEVENASMALLSTIMULUSS?CAN\b/gi, 'even a small stimulus can')
+    .replace(/\bSTIMULUSSCAN\b/gi, 'stimulus can')
+    .replace(/\bFORAMPLIFICATION\b/gi, 'for amplification')
+    .replace(/\bSIMPLEPRINCIPLE\b/gi, 'simple principle')
+    .replace(/\bIT'SACONSTITUTION\b/gi, "it's a physique")
+    .replace(/\bAsh\s+Gray\b/gi, 'Ashgray')
+    .replace(/\bbe\s+crossing\s+swords\s+with\b/gi, 'duel with')
+    .replace(/\bcrossing\s+swords\s+with\b/gi, 'dueling')
+    .replace(/(?<=\b(?:knew|know|found\s+out|realized)\s+it)\.(?=\s+was\b)/gi, '')
+    .replace(/\bat\.\s*all\b/gi, 'at all')
+    .replace(/\bxiulian\b/gi, 'cultivation')
+    .replace(/\blil\b/gi, 'little')
+    .replace(/\bsen[-\s]ge\b/gi, 'Brother Sen')
+    .replace(/\boh\s+damn\b\s*[:;,]?/gi, 'oh crap,')
+    .replace(/\bASF\b/gi, 'as hell')
+    .replace(/\bWTF\b/gi, 'what the hell')
+    .replace(/\bOMG\b/gi, 'oh my god');
+
+  // Dengesiz tek tırnak/çift tırnak işaretini temizle
+  if ((s.match(/"/g) || []).length === 1) {
+    s = s.replace(/"/g, '');
+  }
+  s = s.replace(/\bthat's\s+quite\s+the\s+disguise\b/gi, 'What a disguise');
+
+  // Bitişik kalmış uzun İngilizce kelimeleri ayır ("EVENASMALLSTIMULUSCAN" -> "even a small stimulus can")
+  s = s
+    .replace(/\b[A-Za-z]{10,48}\b/g, (tok) => segmentGluedEnglishToken(tok))
+    .replace(/\bconstitution\s+built\s+for\b/gi, 'physique built for');
+
+  // Baskın BÜYÜK HARF OCR metnini Google Çeviri'nin özel isim/kısaltma sanmaması için cümle düzenine indir
+  const upperCount = (s.match(/[A-Z]/g) || []).length;
+  const lowerCount = (s.match(/[a-z]/g) || []).length;
+  const hasInteriorMixedCase = /[a-z][A-Z]/.test(s);
+  if (
+    upperCount >= 2 &&
+    (lowerCount <= Math.max(1, upperCount * 0.18) ||
+      ((hasInteriorMixedCase || upperCount >= 6) && lowerCount <= upperCount * 0.45))
+  ) {
+    s = s.toLocaleLowerCase('en-US');
+    s = s.replace(/(^|[.!?]\s+)([a-z])/g, (_, pre: string, ch: string) => `${pre}${ch.toUpperCase()}`);
+    s = s.replace(/\bi\b/g, 'I').replace(/\bi(?='(?:m|ll|ve|d)\b)/g, 'I');
+  }
+
+  // Kısa emir/ünlem kalıplarında sözlük mastarı ("BAKMAK.", "SINIRLI?") yerine gerçek konuşma karşılığını seç
+  if (targetLang === 'tr') {
+    s = s
+      .replace(/^([.…]*)my\.\s+(?=\p{L})/iu, '$1Oh my, ')
+      .replace(/\bhey[.,]\s*look\s*([.,!…]*)$/i, 'Hey, look here$1')
+      .replace(/^look\s*([.,!…]*)$/i, 'Look here$1')
+      .replace(/^confined\?$/i, 'Imprisoned?')
+      .replace(/(?<='\p{L})["“”]/gu, '')
+      .replace(
+        /\bill(?=\s+(?:be|do|go|have|get|make|take|see|tell|give|come|show|try|let|find|use|kill|help|cut|handle|wait|say|stop|start|stay|leave|ask|keep|hold|put|bring|send)\b)/gi,
+        "I'll",
+      );
+  }
+
+  return s.replace(/\s+/g, ' ').trim();
 };
 
 /**
@@ -430,7 +620,7 @@ export const translateBatchWithGoogleFree = async (
   trimmedList.forEach((t, idx) => {
     if (t.length > 1) {
       nonEmptyIndices.push(idx);
-      payloadTexts.push(t);
+      payloadTexts.push(normalizeEnglishForGoogleTranslate(t, targetLang));
     }
   });
 
@@ -456,7 +646,10 @@ export const translateBatchWithGoogleFree = async (
       if (Array.isArray(json?.translations) && json.translations.length === payloadTexts.length) {
         const out = [...trimmedList];
         nonEmptyIndices.forEach((origIdx, i) => {
-          const cand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
+          const rawCand = typeof json.translations![i] === 'string' ? json.translations![i].trim() : '';
+          const cand = rawCand
+            .replace(/\bAshgray\b/gi, 'Ash Gray')
+            .replace(/[iİ]lk[iİ]'?y[iİ]/giu, 'ilkeyi');
           if (cand) out[origIdx] = cand;
         });
         return out;
@@ -584,7 +777,7 @@ export interface TranslatePageResult {
 export interface TranslatePageOptions {
   apiKey?: string;
   apiKeys?: readonly string[];
-  provider?: TranslationProvider;
+  provider?: TranslationSettings['provider'];
   imageSrc: string;
   targetLang: string;
   signal?: AbortSignal;
@@ -972,7 +1165,7 @@ export const translateAndInpaintPage = async ({
   ocrData: ExtractedPageOcr;
   apiKey?: string;
   apiKeys?: readonly string[];
-  provider?: TranslationProvider;
+  provider?: TranslationSettings['provider'];
   targetLang: string;
   signal?: AbortSignal;
 }): Promise<TranslatePageResult> => {
@@ -1041,8 +1234,11 @@ export const translateAndInpaintPage = async ({
     throw new Error('Çeviri servisi yanıt vermedi (timeout)');
   }
 
+  const allBubbleBoxes = rawBubbles.map((b) => b.box);
+
   const blocks = rawBubbles
     .map((bubble, idx) => {
+      const siblingBoxes = allBubbleBoxes.filter((_, sIdx) => sIdx !== idx);
       if (bubble.seamEraseOnly) {
         return inpaintAndRefineBlock(
           fullCtx,
@@ -1055,14 +1251,28 @@ export const translateAndInpaintPage = async ({
             lines: bubble.lines,
           },
           targetLang,
+          { siblingBoxes },
         );
       }
 
-      const translated = (translatedByIndex.get(idx) || bubble.text)
+      let translated = (translatedByIndex.get(idx) || bubble.text)
         .replace(/<[^>]{1,32}>/g, ' ')
         .replace(/[<>]+/g, ' ')
         .replace(/\s+/g, ' ')
         .trim();
+      if (targetLang === 'tr') {
+        translated = translated
+          .replace(/\bAH KAHRAMAN\b/gi, 'AH LANET')
+          .replace(/\bxiulian\b/gi, 'gelişim');
+        if (
+          /\bconstitution\b/i.test(bubble.text) &&
+          /\b(?:body|martial|unique|special|amplif|talent|spirit|qi|innate|divine|devil)\b/i.test(bubble.text)
+        ) {
+          translated = translated.replace(/\banayasa(?:ya|sı|sını|sında|yı|mız|nın)?\b/gi, (m) =>
+            m === m.toUpperCase() ? 'BÜNYE' : 'Bünye',
+          );
+        }
+      }
       if (
         translated === '[SFX]' ||
         translated.toUpperCase() === '[SFX]' ||
@@ -1083,6 +1293,7 @@ export const translateAndInpaintPage = async ({
           emphasisLastLineScale: bubble.emphasisLastLineScale,
         },
         targetLang,
+        { siblingBoxes },
       );
     })
     .filter((block): block is TranslationBlock => block !== null);

@@ -209,7 +209,7 @@ export const computeSmartWrappedLines = (
   let totalHeightPx = 0;
   for (const line of lines) {
     if (line.widthPx * line.scale > maxWidthPx && line.widthPx > 0) {
-      line.scale = Number(Math.max(0.65, (maxWidthPx / line.widthPx) * line.scale).toFixed(3));
+      line.scale = Number(Math.max(0.45, (maxWidthPx / line.widthPx) * line.scale).toFixed(3));
     }
     totalHeightPx += fontPx * line.scale * lineHeightRatio;
   }

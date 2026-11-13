@@ -200,6 +200,7 @@ export const runFastWebtoonOcr = async (
   }
 
   if (signal?.aborted) throw new DOMException('İptal edildi', 'AbortError');
-  const bubbles = groupOcrLinesIntoBubbles(lines, width, height);
+  const ocrImg = lines.length >= 2 ? ctx.getImageData(0, 0, width, height) : undefined;
+  const bubbles = groupOcrLinesIntoBubbles(lines, width, height, ocrImg);
   return { bubbles, isPromoPage: isCreditsOrPromoPage(bubbles), engine };
 };

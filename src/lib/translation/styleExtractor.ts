@@ -262,16 +262,27 @@ export const fillEnclosedGlyphInteriors = (
           const dHoleToBg = colorDist(holeR, holeG, holeB, bgR, bgG, bgB);
           const maxDiffHoleBg = maxChannelDiff(holeR, holeG, holeB, bgR, bgG, bgB);
 
-          // Eğer deliğin rengi arka plan rengine yakınsa (dHoleToBg < 42) veya arka plan koyu siyah değilse (bgLum >= 42),
-          // bu delik %100 "0, O, D, P, A, R" harflerinin ortasındaki arka plan boşluğudur!
-          const isBackgroundCounterHole = dHoleToBg < 42 || maxDiffHoleBg < 48 || bgLum >= 42;
-
-          if (
-            !isBackgroundCounterHole &&
+          // İki tip gerçek konturlu harf içi dolgu vardır:
+          // 1) Koyu zemin üstünde beyaz konturlu içi koyu SFX ("NO.", "31 AÑOS")
+          // 2) Orta/açık zemin üstünde koyu siyah konturlu içi PARLAK BEYAZ sahne/başlık metni ("WE ONLY FOUND...", "MARTIAL BODY")
+          const isDarkCounterHole =
             rawLum >= 185 &&
             holeLum < rawLum - 65 &&
-            (gMaxY - gMinY) >= 28
-          ) {
+            dHoleToBg >= 42 &&
+            maxDiffHoleBg >= 48 &&
+            bgLum < 52 &&
+            (gMaxY - gMinY) >= 26;
+
+          const isBrightInsideDarkOutline =
+            rawLum <= 105 &&
+            holeLum >= Math.max(195, rawLum + 80) &&
+            (gMaxY - gMinY) >= 18 &&
+            (dHoleToBg >= 32 ||
+              maxDiffHoleBg >= 36 ||
+              (holeLum >= bgLum + 12 && bgLum < 225) ||
+              bgLum <= 185);
+
+          if (isDarkCounterHole || isBrightInsideDarkOutline) {
             isTrueGlyphFill = true;
           }
         }
@@ -294,9 +305,9 @@ export const fillEnclosedGlyphInteriors = (
     }
   }
 
-  // Gerçek içi boş konturlu SFX kelimelerinde ("NO.", "FIRST MURDER.") tüm harfler konturlu olduğu için
-  // kapalı iç alan toplam kontur piksellerinin en az %36'sı kadardır. Bu oranın altındaysa yalnızca "O, 0, D" delikleridir.
-  if (enclosedCount > 0 && enclosedCount < Math.max(24, rawMaskCount * 0.36)) {
+  // Gerçek içi dolu konturlu yazılarda kapalı iç alan toplam kontur piksellerinin en az %28'i kadardır.
+  // Bu oranın altındaysa yalnızca "O, 0, D" delikleridir; ancak beyaz dolgulu çok yüksek kontrastlı delikleri koru.
+  if (enclosedCount > 0 && enclosedCount < Math.max(20, rawMaskCount * 0.28)) {
     enclosedInteriorMask.fill(0);
     enclosedCount = 0;
   }
@@ -505,6 +516,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const haloGs: number[] = [];
   const haloBs: number[] = [];
   let whiteHaloCount = 0;
+  let darkHaloCount = 0;
   for (let y = 2; y < wh - 2; y += 1) {
     const rOff = y * ww;
     for (let x = 2; x < ww - 2; x += 1) {
@@ -526,6 +538,8 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         const hLum = 0.299 * hr + 0.587 * hg + 0.114 * hb;
         if (hLum >= 210 && rgbSaturation(hr, hg, hb) < 0.2) {
           whiteHaloCount += 1;
+        } else if (hLum <= 90 && rgbSaturation(hr, hg, hb) < 0.32) {
+          darkHaloCount += 1;
         }
       }
     }
@@ -537,16 +551,42 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   const haloToFillDist = colorDist(haloR, haloG, haloB, fillR, fillG, fillB);
   const haloToBgDist = colorDist(haloR, haloG, haloB, ringMedR, ringMedG, ringMedB);
   const whiteHaloRatio = haloRs.length > 0 ? whiteHaloCount / haloRs.length : 0;
+  const darkHaloRatio = haloRs.length > 0 ? darkHaloCount / haloRs.length : 0;
+
+  const hasThinWhiteFill =
+    edgeLum >= 225 && fillLum >= 130 && rgbSaturation(edgeR, edgeG, edgeB) < 0.22;
+  const effectiveWhiteFillLum = hasThinWhiteFill ? edgeLum : fillLum;
 
   const hasOuterHaloStroke =
-    !hasClosedBubbleWalls &&
     fillLum <= 125 &&
-    bgLum <= 185 &&
-    haloLum >= 225 &&
-    whiteHaloRatio >= 0.65 &&
+    haloLum >= 224 &&
+    whiteHaloRatio >= 0.52 &&
     haloToFillDist >= 90 &&
-    haloToBgDist >= 52 &&
-    haloLum > bgLum + 42;
+    ((!hasClosedBubbleWalls &&
+      ((bgLum <= 228 && (haloLum > bgLum + 16 || haloToBgDist >= 26)) ||
+        (haloLum >= 232 && ringStd >= 18 && bgLum <= 248))) ||
+      (bgLum <= 228 && haloLum >= bgLum + 16 && haloToBgDist >= 18));
+
+  const haloSat = rgbSaturation(haloR, haloG, haloB);
+  const haloChroma = Math.max(haloR, haloG, haloB) - Math.min(haloR, haloG, haloB);
+  const ringMedLumForHalo = 0.299 * ringMedR + 0.587 * ringMedG + 0.114 * ringMedB;
+  const hasNeutralJetBlackHalo =
+    haloLum <= 40 &&
+    haloChroma <= 18 &&
+    haloSat < 0.3 &&
+    (darkHaloRatio >= 0.26 || (haloLum <= ringMedLumForHalo - 5 && haloToFillDist >= 110)) &&
+    Math.max(bgLum, ringMedLumForHalo) >= 20 &&
+    (fillToBgDist >= 85 ||
+      (effectiveWhiteFillLum >= 205 && haloToFillDist >= 135 && bgLum <= 228));
+
+  const hasDarkOuterHaloStroke =
+    !hasClosedBubbleWalls &&
+    effectiveWhiteFillLum >= 175 &&
+    (hasNeutralJetBlackHalo ||
+      (haloLum <= 105 &&
+        haloToFillDist >= 90 &&
+        (bgLum >= 65 ? haloToBgDist >= 30 || bgLum >= 115 : haloLum <= bgLum - 12)) ||
+      (darkHaloRatio >= 0.34 && bgLum >= 36 && fillToBgDist >= 85));
 
   let hasOutline = false;
   let strokeR = 255;
@@ -564,11 +604,33 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     strokeR = edgeR;
     strokeG = edgeG;
     strokeB = edgeB;
+  } else if (
+    hasSignificantEnclosed &&
+    fillLum >= 185 &&
+    edgeLum <= 105 &&
+    fillToEdgeDist >= 55 &&
+    (edgeToBgDist >= 40 || bgLum >= 115)
+  ) {
+    hasOutline = true;
+    strokeR = edgeR;
+    strokeG = edgeG;
+    strokeB = edgeB;
   } else if (hasOuterHaloStroke) {
     hasOutline = true;
     strokeR = haloR;
     strokeG = haloG;
     strokeB = haloB;
+  } else if (hasDarkOuterHaloStroke) {
+    hasOutline = true;
+    if (haloLum <= 105) {
+      strokeR = haloR;
+      strokeG = haloG;
+      strokeB = haloB;
+    } else {
+      strokeR = 10;
+      strokeG = 10;
+      strokeB = 12;
+    }
   }
 
   // 3. Bölge türünü (dialogue / narration / sfx) sınıflandır
@@ -598,20 +660,27 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
   let gradientStops: [string, string] | undefined;
 
   if (hasOutline) {
-    // Sahne üstü beyaz konturlu koyu/renkli başlık veya SFX ("KIM JEONGHYUK", "31 AÑOS", "NO.")
+    // Sahne üstü konturlu başlık/diyalog/SFX ("KIM JEONGHYUK", "31 AÑOS", "NO.", veya siyah konturlu beyaz yazı)
     const strokeLum = 0.299 * strokeR + 0.587 * strokeG + 0.114 * strokeB;
     if (strokeLum > 185 && rgbSaturation(strokeR, strokeG, strokeB) < 0.22) {
       finalStrokeColor = '#ffffff';
-    } else if (strokeLum < 55 && rgbSaturation(strokeR, strokeG, strokeB) < 0.22) {
+    } else if (strokeLum < 65 && rgbSaturation(strokeR, strokeG, strokeB) < 0.22) {
       finalStrokeColor = '#0a0a0c';
     } else {
       finalStrokeColor = rgbToHex(strokeR, strokeG, strokeB);
     }
     strokeWidthEm = 0.14;
-    finalTextColor = rgbToHex(fillR, fillG, fillB);
+    const fillForCheckSat = hasThinWhiteFill
+      ? rgbSaturation(edgeR, edgeG, edgeB)
+      : rgbSaturation(fillR, fillG, fillB);
+    if (effectiveWhiteFillLum >= 205 && fillForCheckSat < 0.22) {
+      finalTextColor = '#ffffff';
+    } else {
+      finalTextColor = rgbToHex(fillR, fillG, fillB);
+    }
 
     // Dikey renk geçişi (gradient) kontrolü: yalnızca konturlu sahne/başlık yazılarında ("KIM JEONGHYUK" vb.)
-    if (coreYs.length >= 24) {
+    if (!hasThinWhiteFill && coreYs.length >= 24) {
       const minY = Math.min(...coreYs);
       const maxY = Math.max(...coreYs);
       const spanY = maxY - minY;
@@ -675,7 +744,17 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       Math.max(ringMedR, ringMedG, ringMedB) - Math.min(ringMedR, ringMedG, ringMedB);
     const edgeChroma = Math.max(edgeR, edgeG, edgeB) - Math.min(edgeR, edgeG, edgeB);
 
-    if (finalTextColor === '#ffffff' && (bgChroma >= 18 || edgeChroma >= 22)) {
+    if (
+      finalTextColor === '#ffffff' &&
+      (darkHaloRatio >= 0.28 || haloLum <= 34) &&
+      haloSat < 0.26 &&
+      Math.max(bgLum, ringMedLumForHalo) >= 22
+    ) {
+      // Koyu/lacivert sahne üstü beyaz yazının etrafında nötr siyah kontur halkası varsa RPG mavi parıltısı yerine siyah kontur ver
+      hasOutline = true;
+      finalStrokeColor = '#0a0a0c';
+      strokeWidthEm = 0.14;
+    } else if (finalTextColor === '#ffffff' && (bgChroma >= 18 || edgeChroma >= 22)) {
       if (ringMedB > ringMedR + 14 || edgeB > edgeR + 18) {
         // Mavi/lacivert sistem penceresi: içi saf beyaz, dışı hafif açık mavi çizgi ve yumuşak mavi ışıltı
         hasOutline = true;
@@ -699,13 +778,20 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     }
   } else {
     // Açık/beyaz zemin veya çerçeve sınırında duran başlıklar ("SYSTEM PROMPT" vb.)
-    if (fillLum >= 185 && (edgeLum <= fillLum - 25 || edgeB > edgeR + 20)) {
-      // İçi beyaz, dışı mavi/koyu konturlu başlık ("SYSTEM PROMPT" gibi)
+    if (
+      fillLum >= 185 &&
+      (edgeLum <= fillLum - 25 ||
+        edgeB > edgeR + 20 ||
+        (fillLum >= 205 && haloLum <= 55 && haloToFillDist >= 135))
+    ) {
+      // İçi beyaz, dışı mavi/koyu konturlu başlık ("SYSTEM PROMPT" veya siyah konturlu beyaz yazı)
       finalTextColor = '#ffffff';
       hasOutline = true;
-      finalStrokeColor = edgeB > edgeR + 14 ? '#3b78d4' : rgbToHex(edgeR, edgeG, edgeB);
-      strokeWidthEm = 0.11;
-      shadowColor = edgeB > edgeR + 14 ? '#5ca8ff' : undefined;
+      const isBlueOutline = edgeB > edgeR + 14;
+      const isDarkHalo = !isBlueOutline && haloLum <= 55 && haloToFillDist >= 135;
+      finalStrokeColor = isBlueOutline ? '#3b78d4' : isDarkHalo ? '#0a0a0c' : rgbToHex(edgeR, edgeG, edgeB);
+      strokeWidthEm = isDarkHalo ? 0.14 : 0.11;
+      shadowColor = isBlueOutline ? '#5ca8ff' : undefined;
       shadowBlurEm = shadowColor ? 0.14 : undefined;
     } else if (isColoredFill && fillToBgDist >= 95 && fillLum < bgLum - 45 && fillSat >= 0.38) {
       finalTextColor = rgbToHex(fillR, fillG, fillB);
@@ -839,36 +925,149 @@ export const inpaintTexturedRegion = (
     }
   }
 
-  // gradY > gradX ise yatay çizgiler (horizontal lines) baskındır -> yatay enterpolasyona ekstra ağırlık ver!
+  // gradY > gradX ise yatay çizgiler (horizontal lines) baskındır -> yatay enterpolasyona ekstra ağırlık ver,
+  // ancak tek eksende aşırı şerit sündürmesini önlemek için oranı dengeli aralıkta tut
   const anisoH =
     gradCount > 8 && gradXSum + gradYSum > 1
-      ? clamp((gradYSum + 10) / (gradXSum + 10), 0.35, 2.8)
+      ? clamp((gradYSum + 10) / (gradXSum + 10), 0.58, 1.75)
       : 1.0;
 
-  // 2. Yatay ve dikey span enterpolasyonu (başlangıç alanı + yönlü yapı koruma)
-  // Sınırda silinmemiş harf ucu veya parlak çerçeve çizgisi varsa (ringMed'den >58 sapma)
-  // o pikseli balon/kutu içine boydan boya sündürmemek için ringMed'e sabitle!
+  const ringMedLum = 0.299 * ringMedR + 0.587 * ringMedG + 0.114 * ringMedB;
+
+  // Sınırda silinmemiş izole harf ucu / siyah çerçeve iğnesi varsa dışarı sündürme;
+  // ancak pürüzsüz gradyan ve dokulu yüzey piksellerinin lokal sürekliliğini koru!
+  const hasSmoothCleanNeighbor = (pIdx: number, cr: number, cg: number, cb: number): boolean => {
+    const py = (pIdx / ww) | 0;
+    const px = pIdx - py * ww;
+    const offsets = [
+      px >= 2 ? pIdx - 2 : -1,
+      px + 2 < ww ? pIdx + 2 : -1,
+      py >= 2 ? pIdx - 2 * ww : -1,
+      py + 2 < wh ? pIdx + 2 * ww : -1,
+    ];
+    for (const nIdx of offsets) {
+      if (nIdx < 0 || borderMask[nIdx] || eraseMask[nIdx]) continue;
+      const nc = nIdx * 3;
+      if (maxChannelDiff(cr, cg, cb, cleaned[nc], cleaned[nc + 1], cleaned[nc + 2]) <= 34) {
+        return true;
+      }
+    }
+    return false;
+  };
+
   const isCleanBoundary = (pIdx: number): boolean => {
     if (pIdx < 0 || pIdx >= numPixels || borderMask[pIdx] || eraseMask[pIdx]) return false;
     const c3 = pIdx * 3;
-    return (
-      maxChannelDiff(
-        cleaned[c3],
-        cleaned[c3 + 1],
-        cleaned[c3 + 2],
-        ringMedR,
-        ringMedG,
-        ringMedB,
-      ) <= 58
-    );
+    const cr = cleaned[c3];
+    const cg = cleaned[c3 + 1];
+    const cb = cleaned[c3 + 2];
+    const pLum = 0.299 * cr + 0.587 * cg + 0.114 * cb;
+    const dRing = maxChannelDiff(cr, cg, cb, ringMedR, ringMedG, ringMedB);
+    // Koyu/orta/aydınlık doku üzerinde maskeden taşan siyah dış kontur parçalarını dışarı sündürme
+    const darkAAFloor =
+      ringMedLum >= 140 ? Math.min(72, Math.round(ringMedLum * 0.45)) : 42;
+    if (
+      (dRing > 48 && pLum < darkAAFloor && ringMedLum >= 52 && pLum < ringMedLum - 20) ||
+      (pLum <= 16 && ringMedLum >= 28 && dRing >= 20) ||
+      (ringMedB > ringMedR + 14 && cb - cr <= 16 && pLum <= ringMedLum + 8 && dRing >= 18)
+    ) {
+      return false;
+    }
+    if (dRing <= 78) return true;
+    return hasSmoothCleanNeighbor(pIdx, cr, cg, cb);
   };
 
   const hInterp = new Float32Array(cleaned);
   const hSpan = new Float32Array(numPixels);
+  const hEdgeDiff = new Float32Array(numPixels);
   hSpan.fill(9999);
+  hEdgeDiff.fill(999);
+
+  // Siyah dış kontur veya anti-aliasing gölgesi silme sınırında 1-3px taşarsa dışarıdaki gerçek zemin rengine atla
+  const resolveCleanEdge = (
+    edgeIdx: number,
+    stride: number,
+    coordDelta: number,
+    coord: number,
+    limit: number,
+  ): number => {
+    if (edgeIdx < 0 || edgeIdx >= numPixels) return -1;
+    let bestIdx = isCleanBoundary(edgeIdx) ? edgeIdx : -1;
+    const baseC = edgeIdx * 3;
+    const baseLum =
+      0.299 * cleaned[baseC] + 0.587 * cleaned[baseC + 1] + 0.114 * cleaned[baseC + 2];
+    let bestLum = bestIdx >= 0 ? baseLum : -1;
+    const suspiciousDarkCut = Math.min(95, Math.max(40, ringMedLum - 35));
+    const maxLook = bestIdx < 0 || baseLum < Math.max(70, ringMedLum - 15) ? 14 : 8;
+    const maxTotalScan = 24;
+    let cleanSteps = 0;
+    for (let s = 1; s <= maxTotalScan; s += 1) {
+      const nextCoord = coord + coordDelta * s;
+      if (nextCoord < 0 || nextCoord >= limit) break;
+      const candIdx = edgeIdx + stride * s;
+      if (borderMask[candIdx]) break;
+      if (eraseMask[candIdx]) continue;
+      cleanSteps += 1;
+      if (cleanSteps > maxLook && bestIdx >= 0) break;
+      if (!isCleanBoundary(candIdx)) continue;
+      const cc = candIdx * 3;
+      const candLum = 0.299 * cleaned[cc] + 0.587 * cleaned[cc + 1] + 0.114 * cleaned[cc + 2];
+      const bestC = Math.max(0, bestIdx) * 3;
+      const candBlueMatch =
+        ringMedB > ringMedR + 12 &&
+        cleaned[cc + 2] - cleaned[cc] >
+          (bestIdx >= 0 ? cleaned[bestC + 2] - cleaned[bestC] : cleaned[baseC + 2] - cleaned[baseC]) +
+            10;
+      const allowLumEscape = bestIdx < 0 || bestLum < suspiciousDarkCut;
+      if ((allowLumEscape && candLum > bestLum + 10) || bestIdx < 0 || candBlueMatch) {
+        bestIdx = candIdx;
+        bestLum = candLum;
+        if (candLum >= baseLum + 26 && cleanSteps >= 5) break;
+      } else if (bestIdx >= 0 && bestLum >= 165 && cleanSteps >= 2 && Math.abs(candLum - bestLum) <= 8) {
+        break;
+      }
+    }
+    return bestIdx;
+  };
 
   for (let y = egMinY; y <= egMaxY; y += 1) {
     const rOff = y * ww;
+    let rowFirstX = -1;
+    let rowLastX = -1;
+    for (let rx = egMinX; rx <= egMaxX; rx += 1) {
+      if (eraseMask[rOff + rx]) {
+        if (rowFirstX < 0) rowFirstX = rx;
+        rowLastX = rx;
+      }
+    }
+    const outerLIdx =
+      rowFirstX > 0 ? resolveCleanEdge(rOff + rowFirstX - 1, -1, -1, rowFirstX - 1, ww) : -1;
+    const outerRIdx =
+      rowLastX >= 0 && rowLastX + 1 < ww
+        ? resolveCleanEdge(rOff + rowLastX + 1, 1, 1, rowLastX + 1, ww)
+        : -1;
+    const hasSmoothOuterPair =
+      outerLIdx >= 0 &&
+      outerRIdx >= 0 &&
+      maxChannelDiff(
+        cleaned[outerLIdx * 3],
+        cleaned[outerLIdx * 3 + 1],
+        cleaned[outerLIdx * 3 + 2],
+        cleaned[outerRIdx * 3],
+        cleaned[outerRIdx * 3 + 1],
+        cleaned[outerRIdx * 3 + 2],
+      ) <= 28;
+    const outerMinLum = hasSmoothOuterPair
+      ? Math.min(
+          0.299 * cleaned[outerLIdx * 3] +
+            0.587 * cleaned[outerLIdx * 3 + 1] +
+            0.114 * cleaned[outerLIdx * 3 + 2],
+          0.299 * cleaned[outerRIdx * 3] +
+            0.587 * cleaned[outerRIdx * 3 + 1] +
+            0.114 * cleaned[outerRIdx * 3 + 2],
+        )
+      : 0;
+
     let x = egMinX;
     while (x <= egMaxX) {
       if (eraseMask[rOff + x]) {
@@ -876,20 +1075,39 @@ export const inpaintTexturedRegion = (
         while (x < ww && eraseMask[rOff + x]) x += 1;
         const xs1 = x;
 
-        const leftP = rOff + xs0 - 1;
-        const rightP = rOff + xs1;
-        const useLeft = xs0 > 0 && isCleanBoundary(leftP);
-        const useRight = xs1 < ww && isCleanBoundary(rightP);
-        const lIdx = leftP * 3;
-        const rIdx = rightP * 3;
+        const leftEdge = xs0 > 0 ? resolveCleanEdge(rOff + xs0 - 1, -1, -1, xs0 - 1, ww) : -1;
+        const rightEdge = xs1 < ww ? resolveCleanEdge(rOff + xs1, 1, 1, xs1, ww) : -1;
+        const useLeft = leftEdge >= 0;
+        const useRight = rightEdge >= 0;
+        const lIdx = Math.max(0, leftEdge) * 3;
+        const rIdx = Math.max(0, rightEdge) * 3;
 
-        const lr = useLeft ? cleaned[lIdx] : useRight ? cleaned[rIdx] : ringMedR;
-        const lg = useLeft ? cleaned[lIdx + 1] : useRight ? cleaned[rIdx + 1] : ringMedG;
-        const lb = useLeft ? cleaned[lIdx + 2] : useRight ? cleaned[rIdx + 2] : ringMedB;
+        let lr = useLeft ? cleaned[lIdx] : useRight ? cleaned[rIdx] : ringMedR;
+        let lg = useLeft ? cleaned[lIdx + 1] : useRight ? cleaned[rIdx + 1] : ringMedG;
+        let lb = useLeft ? cleaned[lIdx + 2] : useRight ? cleaned[rIdx + 2] : ringMedB;
 
-        const rr = useRight ? cleaned[rIdx] : useLeft ? cleaned[lIdx] : ringMedR;
-        const rg = useRight ? cleaned[rIdx + 1] : useLeft ? cleaned[lIdx + 1] : ringMedG;
-        const rb = useRight ? cleaned[rIdx + 2] : useLeft ? cleaned[lIdx + 2] : ringMedB;
+        let rr = useRight ? cleaned[rIdx] : useLeft ? cleaned[lIdx] : ringMedR;
+        let rg = useRight ? cleaned[rIdx + 1] : useLeft ? cleaned[lIdx + 1] : ringMedG;
+        let rb = useRight ? cleaned[rIdx + 2] : useLeft ? cleaned[lIdx + 2] : ringMedB;
+
+        if (hasSmoothOuterPair) {
+          const lLum = 0.299 * lr + 0.587 * lg + 0.114 * lb;
+          const rLum = 0.299 * rr + 0.587 * rg + 0.114 * rb;
+          if (!useLeft || (lLum < outerMinLum - 16 && lLum < 105)) {
+            const o3 = outerLIdx * 3;
+            lr = cleaned[o3];
+            lg = cleaned[o3 + 1];
+            lb = cleaned[o3 + 2];
+          }
+          if (!useRight || (rLum < outerMinLum - 16 && rLum < 105)) {
+            const o3 = outerRIdx * 3;
+            rr = cleaned[o3];
+            rg = cleaned[o3 + 1];
+            rb = cleaned[o3 + 2];
+          }
+        }
+        const rowEdgeDiff =
+          useLeft && useRight ? maxChannelDiff(lr, lg, lb, rr, rg, rb) : hasSmoothOuterPair ? 12 : 999;
 
         const sp = Math.max(1, xs1 - xs0);
         for (let i = 0; i < sp; i += 1) {
@@ -900,6 +1118,7 @@ export const inpaintTexturedRegion = (
           hInterp[cIdx + 1] = (1 - t) * lg + t * rg;
           hInterp[cIdx + 2] = (1 - t) * lb + t * rb;
           hSpan[pIdx] = sp / anisoH;
+          hEdgeDiff[pIdx] = rowEdgeDiff;
         }
       } else {
         x += 1;
@@ -909,7 +1128,9 @@ export const inpaintTexturedRegion = (
 
   const vInterp = new Float32Array(cleaned);
   const vSpan = new Float32Array(numPixels);
+  const vEdgeDiff = new Float32Array(numPixels);
   vSpan.fill(9999);
+  vEdgeDiff.fill(999);
 
   for (let x = egMinX; x <= egMaxX; x += 1) {
     let y = egMinY;
@@ -919,12 +1140,12 @@ export const inpaintTexturedRegion = (
         while (y < wh && eraseMask[y * ww + x]) y += 1;
         const ys1 = y;
 
-        const topIdx = (ys0 - 1) * ww + x;
-        const botIdx = ys1 * ww + x;
-        const useTop = ys0 > 0 && isCleanBoundary(topIdx);
-        const useBot = ys1 < wh && isCleanBoundary(botIdx);
-        const t3 = topIdx * 3;
-        const b3 = botIdx * 3;
+        const topEdge = ys0 > 0 ? resolveCleanEdge((ys0 - 1) * ww + x, -ww, -1, ys0 - 1, wh) : -1;
+        const botEdge = ys1 < wh ? resolveCleanEdge(ys1 * ww + x, ww, 1, ys1, wh) : -1;
+        const useTop = topEdge >= 0;
+        const useBot = botEdge >= 0;
+        const t3 = Math.max(0, topEdge) * 3;
+        const b3 = Math.max(0, botEdge) * 3;
 
         const tr = useTop ? cleaned[t3] : useBot ? cleaned[b3] : ringMedR;
         const tg = useTop ? cleaned[t3 + 1] : useBot ? cleaned[b3 + 1] : ringMedG;
@@ -933,6 +1154,7 @@ export const inpaintTexturedRegion = (
         const br = useBot ? cleaned[b3] : useTop ? cleaned[t3] : ringMedR;
         const bg = useBot ? cleaned[b3 + 1] : useTop ? cleaned[t3 + 1] : ringMedG;
         const bb = useBot ? cleaned[b3 + 2] : useTop ? cleaned[t3 + 2] : ringMedB;
+        const colEdgeDiff = useTop && useBot ? maxChannelDiff(tr, tg, tb, br, bg, bb) : 999;
 
         const sp = Math.max(1, ys1 - ys0);
         for (let i = 0; i < sp; i += 1) {
@@ -943,6 +1165,7 @@ export const inpaintTexturedRegion = (
           vInterp[cIdx + 1] = (1 - t) * tg + t * bg;
           vInterp[cIdx + 2] = (1 - t) * tb + t * bb;
           vSpan[pIdx] = sp * anisoH;
+          vEdgeDiff[pIdx] = colEdgeDiff;
         }
       } else {
         y += 1;
@@ -979,6 +1202,7 @@ export const inpaintTexturedRegion = (
     }
   }
 
+  const lockDir = new Uint8Array(numPixels); // 1 = strongHoriz, 2 = strongVert
   while (qHead < qTail) {
     const idx = order[qHead++];
     const y = (idx / ww) | 0;
@@ -994,6 +1218,43 @@ export const inpaintTexturedRegion = (
     const rMaxY = Math.min(wh - 1, y + 2);
     const rMinX = Math.max(0, x - 2);
     const rMaxX = Math.min(ww - 1, x + 2);
+
+    const hDiff = hEdgeDiff[idx];
+    const vDiff = vEdgeDiff[idx];
+    const cIdx = idx * 3;
+    const hvMismatch = maxChannelDiff(
+      hInterp[cIdx],
+      hInterp[cIdx + 1],
+      hInterp[cIdx + 2],
+      vInterp[cIdx],
+      vInterp[cIdx + 1],
+      vInterp[cIdx + 2],
+    );
+    const strongVertLine =
+      ringMedLum >= 120 && vDiff <= 26 && hvMismatch >= 22 && vSpan[idx] <= hSpan[idx] * 0.9;
+    const strongHorizLine =
+      hDiff <= 26 && hvMismatch >= 22 && hSpan[idx] < vSpan[idx];
+    const strongHorizGrad =
+      !strongVertLine &&
+      (strongHorizLine ||
+        (hDiff <= 38 && vDiff >= hDiff + 24) ||
+        (hDiff <= 22 && vDiff > hDiff + 8));
+    const strongVertGrad =
+      !strongHorizGrad &&
+      (strongVertLine ||
+        (vDiff <= 38 && hDiff >= vDiff + 24) ||
+        (vDiff <= 22 && hDiff > vDiff + 8));
+    if (strongHorizGrad) lockDir[idx] = 1;
+    else if (strongVertGrad) lockDir[idx] = 2;
+    const whW = strongHorizGrad
+      ? 0.94
+      : strongVertGrad
+        ? 0.06
+        : vSpan[idx] / Math.max(1e-4, hSpan[idx] + vSpan[idx]);
+    const wvW = 1 - whW;
+    const spanR = whW * hInterp[cIdx] + wvW * vInterp[cIdx];
+    const spanG = whW * hInterp[cIdx + 1] + wvW * vInterp[cIdx + 1];
+    const spanB = whW * hInterp[cIdx + 2] + wvW * vInterp[cIdx + 2];
 
     for (let ny = rMinY; ny <= rMaxY; ny += 1) {
       const nrOff = ny * ww;
@@ -1011,30 +1272,34 @@ export const inpaintTexturedRegion = (
         const nr = cleaned[c3];
         const ng = cleaned[c3 + 1];
         const nb = cleaned[c3 + 2];
-        const isOutlier =
+        const nLum = 0.299 * nr + 0.587 * ng + 0.114 * nb;
+        const spanLum = 0.299 * spanR + 0.587 * spanG + 0.114 * spanB;
+        const isDarkHaloNeighbor =
           !eraseMask[nIdx] &&
-          maxChannelDiff(nr, ng, nb, ringMedR, ringMedG, ringMedB) > 58;
-        rSum += (isOutlier ? ringMedR : nr) * w;
-        gSum += (isOutlier ? ringMedG : ng) * w;
-        bSum += (isOutlier ? ringMedB : nb) * w;
+          ((nLum < Math.min(130, spanLum - 22) && !isCleanBoundary(nIdx)) ||
+            (nLum < 120 && spanLum - nLum >= 26) ||
+            (ringMedB > ringMedR + 12 && nb - nr < 10 && nLum < 45));
+        const isOutlier =
+          isDarkHaloNeighbor ||
+          (!eraseMask[nIdx] &&
+            maxChannelDiff(nr, ng, nb, ringMedR, ringMedG, ringMedB) > 85 &&
+            !hasSmoothCleanNeighbor(nIdx, nr, ng, nb));
+        rSum += (isOutlier ? spanR : nr) * w;
+        gSum += (isOutlier ? spanG : ng) * w;
+        bSum += (isOutlier ? spanB : nb) * w;
         wSum += w;
       }
     }
-
-    const whW = vSpan[idx] / Math.max(1e-4, hSpan[idx] + vSpan[idx]);
-    const wvW = 1 - whW;
-    const cIdx = idx * 3;
-    const spanR = whW * hInterp[cIdx] + wvW * vInterp[cIdx];
-    const spanG = whW * hInterp[cIdx + 1] + wvW * vInterp[cIdx + 1];
-    const spanB = whW * hInterp[cIdx + 2] + wvW * vInterp[cIdx + 2];
 
     if (wSum > 0) {
       const fmmR = rSum / wSum;
       const fmmG = gSum / wSum;
       const fmmB = bSum / wSum;
-      cleaned[cIdx] = 0.55 * spanR + 0.45 * fmmR;
-      cleaned[cIdx + 1] = 0.55 * spanG + 0.45 * fmmG;
-      cleaned[cIdx + 2] = 0.55 * spanB + 0.45 * fmmB;
+      const fmmWeight = strongHorizGrad || strongVertGrad ? 0.05 : 0.42;
+      const spanWeight = 1 - fmmWeight;
+      cleaned[cIdx] = spanWeight * spanR + fmmWeight * fmmR;
+      cleaned[cIdx + 1] = spanWeight * spanG + fmmWeight * fmmG;
+      cleaned[cIdx + 2] = spanWeight * spanB + fmmWeight * fmmB;
     } else {
       cleaned[cIdx] = spanR;
       cleaned[cIdx + 1] = spanG;
@@ -1066,14 +1331,67 @@ export const inpaintTexturedRegion = (
       const y = (idx / ww) | 0;
       const x = idx - y * ww;
       if (x <= 0 || x >= ww - 1 || y <= 0 || y >= wh - 1) continue;
+      const ld = lockDir[idx];
+      const pwH = ld === 1 ? 0.47 : ld === 2 ? 0.03 : wH;
+      const pwV = 0.5 - pwH;
       const c = idx * 3;
       const n = (idx - ww) * 3;
       const s = (idx + ww) * 3;
       const w = (idx - 1) * 3;
       const e = (idx + 1) * 3;
-      cleaned[c] = wH * (cleaned[w] + cleaned[e]) + wV * (cleaned[n] + cleaned[s]);
-      cleaned[c + 1] = wH * (cleaned[w + 1] + cleaned[e + 1]) + wV * (cleaned[n + 1] + cleaned[s + 1]);
-      cleaned[c + 2] = wH * (cleaned[w + 2] + cleaned[e + 2]) + wV * (cleaned[n + 2] + cleaned[s + 2]);
+      cleaned[c] = pwH * (cleaned[w] + cleaned[e]) + pwV * (cleaned[n] + cleaned[s]);
+      cleaned[c + 1] = pwH * (cleaned[w + 1] + cleaned[e + 1]) + pwV * (cleaned[n + 1] + cleaned[s + 1]);
+      cleaned[c + 2] = pwH * (cleaned[w + 2] + cleaned[e + 2]) + pwV * (cleaned[n + 2] + cleaned[s + 2]);
+    }
+  }
+
+  // Arka planda doğal film greni / noktalı mikro doku varsa düz bulanık yamayı önlemek için eşleşen mikro doku ekle
+  let hpSum = 0;
+  let hpCount = 0;
+  for (let y = Math.max(2, egMinY - 4); y <= Math.min(wh - 3, egMaxY + 4); y += 2) {
+    const rOff = y * ww;
+    for (let x = Math.max(2, egMinX - 6); x <= Math.min(ww - 3, egMaxX + 6); x += 2) {
+      const idx = rOff + x;
+      if (eraseMask[idx] || borderMask[idx]) continue;
+      if (
+        x > 0 && x + 1 < ww && y > 0 && y + 1 < wh &&
+        !eraseMask[idx - 1] && !eraseMask[idx + 1] && !eraseMask[idx - ww] && !eraseMask[idx + ww]
+      ) {
+        const c = idx * 3;
+        const cl = (idx - 1) * 3;
+        const cr = (idx + 1) * 3;
+        const ct = (idx - ww) * 3;
+        const cb = (idx + ww) * 3;
+        const lC = 0.299 * cleaned[c] + 0.587 * cleaned[c + 1] + 0.114 * cleaned[c + 2];
+        const lL = 0.299 * cleaned[cl] + 0.587 * cleaned[cl + 1] + 0.114 * cleaned[cl + 2];
+        const lR = 0.299 * cleaned[cr] + 0.587 * cleaned[cr + 1] + 0.114 * cleaned[cr + 2];
+        const lT = 0.299 * cleaned[ct] + 0.587 * cleaned[ct + 1] + 0.114 * cleaned[ct + 2];
+        const lB = 0.299 * cleaned[cb] + 0.587 * cleaned[cb + 1] + 0.114 * cleaned[cb + 2];
+        if (Math.abs(lL - lR) <= 24 && Math.abs(lT - lB) <= 24) {
+          hpSum += Math.abs(lC - 0.25 * (lL + lR + lT + lB));
+          hpCount += 1;
+        }
+      }
+    }
+  }
+  const avgGrain = hpCount >= 24 ? hpSum / hpCount : 0;
+  if (avgGrain >= 2.2) {
+    const grainAmp = clamp(avgGrain * 1.45, 3.0, 12.0);
+    for (let k = 0; k < qTail; k += 1) {
+      const idx = order[k];
+      const y = (idx / ww) | 0;
+      const x = idx - y * ww;
+      // Deterministik çok-frekanslı monokrom mikro gren (yapay ızgara olmadan)
+      let h = (x * 374761393 + y * 668265263) ^ 0x5bd1e995;
+      h = Math.imul(h ^ (h >>> 13), 1274126177);
+      h = h ^ (h >>> 16);
+      const u1 = ((h & 0xffff) / 65535) - 0.5;
+      const u2 = (((h >>> 16) & 0xffff) / 65535) - 0.5;
+      const delta = (u1 + u2) * grainAmp;
+      const c = idx * 3;
+      cleaned[c] = clamp(cleaned[c] + delta, 0, 255);
+      cleaned[c + 1] = clamp(cleaned[c + 1] + delta, 0, 255);
+      cleaned[c + 2] = clamp(cleaned[c + 2] + delta, 0, 255);
     }
   }
 };

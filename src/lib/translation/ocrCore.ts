@@ -46,7 +46,7 @@ const DET_MAX_WIDTH = 960;
 const DET_SLICE_H = 1536;
 const DET_SLICE_OVERLAP = 192;
 const DET_BIN_THRESH = 0.3;
-const DET_BOX_THRESH = 0.58;
+const DET_BOX_THRESH = 0.50;
 const DET_UNCLIP_RATIO = 1.78;
 const REC_H = 48;
 const REC_MAX_W = 1600;
@@ -167,10 +167,10 @@ const extractDetBoxes = (prob: Float32Array, w: number, h: number): DetBox[] => 
     if (score < DET_BOX_THRESH) continue;
 
     // DBNet küçültülmüş çekirdeğini orijinal metin sınırına genişlet (unclip)
-    // Kalın konturlu/stilize SFX harflerinin sağ/sol uçlarının kesilmemesi için yatayda ek tolerans
+    // Kalın konturlu/stilize SFX ve kenar harflerinin kesilmemesi için yatay ve dikey tolerans
     const d = (bw * bh * DET_UNCLIP_RATIO) / (2 * (bw + bh));
-    const dx = Math.max(d * 1.18, bh * 0.28);
-    const dy = Math.max(d * 0.95, bh * 0.18);
+    const dx = Math.max(d * 1.28, bh * 0.36);
+    const dy = Math.max(d * 1.05, bh * 0.22);
     boxes.push({
       x0: clamp(minX - dx, 0, w),
       y0: clamp(minY - dy, 0, h),
@@ -337,15 +337,21 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
   const isCleanText =
     junk === 0 &&
     letters >= 3 &&
+    digits === 0 &&
+    /[aeiouy\p{L}]/iu.test(stripped || text) &&
+    !/^(.)\1{2,}$/i.test(stripped || text) &&
     /^[a-zA-Z0-9]+(?:[\s.,!?'"“”‘’…:;()\-–—~]+[a-zA-Z0-9]+)*[\s.,!?'"“”‘’…:;()\-–—~]*$/.test(
       stripped || text,
     );
+  const hasLatinVowel = /[aeiouy]/i.test(stripped);
 
   const effectiveMinConf = isShortMeaningful
     ? Math.min(minConfidence, 40)
-    : isCleanText
-      ? Math.min(minConfidence, 56)
-      : minConfidence;
+    : isCleanText && letters >= 3 && hasLatinVowel
+      ? Math.min(minConfidence, 48)
+      : isCleanText
+        ? Math.min(minConfidence, 56)
+        : minConfidence;
 
   if (line.confidence < effectiveMinConf) return false;
   if (letters === 0) return false;
@@ -372,6 +378,8 @@ export const cleanOcrText = (text: string): string => {
     .replace(/<[^>]{1,28}>/g, ' ')
     .replace(/[<>]+/g, ' ')
     .replace(/\s+/g, ' ')
+    .replace(/(?<=\p{L})["“”](?=(?:s|t|m|d|re|ve|ll|S|T|M|D|RE|VE|LL)\b)/gu, "'")
+    .replace(/(\p{L})-[""''`]+(?=\s|$)/gu, '$1-')
     .replace(/(?<=[A-Za-z])0(?=[A-Za-z.!?,;:'"\s]|$)/g, 'O')
     .replace(/(?:^|(?<=[\s"'([¡¿]))0(?=[A-Za-z]{1,})/g, 'O')
     .replace(/^5[0O]([!?.…]*)$/i, 'SO$1')
@@ -421,7 +429,7 @@ const PURE_SFX_STEMS = new Set([
 ]);
 
 /** Tek başına anlamlı kelime olabilecek ama 2-3 kez arka arkaya tekrarlandığında ses efekti olan kelimeler ("TAP TAP TAP", "STEP STEP", "DRIP DRIP", "CLAP CLAP") */
-const REPEATED_ONLY_SFX_STEMS = new Set([
+export const REPEATED_ONLY_SFX_STEMS = new Set([
   'tap', 'step', 'drip', 'drop', 'clap', 'pat', 'knock', 'tick', 'tock', 'click',
   'pop', 'snap', 'ring', 'beep', 'honk', 'cough', 'pant', 'sob', 'gasp', 'gulp',
   'chew', 'chop', 'slash', 'slice', 'poke', 'prod', 'shake', 'tremble', 'shiver',
@@ -483,23 +491,255 @@ export const isPureSoundEffect = (text: string): boolean => {
   return false;
 };
 
+const KNOWN_RPG_STAT_KEY_REGEX =
+  /^(?:name|isim|ad|level|lvl|lv|seviye|race|type|t[üu]r|class|s[ıi]n[ıi]f|rank|r[üu]tbe|title|unvan|hp|mp|sp|xp|exp|health|can|mana|b[üu]y[üu]|stamina|dayan[ıi]kl[ıi]l[ıi]k|atk|attack|sald[ıi]r[ıi]|def|defense|savunma|str|strength|g[üu][çc]|agi|agility|[çc]eviklik|dex|int|intelligence|zeka|vit|vitality|luk|luck|[şs]ans|speed|h[ıi]z|weapon|silah|armor|z[ıi]rh|skill|skills|yetenek|yetenekler|ability|abilities|owner|sahip|master|stat|stats|status|durum|power|g[üu][çc]\s*puan[ıi]|evolution(?:\s*points?)?|evrim(?:\s*puan[ıi])?|points?|tier|grade|element|attribute|effect|passive|active|reward|[öo]d[üu]l|quest|g[öo]rev|mission|condition|ko[şs]ul|age|ya[şs]|gender|cinsiyet|affiliation|clan|klan|sect|tarikat|realm|diyar|stage|a[şs]ama|cultivation|trait|traits|buff|debuff|equipment|ekipman|item|e[şs]ya|description|a[çc][ıi]klama|durability|host|system)$/i;
+
+/**
+ * RPG / Sistem durum penceresi anahtar-değer satırlarını ("HEALTH: 100", "NAME: JIANG CHENG")
+ * normal konuşma diyaloglarından ("CHICKITO: OH DAMN,") güvenle ayırır.
+ */
+export const isRpgStatLine = (rawText: string): boolean => {
+  const cleaned = rawText.trim().replace(/\s+/g, ' ');
+  const m = cleaned.match(/^([A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,26}):\s*(.+)$/);
+  if (!m) return false;
+  const key = m[1].trim();
+  const val = m[2].trim();
+  if (!val) return false;
+  if (/[?]$|,$/.test(val)) return false;
+  const firstWord = val.split(/\s+/)[0] ?? '';
+  if (
+    /^(?:oh|ah|uh|um|hey|well|wait|what|why|how|damn|shit|fuck)$/i.test(firstWord) ||
+    (/^(?:no|yes)$/i.test(firstWord) && val.split(/\s+/).length >= 2)
+  ) {
+    return false;
+  }
+  if (KNOWN_RPG_STAT_KEY_REGEX.test(key)) return true;
+  if (/^[+-]?\d/.test(val)) return true;
+  const wordCount = val.split(/\s+/).length;
+  return wordCount <= 3 && !/[!?]/.test(val) && /^[A-Z0-9+/().\s-]+$/.test(val);
+};
+
+const sampleLineCollarLum = (img: OcrImageBuffer, bbox: OcrLine['bbox']): number => {
+  const { data, width, height } = img;
+  const xStart = Math.max(0, Math.floor(bbox.x0));
+  const xEnd = Math.min(width - 1, Math.ceil(bbox.x1));
+  const stepX = Math.max(1, Math.floor((xEnd - xStart) / 14));
+  const lums: number[] = [];
+  const sampleYs = [
+    Math.max(0, Math.floor(bbox.y0) - 3),
+    Math.max(0, Math.floor(bbox.y0) - 1),
+    Math.min(height - 1, Math.ceil(bbox.y1) + 1),
+    Math.min(height - 1, Math.ceil(bbox.y1) + 3),
+  ];
+  for (const y of sampleYs) {
+    const rowOff = y * width * 4;
+    for (let x = xStart; x <= xEnd; x += stepX) {
+      const idx = rowOff + x * 4;
+      lums.push(0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2]);
+    }
+  }
+  if (lums.length === 0) return 255;
+  lums.sort((a, b) => a - b);
+  return lums[Math.floor(lums.length * 0.55)];
+};
+
+const hasHorizontalBubbleBarrier = (
+  img: OcrImageBuffer,
+  lineA: OcrLine,
+  lineB: OcrLine,
+): boolean => {
+  const [left, right] = lineA.bbox.x0 <= lineB.bbox.x0 ? [lineA, lineB] : [lineB, lineA];
+  const bgL = sampleLineCollarLum(img, left.bbox);
+  const bgR = sampleLineCollarLum(img, right.bbox);
+  if (Math.abs(bgL - bgR) >= 75) return true;
+
+  const { data, width, height } = img;
+  const hGapPx = right.bbox.x0 - left.bbox.x1;
+  if (hGapPx <= 1.5) return false;
+  const gapX0 = Math.max(0, Math.floor(left.bbox.x1) + 1);
+  const gapX1 = Math.min(width - 1, Math.ceil(right.bbox.x0) - 1);
+  if (gapX1 < gapX0) return false;
+
+  const ovY0 = Math.max(0, Math.floor(Math.max(left.bbox.y0, right.bbox.y0)));
+  const ovY1 = Math.min(height - 1, Math.ceil(Math.min(left.bbox.y1, right.bbox.y1)));
+  const spanY = ovY1 - ovY0 + 1;
+  if (spanY < 4) return false;
+
+  const bothLight = bgL >= 165 && bgR >= 165;
+  const bothDark = bgL <= 105 && bgR <= 105;
+  const padY = Math.max(4, Math.round(spanY * 0.55));
+  const cuspTopY = Math.max(0, ovY0 - padY);
+  const cuspBotY = Math.min(height - 1, ovY1 + padY);
+
+  for (let x = gapX0; x <= gapX1; x += 1) {
+    let darkCount = 0;
+    let brightCount = 0;
+    for (let y = ovY0; y <= ovY1; y += 1) {
+      const idx = (y * width + x) * 4;
+      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      if (lum <= 145) darkCount += 1;
+      if (lum >= 180) brightCount += 1;
+    }
+    if (bothLight && darkCount / spanY >= 0.4) return true;
+    if (bothDark && brightCount / spanY >= 0.4) return true;
+
+    // İkiz / fıstık (peanut) beyaz balonlar arasındaki üst-alt boğum/sınır daralması (cusp)
+    if (bothLight && x >= gapX0 && x <= gapX1) {
+      let topDark = false;
+      let botDark = false;
+      for (let y = cuspTopY; y <= ovY0 + 2; y += 1) {
+        const idx = (y * width + x) * 4;
+        if (0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2] <= 135) {
+          topDark = true;
+          break;
+        }
+      }
+      if (topDark) {
+        for (let y = ovY1 - 2; y <= cuspBotY; y += 1) {
+          const idx = (y * width + x) * 4;
+          if (0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2] <= 135) {
+            botDark = true;
+            break;
+          }
+        }
+      }
+      if (topDark && botDark) return true;
+    }
+  }
+
+  // Konkav içbükey boğum kontrolü: iki teğet beyaz balonun birleşim noktasında ("LOOK," | "IF YOU CAN...")
+  // boşluk sütununun üst/alt duvarı, sağ ve sol kelimelerin dış duvarından içeri doğru çöker.
+  if (bothLight && hGapPx >= 4) {
+    const scanMax = Math.min(110, Math.round(Math.max(left.bbox.y1 - left.bbox.y0, right.bbox.y1 - right.bbox.y0) * 2.4));
+    const findWallAbove = (px: number, startY: number): number | null => {
+      const cx = clamp(Math.round(px), 0, width - 1);
+      for (let y = startY; y >= Math.max(0, startY - scanMax); y -= 1) {
+        const idx = (y * width + cx) * 4;
+        if (0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2] <= 120) return y;
+      }
+      return null;
+    };
+    const findWallBelow = (px: number, startY: number): number | null => {
+      const cx = clamp(Math.round(px), 0, width - 1);
+      for (let y = startY; y <= Math.min(height - 1, startY + scanMax); y += 1) {
+        const idx = (y * width + cx) * 4;
+        if (0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2] <= 120) return y;
+      }
+      return null;
+    };
+    const gapMidX = (gapX0 + gapX1) * 0.5;
+    const leftMidX = (left.bbox.x0 + left.bbox.x1) * 0.5;
+    const rightMidX = (right.bbox.x0 + right.bbox.x1) * 0.5;
+    const wTopGap = findWallAbove(gapMidX, ovY0);
+    const wTopL = findWallAbove(leftMidX, Math.floor(left.bbox.y0));
+    const wTopR = findWallAbove(rightMidX, Math.floor(right.bbox.y0));
+    if (wTopGap !== null && ((wTopL !== null && wTopGap > wTopL + 6) || (wTopR !== null && wTopGap > wTopR + 6))) {
+      return true;
+    }
+    const wBotGap = findWallBelow(gapMidX, ovY1);
+    const wBotL = findWallBelow(leftMidX, Math.ceil(left.bbox.y1));
+    const wBotR = findWallBelow(rightMidX, Math.ceil(right.bbox.y1));
+    if (wBotGap !== null && ((wBotL !== null && wBotGap < wBotL - 6) || (wBotR !== null && wBotGap < wBotR - 6))) {
+      return true;
+    }
+  }
+  return false;
+};
+
+const hasVerticalBubbleBarrier = (
+  img: OcrImageBuffer,
+  lineA: OcrLine,
+  lineB: OcrLine,
+): boolean => {
+  const [top, bot] = lineA.bbox.y0 <= lineB.bbox.y0 ? [lineA, lineB] : [lineB, lineA];
+  const vGapPx = bot.bbox.y0 - top.bbox.y1;
+  const bgT = sampleLineCollarLum(img, top.bbox);
+  const bgB = sampleLineCollarLum(img, bot.bbox);
+  // Kalın siyah konturlu orta ton sahne/anlatım yazılarında sıkı dikey yaka pikselinin biri siyah kontura denk gelebilir
+  const fakeOutlineCollar =
+    vGapPx <= 6 &&
+    Math.min(bgT, bgB) <= 28 &&
+    Math.max(bgT, bgB) >= 75 &&
+    Math.max(bgT, bgB) < 220;
+  if (Math.abs(bgT - bgB) >= 75 && !fakeOutlineCollar) return true;
+
+  const { data, width, height } = img;
+  if (vGapPx <= 1.5) return false;
+  const gapY0 = Math.max(0, Math.floor(top.bbox.y1) + 1);
+  const gapY1 = Math.min(height - 1, Math.ceil(bot.bbox.y0) - 1);
+  if (gapY1 < gapY0) return false;
+
+  const ovX0 = Math.max(0, Math.floor(Math.max(top.bbox.x0, bot.bbox.x0)));
+  const ovX1 = Math.min(width - 1, Math.ceil(Math.min(top.bbox.x1, bot.bbox.x1)));
+  const spanX = ovX1 - ovX0 + 1;
+  if (spanX < 4) return false;
+
+  const bothLight = bgT >= 165 && bgB >= 165;
+  const bothDark = bgT <= 105 && bgB <= 105;
+  for (let y = gapY0; y <= gapY1; y += 1) {
+    let darkCount = 0;
+    let brightCount = 0;
+    const rowOff = y * width * 4;
+    for (let x = ovX0; x <= ovX1; x += 1) {
+      const idx = rowOff + x * 4;
+      const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+      if (lum <= 145) darkCount += 1;
+      if (lum >= 180) brightCount += 1;
+    }
+    if (bothLight && darkCount / spanX >= 0.45) return true;
+    if (bothDark && brightCount / spanX >= 0.45) return true;
+  }
+  return false;
+};
+
 /**
  * Satırları balonlara gruplar.
  * - Aynı yatay hizada bölünmüş kelimeleri ("FIRST MURD" + "ER.") düşük güvenli parça kurtarma ile birleştirir.
  * - Aynı konuşma balonunun içindeki vurgulu/büyük alt satırları ("WHY DID YOU COME UP" + "ALONE?")
  *   boyut oranı 2.85 katına kadar olsa bile aynı balona bağlar.
+ * - Piksel tabanlı balon sınırı / boğum kontrolüyle ikiz balonların yatay/dikey birleşmesini önler.
  */
 export const groupOcrLinesIntoBubbles = (
   rawLines: OcrLine[],
   imgWidth: number,
   imgHeight: number,
+  img?: OcrImageBuffer,
 ): OcrBubble[] => {
   const cleanedAll = rawLines
     .map((l) => ({ ...l, text: cleanOcrText(l.text) }))
     .filter((l) => l.text.length > 0);
 
+  // Beyaz zemin üzerindeki çok soluk gri arka plan logolarını/filigranlarını (ör. açık gri Tencent logosu -> "A inane")
+  // metin adayı olarak ele.
+  const isFaintGrayWatermarkOnWhite = (line: OcrLine): boolean => {
+    if (!img) return false;
+    const bgCollar = sampleLineCollarLum(img, line.bbox);
+    if (bgCollar < 238) return false;
+    const x0 = clamp(Math.floor(line.bbox.x0), 0, img.width - 1);
+    const x1 = clamp(Math.ceil(line.bbox.x1), 0, img.width - 1);
+    const y0 = clamp(Math.floor(line.bbox.y0), 0, img.height - 1);
+    const y1 = clamp(Math.ceil(line.bbox.y1), 0, img.height - 1);
+    const w = x1 - x0;
+    const h = y1 - y0;
+    if (w < 6 || h < 6) return false;
+    const stepX = Math.max(1, Math.floor(w / 24));
+    const stepY = Math.max(1, Math.floor(h / 12));
+    let minLum = 255;
+    for (let y = y0; y <= y1; y += stepY) {
+      const rowOff = y * img.width * 4;
+      for (let x = x0; x <= x1; x += stepX) {
+        const idx = rowOff + x * 4;
+        const lum = 0.299 * img.data[idx] + 0.587 * img.data[idx + 1] + 0.114 * img.data[idx + 2];
+        if (lum < minLum) minLum = lum;
+      }
+    }
+    return minLum >= 175;
+  };
+
   // Yüksek güvenli satırları seç
-  const strongLines = cleanedAll.filter((l) => isUsableOcrLine(l, MIN_LINE_CONFIDENCE));
+  const strongLines = cleanedAll.filter(
+    (l) => isUsableOcrLine(l, MIN_LINE_CONFIDENCE) && !isFaintGrayWatermarkOnWhite(l),
+  );
 
   // 1) Aynı yatay satırda (baseline) yüksek güvenli bir satırın hemen sağında/solunda kalan parçaları ("ER." gibi)
   // 2) Veya aynı konuşma balonu sütununda yüksek güvenli bir satırın hemen üstünde/altında kalan temiz satırları ("Esta", "I've found its" gibi) kurtar
@@ -529,7 +769,13 @@ export const groupOcrLinesIntoBubbles = (
       // Yatay komşu ("FIRST MURD" + "ER.")
       const vOverlap = Math.min(cb.y1, sb.y1) - Math.max(cb.y0, sb.y0);
       const hGap = Math.max(cb.x0, sb.x0) - Math.min(cb.x1, sb.x1);
-      if (maxH / Math.max(1, minH) <= 1.85 && vOverlap >= minH * 0.5 && hGap >= -minH * 0.4 && hGap <= maxH * 1.65) {
+      if (
+        maxH / Math.max(1, minH) <= 1.85 &&
+        vOverlap >= minH * 0.5 &&
+        hGap >= -minH * 0.4 &&
+        hGap <= maxH * 0.55 &&
+        (!img || !hasHorizontalBubbleBarrier(img, cand, s))
+      ) {
         return true;
       }
 
@@ -562,9 +808,27 @@ export const groupOcrLinesIntoBubbles = (
   );
   if (lines.length === 0) return [];
 
-  // RPG / Sistem durum penceresi satırları ("HEALTH: 100", "MAGIC: 0", "ATTACK: 2", "NAME: JIANG CHENG" vb.)
-  // dikeyde asla tek paragraf halinde birleştirilmemelidir; her biri kendi satır hizasında kalmalıdır!
-  const KEY_VALUE_STAT_LINE_REGEX = /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,26}:\s*\S/;
+  // İki yatay komşu satırın her birinin kendi dikey X-sütununda başka satırlarla üst üste/alt alta
+  // bir balon oluşturup oluşturmadığını kontrol eder (yan yana duran ikiz balonları ayırmak için)
+  const hasIndependentVerticalPartner = (targetIdx: number, otherIdx: number): boolean => {
+    const tBox = lines[targetIdx].bbox;
+    const oBox = lines[otherIdx].bbox;
+    const th = tBox.y1 - tBox.y0;
+    const tw = tBox.x1 - tBox.x0;
+    for (let k = 0; k < lines.length; k += 1) {
+      if (k === targetIdx || k === otherIdx) continue;
+      const kBox = lines[k].bbox;
+      const kh = kBox.y1 - kBox.y0;
+      const vGap = Math.max(tBox.y0, kBox.y0) - Math.min(tBox.y1, kBox.y1);
+      if (vGap < -Math.min(th, kh) * 0.4 || vGap > Math.max(th, kh) * 1.35) continue;
+      const ovT = Math.min(tBox.x1, kBox.x1) - Math.max(tBox.x0, kBox.x0);
+      const ovO = Math.min(oBox.x1, kBox.x1) - Math.max(oBox.x0, kBox.x0);
+      if (ovT > Math.min(tw, kBox.x1 - kBox.x0) * 0.42 && ovO <= 0) {
+        return true;
+      }
+    }
+    return false;
+  };
 
   // Bir satırın iki ayrı yan yana sütunun ("REPARTIDOR" ve "31 ANOS") üstünü/altını boydan boya
   // kaplayan geniş bir başlık ("KIM JEONGHYUK") olup olmadığını kontrol eder.
@@ -603,7 +867,7 @@ export const groupOcrLinesIntoBubbles = (
     const wa = a.x1 - a.x0;
     const centerXa = (a.x0 + a.x1) * 0.5;
     const centerYa = (a.y0 + a.y1) * 0.5;
-    const isStatA = KEY_VALUE_STAT_LINE_REGEX.test(lines[i].text);
+    const isStatA = isRpgStatLine(lines[i].text);
 
     for (let j = i + 1; j < lines.length; j += 1) {
       const b = lines[j].bbox;
@@ -615,14 +879,16 @@ export const groupOcrLinesIntoBubbles = (
       const maxH = Math.max(ha, hb);
 
       // 1. Durum: Aynı yatay satırda yan yana bölünmüş parçalar ("FIRST MURD" + "ER.")
-      // Not: Aralarındaki boşluk makul bir kelime/harf boşluğu kadarsa birleştir; iki ayrı sütunsa ("REPARTIDOR" vs "31 ANOS") birleştirme!
+      // Not: Aralarındaki boşluk makul bir kelime/harf boşluğu kadarsa birleştir; iki ayrı balon/sütunsa birleştirme!
       const vOverlap = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
       const hGap = Math.max(a.x0, b.x0) - Math.min(a.x1, b.x1);
       if (
         vOverlap >= minH * 0.52 &&
         hGap >= -minH * 0.35 &&
-        hGap <= maxH * 0.62 &&
-        maxH / Math.max(1, minH) <= 1.65
+        hGap <= maxH * 0.45 &&
+        maxH / Math.max(1, minH) <= 1.65 &&
+        !(hasIndependentVerticalPartner(i, j) && hasIndependentVerticalPartner(j, i)) &&
+        (!img || !hasHorizontalBubbleBarrier(img, lines[i], lines[j]))
       ) {
         parent[find(j)] = find(i);
         continue;
@@ -634,7 +900,7 @@ export const groupOcrLinesIntoBubbles = (
       }
 
       // RPG / Sistem tablosu satırlarını ("HEALTH: 100", "MAGIC: 0" vb.) dikeyde birleştirme!
-      const isStatB = KEY_VALUE_STAT_LINE_REGEX.test(lines[j].text);
+      const isStatB = isRpgStatLine(lines[j].text);
       if (isStatA || isStatB) continue;
 
       // Kutu çerçevesinin üst sınırında duran başlıkları ("SYSTEM PROMPT", "QUEST INFO" vb.)
@@ -680,7 +946,8 @@ export const groupOcrLinesIntoBubbles = (
       // Eğer satırlardan biri iki ayrı yan yana sütunun üstünü kapatan geniş bir başlıksa ("KIM JEONGHYUK"), sütunlarla birleştirme
       if (
         spansSeparateSideBySideColumns(i, j) ||
-        spansSeparateSideBySideColumns(j, i)
+        spansSeparateSideBySideColumns(j, i) ||
+        (img && vGap >= -2 && hasVerticalBubbleBarrier(img, lines[i], lines[j]))
       ) {
         continue;
       }
@@ -752,7 +1019,9 @@ export const groupOcrLinesIntoBubbles = (
         if (
           vOv >= Math.min(hp, hi) * 0.52 &&
           Math.abs(centerYp - centerYi) < Math.min(hp, hi) * 0.45 &&
-          hGap >= -Math.min(hp, hi) * 0.4
+          hGap >= -Math.min(hp, hi) * 0.4 &&
+          hGap <= Math.min(hp, hi) * 0.65 &&
+          (!img || !hasHorizontalBubbleBarrier(img, prev, item))
         ) {
           // Çok yakın yan yana parçaysa ("MURD" + "ER.") boşluksuz veya tek boşlukla birleştir
           const joiner = hGap < Math.min(hp, hi) * 0.28 && /^[a-zA-Z]/.test(item.text) && /[a-zA-Z]$/.test(prev.text)
@@ -790,7 +1059,7 @@ export const groupOcrLinesIntoBubbles = (
     const text = mergedRows
       .map((l) => l.text)
       .join(' ')
-      .replace(/(\p{L})- (\p{L})/gu, '$1$2')
+      .replace(/(\p{L})-[""''`]?\s+(\p{L})/gu, '$1$2')
       .replace(/\s+/g, ' ')
       .trim();
 
@@ -846,15 +1115,29 @@ export const groupOcrLinesIntoBubbles = (
 };
 
 const CREDIT_LINE_REGEX =
-  /\b(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|cosmic\s*scans|night\s*scans|void\s*scans|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)\b|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)\s*[:\-]?\s*[a-z0-9_]{2,14}$/i;
+  /\b(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|rizz\s*fables|cosmic\s*scans|night\s*scans|void\s*scans|disaster\s*scans|surya\s*scans|templescan|thunderscans|philiascans|arven\s*comics|nex[o0c]*mic|[gc]radex[\s.\-]*(?:tan|tay)trums?|taytrums?|webtoon\s*xyz|kunmanga|manganato|mangakakalot|zinmanga|1stkissmanga|manhwaclub|manhwafreak|tappytoon|toomics|tapas|lezhin|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)\b|^dsns$|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$/i;
 const URL_LINE_REGEX =
   /(?:https?:\/\/|www\.|discord\.gg|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
 const STRONG_PROMO_REGEX =
   /(?:https?:\/\/|www\.|discord|patreon|paypal|ko-?fi|recruiting|join\s+(?:our|us)|asurascans|asura\s*scans|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
 
 /** Satırın jenerik / reklam / filigran içeriği olup olmadığını döndürür. */
-export const isCreditOrPromoText = (text: string): boolean =>
-  CREDIT_LINE_REGEX.test(text.trim()) || URL_LINE_REGEX.test(text);
+export const isCreditOrPromoText = (text: string): boolean => {
+  const trimmed = text.trim();
+  if (CREDIT_LINE_REGEX.test(trimmed) || URL_LINE_REGEX.test(trimmed)) return true;
+  // Ünlüsü olmayan uzun sessiz harf yığını filigranlar ("Dssns", "dsns" vb.)
+  const alphaOnly = trimmed.replace(/[^a-zA-Z]/g, '');
+  if (
+    alphaOnly.length >= 4 &&
+    alphaOnly.length <= 14 &&
+    alphaOnly.length === trimmed.length &&
+    !/[aeiouy]/i.test(alphaOnly) &&
+    new Set(alphaOnly.toLowerCase()).size >= 3
+  ) {
+    return true;
+  }
+  return false;
+};
 
 /**
  * Sayfa çoğunlukla jenerik, ekip listesi, reklam veya duyuru içeriyorsa true döner.

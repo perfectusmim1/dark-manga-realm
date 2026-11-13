@@ -6,6 +6,7 @@ import {
   getFontFamilyCss,
 } from './bubbleInpainter';
 import { fetchTranslatableImageBlob, loadImageElementFromBlob } from './geminiTranslator';
+import { isRpgStatLine } from './ocrCore';
 import {
   computeSmartWrappedLines,
   getLineHeightRatioForBlock,
@@ -215,7 +216,7 @@ export const bakeTranslatedPageToBlob = async (
     const isSingleLineStat =
       !block.text.includes('\n') &&
       displayText.length <= 48 &&
-      /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,28}:\s*\S/.test(displayText);
+      isRpgStatLine(displayText);
 
     const wrapped = isSingleLineStat
       ? {

@@ -2,6 +2,7 @@ import React from 'react';
 import { AlertTriangle, Eye, EyeOff, Languages, Loader2, RefreshCw } from 'lucide-react';
 import { PageTranslationState, TranslationBlock } from '@/lib/translation/types';
 import { formatScanlationText, getFontFamilyCss } from '@/lib/translation/bubbleInpainter';
+import { isRpgStatLine } from '@/lib/translation/ocrCore';
 import {
   computeSmartWrappedLines,
   getLineHeightRatioForBlock,
@@ -69,7 +70,7 @@ export const TranslationOverlay: React.FC<{
         const isSingleLineStat =
           !block.text.includes('\n') &&
           displayText.length <= 48 &&
-          /^[A-Za-zÇĞİÖŞÜçğıöşü0-9\s/()+-]{2,28}:\s*\S/.test(displayText);
+          isRpgStatLine(displayText);
         const wrapped = isSingleLineStat
           ? {
               lines: [{ text: displayText, widthPx: refBoxW, scale: 1 }],
