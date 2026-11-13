@@ -319,7 +319,7 @@ const History: React.FC = () => {
                 </h1>
               </div>
 
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-3 gap-2.5 sm:gap-3">
                 <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Seri</p>
                   <p className="mt-2 text-2xl font-black">{seriesHistory.length}</p>
@@ -331,10 +331,6 @@ const History: React.FC = () => {
                 <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-3">
                   <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Okundu</p>
                   <p className="mt-2 text-2xl font-black">{chapterHistory.filter((item) => item.isRead).length}</p>
-                </div>
-                <div className="rounded-2xl border border-border/60 bg-background/40 px-4 py-3">
-                  <p className="text-[11px] uppercase tracking-[0.22em] text-muted-foreground">Filtre</p>
-                  <p className="mt-2 text-2xl font-black">{deferredSearchQuery ? 'Açık' : 'Kapalı'}</p>
                 </div>
               </div>
             </div>
