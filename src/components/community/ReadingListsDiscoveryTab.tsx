@@ -261,9 +261,6 @@ const ReadingListsDiscoveryTab: React.FC = () => {
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Okuma Listeleri</h2>
-          <p className="text-sm text-muted-foreground mt-0.5">
-            Okurların derlediği herkese açık seri koleksiyonlarını incele.
-          </p>
         </div>
 
         <Button asChild variant="outline" size="sm" className="w-fit gap-1.5 shrink-0">

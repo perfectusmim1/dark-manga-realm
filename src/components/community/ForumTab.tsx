@@ -417,9 +417,6 @@ const ForumTab: React.FC = () => {
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
           <div className="min-w-0">
             <h2 className="text-xl sm:text-2xl font-bold tracking-tight">Forum</h2>
-            <p className="text-sm text-muted-foreground mt-0.5">
-              Seriler hakkında konuş, öneri al, toplulukla tanış.
-            </p>
           </div>
 
           <div className="flex items-center gap-2 shrink-0">
