@@ -4500,7 +4500,7 @@ const MangaDetail: React.FC = () => {
                               <SeriesTagPopover
                                 open={reviewMention.isPopoverOpen}
                                 query={reviewMention.mentionQuery}
-                                includeAdult
+                                includeAdult={Boolean(user?.preferences?.content?.adult_mode === true)}
                                 anchorEl={reviewTextareaRef.current}
                                 highlightedIndex={reviewMention.highlightedIndex}
                                 onHighlightedIndexChange={reviewMention.setHighlightedIndex}

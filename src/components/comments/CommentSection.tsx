@@ -446,6 +446,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
     onCancel,
     textareaRef,
 }) => {
+    const { user } = useAuth();
     const hasContent = commentHasRenderableContent({
         body: draft.body,
         mediaUrls: draft.mediaUrls,
@@ -541,7 +542,7 @@ const CommentComposer: React.FC<CommentComposerProps> = ({
                     <SeriesTagPopover
                         open={seriesMention.isPopoverOpen}
                         query={seriesMention.mentionQuery}
-                        includeAdult
+                        includeAdult={Boolean(user?.preferences?.content?.adult_mode === true)}
                         anchorEl={activeTextareaRef.current}
                         highlightedIndex={seriesMention.highlightedIndex}
                         onHighlightedIndexChange={seriesMention.setHighlightedIndex}

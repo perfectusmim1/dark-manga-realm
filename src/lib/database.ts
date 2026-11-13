@@ -923,7 +923,7 @@ const PERSISTED_CATALOG_CACHE_TTL_MS = 15 * 60_000;
 // IDB verisi bu sÃ¼reden eskiyse anÄ±nda dÃ¶ner ama arka planda sessizce gÃ¼ncel serileri eÅŸitler.
 const PERSISTED_CATALOG_SWR_FRESH_MS = 60_000;
 const PERSISTED_MANGA_SUMMARIES_KEY_PREFIX = 'manga-summaries-v2:';
-const PERSISTED_HOME_SECTIONS_KEY_PREFIX = 'home-sections-v2:';
+const PERSISTED_HOME_SECTIONS_KEY_PREFIX = 'home-sections-v3:';
 // Manga detayÄ± kÄ±sa sÃ¼reli bellek cache'i: MangaDetail -> Reader geÃ§iÅŸinde aynÄ± aÄŸÄ±r
 // sorgularÄ±n tekrar edilmesini engeller (yazma iÅŸlemlerinde invalidate edilir).
 const MANGA_DETAIL_CACHE_TTL_MS = 60_000;
@@ -8566,6 +8566,9 @@ export const getMangaCatalogPage = async (options: {
     for (const row of rawItems) {
         const id = typeof row?.id === 'string' ? row.id : '';
         if (!id || seen.has(id)) {
+            continue;
+        }
+        if (!includeAdult && row?.is_adult === true) {
             continue;
         }
         seen.add(id);

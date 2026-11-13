@@ -923,7 +923,6 @@ const Index: React.FC = () => {
     readHomeFeedSeed().trendingTags?.value ?? []
   ));
   const [tagsLoading, setTagsLoading] = useState(() => readHomeFeedSeed().trendingTags === null);
-  const [catalogSort, setCatalogSort] = useState<'updated' | 'popular' | 'newest'>('updated');
   const [catalogPage, setCatalogPage] = useState(1);
   const [catalogState, setCatalogState] = useState<{
     items: Manga[];
@@ -1033,6 +1032,7 @@ const Index: React.FC = () => {
       setTopTenWeekIds(null);
       setContinueReadingSeed([]);
       setContinueReadingLoading(Boolean(user?.id));
+      setCatalogPage(1);
     };
 
     window.addEventListener(ADULT_MODE_CHANGED_EVENT, handleAdultModeChanged);
@@ -1185,7 +1185,7 @@ const Index: React.FC = () => {
         getMangaCatalogPage({
           page: catalogPage,
           pageSize: 24,
-          sort: catalogSort,
+          sort: 'updated',
           includeAdult: canSeeAdultContent,
         })
       ))
@@ -1213,12 +1213,7 @@ const Index: React.FC = () => {
     return () => {
       active = false;
     };
-  }, [canSeeAdultContent, catalogPage, catalogSort, isOnline]);
-
-  const handleCatalogSortChange = useCallback((nextSort: 'updated' | 'popular' | 'newest') => {
-    setCatalogSort(nextSort);
-    setCatalogPage(1);
-  }, []);
+  }, [canSeeAdultContent, catalogPage, isOnline]);
 
   const handleCatalogPageChange = useCallback((nextPage: number) => {
     setCatalogPage(nextPage);
@@ -1578,38 +1573,12 @@ const Index: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-2">
-                  <div className="inline-flex items-center rounded-lg border border-border/75 bg-card/60 p-0.5">
-                    {(
-                      [
-                        { id: 'updated', label: 'Güncel' },
-                        { id: 'popular', label: 'Popüler' },
-                        { id: 'newest', label: 'Yeni' },
-                      ] as const
-                    ).map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        onClick={() => handleCatalogSortChange(option.id)}
-                        className={cn(
-                          'rounded-md px-2.5 py-1 text-xs font-medium transition-colors',
-                          catalogSort === option.id
-                            ? 'bg-primary text-primary-foreground'
-                            : 'text-muted-foreground hover:text-foreground',
-                        )}
-                      >
-                        {option.label}
-                      </button>
-                    ))}
-                  </div>
-
-                  <Button asChild variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:text-sm text-muted-foreground hover:text-foreground">
-                    <Link to="/browse">
-                      Keşfet
-                      <ArrowRight className="ml-1 h-3.5 w-3.5" />
-                    </Link>
-                  </Button>
-                </div>
+                <Button asChild variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:text-sm text-muted-foreground hover:text-foreground">
+                  <Link to="/browse">
+                    Keşfet
+                    <ArrowRight className="ml-1 h-3.5 w-3.5" />
+                  </Link>
+                </Button>
               </div>
 
               {catalogState.loading && catalogState.items.length === 0 ? (

@@ -1,8 +1,8 @@
 import type { HomePageMangaSections } from '@/lib/database';
 import type { Tag } from '@/lib/types';
 
-const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-local-v6';
-const HOME_FEED_SESSION_CACHE_VERSION = 6;
+const HOME_FEED_SESSION_CACHE_KEY = 'toonparrot-home-feed-local-v7';
+const HOME_FEED_SESSION_CACHE_VERSION = 7;
 
 export const HOME_SECTIONS_CACHE_TTL_MS = 5 * 60_000;
 export const HOME_SECTIONS_MAX_SEED_AGE_MS = 60 * 60_000;
