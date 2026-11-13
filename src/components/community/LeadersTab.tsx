@@ -42,6 +42,8 @@ interface LeaderboardEntry {
 
 const INITIAL_VISIBLE_COUNT = 20;
 const LOAD_MORE_STEP = 20;
+const BANNER_TEXT_SHADOW_CLASS =
+  '[text-shadow:0_2px_10px_rgba(0,0,0,0.95),0_1px_3px_rgba(0,0,0,0.9)] drop-shadow-[0_2px_6px_rgba(0,0,0,0.85)]';
 
 const LEADER_TABS: Array<{ id: LeaderCategory; label: string; icon: React.ComponentType<{ className?: string }> }> = [
   { id: 'chapters', label: 'En Çok Okuyanlar', icon: BookOpen },
@@ -341,6 +343,37 @@ const LeadersTab: React.FC = () => {
     );
   };
 
+  const renderOwnerMeta = (
+    entry: LeaderboardEntry,
+    { hasBanner, centered = false }: { hasBanner: boolean; centered?: boolean },
+  ) => {
+    if (!isReadingListMode || !entry.ownerName || !entry.ownerLink) {
+      return null;
+    }
+
+    return (
+      <div
+        className={cn(
+          'relative z-20 flex items-center gap-1 text-xs min-w-0 pointer-events-none',
+          centered && 'justify-center',
+          hasBanner ? cn('text-white/90', BANNER_TEXT_SHADOW_CLASS) : 'text-muted-foreground',
+        )}
+      >
+        <Link
+          to={entry.ownerLink}
+          className={cn(
+            'pointer-events-auto hover:underline truncate',
+            centered && 'max-w-[160px]',
+            getStaffTextClassName(entry.ownerRole),
+          )}
+        >
+          {entry.ownerName}
+        </Link>
+        <StaffBadge role={entry.ownerRole} compact />
+      </div>
+    );
+  };
+
   return (
     <div className="space-y-6 min-w-0">
       {/* Header & Online Presence */}
@@ -434,20 +467,26 @@ const LeadersTab: React.FC = () => {
                 <div
                   key={entry.id}
                   className={cn(
-                    'relative overflow-hidden rounded-xl border p-4 sm:p-5 flex flex-col items-center text-center gap-3 min-w-0',
+                    'group relative overflow-hidden rounded-xl border p-4 sm:p-5 flex flex-col items-center text-center gap-3 min-w-0 cursor-pointer transition-colors hover:border-primary/50',
                     rankAccentClass,
                     desktopOrderClass,
                   )}
                 >
                   {renderBannerBackdrop(entry, {
                     priority: true,
-                    scrimClassName: 'bg-gradient-to-b from-black/50 via-black/60 to-black/80',
+                    scrimClassName: 'bg-gradient-to-b from-black/50 via-black/60 to-black/80 transition-opacity group-hover:opacity-90',
                   })}
+
+                  <Link
+                    to={entry.link}
+                    aria-label={entry.title}
+                    className="absolute inset-0 z-10 rounded-[inherit] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  />
 
                   <div
                     className={cn(
-                      'relative z-10 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider',
-                      hasBanner ? 'text-white/85' : 'text-muted-foreground',
+                      'pointer-events-none relative z-20 flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider',
+                      hasBanner ? cn('text-white/90', BANNER_TEXT_SHADOW_CLASS) : 'text-muted-foreground',
                     )}
                   >
                     {rank === 1 ? (
@@ -463,7 +502,7 @@ const LeadersTab: React.FC = () => {
                     <span>#{rank}</span>
                   </div>
 
-                  <Link to={entry.link} className="relative z-10 shrink-0">
+                  <div className="pointer-events-none relative z-20 shrink-0">
                     {isReadingListMode ? (
                       <ReadingListCover
                         imageUrl={entry.coverUrl}
@@ -490,48 +529,29 @@ const LeadersTab: React.FC = () => {
                         <AvatarFallback>{getInitials(entry.title)}</AvatarFallback>
                       </Avatar>
                     )}
-                  </Link>
+                  </div>
 
-                  <div className="relative z-10 w-full min-w-0 space-y-1">
+                  <div className="pointer-events-none relative z-20 w-full min-w-0 space-y-1">
                     <div className="flex items-center justify-center gap-1.5 min-w-0">
-                      <Link
-                        to={entry.link}
+                      <span
                         className={cn(
-                          'font-semibold text-sm sm:text-base hover:underline truncate',
-                          hasBanner && 'text-white drop-shadow-sm',
+                          'font-semibold text-sm sm:text-base group-hover:underline truncate',
+                          hasBanner && cn('text-white', BANNER_TEXT_SHADOW_CLASS),
                           !isReadingListMode && getStaffTextClassName(nameRole),
                         )}
                       >
                         {entry.title}
-                      </Link>
+                      </span>
                       {!isReadingListMode && <StaffBadge role={entry.role} compact />}
                     </div>
 
-                    {isReadingListMode && entry.ownerName && entry.ownerLink && (
-                      <div
-                        className={cn(
-                          'flex items-center justify-center gap-1 text-xs min-w-0',
-                          hasBanner ? 'text-white/80' : 'text-muted-foreground',
-                        )}
-                      >
-                        <Link
-                          to={entry.ownerLink}
-                          className={cn(
-                            'hover:underline truncate max-w-[160px]',
-                            getStaffTextClassName(entry.ownerRole),
-                          )}
-                        >
-                          {entry.ownerName}
-                        </Link>
-                        <StaffBadge role={entry.ownerRole} compact />
-                      </div>
-                    )}
+                    {renderOwnerMeta(entry, { hasBanner, centered: true })}
                   </div>
 
                   <div
                     className={cn(
-                      'relative z-10 inline-flex items-center gap-1.5 text-sm font-bold tabular-nums',
-                      hasBanner ? 'text-white' : 'text-foreground',
+                      'pointer-events-none relative z-20 inline-flex items-center gap-1.5 text-sm font-bold tabular-nums',
+                      hasBanner ? cn('text-white', BANNER_TEXT_SHADOW_CLASS) : 'text-foreground',
                     )}
                   >
                     {isReadingListMode && <Heart className="h-3.5 w-3.5 text-rose-500 fill-current" />}
@@ -539,7 +559,7 @@ const LeadersTab: React.FC = () => {
                     <span
                       className={cn(
                         'text-xs font-normal',
-                        hasBanner ? 'text-white/80' : 'text-muted-foreground',
+                        hasBanner ? 'text-white/85' : 'text-muted-foreground',
                       )}
                     >
                       {entry.unitLabel}
@@ -563,25 +583,32 @@ const LeadersTab: React.FC = () => {
                   <div
                     key={entry.id}
                     className={cn(
-                      'relative overflow-hidden flex items-center justify-between gap-3 px-4 py-3 transition-colors min-w-0',
+                      'group relative overflow-hidden flex items-center justify-between gap-3 px-4 py-3 transition-colors min-w-0 cursor-pointer',
                       !hasBanner && 'hover:bg-muted/20',
                     )}
                   >
                     {renderBannerBackdrop(entry, {
-                      scrimClassName: 'bg-gradient-to-r from-black/75 via-black/65 to-black/75',
+                      scrimClassName:
+                        'bg-gradient-to-r from-black/75 via-black/65 to-black/75 transition-opacity group-hover:opacity-90',
                     })}
 
-                    <div className="relative z-10 flex items-center gap-3 min-w-0">
+                    <Link
+                      to={entry.link}
+                      aria-label={entry.title}
+                      className="absolute inset-0 z-10 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    />
+
+                    <div className="pointer-events-none relative z-20 flex items-center gap-3 min-w-0">
                       <span
                         className={cn(
                           'w-8 text-xs font-semibold tabular-nums shrink-0',
-                          hasBanner ? 'text-white/80' : 'text-muted-foreground',
+                          hasBanner ? cn('text-white/90', BANNER_TEXT_SHADOW_CLASS) : 'text-muted-foreground',
                         )}
                       >
                         #{rank}
                       </span>
 
-                      <Link to={entry.link} className="shrink-0">
+                      <div className="shrink-0">
                         {isReadingListMode ? (
                           <ReadingListCover
                             imageUrl={entry.coverUrl}
@@ -602,46 +629,32 @@ const LeadersTab: React.FC = () => {
                             </AvatarFallback>
                           </Avatar>
                         )}
-                      </Link>
+                      </div>
 
                       <div className="min-w-0">
                         <div className="flex items-center gap-1.5 min-w-0">
-                          <Link
-                            to={entry.link}
+                          <span
                             className={cn(
-                              'text-sm font-medium hover:underline truncate',
-                              hasBanner && 'text-white',
+                              'text-sm font-medium group-hover:underline truncate',
+                              hasBanner && cn('text-white', BANNER_TEXT_SHADOW_CLASS),
                               !isReadingListMode && getStaffTextClassName(entry.role),
                             )}
                           >
                             {entry.title}
-                          </Link>
+                          </span>
                           {!isReadingListMode && <StaffBadge role={entry.role} compact />}
                         </div>
 
-                        {isReadingListMode && entry.ownerName && entry.ownerLink && (
-                          <div
-                            className={cn(
-                              'flex items-center gap-1 text-xs min-w-0',
-                              hasBanner ? 'text-white/80' : 'text-muted-foreground',
-                            )}
-                          >
-                            <Link
-                              to={entry.ownerLink}
-                              className={cn(
-                                'hover:underline truncate',
-                                getStaffTextClassName(entry.ownerRole),
-                              )}
-                            >
-                              {entry.ownerName}
-                            </Link>
-                            <StaffBadge role={entry.ownerRole} compact />
-                          </div>
-                        )}
+                        {renderOwnerMeta(entry, { hasBanner })}
                       </div>
                     </div>
 
-                    <div className="relative z-10 text-right shrink-0 tabular-nums">
+                    <div
+                      className={cn(
+                        'pointer-events-none relative z-20 text-right shrink-0 tabular-nums',
+                        hasBanner && BANNER_TEXT_SHADOW_CLASS,
+                      )}
+                    >
                       <span
                         className={cn(
                           'text-sm font-semibold',
@@ -653,7 +666,7 @@ const LeadersTab: React.FC = () => {
                       <span
                         className={cn(
                           'text-xs',
-                          hasBanner ? 'text-white/80' : 'text-muted-foreground',
+                          hasBanner ? 'text-white/85' : 'text-muted-foreground',
                         )}
                       >
                         {entry.unitLabel}
