@@ -1,6 +1,11 @@
 import { Bookmark, Favorite, Manga, ReadingList, User as AppUser } from '@/lib/types';
 import { supabase } from '@/lib/supabase';
 import { getOfflinePreferences, subscribeOfflinePreferences } from '@/lib/offline/preferences';
+import {
+  decodeBookmarkNoteWithMeta,
+  encodeBookmarkNoteWithMeta,
+  isSameBookmarkLocation,
+} from '@/lib/bookmarkLocation';
 
 const OFFLINE_USER_SYNC_STORAGE_KEY = 'toonparrot_offline_user_sync_v1';
 const OFFLINE_USER_SYNC_EVENT = 'toonparrot:offline-user-sync-updated';
@@ -400,9 +405,7 @@ export const setCachedBookmarks = (userId: string, bookmarks: Bookmark[]) => {
 export const addCachedBookmark = (userId: string, bookmark: Bookmark) => {
   updateUserCache(userId, (cache) => {
     const existing = cache.bookmarks.find(
-      (entry) => entry.mangaId === bookmark.mangaId
-        && entry.chapterId === bookmark.chapterId
-        && entry.page === bookmark.page,
+      (entry) => isSameBookmarkLocation(entry, bookmark),
     );
 
     if (existing) {
@@ -632,22 +635,40 @@ const syncFollowRemove = async (operation: PendingUserSyncOperation) => {
 
 const syncBookmarkAdd = async (operation: PendingUserSyncOperation) => {
   const { bookmark } = operation.payload as PendingBookmarkSyncPayload;
-  const { data: existing, error: existingError } = await supabase
+  const { data: existingRows, error: existingError } = await supabase
     .from('bookmarks')
-    .select('id')
+    .select('id, page, note')
     .eq('user_id', operation.userId)
     .eq('manga_id', bookmark.mangaId)
-    .eq('chapter_id', bookmark.chapterId)
-    .eq('page', bookmark.page)
-    .maybeSingle();
+    .eq('chapter_id', bookmark.chapterId);
 
   if (existingError) {
     throw existingError;
   }
 
-  if (existing?.id) {
+  const hasExisting = (existingRows || []).some((row: { page: number; note?: string | null }) => {
+    const decoded = decodeBookmarkNoteWithMeta(row.note);
+    return isSameBookmarkLocation(
+      {
+        mangaId: bookmark.mangaId,
+        chapterId: bookmark.chapterId,
+        page: Number(row.page),
+        pageOffsetRatio: decoded.pageOffsetRatio,
+        progressPercent: decoded.progressPercent,
+      },
+      bookmark,
+    );
+  });
+
+  if (hasExisting) {
     return;
   }
+
+  const encodedNote = encodeBookmarkNoteWithMeta(
+    bookmark.note,
+    bookmark.pageOffsetRatio,
+    bookmark.progressPercent,
+  );
 
   const { error } = await supabase.from('bookmarks').insert({
     id: bookmark.id,
@@ -656,7 +677,7 @@ const syncBookmarkAdd = async (operation: PendingUserSyncOperation) => {
     chapter_id: bookmark.chapterId,
     chapter_number: bookmark.chapterNumber,
     page: bookmark.page,
-    note: bookmark.note,
+    note: encodedNote,
     created_at: bookmark.createdAt || new Date().toISOString(),
   });
 
@@ -679,13 +700,25 @@ const syncBookmarkRemove = async (operation: PendingUserSyncOperation) => {
     }
   }
 
-  const { error } = await supabase
+  const encodedNote = encodeBookmarkNoteWithMeta(
+    bookmark.note,
+    bookmark.pageOffsetRatio,
+    bookmark.progressPercent,
+  );
+
+  let fallbackQuery = supabase
     .from('bookmarks')
     .delete()
     .eq('user_id', operation.userId)
     .eq('manga_id', bookmark.mangaId)
     .eq('chapter_id', bookmark.chapterId)
     .eq('page', bookmark.page);
+
+  if (encodedNote) {
+    fallbackQuery = fallbackQuery.eq('note', encodedNote);
+  }
+
+  const { error } = await fallbackQuery;
 
   if (error) {
     throw error;

@@ -9,6 +9,11 @@ import {
 } from './supabase';
 import { normalizeCommentNavigationLink } from './commentNavigation';
 import { sortChapterBatchItems } from './chapterBatchOrdering';
+import {
+    decodeBookmarkNoteWithMeta,
+    encodeBookmarkNoteWithMeta,
+    isSameBookmarkLocation,
+} from './bookmarkLocation';
 import { cacheOfflineManga, getOfflineMangaDetail } from '@/lib/offline/offlineStorage';
 import {
     addCachedBookmark,
@@ -1778,56 +1783,6 @@ export const removeFromHistory = async (userId: string, mangaId: string): Promis
 
 // ==================== BOOKMARKS (USER-SPECIFIC) ====================
 
-const BOOKMARK_META_PATTERN = /\s*\[\[tp:offset=([0-9.]+),pct=([0-9.]+)\]\]$/;
-
-const encodeBookmarkNoteWithMeta = (
-    note?: string | null,
-    pageOffsetRatio?: number,
-    progressPercent?: number,
-): string | null => {
-    const cleanNote = (note || '').replace(BOOKMARK_META_PATTERN, '').trim();
-    const hasMeta = (typeof pageOffsetRatio === 'number' && Number.isFinite(pageOffsetRatio) && pageOffsetRatio > 0)
-        || (typeof progressPercent === 'number' && Number.isFinite(progressPercent) && progressPercent >= 0);
-
-    if (!hasMeta) {
-        return cleanNote || null;
-    }
-
-    const safeOffset = typeof pageOffsetRatio === 'number' && Number.isFinite(pageOffsetRatio)
-        ? Math.min(1, Math.max(0, pageOffsetRatio)).toFixed(4)
-        : '0';
-    const safePct = typeof progressPercent === 'number' && Number.isFinite(progressPercent)
-        ? Math.min(100, Math.max(0, progressPercent)).toFixed(2)
-        : '0';
-    const metaTag = `[[tp:offset=${safeOffset},pct=${safePct}]]`;
-    return cleanNote ? `${cleanNote} ${metaTag}` : metaTag;
-};
-
-const decodeBookmarkNoteWithMeta = (rawNote?: string | null): {
-    note: string | null;
-    pageOffsetRatio?: number;
-    progressPercent?: number;
-} => {
-    if (!rawNote) {
-        return { note: null };
-    }
-
-    const match = rawNote.match(BOOKMARK_META_PATTERN);
-    if (!match) {
-        return { note: rawNote };
-    }
-
-    const cleanNote = rawNote.replace(BOOKMARK_META_PATTERN, '').trim();
-    const parsedOffset = parseFloat(match[1]);
-    const parsedPct = parseFloat(match[2]);
-
-    return {
-        note: cleanNote || null,
-        pageOffsetRatio: Number.isFinite(parsedOffset) ? parsedOffset : undefined,
-        progressPercent: Number.isFinite(parsedPct) ? parsedPct : undefined,
-    };
-};
-
 export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
     if (!userId) {
         return [];
@@ -1897,13 +1852,19 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
                         map[bookmark.id] = bookmark;
                     }
 
-                    map[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}`] = bookmark;
+                    const pctKey = typeof bookmark.progressPercent === 'number'
+                        ? bookmark.progressPercent.toFixed(2)
+                        : 'legacy';
+                    map[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}:${pctKey}`] = bookmark;
                     return map;
                 }, {});
 
                 const mergedBookmarks = rawBookmarks.map((bookmark) => {
+                    const pctKey = typeof bookmark.progressPercent === 'number'
+                        ? bookmark.progressPercent.toFixed(2)
+                        : 'legacy';
                     const existingBookmark = (bookmark.id && existingBookmarkMap[bookmark.id])
-                        || existingBookmarkMap[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}`];
+                        || existingBookmarkMap[`${bookmark.mangaId}:${bookmark.chapterId}:${bookmark.page}:${pctKey}`];
                     const manga = mangaMap[bookmark.mangaId];
                     const chapter = chapterMap[bookmark.chapterId];
 
@@ -1941,20 +1902,24 @@ export const getBookmarks = async (userId: string): Promise<Bookmark[]> => {
 };
 
 export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' | 'createdAt' | 'userId'>): Promise<void> => {
-    const existingBookmark = getCachedBookmarksState(userId).find((entry) => (
-        entry.mangaId === bookmark.mangaId
-        && entry.chapterId === bookmark.chapterId
-        && entry.page === bookmark.page
-    ));
-
-    if (existingBookmark) {
-        throw new Error('ALREADY_EXISTS');
-    }
-
     const decodedNote = decodeBookmarkNoteWithMeta(bookmark.note);
     const cleanNote = decodedNote.note;
     const effectiveOffset = bookmark.pageOffsetRatio ?? decodedNote.pageOffsetRatio;
     const effectivePct = bookmark.progressPercent ?? decodedNote.progressPercent;
+
+    const existingBookmark = getCachedBookmarksState(userId).find((entry) =>
+        isSameBookmarkLocation(entry, {
+            mangaId: bookmark.mangaId,
+            chapterId: bookmark.chapterId,
+            page: bookmark.page,
+            pageOffsetRatio: effectiveOffset,
+            progressPercent: effectivePct,
+        }),
+    );
+
+    if (existingBookmark) {
+        throw new Error('ALREADY_EXISTS');
+    }
 
     const nextBookmark: Bookmark = {
         id: createClientEntityId(),
@@ -1981,20 +1946,32 @@ export const addBookmark = async (userId: string, bookmark: Omit<Bookmark, 'id' 
         return;
     }
 
-    const { data: existing, error: existingError } = await supabase.from('bookmarks')
-        .select('id')
+    const { data: existingRows, error: existingError } = await supabase.from('bookmarks')
+        .select('id, page, note')
         .eq('user_id', userId)
         .eq('manga_id', bookmark.mangaId)
-        .eq('chapter_id', bookmark.chapterId)
-        .eq('page', bookmark.page)
-        .maybeSingle();
+        .eq('chapter_id', bookmark.chapterId);
 
     if (existingError) {
         queueBookmarkAdd(userId, nextBookmark);
         throw existingError;
     }
 
-    if (existing) {
+    const hasRemoteDuplicate = (existingRows || []).some((row: { page: number; note?: string | null }) => {
+        const decoded = decodeBookmarkNoteWithMeta(row.note);
+        return isSameBookmarkLocation(
+            {
+                mangaId: bookmark.mangaId,
+                chapterId: bookmark.chapterId,
+                page: Number(row.page),
+                pageOffsetRatio: decoded.pageOffsetRatio,
+                progressPercent: decoded.progressPercent,
+            },
+            nextBookmark,
+        );
+    });
+
+    if (hasRemoteDuplicate) {
         removeCachedBookmark(userId, nextBookmark.id || '');
         throw new Error('ALREADY_EXISTS');
     }

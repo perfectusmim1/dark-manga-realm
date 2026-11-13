@@ -330,7 +330,7 @@ const TopTenSection: React.FC = () => {
                             fetchPriority={index < 2 ? 'high' : 'low'}
                           />
 
-                          <div className={`absolute inset-0 bg-gradient-to-t from-black via-black/20 to-transparent ${disableHeavyEffects ? 'opacity-100' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100'}`} />
+                          <div className={`pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black via-black/20 to-transparent ${disableHeavyEffects ? 'opacity-100' : 'opacity-0 transition-opacity duration-300 group-hover:opacity-100'}`} />
 
                           <div className={`absolute bottom-0 left-0 right-0 p-3 sm:p-5 ${disableHeavyEffects ? '' : 'translate-y-full transition-transform duration-300 group-hover:translate-y-0'}`}>
                             <h3 className="mb-2 truncate text-[13px] font-black uppercase tracking-tight text-white drop-shadow-lg sm:text-[15px]">

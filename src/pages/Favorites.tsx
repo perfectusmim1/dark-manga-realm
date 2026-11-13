@@ -345,7 +345,7 @@ const Favorites: React.FC = () => {
                   renderItem={(list, index) => (
                     <Link
                       to={`/reading-lists/${list.id}`}
-                      className="group animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 transition-all hover:border-primary/40 hover:bg-card"
+                      className="group flex flex-col animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 transition-all hover:border-primary/40 hover:bg-card"
                       style={{
                         animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                       }}

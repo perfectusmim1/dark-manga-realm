@@ -249,7 +249,7 @@ const TopTenCard: React.FC<{
       </div>
 
       <div className={cn('overflow-hidden rounded-[17px] border shadow-[0_18px_40px_rgba(15,23,42,0.14)] transition-colors sm:rounded-[24px]', cardFrameClassName)}>
-        <div className="relative aspect-[3/4] overflow-hidden">
+        <div className="relative aspect-[3/4] w-full overflow-hidden bg-black">
           <OptimizedImage
             src={manga.cover}
             alt={manga.title}
@@ -265,12 +265,12 @@ const TopTenCard: React.FC<{
             className={cn(
               'h-full w-full object-cover',
               shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
-              disableHeavyEffects ? '' : 'transition-transform duration-500 group-hover:scale-105',
+              disableHeavyEffects ? '' : 'scale-100 transition-transform duration-500 group-hover:scale-105',
             )}
           />
-          <div className="absolute inset-0 bg-gradient-to-t from-black/28 via-transparent to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 h-[72%] bg-gradient-to-t from-black via-black/94 to-transparent" />
-          <div className="absolute inset-x-0 bottom-0 h-[36%] bg-black/48" />
+          <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black/28 via-transparent to-transparent" />
+          <div className="pointer-events-none absolute -inset-x-px -bottom-px h-[72%] bg-gradient-to-t from-black via-black/94 to-transparent" />
+          <div className="pointer-events-none absolute -inset-x-px -bottom-px h-[36%] bg-black/48" />
 
           <div className="absolute left-2 top-2 flex items-center gap-1 sm:left-3 sm:top-3 sm:gap-2">
             <Badge

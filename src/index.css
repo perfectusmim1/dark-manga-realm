@@ -153,11 +153,12 @@
   }
 
   .hover-lift {
-    @apply transition-all duration-300 ease-out;
+    transform: translateY(0);
+    @apply transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out;
   }
 
   .hover-lift:hover {
-    @apply -translate-y-1;
+    transform: translateY(-4px);
     box-shadow: var(--shadow-glow);
   }
 
@@ -170,11 +171,10 @@
   }
 
   .image-downscale-quality {
+    display: block;
     image-rendering: auto;
     image-rendering: smooth;
     image-rendering: -webkit-optimize-contrast;
-    backface-visibility: hidden;
-    transform: translateZ(0);
   }
 
   .tp-progress {

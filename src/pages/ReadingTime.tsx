@@ -6,7 +6,6 @@ import {
     CalendarDays,
     Clock3,
     Flame,
-    Info,
     LayoutGrid,
     LineChart as LineChartIcon,
     List,
@@ -288,11 +287,11 @@ const ReadingTimeMangaCard = ({
 }) => (
     <Link
         to={`/reading-time/manga/${aggregate.mangaId}${detailSearch}`}
-        className="group flex h-full min-h-[14.5rem] flex-col rounded-2xl border border-border bg-card/45 p-3 [transform:translateZ(0)] transition-[transform,background-color,border-color,box-shadow] duration-300 hover:-translate-y-0.5 hover:border-primary/35 hover:bg-card hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:min-h-[13.65rem]"
+        className="group flex h-full min-h-[14.5rem] flex-col rounded-2xl border border-border bg-card/45 p-3 transition-[background-color,border-color,box-shadow] duration-200 hover:border-primary/35 hover:bg-card hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:min-h-[13.65rem]"
     >
-        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-black/75 leading-none">
+        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-black leading-none">
             <div className="relative aspect-[4/5] lg:aspect-[4/4.45]">
-                <div className="absolute inset-0 transform-gpu transition-transform duration-300 ease-out group-hover:scale-[1.025]">
+                <div className="absolute inset-0">
                     {aggregate.mangaCover ? (
                         <img
                             src={aggregate.mangaCover}
@@ -323,9 +322,11 @@ const ReadingTimeMangaCard = ({
 
         <div className="mt-3 flex flex-1 flex-col lg:mt-2.5">
             <h4 className="line-clamp-2 text-sm font-semibold leading-snug sm:text-[15px]">{aggregate.mangaTitle}</h4>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-                {aggregate.latestChapterNumber ? `Son bölüm ${aggregate.latestChapterNumber}` : 'Okuma detayını aç'}
-            </p>
+            {aggregate.latestChapterNumber ? (
+                <p className="mt-1 text-[11px] text-muted-foreground">
+                    Son bölüm {aggregate.latestChapterNumber}
+                </p>
+            ) : null}
 
             <div className="mt-auto grid grid-cols-2 gap-2 pt-3 text-[11px] lg:pt-2.5">
                 <div className="rounded-xl border border-border/60 bg-background/45 px-2.5 py-2 lg:py-1.5">
@@ -406,7 +407,6 @@ const SelectedDayPanel = ({
             <div className="mt-5">
                 <div className="mb-3 flex items-center justify-between gap-3">
                     <p className="text-sm font-semibold">Bu günde okuduğun seriler</p>
-                    <p className="text-xs text-muted-foreground">Detay için karta bas</p>
                 </div>
 
                 <ReadingTimeMangaGrid items={mangaGroups} detailSearch={detailSearch} />
@@ -466,10 +466,7 @@ const ReadingTrendChart = ({
             <div className="rounded-2xl border border-border/70 bg-background/35 p-3 sm:p-4">
                 <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
                     <div>
-                        <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/75">Trend</p>
-                        <p className="mt-1 text-sm text-muted-foreground">
-                            Noktalara basarak o günün detayını seçebilirsin.
-                        </p>
+                        <p className="text-sm font-semibold">Trend</p>
                     </div>
                     <AnimatePresence mode="wait" initial={false}>
                         {selectedPoint && (
@@ -931,12 +928,6 @@ const ReadingTime: React.FC = () => {
                             <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
                                 <div>
                                     <p className="text-sm font-semibold">Geçmişten Hafta Bul</p>
-                                    <p className="hidden text-xs text-muted-foreground sm:block">
-                                        Hızlı filtreler üstte kalır. Daha eski bir haftayı arıyorsan takvimden, sadece kayıt olan aylara gidip seçebilirsin.
-                                    </p>
-                                    <p className="text-xs text-muted-foreground sm:hidden">
-                                        Eski haftalar için takvimden seçim yap.
-                                    </p>
                                 </div>
 
                                 <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
@@ -958,8 +949,8 @@ const ReadingTime: React.FC = () => {
                                         >
                                             <DialogHeader className="shrink-0 border-b border-border/70 px-4 py-3 sm:px-5 sm:py-4">
                                                 <DialogTitle className="text-left text-lg">Geçmişten Hafta Seç</DialogTitle>
-                                                <DialogDescription className="text-left text-xs leading-relaxed sm:text-sm">
-                                                    Sadece okuma kaydı olan aylar listelenir. Bir güne dokunarak veya doğrudan hafta kartını seçerek o dönemi açabilirsin.
+                                                <DialogDescription className="sr-only">
+                                                    Okuma kaydı olan aylar ve hafta seçimi
                                                 </DialogDescription>
                                             </DialogHeader>
 
@@ -1111,9 +1102,6 @@ const ReadingTime: React.FC = () => {
                             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                 <div>
                                     <p className="text-sm font-semibold">Görünüm tipi</p>
-                                    <p className="text-xs text-muted-foreground">
-                                        Çizgi, ızgara veya liste görünümüne geç.
-                                    </p>
                                 </div>
                                 <div className="grid w-full grid-cols-3 gap-2 sm:w-auto">
                                     {VIEW_OPTIONS.map((option) => {
@@ -1135,11 +1123,6 @@ const ReadingTime: React.FC = () => {
                                     })}
                                 </div>
                             </div>
-                            <p className="mt-3 text-xs text-muted-foreground">
-                                {VIEW_OPTIONS.find((option) => option.value === view)?.description}
-                                {(view === 'line' || view === 'grid') && timeline.length > 0 ? ' Detay görmek için gün seçebilirsin.' : ''}
-                                {timeline.length > 24 && view !== 'list' ? ' Çok daha eski haftalar için üstteki takvim seçiciyi kullanman daha rahat olur.' : ''}
-                            </p>
                         </div>
 
                         <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
@@ -1188,9 +1171,6 @@ const ReadingTime: React.FC = () => {
                                         <div className="flex items-center justify-between gap-3">
                                             <div>
                                                 <h2 className="text-lg font-semibold">Günlük Trend Grafiği</h2>
-                                                <p className="text-sm text-muted-foreground">
-                                                    Her çizgi noktası bir günü temsil eder, seçtiğin günün detayları aşağıda açılır.
-                                                </p>
                                             </div>
                                             <Badge variant="outline">{chartData.length} gün</Badge>
                                         </div>
@@ -1222,10 +1202,7 @@ const ReadingTime: React.FC = () => {
                                         transition={VIEW_TRANSITION}
                                         className="space-y-4"
                                     >
-                                        <div className="flex items-start gap-3 rounded-2xl border border-border bg-background/30 px-4 py-3 text-sm text-muted-foreground">
-                                            <Info className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
-                                            <p>Her kare bir günü temsil eder. Güne basınca detay paneli aşağıda açılır.</p>
-                                        </div>
+
 
                                         <div className={cn(
                                             'rounded-2xl border border-border bg-background/20 p-3',
@@ -1335,7 +1312,6 @@ const ReadingTime: React.FC = () => {
                                                     <div className="mt-5">
                                                         <div className="mb-3 flex items-center justify-between gap-3">
                                                             <p className="text-sm font-semibold">Bu günde okuduğun seriler</p>
-                                                            <p className="text-xs text-muted-foreground">Detay için karta bas</p>
                                                         </div>
 
                                                         <ReadingTimeMangaGrid items={mangaGroups} detailSearch={detailSearch} />

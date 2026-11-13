@@ -72,7 +72,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
 
         const normalizedImageUrl = imageUrl.trim();
         if (normalizedImageUrl && !isValidImageUrl(normalizedImageUrl)) {
-            toast.error('Gorsel linki gecersiz. Lutfen tam bir http/https adresi girin');
+            toast.error('Görsel linki geçersiz. Lütfen tam bir http/https adresi girin');
             return;
         }
 
@@ -125,7 +125,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                         <List className="h-5 w-5" />
                         {editList ? 'Listeyi Düzenle' : 'Yeni Liste Oluştur'}
                     </DialogTitle>
-                    <DialogDescription>
+                    <DialogDescription className="sr-only">
                         {editList
                             ? 'Listenizin bilgilerini buradan güncelleyebilirsiniz.'
                             : 'Manga koleksiyonlarınızı organize etmek için yeni bir liste oluşturun.'}
@@ -155,7 +155,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                         />
                     </div>
                     <div className="space-y-2">
-                        <Label htmlFor="list-image">Gorsel Linki (Opsiyonel)</Label>
+                        <Label htmlFor="list-image">Görsel Linki (Opsiyonel)</Label>
                         <Input
                             id="list-image"
                             placeholder="https://..."
@@ -163,23 +163,20 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                             onChange={(e) => setImageUrl(e.target.value)}
                             disabled={isSubmitting}
                         />
-                        <p className="text-xs text-muted-foreground">
-                            Liste kapagi icin dogrudan bir gorsel baglantisi ekleyebilirsiniz.
-                        </p>
                     </div>
                     <div className="space-y-2">
                         <div className="flex items-center gap-2 text-sm font-medium">
                             <ImageIcon className="h-4 w-4 text-primary" />
-                            Onizleme
+                            Önizleme
                         </div>
                         {imageUrl.trim() && !isValidImageUrl(imageUrl.trim()) ? (
                             <div className="rounded-[1.35rem] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive sm:rounded-xl">
-                                Gecersiz gorsel baglantisi. Onizleme gosterilemiyor.
+                                Geçersiz görsel bağlantısı. Önizleme gösterilemiyor.
                             </div>
                         ) : (
                             <ReadingListCover
                                 imageUrl={imageUrl.trim()}
-                                alt={name || 'Okuma listesi kapagi'}
+                                alt={name || 'Okuma listesi kapağı'}
                                 className="h-40 w-full rounded-[1.35rem] border border-border sm:rounded-xl"
                                 iconClassName="h-8 w-8"
                                 showLabel
@@ -187,12 +184,7 @@ const CreateReadingListModal: React.FC<CreateReadingListModalProps> = ({
                         )}
                     </div>
                     <div className="flex items-center justify-between">
-                        <div className="space-y-0.5">
-                            <Label>Herkese Açık</Label>
-                            <p className="text-xs text-muted-foreground">
-                                Bu listeyi herkes görebilir.
-                            </p>
-                        </div>
+                        <Label>Herkese Açık</Label>
                         <Switch
                             checked={isPublic}
                             onCheckedChange={setIsPublic}

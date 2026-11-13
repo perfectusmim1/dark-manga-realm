@@ -84,6 +84,7 @@ import {
   getFavorites,
   getBookmarks,
 } from '../lib/storage';
+import { buildChapterResumePath } from '@/lib/bookmarkLocation';
 import {
   MessageSquare,
   ThumbsDown,
@@ -333,7 +334,7 @@ const PreviewPageThumbnail = React.memo(({
               }
               draggable={false}
               referrerPolicy="no-referrer"
-              className="h-full w-full object-cover [transform:translateZ(0)] [backface-visibility:hidden]"
+              className="block h-full w-full object-cover"
             />
           ) : (
             <div className="flex h-full w-full items-center justify-center bg-secondary/30 text-muted-foreground">
@@ -461,10 +462,12 @@ const BookmarkPagePreview = React.memo(({
   src,
   alt,
   pageNumber,
+  progressPercent,
 }: {
   src?: string | null;
   alt: string;
   pageNumber: number;
+  progressPercent?: number;
 }) => {
   const cardRef = React.useRef<HTMLDivElement>(null);
   const [isNearViewport, setIsNearViewport] = useState(false);
@@ -512,9 +515,11 @@ const BookmarkPagePreview = React.memo(({
         </div>
       )}
 
-      <div className="pointer-events-none absolute inset-x-0 bottom-0 h-14 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
-      <div className="absolute bottom-2 left-2 rounded-md bg-black/70 px-2.5 py-1 text-[11px] font-semibold text-white shadow sm:bottom-3 sm:left-3 sm:text-xs">
-        Sayfa {pageNumber}
+      <div className="pointer-events-none absolute -inset-x-px -bottom-px h-14 bg-gradient-to-t from-black/75 via-black/30 to-transparent" />
+      <div className="absolute bottom-2 left-2 rounded-md bg-black/75 px-2.5 py-1 text-[11px] font-semibold text-white shadow sm:bottom-3 sm:left-3 sm:text-xs">
+        {typeof progressPercent === 'number' && Number.isFinite(progressPercent)
+          ? `%${progressPercent.toFixed(1)}`
+          : `Sayfa ${pageNumber}`}
       </div>
     </div>
   );
@@ -3730,7 +3735,7 @@ const MangaDetail: React.FC = () => {
                                 <Link
                                   key={relation.id}
                                   to={`/manga/${relation.relatedManga.id}`}
-                                  className="group flex gap-3 rounded-2xl border border-border bg-background/40 p-3 transition-all hover:-translate-y-1 hover:border-primary/40 hover:shadow-lg [transform:translateZ(0)]"
+                                  className="group flex gap-3 rounded-2xl border border-border bg-background/40 p-3 transition-colors hover:border-primary/40 hover:shadow-lg"
                                 >
                                   <div className="h-24 w-16 shrink-0 overflow-hidden rounded-xl border border-border bg-secondary">
                                     {relation.relatedManga.cover ? (
@@ -4089,15 +4094,22 @@ const MangaDetail: React.FC = () => {
                     <div className="grid gap-5 lg:grid-cols-2">
                       {seriesBookmarkEntries.map(({ bookmark, chapter, chapterLabel, createdAtLabel, previewImage }, index) => (
                         <Link
-                          key={`${bookmark.chapterId}-${bookmark.page}-${bookmark.createdAt || index}`}
-                          to={`/manga/${manga.id}/chapter/${bookmark.chapterId}?page=${bookmark.page}${bookmark.pageOffsetRatio && bookmark.pageOffsetRatio > 0.005 ? `&offset=${bookmark.pageOffsetRatio.toFixed(3)}` : ''}`}
-                          className="group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6 animate-fade-up [transform:translateZ(0)]"
+                          key={bookmark.id || `${bookmark.chapterId}-${bookmark.progressPercent ?? bookmark.page}-${bookmark.createdAt || index}`}
+                          to={buildChapterResumePath({
+                            mangaId: manga.id,
+                            chapterId: bookmark.chapterId,
+                            page: bookmark.page,
+                            pageOffsetRatio: bookmark.pageOffsetRatio,
+                            progressPercent: bookmark.progressPercent,
+                          })}
+                          className="group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-colors hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6 animate-fade-up"
                           style={{ animationDelay: `${0.08 + index * 0.04}s` }}
                         >
                           <BookmarkPagePreview
                             src={previewImage}
-                            alt={`${chapterLabel} - Sayfa ${bookmark.page}`}
+                            alt={`${chapterLabel} - %${typeof bookmark.progressPercent === 'number' ? bookmark.progressPercent.toFixed(1) : bookmark.page}`}
                             pageNumber={bookmark.page}
+                            progressPercent={bookmark.progressPercent}
                           />
 
                           <div className="min-w-0 flex-1">

@@ -46,9 +46,9 @@ const MangaDetailDiscoverPanel = ({
             <Link
               key={manga.id}
               to={`/manga/${manga.id}`}
-              className="group relative overflow-hidden rounded-lg border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
+              className="group relative block overflow-hidden rounded-lg border border-border bg-card transition-all hover:border-primary/50 hover:shadow-lg hover:shadow-primary/10"
             >
-              <div className="aspect-[2/3] overflow-hidden">
+              <div className="relative aspect-[2/3] w-full overflow-hidden bg-card">
                 <OptimizedImage
                   src={manga.cover}
                   alt={manga.title}
@@ -56,7 +56,7 @@ const MangaDetailDiscoverPanel = ({
                   rootMargin="420px 0px"
                   containerClassName="h-full w-full"
                   placeholderClassName="rounded-none"
-                  className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+                  className="h-full w-full scale-100 object-cover transition-transform duration-300 group-hover:scale-105"
                 />
                 <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-0 transition-opacity group-hover:opacity-100" />
               </div>

@@ -1332,7 +1332,7 @@ const Reader: React.FC = () => {
         if (nextChapter && mangaId) {
           resumeAutoScrollAfterNavigationRef.current = true;
           prepareChapterTransition(nextChapter);
-          navigate(`/manga/${mangaId}/chapter/${nextChapter.id}?page=1`);
+          navigate(`/manga/${mangaId}/chapter/${nextChapter.id}`);
           return;
         }
 
@@ -1440,7 +1440,14 @@ const Reader: React.FC = () => {
   const handlePageChange = useCallback((page: number) => {
     if (isScrollingRef.current || !isInitialViewportReady) return;
     setCurrentPage(page);
-  }, [isInitialViewportReady]);
+    if (settings.mode === 'horizontal') {
+      const safeTotal = Math.max(1, resolvedPages.length || chapter?.pages?.length || 1);
+      const nextPct = Math.min(100, Math.max(0, Number((((page - 1) / safeTotal) * 100).toFixed(2))));
+      setCurrentPageOffsetRatio(0);
+      setCurrentProgressPercent(nextPct);
+      writeSessionChapterScrollPos(chapterId, page, 0, nextPct);
+    }
+  }, [chapter?.pages?.length, chapterId, isInitialViewportReady, resolvedPages.length, settings.mode]);
 
   const handleProgressChange = useCallback((page: number, pageOffsetRatio: number, progressPercent: number) => {
     if (isScrollingRef.current || !isInitialViewportReady) return;
@@ -1549,32 +1556,31 @@ const Reader: React.FC = () => {
   }, [chapter?.pages?.length, chapterId, resolvedPages.length, scrollToPageAndOffset, settings.mode]);
 
   useEffect(() => {
-    if (!initialized || !chapterId) {
+    if (!initialized || !isInitialViewportReady || !chapterId) {
       return;
     }
 
     const params = new URLSearchParams(window.location.search);
-    const currentPageParam = params.get('page');
-    const currentOffsetParam = params.get('offset');
-    const nextPageParam = String(currentPage);
-    const nextOffsetParam = currentPageOffsetRatio > 0.005
-      ? currentPageOffsetRatio.toFixed(3)
-      : null;
+    const currentPctParam = params.get('pct');
+    const hasLegacyParams = params.has('page') || params.has('offset');
+    const clampedPct = Math.min(100, Math.max(0, Number.isFinite(currentProgressPercent) ? currentProgressPercent : 0));
+    const nextPctParam = clampedPct > 0.05 ? clampedPct.toFixed(2) : null;
 
-    if (currentPageParam === nextPageParam && currentOffsetParam === nextOffsetParam) {
+    if (currentPctParam === nextPctParam && !hasLegacyParams) {
       return;
     }
 
-    params.set('page', nextPageParam);
-    if (nextOffsetParam) {
-      params.set('offset', nextOffsetParam);
+    params.delete('page');
+    params.delete('offset');
+    if (nextPctParam) {
+      params.set('pct', nextPctParam);
     } else {
-      params.delete('offset');
+      params.delete('pct');
     }
     const nextSearch = params.toString();
-    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}`;
+    const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash || ''}`;
     window.history.replaceState(window.history.state, '', nextUrl);
-  }, [chapterId, currentPage, currentPageOffsetRatio, initialized]);
+  }, [chapterId, currentProgressPercent, initialized, isInitialViewportReady]);
 
   // Zero-Drift ResizeObserver Anchor Lock: keeps the restored page + offset pinned even if off-screen images resize
   useEffect(() => {
@@ -1779,12 +1785,13 @@ const Reader: React.FC = () => {
         const pctLabel = `%${currentProgressPercent.toFixed(1)}`;
         toast.success(
           isOnlineNow
-            ? `Yer imi eklendi: Sayfa ${currentPage} (${pctLabel})`
+            ? `Yer imi eklendi (${pctLabel})`
             : 'Yer imi kaydedildi, tekrar çevrimiçi olduğunda eşitlenecek'
         );
       }).catch((error) => {
         if (error.message === 'ALREADY_EXISTS') {
-          toast.warning(`Bu konum (Sayfa ${currentPage}) zaten yer imlerine eklenmiş!`);
+          const pctLabel = `%${currentProgressPercent.toFixed(1)}`;
+          toast.warning(`Bu konum (${pctLabel}) zaten yer imlerine eklenmiş!`);
         } else {
           console.error('Error adding bookmark:', error);
           toast.error('Yer imi eklenemedi');

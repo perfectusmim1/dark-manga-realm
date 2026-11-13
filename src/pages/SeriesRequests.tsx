@@ -265,7 +265,7 @@ const SeriesRequests: React.FC = () => {
       <main className="container pb-10 pt-20 sm:pt-24">
         <div className="space-y-6 pt-4 sm:pt-6">
           <section className="rounded-[1.8rem] border border-border bg-card p-5 shadow-sm sm:p-6">
-            <div className="flex flex-col gap-5 lg:flex-row lg:items-end lg:justify-between">
+            <div className="flex flex-col gap-5 lg:flex-row lg:items-center lg:justify-between">
               <div>
                 <h1 className="text-2xl font-black tracking-tight sm:text-3xl">
                   Seri İstekleri
@@ -322,7 +322,7 @@ const SeriesRequests: React.FC = () => {
                   <h2 className="text-lg font-semibold">Yeni istek</h2>
                   <div className="mt-5 grid gap-4 md:grid-cols-2">
                     <div className="space-y-2">
-                      <div className="flex items-center justify-between">
+                      <div className="flex min-h-6 items-center justify-between">
                         <Label htmlFor="series-request-url">Kaynak link</Label>
                         {isFetchingMetadata ? (
                           <span className="inline-flex items-center gap-1 text-xs text-primary">
@@ -352,7 +352,9 @@ const SeriesRequests: React.FC = () => {
                     </div>
 
                     <div className="space-y-2">
-                      <Label htmlFor="series-request-title">Seri adı</Label>
+                      <div className="flex min-h-6 items-center justify-between">
+                        <Label htmlFor="series-request-title">Seri adı</Label>
+                      </div>
                       <Input
                         id="series-request-title"
                         value={seriesTitle}
@@ -439,10 +441,7 @@ const SeriesRequests: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="mt-5 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <p className="text-xs leading-5 text-muted-foreground">
-                      Linkte sadece `http/https` kabul edilir. Aynı aktif link için tekrar istek açılamaz.
-                    </p>
+                  <div className="mt-5 flex justify-end">
                     <Button onClick={() => void handleCreateRequest()} disabled={isSubmitting}>
                       {isSubmitting ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Send className="mr-2 h-4 w-4" />}
                       Gönder

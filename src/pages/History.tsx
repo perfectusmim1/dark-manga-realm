@@ -153,12 +153,12 @@ const SeriesHistoryCard = ({ item, index }: { item: ReadingHistoryEntry; index: 
 const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index: number }) => (
   <Link
     to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}
-    className="group animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-all duration-300 hover:-translate-y-1 hover:border-primary/35 hover:bg-card"
+    className="group flex flex-col animate-fade-up overflow-hidden rounded-[24px] border border-border/70 bg-card/60 shadow-[0_18px_40px_rgba(0,0,0,0.18)] transition-[border-color,background-color,box-shadow] duration-200 hover:border-primary/35 hover:bg-card"
     style={{
       animationDelay: `${0.04 + Math.min(index, 8) * 0.015}s`,
     }}
   >
-    <div className="relative aspect-square overflow-hidden">
+    <div className="relative aspect-square w-full overflow-hidden bg-black">
       {item.mangaCover ? (
         <OptimizedImage
           src={item.mangaCover}
@@ -175,7 +175,7 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
           {(item.mangaTitle || '?').slice(0, 1).toLocaleUpperCase('tr-TR')}
         </div>
       )}
-      <div className="absolute inset-0 bg-gradient-to-t from-black/85 via-black/10 to-transparent" />
+      <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black via-black/65 via-[48%] to-black/10" />
       <div className="absolute left-3 top-3 flex flex-wrap gap-2">
         <Badge
           variant="secondary"
@@ -186,11 +186,11 @@ const ChapterHistoryCard = ({ item, index }: { item: ChapterHistoryEntry; index:
           {item.isRead ? 'Okundu' : `%${Math.round(item.readProgressPercent || 0)}`}
         </Badge>
       </div>
-      <div className="absolute inset-x-0 bottom-0 p-3">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/60">
+      <div className="pointer-events-none absolute inset-x-0 bottom-0 p-3">
+        <p className="text-[11px] font-bold uppercase tracking-[0.2em] text-white/95 [text-shadow:0_2px_8px_rgba(0,0,0,0.98),0_1px_2px_rgba(0,0,0,0.95)]">
           Bölüm {item.chapterNumber}
         </p>
-        <h3 className="mt-1 line-clamp-2 text-sm font-bold text-white">
+        <h3 className="mt-1 line-clamp-2 text-sm font-bold text-white [text-shadow:0_2px_8px_rgba(0,0,0,0.98),0_1px_2px_rgba(0,0,0,0.95)]">
           {item.mangaTitle}
         </h3>
       </div>

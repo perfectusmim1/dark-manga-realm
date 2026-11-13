@@ -174,7 +174,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
 
   const cardContent = (
     <div
-      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background [transform:translateZ(0)] ${disableHeavyEffects ? '' : 'transition-all duration-300 hover-lift'} ${disableHeavyEffects || !enableEntryAnimation ? '' : entryAnimationClassName}`}
+      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${disableHeavyEffects ? '' : 'transition-[transform,box-shadow,border-color,background-color] duration-300 hover-lift'} ${disableHeavyEffects || !enableEntryAnimation ? '' : entryAnimationClassName}`}
       style={disableHeavyEffects || !enableEntryAnimation ? undefined : {
         animationDelay: `${index * entryAnimationDelayStepMs}ms`,
         animationDuration: `${entryAnimationDurationMs}ms`,
@@ -186,7 +186,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         className="absolute inset-0 z-[1] rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       />
 
-      <div className="pointer-events-none relative aspect-[2/3] overflow-hidden">
+      <div className="pointer-events-none relative aspect-[2/3] w-full overflow-hidden bg-card">
         <OptimizedImage
           src={manga.cover}
           alt={manga.title}

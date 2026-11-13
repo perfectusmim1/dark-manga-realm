@@ -71,7 +71,7 @@ const renderCoverPreview = (item: PublicReadingListCard) => {
           alt={item.name}
           transform={{ width: 480, quality: 80 }}
           containerClassName="h-full w-full"
-          className="h-full w-full object-cover group-hover:scale-105 transition-transform duration-300"
+          className="h-full w-full scale-100 object-cover transition-transform duration-300 group-hover:scale-105"
         />
       </div>
     );

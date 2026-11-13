@@ -107,7 +107,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
 
         const normalizedImageUrl = newImageUrl.trim();
         if (normalizedImageUrl && !isValidImageUrl(normalizedImageUrl)) {
-            toast.error('Gorsel linki gecersiz. Lutfen tam bir http/https adresi girin');
+            toast.error('Görsel linki geçersiz. Lütfen tam bir http/https adresi girin');
             return;
         }
 
@@ -148,7 +148,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                         <List className="h-5 w-5" />
                         Okuma Listelerim
                     </DialogTitle>
-                    <DialogDescription>
+                    <DialogDescription className="sr-only">
                         Bu mangayı listelerinize ekleyin veya yeni bir liste oluşturun.
                     </DialogDescription>
                 </DialogHeader>
@@ -243,31 +243,28 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                                 />
                             </div>
                             <div className="space-y-2">
-                                <Label htmlFor="list-image">Gorsel Linki (Opsiyonel)</Label>
+                                <Label htmlFor="list-image">Görsel Linki (Opsiyonel)</Label>
                                 <Input
                                     id="list-image"
                                     placeholder="https://..."
                                     value={newImageUrl}
                                     onChange={(e) => setNewImageUrl(e.target.value)}
                                 />
-                                <p className="text-xs text-muted-foreground">
-                                    Bu liste icin dis bir gorsel baglantisi ekleyebilirsiniz.
-                                </p>
                             </div>
                             {(newImageUrl.trim() || isCreating) && (
                                 <div className="space-y-2">
                                     <div className="flex items-center gap-2 text-sm font-medium">
                                         <ImageIcon className="h-4 w-4 text-primary" />
-                                        Onizleme
+                                        Önizleme
                                     </div>
                                     {newImageUrl.trim() && !isValidImageUrl(newImageUrl.trim()) ? (
                                         <div className="rounded-[1.35rem] border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive sm:rounded-xl">
-                                            Gecersiz gorsel baglantisi. Onizleme gosterilemiyor.
+                                            Geçersiz görsel bağlantısı. Önizleme gösterilemiyor.
                                         </div>
                                     ) : (
                                         <ReadingListCover
                                             imageUrl={newImageUrl.trim()}
-                                            alt={newName || 'Okuma listesi kapagi'}
+                                            alt={newName || 'Okuma listesi kapağı'}
                                             className="h-36 w-full rounded-[1.35rem] border border-border sm:rounded-xl"
                                             iconClassName="h-8 w-8"
                                             showLabel
@@ -276,12 +273,7 @@ const ReadingListModal: React.FC<ReadingListModalProps> = ({ isOpen, onClose, ma
                                 </div>
                             )}
                             <div className="flex items-center justify-between">
-                                <div className="space-y-0.5">
-                                    <Label>Herkese Açık</Label>
-                                    <p className="text-xs text-muted-foreground">
-                                        Bu listeyi herkes görebilir.
-                                    </p>
-                                </div>
+                                <Label>Herkese Açık</Label>
                                 <Switch
                                     checked={isPublic}
                                     onCheckedChange={setIsPublic}

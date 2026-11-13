@@ -17,6 +17,7 @@ import OptimizedImage from '@/components/media/OptimizedImage';
 import ProxyImage from '@/components/media/ProxyImage';
 import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
+import { buildChapterResumePath } from '@/lib/bookmarkLocation';
 
 type EnrichedBookmark = Bookmark & {
   pagePreview?: string | null;
@@ -227,16 +228,24 @@ const Bookmarks: React.FC = () => {
                 const previewImage = item.pagePreview || item.mangaCover;
                 const hasPagePreview = Boolean(item.pagePreview);
 
+                const bookmarkHref = buildChapterResumePath({
+                  mangaId: item.mangaId,
+                  chapterId: item.chapterId,
+                  page: item.page,
+                  pageOffsetRatio: item.pageOffsetRatio,
+                  progressPercent: item.progressPercent,
+                });
+
                 return (
                   <div
-                    className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-all hover:shadow-xl animate-fade-up"
+                    className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-[border-color,box-shadow,background-color] hover:shadow-xl animate-fade-up"
                     style={{
                       animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                     }}
                   >
                     <Link
-                      to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}
-                      className="relative block aspect-[4/3] w-full overflow-hidden sm:aspect-square"
+                      to={bookmarkHref}
+                      className="relative block aspect-[4/3] w-full overflow-hidden bg-black sm:aspect-square"
                     >
                       {previewImage ? (
                         !isOnline
@@ -248,7 +257,7 @@ const Bookmarks: React.FC = () => {
                               containerClassName="h-full w-full"
                               placeholderClassName="rounded-none"
                               sizes="(min-width: 1280px) 18vw, (min-width: 1024px) 22vw, (min-width: 640px) 28vw, 48vw"
-                              className="h-full w-full object-cover "
+                              className="h-full w-full object-cover"
                             />
                           ) : (
                             <ProxyImage
@@ -261,7 +270,7 @@ const Bookmarks: React.FC = () => {
                               width={480}
                               height={480}
                               sizes="(min-width: 1280px) 18vw, (min-width: 1024px) 22vw, (min-width: 640px) 28vw, 48vw"
-                              className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+                              className="block h-full w-full object-cover"
                             />
                           )
                       ) : (
@@ -269,12 +278,16 @@ const Bookmarks: React.FC = () => {
                           {mangaTitle.slice(0, 1).toLocaleUpperCase('tr-TR')}
                         </div>
                       )}
-                      <div className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
+                      <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
-                      <div className="absolute left-2 top-2 flex items-center gap-1 rounded-lg border border-white/10 bg-black/60 px-2 py-1 text-[10px] font-bold text-white shadow-md backdrop-blur-md sm:left-3 sm:top-3 sm:text-xs">
-                        <span>Sayfa {item.page}</span>
-                        {typeof item.progressPercent === 'number' && (
-                          <span className="text-primary">· %{item.progressPercent.toFixed(1)}</span>
+                      <div className="absolute left-2 top-2 flex items-center gap-1 rounded-lg border border-white/10 bg-black/65 px-2 py-1 text-[10px] font-bold text-white shadow-md backdrop-blur-md sm:left-3 sm:top-3 sm:text-xs">
+                        {typeof item.progressPercent === 'number' ? (
+                          <>
+                            <span className="text-primary">%{item.progressPercent.toFixed(1)}</span>
+                            <span className="text-white/75">· Sayfa {item.page}</span>
+                          </>
+                        ) : (
+                          <span>Sayfa {item.page}</span>
                         )}
                       </div>
 
@@ -313,7 +326,7 @@ const Bookmarks: React.FC = () => {
                           className="h-9 flex-1 text-xs sm:text-sm"
                           asChild
                         >
-                          <Link to={`/manga/${item.mangaId}/chapter/${item.chapterId}?page=${item.page}${item.pageOffsetRatio && item.pageOffsetRatio > 0.005 ? `&offset=${item.pageOffsetRatio.toFixed(3)}` : ''}`}>
+                          <Link to={bookmarkHref}>
                             Oku
                           </Link>
                         </Button>
