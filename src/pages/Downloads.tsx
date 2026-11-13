@@ -24,6 +24,7 @@ import { OfflineChapter, OfflineDownloadStatus, OfflineMangaGroup } from '@/lib/
 import { isDownloadAuthRequiredError, offlineDownloadManager } from '@/lib/offline/downloadManager';
 import { formatBytes, formatSpeed } from '@/lib/offline/utils';
 import { Manga, Chapter } from '@/lib/types';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 import { toast } from 'sonner';
 
 const FILTERS = ['Tümü', 'İndiriliyor', 'Tamamlanan', 'Hatalı'] as const;
@@ -359,7 +360,7 @@ const Downloads: React.FC = () => {
 
                         <div className="min-w-0">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="secondary" className="uppercase">{entry.manga.type}</Badge>
+                            <Badge variant="secondary" className="uppercase">{getMangaTypeLabel(entry.manga.type)}</Badge>
                             {primaryJob && (
                               <Badge variant="outline">
                                 {primaryJob.status === 'running' ? 'İndiriliyor' :

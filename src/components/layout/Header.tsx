@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useDeferredValue, useEffect, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useRef, useState } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import InstallAppButton from '@/components/pwa/InstallAppButton';
 import OptimizedImage from '@/components/media/OptimizedImage';
@@ -69,10 +69,10 @@ import {
 } from '@/components/ui/tooltip';
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 import {
-  matchesCharacterSearch,
-  matchesMangaSearch,
-  matchesNamedEntitySearch,
+  rankTopMangaMatches,
+  takeTopEntityMatches,
 } from '@/lib/searchMatching';
 import { useHeaderShellSnapshot } from '@/hooks/useHeaderShellSnapshot';
 import { useBootstrappedAppearancePreferences } from '@/hooks/useBootstrappedAppearancePreferences';
@@ -80,6 +80,8 @@ import { shouldRenderHeaderBootstrap } from '@/components/layout/HeaderBootstrap
 import { prefetchRouteForPathname } from '@/lib/routeModules';
 
 const CHARACTER_MENU_LONG_PRESS_MS = 320;
+const QUICK_SEARCH_DEBOUNCE_MS = 120;
+const LIVE_SEARCH_CACHE_TTL_MS = 60_000;
 const NotificationDropdown = lazy(() => import('@/components/notifications/NotificationDropdown'));
 const AnnouncementDropdown = lazy(() => import('@/components/notifications/AnnouncementDropdown'));
 
@@ -89,6 +91,8 @@ type SearchDataModule = {
   getCharacters: () => Promise<Character[]>;
   getAuthors: () => Promise<Author[]>;
   getArtists: () => Promise<Artist[]>;
+  searchMangas: (query: string) => Promise<Manga[]>;
+  subscribeMangaSummariesUpdated: (listener: (summaries: Manga[]) => void) => () => void;
 };
 
 let searchDataModulePromise: Promise<SearchDataModule> | null = null;
@@ -101,11 +105,471 @@ const loadSearchDataModule = () => {
       getCharacters: module.getCharacters,
       getAuthors: module.getAuthors,
       getArtists: module.getArtists,
+      searchMangas: module.searchMangas,
+      subscribeMangaSummariesUpdated: module.subscribeMangaSummariesUpdated,
     }));
   }
 
   return searchDataModulePromise;
 };
+
+const mergeMangasById = (existing: Manga[], incoming: Manga[]): Manga[] => {
+  if (incoming.length === 0) {
+    return existing;
+  }
+
+  const byId = new Map<string, Manga>();
+  for (const item of existing) {
+    if (item?.id) {
+      byId.set(item.id, item);
+    }
+  }
+
+  let changed = false;
+  for (const item of incoming) {
+    if (item?.id && !byId.has(item.id)) {
+      byId.set(item.id, item);
+      changed = true;
+    }
+  }
+
+  return changed ? Array.from(byId.values()) : existing;
+};
+
+interface HeaderQuickSearchProps {
+  isOnline: boolean;
+  blurAdultArtworkEnabled: boolean;
+  navigationKey: string;
+}
+
+const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
+  isOnline,
+  blurAdultArtworkEnabled,
+  navigationKey,
+}) => {
+  const navigate = useNavigate();
+  const [searchQuery, setSearchQuery] = useState('');
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [quickResults, setQuickResults] = useState<Manga[]>([]);
+  const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
+  const [quickAuthorResults, setQuickAuthorResults] = useState<Author[]>([]);
+  const [quickArtistResults, setQuickArtistResults] = useState<Artist[]>([]);
+  const [catalogRevision, setCatalogRevision] = useState(0);
+
+  const allMangasRef = useRef<Manga[]>([]);
+  const allCharactersRef = useRef<Character[]>([]);
+  const allAuthorsRef = useRef<Author[]>([]);
+  const allArtistsRef = useRef<Artist[]>([]);
+  const searchQueryRef = useRef('');
+  const mangaLoadPromiseRef = useRef<Promise<Manga[]> | null>(null);
+  const secondaryLoadPromiseRef = useRef<Promise<void> | null>(null);
+  const debounceTimerRef = useRef<number | null>(null);
+  const blurTimeoutRef = useRef<number | null>(null);
+  const liveSearchSeqRef = useRef(0);
+  const liveSearchCacheRef = useRef<Map<string, { fetchedAt: number; rows: Manga[] }>>(new Map());
+
+  searchQueryRef.current = searchQuery;
+
+  const shouldBlurAdultArtwork = (manga: Manga) => (
+    blurAdultArtworkEnabled && manga.isAdult === true
+  );
+
+  const applyCatalogSnapshot = (nextMangas: Manga[]) => {
+    if (nextMangas.length === 0) {
+      return;
+    }
+    const prev = allMangasRef.current;
+    if (prev !== nextMangas) {
+      allMangasRef.current = nextMangas;
+      if (searchQueryRef.current.trim().length > 1) {
+        setCatalogRevision((rev) => rev + 1);
+      }
+    }
+  };
+
+  useEffect(() => {
+    let active = true;
+    let unsubscribe: (() => void) | undefined;
+
+    void loadSearchDataModule()
+      .then((module) => {
+        if (!active) return;
+        unsubscribe = module.subscribeMangaSummariesUpdated((updated) => {
+          if (active) {
+            applyCatalogSnapshot(updated);
+          }
+        });
+      })
+      .catch(() => undefined);
+
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
+  }, []);
+
+  const ensureMangasLoaded = async () => {
+    if (!isOnline) {
+      return allMangasRef.current;
+    }
+
+    if (!mangaLoadPromiseRef.current) {
+      mangaLoadPromiseRef.current = loadSearchDataModule()
+        .then((module) => module.getMangaSummaries())
+        .then((data) => {
+          applyCatalogSnapshot(data);
+          return data;
+        })
+        .catch((err) => {
+          console.error('Quick search manga load failed:', err);
+          return allMangasRef.current;
+        })
+        .finally(() => {
+          mangaLoadPromiseRef.current = null;
+        });
+    }
+
+    return mangaLoadPromiseRef.current;
+  };
+
+  const ensureSecondaryEntitiesLoaded = async () => {
+    if (!isOnline) {
+      return;
+    }
+
+    if (
+      allCharactersRef.current.length > 0
+      && allAuthorsRef.current.length > 0
+      && allArtistsRef.current.length > 0
+    ) {
+      return;
+    }
+
+    if (!secondaryLoadPromiseRef.current) {
+      secondaryLoadPromiseRef.current = loadSearchDataModule()
+        .then(async (module) => {
+          const [chars, authors, artists] = await Promise.all([
+            allCharactersRef.current.length > 0 ? allCharactersRef.current : module.getCharacters(),
+            allAuthorsRef.current.length > 0 ? allAuthorsRef.current : module.getAuthors(),
+            allArtistsRef.current.length > 0 ? allArtistsRef.current : module.getArtists(),
+          ]);
+          allCharactersRef.current = chars;
+          allAuthorsRef.current = authors;
+          allArtistsRef.current = artists;
+          if (searchQueryRef.current.trim().length > 1) {
+            setCatalogRevision((rev) => rev + 1);
+          }
+        })
+        .catch((err) => {
+          console.error('Quick search secondary entities load failed:', err);
+        })
+        .finally(() => {
+          secondaryLoadPromiseRef.current = null;
+        });
+    }
+
+    return secondaryLoadPromiseRef.current;
+  };
+
+  const clearQuickSearch = () => {
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    setSearchQuery('');
+    setQuickResults((prev) => (prev.length === 0 ? prev : []));
+    setQuickCharacterResults((prev) => (prev.length === 0 ? prev : []));
+    setQuickAuthorResults((prev) => (prev.length === 0 ? prev : []));
+    setQuickArtistResults((prev) => (prev.length === 0 ? prev : []));
+    setIsSearchFocused(false);
+  };
+
+  useEffect(() => {
+    clearQuickSearch();
+  }, [navigationKey]);
+
+  useEffect(() => () => {
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+    }
+    if (blurTimeoutRef.current !== null) {
+      window.clearTimeout(blurTimeoutRef.current);
+    }
+  }, []);
+
+  useEffect(() => {
+    const trimmed = searchQuery.trim();
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+
+    if (trimmed.length <= 1) {
+      setQuickResults((prev) => (prev.length === 0 ? prev : []));
+      setQuickCharacterResults((prev) => (prev.length === 0 ? prev : []));
+      setQuickAuthorResults((prev) => (prev.length === 0 ? prev : []));
+      setQuickArtistResults((prev) => (prev.length === 0 ? prev : []));
+      return;
+    }
+
+    const runFilter = () => {
+      if (allMangasRef.current.length === 0) {
+        void ensureMangasLoaded();
+      }
+      if (
+        allCharactersRef.current.length === 0
+        || allAuthorsRef.current.length === 0
+        || allArtistsRef.current.length === 0
+      ) {
+        void ensureSecondaryEntitiesLoaded();
+      }
+
+      const mangaMatches = rankTopMangaMatches(allMangasRef.current, trimmed, 3);
+      setQuickResults(mangaMatches);
+      setQuickCharacterResults(takeTopEntityMatches(allCharactersRef.current, trimmed, 3));
+      setQuickAuthorResults(takeTopEntityMatches(allAuthorsRef.current, trimmed, 3));
+      setQuickArtistResults(takeTopEntityMatches(allArtistsRef.current, trimmed, 3));
+
+      // Önbellek henüz yeni senkronize edilmiş seriyi içermiyorsa canlı aramadan tamamla.
+      if (isOnline && mangaMatches.length < 3) {
+        const cacheKey = trimmed.toLocaleLowerCase('tr-TR');
+        const cachedLive = liveSearchCacheRef.current.get(cacheKey);
+        if (cachedLive && Date.now() - cachedLive.fetchedAt < LIVE_SEARCH_CACHE_TTL_MS) {
+          const merged = mergeMangasById(allMangasRef.current, cachedLive.rows);
+          if (merged !== allMangasRef.current) {
+            allMangasRef.current = merged;
+            setQuickResults(rankTopMangaMatches(merged, trimmed, 3));
+          }
+          return;
+        }
+
+        const seq = ++liveSearchSeqRef.current;
+        void loadSearchDataModule()
+          .then((module) => module.searchMangas(trimmed))
+          .then((remoteRows) => {
+            if (seq !== liveSearchSeqRef.current) {
+              return;
+            }
+            liveSearchCacheRef.current.set(cacheKey, {
+              fetchedAt: Date.now(),
+              rows: remoteRows,
+            });
+            const merged = mergeMangasById(allMangasRef.current, remoteRows);
+            if (merged !== allMangasRef.current) {
+              allMangasRef.current = merged;
+            }
+            if (searchQueryRef.current.trim() === trimmed) {
+              setQuickResults(rankTopMangaMatches(allMangasRef.current, trimmed, 3));
+            }
+          })
+          .catch(() => undefined);
+      }
+    };
+
+    debounceTimerRef.current = window.setTimeout(runFilter, QUICK_SEARCH_DEBOUNCE_MS);
+
+    return () => {
+      if (debounceTimerRef.current !== null) {
+        window.clearTimeout(debounceTimerRef.current);
+        debounceTimerRef.current = null;
+      }
+    };
+  }, [catalogRevision, isOnline, searchQuery]);
+
+  const handleSearch = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (searchQuery.trim()) {
+      navigate(`/browse?search=${encodeURIComponent(searchQuery)}`);
+      clearQuickSearch();
+    }
+  };
+
+  const handleResultClick = (id: string) => {
+    navigate(`/manga/${id}`);
+    clearQuickSearch();
+  };
+
+  const handleEntityResultClick = (path: string) => {
+    navigate(path);
+    clearQuickSearch();
+  };
+
+  return (
+    <form onSubmit={handleSearch} className="flex-1">
+      <div className="relative w-full">
+        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <Input
+          type="search"
+          placeholder="Manga, karakter, yazar veya çizer ara..."
+          value={searchQuery}
+          onChange={(e) => setSearchQuery(e.target.value)}
+          onFocus={() => {
+            if (blurTimeoutRef.current !== null) {
+              window.clearTimeout(blurTimeoutRef.current);
+              blurTimeoutRef.current = null;
+            }
+            setIsSearchFocused(true);
+            void ensureMangasLoaded();
+          }}
+          onBlur={() => {
+            blurTimeoutRef.current = window.setTimeout(() => setIsSearchFocused(false), 180);
+          }}
+          className="w-full pl-10"
+        />
+        {/* Quick Search Dropdown */}
+        {isSearchFocused && (
+          quickResults.length > 0
+          || quickCharacterResults.length > 0
+          || quickAuthorResults.length > 0
+          || quickArtistResults.length > 0
+        ) && (
+          <div className="absolute top-full left-0 right-0 mt-2 overflow-hidden rounded-xl border border-border bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+            <div className="p-2">
+              {quickResults.length > 0 && (
+                <>
+                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Seriler</p>
+                  <div className="mt-1 space-y-1">
+                    {quickResults.map((manga) => (
+                      <button
+                        key={manga.id}
+                        type="button"
+                        onClick={() => handleResultClick(manga.id)}
+                        className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
+                      >
+                        <img
+                          src={manga.cover}
+                          alt={manga.title}
+                          loading="lazy"
+                          decoding="async"
+                          className={cn(
+                            'h-12 w-9 rounded object-cover shadow-sm transition-transform group-hover:scale-105',
+                            shouldBlurAdultArtwork(manga) && 'scale-[1.03] blur-sm',
+                          )}
+                        />
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
+                          <div className="flex items-center gap-2 mt-0.5">
+                            <span className="text-[10px] text-muted-foreground">{getMangaTypeLabel(manga.type)}</span>
+                            <span className="h-1 w-1 rounded-full bg-border" />
+                            <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
+                              <Star className="h-2.5 w-2.5 fill-current" />
+                              {typeof manga.averageRating === 'number' ? manga.averageRating.toFixed(1) : '0.0'}
+                            </div>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {quickCharacterResults.length > 0 && (
+                <div className="mt-3">
+                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Karakterler</p>
+                  <div className="mt-1 space-y-1">
+                    {quickCharacterResults.map(char => (
+                      <button
+                        key={char.id}
+                        type="button"
+                        onClick={() => handleEntityResultClick(`/character/${char.id}`)}
+                        className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
+                      >
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={resolveDisplayImageUrl(char.imageUrl)} />
+                          <AvatarFallback className="text-[10px]">{char.name[0]}</AvatarFallback>
+                        </Avatar>
+                        <div className="flex-1 min-w-0">
+                          <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{char.name}</h4>
+                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <Heart className="h-2 w-2 fill-primary text-primary" /> {char.likesCount} Beğeni
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {quickAuthorResults.length > 0 && (
+                <div className="mt-3">
+                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Yazarlar</p>
+                  <div className="mt-1 space-y-1">
+                    {quickAuthorResults.map((author) => (
+                      <button
+                        key={author.id}
+                        type="button"
+                        onClick={() => handleEntityResultClick(`/author/${author.id}`)}
+                        className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
+                      >
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={resolveDisplayImageUrl(author.imageUrl)} />
+                          <AvatarFallback className="text-[10px]">{author.name[0]}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="truncate text-sm font-semibold transition-colors group-hover:text-primary">{author.name}</h4>
+                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <Book className="h-2.5 w-2.5 text-primary" />
+                            <span>Yazar</span>
+                            <span className="h-1 w-1 rounded-full bg-border" />
+                            <Heart className="h-2 w-2 fill-primary text-primary" />
+                            <span>{author.likesCount} beğeni</span>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {quickArtistResults.length > 0 && (
+                <div className="mt-3">
+                  <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Çizerler</p>
+                  <div className="mt-1 space-y-1">
+                    {quickArtistResults.map((artist) => (
+                      <button
+                        key={artist.id}
+                        type="button"
+                        onClick={() => handleEntityResultClick(`/artist/${artist.id}`)}
+                        className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
+                      >
+                        <Avatar className="h-8 w-8">
+                          <AvatarImage src={resolveDisplayImageUrl(artist.imageUrl)} />
+                          <AvatarFallback className="text-[10px]">{artist.name[0]}</AvatarFallback>
+                        </Avatar>
+                        <div className="min-w-0 flex-1">
+                          <h4 className="truncate text-sm font-semibold transition-colors group-hover:text-primary">{artist.name}</h4>
+                          <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
+                            <Sparkles className="h-2.5 w-2.5 text-primary" />
+                            <span>Çizer</span>
+                            <span className="h-1 w-1 rounded-full bg-border" />
+                            <Heart className="h-2 w-2 fill-primary text-primary" />
+                            <span>{artist.likesCount} beğeni</span>
+                          </div>
+                        </div>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              <div className="mt-2 border-t border-border pt-1">
+                <button
+                  type="submit"
+                  className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
+                >
+                  <span>"{searchQuery}" için tüm sonuçlar</span>
+                  <Search className="h-3 w-3" />
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+      </div>
+    </form>
+  );
+});
+
+HeaderQuickSearch.displayName = 'HeaderQuickSearch';
 
 const HeaderCounterShell = ({
   icon: Icon,
@@ -159,10 +623,6 @@ interface HeaderProps {
 
 const HeaderContent: React.FC = () => {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [quickResults, setQuickResults] = useState<Manga[]>([]);
-  const [allMangas, setAllMangas] = useState<Manga[]>([]);
-  const [isSearchFocused, setIsSearchFocused] = useState(false);
   const { user, logout, isLoading: authLoading } = useAuth();
   const { access } = useAdminAccess({
     enabled: Boolean(user && (user.role === 'admin' || user.role === 'moderator')),
@@ -176,22 +636,15 @@ const HeaderContent: React.FC = () => {
   const shellUser = authLoading && !user ? headerShellSnapshot?.user ?? null : null;
   const displayUser = user ?? shellUser;
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
-  const shouldBlurAdultArtwork = (manga: Manga) => (
+  const blurAdultArtworkEnabled = Boolean(
     appearancePreferences.adult_cover_blur
-    && user?.preferences?.content?.adult_mode === true
-    && manga.isAdult === true
+    && user?.preferences?.content?.adult_mode === true,
   );
   const isAdmin = Boolean(displayUser && access?.canAccessAdminPanel);
   const showHeaderOfflineToggle = appearancePreferences.show_header_offline_toggle;
   const canUseCachedHeaderCounts = Boolean(displayUser && headerShellSnapshot?.user?.id === displayUser.id);
   const cachedAnnouncementCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadAnnouncementCount || 0 : 0;
   const cachedNotificationCount = canUseCachedHeaderCounts ? headerShellSnapshot?.unreadNotificationCount || 0 : 0;
-  const [allCharacters, setAllCharacters] = useState<Character[]>([]);
-  const [quickCharacterResults, setQuickCharacterResults] = useState<Character[]>([]);
-  const [allAuthors, setAllAuthors] = useState<Author[]>([]);
-  const [quickAuthorResults, setQuickAuthorResults] = useState<Author[]>([]);
-  const [allArtists, setAllArtists] = useState<Artist[]>([]);
-  const [quickArtistResults, setQuickArtistResults] = useState<Artist[]>([]);
   const { disableHeavyEffects } = useDeviceProfile();
   const [isRandomDialogOpen, setIsRandomDialogOpen] = useState(false);
   const [isRandomRolling, setIsRandomRolling] = useState(false);
@@ -204,199 +657,7 @@ const HeaderContent: React.FC = () => {
   const mobileCharactersLongPressTimeoutRef = useRef<number | null>(null);
   const mobileCharactersLongPressTriggeredRef = useRef(false);
   const mobileCharactersMenuRef = useRef<HTMLDivElement | null>(null);
-  const mangaSearchLoadPromiseRef = useRef<Promise<Manga[]> | null>(null);
-  const characterSearchLoadPromiseRef = useRef<Promise<Character[]> | null>(null);
-  const authorSearchLoadPromiseRef = useRef<Promise<Author[]> | null>(null);
-  const artistSearchLoadPromiseRef = useRef<Promise<Artist[]> | null>(null);
   const randomLoadInFlightRef = useRef(false);
-  const deferredSearchQuery = useDeferredValue(searchQuery);
-
-  const ensureMangasLoaded = async () => {
-    if (!isOnline) {
-      return allMangas;
-    }
-
-    if (allMangas.length > 0) {
-      return allMangas;
-    }
-
-    if (!mangaSearchLoadPromiseRef.current) {
-      mangaSearchLoadPromiseRef.current = loadSearchDataModule()
-        .then((module) => module.getMangaSummaries())
-        .then((data) => {
-          setAllMangas((current) => (current.length > 0 ? current : data));
-          return data;
-        })
-        .catch((err) => {
-          console.error('Quick search manga load failed:', err);
-          return [];
-        })
-        .finally(() => {
-          mangaSearchLoadPromiseRef.current = null;
-        });
-    }
-
-    return mangaSearchLoadPromiseRef.current;
-  };
-
-  const ensureCharactersLoaded = async () => {
-    if (!isOnline) {
-      return allCharacters;
-    }
-
-    if (allCharacters.length > 0) {
-      return allCharacters;
-    }
-
-    if (!characterSearchLoadPromiseRef.current) {
-      characterSearchLoadPromiseRef.current = loadSearchDataModule()
-        .then((module) => module.getCharacters())
-        .then((data) => {
-          setAllCharacters((current) => (current.length > 0 ? current : data));
-          return data;
-        })
-        .catch((err) => {
-          console.error('Quick search character load failed:', err);
-          return [];
-        })
-        .finally(() => {
-          characterSearchLoadPromiseRef.current = null;
-        });
-    }
-
-    return characterSearchLoadPromiseRef.current;
-  };
-
-  const ensureAuthorsLoaded = async () => {
-    if (!isOnline) {
-      return allAuthors;
-    }
-
-    if (allAuthors.length > 0) {
-      return allAuthors;
-    }
-
-    if (!authorSearchLoadPromiseRef.current) {
-      authorSearchLoadPromiseRef.current = loadSearchDataModule()
-        .then((module) => module.getAuthors())
-        .then((data) => {
-          setAllAuthors((current) => (current.length > 0 ? current : data));
-          return data;
-        })
-        .catch((err) => {
-          console.error('Quick search author load failed:', err);
-          return [];
-        })
-        .finally(() => {
-          authorSearchLoadPromiseRef.current = null;
-        });
-    }
-
-    return authorSearchLoadPromiseRef.current;
-  };
-
-  const ensureArtistsLoaded = async () => {
-    if (!isOnline) {
-      return allArtists;
-    }
-
-    if (allArtists.length > 0) {
-      return allArtists;
-    }
-
-    if (!artistSearchLoadPromiseRef.current) {
-      artistSearchLoadPromiseRef.current = loadSearchDataModule()
-        .then((module) => module.getArtists())
-        .then((data) => {
-          setAllArtists((current) => (current.length > 0 ? current : data));
-          return data;
-        })
-        .catch((err) => {
-          console.error('Quick search artist load failed:', err);
-          return [];
-        })
-        .finally(() => {
-          artistSearchLoadPromiseRef.current = null;
-        });
-    }
-
-    return artistSearchLoadPromiseRef.current;
-  };
-
-  const ensureQuickSearchData = async () => {
-    await Promise.all([
-      ensureMangasLoaded(),
-      ensureCharactersLoaded(),
-      ensureAuthorsLoaded(),
-      ensureArtistsLoaded(),
-    ]);
-  };
-
-  // Filter for quick results
-  useEffect(() => {
-    if (deferredSearchQuery.trim().length > 1) {
-      if (
-        allMangas.length === 0
-        || allCharacters.length === 0
-        || allAuthors.length === 0
-        || allArtists.length === 0
-      ) {
-        void ensureQuickSearchData();
-      }
-
-      const filtered = allMangas
-        .filter((manga) => matchesMangaSearch(manga, deferredSearchQuery))
-        .slice(0, 3);
-      setQuickResults(filtered);
-
-      const filteredChars = allCharacters
-        .filter((character) => matchesCharacterSearch(character, deferredSearchQuery))
-        .slice(0, 3);
-      setQuickCharacterResults(filteredChars);
-
-      const filteredAuthors = allAuthors
-        .filter((author) => matchesNamedEntitySearch(author, deferredSearchQuery))
-        .slice(0, 3);
-      setQuickAuthorResults(filteredAuthors);
-
-      const filteredArtists = allArtists
-        .filter((artist) => matchesNamedEntitySearch(artist, deferredSearchQuery))
-        .slice(0, 3);
-      setQuickArtistResults(filteredArtists);
-    } else {
-      setQuickResults([]);
-      setQuickCharacterResults([]);
-      setQuickAuthorResults([]);
-      setQuickArtistResults([]);
-    }
-  }, [allArtists, allAuthors, allCharacters, allMangas, deferredSearchQuery]);
-
-  const clearQuickSearch = () => {
-    setSearchQuery('');
-    setQuickResults([]);
-    setQuickCharacterResults([]);
-    setQuickAuthorResults([]);
-    setQuickArtistResults([]);
-    setIsSearchFocused(false);
-  };
-
-  const handleSearch = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (searchQuery.trim()) {
-      navigate(`/browse?search=${encodeURIComponent(searchQuery)}`);
-      clearQuickSearch();
-    }
-  };
-
-  const handleResultClick = (id: string) => {
-    navigate(`/manga/${id}`);
-    clearQuickSearch();
-  };
-
-  const handleEntityResultClick = (path: string) => {
-    navigate(path);
-    clearQuickSearch();
-  };
 
   const isActive = (path: string) =>
     path === '/community'
@@ -518,7 +779,6 @@ const HeaderContent: React.FC = () => {
     setIsMenuOpen(false);
     setIsRandomDialogOpen(false);
     setIsRandomRolling(false);
-    clearQuickSearch();
   }, [location.pathname, location.search]);
 
   useEffect(() => {
@@ -664,8 +924,6 @@ const HeaderContent: React.FC = () => {
           lastUpdated: manga.lastUpdated,
           createdAt: manga.createdAt,
         } as Manga));
-      } else if (allMangas.length > 0) {
-        mangas = allMangas;
       } else {
         randomLoadInFlightRef.current = true;
         try {
@@ -848,165 +1106,11 @@ const HeaderContent: React.FC = () => {
           {renderRandomMangaButton()}
           {showHeaderOfflineToggle && renderOfflineToggleButton()}
 
-          <form onSubmit={handleSearch} className="flex-1">
-            <div className="relative w-full">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                type="search"
-                placeholder="Manga, karakter, yazar veya çizer ara..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                onFocus={() => {
-                  setIsSearchFocused(true);
-                  void ensureQuickSearchData();
-                }}
-                onBlur={() => setTimeout(() => setIsSearchFocused(false), 200)}
-                className="w-full pl-10"
-              />
-              {/* Quick Search Dropdown */}
-              {isSearchFocused && (
-                quickResults.length > 0
-                || quickCharacterResults.length > 0
-                || quickAuthorResults.length > 0
-                || quickArtistResults.length > 0
-              ) && (
-                <div className="absolute top-full left-0 right-0 mt-2 overflow-hidden rounded-xl border border-border bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
-                  <div className="p-2">
-                    {quickResults.length > 0 && (
-                      <>
-                        <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground">Seriler</p>
-                        <div className="mt-1 space-y-1">
-                          {quickResults.map((manga) => (
-                            <button
-                              key={manga.id}
-                              onClick={() => handleResultClick(manga.id)}
-                              className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
-                            >
-                              <img
-                                src={manga.cover}
-                                alt={manga.title}
-                                className={cn(
-                                  'h-12 w-9 rounded object-cover shadow-sm transition-transform group-hover:scale-105',
-                                  shouldBlurAdultArtwork(manga) && 'scale-[1.03] blur-sm',
-                                )}
-                              />
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{manga.title}</h4>
-                                <div className="flex items-center gap-2 mt-0.5">
-                                  <span className="text-[10px] text-muted-foreground capitalize">{manga.type}</span>
-                                  <span className="h-1 w-1 rounded-full bg-border" />
-                                  <div className="flex items-center gap-1 text-[10px] text-primary font-medium">
-                                    <Star className="h-2.5 w-2.5 fill-current" />
-                                    {typeof manga.averageRating === 'number' ? manga.averageRating.toFixed(1) : '0.0'}
-                                  </div>
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-
-                    {quickCharacterResults.length > 0 && (
-                      <div className="mt-3">
-                        <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Karakterler</p>
-                        <div className="mt-1 space-y-1">
-                          {quickCharacterResults.map(char => (
-                            <button
-                              key={char.id}
-                              onClick={() => handleEntityResultClick(`/character/${char.id}`)}
-                              className="flex w-full items-center gap-3 rounded-lg p-2 transition-colors hover:bg-secondary/80 text-left group"
-                            >
-                              <Avatar className="h-8 w-8">
-                                <AvatarImage src={resolveDisplayImageUrl(char.imageUrl)} />
-                                <AvatarFallback className="text-[10px]">{char.name[0]}</AvatarFallback>
-                              </Avatar>
-                              <div className="flex-1 min-w-0">
-                                <h4 className="text-sm font-semibold truncate group-hover:text-primary transition-colors">{char.name}</h4>
-                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                  <Heart className="h-2 w-2 fill-primary text-primary" /> {char.likesCount} Beğeni
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {quickAuthorResults.length > 0 && (
-                      <div className="mt-3">
-                        <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Yazarlar</p>
-                        <div className="mt-1 space-y-1">
-                          {quickAuthorResults.map((author) => (
-                            <button
-                              key={author.id}
-                              onClick={() => handleEntityResultClick(`/author/${author.id}`)}
-                              className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
-                            >
-                              <Avatar className="h-8 w-8">
-                                <AvatarImage src={resolveDisplayImageUrl(author.imageUrl)} />
-                                <AvatarFallback className="text-[10px]">{author.name[0]}</AvatarFallback>
-                              </Avatar>
-                              <div className="min-w-0 flex-1">
-                                <h4 className="truncate text-sm font-semibold transition-colors group-hover:text-primary">{author.name}</h4>
-                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                  <Book className="h-2.5 w-2.5 text-primary" />
-                                  <span>Yazar</span>
-                                  <span className="h-1 w-1 rounded-full bg-border" />
-                                  <Heart className="h-2 w-2 fill-primary text-primary" />
-                                  <span>{author.likesCount} beğeni</span>
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    {quickArtistResults.length > 0 && (
-                      <div className="mt-3">
-                        <p className="px-3 py-1 text-[10px] font-bold uppercase tracking-wider text-muted-foreground border-t border-border pt-2">Çizerler</p>
-                        <div className="mt-1 space-y-1">
-                          {quickArtistResults.map((artist) => (
-                            <button
-                              key={artist.id}
-                              onClick={() => handleEntityResultClick(`/artist/${artist.id}`)}
-                              className="flex w-full items-center gap-3 rounded-lg p-2 text-left transition-colors hover:bg-secondary/80 group"
-                            >
-                              <Avatar className="h-8 w-8">
-                                <AvatarImage src={resolveDisplayImageUrl(artist.imageUrl)} />
-                                <AvatarFallback className="text-[10px]">{artist.name[0]}</AvatarFallback>
-                              </Avatar>
-                              <div className="min-w-0 flex-1">
-                                <h4 className="truncate text-sm font-semibold transition-colors group-hover:text-primary">{artist.name}</h4>
-                                <div className="flex items-center gap-1 text-[10px] text-muted-foreground">
-                                  <Sparkles className="h-2.5 w-2.5 text-primary" />
-                                  <span>Çizer</span>
-                                  <span className="h-1 w-1 rounded-full bg-border" />
-                                  <Heart className="h-2 w-2 fill-primary text-primary" />
-                                  <span>{artist.likesCount} beğeni</span>
-                                </div>
-                              </div>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="mt-2 border-t border-border pt-1">
-                      <button
-                        onClick={handleSearch}
-                        className="flex w-full items-center justify-between px-3 py-2 text-xs font-medium text-muted-foreground hover:text-primary transition-colors"
-                      >
-                        <span>"{searchQuery}" için tüm sonuçlar</span>
-                        <Search className="h-3 w-3" />
-                      </button>
-                    </div>
-                  </div>
-                </div>
-              )}
-            </div>
-          </form>
+          <HeaderQuickSearch
+            isOnline={isOnline}
+            blurAdultArtworkEnabled={blurAdultArtworkEnabled}
+            navigationKey={`${location.pathname}${location.search}`}
+          />
         </div>
 
         {/* User Actions */}
@@ -1370,7 +1474,7 @@ const HeaderContent: React.FC = () => {
                           </p>
                           <div className="mt-1 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
                             <span className="shrink-0 font-medium uppercase tracking-wide">
-                              {manga.type || 'MANGA'}
+                              {getMangaTypeLabel(manga.type)}
                             </span>
                             {authorText && (
                               <>

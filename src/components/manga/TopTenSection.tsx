@@ -7,6 +7,7 @@ import { cn } from '@/lib/utils';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import ProxyImage from '@/components/media/ProxyImage';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 
 const TOP_TEN_CACHE: Record<'today' | 'week' | 'all', Manga[] | null> = {
   today: null,
@@ -337,7 +338,7 @@ const TopTenSection: React.FC = () => {
                             </h3>
                             <div className="flex items-center gap-3">
                               <span className="rounded bg-primary px-2 py-0.5 text-[9px] font-black uppercase text-primary-foreground shadow shadow-primary/30">
-                                {manga.type}
+                                {getMangaTypeLabel(manga.type)}
                               </span>
                               <div className="flex items-center gap-1 text-[11px] font-black text-white">
                                 <Star className="h-3 w-3 fill-primary text-primary" />

@@ -31,6 +31,7 @@ import {
     AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { getMangaSummaries, deleteManga } from '@/lib/database';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 import { Manga } from '@/lib/types';
 import { toast } from 'sonner';
 import { AppPagination } from '@/components/ui/AppPagination';
@@ -122,13 +123,17 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
     const getTypeBadge = (type: string) => {
         switch (type) {
             case 'manga':
-                return <Badge variant="outline" className="hover:bg-secondary/50">Manga</Badge>;
+                return <Badge variant="outline" className="hover:bg-secondary/50">{getMangaTypeLabel('manga')}</Badge>;
             case 'manhwa':
-                return <Badge variant="outline" className="border-orange-500 text-orange-500 hover:bg-orange-500/10">Manhwa</Badge>;
+                return <Badge variant="outline" className="border-orange-500 text-orange-500 hover:bg-orange-500/10">{getMangaTypeLabel('manhwa')}</Badge>;
             case 'manhua':
-                return <Badge variant="outline" className="border-green-500 text-green-500 hover:bg-green-500/10">Manhua</Badge>;
+                return <Badge variant="outline" className="border-green-500 text-green-500 hover:bg-green-500/10">{getMangaTypeLabel('manhua')}</Badge>;
             case 'webtoon':
-                return <Badge variant="outline" className="border-sky-500 text-sky-400 hover:bg-sky-500/10">Webtoon</Badge>;
+                return <Badge variant="outline" className="border-sky-500 text-sky-400 hover:bg-sky-500/10">{getMangaTypeLabel('webtoon')}</Badge>;
+            case 'hentai':
+                return <Badge variant="outline" className="border-pink-500 text-pink-500 hover:bg-pink-500/10">{getMangaTypeLabel('hentai')}</Badge>;
+            case 'webtoon_hentai':
+                return <Badge variant="outline" className="border-rose-500 text-rose-500 hover:bg-rose-500/10">{getMangaTypeLabel('webtoon_hentai')}</Badge>;
             default:
                 return null;
         }
@@ -192,7 +197,7 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                     <DropdownMenuTrigger asChild>
                         <Button variant="outline" className="w-full justify-between sm:w-auto">
                             <Filter className="mr-2 h-4 w-4" />
-                            Tür: {typeFilter === 'all' ? 'Tümü' : typeFilter}
+                            Tür: {typeFilter === 'all' ? 'Tümü' : getMangaTypeLabel(typeFilter)}
                             <ChevronDown className="ml-2 h-4 w-4" />
                         </Button>
                     </DropdownMenuTrigger>
@@ -202,6 +207,8 @@ const AdminMangaList: React.FC<AdminMangaListProps> = ({ section = 'standard' })
                         <DropdownMenuItem onClick={() => setTypeFilter('manhwa')}>Manhwa</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setTypeFilter('manhua')}>Manhua</DropdownMenuItem>
                         <DropdownMenuItem onClick={() => setTypeFilter('webtoon')}>Webtoon</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTypeFilter('hentai')}>{getMangaTypeLabel('hentai')}</DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => setTypeFilter('webtoon_hentai')}>{getMangaTypeLabel('webtoon_hentai')}</DropdownMenuItem>
                     </DropdownMenuContent>
                 </DropdownMenu>
 

@@ -920,6 +920,8 @@ const TOP_TEN_IDS_CACHE_TTL_MS = 15 * 60_000;
 const STAFF_MANGA_ACCESS_ROLE_CACHE_TTL_MS = 5 * 60_000;
 // IDB kalÄ±cÄ± katalog Ã¶nbelleÄŸi: sayfa yenilense bile bu sÃ¼re iÃ§inde aÄŸa Ã§Ä±kmadan dÃ¶ner.
 const PERSISTED_CATALOG_CACHE_TTL_MS = 15 * 60_000;
+// IDB verisi bu sÃ¼reden eskiyse anÄ±nda dÃ¶ner ama arka planda sessizce gÃ¼ncel serileri eÅŸitler.
+const PERSISTED_CATALOG_SWR_FRESH_MS = 60_000;
 const PERSISTED_MANGA_SUMMARIES_KEY_PREFIX = 'manga-summaries-v2:';
 const PERSISTED_HOME_SECTIONS_KEY_PREFIX = 'home-sections-v2:';
 // Manga detayÄ± kÄ±sa sÃ¼reli bellek cache'i: MangaDetail -> Reader geÃ§iÅŸinde aynÄ± aÄŸÄ±r
@@ -928,6 +930,14 @@ const MANGA_DETAIL_CACHE_TTL_MS = 60_000;
 const mangaDetailCache = new Map<string, { fetchedAt: number; value: Manga }>();
 // SWR: bayat IDB verisi dÃ¶ndÃ¼rÃ¼lÃ¼rken arka plan yenilemesinin tekrar tetiklenmesini Ã¶nler.
 const persistedSummariesRefreshInFlight = new Set<MangaAudienceCacheKey>();
+const mangaSummariesUpdatedListeners = new Set<(summaries: Manga[]) => void>();
+
+export const subscribeMangaSummariesUpdated = (listener: (summaries: Manga[]) => void) => {
+    mangaSummariesUpdatedListeners.add(listener);
+    return () => {
+        mangaSummariesUpdatedListeners.delete(listener);
+    };
+};
 
 // Cache'ten dÃ¶nen nesnenin UI state'inde paylaÅŸÄ±lÄ±p mutasyona uÄŸramamasÄ± iÃ§in klonlanÄ±r.
 function cloneMangaForCache(manga: Manga): Manga {
@@ -1856,7 +1866,8 @@ export const getMangaSummaries = async (
         const persistedKey = getPersistedMangaSummariesKey(audienceCacheKey);
         const persisted = await readPersistedQueryCache<Manga[]>(persistedKey);
         if (persisted && Array.isArray(persisted.value) && persisted.value.length > 0) {
-            if (Date.now() - persisted.fetchedAt < PERSISTED_CATALOG_CACHE_TTL_MS) {
+            persistedSummaries = persisted.value;
+            if (Date.now() - persisted.fetchedAt < PERSISTED_CATALOG_SWR_FRESH_MS) {
                 mangaSummariesCache[audienceCacheKey] = {
                     fetchedAt: persisted.fetchedAt,
                     value: persisted.value,
@@ -1931,6 +1942,13 @@ export const getMangaSummaries = async (
                 value: summaries,
             };
             void writePersistedQueryCache(getPersistedMangaSummariesKey(audienceCacheKey), summaries);
+            for (const listener of mangaSummariesUpdatedListeners) {
+                try {
+                    listener(summaries);
+                } catch {
+                    // ignore subscriber errors
+                }
+            }
         }
 
         return summaries;
@@ -3880,6 +3898,16 @@ export const searchMangas = async (
     query: string,
     options?: { includePrivate?: boolean }
 ): Promise<Manga[]> => {
+    const sanitizedQuery = query
+        .trim()
+        .replace(/[,()]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (!sanitizedQuery) {
+        return [];
+    }
+
     const {
         includePrivate,
         includeAdult,
@@ -3891,17 +3919,14 @@ export const searchMangas = async (
         supabase
             .from('mangas')
             .select(getMangaListSelectColumns(visibilityColumnAvailable, adultColumnAvailable))
-            .or(`title.ilike.%${query}%,author.ilike.%${query}%`)
+            .or(`title.ilike.%${sanitizedQuery}%,author.ilike.%${sanitizedQuery}%`)
             .limit(100),
         { includePrivate, includeAdult, visibilityColumnAvailable, adultColumnAvailable },
     );
 
     if (error) return [];
     const rows = (data || []) as any[];
-    return rows.map(m => ({
-        ...m,
-        ...mapMangaBaseFields(m),
-    })) as Manga[];
+    return deduplicateMangasById(rows.map((m) => mapSummaryRowToManga(m)));
 };
 
 // ==================== USER OPERATIONS ====================

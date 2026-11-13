@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState, useEffect, useMemo, useDeferredValue } from 'react';
 import {
     Search,
     ArrowLeft,
@@ -22,9 +22,11 @@ import { cn } from '@/lib/utils';
 import { useAuth } from '@/contexts/AuthContext';
 import { addFavorite, removeFavorite, getFavorites } from '@/lib/storage';
 import { toast } from 'sonner';
-import { matchesMangaSearch } from '@/lib/searchMatching';
+import { rankTopMangaMatches } from '@/lib/searchMatching';
 import { getMangaTypeLabel } from '@/lib/mangaType';
 import { useAdultImageBlurPreference } from '@/hooks/useAdultImageBlurPreference';
+
+const SUPER_SEARCH_RESULT_LIMIT = 60;
 
 let mangaSummariesLoaderPromise: Promise<(() => Promise<Manga[]>)> | null = null;
 
@@ -40,6 +42,7 @@ const loadMangaSummaries = async () => {
 const SuperSearch: React.FC = () => {
     const [isOpen, setIsOpen] = useState(false);
     const [searchQuery, setSearchQuery] = useState('');
+    const deferredSearchQuery = useDeferredValue(searchQuery);
     const [allMangas, setAllMangas] = useState<Manga[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [activeGenre, setActiveGenre] = useState('Hepsi');
@@ -97,15 +100,18 @@ const SuperSearch: React.FC = () => {
     }, [allMangas]);
 
     const filteredMangas = useMemo(() => {
-        if (!searchQuery.trim()) return [];
+        const trimmed = deferredSearchQuery.trim();
+        if (!trimmed) return [];
 
-        return allMangas.filter(m => {
-            const matchesSearch = matchesMangaSearch(m, searchQuery);
-            const matchesGenre = activeGenre === 'Hepsi' || m.genres.includes(activeGenre);
+        const matched = rankTopMangaMatches(allMangas, trimmed);
+        if (activeGenre === 'Hepsi') {
+            return matched.slice(0, SUPER_SEARCH_RESULT_LIMIT);
+        }
 
-            return matchesSearch && matchesGenre;
-        });
-    }, [searchQuery, allMangas, activeGenre]);
+        return matched
+            .filter((manga) => manga.genres.includes(activeGenre))
+            .slice(0, SUPER_SEARCH_RESULT_LIMIT);
+    }, [deferredSearchQuery, allMangas, activeGenre]);
 
     const handleResultClick = (id: string) => {
         navigate(`/manga/${id}`);

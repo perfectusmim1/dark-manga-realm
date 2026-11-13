@@ -33,7 +33,7 @@ export const normalizeAdultMangaType = (
   return isWebtoonLike ? 'webtoon_hentai' : 'hentai';
 };
 
-export const getMangaTypeLabel = (type?: Manga['type'] | null) => {
+export const getMangaTypeLabel = (type?: Manga['type'] | string | null) => {
   switch (type) {
     case 'manhwa':
       return 'Manhwa';
@@ -42,10 +42,18 @@ export const getMangaTypeLabel = (type?: Manga['type'] | null) => {
     case 'webtoon':
       return 'Webtoon';
     case 'hentai':
+      return 'Hentai';
     case 'webtoon_hentai':
-      return 'Yetişkin';
+      return 'Webtoon Hentai';
     case 'manga':
-    default:
+    case undefined:
+    case null:
+    case '':
       return 'Manga';
+    default:
+      return String(type)
+        .replace(/[_-]+/g, ' ')
+        .trim()
+        .replace(/\b\w/g, (char) => char.toUpperCase()) || 'Manga';
   }
 };
