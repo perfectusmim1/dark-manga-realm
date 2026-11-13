@@ -86,8 +86,7 @@ const LatestChapters: React.FC = () => {
     const [searchParams, setSearchParams] = useSearchParams();
     const pageParam = parseInt(searchParams.get('page') || '1', 10);
     const currentPage = isNaN(pageParam) || pageParam < 1 ? 1 : pageParam;
-    const isStaff = user?.role === 'admin' || user?.role === 'moderator';
-    const audienceKey = isStaff || user?.preferences?.content?.adult_mode === true ? 'adult' : 'safe';
+    const audienceKey = user?.preferences?.content?.adult_mode === true ? 'adult' : 'safe';
     const initialCacheKey = `${audienceKey}:${currentPage}`;
     const initialCached = latestChaptersPageCache.get(initialCacheKey);
     const hasFreshInitialCache = Boolean(

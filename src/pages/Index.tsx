@@ -901,11 +901,7 @@ const Index: React.FC = () => {
   const { disableHeavyEffects, isCoarsePointer } = useDeviceProfile();
   const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
   const adultModeEnabled = Boolean(user?.id) && user?.preferences?.content?.adult_mode === true;
-  const canSeeAdultContent = Boolean(user?.id) && (
-    user?.role === 'admin'
-      || user?.role === 'moderator'
-      || user?.preferences?.content?.adult_mode === true
-  );
+  const canSeeAdultContent = adultModeEnabled;
   const homeAudienceKey = canSeeAdultContent ? 'adult' : 'safe';
   const [homeSections, setHomeSections] = useState<HomePageMangaSections>(() => (
     readHomeFeedSeed().sections?.value ?? EMPTY_HOME_PAGE_SECTIONS

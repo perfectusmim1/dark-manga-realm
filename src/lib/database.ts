@@ -1396,9 +1396,8 @@ const resolveMangaVisibilityAccess = async (includePrivateOverride?: boolean) =>
         getMangaAdultColumnAvailability(),
         getCurrentViewerAccessProfile(),
     ]);
-    const isStaff = accessProfile.role === 'admin' || accessProfile.role === 'moderator';
     const includePrivate = includePrivateOverride === true;
-    const includeAdult = includePrivate || isStaff || accessProfile.adultModeEnabled;
+    const includeAdult = includePrivate || accessProfile.adultModeEnabled;
 
     return {
         includePrivate,

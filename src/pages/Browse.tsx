@@ -103,11 +103,7 @@ const Browse: React.FC = () => {
   const { isOnline } = useEffectiveOnlineStatus();
   const [searchParams, setSearchParams] = useSearchParams();
   const isAuthenticatedViewer = Boolean(user?.id);
-  const canSeeAdultContent = isAuthenticatedViewer && (
-    user?.role === 'admin'
-      || user?.role === 'moderator'
-      || user?.preferences?.content?.adult_mode === true
-  );
+  const canSeeAdultContent = isAuthenticatedViewer && user?.preferences?.content?.adult_mode === true;
   const browseAudienceKey: BrowseAudienceCacheKey = canSeeAdultContent ? 'adult' : 'safe';
   const [showFilters, setShowFilters] = useState(false);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(
