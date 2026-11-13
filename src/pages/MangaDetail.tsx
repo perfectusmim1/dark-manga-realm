@@ -2941,17 +2941,17 @@ const MangaDetail: React.FC = () => {
                         <Badge
                           variant="outline"
                           className={cn(
-                            'h-5 shrink-0 px-1.5 py-0 text-[10px] font-black transition-all hover:scale-105',
+                            'inline-flex h-5 shrink-0 items-center justify-center px-1.5 py-0 text-[10px] font-black',
                             langInfo.badgeClass,
                             variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                           )}
                         >
-                          <LanguageFlag code={langInfo.language} label={langInfo.label} className="h-3.5 w-5" />
+                          <LanguageFlag code={langInfo.language} label={langInfo.label} />
                         </Badge>
                       ) : (
                         <span
                           className={cn(
-                            'inline-flex shrink-0 items-center transition-transform hover:scale-105',
+                            'inline-flex shrink-0 items-center',
                             variants.length > 1 && !isActiveVariant && 'opacity-75 hover:opacity-100',
                           )}
                         >

@@ -290,7 +290,7 @@ const LatestChapters: React.FC = () => {
                                                     const chTitle = (chapter.chapterTitle || '').toLowerCase();
                                                     if (chTitle.includes('[raw]') || chTitle.includes('(raw)')) {
                                                         return (
-                                                            <Badge variant="outline" className="text-[10px] font-black uppercase px-1.5 py-0.5 border-purple-500/40 bg-purple-500/15 text-purple-400">
+                                                            <Badge variant="outline" className="inline-flex h-5 items-center justify-center text-[10px] font-black uppercase px-1.5 py-0 border-purple-500/40 bg-purple-500/15 text-purple-400">
                                                                 RAW
                                                             </Badge>
                                                         );
@@ -309,9 +309,9 @@ const LatestChapters: React.FC = () => {
                                                         return (
                                                             <Badge
                                                                 variant="outline"
-                                                                className={cn('px-1.5 py-0.5 text-[10px] font-black uppercase', lang.badgeClassName)}
+                                                                className={cn('inline-flex h-5 items-center justify-center px-1.5 py-0 text-[10px] font-black uppercase', lang.badgeClassName)}
                                                             >
-                                                                <LanguageFlag code={lang.language} label={lang.label} className="h-3.5 w-5" />
+                                                                <LanguageFlag code={lang.language} label={lang.label} />
                                                             </Badge>
                                                         );
                                                     }

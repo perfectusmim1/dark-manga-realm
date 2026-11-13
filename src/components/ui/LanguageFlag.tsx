@@ -17,7 +17,7 @@ export const LanguageFlag: React.FC<LanguageFlagProps> = ({
 
   if (lang === 'raw') {
     return (
-      <span className={cn('text-[9px] font-black uppercase tracking-wider leading-none', className)}>
+      <span className="inline-flex items-center justify-center text-[9px] font-black uppercase tracking-wider leading-none">
         RAW
       </span>
     );
