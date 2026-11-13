@@ -2032,6 +2032,7 @@ class SmartCatalogStore {
     this.chapterAutomationRuns = [];
     this.existingAutomationsByMangaId = new Map();
     this.deletedAutomationMangaIds = new Set(initialState.deletedAutomationMangaIds || []);
+    this.pendingSupabaseSyncIds = new Set(initialState.pendingSupabaseSyncIds || []);
 
     this.titleKeyIndex = new Map();
     this.slugIndex = new Map();
@@ -2093,12 +2094,18 @@ class SmartCatalogStore {
         m.banner = m.cover || '';
       }
 
-      const key = normalizeTitleKey(m.title);
-      if (key) this.titleKeyIndex.set(key, id);
+      const addTitleKey = (rawTitle) => {
+        const k = normalizeTitleKey(rawTitle);
+        if (!k) return;
+        if (!this.titleKeyIndex.has(k)) {
+          this.titleKeyIndex.set(k, new Set());
+        }
+        this.titleKeyIndex.get(k).add(id);
+      };
+      addTitleKey(m.title);
       if (m.slug) this.slugIndex.set(m.slug, id);
       for (const alt of m.alternativeTitles || []) {
-        const altKey = normalizeTitleKey(alt);
-        if (altKey) this.titleKeyIndex.set(altKey, id);
+        addTitleKey(alt);
       }
       const anilistLink = (m.sourceLinks || []).find((l) => l?.source === 'anilist');
       const anilistId = m.anilistId || anilistLink?.externalId || anilistLink?.url?.match(/\/manga\/(\d+)/)?.[1];
@@ -2316,7 +2323,7 @@ class SmartCatalogStore {
 
   getLockedPrimarySource(manga) {
     if (!manga) return null;
-    const activeScraperSources = ['webtoonhatti', 'okutoon', 'siyahmelek', 'hattorimanga'];
+    const activeScraperSources = ['webtoonhatti', 'okutoon', 'siyahmelek', 'hattorimanga', 'mangadass'];
     if (
       manga.details?.primarySource &&
       manga.details?.primarySourceUrl &&
@@ -2342,19 +2349,21 @@ class SmartCatalogStore {
     const allTitles = [title, ...(alternativeTitles || [])];
     for (const t of allTitles) {
       const key = normalizeTitleKey(t);
-      if (key && this.titleKeyIndex.has(key)) {
-        const candidateId = this.titleKeyIndex.get(key);
-        const candidate = this.mangas.get(candidateId);
-        if (candidate) {
-          const isCandidateRaw = (candidate.title || '').toLowerCase().includes('(raw)') ||
-                                 (candidate.title || '').toLowerCase().includes(' raw') ||
-                                 (candidate.details?.language === 'raw');
-          // Raw seriler ile çevrilmiş seriler birbirine merge edilmez, ayrı tutulur
-          if (isTargetRaw !== isCandidateRaw) {
-            continue;
+      const candidateIds = key ? this.titleKeyIndex.get(key) : null;
+      if (candidateIds && candidateIds.size > 0) {
+        for (const candidateId of candidateIds) {
+          const candidate = this.mangas.get(candidateId);
+          if (candidate) {
+            const isCandidateRaw = (candidate.title || '').toLowerCase().includes('(raw)') ||
+                                   (candidate.title || '').toLowerCase().includes(' raw') ||
+                                   (candidate.details?.language === 'raw');
+            // Raw seriler ile çevrilmiş seriler birbirine merge edilmez, ayrı tutulur
+            if (isTargetRaw !== isCandidateRaw) {
+              continue;
+            }
           }
+          return candidateId;
         }
-        return candidateId;
       }
     }
     return null;
@@ -3390,6 +3399,7 @@ class SmartCatalogStore {
       mangaAuthors: this.mangaAuthors,
       mangaArtists: this.mangaArtists,
       mangaTags: this.mangaTags,
+      pendingSupabaseSyncIds: Array.from(this.pendingSupabaseSyncIds || []),
     };
   }
 }
@@ -3582,12 +3592,39 @@ const ensureStaticR2Covers = async (store, touchedSlugs = new Set(), touchedMang
 const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set(), touchedMangaIds = new Set()) => {
   if (IS_DRY_RUN) {
     logInfo('[DryRun] R2 ve Supabase senkronizasyonu atlandı.');
-    return;
+    return true;
+  }
+
+  for (const pendingId of store.pendingSupabaseSyncIds || []) {
+    touchedMangaIds.add(pendingId);
   }
 
   await ensureStaticR2Covers(store, touchedSlugs, touchedMangaIds);
   const tablesPayload = store.toTablesPayload();
   const snapshotPayload = store.toSnapshotPayload();
+
+  const saveR2AutomationState = async () => {
+    if (!CATALOG_WORKER_URL || !CATALOG_ADMIN_TOKEN) return;
+    try {
+      await fetch(`${CATALOG_WORKER_URL}/v1/admin/catalog/automation-state`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
+        },
+        body: JSON.stringify({
+          version: 2,
+          updatedAt: new Date().toISOString(),
+          seriesQueue,
+          deletedAutomationMangaIds: store.deletedAutomationMangaIds ? Array.from(store.deletedAutomationMangaIds) : [],
+          pendingSupabaseSyncIds: store.pendingSupabaseSyncIds ? Array.from(store.pendingSupabaseSyncIds) : [],
+        }),
+        signal: AbortSignal.timeout(25000),
+      });
+    } catch (err) {
+      logWarn(`R2 automation-state kayıt uyarısı: ${err.message}`);
+    }
+  };
 
   // 1. Sync to Cloudflare R2 Catalog Worker (using ?raw=1 zero-CPU streaming)
   if (CATALOG_WORKER_URL && CATALOG_ADMIN_TOKEN) {
@@ -3690,31 +3727,15 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
     }
 
     // Save persistent automation-state.json in R2
-    try {
-      await fetch(`${CATALOG_WORKER_URL}/v1/admin/catalog/automation-state`, {
-        method: 'PUT',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Catalog-Admin-Token': CATALOG_ADMIN_TOKEN,
-        },
-        body: JSON.stringify({
-          version: 2,
-          updatedAt: new Date().toISOString(),
-          seriesQueue,
-          deletedAutomationMangaIds: store.deletedAutomationMangaIds ? Array.from(store.deletedAutomationMangaIds) : [],
-        }),
-        signal: AbortSignal.timeout(25000),
-      });
-    } catch (err) {
-      logWarn(`R2 automation-state kayıt uyarısı: ${err.message}`);
-    }
+    await saveR2AutomationState();
   }
 
   // 2. Mirror to Supabase PostgreSQL via chunked sync_r2_catalog_to_supabase RPC
+  let primarySupabaseSyncOk = true;
   if (!SKIP_SUPABASE_SYNC && SUPABASE_URL && SUPABASE_ANON_KEY && CATALOG_ADMIN_TOKEN) {
     logInfo('Supabase PostgreSQL ikiz katalog senkronizasyonu başlatılıyor...');
     const callSupabaseRpc = async (payloadChunk) => {
-      for (let attempt = 1; attempt <= 3; attempt++) {
+      for (let attempt = 1; attempt <= 5; attempt++) {
         try {
           const res = await fetch(`${SUPABASE_URL}/rest/v1/rpc/sync_r2_catalog_to_supabase`, {
             method: 'POST',
@@ -3735,8 +3756,8 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
           }
           return await res.json();
         } catch (err) {
-          if (attempt === 3) throw err;
-          await sleep(1500 * attempt);
+          if (attempt === 5) throw err;
+          await sleep(1500 * attempt + Math.floor(Math.random() * 1200));
         }
       }
     };
@@ -3800,6 +3821,7 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
         await syncTableInChunks('mangas', criticalMangasToSync, 100);
         logInfo(`Supabase kritik seri indeksleri senkronize edildi: ${criticalMangasToSync.length} manga.`);
       } catch (err) {
+        primarySupabaseSyncOk = false;
         logError(`Supabase manga senkronizasyon hatası: ${err.message}`);
       }
     }
@@ -3816,9 +3838,25 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
         }
         logInfo(`✅ Supabase BÖLÜM İNDEKSLERİ SENKRONİZE EDİLDİ: ${syncedChaptersTotal} yeni/güncel bölüm yayında!`);
       } catch (err) {
+        primarySupabaseSyncOk = false;
         logError(`Supabase bölüm senkronizasyon hatası: ${err.message}`);
       }
     }
+
+    if (primarySupabaseSyncOk) {
+      for (const m of criticalMangasToSync) {
+        store.pendingSupabaseSyncIds?.delete(m.id);
+      }
+      for (const id of touchedMangaIds) {
+        store.pendingSupabaseSyncIds?.delete(id);
+      }
+    } else {
+      for (const id of touchedMangaIds) {
+        store.pendingSupabaseSyncIds?.add(id);
+      }
+      logWarn(`[Supabase Recovery] ${store.pendingSupabaseSyncIds.size} seri sonraki senkronizasyon için pendingSupabaseSyncIds kuyruğuna alındı.`);
+    }
+    await saveR2AutomationState();
 
     // 1.C: Manga bölüm istatistiklerini (chapter_count & latest_chapters) anında tazele
     if (chaptersToSync.length > 0 || criticalMangasToSync.length > 0) {
@@ -3904,6 +3942,7 @@ const syncAllToR2AndSupabase = async (store, seriesQueue, touchedSlugs = new Set
       logWarn(`Supabase yan taksonomi senkronizasyon uyarısı: ${metaErr.message}`);
     }
   }
+  return primarySupabaseSyncOk;
 };
 
 // ============================================================================
@@ -3946,6 +3985,17 @@ const main = async () => {
         }
         if (Array.isArray(autoStateJson?.deletedAutomationMangaIds)) {
           store.deletedAutomationMangaIds = new Set(autoStateJson.deletedAutomationMangaIds);
+        }
+        if (Array.isArray(autoStateJson?.pendingSupabaseSyncIds)) {
+          for (const pendingId of autoStateJson.pendingSupabaseSyncIds) {
+            if (pendingId && store.mangas.has(pendingId)) {
+              store.pendingSupabaseSyncIds.add(pendingId);
+              touchedMangaIds.add(pendingId);
+            }
+          }
+          if (store.pendingSupabaseSyncIds.size > 0) {
+            logInfo(`[Supabase Recovery] Önceki çalışmadan kalan ${store.pendingSupabaseSyncIds.size} seri yeniden senkronizasyon kuyruğuna alındı.`);
+          }
         }
       }
 
@@ -4563,9 +4613,11 @@ const main = async () => {
         if (processedCount % 30 === 0 && touchedMangaIds.size > 0 && !SKIP_SUPABASE_SYNC) {
           try {
             logInfo(`[Checkpoint] ${processedCount}/${batchToProcess.length} seri tamamlandı, R2 ve Supabase ara kaydı yapılıyor...`);
-            await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds);
-            touchedMangaIds.clear();
-            touchedSlugs.clear();
+            const syncOk = await syncAllToR2AndSupabase(store, seriesQueue, touchedSlugs, touchedMangaIds);
+            if (syncOk) {
+              touchedMangaIds.clear();
+              touchedSlugs.clear();
+            }
           } catch (cpErr) {
             logWarn(`[Checkpoint] Ara kayıt sırasında hata (işlem devam ediyor): ${cpErr.message}`);
           }
