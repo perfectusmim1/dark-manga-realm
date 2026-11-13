@@ -10,6 +10,7 @@ import {
   EyeOff,
   Hash,
   Heart,
+  Image as ImageIcon,
   Loader2,
   Lock,
   MessageSquare,
@@ -32,6 +33,7 @@ import {
   toggleForumTopicLike,
 } from '@/lib/forum';
 import { getStaffTextClassName } from '@/lib/staffRoles';
+import { stripForumMediaForPreview } from '@/lib/forumMedia';
 import { cn } from '@/lib/utils';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
@@ -716,9 +718,24 @@ const ForumTab: React.FC = () => {
                         <span>Spoiler içerikli konu — görüntülemek için aç</span>
                       </Link>
                     ) : (
-                      <p className="text-sm text-muted-foreground line-clamp-2 break-words">
-                        {topic.content}
-                      </p>
+                      (() => {
+                        const preview = stripForumMediaForPreview(topic.content);
+                        return (
+                          <div className="space-y-1">
+                            {preview.text && (
+                              <p className="text-sm text-muted-foreground line-clamp-2 break-words">
+                                {preview.text}
+                              </p>
+                            )}
+                            {preview.mediaCount > 0 && (
+                              <span className="inline-flex items-center gap-1 text-xs text-muted-foreground/85">
+                                <ImageIcon className="h-3.5 w-3.5 shrink-0" />
+                                <span>{preview.mediaCount} görsel</span>
+                              </span>
+                            )}
+                          </div>
+                        );
+                      })()
                     )}
                   </div>
 

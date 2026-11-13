@@ -1658,28 +1658,47 @@ export const getCompletedChapterCountsByUser = async (): Promise<Record<string, 
         if (!error) {
             chapterReadPublicFeatureState = 'available';
             const leaderboardMap: Record<string, number> = {};
-            ((data as any) || []).forEach((row: any) => {
+            ((data || []) as Array<{ user_id?: string | null; read_count?: number | string | null }>).forEach((row) => {
+                if (!row?.user_id) {
+                    return;
+                }
                 leaderboardMap[row.user_id] = Number(row.read_count || 0);
             });
-            return leaderboardMap;
+            if (Object.keys(leaderboardMap).length > 0) {
+                return leaderboardMap;
+            }
+        } else {
+            handleChapterReadPublicFeatureError(error);
         }
-
-        handleChapterReadPublicFeatureError(error);
     }
 
-    const { data } = await supabase.from('reading_activity_log').select('user_id, chapter_id');
+    const [{ data: activityRows }, { data: progressRows }] = await Promise.all([
+        supabase.from('reading_activity_log').select('user_id, manga_id, chapter_id, chapter_number'),
+        supabase.from('reading_progress').select('user_id, manga_id, chapter_id, chapter_number'),
+    ]);
     const seenPairs = new Set<string>();
+    const counts: Record<string, number> = {};
 
-    return (data || []).reduce<Record<string, number>>((counts, row: any) => {
-        const pairKey = `${row.user_id}:${row.chapter_id}`;
+    for (const row of [...(activityRows || []), ...(progressRows || [])] as Array<{
+        user_id?: string | null;
+        manga_id?: string | null;
+        chapter_id?: string | null;
+        chapter_number?: number | null;
+    }>) {
+        if (!row?.user_id) {
+            continue;
+        }
+        const chapterKey = row.chapter_id?.trim() || `${row.manga_id || ''}:${row.chapter_number ?? 0}`;
+        const pairKey = `${row.user_id}:${chapterKey}`;
         if (seenPairs.has(pairKey)) {
-            return counts;
+            continue;
         }
 
         seenPairs.add(pairKey);
         counts[row.user_id] = (counts[row.user_id] || 0) + 1;
-        return counts;
-    }, {});
+    }
+
+    return counts;
 };
 
 export const updateReadingProgress = async (userId: string, progress: Omit<ReadingProgress, 'lastRead' | 'userId'>): Promise<void> => {

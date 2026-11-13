@@ -11,8 +11,14 @@ import {
   updateForumTopic,
 } from '@/lib/forum';
 import { getMangaChapters, searchMangas } from '@/lib/database';
+import {
+  mergeForumTextAndMedia,
+  splitForumTextAndMedia,
+  validateForumMediaUrls,
+} from '@/lib/forumMedia';
 import type { Chapter, Manga } from '@/lib/types';
 import OptimizedImage from '@/components/media/OptimizedImage';
+import ForumMediaAttachmentField from '@/components/community/ForumMediaAttachmentField';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -63,6 +69,7 @@ const ForumTopicComposerModal: React.FC<ForumTopicComposerModalProps> = ({
   const [category, setCategory] = useState<ForumCategoryId>(defaultCategory);
   const [title, setTitle] = useState('');
   const [content, setContent] = useState('');
+  const [mediaUrls, setMediaUrls] = useState<string[]>([]);
   const [isSpoiler, setIsSpoiler] = useState(false);
 
   const [selectedManga, setSelectedManga] = useState<LinkedMangaSummary | null>(null);
@@ -81,9 +88,11 @@ const ForumTopicComposerModal: React.FC<ForumTopicComposerModalProps> = ({
     }
 
     if (editTopic) {
+      const parsed = splitForumTextAndMedia(editTopic.content);
       setCategory(editTopic.category);
       setTitle(editTopic.title);
-      setContent(editTopic.content);
+      setContent(parsed.body);
+      setMediaUrls(parsed.mediaUrls);
       setIsSpoiler(editTopic.isSpoiler);
       setSelectedManga(
         editTopic.mangaId && editTopic.mangaTitle
@@ -99,6 +108,7 @@ const ForumTopicComposerModal: React.FC<ForumTopicComposerModalProps> = ({
       setCategory(defaultCategory);
       setTitle('');
       setContent('');
+      setMediaUrls([]);
       setIsSpoiler(false);
       setSelectedManga(null);
       setSelectedChapterId('');
@@ -209,15 +219,20 @@ const ForumTopicComposerModal: React.FC<ForumTopicComposerModalProps> = ({
     }
 
     const trimmedTitle = title.trim();
-    const trimmedContent = content.trim();
+    if (!validateForumMediaUrls(mediaUrls)) {
+      toast.error('Lütfen geçerli görsel veya GIF bağlantıları (http:// veya https://) girin.');
+      return;
+    }
+
+    const trimmedContent = mergeForumTextAndMedia(content, mediaUrls);
 
     if (trimmedTitle.length < 3 || trimmedTitle.length > 160) {
       toast.error('Konu başlığı 3 ile 160 karakter arasında olmalıdır.');
       return;
     }
 
-    if (trimmedContent.length < 1 || content.length > 20000) {
-      toast.error('Konu içeriği boş bırakılamaz ve en fazla 20.000 karakter olabilir.');
+    if (trimmedContent.length < 1 || trimmedContent.length > 20000) {
+      toast.error('Konu içeriği veya görseli boş bırakılamaz ve toplam uzunluk en fazla 20.000 karakter olabilir.');
       return;
     }
 
@@ -336,6 +351,11 @@ const ForumTopicComposerModal: React.FC<ForumTopicComposerModalProps> = ({
               maxLength={20000}
               rows={6}
               placeholder="Düşüncelerinizi paylaşın... (@kullanici ile birinden bahsedebilirsiniz)"
+            />
+            <ForumMediaAttachmentField
+              mediaUrls={mediaUrls}
+              onChange={setMediaUrls}
+              disabled={isSubmitting}
             />
           </div>
 

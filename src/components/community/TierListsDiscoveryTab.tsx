@@ -320,7 +320,9 @@ const TierListsDiscoveryTab: React.FC = () => {
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
           {items.map((item) => {
-            const visiblePreviewTiers = item.previewTiers.slice(0, 3);
+            const visiblePreviewTiers = item.previewTiers
+              .filter((tierRow) => tierRow.items && tierRow.items.length > 0)
+              .slice(0, 3);
             const dateLabel = formatRelativeDate(item.createdAt);
 
             return (
@@ -333,58 +335,46 @@ const TierListsDiscoveryTab: React.FC = () => {
                   <div className="rounded-lg border border-border/50 bg-background/60 overflow-hidden divide-y divide-border/50">
                     {visiblePreviewTiers.length === 0 ? (
                       <div className="h-[92px] flex items-center justify-center text-xs text-muted-foreground">
-                        Sıralama önizlemesi yok
+                        Görsel önizleme bulunmuyor
                       </div>
                     ) : (
-                      visiblePreviewTiers.map((tierRow) => {
-                        const overflowCount = Math.max(
-                          0,
-                          tierRow.totalCount - tierRow.items.length,
-                        );
-                        return (
-                          <div key={tierRow.tier} className="flex items-stretch min-h-[34px]">
-                            <div
-                              className={cn(
-                                'w-10 shrink-0 flex items-center justify-center px-1 text-[11px] font-bold truncate',
-                                TIER_BADGE_CLASSES[tierRow.tier],
-                              )}
-                              title={tierRow.label}
-                            >
-                              <span className="truncate">{tierRow.label || tierRow.tier}</span>
-                            </div>
-                            <div className="flex-1 flex items-center gap-1 px-1.5 py-1 overflow-hidden">
-                              {tierRow.items.slice(0, 5).map((entry) => (
-                                <div
-                                  key={entry.id}
-                                  className="h-6 w-5 rounded-[3px] overflow-hidden shrink-0 bg-muted border border-border/40"
-                                >
-                                  {entry.image ? (
-                                    <OptimizedImage
-                                      src={entry.image}
-                                      alt={entry.name}
-                                      transform={{ width: 64, quality: 75 }}
-                                      containerClassName="h-full w-full"
-                                      className="h-full w-full object-cover"
-                                    />
-                                  ) : (
-                                    <div className="h-full w-full flex items-center justify-center text-[9px] font-medium text-muted-foreground">
-                                      {entry.name.slice(0, 1).toUpperCase()}
-                                    </div>
-                                  )}
-                                </div>
-                              ))}
-                              {overflowCount > 0 && (
-                                <span className="text-[10px] font-medium text-muted-foreground pl-0.5 tabular-nums shrink-0">
-                                  +{overflowCount}
-                                </span>
-                              )}
-                              {tierRow.items.length === 0 && (
-                                <span className="text-[11px] text-muted-foreground/40 px-1">—</span>
-                              )}
-                            </div>
+                      visiblePreviewTiers.map((tierRow) => (
+                        <div key={tierRow.tier} className="flex items-stretch min-h-[44px]">
+                          <div
+                            className={cn(
+                              'w-10 shrink-0 flex items-center justify-center px-1 text-[11px] font-bold truncate',
+                              TIER_BADGE_CLASSES[tierRow.tier],
+                            )}
+                            title={tierRow.label}
+                          >
+                            <span className="truncate">{tierRow.label || tierRow.tier}</span>
                           </div>
-                        );
-                      })
+                          <div className="flex-1 flex items-center gap-1.5 px-2 py-1 overflow-hidden">
+                            {tierRow.items.slice(0, 12).map((entry) => (
+                              <div
+                                key={entry.id}
+                                className="h-9 w-7 sm:h-10 sm:w-8 rounded-[4px] overflow-hidden shrink-0 bg-muted border border-border/40"
+                                title={entry.name}
+                              >
+                                {entry.image ? (
+                                  <OptimizedImage
+                                    src={entry.image}
+                                    alt={entry.name}
+                                    allowProxy
+                                    transform={{ width: 80, quality: 75 }}
+                                    containerClassName="h-full w-full"
+                                    className="h-full w-full object-cover"
+                                  />
+                                ) : (
+                                  <div className="h-full w-full flex items-center justify-center text-[10px] font-medium text-muted-foreground">
+                                    {entry.name.slice(0, 1).toUpperCase()}
+                                  </div>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      ))
                     )}
                   </div>
 

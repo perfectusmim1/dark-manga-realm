@@ -21,6 +21,7 @@ import {
     Link2,
     Pin,
     Flag,
+    UserX,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
@@ -31,6 +32,7 @@ import {
     DropdownMenu,
     DropdownMenuContent,
     DropdownMenuItem,
+    DropdownMenuSeparator,
     DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import {
@@ -64,7 +66,7 @@ import {
     createCommentReport,
 } from '@/lib/database';
 import { commentHasRenderableContent, isValidCommentMediaUrls, stripCommentFormatting } from '@/lib/commentContent';
-import { getBlockedUserIds } from '@/lib/profile';
+import { blockUser, getBlockedUserIds } from '@/lib/profile';
 import { createCommentNotification } from '@/lib/storage';
 import {
     getLocationWithoutTargetComment,
@@ -1147,6 +1149,34 @@ const CommentSection: React.FC<CommentSectionProps> = ({
         setReportDetails('');
     };
 
+    const handleBlockCommentAuthor = async (targetUserId: string, targetUsername?: string) => {
+        if (!user) {
+            toast.error('Kullanıcı engellemek için giriş yapmalısınız');
+            return;
+        }
+
+        if (!isOnline) {
+            showInternetRequiredToast('Kullanıcı engellemek için internete bağlanın');
+            return;
+        }
+
+        if (targetUserId === user.id) {
+            return;
+        }
+
+        try {
+            const { error } = await blockUser(user.id, targetUserId);
+            if (error && (error as { code?: string })?.code !== '23505') {
+                throw error;
+            }
+            setRelationshipBlockedUserIds((prev) => Array.from(new Set([...prev, targetUserId])));
+            toast.success(`${targetUsername || 'Kullanıcı'} engellendi.`);
+        } catch (error) {
+            console.error('Comment block user error:', error);
+            toast.error('Kullanıcı engellenemedi.');
+        }
+    };
+
     const handleSubmitCommentReport = async () => {
         if (!user || !reportingComment) {
             toast.error('Bildirim için önce giriş yapmalısınız');
@@ -1999,33 +2029,53 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                             </span>
                                         </div>
 
-                                        {(user?.id === reply.userId || canModerateComments) && (
+                                        {user && (user.id === reply.userId || canModerateComments || user.id !== reply.userId) && (
                                             <DropdownMenu>
                                                 <DropdownMenuTrigger asChild>
-                                                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0">
+                                                    <Button variant="ghost" size="icon" className="h-7 w-7 shrink-0" aria-label="Yanıt seçenekleri">
                                                         <MoreVertical className="h-4 w-4" />
                                                     </Button>
                                                 </DropdownMenuTrigger>
-                                                <DropdownMenuContent align="end">
+                                                <DropdownMenuContent align="end" className="w-44">
                                                     {canModerateComments && (
                                                         <DropdownMenuItem onClick={() => handleTogglePin(reply)}>
                                                             <Pin className="mr-2 h-4 w-4" />
                                                             {reply.isPinned ? 'Sabitlemeyi Kaldır' : 'Sabitle'}
                                                         </DropdownMenuItem>
                                                     )}
-                                                    {canEditComment(reply) && (
-                                                        <DropdownMenuItem onClick={() => startEdit(reply)}>
-                                                            <Edit2 className="mr-2 h-4 w-4" />
-                                                            Düzenle
-                                                        </DropdownMenuItem>
+                                                    {(user.id === reply.userId || canModerateComments) && (
+                                                        <>
+                                                            {canEditComment(reply) && (
+                                                                <DropdownMenuItem onClick={() => startEdit(reply)}>
+                                                                    <Edit2 className="mr-2 h-4 w-4" />
+                                                                    Düzenle
+                                                                </DropdownMenuItem>
+                                                            )}
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleDeleteComment(reply.id)}
+                                                                className="text-destructive focus:text-destructive"
+                                                            >
+                                                                <Trash2 className="mr-2 h-4 w-4" />
+                                                                Sil
+                                                            </DropdownMenuItem>
+                                                        </>
                                                     )}
-                                                    <DropdownMenuItem
-                                                        onClick={() => handleDeleteComment(reply.id)}
-                                                        className="text-destructive"
-                                                    >
-                                                        <Trash2 className="mr-2 h-4 w-4" />
-                                                        Sil
-                                                    </DropdownMenuItem>
+                                                    {user.id !== reply.userId && (
+                                                        <>
+                                                            {(user.id === reply.userId || canModerateComments) && <DropdownMenuSeparator />}
+                                                            <DropdownMenuItem onClick={() => openCommentReport(reply)}>
+                                                                <Flag className="mr-2 h-4 w-4" />
+                                                                Şikâyet
+                                                            </DropdownMenuItem>
+                                                            <DropdownMenuItem
+                                                                onClick={() => handleBlockCommentAuthor(reply.userId, reply.username)}
+                                                                className="text-rose-500 focus:bg-rose-500/10 focus:text-rose-400"
+                                                            >
+                                                                <UserX className="mr-2 h-4 w-4" />
+                                                                Engelle
+                                                            </DropdownMenuItem>
+                                                        </>
+                                                    )}
                                                 </DropdownMenuContent>
                                             </DropdownMenu>
                                         )}
@@ -2495,33 +2545,53 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                         </span>
                                                     </div>
 
-                                                    {(user?.id === comment.userId || canModerateComments) && (
+                                                    {user && (user.id === comment.userId || canModerateComments || user.id !== comment.userId) && (
                                                         <DropdownMenu>
                                                             <DropdownMenuTrigger asChild>
-                                                                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0">
+                                                                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" aria-label="Yorum seçenekleri">
                                                                     <MoreVertical className="h-4 w-4" />
                                                                 </Button>
                                                             </DropdownMenuTrigger>
-                                                            <DropdownMenuContent align="end">
+                                                            <DropdownMenuContent align="end" className="w-44">
                                                                 {canModerateComments && (
                                                                     <DropdownMenuItem onClick={() => handleTogglePin(comment)}>
                                                                         <Pin className="mr-2 h-4 w-4" />
                                                                         {comment.isPinned ? 'Sabitlemeyi Kaldır' : 'Sabitle'}
                                                                     </DropdownMenuItem>
                                                                 )}
-                                                                {canEditComment(comment) && (
-                                                                    <DropdownMenuItem onClick={() => startEdit(comment)}>
-                                                                        <Edit2 className="mr-2 h-4 w-4" />
-                                                                        Düzenle
-                                                                    </DropdownMenuItem>
+                                                                {(user.id === comment.userId || canModerateComments) && (
+                                                                    <>
+                                                                        {canEditComment(comment) && (
+                                                                            <DropdownMenuItem onClick={() => startEdit(comment)}>
+                                                                                <Edit2 className="mr-2 h-4 w-4" />
+                                                                                Düzenle
+                                                                            </DropdownMenuItem>
+                                                                        )}
+                                                                        <DropdownMenuItem
+                                                                            onClick={() => handleDeleteComment(comment.id)}
+                                                                            className="text-destructive focus:text-destructive"
+                                                                        >
+                                                                            <Trash2 className="mr-2 h-4 w-4" />
+                                                                            Sil
+                                                                        </DropdownMenuItem>
+                                                                    </>
                                                                 )}
-                                                                <DropdownMenuItem
-                                                                    onClick={() => handleDeleteComment(comment.id)}
-                                                                    className="text-destructive"
-                                                                >
-                                                                    <Trash2 className="mr-2 h-4 w-4" />
-                                                                    Sil
-                                                                </DropdownMenuItem>
+                                                                {user.id !== comment.userId && (
+                                                                    <>
+                                                                        {(user.id === comment.userId || canModerateComments) && <DropdownMenuSeparator />}
+                                                                        <DropdownMenuItem onClick={() => openCommentReport(comment)}>
+                                                                            <Flag className="mr-2 h-4 w-4" />
+                                                                            Şikâyet
+                                                                        </DropdownMenuItem>
+                                                                        <DropdownMenuItem
+                                                                            onClick={() => handleBlockCommentAuthor(comment.userId, comment.username)}
+                                                                            className="text-rose-500 focus:bg-rose-500/10 focus:text-rose-400"
+                                                                        >
+                                                                            <UserX className="mr-2 h-4 w-4" />
+                                                                            Engelle
+                                                                        </DropdownMenuItem>
+                                                                    </>
+                                                                )}
                                                             </DropdownMenuContent>
                                                         </DropdownMenu>
                                                     )}

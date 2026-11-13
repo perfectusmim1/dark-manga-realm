@@ -5,9 +5,10 @@ import { tr } from 'date-fns/locale';
 import {
   ArrowLeft,
   BookOpen,
+  ChevronDown,
+  ChevronUp,
   CornerUpLeft,
   Edit3,
-  EyeOff,
   Flag,
   Hash,
   Heart,
@@ -15,13 +16,13 @@ import {
   Lock,
   LockOpen,
   MessageSquare,
-  MoreHorizontal,
+  MoreVertical,
   Pin,
   PinOff,
   Send,
   Share2,
   Trash2,
-  X,
+  UserX,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
@@ -45,15 +46,22 @@ import {
   updateForumPost,
   updateForumTopic,
 } from '@/lib/forum';
+import {
+  mergeForumTextAndMedia,
+  splitForumTextAndMedia,
+  validateForumMediaUrls,
+} from '@/lib/forumMedia';
+import { blockUser, getBlockedUserIds } from '@/lib/profile';
 import { getStaffTextClassName } from '@/lib/staffRoles';
 import { cn } from '@/lib/utils';
 import Header from '@/components/layout/Header';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import StaffBadge from '@/components/user/StaffBadge';
+import ForumMediaAttachmentField from '@/components/community/ForumMediaAttachmentField';
+import ForumReportDialog from '@/components/community/ForumReportDialog';
 import ForumRichContent from '@/components/community/ForumRichContent';
 import ForumTopicComposerModal from '@/components/community/ForumTopicComposerModal';
-import ForumReportDialog from '@/components/community/ForumReportDialog';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -78,8 +86,9 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 
-const POSTS_PAGE_SIZE = 30;
+const POSTS_PAGE_SIZE = 60;
 const MAX_REPLY_LENGTH = 10000;
+const EDITED_THRESHOLD_MS = 2000;
 
 const getInitials = (name?: string | null): string => {
   const cleaned = (name || 'U').trim();
@@ -98,6 +107,13 @@ const formatFullDate = (isoDate?: string | null): string => {
   const parsed = new Date(isoDate);
   if (Number.isNaN(parsed.getTime())) return '';
   return format(parsed, 'd MMMM yyyy HH:mm', { locale: tr });
+};
+
+const isEditedTimestamp = (createdAt?: string | null, updatedAt?: string | null): boolean => {
+  if (!createdAt || !updatedAt) return false;
+  const created = new Date(createdAt).getTime();
+  const updated = new Date(updatedAt).getTime();
+  return Number.isFinite(created) && Number.isFinite(updated) && updated - created > EDITED_THRESHOLD_MS;
 };
 
 const resolveMentionsInBatches = async (
@@ -152,6 +168,7 @@ const ForumTopicDetail: React.FC = () => {
   const [isLoading, setIsLoading] = useState(true);
   const [isLoadingMorePosts, setIsLoadingMorePosts] = useState(false);
   const [notFound, setNotFound] = useState(false);
+  const [blockedUserIds, setBlockedUserIds] = useState<string[]>([]);
 
   const [mentionUserIdByUsername, setMentionUserIdByUsername] = useState<Record<string, string>>({});
 
@@ -162,17 +179,27 @@ const ForumTopicDetail: React.FC = () => {
   const [isDeleteTopicDialogOpen, setIsDeleteTopicDialogOpen] = useState(false);
   const [isDeletingTopic, setIsDeletingTopic] = useState(false);
 
-  // Reply composer
+  // Top-level comment composer
   const [replyContent, setReplyContent] = useState('');
+  const [replyMediaUrls, setReplyMediaUrls] = useState<string[]>([]);
   const [replyIsSpoiler, setReplyIsSpoiler] = useState(false);
-  const [replyToPost, setReplyToPost] = useState<ForumPost | null>(null);
   const [isSubmittingReply, setIsSubmittingReply] = useState(false);
-  const replyTextareaRef = useRef<HTMLTextAreaElement | null>(null);
+
+  // Inline reply composer beneath a specific comment/reply
+  const [inlineReplyTarget, setInlineReplyTarget] = useState<ForumPost | null>(null);
+  const [inlineReplyContent, setInlineReplyContent] = useState('');
+  const [inlineReplyMediaUrls, setInlineReplyMediaUrls] = useState<string[]>([]);
+  const [inlineReplySpoiler, setInlineReplySpoiler] = useState(false);
+  const [isSubmittingInlineReply, setIsSubmittingInlineReply] = useState(false);
+
+  // Thread expand state (collapsed by default)
+  const [expandedThreads, setExpandedThreads] = useState<Record<string, boolean>>({});
 
   // Post interactions & inline edit
   const [likingPostIds, setLikingPostIds] = useState<Record<string, boolean>>({});
   const [editingPostId, setEditingPostId] = useState<string | null>(null);
   const [editingPostContent, setEditingPostContent] = useState('');
+  const [editingPostMediaUrls, setEditingPostMediaUrls] = useState<string[]>([]);
   const [editingPostSpoiler, setEditingPostSpoiler] = useState(false);
   const [isSavingPostEdit, setIsSavingPostEdit] = useState(false);
   const [deletePostTarget, setDeletePostTarget] = useState<ForumPost | null>(null);
@@ -192,6 +219,86 @@ const ForumTopicDetail: React.FC = () => {
 
   useDocumentTitle(topic ? topic.title : 'Forum Konusu');
 
+  // Load viewer's blocked user IDs
+  useEffect(() => {
+    if (!user?.id) {
+      setBlockedUserIds([]);
+      return;
+    }
+
+    let cancelled = false;
+    getBlockedUserIds(user.id).then(({ ids }) => {
+      if (!cancelled) {
+        setBlockedUserIds(ids || []);
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [user?.id]);
+
+  const blockedUserSet = useMemo(() => new Set(blockedUserIds), [blockedUserIds]);
+
+  const visiblePosts = useMemo(
+    () => posts.filter((post) => !blockedUserSet.has(post.userId)),
+    [posts, blockedUserSet],
+  );
+
+  // Group into root comments & flat chronological replies under each root comment
+  const { rootPosts, repliesByRootId, rootIdByPostId } = useMemo(() => {
+    const postById = new Map(visiblePosts.map((post) => [post.id, post]));
+    const resolvedRootMap = new Map<string, string>();
+
+    const resolveRootId = (post: ForumPost): string => {
+      const cached = resolvedRootMap.get(post.id);
+      if (cached) return cached;
+
+      const visited = new Set<string>([post.id]);
+      let current = post;
+
+      while (current.parentPostId) {
+        if (visited.has(current.parentPostId)) {
+          break;
+        }
+        const parent = postById.get(current.parentPostId);
+        if (!parent) {
+          // If the direct parent isn't visible/loaded yet, attach at root level or treat cleanly
+          break;
+        }
+        visited.add(parent.id);
+        current = parent;
+      }
+
+      const rootId = current.parentPostId && !postById.has(current.parentPostId)
+        ? post.id
+        : current.id;
+      resolvedRootMap.set(post.id, rootId);
+      return rootId;
+    };
+
+    const roots: ForumPost[] = [];
+    const groupedReplies: Record<string, ForumPost[]> = {};
+
+    for (const post of visiblePosts) {
+      const rootId = resolveRootId(post);
+      if (rootId === post.id) {
+        roots.push(post);
+      } else {
+        if (!groupedReplies[rootId]) {
+          groupedReplies[rootId] = [];
+        }
+        groupedReplies[rootId].push(post);
+      }
+    }
+
+    return {
+      rootPosts: roots,
+      repliesByRootId: groupedReplies,
+      rootIdByPostId: resolvedRootMap,
+    };
+  }, [visiblePosts]);
+
   const knownUsersMap = useMemo(() => {
     const map: Record<string, string> = { ...mentionUserIdByUsername };
     if (topic?.authorUsername && topic.userId) {
@@ -200,13 +307,13 @@ const ForumTopicDetail: React.FC = () => {
     if (topic?.lastPostUsername && topic.lastPostUserId) {
       map[topic.lastPostUsername.toLowerCase()] = topic.lastPostUserId;
     }
-    for (const post of posts) {
+    for (const post of visiblePosts) {
       if (post.authorUsername && post.userId) {
         map[post.authorUsername.toLowerCase()] = post.userId;
       }
     }
     return map;
-  }, [mentionUserIdByUsername, topic, posts]);
+  }, [mentionUserIdByUsername, topic, visiblePosts]);
 
   const enrichMentions = useCallback(
     async (topicItem: ForumTopic | null, postList: ForumPost[]) => {
@@ -273,11 +380,16 @@ const ForumTopicDetail: React.FC = () => {
     loadTopicAndPosts();
   }, [loadTopicAndPosts]);
 
-  // Smooth scroll and temporary highlight when ?postId= matches a loaded post
+  // Smooth scroll and temporary highlight when ?postId= matches a loaded post (auto-expand parent thread if needed)
   useEffect(() => {
     if (!targetPostId || isLoading || hasScrolledToTargetRef.current) return;
-    const match = posts.some((post) => post.id === targetPostId);
+    const match = visiblePosts.find((post) => post.id === targetPostId);
     if (!match) return;
+
+    const rootId = rootIdByPostId.get(match.id) || match.id;
+    if (rootId !== match.id) {
+      setExpandedThreads((prev) => ({ ...prev, [rootId]: true }));
+    }
 
     hasScrolledToTargetRef.current = true;
     const scrollTimer = window.setTimeout(() => {
@@ -286,7 +398,7 @@ const ForumTopicDetail: React.FC = () => {
         element.scrollIntoView({ behavior: 'smooth', block: 'center' });
         setHighlightedPostId(targetPostId);
       }
-    }, 80);
+    }, 120);
 
     const clearTimer = window.setTimeout(() => {
       setHighlightedPostId((current) => (current === targetPostId ? null : current));
@@ -296,7 +408,7 @@ const ForumTopicDetail: React.FC = () => {
       window.clearTimeout(scrollTimer);
       window.clearTimeout(clearTimer);
     };
-  }, [targetPostId, posts, isLoading]);
+  }, [targetPostId, visiblePosts, rootIdByPostId, isLoading]);
 
   const handleLoadMorePosts = async () => {
     if (!topicId || isLoadingMorePosts || !hasMorePosts) return;
@@ -330,6 +442,32 @@ const ForumTopicDetail: React.FC = () => {
 
   const canManageTopic = Boolean(topic && user && (user.id === topic.userId || isStaff));
   const categoryMeta = topic ? FORUM_CATEGORY_MAP[topic.category] : undefined;
+
+  const handleBlockForumUser = async (targetUserId: string, targetUsername?: string) => {
+    if (!user) {
+      toast.error('Kullanıcı engellemek için giriş yapmalısınız.');
+      return;
+    }
+    if (targetUserId === user.id) return;
+
+    try {
+      const { error } = await blockUser(user.id, targetUserId);
+      if (error && (error as { code?: string })?.code !== '23505') {
+        throw error;
+      }
+
+      setBlockedUserIds((prev) => Array.from(new Set([...prev, targetUserId])));
+      if (topic?.userId === targetUserId) {
+        toast.success(`${targetUsername || 'Kullanıcı'} engellendi.`);
+        navigate('/community?tab=forum', { replace: true });
+        return;
+      }
+      toast.success(`${targetUsername || 'Kullanıcı'} engellendi.`);
+    } catch (error) {
+      console.error('Forum kullanıcı engelleme hatası:', error);
+      toast.error('Kullanıcı engellenemedi.');
+    }
+  };
 
   const handleToggleTopicLike = async () => {
     if (!topic) return;
@@ -436,27 +574,58 @@ const ForumTopicDetail: React.FC = () => {
     }
   };
 
-  const handleSubmitReply = async (event: React.FormEvent) => {
+  const refreshAfterPostCreate = async (createdPostId: string, rootThreadId?: string) => {
+    if (!topic) return;
+    setTopic((prev) => (prev ? { ...prev, replyCount: prev.replyCount + 1 } : prev));
+    if (rootThreadId) {
+      setExpandedThreads((prev) => ({ ...prev, [rootThreadId]: true }));
+    }
+
+    if (!hasMorePosts) {
+      const res = await getForumTopicPosts(topic.id, POSTS_PAGE_SIZE, posts.length);
+      const merged = dedupeById([...posts, ...res.posts]);
+      setPosts(merged);
+      setHasMorePosts(res.hasMore);
+      void enrichMentions(topic, merged);
+
+      window.setTimeout(() => {
+        document
+          .getElementById(`post-${createdPostId}`)
+          ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setHighlightedPostId(createdPostId);
+        window.setTimeout(() => {
+          setHighlightedPostId((curr) => (curr === createdPostId ? null : curr));
+        }, 2800);
+      }, 100);
+    }
+  };
+
+  const handleSubmitRootComment = async (event: React.FormEvent) => {
     event.preventDefault();
     if (!topic) return;
 
     if (!user) {
-      toast.error('Yanıt yazmak için giriş yapmalısınız.');
+      toast.error('Yorum yazmak için giriş yapmalısınız.');
       return;
     }
 
     if (topic.isLocked) {
-      toast.error('Bu konu kilitli olduğu için yanıt yazılamaz.');
+      toast.error('Bu konu kilitli olduğu için yorum yazılamaz.');
       return;
     }
 
-    const trimmed = replyContent.trim();
-    if (!trimmed) {
-      toast.error('Yanıt içeriği boş olamaz.');
+    if (!validateForumMediaUrls(replyMediaUrls)) {
+      toast.error('Lütfen geçerli görsel veya GIF bağlantıları (http:// veya https://) girin.');
       return;
     }
-    if (trimmed.length > MAX_REPLY_LENGTH) {
-      toast.error(`Yanıt en fazla ${MAX_REPLY_LENGTH.toLocaleString('tr-TR')} karakter olabilir.`);
+
+    const mergedContent = mergeForumTextAndMedia(replyContent, replyMediaUrls);
+    if (!mergedContent) {
+      toast.error('Yorum içeriği veya görseli boş olamaz.');
+      return;
+    }
+    if (mergedContent.length > MAX_REPLY_LENGTH) {
+      toast.error(`Yorum en fazla ${MAX_REPLY_LENGTH.toLocaleString('tr-TR')} karakter olabilir.`);
       return;
     }
 
@@ -469,52 +638,105 @@ const ForumTopicDetail: React.FC = () => {
         topicAuthorId: topic.userId,
         userId: user.id,
         actorUsername: user.username || 'Kullanıcı',
-        parentPostId: replyToPost?.id || null,
-        parentAuthorId: replyToPost?.userId || null,
-        content: trimmed,
+        parentPostId: null,
+        parentAuthorId: null,
+        content: mergedContent,
         isSpoiler: replyIsSpoiler,
         knownUserMap: knownUsersMap,
       });
 
       setReplyContent('');
+      setReplyMediaUrls([]);
       setReplyIsSpoiler(false);
-      setReplyToPost(null);
-      setTopic((prev) => (prev ? { ...prev, replyCount: prev.replyCount + 1 } : prev));
-
-      if (!hasMorePosts) {
-        const res = await getForumTopicPosts(topic.id, POSTS_PAGE_SIZE, posts.length);
-        const merged = dedupeById([...posts, ...res.posts]);
-        setPosts(merged);
-        setHasMorePosts(res.hasMore);
-        void enrichMentions(topic, merged);
-
-        window.setTimeout(() => {
-          document
-            .getElementById(`post-${created.id}`)
-            ?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-          setHighlightedPostId(created.id);
-          window.setTimeout(() => {
-            setHighlightedPostId((curr) => (curr === created.id ? null : curr));
-          }, 2800);
-        }, 100);
-      }
-
-      toast.success('Yanıtınız gönderildi.');
+      await refreshAfterPostCreate(created.id);
+      toast.success('Yorumunuz gönderildi.');
     } catch (error) {
-      console.error('Yanıt gönderme hatası:', error);
-      toast.error('Yanıt gönderilemedi. Lütfen tekrar deneyin.');
+      console.error('Yorum gönderme hatası:', error);
+      toast.error('Yorum gönderilemedi. Lütfen tekrar deneyin.');
     } finally {
       setIsSubmittingReply(false);
     }
   };
 
-  const handleQuotePost = (post: ForumPost) => {
+  const handleOpenInlineReply = (target: ForumPost) => {
+    if (!user) {
+      toast.error('Yanıt yazmak için giriş yapmalısınız.');
+      return;
+    }
     if (topic?.isLocked) return;
-    setReplyToPost(post);
-    replyTextareaRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    window.setTimeout(() => {
-      replyTextareaRef.current?.focus();
-    }, 200);
+
+    if (inlineReplyTarget?.id === target.id) {
+      setInlineReplyTarget(null);
+      setInlineReplyContent('');
+      setInlineReplyMediaUrls([]);
+      setInlineReplySpoiler(false);
+      return;
+    }
+
+    const targetRootId = rootIdByPostId.get(target.id) || target.id;
+    const isNestedTarget = targetRootId !== target.id;
+    setInlineReplyTarget(target);
+    setInlineReplyContent(isNestedTarget && target.authorUsername ? `@${target.authorUsername} ` : '');
+    setInlineReplyMediaUrls([]);
+    setInlineReplySpoiler(false);
+  };
+
+  const handleSubmitInlineReply = async (event: React.FormEvent) => {
+    event.preventDefault();
+    if (!topic || !inlineReplyTarget) return;
+
+    if (!user) {
+      toast.error('Yanıt yazmak için giriş yapmalısınız.');
+      return;
+    }
+    if (topic.isLocked) {
+      toast.error('Bu konu kilitli olduğu için yanıt yazılamaz.');
+      return;
+    }
+    if (!validateForumMediaUrls(inlineReplyMediaUrls)) {
+      toast.error('Lütfen geçerli görsel veya GIF bağlantıları (http:// veya https://) girin.');
+      return;
+    }
+
+    const mergedContent = mergeForumTextAndMedia(inlineReplyContent, inlineReplyMediaUrls);
+    if (!mergedContent) {
+      toast.error('Yanıt içeriği veya görseli boş olamaz.');
+      return;
+    }
+    if (mergedContent.length > MAX_REPLY_LENGTH) {
+      toast.error(`Yanıt en fazla ${MAX_REPLY_LENGTH.toLocaleString('tr-TR')} karakter olabilir.`);
+      return;
+    }
+
+    const targetRootId = rootIdByPostId.get(inlineReplyTarget.id) || inlineReplyTarget.id;
+    setIsSubmittingInlineReply(true);
+
+    try {
+      const created = await createForumPost({
+        topicId: topic.id,
+        topicTitle: topic.title,
+        topicAuthorId: topic.userId,
+        userId: user.id,
+        actorUsername: user.username || 'Kullanıcı',
+        parentPostId: inlineReplyTarget.id,
+        parentAuthorId: inlineReplyTarget.userId,
+        content: mergedContent,
+        isSpoiler: inlineReplySpoiler,
+        knownUserMap: knownUsersMap,
+      });
+
+      setInlineReplyTarget(null);
+      setInlineReplyContent('');
+      setInlineReplyMediaUrls([]);
+      setInlineReplySpoiler(false);
+      await refreshAfterPostCreate(created.id, targetRootId);
+      toast.success('Yanıtınız gönderildi.');
+    } catch (error) {
+      console.error('Yanıt gönderme hatası:', error);
+      toast.error('Yanıt gönderilemedi. Lütfen tekrar deneyin.');
+    } finally {
+      setIsSubmittingInlineReply(false);
+    }
   };
 
   const handleTogglePostLike = async (post: ForumPost) => {
@@ -575,18 +797,25 @@ const ForumTopicDetail: React.FC = () => {
   };
 
   const handleStartEditPost = (post: ForumPost) => {
+    const parsed = splitForumTextAndMedia(post.content);
     setEditingPostId(post.id);
-    setEditingPostContent(post.content);
+    setEditingPostContent(parsed.body);
+    setEditingPostMediaUrls(parsed.mediaUrls);
     setEditingPostSpoiler(post.isSpoiler);
   };
 
   const handleSaveEditPost = async (post: ForumPost) => {
-    const trimmed = editingPostContent.trim();
-    if (!trimmed) {
-      toast.error('Yanıt içeriği boş olamaz.');
+    if (!validateForumMediaUrls(editingPostMediaUrls)) {
+      toast.error('Lütfen geçerli görsel veya GIF bağlantıları (http:// veya https://) girin.');
       return;
     }
-    if (trimmed.length > MAX_REPLY_LENGTH) {
+
+    const merged = mergeForumTextAndMedia(editingPostContent, editingPostMediaUrls);
+    if (!merged) {
+      toast.error('Yanıt içeriği veya görseli boş olamaz.');
+      return;
+    }
+    if (merged.length > MAX_REPLY_LENGTH) {
       toast.error(`Yanıt en fazla ${MAX_REPLY_LENGTH.toLocaleString('tr-TR')} karakter olabilir.`);
       return;
     }
@@ -594,7 +823,7 @@ const ForumTopicDetail: React.FC = () => {
     setIsSavingPostEdit(true);
     try {
       await updateForumPost(post.id, {
-        content: trimmed,
+        content: merged,
         isSpoiler: editingPostSpoiler,
       });
 
@@ -602,7 +831,7 @@ const ForumTopicDetail: React.FC = () => {
         item.id === post.id
           ? {
               ...item,
-              content: trimmed,
+              content: merged,
               isSpoiler: editingPostSpoiler,
               updatedAt: new Date().toISOString(),
             }
@@ -610,6 +839,7 @@ const ForumTopicDetail: React.FC = () => {
       );
       setPosts(updatedPosts);
       setEditingPostId(null);
+      setEditingPostMediaUrls([]);
       if (topic) {
         void enrichMentions(topic, updatedPosts);
       }
@@ -632,8 +862,8 @@ const ForumTopicDetail: React.FC = () => {
       setTopic((prev) =>
         prev ? { ...prev, replyCount: Math.max(0, prev.replyCount - 1) } : prev,
       );
-      if (replyToPost?.id === deletePostTarget.id) {
-        setReplyToPost(null);
+      if (inlineReplyTarget?.id === deletePostTarget.id) {
+        setInlineReplyTarget(null);
       }
       setDeletePostTarget(null);
       toast.success('Yanıt silindi.');
@@ -644,6 +874,224 @@ const ForumTopicDetail: React.FC = () => {
       setIsDeletingPost(false);
     }
   };
+
+  const renderInlineReplyBox = (target: ForumPost) => {
+    if (!inlineReplyTarget || inlineReplyTarget.id !== target.id || !user || topic?.isLocked) {
+      return null;
+    }
+
+    const canSubmit = Boolean(
+      inlineReplyContent.trim() || inlineReplyMediaUrls.some((url) => url.trim()),
+    );
+
+    return (
+      <form
+        onSubmit={handleSubmitInlineReply}
+        className="mt-3 rounded-xl border border-border/70 bg-card/70 p-3 sm:p-3.5 space-y-2.5"
+      >
+        <div className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+          <span>
+            <span className="font-semibold text-foreground">@{target.authorUsername}</span>{' '}
+            kullanıcısına yanıt yazıyorsunuz
+          </span>
+        </div>
+
+        <Textarea
+          value={inlineReplyContent}
+          onChange={(event) => setInlineReplyContent(event.target.value)}
+          placeholder={`@${target.authorUsername} için yanıt yaz... (@kullanici ile bahsedebilirsiniz)`}
+          rows={2}
+          maxLength={MAX_REPLY_LENGTH}
+          disabled={isSubmittingInlineReply}
+          autoFocus
+          className="min-h-[76px] resize-y text-sm"
+        />
+
+        <ForumMediaAttachmentField
+          mediaUrls={inlineReplyMediaUrls}
+          onChange={setInlineReplyMediaUrls}
+          disabled={isSubmittingInlineReply}
+          compact
+        />
+
+        <div className="flex flex-wrap items-center justify-between gap-2 pt-0.5">
+          <div className="flex items-center gap-2">
+            <Switch
+              id={`inline-reply-spoiler-${target.id}`}
+              checked={inlineReplySpoiler}
+              onCheckedChange={setInlineReplySpoiler}
+              disabled={isSubmittingInlineReply}
+            />
+            <Label
+              htmlFor={`inline-reply-spoiler-${target.id}`}
+              className="text-xs cursor-pointer text-muted-foreground"
+            >
+              Spoiler içerir
+            </Label>
+          </div>
+
+          <div className="flex items-center gap-2 ml-auto">
+            <Button
+              type="button"
+              variant="ghost"
+              size="sm"
+              onClick={() => setInlineReplyTarget(null)}
+              disabled={isSubmittingInlineReply}
+              className="h-8 text-xs"
+            >
+              İptal
+            </Button>
+            <Button
+              type="submit"
+              size="sm"
+              disabled={isSubmittingInlineReply || !canSubmit}
+              className="h-8 gap-1.5 text-xs"
+            >
+              {isSubmittingInlineReply ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Send className="h-3.5 w-3.5" />
+              )}
+              <span>Yanıtla</span>
+            </Button>
+          </div>
+        </div>
+      </form>
+    );
+  };
+
+  const renderPostActionsMenu = (post: ForumPost) => {
+    if (!user) return null;
+    const canManagePost = Boolean(user.id === post.userId || isStaff);
+    const canActOnOtherUser = user.id !== post.userId;
+
+    if (!canManagePost && !canActOnOtherUser) {
+      return null;
+    }
+
+    return (
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            type="button"
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 rounded-full text-muted-foreground hover:text-foreground hover:bg-muted/70 shrink-0"
+            aria-label="Yorum seçenekleri"
+          >
+            <MoreVertical className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="w-44">
+          {canManagePost && (
+            <>
+              <DropdownMenuItem onClick={() => handleStartEditPost(post)}>
+                <Edit3 className="h-4 w-4 mr-2" />
+                Düzenle
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => setDeletePostTarget(post)}
+                className="text-destructive focus:text-destructive"
+              >
+                <Trash2 className="h-4 w-4 mr-2" />
+                Sil
+              </DropdownMenuItem>
+            </>
+          )}
+          {canActOnOtherUser && (
+            <>
+              {canManagePost && <DropdownMenuSeparator />}
+              <DropdownMenuItem
+                onClick={() =>
+                  setReportTarget({
+                    targetType: 'post',
+                    postId: post.id,
+                    reportedUserId: post.userId,
+                    reportedUsername: post.authorUsername,
+                  })
+                }
+              >
+                <Flag className="h-4 w-4 mr-2" />
+                Şikâyet
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={() => handleBlockForumUser(post.userId, post.authorUsername)}
+                className="text-rose-500 focus:bg-rose-500/10 focus:text-rose-400"
+              >
+                <UserX className="h-4 w-4 mr-2" />
+                Engelle
+              </DropdownMenuItem>
+            </>
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    );
+  };
+
+  const renderPostEditor = (post: ForumPost) => {
+    const canSave = Boolean(
+      editingPostContent.trim() || editingPostMediaUrls.some((url) => url.trim()),
+    );
+
+    return (
+      <div className="space-y-3 pt-1">
+        <Textarea
+          value={editingPostContent}
+          onChange={(event) => setEditingPostContent(event.target.value)}
+          rows={3}
+          maxLength={MAX_REPLY_LENGTH}
+          disabled={isSavingPostEdit}
+        />
+        <ForumMediaAttachmentField
+          mediaUrls={editingPostMediaUrls}
+          onChange={setEditingPostMediaUrls}
+          disabled={isSavingPostEdit}
+          compact
+        />
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center gap-2">
+            <Switch
+              id={`edit-post-spoiler-${post.id}`}
+              checked={editingPostSpoiler}
+              onCheckedChange={setEditingPostSpoiler}
+              disabled={isSavingPostEdit}
+            />
+            <Label
+              htmlFor={`edit-post-spoiler-${post.id}`}
+              className="text-xs cursor-pointer"
+            >
+              Spoiler içerir
+            </Label>
+          </div>
+          <div className="flex items-center gap-2 ml-auto">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              onClick={() => setEditingPostId(null)}
+              disabled={isSavingPostEdit}
+            >
+              İptal
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              onClick={() => handleSaveEditPost(post)}
+              disabled={isSavingPostEdit || !canSave}
+              className="gap-1.5"
+            >
+              {isSavingPostEdit && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
+              <span>Kaydet</span>
+            </Button>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  const canSubmitRoot = Boolean(
+    replyContent.trim() || replyMediaUrls.some((url) => url.trim()),
+  );
 
   return (
     <div className="min-h-screen bg-background">
@@ -725,6 +1173,12 @@ const ForumTopicDetail: React.FC = () => {
                       <span title={formatFullDate(topic.createdAt)}>
                         {formatRelativeTime(topic.createdAt)}
                       </span>
+                      {isEditedTimestamp(topic.createdAt, topic.updatedAt) && (
+                        <>
+                          <span>·</span>
+                          <span>Düzenlendi</span>
+                        </>
+                      )}
                       <span>·</span>
                       <Link
                         to={`/community?tab=forum&category=${topic.category}`}
@@ -744,10 +1198,10 @@ const ForumTopicDetail: React.FC = () => {
                         type="button"
                         variant="ghost"
                         size="icon"
-                        className="h-8 w-8 shrink-0"
+                        className="h-8 w-8 rounded-full shrink-0 text-muted-foreground hover:text-foreground hover:bg-muted/70"
                         aria-label="Konu seçenekleri"
                       >
-                        <MoreHorizontal className="h-4 w-4" />
+                        <MoreVertical className="h-4 w-4" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end" className="w-48">
@@ -818,7 +1272,16 @@ const ForumTopicDetail: React.FC = () => {
                             }
                           >
                             <Flag className="h-4 w-4 mr-2" />
-                            Bildir
+                            Şikâyet
+                          </DropdownMenuItem>
+                          <DropdownMenuItem
+                            onClick={() =>
+                              handleBlockForumUser(topic.userId, topic.authorUsername)
+                            }
+                            className="text-rose-500 focus:bg-rose-500/10 focus:text-rose-400"
+                          >
+                            <UserX className="h-4 w-4 mr-2" />
+                            Engelle
                           </DropdownMenuItem>
                         </>
                       )}
@@ -839,6 +1302,7 @@ const ForumTopicDetail: React.FC = () => {
                       <OptimizedImage
                         src={topic.mangaCover}
                         alt={topic.mangaTitle}
+                        allowProxy
                         transform={{ width: 96, quality: 80 }}
                         containerClassName="h-14 w-10 rounded overflow-hidden shrink-0 border border-border/50"
                         className="h-full w-full object-cover"
@@ -911,335 +1375,403 @@ const ForumTopicDetail: React.FC = () => {
 
                 <div className="flex items-center gap-1.5 text-xs text-muted-foreground tabular-nums">
                   <MessageSquare className="h-4 w-4" />
-                  <span>{topic.replyCount} yanıt</span>
+                  <span>{topic.replyCount} yorum</span>
                 </div>
               </div>
             </article>
 
-            {/* Reply Composer */}
-            <section
-              aria-label="Yanıt yaz"
-              className="rounded-xl border border-border/60 bg-card/50 p-4 sm:p-5 space-y-3"
-            >
+            {/* New Root Comment Composer */}
+            <section aria-label="Yorum yaz">
               {topic.isLocked ? (
-                <div className="flex items-center gap-2.5 text-sm text-muted-foreground py-1">
+                <div className="rounded-xl border border-border/60 bg-card/40 px-4 py-3 flex items-center gap-2.5 text-sm text-muted-foreground">
                   <Lock className="h-4 w-4 shrink-0" />
-                  <span>Bu konu kilitli olduğu için yeni yanıt eklenemiyor.</span>
+                  <span>Bu konu kilitli olduğu için yeni yorum eklenemiyor.</span>
                 </div>
               ) : !user ? (
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="rounded-xl border border-border/60 bg-card/40 px-4 py-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
                   <p className="text-sm text-muted-foreground">
-                    Bu konuya yanıt yazmak için hesabınıza giriş yapın.
+                    Tartışmaya katılmak için hesabınıza giriş yapın.
                   </p>
-                  <Button asChild size="sm" className="shrink-0">
+                  <Button asChild size="sm" className="shrink-0 w-fit">
                     <Link to="/auth">Giriş Yap</Link>
                   </Button>
                 </div>
               ) : (
-                <form onSubmit={handleSubmitReply} className="space-y-3">
-                  {replyToPost && (
-                    <div className="flex items-center justify-between gap-3 rounded-lg border border-border/60 bg-muted/40 px-3 py-2 text-xs">
-                      <div className="flex items-center gap-2 min-w-0">
-                        <CornerUpLeft className="h-3.5 w-3.5 text-primary shrink-0" />
-                        <div className="min-w-0">
-                          <span className="font-semibold text-foreground">
-                            @{replyToPost.authorUsername}
-                          </span>{' '}
-                          <span className="text-muted-foreground">yanıtına cevap: </span>
-                          <span className="text-muted-foreground truncate">
-                            {replyToPost.isSpoiler
-                              ? 'Spoiler içerikli yanıt'
-                              : replyToPost.content.slice(0, 90)}
-                          </span>
-                        </div>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setReplyToPost(null)}
-                        aria-label="Alıntıyı iptal et"
-                        className="p-1 text-muted-foreground hover:text-foreground shrink-0"
-                      >
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                  )}
+                <form
+                  onSubmit={handleSubmitRootComment}
+                  className="rounded-xl border border-border/60 bg-card/40 p-4 space-y-3"
+                >
+                  <div className="flex items-start gap-3">
+                    <Avatar className="h-9 w-9 border border-border/60 shrink-0 hidden sm:flex">
+                      <AvatarImage src={user.avatar || undefined} alt={user.username} />
+                      <AvatarFallback className="text-xs">
+                        {getInitials(user.username)}
+                      </AvatarFallback>
+                    </Avatar>
 
-                  <Textarea
-                    ref={replyTextareaRef}
-                    value={replyContent}
-                    onChange={(event) => setReplyContent(event.target.value)}
-                    placeholder="Yanıtınızı yazın... (@kullanici ile bahsedebilirsiniz)"
-                    rows={3}
-                    maxLength={MAX_REPLY_LENGTH}
-                    disabled={isSubmittingReply}
-                    className="resize-y min-h-[96px]"
-                  />
+                    <div className="min-w-0 flex-1 space-y-2.5">
+                      <Textarea
+                        value={replyContent}
+                        onChange={(event) => setReplyContent(event.target.value)}
+                        placeholder="Yorumunuzu yazın... (@kullanici ile bahsedebilirsiniz)"
+                        rows={3}
+                        maxLength={MAX_REPLY_LENGTH}
+                        disabled={isSubmittingReply}
+                        className="resize-y min-h-[90px]"
+                      />
 
-                  <div className="flex flex-wrap items-center justify-between gap-3">
-                    <div className="flex items-center gap-2.5">
-                      <Switch
-                        id="reply-spoiler-switch"
-                        checked={replyIsSpoiler}
-                        onCheckedChange={setReplyIsSpoiler}
+                      <ForumMediaAttachmentField
+                        mediaUrls={replyMediaUrls}
+                        onChange={setReplyMediaUrls}
                         disabled={isSubmittingReply}
                       />
-                      <Label htmlFor="reply-spoiler-switch" className="text-sm cursor-pointer">
-                        Spoiler içerir
-                      </Label>
-                    </div>
 
-                    <div className="flex items-center gap-3 ml-auto">
-                      <span className="text-xs text-muted-foreground tabular-nums">
-                        {replyContent.length.toLocaleString('tr-TR')} /{' '}
-                        {MAX_REPLY_LENGTH.toLocaleString('tr-TR')}
-                      </span>
-                      <Button
-                        type="submit"
-                        disabled={isSubmittingReply || !replyContent.trim()}
-                        className="gap-1.5"
-                      >
-                        {isSubmittingReply ? (
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                        ) : (
-                          <Send className="h-4 w-4" />
-                        )}
-                        <span>Yanıt Gönder</span>
-                      </Button>
+                      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+                        <div className="flex items-center gap-2">
+                          <Switch
+                            id="reply-spoiler-switch"
+                            checked={replyIsSpoiler}
+                            onCheckedChange={setReplyIsSpoiler}
+                            disabled={isSubmittingReply}
+                          />
+                          <Label htmlFor="reply-spoiler-switch" className="text-xs sm:text-sm cursor-pointer">
+                            Spoiler içerir
+                          </Label>
+                        </div>
+
+                        <div className="flex items-center gap-3 ml-auto">
+                          <span className="text-xs text-muted-foreground tabular-nums">
+                            {replyContent.length.toLocaleString('tr-TR')} /{' '}
+                            {MAX_REPLY_LENGTH.toLocaleString('tr-TR')}
+                          </span>
+                          <Button
+                            type="submit"
+                            size="sm"
+                            disabled={isSubmittingReply || !canSubmitRoot}
+                            className="gap-1.5"
+                          >
+                            {isSubmittingReply ? (
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            ) : (
+                              <Send className="h-4 w-4" />
+                            )}
+                            <span>Gönder</span>
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </form>
               )}
             </section>
 
-            {/* Posts List */}
-            <section aria-label="Yanıtlar" className="space-y-3">
-              <div className="flex items-center justify-between">
-                <h2 className="text-base font-semibold">Yanıtlar ({topic.replyCount})</h2>
+            {/* Left-Aligned Comment Thread Stream */}
+            <section aria-label="Yorumlar" className="space-y-1">
+              <div className="flex items-center justify-between pb-2 border-b border-border/50">
+                <h2 className="text-base font-semibold">
+                  Yorumlar ({visiblePosts.length})
+                </h2>
               </div>
 
-              {posts.length === 0 ? (
-                <div className="rounded-xl border border-border/60 bg-card/40 p-8 text-center text-sm text-muted-foreground">
-                  Henüz yanıt yazılmamış. İlk yanıtı sen paylaşabilirsin.
+              {rootPosts.length === 0 ? (
+                <div className="py-10 text-center text-sm text-muted-foreground">
+                  Henüz yorum yazılmamış. İlk yorumu sen paylaşabilirsin.
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {posts.map((post) => {
-                    const canManagePost = Boolean(user && (user.id === post.userId || isStaff));
-                    const isEditing = editingPostId === post.id;
-                    const isHighlighted = highlightedPostId === post.id;
+                <div className="divide-y divide-border/40">
+                  {rootPosts.map((rootPost) => {
+                    const threadReplies = repliesByRootId[rootPost.id] || [];
+                    const hasReplies = threadReplies.length > 0;
+                    const isExpanded = Boolean(expandedThreads[rootPost.id]);
+                    const isEditingRoot = editingPostId === rootPost.id;
+                    const isRootHighlighted = highlightedPostId === rootPost.id;
+
+                    // Deduplicate mini avatars of respondents (max 3)
+                    const miniRepliers: ForumPost[] = [];
+                    const seenReplierIds = new Set<string>();
+                    for (const r of threadReplies) {
+                      if (!seenReplierIds.has(r.userId)) {
+                        seenReplierIds.add(r.userId);
+                        miniRepliers.push(r);
+                        if (miniRepliers.length >= 3) break;
+                      }
+                    }
 
                     return (
-                      <article
-                        key={post.id}
-                        id={`post-${post.id}`}
+                      <div
+                        key={rootPost.id}
+                        id={`post-${rootPost.id}`}
                         className={cn(
-                          'rounded-xl border bg-card/50 p-4 sm:p-5 space-y-3 transition-colors min-w-0',
-                          isHighlighted
-                            ? 'border-primary ring-2 ring-primary/30 bg-primary/5'
-                            : 'border-border/60',
+                          'py-4 transition-colors rounded-lg',
+                          isRootHighlighted && 'bg-primary/5 ring-1 ring-primary/40 px-3 -mx-3',
                         )}
                       >
-                        {/* Post Header */}
-                        <div className="flex items-start justify-between gap-2">
-                          <div className="flex items-center gap-2.5 min-w-0">
-                            <Link to={`/profile/${post.userId}`} className="shrink-0">
-                              <Avatar className="h-8 w-8 border border-border/60">
+                        <div className="flex items-stretch gap-3.5 min-w-0">
+                          {/* Left Avatar + Vertical Connector Column */}
+                          <div className="w-10 shrink-0 flex flex-col items-center">
+                            <Link to={`/profile/${rootPost.userId}`} className="shrink-0">
+                              <Avatar className="h-10 w-10 border border-border/60">
                                 <AvatarImage
-                                  src={post.authorAvatar || undefined}
-                                  alt={post.authorUsername}
+                                  src={rootPost.authorAvatar || undefined}
+                                  alt={rootPost.authorUsername}
                                 />
                                 <AvatarFallback className="text-xs">
-                                  {getInitials(post.authorUsername)}
+                                  {getInitials(rootPost.authorUsername)}
                                 </AvatarFallback>
                               </Avatar>
                             </Link>
-                            <div className="flex items-center gap-1.5 flex-wrap min-w-0 text-xs">
-                              <Link
-                                to={`/profile/${post.userId}`}
-                                className={cn(
-                                  'font-semibold hover:underline truncate max-w-[180px]',
-                                  getStaffTextClassName(post.authorRole),
-                                )}
-                              >
-                                {post.authorUsername}
-                              </Link>
-                              <StaffBadge role={post.authorRole} compact />
-                              <span
-                                className="text-muted-foreground shrink-0"
-                                title={formatFullDate(post.createdAt)}
-                              >
-                                · {formatRelativeTime(post.createdAt)}
-                              </span>
-                            </div>
+                            {hasReplies && (
+                              <div className="w-[1.5px] flex-1 bg-border/75 mt-2 rounded-full" />
+                            )}
                           </div>
 
-                          {user && (canManagePost || user.id !== post.userId) && (
-                            <DropdownMenu>
-                              <DropdownMenuTrigger asChild>
-                                <Button
-                                  type="button"
-                                  variant="ghost"
-                                  size="icon"
-                                  className="h-7 w-7 shrink-0"
-                                  aria-label="Yanıt seçenekleri"
+                          {/* Right Main Content */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-start justify-between gap-2">
+                              <div className="flex items-center gap-2 flex-wrap min-w-0 text-xs pt-0.5">
+                                <Link
+                                  to={`/profile/${rootPost.userId}`}
+                                  className={cn(
+                                    'text-sm font-semibold hover:underline truncate max-w-[200px]',
+                                    getStaffTextClassName(rootPost.authorRole),
+                                  )}
                                 >
-                                  <MoreHorizontal className="h-4 w-4" />
-                                </Button>
-                              </DropdownMenuTrigger>
-                              <DropdownMenuContent align="end" className="w-40">
-                                {canManagePost && (
-                                  <>
-                                    <DropdownMenuItem onClick={() => handleStartEditPost(post)}>
-                                      <Edit3 className="h-4 w-4 mr-2" />
-                                      Düzenle
-                                    </DropdownMenuItem>
-                                    <DropdownMenuItem
-                                      onClick={() => setDeletePostTarget(post)}
-                                      className="text-destructive focus:text-destructive"
-                                    >
-                                      <Trash2 className="h-4 w-4 mr-2" />
-                                      Sil
-                                    </DropdownMenuItem>
-                                  </>
+                                  {rootPost.authorUsername}
+                                </Link>
+                                <StaffBadge role={rootPost.authorRole} compact />
+                                <span
+                                  className="text-muted-foreground shrink-0"
+                                  title={formatFullDate(rootPost.createdAt)}
+                                >
+                                  {formatRelativeTime(rootPost.createdAt)}
+                                </span>
+                                {isEditedTimestamp(rootPost.createdAt, rootPost.updatedAt) && (
+                                  <span className="text-muted-foreground shrink-0">
+                                    · Düzenlendi
+                                  </span>
                                 )}
-                                {user.id !== post.userId && (
-                                  <>
-                                    {canManagePost && <DropdownMenuSeparator />}
-                                    <DropdownMenuItem
-                                      onClick={() =>
-                                        setReportTarget({
-                                          targetType: 'post',
-                                          postId: post.id,
-                                          reportedUserId: post.userId,
-                                          reportedUsername: post.authorUsername,
-                                        })
-                                      }
-                                    >
-                                      <Flag className="h-4 w-4 mr-2" />
-                                      Bildir
-                                    </DropdownMenuItem>
-                                  </>
+                              </div>
+
+                              {renderPostActionsMenu(rootPost)}
+                            </div>
+
+                            <div className="mt-1.5">
+                              {isEditingRoot ? (
+                                renderPostEditor(rootPost)
+                              ) : (
+                                <ForumRichContent
+                                  content={rootPost.content}
+                                  isSpoiler={rootPost.isSpoiler}
+                                  mentionUserIdByUsername={knownUsersMap}
+                                />
+                              )}
+                            </div>
+
+                            {/* Root Post Footer Actions */}
+                            <div className="mt-2.5 flex items-center gap-3.5 text-xs text-muted-foreground">
+                              <button
+                                type="button"
+                                onClick={() => handleTogglePostLike(rootPost)}
+                                disabled={Boolean(likingPostIds[rootPost.id])}
+                                className={cn(
+                                  'inline-flex items-center gap-1.5 transition-colors tabular-nums',
+                                  rootPost.viewerHasLiked
+                                    ? 'text-rose-500 font-medium'
+                                    : 'hover:text-rose-500',
                                 )}
-                              </DropdownMenuContent>
-                            </DropdownMenu>
-                          )}
+                              >
+                                <Heart
+                                  className={cn(
+                                    'h-4 w-4',
+                                    rootPost.viewerHasLiked && 'fill-current',
+                                  )}
+                                />
+                                <span>{rootPost.likeCount}</span>
+                              </button>
+
+                              {miniRepliers.length > 0 && (
+                                <div className="flex items-center -space-x-1.5">
+                                  {miniRepliers.map((replier) => (
+                                    <Avatar
+                                      key={replier.id}
+                                      className="h-5 w-5 ring-2 ring-background border border-border/60"
+                                    >
+                                      <AvatarImage
+                                        src={replier.authorAvatar || undefined}
+                                        alt={replier.authorUsername}
+                                      />
+                                      <AvatarFallback className="text-[9px]">
+                                        {getInitials(replier.authorUsername)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  ))}
+                                </div>
+                              )}
+
+                              {!topic.isLocked && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleOpenInlineReply(rootPost)}
+                                  className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors font-medium"
+                                >
+                                  <CornerUpLeft className="h-3.5 w-3.5" />
+                                  <span>Yanıtla</span>
+                                </button>
+                              )}
+                            </div>
+
+                            {renderInlineReplyBox(rootPost)}
+                          </div>
                         </div>
 
-                        {/* Quoted Parent Box */}
-                        {post.parentPostId && (
-                          <div className="rounded-lg border-l-2 border-primary/60 bg-muted/35 px-3 py-2 text-xs space-y-1">
-                            <span className="font-semibold text-foreground/90">
-                              @{post.parentAuthorUsername || 'Kullanıcı'}
-                            </span>
-                            {post.parentIsSpoiler ? (
-                              <p className="flex items-center gap-1.5 text-amber-500/90">
-                                <EyeOff className="h-3.5 w-3.5 shrink-0" />
-                                <span>Spoiler içerikli yanıt</span>
-                              </p>
-                            ) : (
-                              <p className="text-muted-foreground line-clamp-2 break-words">
-                                {post.parentContent || 'Yanıt silinmiş.'}
-                              </p>
-                            )}
-                          </div>
-                        )}
-
-                        {/* Post Content or Inline Editor */}
-                        {isEditing ? (
-                          <div className="space-y-3 pt-1">
-                            <Textarea
-                              value={editingPostContent}
-                              onChange={(event) => setEditingPostContent(event.target.value)}
-                              rows={3}
-                              maxLength={MAX_REPLY_LENGTH}
-                              disabled={isSavingPostEdit}
-                            />
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div className="flex items-center gap-2">
-                                <Switch
-                                  id={`edit-post-spoiler-${post.id}`}
-                                  checked={editingPostSpoiler}
-                                  onCheckedChange={setEditingPostSpoiler}
-                                  disabled={isSavingPostEdit}
-                                />
-                                <Label
-                                  htmlFor={`edit-post-spoiler-${post.id}`}
-                                  className="text-xs cursor-pointer"
-                                >
-                                  Spoiler içerir
-                                </Label>
-                              </div>
-                              <div className="flex items-center gap-2 ml-auto">
-                                <Button
-                                  type="button"
-                                  variant="outline"
-                                  size="sm"
-                                  onClick={() => setEditingPostId(null)}
-                                  disabled={isSavingPostEdit}
-                                >
-                                  İptal
-                                </Button>
-                                <Button
-                                  type="button"
-                                  size="sm"
-                                  onClick={() => handleSaveEditPost(post)}
-                                  disabled={isSavingPostEdit || !editingPostContent.trim()}
-                                  className="gap-1.5"
-                                >
-                                  {isSavingPostEdit && (
-                                    <Loader2 className="h-3.5 w-3.5 animate-spin" />
-                                  )}
-                                  <span>Kaydet</span>
-                                </Button>
-                              </div>
+                        {/* Curved L-Connector & Collapsible Reply Toggle */}
+                        {hasReplies && (
+                          <div className="flex items-center">
+                            <div className="w-[54px] shrink-0 flex justify-start pl-[19.25px]">
+                              <div className="w-6 h-4 border-l-[1.5px] border-b-[1.5px] border-border/75 rounded-bl-xl -mt-1.5" />
                             </div>
-                          </div>
-                        ) : (
-                          <ForumRichContent
-                            content={post.content}
-                            isSpoiler={post.isSpoiler}
-                            mentionUserIdByUsername={knownUsersMap}
-                          />
-                        )}
-
-                        {/* Post Footer */}
-                        <div className="pt-1 flex items-center gap-4 text-xs text-muted-foreground">
-                          <button
-                            type="button"
-                            onClick={() => handleTogglePostLike(post)}
-                            disabled={Boolean(likingPostIds[post.id])}
-                            className={cn(
-                              'inline-flex items-center gap-1 transition-colors tabular-nums',
-                              post.viewerHasLiked
-                                ? 'text-rose-500 font-medium'
-                                : 'hover:text-rose-500',
-                            )}
-                          >
-                            <Heart
-                              className={cn('h-3.5 w-3.5', post.viewerHasLiked && 'fill-current')}
-                            />
-                            <span>{post.likeCount}</span>
-                          </button>
-
-                          {user && !topic.isLocked && (
                             <button
                               type="button"
-                              onClick={() => handleQuotePost(post)}
-                              className="inline-flex items-center gap-1 hover:text-foreground transition-colors"
+                              onClick={() =>
+                                setExpandedThreads((prev) => ({
+                                  ...prev,
+                                  [rootPost.id]: !prev[rootPost.id],
+                                }))
+                              }
+                              className="inline-flex items-center gap-1.5 pt-1 text-xs font-semibold text-foreground/85 hover:text-primary transition-colors"
                             >
-                              <CornerUpLeft className="h-3.5 w-3.5" />
-                              <span>Alıntıla</span>
+                              <span>
+                                {isExpanded
+                                  ? `${threadReplies.length} yanıtı gizle`
+                                  : `${threadReplies.length} yanıt`}
+                              </span>
+                              {isExpanded ? (
+                                <ChevronUp className="h-3.5 w-3.5" />
+                              ) : (
+                                <ChevronDown className="h-3.5 w-3.5" />
+                              )}
                             </button>
-                          )}
-                        </div>
-                      </article>
+                          </div>
+                        )}
+
+                        {/* Expanded Nested Replies List */}
+                        {hasReplies && isExpanded && (
+                          <div className="mt-3 ml-[54px] space-y-4 border-l border-border/50 pl-4">
+                            {threadReplies.map((reply) => {
+                              const isEditingReply = editingPostId === reply.id;
+                              const isReplyHighlighted = highlightedPostId === reply.id;
+
+                              return (
+                                <div
+                                  key={reply.id}
+                                  id={`post-${reply.id}`}
+                                  className={cn(
+                                    'flex items-start gap-3 min-w-0 rounded-lg transition-colors',
+                                    isReplyHighlighted &&
+                                      'bg-primary/5 ring-1 ring-primary/40 p-2 -m-2',
+                                  )}
+                                >
+                                  <Link to={`/profile/${reply.userId}`} className="shrink-0">
+                                    <Avatar className="h-8 w-8 border border-border/60">
+                                      <AvatarImage
+                                        src={reply.authorAvatar || undefined}
+                                        alt={reply.authorUsername}
+                                      />
+                                      <AvatarFallback className="text-[11px]">
+                                        {getInitials(reply.authorUsername)}
+                                      </AvatarFallback>
+                                    </Avatar>
+                                  </Link>
+
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-start justify-between gap-2">
+                                      <div className="flex items-center gap-1.5 flex-wrap min-w-0 text-xs pt-0.5">
+                                        <Link
+                                          to={`/profile/${reply.userId}`}
+                                          className={cn(
+                                            'text-sm font-semibold hover:underline truncate max-w-[180px]',
+                                            getStaffTextClassName(reply.authorRole),
+                                          )}
+                                        >
+                                          {reply.authorUsername}
+                                        </Link>
+                                        <StaffBadge role={reply.authorRole} compact />
+                                        <span
+                                          className="text-muted-foreground shrink-0"
+                                          title={formatFullDate(reply.createdAt)}
+                                        >
+                                          {formatRelativeTime(reply.createdAt)}
+                                        </span>
+                                        {isEditedTimestamp(reply.createdAt, reply.updatedAt) && (
+                                          <span className="text-muted-foreground shrink-0">
+                                            · Düzenlendi
+                                          </span>
+                                        )}
+                                      </div>
+
+                                      {renderPostActionsMenu(reply)}
+                                    </div>
+
+                                    <div className="mt-1">
+                                      {isEditingReply ? (
+                                        renderPostEditor(reply)
+                                      ) : (
+                                        <ForumRichContent
+                                          content={reply.content}
+                                          isSpoiler={reply.isSpoiler}
+                                          mentionUserIdByUsername={knownUsersMap}
+                                        />
+                                      )}
+                                    </div>
+
+                                    <div className="mt-2 flex items-center gap-3.5 text-xs text-muted-foreground">
+                                      <button
+                                        type="button"
+                                        onClick={() => handleTogglePostLike(reply)}
+                                        disabled={Boolean(likingPostIds[reply.id])}
+                                        className={cn(
+                                          'inline-flex items-center gap-1.5 transition-colors tabular-nums',
+                                          reply.viewerHasLiked
+                                            ? 'text-rose-500 font-medium'
+                                            : 'hover:text-rose-500',
+                                        )}
+                                      >
+                                        <Heart
+                                          className={cn(
+                                            'h-3.5 w-3.5',
+                                            reply.viewerHasLiked && 'fill-current',
+                                          )}
+                                        />
+                                        <span>{reply.likeCount}</span>
+                                      </button>
+
+                                      {!topic.isLocked && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleOpenInlineReply(reply)}
+                                          className="inline-flex items-center gap-1.5 hover:text-foreground transition-colors font-medium"
+                                        >
+                                          <CornerUpLeft className="h-3.5 w-3.5" />
+                                          <span>Yanıtla</span>
+                                        </button>
+                                      )}
+                                    </div>
+
+                                    {renderInlineReplyBox(reply)}
+                                  </div>
+                                </div>
+                              );
+                            })}
+                          </div>
+                        )}
+                      </div>
                     );
                   })}
                 </div>
               )}
 
               {hasMorePosts && (
-                <div className="flex justify-center pt-2">
+                <div className="flex justify-center pt-4">
                   <Button
                     type="button"
                     variant="outline"
@@ -1248,7 +1780,7 @@ const ForumTopicDetail: React.FC = () => {
                     className="gap-2"
                   >
                     {isLoadingMorePosts && <Loader2 className="h-4 w-4 animate-spin" />}
-                    <span>Daha fazla yanıt yükle</span>
+                    <span>Daha fazla yorum yükle</span>
                   </Button>
                 </div>
               )}

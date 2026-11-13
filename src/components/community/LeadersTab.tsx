@@ -32,6 +32,7 @@ interface LeaderboardEntry {
   ownerRole?: User['role'];
   avatarUrl?: string;
   coverUrl?: string;
+  previewCovers?: string[];
   value: number;
   unitLabel: string;
   role?: User['role'];
@@ -204,12 +205,36 @@ const LeadersTab: React.FC = () => {
             .map(([listId]) => listId);
 
           if (topListIds.length > 0) {
-            const { data: listsData, error: listsError } = await supabase
-              .from('reading_lists')
-              .select('id, name, user_id, image_url, is_public')
-              .in('id', topListIds)
-              .eq('is_public', true);
+            const [{ data: listsData, error: listsError }, { data: itemRows }] = await Promise.all([
+              supabase
+                .from('reading_lists')
+                .select('id, name, user_id, image_url, is_public')
+                .in('id', topListIds)
+                .eq('is_public', true),
+              supabase
+                .from('reading_list_items')
+                .select('list_id, created_at, mangas:manga_id(cover)')
+                .in('list_id', topListIds)
+                .order('created_at', { ascending: true }),
+            ]);
             if (listsError) throw listsError;
+
+            const previewCoversMap = new Map<string, string[]>();
+            for (const row of (itemRows || []) as Array<{
+              list_id?: string | null;
+              mangas?: { cover?: string | null } | Array<{ cover?: string | null }> | null;
+            }>) {
+              const listId = row.list_id;
+              if (!listId) continue;
+              const mangaObj = Array.isArray(row.mangas) ? row.mangas[0] : row.mangas;
+              const cover = mangaObj?.cover?.trim();
+              if (!cover) continue;
+              const existing = previewCoversMap.get(listId) || [];
+              if (existing.length < 4 && !existing.includes(cover)) {
+                existing.push(cover);
+                previewCoversMap.set(listId, existing);
+              }
+            }
 
             const listRows = (listsData || []) as Array<{
               id: string;
@@ -225,6 +250,7 @@ const LeadersTab: React.FC = () => {
                 const list = listMap.get(listId);
                 if (!list) return null;
                 const owner = usersMap.get(list.user_id);
+                const previewCovers = previewCoversMap.get(list.id) || [];
                 return {
                   id: list.id,
                   title: list.name,
@@ -232,7 +258,8 @@ const LeadersTab: React.FC = () => {
                   ownerLink: owner ? `/profile/${owner.id}` : undefined,
                   ownerName: owner?.username || 'Kullanıcı',
                   ownerRole: owner?.role,
-                  coverUrl: list.image_url || undefined,
+                  coverUrl: list.image_url || previewCovers[0] || undefined,
+                  previewCovers: list.image_url ? undefined : previewCovers,
                   value: likeCountMap.get(listId) || 0,
                   unitLabel: 'beğeni',
                 };
@@ -392,8 +419,10 @@ const LeadersTab: React.FC = () => {
                     {isReadingListMode ? (
                       <ReadingListCover
                         imageUrl={entry.coverUrl}
+                        previewCovers={entry.previewCovers}
                         alt={entry.title}
-                        className="h-16 w-16 rounded-xl border border-border/60"
+                        className="h-20 w-16 rounded-xl border border-border/60"
+                        iconClassName="h-6 w-6"
                         showLabel={false}
                       />
                     ) : (
@@ -473,8 +502,10 @@ const LeadersTab: React.FC = () => {
                         {isReadingListMode ? (
                           <ReadingListCover
                             imageUrl={entry.coverUrl}
+                            previewCovers={entry.previewCovers}
                             alt={entry.title}
-                            className="h-9 w-9 rounded-lg border border-border/60"
+                            className="h-10 w-9 rounded-lg border border-border/60"
+                            iconClassName="h-4 w-4"
                             showLabel={false}
                           />
                         ) : (
