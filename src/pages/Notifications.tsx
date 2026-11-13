@@ -250,7 +250,7 @@ const Notifications: React.FC = () => {
                                     ? 'bg-primary/5 border-primary/20'
                                     : 'bg-card/50 border-border'
                                     }`}
-                                style={{ animationDelay: `${0.1 + index * 0.05}s`, animationFillMode: 'forwards' }}
+                                style={{ animationDelay: `${0.1 + index * 0.05}s` }}
                             >
                                 {/* Icon */}
                                 <div className="flex-shrink-0">

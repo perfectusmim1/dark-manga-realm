@@ -1,6 +1,7 @@
 import { BookOpenText, Compass, House, Library, LogIn, UserRound, type LucideIcon } from 'lucide-react';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '@/contexts/AuthContext';
+import { prefetchRouteForPathname } from '@/lib/routeModules';
 import { cn } from '@/lib/utils';
 
 const HIDDEN_NATIVE_APP_NAV_PATTERN = /^\/(?:auth|admin(?:\/|$)|manga\/[^/]+\/chapter\/[^/]+$)/;
@@ -20,6 +21,7 @@ const isBrowsePath = (pathname: string) => (
   pathname === '/browse'
   || pathname === '/top-ten'
   || pathname === '/community'
+  || pathname.startsWith('/community/')
   || pathname === '/characters'
   || pathname === '/authors'
   || pathname === '/artists'
@@ -107,6 +109,8 @@ const NativeAppBottomNav = () => {
             <Link
               key={item.label}
               to={item.path}
+              onPointerEnter={() => prefetchRouteForPathname(item.path)}
+              onFocus={() => prefetchRouteForPathname(item.path)}
               className={cn(
                 'flex min-w-0 flex-col items-center justify-center gap-1 rounded-2xl px-2 py-2.5 text-[11px] font-semibold transition-all duration-200',
                 isActive

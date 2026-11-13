@@ -129,7 +129,6 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
                   className="group relative flex flex-col items-center pt-2 text-center animate-fade-up"
                   style={{
                     animationDelay: `${0.06 + Math.min(index, PAGE_SIZE - 1) * 0.025}s`,
-                    animationFillMode: 'forwards',
                     contentVisibility: 'auto',
                     containIntrinsicSize: '220px 380px',
                   }}

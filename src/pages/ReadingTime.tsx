@@ -199,7 +199,7 @@ const OverviewCard = ({
 }) => (
     <div
         className="animate-fade-up aspect-[1.05/1] min-h-[8.5rem] rounded-3xl border border-border bg-card/50 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl sm:p-5"
-        style={{ animationDelay: `${0.1 + index * 0.03}s`, animationFillMode: 'forwards' }}
+        style={{ animationDelay: `${0.1 + index * 0.03}s` }}
     >
         <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">{label}</p>
         <p className={`mt-2 break-words text-[clamp(1.55rem,5.4vw,2rem)] font-bold leading-tight ${accentClassName}`}>
@@ -902,7 +902,7 @@ const ReadingTime: React.FC = () => {
 
                 <div
                     className="mt-6 animate-fade-up rounded-3xl border border-border bg-card/35 p-4 sm:mt-8 sm:p-5 md:p-6"
-                    style={{ animationDelay: '0.18s', animationFillMode: 'forwards' }}
+                    style={{ animationDelay: '0.18s' }}
                 >
                     <Tabs
                         value={range}

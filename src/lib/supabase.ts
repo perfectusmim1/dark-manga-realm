@@ -937,6 +937,140 @@ export type Database = {
                 };
                 Update: Partial<Database['public']['Tables']['artist_comments']['Insert']>;
             };
+            forum_topics: {
+                Row: {
+                    id: string;
+                    user_id: string;
+                    category: 'genel-sohbet' | 'tanisma' | 'seri-sohbetleri' | 'bolum-tartismalari' | 'oneri-tavsiye' | 'site-geri-bildirim';
+                    title: string;
+                    content: string;
+                    manga_id: string | null;
+                    chapter_id: string | null;
+                    is_pinned: boolean;
+                    is_locked: boolean;
+                    is_spoiler: boolean;
+                    reply_count: number;
+                    like_count: number;
+                    last_post_at: string;
+                    last_post_user_id: string | null;
+                    created_at: string;
+                    updated_at: string;
+                };
+                Insert: {
+                    id?: string;
+                    user_id: string;
+                    category: 'genel-sohbet' | 'tanisma' | 'seri-sohbetleri' | 'bolum-tartismalari' | 'oneri-tavsiye' | 'site-geri-bildirim';
+                    title: string;
+                    content: string;
+                    manga_id?: string | null;
+                    chapter_id?: string | null;
+                    is_pinned?: boolean;
+                    is_locked?: boolean;
+                    is_spoiler?: boolean;
+                    reply_count?: number;
+                    like_count?: number;
+                    last_post_at?: string;
+                    last_post_user_id?: string | null;
+                    created_at?: string;
+                    updated_at?: string;
+                };
+                Update: Partial<Database['public']['Tables']['forum_topics']['Insert']>;
+            };
+            forum_posts: {
+                Row: {
+                    id: string;
+                    topic_id: string;
+                    user_id: string;
+                    parent_post_id: string | null;
+                    content: string;
+                    is_spoiler: boolean;
+                    like_count: number;
+                    created_at: string;
+                    updated_at: string;
+                };
+                Insert: {
+                    id?: string;
+                    topic_id: string;
+                    user_id: string;
+                    parent_post_id?: string | null;
+                    content: string;
+                    is_spoiler?: boolean;
+                    like_count?: number;
+                    created_at?: string;
+                    updated_at?: string;
+                };
+                Update: Partial<Database['public']['Tables']['forum_posts']['Insert']>;
+            };
+            forum_topic_likes: {
+                Row: {
+                    topic_id: string;
+                    user_id: string;
+                    created_at: string;
+                };
+                Insert: {
+                    topic_id: string;
+                    user_id: string;
+                    created_at?: string;
+                };
+                Update: Partial<Database['public']['Tables']['forum_topic_likes']['Insert']>;
+            };
+            forum_post_likes: {
+                Row: {
+                    post_id: string;
+                    user_id: string;
+                    created_at: string;
+                };
+                Insert: {
+                    post_id: string;
+                    user_id: string;
+                    created_at?: string;
+                };
+                Update: Partial<Database['public']['Tables']['forum_post_likes']['Insert']>;
+            };
+            forum_reports: {
+                Row: {
+                    id: string;
+                    target_type: 'topic' | 'post';
+                    topic_id: string;
+                    post_id: string | null;
+                    reporter_id: string;
+                    reported_user_id: string;
+                    reason: string;
+                    details: string | null;
+                    status: 'open' | 'reviewed' | 'resolved' | 'dismissed';
+                    created_at: string;
+                    updated_at: string;
+                };
+                Insert: {
+                    id?: string;
+                    target_type: 'topic' | 'post';
+                    topic_id: string;
+                    post_id?: string | null;
+                    reporter_id: string;
+                    reported_user_id: string;
+                    reason: string;
+                    details?: string | null;
+                    status?: 'open' | 'reviewed' | 'resolved' | 'dismissed';
+                    created_at?: string;
+                    updated_at?: string;
+                };
+                Update: Partial<Database['public']['Tables']['forum_reports']['Insert']>;
+            };
+            tier_list_likes: {
+                Row: {
+                    id: string;
+                    tier_list_id: string;
+                    user_id: string;
+                    created_at: string;
+                };
+                Insert: {
+                    id?: string;
+                    tier_list_id: string;
+                    user_id: string;
+                    created_at?: string;
+                };
+                Update: Partial<Database['public']['Tables']['tier_list_likes']['Insert']>;
+            };
         };
     };
 };

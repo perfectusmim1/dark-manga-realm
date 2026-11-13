@@ -248,7 +248,7 @@ const Profile: React.FC = () => {
     return (
       <div className="min-h-screen bg-background">
         <Header />
-        <main className="container pt-24 pb-12 text-center animate-in fade-in duration-500">
+        <main className="container pt-24 pb-12 text-center">
            <div className="max-w-md mx-auto py-16 px-6 bg-card border border-border rounded-2xl shadow-xl">
              <ShieldAlert className="w-16 h-16 mx-auto text-red-500 mb-6" />
              <h1 className="text-2xl font-bold mb-4">Profil Erişilemez</h1>
@@ -268,7 +268,7 @@ const Profile: React.FC = () => {
     <div className="min-h-screen bg-background">
       <Header />
       
-      <main className="container pt-24 pb-12 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <main className="container pt-24 pb-12">
         {/* Profile Header */}
         <div className="flex flex-col md:flex-row items-center md:items-start gap-8 border-b border-border pb-8">
           <Avatar className="w-32 h-32 md:w-40 md:h-40 border-4 border-background shadow-xl">

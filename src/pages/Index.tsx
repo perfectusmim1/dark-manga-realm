@@ -804,7 +804,6 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     sectionStyle.animationDelay = delay;
     sectionStyle.animationDuration = `${sectionAnimationDurationMs}ms`;
     sectionStyle.animationTimingFunction = 'cubic-bezier(0.22, 1, 0.36, 1)';
-    sectionStyle.animationFillMode = 'forwards';
   }
 
   return (

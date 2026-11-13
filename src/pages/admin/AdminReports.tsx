@@ -8,6 +8,7 @@ import {
     Flag,
     Loader2,
     MessageSquare,
+    MessagesSquare,
     ShieldX,
     Star,
     UserCircle2,
@@ -32,6 +33,7 @@ import {
     updateProfileReportStatus,
     updateReviewReportStatus,
 } from '@/lib/database';
+import { ForumReport, getForumReports, updateForumReportStatus } from '@/lib/forum';
 import { cn } from '@/lib/utils';
 import { toast } from 'sonner';
 
@@ -242,27 +244,31 @@ const AdminReports: React.FC = () => {
     const [commentReports, setCommentReports] = useState<CommentReport[]>([]);
     const [reviewReports, setReviewReports] = useState<ReviewReport[]>([]);
     const [profileReports, setProfileReports] = useState<ProfileReport[]>([]);
+    const [forumReports, setForumReports] = useState<ForumReport[]>([]);
     const [isLoading, setIsLoading] = useState(true);
     const [isLoadingProfileReports, setIsLoadingProfileReports] = useState(false);
     const [hasLoadedProfileReports, setHasLoadedProfileReports] = useState(false);
-    const [activeTab, setActiveTab] = useState<'manga' | 'comments' | 'reviews' | 'profiles'>('manga');
+    const [activeTab, setActiveTab] = useState<'manga' | 'comments' | 'reviews' | 'profiles' | 'forum'>('manga');
     const [mangaStatusTab, setMangaStatusTab] = useState<ReportStatus>('open');
     const [commentStatusTab, setCommentStatusTab] = useState<ReportStatus>('open');
     const [reviewStatusTab, setReviewStatusTab] = useState<ReportStatus>('open');
     const [profileStatusTab, setProfileStatusTab] = useState<ReportStatus>('open');
+    const [forumStatusTab, setForumStatusTab] = useState<ReportStatus>('open');
     const [updatingId, setUpdatingId] = useState<string | null>(null);
 
     const loadReports = async () => {
         setIsLoading(true);
         try {
-            const [mangaData, commentData, reviewData] = await Promise.all([
+            const [mangaData, commentData, reviewData, forumData] = await Promise.all([
                 getMangaReports(),
                 getCommentReports(),
                 getReviewReports(),
+                getForumReports(),
             ]);
             setMangaReports(mangaData);
             setCommentReports(commentData);
             setReviewReports(reviewData);
+            setForumReports(forumData);
         } catch (error) {
             console.error('Admin reports load error:', error);
             toast.error('Raporlar yüklenemedi');
@@ -318,6 +324,7 @@ const AdminReports: React.FC = () => {
     const commentCounts = useMemo(() => buildStatusCounts(commentReports), [commentReports]);
     const reviewCounts = useMemo(() => buildStatusCounts(reviewReports), [reviewReports]);
     const profileCounts = useMemo(() => buildStatusCounts(profileReports), [profileReports]);
+    const forumCounts = useMemo(() => buildStatusCounts(forumReports), [forumReports]);
 
     const filteredMangaReports = useMemo(
         () => mangaReports.filter((report) => report.status === mangaStatusTab),
@@ -334,6 +341,10 @@ const AdminReports: React.FC = () => {
     const filteredProfileReports = useMemo(
         () => profileReports.filter((report) => report.status === profileStatusTab),
         [profileReports, profileStatusTab],
+    );
+    const filteredForumReports = useMemo(
+        () => forumReports.filter((report) => report.status === forumStatusTab),
+        [forumReports, forumStatusTab],
     );
 
     const handleMangaStatusChange = async (id: string, status: ReportStatus) => {
@@ -408,6 +419,24 @@ const AdminReports: React.FC = () => {
         }
     };
 
+    const handleForumStatusChange = async (id: string, status: ReportStatus) => {
+        try {
+            setUpdatingId(id);
+            await updateForumReportStatus(id, status);
+            setForumReports((current) => current.map((report) => (
+                report.id === id
+                    ? { ...report, status, updatedAt: new Date().toISOString() }
+                    : report
+            )));
+            toast.success('Forum bildirimi güncellendi');
+        } catch (error) {
+            console.error('Forum report status change error:', error);
+            toast.error('Durum güncellenemedi');
+        } finally {
+            setUpdatingId(null);
+        }
+    };
+
     return (
         <div className="space-y-6 lg:space-y-8">
             <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -419,7 +448,7 @@ const AdminReports: React.FC = () => {
                 </div>
 
                 <Badge variant="outline" className="w-fit px-3 py-1 text-sm">
-                    {mangaReports.length + commentReports.length + reviewReports.length + profileReports.length} toplam rapor
+                    {mangaReports.length + commentReports.length + reviewReports.length + profileReports.length + forumReports.length} toplam rapor
                 </Badge>
             </div>
 
@@ -428,7 +457,7 @@ const AdminReports: React.FC = () => {
             ) : (
                 <Tabs
                     value={activeTab}
-                    onValueChange={(value) => setActiveTab(value as 'manga' | 'comments' | 'reviews' | 'profiles')}
+                    onValueChange={(value) => setActiveTab(value as 'manga' | 'comments' | 'reviews' | 'profiles' | 'forum')}
                     className="space-y-6"
                 >
                     <TabsList className="h-auto flex-wrap justify-start gap-2 rounded-2xl bg-secondary/40 p-1">
@@ -458,6 +487,13 @@ const AdminReports: React.FC = () => {
                             Profil Bildirimleri
                             <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">
                                 {profileReports.length}
+                            </Badge>
+                        </TabsTrigger>
+                        <TabsTrigger value="forum" className="gap-2">
+                            <MessagesSquare className="h-4 w-4" />
+                            Forum Bildirimleri
+                            <Badge variant="secondary" className="ml-1 h-5 min-w-5 px-1.5">
+                                {forumReports.length}
                             </Badge>
                         </TabsTrigger>
                     </TabsList>
@@ -765,6 +801,91 @@ const AdminReports: React.FC = () => {
                                         </div>
                                     </div>
                                 ))}
+                            </div>
+                        )}
+                    </TabsContent>
+
+                    <TabsContent value="forum" className="mt-0 space-y-6">
+                        <StatusTabs counts={forumCounts} value={forumStatusTab} onValueChange={setForumStatusTab} />
+
+                        {filteredForumReports.length === 0 ? (
+                            <EmptyState label="Bu durum filtresinde forum bildirimi yok." />
+                        ) : (
+                            <div className="grid gap-4">
+                                {filteredForumReports.map((report) => {
+                                    const targetPath = `/community/topic/${report.topicId}${
+                                        report.postId ? `?postId=${encodeURIComponent(report.postId)}` : ''
+                                    }`;
+
+                                    return (
+                                        <div
+                                            key={report.id}
+                                            className={cn('rounded-2xl border p-4 sm:p-6', statusToneClassNames[report.status].card)}
+                                        >
+                                            <div className="flex flex-col gap-5 xl:flex-row xl:items-start xl:justify-between">
+                                                <div className="min-w-0 flex-1 space-y-3">
+                                                    <div className="flex flex-wrap items-center gap-2">
+                                                        <h2 className="text-lg font-semibold sm:text-xl break-words">
+                                                            {report.topicTitle || 'Forum Konusu'}
+                                                        </h2>
+                                                        <Badge variant="outline">
+                                                            {report.targetType === 'post' ? 'Yanıt' : 'Konu'}
+                                                        </Badge>
+                                                        <StatusBadge status={report.status} />
+                                                    </div>
+
+                                                    <ReportMetaRow
+                                                        items={[
+                                                            `bildiren: ${report.reporterUsername || report.reporterId}`,
+                                                            `hedef: ${report.reportedUsername || report.reportedUserId}`,
+                                                            formatDate(report.createdAt),
+                                                            `güncellendi: ${formatDate(report.updatedAt)}`,
+                                                        ]}
+                                                    />
+
+                                                    <div className="rounded-2xl border border-border/60 bg-background/40 p-4 space-y-3">
+                                                        <div>
+                                                            <p className="text-sm font-medium">Neden</p>
+                                                            <p className="mt-1 text-sm text-foreground/90">{report.reason}</p>
+                                                        </div>
+
+                                                        {report.details ? (
+                                                            <div>
+                                                                <p className="text-sm font-medium">Detay</p>
+                                                                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground">{report.details}</p>
+                                                            </div>
+                                                        ) : null}
+
+                                                        {report.contentPreview ? (
+                                                            <div>
+                                                                <p className="text-sm font-medium">İçerik Önizlemesi</p>
+                                                                <p className="mt-1 whitespace-pre-wrap text-sm text-muted-foreground break-words">
+                                                                    {report.contentPreview}
+                                                                </p>
+                                                            </div>
+                                                        ) : null}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex flex-col gap-3 xl:w-[320px] xl:items-end">
+                                                    {report.topicId ? (
+                                                        <Button asChild variant="outline" size="sm" className="gap-2">
+                                                            <Link to={targetPath}>
+                                                                <ArrowUpRight className="h-4 w-4" />
+                                                                {report.targetType === 'post' ? 'Yanıta Git' : 'Konuya Git'}
+                                                            </Link>
+                                                        </Button>
+                                                    ) : null}
+                                                    <StatusActionButtons
+                                                        currentStatus={report.status}
+                                                        onChange={(status) => void handleForumStatusChange(report.id, status)}
+                                                        isBusy={updatingId === report.id}
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+                                    );
+                                })}
                             </div>
                         )}
                     </TabsContent>

@@ -4092,7 +4092,7 @@ const MangaDetail: React.FC = () => {
                           key={`${bookmark.chapterId}-${bookmark.page}-${bookmark.createdAt || index}`}
                           to={`/manga/${manga.id}/chapter/${bookmark.chapterId}?page=${bookmark.page}${bookmark.pageOffsetRatio && bookmark.pageOffsetRatio > 0.005 ? `&offset=${bookmark.pageOffsetRatio.toFixed(3)}` : ''}`}
                           className="group flex min-h-[176px] gap-4 rounded-2xl border border-border bg-card/50 p-4 shadow-sm transition-all hover:-translate-y-0.5 hover:border-primary/30 hover:bg-card/70 sm:min-h-[204px] sm:gap-5 sm:p-5 lg:p-6 animate-fade-up [transform:translateZ(0)]"
-                          style={{ animationDelay: `${0.08 + index * 0.04}s`, animationFillMode: 'forwards' }}
+                          style={{ animationDelay: `${0.08 + index * 0.04}s` }}
                         >
                           <BookmarkPagePreview
                             src={previewImage}

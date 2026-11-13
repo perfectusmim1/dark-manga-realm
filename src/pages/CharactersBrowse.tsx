@@ -47,7 +47,7 @@ const CharactersBrowse: React.FC = () => {
   return (
     <div className="min-h-screen bg-background flex flex-col pt-16">
       <Header />
-      <main className="flex-1 container mx-auto max-w-7xl px-4 py-8 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <main className="flex-1 container mx-auto max-w-7xl px-4 py-8">
         <EntityBrowseGrid
           title="Popüler Karakterler"
           

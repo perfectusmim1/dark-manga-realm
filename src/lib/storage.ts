@@ -2171,7 +2171,7 @@ type UserNotificationSettings = {
     new_chapter: boolean;
 };
 
-const fetchUserNotificationSettingsMap = async (
+export const fetchUserNotificationSettingsMap = async (
     userIds: string[],
 ): Promise<Map<string, UserNotificationSettings>> => {
     const result = new Map<string, UserNotificationSettings>();

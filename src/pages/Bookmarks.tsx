@@ -232,7 +232,6 @@ const Bookmarks: React.FC = () => {
                     className="group relative flex flex-col overflow-hidden rounded-xl border border-border bg-card/50 transition-all hover:shadow-xl animate-fade-up"
                     style={{
                       animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
-                      animationFillMode: 'forwards',
                     }}
                   >
                     <Link

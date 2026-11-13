@@ -77,6 +77,7 @@ import {
 import { useHeaderShellSnapshot } from '@/hooks/useHeaderShellSnapshot';
 import { useBootstrappedAppearancePreferences } from '@/hooks/useBootstrappedAppearancePreferences';
 import { shouldRenderHeaderBootstrap } from '@/components/layout/HeaderBootstrapShell';
+import { prefetchRouteForPathname } from '@/lib/routeModules';
 
 const CHARACTER_MENU_LONG_PRESS_MS = 320;
 const NotificationDropdown = lazy(() => import('@/components/notifications/NotificationDropdown'));
@@ -397,7 +398,10 @@ const HeaderContent: React.FC = () => {
     clearQuickSearch();
   };
 
-  const isActive = (path: string) => location.pathname === path;
+  const isActive = (path: string) =>
+    path === '/community'
+      ? location.pathname === '/community' || location.pathname.startsWith('/community/')
+      : location.pathname === path;
   const isCharactersSectionActive = (
     location.pathname === '/characters'
     || location.pathname === '/authors'
@@ -779,6 +783,8 @@ const HeaderContent: React.FC = () => {
                 >
                   <Link
                     to={link.path}
+                    onPointerEnter={() => prefetchRouteForPathname(link.path)}
+                    onFocus={() => prefetchRouteForPathname(link.path)}
                     className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
                       isCharactersSectionActive
                         ? 'text-primary'
@@ -814,6 +820,8 @@ const HeaderContent: React.FC = () => {
               <Link
                 key={link.path}
                 to={link.path}
+                onPointerEnter={() => prefetchRouteForPathname(link.path)}
+                onFocus={() => prefetchRouteForPathname(link.path)}
                 className={
                   link.featured
                     ? `inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors ${
@@ -1213,6 +1221,8 @@ const HeaderContent: React.FC = () => {
                       <Link
                         to={link.path}
                         onClick={handleMobileCharactersLinkClick}
+                        onPointerEnter={() => prefetchRouteForPathname(link.path)}
+                        onFocus={() => prefetchRouteForPathname(link.path)}
                         onTouchStart={handleMobileCharactersLongPressStart}
                         onTouchEnd={handleMobileCharactersLongPressCancel}
                         onTouchCancel={handleMobileCharactersLongPressCancel}
@@ -1263,6 +1273,8 @@ const HeaderContent: React.FC = () => {
                   key={link.path}
                   to={link.path}
                   onClick={() => setIsMenuOpen(false)}
+                  onPointerEnter={() => prefetchRouteForPathname(link.path)}
+                  onFocus={() => prefetchRouteForPathname(link.path)}
                   className={`flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
                     link.featured
                       ? 'border border-primary/20 bg-primary/10 text-primary hover:bg-primary/15'

@@ -168,7 +168,7 @@ const Announcements: React.FC = () => {
                                 <article
                                     key={announcement.id}
                                     className={`rounded-2xl border p-6 transition-colors animate-fade-up ${isRead ? 'border-border bg-card/40' : 'border-amber-500/20 bg-amber-500/5'}`}
-                                    style={{ animationDelay: `${0.05 + index * 0.03}s`, animationFillMode: 'forwards' }}
+                                    style={{ animationDelay: `${0.05 + index * 0.03}s` }}
                                     onMouseEnter={() => void handleMarkAsRead(announcement.id)}
                                 >
                                     <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

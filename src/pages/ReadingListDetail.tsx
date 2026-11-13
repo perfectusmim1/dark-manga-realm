@@ -340,7 +340,7 @@ const ReadingListDetail: React.FC = () => {
                 <Link
                     to="/reading-lists"
                     className="mb-6 flex w-fit animate-fade-up items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                    style={{ animationDelay: '40ms', animationFillMode: 'forwards' }}
+                    style={{ animationDelay: '40ms' }}
                 >
                     <ChevronLeft className="h-4 w-4" />
                     Listelerime Dön
@@ -356,7 +356,7 @@ const ReadingListDetail: React.FC = () => {
 
                 <div
                     className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 backdrop-blur-sm"
-                    style={{ animationDelay: '90ms', animationFillMode: 'forwards' }}
+                    style={{ animationDelay: '90ms' }}
                 >
                     <ReadingListCover
                         imageUrl={list.imageUrl}
@@ -523,7 +523,7 @@ const ReadingListDetail: React.FC = () => {
                 ) : (
                     <div
                         className="flex animate-fade-up flex-col items-center justify-center py-20 text-center"
-                        style={{ animationDelay: '140ms', animationFillMode: 'forwards' }}
+                        style={{ animationDelay: '140ms' }}
                     >
                         <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />
                         <p className="text-muted-foreground">Bu liste henüz boş.</p>

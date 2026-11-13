@@ -178,7 +178,6 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
       style={disableHeavyEffects || !enableEntryAnimation ? undefined : {
         animationDelay: `${index * entryAnimationDelayStepMs}ms`,
         animationDuration: `${entryAnimationDurationMs}ms`,
-        animationFillMode: 'forwards',
       }}
     >
       <Link

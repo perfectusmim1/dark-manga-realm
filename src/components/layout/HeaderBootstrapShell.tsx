@@ -70,7 +70,9 @@ const HeaderBootstrapShell = () => {
                 || location.pathname.startsWith('/author/')
                 || location.pathname.startsWith('/artist/')
               )
-              : location.pathname === link.path;
+              : link.path === '/community'
+                ? location.pathname === '/community' || location.pathname.startsWith('/community/')
+                : location.pathname === link.path;
 
             return (
               <Link

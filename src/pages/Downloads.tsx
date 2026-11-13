@@ -241,7 +241,7 @@ const Downloads: React.FC = () => {
             <div
               key={item.label}
               className="animate-fade-up aspect-[1/1] min-h-[8.25rem] rounded-2xl border border-border bg-card/40 p-4 backdrop-blur-sm sm:aspect-auto sm:min-h-0 sm:p-5"
-              style={{ animationDelay: `${0.08 + index * 0.03}s`, animationFillMode: 'forwards' }}
+              style={{ animationDelay: `${0.08 + index * 0.03}s` }}
             >
               <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-xs">{item.label}</p>
               <p className="mt-3 text-xl font-black tracking-tight sm:text-2xl">{item.value}</p>
@@ -255,7 +255,7 @@ const Downloads: React.FC = () => {
 
         <section
           className="mt-6 animate-fade-up rounded-2xl border border-border bg-card/35 p-4 backdrop-blur-sm sm:p-5"
-          style={{ animationDelay: '0.22s', animationFillMode: 'forwards' }}
+          style={{ animationDelay: '0.22s' }}
         >
           <div className="flex flex-col gap-3 sm:gap-4 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0">
@@ -346,7 +346,7 @@ const Downloads: React.FC = () => {
                 <section
                   key={entry.manga.mangaId}
                   className="animate-fade-up overflow-hidden rounded-3xl border border-border bg-card/35 backdrop-blur-sm"
-                  style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.035}s`, animationFillMode: 'forwards' }}
+                  style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.035}s` }}
                 >
                   <div className="p-4 sm:p-6">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">

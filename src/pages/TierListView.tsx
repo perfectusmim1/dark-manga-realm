@@ -4,13 +4,26 @@ import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import { supabase } from '@/lib/supabase';
 import { getAllMangas, getCharacters, getCharacterSeriesMap, getTierListById } from '@/lib/database';
+import { getTierListLikeSummary, toggleTierListLike } from '@/lib/communityCatalog';
+import { cn } from '@/lib/utils';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { ArrowLeft, Edit, Globe, Lock, Trophy, User } from 'lucide-react';
+import { ArrowLeft, Edit, Globe, Heart, Lock, Trophy, User } from 'lucide-react';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import TierItemCard from '@/components/tierlist/TierItemCard';
+
+type TierListRecord = NonNullable<Awaited<ReturnType<typeof getTierListById>>>;
+
+interface TierDisplayItem {
+  id: string;
+  title?: string;
+  name?: string;
+  cover?: string;
+  image?: string;
+}
 
 const defaultTiers = [
   { id: 'S', color: 'bg-red-500' },
@@ -45,30 +58,23 @@ export default function TierListView() {
   const { isOnline } = useEffectiveOnlineStatus();
   const navigate = useNavigate();
 
-  const [tierList, setTierList] = useState<any>(null);
-  const [tierState, setTierState] = useState<Record<string, any[]>>({});
+  const [tierList, setTierList] = useState<TierListRecord | null>(null);
+  const [tierState, setTierState] = useState<Record<string, TierDisplayItem[]>>({});
   const [characterSeriesMap, setCharacterSeriesMap] = useState<Record<string, string>>({});
   const [tierLabels, setTierLabels] = useState<Record<string, string>>({
     'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D', 'F': 'F'
   });
   const [loading, setLoading] = useState(true);
   const [ownerName, setOwnerName] = useState('');
-
-  if (!isOnline) {
-    return (
-      <OfflineRequiredScreen
-        description="Tier listesi görüntülemek için internete bağlanın."
-        actionHref="/downloads"
-        actionLabel="İndirilenlere Git"
-      />
-    );
-  }
+  const [likeCount, setLikeCount] = useState(0);
+  const [viewerHasLiked, setViewerHasLiked] = useState(false);
+  const [isLiking, setIsLiking] = useState(false);
 
   const isOwner = user?.id === tierList?.user_id;
 
   useEffect(() => {
     const load = async () => {
-      if (!id) return;
+      if (!id || !isOnline) return;
       setLoading(true);
 
       const data = await getTierListById(id, user?.id);
@@ -80,28 +86,33 @@ export default function TierListView() {
       setTierList(data);
       setTierLabels(data.tier_labels || { 'S': 'S', 'A': 'A', 'B': 'B', 'C': 'C', 'D': 'D', 'F': 'F' });
 
-      const { data: profile } = await supabase.from('public_profiles').select('username').eq('id', data.user_id).single();
+      const [{ data: profile }, likeSummary] = await Promise.all([
+        supabase.from('public_profiles').select('username').eq('id', data.user_id).single(),
+        getTierListLikeSummary(id),
+      ]);
       setOwnerName(profile?.username || 'Anonim');
+      setLikeCount(likeSummary.likeCount);
+      setViewerHasLiked(likeSummary.viewerHasLiked);
 
-      let allItems: any[] = [];
+      let allItems: TierDisplayItem[] = [];
       if (data.type === 'character') {
         const [chars, seriesMap] = await Promise.all([
           getCharacters(),
           getCharacterSeriesMap(),
         ]);
         setCharacterSeriesMap(seriesMap || {});
-        allItems = chars || [];
+        allItems = (chars || []) as TierDisplayItem[];
       } else {
-        allItems = (await getAllMangas()) || [];
+        allItems = ((await getAllMangas()) || []) as TierDisplayItem[];
       }
 
-      const savedTiers = data.items || {};
+      const savedTiers = (data.items || {}) as Record<string, string[]>;
 
-      const resolved: Record<string, any[]> = {};
+      const resolved: Record<string, TierDisplayItem[]> = {};
       defaultTiers.forEach(t => {
         resolved[t.id] = (savedTiers[t.id] || [])
-          .map((mid: string) => allItems?.find(x => x.id === mid))
-          .filter(Boolean);
+          .map((mid: string) => allItems.find(x => x.id === mid))
+          .filter((item): item is TierDisplayItem => Boolean(item));
       });
 
       setTierState(resolved);
@@ -109,7 +120,47 @@ export default function TierListView() {
     };
 
     load();
-  }, [id, navigate, user?.id]);
+  }, [id, isOnline, navigate, user?.id]);
+
+  const handleToggleLike = async () => {
+    if (!tierList) return;
+    if (!user) {
+      toast.error('Beğenmek için giriş yapmalısınız.');
+      return;
+    }
+    if (isLiking) return;
+
+    const currentlyLiked = viewerHasLiked;
+    const delta = currentlyLiked ? -1 : 1;
+    setIsLiking(true);
+    setViewerHasLiked(!currentlyLiked);
+    setLikeCount((prev) => Math.max(0, prev + delta));
+
+    try {
+      await toggleTierListLike({
+        tierListId: tierList.id,
+        userId: user.id,
+        currentlyLiked,
+      });
+    } catch (error) {
+      console.error('Tier list beğeni hatası:', error);
+      setViewerHasLiked(currentlyLiked);
+      setLikeCount((prev) => Math.max(0, prev - delta));
+      toast.error('Beğeni işlemi tamamlanamadı.');
+    } finally {
+      setIsLiking(false);
+    }
+  };
+
+  if (!isOnline) {
+    return (
+      <OfflineRequiredScreen
+        description="Tier listesi görüntülemek için internete bağlanın."
+        actionHref="/downloads"
+        actionLabel="İndirilenlere Git"
+      />
+    );
+  }
 
   if (loading) {
     return (
@@ -128,7 +179,7 @@ export default function TierListView() {
   return (
     <div className="min-h-screen bg-background">
       <Header />
-      <main className="container py-24 flex flex-col gap-6 animate-in fade-in slide-in-from-bottom-4 duration-500">
+      <main className="container py-24 flex flex-col gap-6">
         <div className="flex items-center justify-between flex-wrap gap-4">
           <div className="flex items-center gap-4">
             <Button variant="ghost" size="icon" onClick={() => navigate(-1)}>
@@ -151,11 +202,28 @@ export default function TierListView() {
             </div>
           </div>
 
-          {isOwner && (
-            <Button onClick={() => navigate(`/tier-lists/${id}/edit`)} className="gap-2">
-              <Edit className="w-4 h-4" /> Düzenle
+          <div className="flex items-center gap-2">
+            <Button
+              type="button"
+              variant={viewerHasLiked ? 'default' : 'outline'}
+              onClick={handleToggleLike}
+              disabled={isLiking}
+              className={cn(
+                'gap-2',
+                viewerHasLiked &&
+                  'bg-rose-500/15 text-rose-500 hover:bg-rose-500/25 border-rose-500/30',
+              )}
+            >
+              <Heart className={cn('w-4 h-4', viewerHasLiked && 'fill-current')} />
+              <span className="tabular-nums">{likeCount}</span>
             </Button>
-          )}
+
+            {isOwner && (
+              <Button onClick={() => navigate(`/tier-lists/${id}/edit`)} className="gap-2">
+                <Edit className="w-4 h-4" /> Düzenle
+              </Button>
+            )}
+          </div>
         </div>
 
         <div className="bg-card/50 border border-border rounded-xl shadow-xl overflow-hidden flex flex-col">
@@ -175,7 +243,7 @@ export default function TierListView() {
                   </div>
                 </div>
                 <div className="flex-1 bg-background/50 flex flex-wrap gap-2 p-3 items-center">
-                  {items.map((item: any) => (
+                  {items.map((item) => (
                     <TierItemCard
                       key={item.id}
                       item={item}

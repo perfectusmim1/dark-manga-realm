@@ -17,9 +17,11 @@ import ScrollToTop from "./components/layout/ScrollToTop";
 import Header from "./components/layout/Header";
 import { GlobalHeaderEnabledContext } from "./components/layout/Header";
 import { shouldRenderHeaderBootstrap } from "./components/layout/HeaderBootstrapShell";
+import PageTransitionShell, { DelayedRouteFallback } from "./components/layout/PageTransitionShell";
 import NativeAppChrome from "./components/layout/NativeAppChrome";
 import AppErrorBoundary from "./components/common/AppErrorBoundary";
 import { initializeOfflineUserSync } from "@/lib/offline/userSync";
+import { routeModuleLoaders } from "@/lib/routeModules";
 const queryClient = new QueryClient({
   defaultOptions: {
     queries: {
@@ -73,59 +75,60 @@ const getBanTypeLabel = (type?: string | null) => {
   }
 };
 
-const Index = lazy(() => import("./pages/Index"));
-const TopTen = lazy(() => import("./pages/TopTen"));
-const Browse = lazy(() => import("./pages/Browse"));
-const MangaDetail = lazy(() => import("./pages/MangaDetail"));
-const Reader = lazy(() => import("./pages/Reader"));
-const Auth = lazy(() => import("./pages/Auth"));
-const Favorites = lazy(() => import("./pages/Favorites"));
-const History = lazy(() => import("./pages/History"));
-const LatestChapters = lazy(() => import("./pages/LatestChapters"));
-const Bookmarks = lazy(() => import("./pages/Bookmarks"));
-const Library = lazy(() => import("./pages/Library"));
-const Downloads = lazy(() => import("./pages/Downloads"));
-const Notifications = lazy(() => import("./pages/Notifications"));
-const Announcements = lazy(() => import("./pages/Announcements"));
-const ReadingLists = lazy(() => import("./pages/ReadingLists"));
-const ReadingTime = lazy(() => import("./pages/ReadingTime"));
-const ReadingTimeMangaDetail = lazy(() => import("./pages/ReadingTimeMangaDetail"));
-const ReadingListDetail = lazy(() => import("./pages/ReadingListDetail"));
-const SeriesRequests = lazy(() => import("./pages/SeriesRequests"));
-const Settings = lazy(() => import("./pages/Settings"));
-const Support = lazy(() => import("./pages/support/Support"));
-const NotFound = lazy(() => import("./pages/NotFound"));
-const Profile = lazy(() => import("./pages/Profile"));
-const Community = lazy(() => import("./pages/Community"));
-const TierLists = lazy(() => import("./pages/TierLists"));
-const TierListEditor = lazy(() => import("./pages/TierListEditor"));
-const TierListView = lazy(() => import("./pages/TierListView"));
-const CharacterDetail = lazy(() => import("./pages/CharacterDetail"));
-const AuthorDetail = lazy(() => import("./pages/AuthorDetail"));
-const ArtistDetail = lazy(() => import("./pages/ArtistDetail"));
-const CharactersBrowse = lazy(() => import("./pages/CharactersBrowse"));
-const AuthorsBrowse = lazy(() => import("./pages/AuthorsBrowse"));
-const ArtistsBrowse = lazy(() => import("./pages/ArtistsBrowse"));
-const AdminLogin = lazy(() => import("./pages/admin/AdminLogin"));
-const AdminLayout = lazy(() => import("./pages/admin/AdminLayout"));
-const AdminDashboard = lazy(() => import("./pages/admin/AdminDashboard"));
-const AdminMangaList = lazy(() => import("./pages/admin/AdminMangaList"));
-const AdminMangaEditor = lazy(() => import("./pages/admin/AdminMangaEditor"));
-const AdminComments = lazy(() => import("./pages/admin/AdminComments"));
-const AdminReviews = lazy(() => import("./pages/admin/AdminReviews"));
-const AdminUsers = lazy(() => import("./pages/admin/AdminUsers"));
-const AdminUserManagement = lazy(() => import("./pages/admin/AdminUserManagement"));
-const AdminScraper = lazy(() => import("./pages/admin/AdminScraper"));
-const AdminMetadataImport = lazy(() => import("./pages/admin/AdminMetadataImport"));
-const AdminChapterScraper = lazy(() => import("./pages/admin/AdminChapterScraper"));
-const AdminAutomation = lazy(() => import("./pages/admin/AdminAutomation"));
-const AdminEntities = lazy(() => import("./pages/admin/AdminEntities"));
-const AdminTags = lazy(() => import("./pages/admin/AdminTags"));
-const AdminAnnouncements = lazy(() => import("./pages/admin/AdminAnnouncements"));
-const AdminReports = lazy(() => import("./pages/admin/AdminReports"));
-const AdminSiteSettings = lazy(() => import("./pages/admin/AdminSiteSettings"));
-const AdminTickets = lazy(() => import("./pages/admin/AdminTickets"));
-const AdminSeriesRequests = lazy(() => import("./pages/admin/AdminSeriesRequests"));
+const Index = lazy(routeModuleLoaders.Index);
+const TopTen = lazy(routeModuleLoaders.TopTen);
+const Browse = lazy(routeModuleLoaders.Browse);
+const MangaDetail = lazy(routeModuleLoaders.MangaDetail);
+const Reader = lazy(routeModuleLoaders.Reader);
+const Auth = lazy(routeModuleLoaders.Auth);
+const Favorites = lazy(routeModuleLoaders.Favorites);
+const History = lazy(routeModuleLoaders.History);
+const LatestChapters = lazy(routeModuleLoaders.LatestChapters);
+const Bookmarks = lazy(routeModuleLoaders.Bookmarks);
+const Library = lazy(routeModuleLoaders.Library);
+const Downloads = lazy(routeModuleLoaders.Downloads);
+const Notifications = lazy(routeModuleLoaders.Notifications);
+const Announcements = lazy(routeModuleLoaders.Announcements);
+const ReadingLists = lazy(routeModuleLoaders.ReadingLists);
+const ReadingTime = lazy(routeModuleLoaders.ReadingTime);
+const ReadingTimeMangaDetail = lazy(routeModuleLoaders.ReadingTimeMangaDetail);
+const ReadingListDetail = lazy(routeModuleLoaders.ReadingListDetail);
+const SeriesRequests = lazy(routeModuleLoaders.SeriesRequests);
+const Settings = lazy(routeModuleLoaders.Settings);
+const Support = lazy(routeModuleLoaders.Support);
+const NotFound = lazy(routeModuleLoaders.NotFound);
+const Profile = lazy(routeModuleLoaders.Profile);
+const Community = lazy(routeModuleLoaders.Community);
+const ForumTopicDetail = lazy(routeModuleLoaders.ForumTopicDetail);
+const TierLists = lazy(routeModuleLoaders.TierLists);
+const TierListEditor = lazy(routeModuleLoaders.TierListEditor);
+const TierListView = lazy(routeModuleLoaders.TierListView);
+const CharacterDetail = lazy(routeModuleLoaders.CharacterDetail);
+const AuthorDetail = lazy(routeModuleLoaders.AuthorDetail);
+const ArtistDetail = lazy(routeModuleLoaders.ArtistDetail);
+const CharactersBrowse = lazy(routeModuleLoaders.CharactersBrowse);
+const AuthorsBrowse = lazy(routeModuleLoaders.AuthorsBrowse);
+const ArtistsBrowse = lazy(routeModuleLoaders.ArtistsBrowse);
+const AdminLogin = lazy(routeModuleLoaders.AdminLogin);
+const AdminLayout = lazy(routeModuleLoaders.AdminLayout);
+const AdminDashboard = lazy(routeModuleLoaders.AdminDashboard);
+const AdminMangaList = lazy(routeModuleLoaders.AdminMangaList);
+const AdminMangaEditor = lazy(routeModuleLoaders.AdminMangaEditor);
+const AdminComments = lazy(routeModuleLoaders.AdminComments);
+const AdminReviews = lazy(routeModuleLoaders.AdminReviews);
+const AdminUsers = lazy(routeModuleLoaders.AdminUsers);
+const AdminUserManagement = lazy(routeModuleLoaders.AdminUserManagement);
+const AdminScraper = lazy(routeModuleLoaders.AdminScraper);
+const AdminMetadataImport = lazy(routeModuleLoaders.AdminMetadataImport);
+const AdminChapterScraper = lazy(routeModuleLoaders.AdminChapterScraper);
+const AdminAutomation = lazy(routeModuleLoaders.AdminAutomation);
+const AdminEntities = lazy(routeModuleLoaders.AdminEntities);
+const AdminTags = lazy(routeModuleLoaders.AdminTags);
+const AdminAnnouncements = lazy(routeModuleLoaders.AdminAnnouncements);
+const AdminReports = lazy(routeModuleLoaders.AdminReports);
+const AdminSiteSettings = lazy(routeModuleLoaders.AdminSiteSettings);
+const AdminTickets = lazy(routeModuleLoaders.AdminTickets);
+const AdminSeriesRequests = lazy(routeModuleLoaders.AdminSeriesRequests);
 const LazyDownloadDock = lazy(() => import("@/components/offline/DownloadDock"));
 const LazyAdBlockWarning = lazy(() => import("@/components/security/AdBlockWarning"));
 
@@ -342,23 +345,6 @@ const PersistentHeader = () => {
   return <Header persistent />;
 };
 
-const RouteFallback = () => {
-  const location = useLocation();
-  const showHeaderShell = shouldRenderHeaderBootstrap(location.pathname);
-
-  return (
-    <div className="min-h-screen bg-background text-foreground">
-      <div
-        className={`container flex items-center justify-center py-12 ${
-          showHeaderShell ? 'min-h-[calc(100vh-4rem)] pt-24' : 'min-h-screen'
-        }`}
-      >
-      <div className="h-12 w-12 animate-pulse rounded-full border border-primary/20 bg-primary/10" />
-      </div>
-    </div>
-  );
-};
-
 const persistOptions = {
   persister: idbPersister,
   maxAge: 7 * 24 * 60 * 60 * 1000,
@@ -389,13 +375,15 @@ const App = () => (
                       <Suspense fallback={null}>
                         <LazyAdBlockWarning />
                       </Suspense>
-                      <Suspense fallback={<RouteFallback />}>
+                      <Suspense fallback={<DelayedRouteFallback />}>
                         <AppErrorBoundary>
-                          <Routes>
-                    {/* Public Routes */}
-                    <Route path="/" element={<Index />} />
-                    <Route path="/top-ten" element={<TopTen />} />
-                    <Route path="/community" element={<Community />} />
+                          <PageTransitionShell>
+                            <Routes>
+                              {/* Public Routes */}
+                              <Route path="/" element={<Index />} />
+                              <Route path="/top-ten" element={<TopTen />} />
+                              <Route path="/community" element={<Community />} />
+                              <Route path="/community/topic/:topicId" element={<ForumTopicDetail />} />
                     <Route path="/browse" element={<Browse />} />
                     <Route path="/manga/:mangaId" element={<MangaDetail />} />
                     <Route path="/manga/:mangaId/chapter/:chapterId" element={<Reader />} />
@@ -452,8 +440,9 @@ const App = () => (
                       <Route path="site-settings" element={<AdminSiteSettings />} />
                     </Route>
 
-                    <Route path="*" element={<NotFound />} />
-                          </Routes>
+                              <Route path="*" element={<NotFound />} />
+                            </Routes>
+                          </PageTransitionShell>
                         </AppErrorBoundary>
                       </Suspense>
                       <NativeAppChrome />

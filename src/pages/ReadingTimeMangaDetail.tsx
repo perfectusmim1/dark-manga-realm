@@ -286,7 +286,7 @@ const ReadingTimeMangaDetail: React.FC = () => {
                                 <div
                                     key={day.date}
                                     className="animate-fade-up rounded-3xl border border-border bg-card/35 p-4 sm:p-5"
-                                    style={{ animationDelay: `${0.06 + Math.min(index, 10) * 0.03}s`, animationFillMode: 'forwards' }}
+                                    style={{ animationDelay: `${0.06 + Math.min(index, 10) * 0.03}s` }}
                                 >
                                     <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                                         <div>
