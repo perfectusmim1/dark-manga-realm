@@ -324,17 +324,14 @@ export const getTranslationCacheStats = async (
   currentChapterId?: string,
   currentLang?: string,
 ): Promise<TranslationCacheStats> => {
-  const db = await getDb();
-  const records = db ? await db.getAll('pages') : Array.from(memoryFallbackStore.values());
-
   const chapterSet = new Set<string>();
   let totalPages = 0;
   let totalBytes = 0;
   let currentChapterPages = 0;
   let currentChapterBytes = 0;
 
-  for (const record of records) {
-    if (!isValidCachedBlockList(record.blocks, record.v)) continue;
+  const accumulateRecord = (record: CachedTranslationRecord) => {
+    if (!isValidCachedBlockList(record.blocks, record.v)) return;
     chapterSet.add(record.chapterId);
     totalPages += 1;
     const size = record.byteSize || 0;
@@ -347,6 +344,22 @@ export const getTranslationCacheStats = async (
     ) {
       currentChapterPages += 1;
       currentChapterBytes += size;
+    }
+  };
+
+  const db = await getDb();
+  if (db) {
+    // Cursor prevents materializing every cached base64 image in heap at once.
+    const tx = db.transaction('pages', 'readonly');
+    let cursor = await tx.objectStore('pages').openCursor();
+    while (cursor) {
+      accumulateRecord(cursor.value);
+      cursor = await cursor.continue();
+    }
+    await tx.done;
+  } else {
+    for (const record of memoryFallbackStore.values()) {
+      accumulateRecord(record);
     }
   }
 
@@ -364,20 +377,37 @@ export const getMangaChaptersTranslationStats = async (
   lang?: string,
 ): Promise<Map<string, number>> => {
   const result = new Map<string, number>();
-  if (chapterIds.length === 0) return result;
-  const targetIds = new Set(chapterIds);
+  const uniqueIds = Array.from(new Set(chapterIds.filter(Boolean)));
+  if (uniqueIds.length === 0) return result;
 
-  const db = await getDb();
-  const records = db ? await db.getAll('pages') : Array.from(memoryFallbackStore.values());
-
-  for (const record of records) {
-    if (!targetIds.has(record.chapterId)) continue;
-    if (lang && record.lang !== lang) continue;
-    if (!isValidCachedBlockList(record.blocks) || record.blocks.length === 0) continue;
+  const countRecord = (record: CachedTranslationRecord) => {
+    if (lang && record.lang !== lang) return;
+    if (!isValidCachedBlockList(record.blocks) || record.blocks.length === 0) return;
 
     const count = result.get(record.chapterId) || 0;
     result.set(record.chapterId, count + 1);
+  };
+
+  const db = await getDb();
+  if (db) {
+    const tx = db.transaction('pages', 'readonly');
+    const index = tx.objectStore('pages').index('by-chapterId');
+    for (const chapterId of uniqueIds) {
+      let cursor = await index.openCursor(chapterId);
+      while (cursor) {
+        countRecord(cursor.value);
+        cursor = await cursor.continue();
+      }
+    }
+    await tx.done;
+  } else {
+    const targetIds = new Set(uniqueIds);
+    for (const record of memoryFallbackStore.values()) {
+      if (!targetIds.has(record.chapterId)) continue;
+      countRecord(record);
+    }
   }
+
   return result;
 };
 

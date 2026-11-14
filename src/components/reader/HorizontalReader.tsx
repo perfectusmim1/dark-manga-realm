@@ -88,7 +88,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
   }, [goToPrevPage, goToNextPage]);
 
   return (
-    <div className="relative flex h-screen items-center justify-center pt-14 pb-14">
+    <div className="relative flex h-screen w-full max-w-[100vw] items-center justify-center overflow-x-clip pt-14 pb-14">
       {/* Left Navigation Zone */}
       <button
         onClick={goToPrevPage}

@@ -65,9 +65,16 @@ const buildProfileSectionAccess = (
 
 export interface ProfileRecentComment {
     id: string;
-  entityType: 'manga' | 'character' | 'author' | 'artist';
+    entityType: 'manga' | 'character' | 'author' | 'artist';
     entityId: string;
     targetName: string;
+    targetImage?: string | null;
+    mangaType?: string | null;
+    mangaStatus?: string | null;
+    chapterId?: string | null;
+    chapterNumber?: number | null;
+    chapterTitle?: string | null;
+    pageNumber?: number | null;
     targetHref: string;
     preview: string;
     createdAt: string;
@@ -295,29 +302,29 @@ const buildCommentPreview = (rawContent: string) => {
     return 'Yorum birakildi';
 };
 
-export const getUserRecentComments = async (userId: string, limit: number = 8): Promise<ProfileRecentComment[]> => {
+export const getUserRecentComments = async (userId: string, limit: number = 100): Promise<ProfileRecentComment[]> => {
     const [mangaComments, characterComments, authorComments, artistComments] = await Promise.all([
         supabase
             .from('comments')
-            .select('id, manga_id, content, gif_url, parent_id, likes, created_at, mangas:manga_id(title)')
+            .select('id, manga_id, chapter_id, page_number, content, gif_url, parent_id, likes, created_at, mangas:manga_id(title, cover, type, status), chapters:chapter_id(number, title)')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(limit),
         supabase
             .from('character_comments')
-            .select('id, character_id, content, likes, created_at, characters:character_id(name)')
+            .select('id, character_id, content, likes, created_at, characters:character_id(name, image_url)')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(limit),
         supabase
             .from('author_comments')
-            .select('id, author_id, content, likes, created_at, authors:author_id(name)')
+            .select('id, author_id, content, likes, created_at, authors:author_id(name, image_url)')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(limit),
         supabase
             .from('artist_comments')
-            .select('id, artist_id, content, likes, created_at, artists:artist_id(name)')
+            .select('id, artist_id, content, likes, created_at, artists:artist_id(name, image_url)')
             .eq('user_id', userId)
             .order('created_at', { ascending: false })
             .limit(limit),
@@ -325,13 +332,27 @@ export const getUserRecentComments = async (userId: string, limit: number = 8): 
 
     const normalizedMangaComments: ProfileRecentComment[] = (mangaComments.data || []).map((comment: any) => {
         const parsed = parseCommentContent(comment.content || '');
+        const encodedCommentId = encodeURIComponent(comment.id);
+        const pageQuery = comment.page_number
+            ? `&commentScope=page&commentPage=${comment.page_number}`
+            : '';
+        const targetHref = comment.chapter_id
+            ? `/manga/${comment.manga_id}/chapter/${comment.chapter_id}?commentId=${encodedCommentId}${pageQuery}#comment-${encodedCommentId}`
+            : `/manga/${comment.manga_id}?commentId=${encodedCommentId}#comment-${encodedCommentId}`;
 
         return {
             id: comment.id,
             entityType: 'manga',
             entityId: comment.manga_id,
             targetName: comment.mangas?.title || 'Seri',
-            targetHref: `/manga/${comment.manga_id}?commentId=${encodeURIComponent(comment.id)}#comment-${encodeURIComponent(comment.id)}`,
+            targetImage: comment.mangas?.cover || null,
+            mangaType: comment.mangas?.type || null,
+            mangaStatus: comment.mangas?.status || null,
+            chapterId: comment.chapter_id || null,
+            chapterNumber: typeof comment.chapters?.number === 'number' ? comment.chapters.number : null,
+            chapterTitle: comment.chapters?.title || null,
+            pageNumber: typeof comment.page_number === 'number' ? comment.page_number : null,
+            targetHref,
             preview: buildCommentPreview(comment.content || ''),
             createdAt: comment.created_at,
             likes: comment.likes || 0,
@@ -358,6 +379,7 @@ export const getUserRecentComments = async (userId: string, limit: number = 8): 
                 entityType,
                 entityId: comment[entityKey],
                 targetName: comment[relationKey]?.name || fallbackName,
+                targetImage: comment[relationKey]?.image_url || null,
                 targetHref: `${hrefPrefix}/${comment[entityKey]}?commentId=${encodeURIComponent(comment.id)}#comment-${encodeURIComponent(comment.id)}`,
                 preview: buildCommentPreview(comment.content || ''),
                 createdAt: comment.created_at,
@@ -372,7 +394,7 @@ export const getUserRecentComments = async (userId: string, limit: number = 8): 
         ...normalizedMangaComments,
         ...normalizeEntityComments(characterComments.data || [], 'character', 'character_id', 'characters', '/character', 'Karakter'),
         ...normalizeEntityComments(authorComments.data || [], 'author', 'author_id', 'authors', '/author', 'Yazar'),
-        ...normalizeEntityComments(artistComments.data || [], 'artist', 'artist_id', 'artists', '/artist', 'Cizer'),
+        ...normalizeEntityComments(artistComments.data || [], 'artist', 'artist_id', 'artists', '/artist', 'Çizer'),
     ]
         .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
         .slice(0, limit);
@@ -547,6 +569,18 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
             bundle = {};
         }
 
+        if (
+            sectionAccess.comments &&
+            (!Array.isArray(bundle.recentComments) ||
+                (bundle.recentComments.length === 0 && (bundle.stats?.totalComments || 0) > 0))
+        ) {
+            try {
+                bundle.recentComments = await getUserRecentComments(userId);
+            } catch (commentError) {
+                console.error('Profile recent comments fallback error:', commentError);
+            }
+        }
+
         if (sectionAccess.reviews && (!Array.isArray(bundle.recentReviews) || bundle.recentReviews.length === 0)) {
             try {
                 bundle.recentReviews = await getUserRecentReviews(userId);
@@ -616,20 +650,37 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
         sectionAccess,
         recentReads: bundle.recentReads || [],
         recentComments: (bundle.recentComments || []).map((comment: any) => {
-            const parsed = parseCommentContent(comment.content || '');
+            const parsed = typeof comment.content === 'string'
+                ? parseCommentContent(comment.content)
+                : null;
 
             return {
                 id: comment.id,
                 entityType: comment.entityType,
                 entityId: comment.entityId,
                 targetName: comment.targetName,
+                targetImage: comment.targetImage || null,
+                mangaType: comment.mangaType || null,
+                mangaStatus: comment.mangaStatus || null,
+                chapterId: comment.chapterId || null,
+                chapterNumber: typeof comment.chapterNumber === 'number' ? comment.chapterNumber : null,
+                chapterTitle: comment.chapterTitle || null,
+                pageNumber: typeof comment.pageNumber === 'number' ? comment.pageNumber : null,
                 targetHref: comment.targetHref,
-                preview: buildCommentPreview(comment.content || ''),
+                preview: typeof comment.preview === 'string'
+                    ? comment.preview
+                    : buildCommentPreview(comment.content || ''),
                 createdAt: comment.createdAt,
                 likes: comment.likes || 0,
-                isSpoiler: Boolean(parsed.isSpoiler),
-                hasMedia: Boolean(parsed.mediaUrls?.length),
-                hasGif: Boolean(comment.gifUrl),
+                isSpoiler: typeof comment.isSpoiler === 'boolean'
+                    ? comment.isSpoiler
+                    : Boolean(parsed?.isSpoiler),
+                hasMedia: typeof comment.hasMedia === 'boolean'
+                    ? comment.hasMedia
+                    : Boolean(parsed?.mediaUrls?.length),
+                hasGif: typeof comment.hasGif === 'boolean'
+                    ? comment.hasGif
+                    : Boolean(comment.gifUrl),
                 parentId: comment.parentId || undefined,
             };
         }),

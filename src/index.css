@@ -91,6 +91,9 @@
   html.reader-active {
     scrollbar-gutter: auto;
     overflow-y: auto;
+    overflow-x: hidden;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
   }
 
   body {
@@ -117,6 +120,9 @@
 
   body.reader-active {
     overflow-y: auto;
+    overflow-x: hidden;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
   }
 
   body[data-scroll-locked] {

@@ -525,12 +525,18 @@ const Reader: React.FC = () => {
   }, [canUseNetworkReaderFeatures, hydrateChapterWithCachedPages, isOfflineChapter]);
 
   useEffect(() => {
+    const prevHtmlOverflowX = document.documentElement.style.overflowX;
+    const prevBodyOverflowX = document.body.style.overflowX;
     document.documentElement.classList.add('reader-active');
     document.body.classList.add('reader-active');
+    document.documentElement.style.overflowX = 'clip';
+    document.body.style.overflowX = 'clip';
 
     return () => {
       document.documentElement.classList.remove('reader-active');
       document.body.classList.remove('reader-active');
+      document.documentElement.style.overflowX = prevHtmlOverflowX;
+      document.body.style.overflowX = prevBodyOverflowX;
     };
   }, []);
 
@@ -823,6 +829,7 @@ const Reader: React.FC = () => {
     flushSessionScrollPos();
     revokeOfflineUrlsRef.current?.();
     revokeOfflineUrlsRef.current = null;
+    retainPrefetchedChapters([]);
     if (!resumeAutoScrollAfterNavigationRef.current) {
       persistedAutoScrollIntent = false;
     }
@@ -2168,7 +2175,8 @@ const Reader: React.FC = () => {
 
   return (
     <div
-      className="min-h-screen bg-background"
+      className="min-h-screen w-full max-w-[100vw] overflow-x-clip bg-background"
+      style={{ touchAction: 'pan-y pinch-zoom' }}
       onClick={handleTap}
     >
       {isReaderTransitionActive && (
@@ -2326,7 +2334,7 @@ const Reader: React.FC = () => {
 
       {/* Alt yüzen kontroller: Sol (En Alta Git) - Orta (Çeviri Durumu Kartı) - Sağ (En Üste Git) */}
       <div
-        className="pointer-events-none fixed inset-x-0 z-40 flex items-center justify-between px-3 sm:px-5 transition-[bottom] duration-300"
+        className="pointer-events-none fixed inset-x-0 z-40 flex w-full max-w-[100vw] items-center justify-between overflow-x-clip px-3 sm:px-5 transition-[bottom] duration-300"
         style={{
           bottom: controlsVisible
             ? 'calc(env(safe-area-inset-bottom) + 5.25rem)'
@@ -2355,7 +2363,7 @@ const Reader: React.FC = () => {
         </div>
 
         {/* Orta: Çeviri Durumu Kartı */}
-        <div className="flex flex-1 items-center justify-center px-1">
+        <div className="flex min-w-0 flex-1 items-center justify-center px-1">
           <TranslationStatusPill
             summary={translation.summary}
             nextChapterProgress={nextChapterTranslation.progress}

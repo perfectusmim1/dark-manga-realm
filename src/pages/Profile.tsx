@@ -5,7 +5,7 @@ import { tr } from 'date-fns/locale';
 import { useAuth } from '@/contexts/AuthContext';
 import Header from '@/components/layout/Header';
 import HeatMap from '@/components/profile/HeatMap';
-import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3, Flag, Star, ThumbsUp } from 'lucide-react';
+import { Shield, Settings, Calendar, BookOpen, Trophy, Info, Book, MessageSquare, History, Globe, Lock, ChevronRight, List, Sparkles, Image as ImageIcon, Film, Reply, Clock3, Flag, Star, ThumbsUp, User as UserIcon } from 'lucide-react';
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -13,7 +13,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
-import { formatReadingDuration, getUserProfile, syncAchievements, followUser, unfollowUser, blockUser, unblockUser, type ProfileRecentReview } from '@/lib/profile';
+import { formatReadingDuration, getUserProfile, syncAchievements, followUser, unfollowUser, blockUser, unblockUser, type ProfileRecentComment, type ProfileRecentReview } from '@/lib/profile';
 import { createProfileReport } from '@/lib/database';
 import { ACHIEVEMENTS } from '@/lib/achievements';
 import { useToast } from "@/components/ui/use-toast";
@@ -773,90 +773,140 @@ const Profile: React.FC = () => {
                      <h3 className="text-xl font-bold">Son Yorumlar</h3>
                    </div>
                    <Badge variant="secondary" className="rounded-full px-3 py-1">
-                     {profileData.recentComments?.length || 0} yorum
+                     {Math.max(profileData.stats?.totalComments || 0, profileData.recentComments?.length || 0)} yorum
                    </Badge>
                  </div>
 
                  {profileData.recentComments?.length > 0 ? (
-                   <div className="space-y-4">
-                     {profileData.recentComments.map((comment: any) => (
-                       <Link
-                         key={`${comment.entityType}-${comment.id}`}
-                         to={comment.targetHref}
-                         className="group block rounded-2xl border border-border/70 bg-background/40 p-3 transition-all hover:border-primary/40 hover:bg-background/70 sm:p-4"
-                       >
-                         <div className="flex items-start gap-3 sm:gap-4">
-                           <Avatar className="h-9 w-9 border border-border/70 sm:h-11 sm:w-11">
-                             <AvatarImage src={profileData.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${profileData.username}`} />
-                             <AvatarFallback>{profileData.username?.substring(0, 2).toUpperCase()}</AvatarFallback>
-                           </Avatar>
+                   <div className="space-y-3 sm:space-y-4">
+                     {(profileData.recentComments as ProfileRecentComment[]).map((comment) => {
+                       const entityLabel =
+                         comment.entityType === 'manga'
+                           ? comment.mangaType
+                             ? getMangaTypeLabel(comment.mangaType)
+                             : 'Seri'
+                           : comment.entityType === 'character'
+                             ? 'Karakter'
+                             : comment.entityType === 'author'
+                               ? 'Yazar'
+                               : 'Çizer';
 
-                           <div className="min-w-0 flex-1">
-                             <div className="flex flex-wrap items-center gap-1.5 sm:gap-2">
-                              <span
-                                className={cn(
-                                  'text-sm font-semibold transition-colors sm:text-base',
-                                  profileData.role
-                                    ? getStaffTextClassName(profileData.role)
-                                    : 'text-foreground group-hover:text-primary'
-                                )}
-                              >
-                                {profileData.username}
-                              </span>
-                              <StaffBadge role={profileData.role} compact />
-                              <span className="text-[11px] text-muted-foreground">
-                                {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
-                              </span>
-                               {comment.parentId && (
-                                 <Badge variant="outline" className="rounded-full text-[10px]">
-                                   <Reply className="w-3 h-3 mr-1" />
-                                   Yanit
-                                 </Badge>
-                               )}
-                               {comment.isSpoiler && (
-                                 <Badge variant="outline" className="rounded-full border-amber-500/40 text-[10px] text-amber-300">
-                                   <Sparkles className="w-3 h-3 mr-1" />
-                                   Spoiler
-                                 </Badge>
-                               )}
-                               {comment.hasMedia && (
-                                 <Badge variant="outline" className="rounded-full text-[10px]">
-                                   <ImageIcon className="w-3 h-3 mr-1" />
-                                   Gorsel
-                                 </Badge>
-                               )}
-                               {comment.hasGif && (
-                                 <Badge variant="outline" className="rounded-full text-[10px]">
-                                   <Film className="w-3 h-3 mr-1" />
-                                   GIF
-                                 </Badge>
+                       return (
+                         <Link
+                           key={`${comment.entityType}-${comment.id}`}
+                           to={comment.targetHref}
+                           className="group block rounded-2xl border border-border/70 bg-background/40 p-3 transition-colors hover:border-primary/40 hover:bg-background/70 sm:p-4"
+                         >
+                           <div className="flex items-start gap-3 sm:gap-4">
+                             <div className="relative aspect-[3/4] w-16 shrink-0 overflow-hidden rounded-xl border border-border/70 bg-secondary/20 sm:w-20">
+                               {comment.targetImage ? (
+                                 <img
+                                   src={comment.targetImage}
+                                   alt={comment.targetName}
+                                   loading="lazy"
+                                   decoding="async"
+                                   className="h-full w-full object-cover"
+                                 />
+                               ) : (
+                                 <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-muted-foreground/70">
+                                   {comment.entityType === 'manga' ? (
+                                     <BookOpen className="h-5 w-5" />
+                                   ) : (
+                                     <UserIcon className="h-5 w-5" />
+                                   )}
+                                 </div>
                                )}
                              </div>
 
-                             <p className="mt-2 line-clamp-2 text-sm leading-5 text-foreground/90">
-                               {comment.preview}
-                             </p>
+                             <div className="min-w-0 flex-1">
+                               <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1">
+                                 <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                                   <h4 className="line-clamp-1 text-sm font-bold text-foreground transition-colors group-hover:text-primary sm:text-base">
+                                     {comment.targetName}
+                                   </h4>
+                                   <Badge variant="secondary" className="rounded-full bg-primary/10 px-2 py-0.5 text-[10px] text-primary hover:bg-primary/10">
+                                     {entityLabel}
+                                   </Badge>
+                                   {typeof comment.chapterNumber === 'number' && (
+                                     <Badge variant="outline" className="rounded-full text-[10px]">
+                                       Bölüm {comment.chapterNumber}
+                                     </Badge>
+                                   )}
+                                   {typeof comment.pageNumber === 'number' && (
+                                     <Badge variant="outline" className="rounded-full text-[10px]">
+                                       Sayfa {comment.pageNumber}
+                                     </Badge>
+                                   )}
+                                 </div>
+                                 <span className="shrink-0 text-[11px] text-muted-foreground">
+                                   {formatDistanceToNow(new Date(comment.createdAt), { addSuffix: true, locale: tr })}
+                                 </span>
+                               </div>
 
-                             <div className="mt-2.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                               <Badge variant="secondary" className="rounded-full bg-primary/10 text-primary hover:bg-primary/10">
-                      {comment.entityType === 'manga' ? 'Seri' : comment.entityType === 'character' ? 'Karakter' : comment.entityType === 'author' ? 'Yazar' : 'Çizer'}
-                               </Badge>
-                               <span className="max-w-full truncate font-medium text-foreground/80">{comment.targetName}</span>
-                               <span className="hidden sm:inline text-muted-foreground/50">•</span>
-                               <span>{comment.likes || 0} begeni</span>
+                               <p className="mt-2 line-clamp-2 text-sm leading-relaxed text-foreground/90 sm:line-clamp-3">
+                                 {comment.preview || (comment.hasGif ? 'GIF yorumu' : comment.hasMedia ? 'Görsel yorumu' : '')}
+                               </p>
+
+                               <div className="mt-2.5 flex flex-wrap items-center justify-between gap-2 text-xs text-muted-foreground">
+                                 <div className="flex min-w-0 flex-wrap items-center gap-1.5 sm:gap-2">
+                                   <Avatar className="h-5 w-5 border border-border/70">
+                                     <AvatarImage src={profileData.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${profileData.username}`} />
+                                     <AvatarFallback className="text-[9px]">{profileData.username?.substring(0, 2).toUpperCase()}</AvatarFallback>
+                                   </Avatar>
+                                   <span
+                                     className={cn(
+                                       'truncate text-xs font-medium',
+                                       profileData.role ? getStaffTextClassName(profileData.role) : 'text-foreground/85'
+                                     )}
+                                   >
+                                     {profileData.username}
+                                   </span>
+                                   <StaffBadge role={profileData.role} compact />
+                                   {comment.parentId && (
+                                     <Badge variant="outline" className="rounded-full text-[10px]">
+                                       <Reply className="mr-1 h-3 w-3" />
+                                       Yanıt
+                                     </Badge>
+                                   )}
+                                   {comment.isSpoiler && (
+                                     <Badge variant="outline" className="rounded-full border-amber-500/40 text-[10px] text-amber-300">
+                                       <Sparkles className="mr-1 h-3 w-3" />
+                                       Spoiler
+                                     </Badge>
+                                   )}
+                                   {comment.hasMedia && (
+                                     <Badge variant="outline" className="rounded-full text-[10px]">
+                                       <ImageIcon className="mr-1 h-3 w-3" />
+                                       Görsel
+                                     </Badge>
+                                   )}
+                                   {comment.hasGif && (
+                                     <Badge variant="outline" className="rounded-full text-[10px]">
+                                       <Film className="mr-1 h-3 w-3" />
+                                       GIF
+                                     </Badge>
+                                   )}
+                                 </div>
+
+                                 <div className="flex items-center gap-2">
+                                   <span className="inline-flex items-center gap-1 text-xs text-muted-foreground">
+                                     <ThumbsUp className="h-3.5 w-3.5" />
+                                     <span>{comment.likes || 0}</span>
+                                   </span>
+                                   <ChevronRight className="hidden h-4 w-4 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary sm:inline-block" />
+                                 </div>
+                               </div>
                              </div>
                            </div>
-
-                           <ChevronRight className="mt-1 hidden h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5 group-hover:text-primary sm:block" />
-                         </div>
-                       </Link>
-                     ))}
+                         </Link>
+                       );
+                     })}
                    </div>
                  ) : (
                    <div className="rounded-xl border border-border border-dashed bg-card/10 p-12 text-center">
-                     <MessageSquare className="w-10 h-10 mx-auto text-muted-foreground/60 mb-4" />
-                     <h3 className="text-lg font-semibold">Henuz yorum yok</h3>
-                     <p className="text-muted-foreground mt-2">Kullanicinin attigi son yorumlar burada gorunecek.</p>
+                     <MessageSquare className="mx-auto mb-4 h-10 w-10 text-muted-foreground/60" />
+                     <h3 className="text-lg font-semibold">Henüz yorum yok</h3>
+                     <p className="mt-2 text-muted-foreground">Kullanıcının attığı son yorumlar burada görünecek.</p>
                    </div>
                  )}
                 </div>

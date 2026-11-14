@@ -4,22 +4,22 @@ import { BookOpen, Eye, EyeOff, ExternalLink } from 'lucide-react';
 import { SERIES_LEGACY_REGEX, SERIES_MARKDOWN_REGEX } from '@/lib/commentContent';
 import { cn } from '@/lib/utils';
 
-const INLINE_SEGMENT_REGEX = new RegExp(
-  [
-    '\\[c=(#[0-9a-fA-F]{6})\\]([\\s\\S]*?)\\[\\/c\\]',
-    '\\[s=(sm|lg)\\]([\\s\\S]*?)\\[\\/s\\]',
-    '\\|\\|([^|\\n]+?)\\|\\|',
-    '\\*\\*([^\\n]+?)\\*\\*',
-    '__([^\\n]+?)__',
-    '(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)',
-    SERIES_MARKDOWN_REGEX.source,
-    SERIES_LEGACY_REGEX.source,
-    '\\[([^\\]]+?)\\]\\((https?:\\/\\/[^\\s)]+)\\)',
-    '(?<![\\w@])@([a-zA-Z0-9_.çğıöşüÇĞİÖŞÜ-]{2,32})',
-    '(https?:\\/\\/[^\\s<]+)',
-  ].join('|'),
-  'g',
-);
+const INLINE_SEGMENT_PATTERN = [
+  '\\[c=(#[0-9a-fA-F]{6})\\]([\\s\\S]*?)\\[\\/c\\]',
+  '\\[s=(sm|lg)\\]([\\s\\S]*?)\\[\\/s\\]',
+  '\\|\\|([^|\\n]+?)\\|\\|',
+  '\\*\\*([^\\n]+?)\\*\\*',
+  '__([^\\n]+?)__',
+  '(?<!\\*)\\*([^*\\n]+?)\\*(?!\\*)',
+  SERIES_MARKDOWN_REGEX.source,
+  SERIES_LEGACY_REGEX.source,
+  '\\[([^\\]]+?)\\]\\((https?:\\/\\/[^\\s)]+)\\)',
+  '(?<![\\w@])@([a-zA-Z0-9_.çğıöşüÇĞİÖŞÜ-]{2,32})',
+  '(https?:\\/\\/[^\\s<]+)',
+].join('|');
+
+const createInlineSegmentRegex = () => new RegExp(INLINE_SEGMENT_PATTERN, 'g');
+const MAX_INLINE_RICH_TEXT_DEPTH = 6;
 
 const InlineSpoilerChip: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [revealed, setRevealed] = useState(false);
@@ -66,15 +66,25 @@ const renderInlineSegments = (
   text: string,
   keyPrefix: string,
   options?: RichTextOptions,
+  depth = 0,
 ): React.ReactNode[] => {
+  if (!text) return [];
+  if (depth > MAX_INLINE_RICH_TEXT_DEPTH) {
+    return [text];
+  }
+
   const nodes: React.ReactNode[] = [];
   let lastIndex = 0;
   let matchIndex = 0;
 
-  INLINE_SEGMENT_REGEX.lastIndex = 0;
+  const inlineRegex = createInlineSegmentRegex();
   let match: RegExpExecArray | null;
 
-  while ((match = INLINE_SEGMENT_REGEX.exec(text)) !== null) {
+  while ((match = inlineRegex.exec(text)) !== null) {
+    if (match[0].length === 0) {
+      inlineRegex.lastIndex += 1;
+      continue;
+    }
     if (match.index > lastIndex) {
       nodes.push(text.slice(lastIndex, match.index));
     }
@@ -103,13 +113,13 @@ const renderInlineSegments = (
     if (colorHex && colorBody !== undefined) {
       nodes.push(
         <span key={key} style={{ color: colorHex }}>
-          {renderInlineSegments(colorBody, `${key}-c`, options)}
+          {renderInlineSegments(colorBody, `${key}-c`, options, depth + 1)}
         </span>,
       );
     } else if (sizeCode && sizeBody !== undefined) {
       nodes.push(
         <span key={key} className={sizeCode === 'sm' ? 'text-xs' : 'text-[1.06em] font-medium'}>
-          {renderInlineSegments(sizeBody, `${key}-s`, options)}
+          {renderInlineSegments(sizeBody, `${key}-s`, options, depth + 1)}
         </span>,
       );
     } else if (spoilerText !== undefined) {
@@ -117,19 +127,19 @@ const renderInlineSegments = (
     } else if (boldText !== undefined) {
       nodes.push(
         <strong key={key} className="font-semibold text-foreground">
-          {renderInlineSegments(boldText, `${key}-b`, options)}
+          {renderInlineSegments(boldText, `${key}-b`, options, depth + 1)}
         </strong>,
       );
     } else if (underlineText !== undefined) {
       nodes.push(
         <span key={key} className="underline underline-offset-2 decoration-primary/70">
-          {renderInlineSegments(underlineText, `${key}-u`, options)}
+          {renderInlineSegments(underlineText, `${key}-u`, options, depth + 1)}
         </span>,
       );
     } else if (italicText !== undefined) {
       nodes.push(
         <em key={key} className="italic">
-          {renderInlineSegments(italicText, `${key}-i`, options)}
+          {renderInlineSegments(italicText, `${key}-i`, options, depth + 1)}
         </em>,
       );
     } else if (seriesTitleMd && seriesIdMd) {

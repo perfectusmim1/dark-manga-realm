@@ -99,7 +99,7 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
   return (
     <div
       data-page-index={index}
-      className="group relative mx-auto flex w-full justify-center"
+      className="group relative mx-auto flex w-full max-w-full justify-center overflow-x-clip"
       style={{
         maxWidth: fitWidth ? `${896 * (zoom / 100)}px` : 'none',
       }}
@@ -283,7 +283,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   const translatePage = translation?.translatePage;
 
   return (
-    <div ref={containerRef} className="flex flex-col items-center gap-0 pb-10 pt-[5.25rem] sm:pb-14 sm:pt-16">
+    <div ref={containerRef} className="flex w-full max-w-full flex-col items-center gap-0 overflow-x-clip pb-10 pt-14 sm:pb-14 sm:pt-16">
       {pages.map((page, index) => (
         <ReaderPage
           key={index}

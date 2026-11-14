@@ -14,6 +14,7 @@ import {
   extractPageOcr,
   ExtractedPageOcr,
   isAbortTranslationError,
+  releaseExtractedPageOcr,
   translateAndInpaintPage,
   translatePageImage,
 } from '@/lib/translation/geminiTranslator';
@@ -199,6 +200,7 @@ export const useChapterTranslation = ({
     wasCancelledManuallyRef.current = false;
     setWasCancelledManually(false);
     queueRef.current = [];
+    transQueueRef.current.forEach((job) => releaseExtractedPageOcr(job.ocrData));
     transQueueRef.current = [];
     runningOcrRef.current = 0;
     runningTransRef.current = 0;
@@ -305,6 +307,9 @@ export const useChapterTranslation = ({
   // Bileşen kapanırken çalışan istekleri temizle
   useEffect(() => () => {
     abortControllerRef.current.abort();
+    queueRef.current = [];
+    transQueueRef.current.forEach((job) => releaseExtractedPageOcr(job.ocrData));
+    transQueueRef.current = [];
   }, []);
 
   const runQueue = useCallback(() => {
@@ -360,11 +365,13 @@ export const useChapterTranslation = ({
             chapterRef.current !== currentChapter ||
             settingsRef.current.targetLang !== langAtStart
           ) {
+            releaseExtractedPageOcr(ocrData);
             return;
           }
 
           // Eğer sayfada metin yoksa veya reklam/jenerik sayfasıysa Gemini'ye gitmeden direkt tamamla
           if (ocrData.rawBubbles.length === 0) {
+            releaseExtractedPageOcr(ocrData);
             setPageState(index, { status: 'done', blocks: [] });
             setLastFinishedPageNumber(index + 1);
             setBatchTracker((prev) => ({
@@ -416,6 +423,7 @@ export const useChapterTranslation = ({
       if (!transJob) break;
 
       if (transJob.chapterId !== currentChapter || transJob.epoch !== currentEpoch) {
+        releaseExtractedPageOcr(transJob.ocrData);
         continue;
       }
 
@@ -643,6 +651,7 @@ export const useChapterTranslation = ({
     abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     queueRef.current = [];
+    transQueueRef.current.forEach((job) => releaseExtractedPageOcr(job.ocrData));
     transQueueRef.current = [];
     runningOcrRef.current = 0;
     runningTransRef.current = 0;

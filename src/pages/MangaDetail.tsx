@@ -1665,20 +1665,37 @@ const MangaDetail: React.FC = () => {
   useEffect(() => {
     if (!manga?.chapters || manga.chapters.length === 0) return;
     const chapterIds = manga.chapters.map((c) => c.id);
+    let isCancelled = false;
+    let reloadTimer: ReturnType<typeof setTimeout> | null = null;
 
     const loadTranslations = async () => {
       try {
         const stats = await getMangaChaptersTranslationStats(chapterIds);
-        setChapterTranslationMap(stats);
+        if (!isCancelled) {
+          setChapterTranslationMap(stats);
+        }
       } catch {
         // ignore
       }
     };
 
     void loadTranslations();
-    return subscribeTranslationCache(() => {
-      void loadTranslations();
+    const unsubscribe = subscribeTranslationCache(() => {
+      if (isCancelled) return;
+      if (reloadTimer) clearTimeout(reloadTimer);
+      reloadTimer = setTimeout(() => {
+        reloadTimer = null;
+        if (!isCancelled) {
+          void loadTranslations();
+        }
+      }, 350);
     });
+
+    return () => {
+      isCancelled = true;
+      if (reloadTimer) clearTimeout(reloadTimer);
+      unsubscribe();
+    };
   }, [manga?.chapters]);
 
   useEffect(() => {

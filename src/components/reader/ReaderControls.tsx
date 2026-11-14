@@ -658,18 +658,18 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
     <>
       {/* Top Bar */}
       <div
-        className={`fixed left-0 right-0 top-0 z-50 border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : '-translate-y-full'}`}
+        className={`fixed left-0 right-0 top-0 z-50 w-full max-w-[100vw] overflow-x-clip border-b border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : '-translate-y-full'}`}
         style={{ paddingTop: READER_TOP_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto flex w-full max-w-7xl flex-col gap-1 px-2.5 py-1.5 sm:h-14 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-0">
-          <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
+        <div className="mx-auto flex h-12 w-full max-w-7xl items-center justify-between gap-1.5 overflow-hidden px-2 sm:h-14 sm:gap-4 sm:px-4">
+          <div className="flex min-w-0 flex-1 items-center gap-1 overflow-hidden sm:gap-2">
             <Button
               asChild
               variant="ghost"
               size="icon"
-              className="h-8 w-8 shrink-0 sm:h-10 sm:w-10"
+              className="hidden h-8 w-8 shrink-0 sm:inline-flex sm:h-10 sm:w-10"
               aria-label="Ana sayfaya git"
             >
               <Link to="/">
@@ -690,18 +690,18 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             <Link
               to={`/manga/${mangaId}`}
               onClick={handleSeriesPageNavigation}
-              className="min-w-0 flex-1 hover:text-primary transition-colors"
+              className="min-w-0 flex-1 overflow-hidden hover:text-primary transition-colors"
             >
               <span className="block truncate text-xs font-semibold leading-tight sm:text-sm">
                 {mangaTitle}
               </span>
-              <span className="block truncate text-[11px] leading-tight text-muted-foreground sm:text-xs">
+              <span className="block truncate text-[10px] leading-tight text-muted-foreground sm:text-xs">
                 {formatChapterDisplayTitle(currentChapter.number, currentChapter.title)}
               </span>
             </Link>
           </div>
 
-          <div className="flex w-full shrink-0 items-center justify-around border-t border-border/40 pt-1 sm:w-auto sm:justify-end sm:gap-1.5 sm:border-t-0 sm:pt-0">
+          <div className="flex shrink-0 items-center gap-0.5 sm:gap-1.5">
             {onToggleChapterLike && (
               <Button
                 variant="ghost"
@@ -711,13 +711,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                 aria-label={isChapterLiked ? 'Bölüm beğenisini kaldır' : 'Bölümü beğen'}
                 aria-pressed={isChapterLiked}
                 className={cn(
-                  'h-8 sm:h-9 px-2 gap-1 rounded-lg transition-colors touch-manipulation',
+                  'hidden h-9 px-2 gap-1 rounded-lg transition-colors touch-manipulation sm:inline-flex',
                   isChapterLiked
                     ? 'text-rose-400 bg-rose-500/10 hover:bg-rose-500/15 hover:text-rose-300'
                     : 'text-muted-foreground hover:text-foreground',
                 )}
               >
-                <Heart className={cn('h-4 w-4 sm:h-[18px] sm:w-[18px]', isChapterLiked && 'fill-current')} />
+                <Heart className={cn('h-[18px] w-[18px]', isChapterLiked && 'fill-current')} />
                 {chapterLikeCount > 0 && (
                   <span className="text-[11px] font-semibold tabular-nums">{chapterLikeCount}</span>
                 )}
@@ -728,7 +728,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               <Button
                 variant="ghost"
                 size="icon"
-                className="relative h-8 w-8 sm:h-9 sm:w-9 touch-manipulation"
+                className="relative h-8 w-8 shrink-0 sm:h-9 sm:w-9 touch-manipulation"
                 onClick={onOpenComments}
                 aria-label={`Bölüm yorumlarını aç (${commentCount})`}
               >
@@ -744,11 +744,11 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
             <Button
               variant="ghost"
               size="icon"
-              className="h-8 w-8 sm:h-9 sm:w-9 touch-manipulation"
+              className="hidden h-9 w-9 shrink-0 touch-manipulation sm:inline-flex"
               onClick={onAddBookmark}
               aria-label="Yer İmlerime Ekle"
             >
-              <BookmarkPlus className="h-4 w-4 sm:h-[18px] sm:w-[18px]" />
+              <BookmarkPlus className="h-[18px] w-[18px]" />
             </Button>
 
             {isMobile ? (
@@ -889,17 +889,54 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
             <Popover>
               <PopoverTrigger asChild>
-                <Button variant="ghost" size="icon" className="h-8 w-8 sm:h-10 sm:w-10" aria-label="Okuyucu ayarları">
+                <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0 sm:h-10 sm:w-10" aria-label="Okuyucu ayarları">
                   <Settings className="h-4 w-4 sm:h-5 sm:w-5" />
                 </Button>
               </PopoverTrigger>
               <PopoverContent
                 align="end"
                 onOpenAutoFocus={(event) => event.preventDefault()}
-                className="w-[min(20rem,calc(100vw-1rem))] rounded-2xl border-border bg-popover p-3 shadow-2xl sm:w-72 sm:p-4"
+                className="max-h-[min(80svh,36rem)] w-[min(20rem,calc(100vw-1rem))] overflow-y-auto rounded-2xl border-border bg-popover p-3 shadow-2xl sm:w-72 sm:p-4"
               >
                 <h4 className="mb-3 text-sm font-semibold sm:mb-4 sm:text-base">Okuyucu Ayarları</h4>
                 <div className="flex flex-col gap-3 sm:gap-4">
+                  {isMobile && (
+                    <div className={cn('grid gap-1.5 border-b border-border/60 pb-3', onToggleChapterLike ? 'grid-cols-3' : 'grid-cols-2')}>
+                      <Button asChild variant="outline" size="sm" className="h-9 gap-1.5 rounded-xl px-2 text-xs font-medium">
+                        <Link to="/">
+                          <Home className="h-3.5 w-3.5 shrink-0" />
+                          <span className="truncate">Ana Sayfa</span>
+                        </Link>
+                      </Button>
+                      {onToggleChapterLike && (
+                        <Button
+                          type="button"
+                          variant={isChapterLiked ? 'secondary' : 'outline'}
+                          size="sm"
+                          disabled={chapterLikeLoading}
+                          onClick={onToggleChapterLike}
+                          aria-pressed={isChapterLiked}
+                          className={cn(
+                            'h-9 gap-1.5 rounded-xl px-2 text-xs font-medium',
+                            isChapterLiked && 'border-rose-500/40 bg-rose-500/15 text-rose-400 hover:bg-rose-500/20',
+                          )}
+                        >
+                          <Heart className={cn('h-3.5 w-3.5 shrink-0', isChapterLiked && 'fill-current')} />
+                          <span className="truncate">{chapterLikeCount > 0 ? `Beğen (${chapterLikeCount})` : 'Beğen'}</span>
+                        </Button>
+                      )}
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={onAddBookmark}
+                        className="h-9 gap-1.5 rounded-xl px-2 text-xs font-medium"
+                      >
+                        <BookmarkPlus className="h-3.5 w-3.5 shrink-0" />
+                        <span className="truncate">Yer İmi</span>
+                      </Button>
+                    </div>
+                  )}
                   <div className="flex items-center justify-between">
                     <Label className="text-sm">Okuma Modu</Label>
                     <div className="flex gap-1">
@@ -1000,7 +1037,7 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
 
       {/* Bottom Bar */}
       <div
-        className={`fixed bottom-0 left-0 right-0 z-50 border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : 'translate-y-full'}`}
+        className={`fixed bottom-0 left-0 right-0 z-50 w-full max-w-[100vw] overflow-x-clip border-t border-border/50 bg-background/95 backdrop-blur-xl transition-transform duration-300 ${visible ? 'translate-y-0' : 'translate-y-full'}`}
         style={{ paddingBottom: READER_BOTTOM_SAFE_AREA }}
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
