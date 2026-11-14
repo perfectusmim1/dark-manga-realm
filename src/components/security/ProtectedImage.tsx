@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { memo, useCallback, useEffect, useRef, useState } from 'react';
 import { getCachedImageAsset } from '@/lib/imagePrefetch';
 import { shouldAvoidRawImageFallback } from '@/lib/imageProxy';
 import { buildProxiedImageUrl } from '@/lib/mediaStorage';
@@ -6,6 +6,24 @@ import { buildProxiedImageUrl } from '@/lib/mediaStorage';
 const IMAGE_DIMS_STORAGE_KEY = 'toonparrot_img_dims_v1';
 const memoryImageDimsCache = new Map<string, [number, number]>();
 let sessionDimsHydrated = false;
+let dimsPersistTimer: number | null = null;
+
+const scheduleDimsPersist = () => {
+    if (typeof window === 'undefined' || dimsPersistTimer !== null) return;
+    dimsPersistTimer = window.setTimeout(() => {
+        dimsPersistTimer = null;
+        try {
+            const entries = Array.from(memoryImageDimsCache.entries()).slice(-400);
+            const obj: Record<string, [number, number]> = {};
+            for (const [k, v] of entries) {
+                obj[k] = v;
+            }
+            window.sessionStorage.setItem(IMAGE_DIMS_STORAGE_KEY, JSON.stringify(obj));
+        } catch {
+            // ignore quota errors
+        }
+    }, 450);
+};
 
 const hydrateDimsFromSession = () => {
     if (sessionDimsHydrated || typeof window === 'undefined') return;
@@ -48,17 +66,7 @@ const recordKnownImageDims = (rawSrc: string, resolvedSrc: string, width: number
     const dims: [number, number] = [width, height];
     memoryImageDimsCache.set(rawSrc, dims);
     memoryImageDimsCache.set(resolvedSrc, dims);
-    if (typeof window === 'undefined') return;
-    try {
-        const entries = Array.from(memoryImageDimsCache.entries()).slice(-400);
-        const obj: Record<string, [number, number]> = {};
-        for (const [k, v] of entries) {
-            obj[k] = v;
-        }
-        window.sessionStorage.setItem(IMAGE_DIMS_STORAGE_KEY, JSON.stringify(obj));
-    } catch {
-        // ignore quota errors
-    }
+    scheduleDimsPersist();
 };
 
 interface ProtectedImageProps {
@@ -73,7 +81,7 @@ interface ProtectedImageProps {
     overlay?: React.ReactNode;
 }
 
-const ProtectedImage: React.FC<ProtectedImageProps> = ({
+const ProtectedImageComponent: React.FC<ProtectedImageProps> = ({
     src,
     alt,
     className,
@@ -85,6 +93,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
     overlay,
 }) => {
     const containerRef = useRef<HTMLDivElement>(null);
+    const imgRef = useRef<HTMLImageElement | null>(null);
     const prevSrcRef = useRef<string>(src);
     const isExternalUrl = src.startsWith('http://') || src.startsWith('https://');
     const avoidRaw = shouldAvoidRawImageFallback(src);
@@ -122,7 +131,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
         onMediaReadyChange?.(isMediaReady);
     }, [isMediaReady, onMediaReadyChange]);
 
-    const handleImgLoad = (el: HTMLImageElement) => {
+    const handleImgLoad = useCallback((el: HTMLImageElement) => {
         if (el.naturalWidth > 0 && el.naturalHeight > 0) {
             recordKnownImageDims(src, currentSrc, el.naturalWidth, el.naturalHeight);
             setKnownDims((prev) =>
@@ -131,12 +140,17 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
                     : [el.naturalWidth, el.naturalHeight]
             );
         }
-        if (!isMediaReady) {
-            setIsMediaReady(true);
-        }
-    };
+        setIsMediaReady((prev) => (prev ? prev : true));
+    }, [currentSrc, src]);
 
-    const handleImgError = () => {
+    useEffect(() => {
+        const el = imgRef.current;
+        if (el && el.complete && el.naturalWidth > 0) {
+            handleImgLoad(el);
+        }
+    }, [currentSrc, handleImgLoad]);
+
+    const handleImgError = useCallback(() => {
         if (isExternalUrl && !useProxyFallback) {
             const proxied = buildProxiedImageUrl(src);
             if (proxied && proxied !== currentSrc) {
@@ -145,7 +159,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
             }
         }
         setIsMediaReady(false);
-    };
+    }, [currentSrc, isExternalUrl, src, useProxyFallback]);
 
     const effectiveDims = knownDims || getKnownImageDims(src, currentSrc);
 
@@ -165,11 +179,7 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
             }}
         >
             <img
-                ref={(el) => {
-                    if (el && el.complete && el.naturalWidth > 0) {
-                        handleImgLoad(el);
-                    }
-                }}
+                ref={imgRef}
                 src={currentSrc}
                 alt={alt}
                 decoding="async"
@@ -200,4 +210,5 @@ const ProtectedImage: React.FC<ProtectedImageProps> = ({
     );
 };
 
+const ProtectedImage = memo(ProtectedImageComponent);
 export default ProtectedImage;

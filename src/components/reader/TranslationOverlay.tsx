@@ -19,7 +19,7 @@ import { cn } from '@/lib/utils';
 export const TranslationOverlay: React.FC<{
   blocks: TranslationBlock[];
   targetLang?: string;
-}> = ({ blocks, targetLang = 'tr' }) => {
+}> = React.memo(({ blocks, targetLang = 'tr' }) => {
   const measureCtx = getSharedMeasureContext();
 
   return (
@@ -188,7 +188,8 @@ export const TranslationOverlay: React.FC<{
       })}
     </div>
   );
-};
+});
+TranslationOverlay.displayName = 'TranslationOverlay';
 
 interface PageTranslateButtonProps {
   state?: PageTranslationState;

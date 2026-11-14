@@ -1,5 +1,6 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ReaderSettings, ResolvedReaderPage } from '@/lib/types';
+import { PageTranslationState } from '@/lib/translation/types';
 import ProtectedImage from '@/components/security/ProtectedImage';
 import { PageTranslateButton, TranslationOverlay } from '@/components/reader/TranslationOverlay';
 import { ReaderTranslationApi } from '@/hooks/useChapterTranslation';
@@ -20,43 +21,80 @@ interface ReaderPageProps {
   zoom: number;
   fitWidth: boolean;
   priority: boolean;
-  translation?: ReaderTranslationApi;
+  hasTranslationApi: boolean;
+  translationEnabled: boolean;
+  autoTranslate: boolean;
+  overlayVisible: boolean;
+  targetLang: string;
+  pageState?: PageTranslationState;
+  onTranslatePage?: (pageIndex: number, options?: { force?: boolean }) => void;
 }
 
-const ReaderPage: React.FC<ReaderPageProps> = ({
+const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
   index,
   page,
   zoom,
   fitWidth,
   priority,
-  translation,
+  hasTranslationApi,
+  translationEnabled,
+  autoTranslate,
+  overlayVisible,
+  targetLang,
+  pageState,
+  onTranslatePage,
 }) => {
   const [pageOverlayShown, setPageOverlayShown] = useState(true);
-  const state = translation?.pageStates[index];
   const showOverlay = Boolean(
-    translation
-    && state?.status === 'done'
-    && state.blocks
-    && translation.settings.overlayVisible
+    hasTranslationApi
+    && pageState?.status === 'done'
+    && pageState.blocks
+    && overlayVisible
     && pageOverlayShown,
   );
 
-  const overlayNode = translation ? (
-    <>
-      {showOverlay && state?.blocks && state.blocks.length > 0 && (
-        <TranslationOverlay blocks={state.blocks} targetLang={translation.settings.targetLang} />
-      )}
-      <PageTranslateButton
-        state={state}
-        canRequestTranslation={translation.enabled}
-        showIdleButton={!translation.settings.autoTranslate}
-        overlayShown={translation.settings.overlayVisible && pageOverlayShown}
-        onTranslate={() => translation.translatePage(index)}
-        onRetranslate={() => translation.translatePage(index, { force: true })}
-        onToggleOverlay={() => setPageOverlayShown((prev) => !prev)}
-      />
-    </>
-  ) : undefined;
+  const handleTranslate = useCallback(() => {
+    onTranslatePage?.(index);
+  }, [index, onTranslatePage]);
+
+  const handleRetranslate = useCallback(() => {
+    onTranslatePage?.(index, { force: true });
+  }, [index, onTranslatePage]);
+
+  const handleToggleOverlay = useCallback(() => {
+    setPageOverlayShown((prev) => !prev);
+  }, []);
+
+  const overlayNode = useMemo(() => (
+    hasTranslationApi ? (
+      <>
+        {showOverlay && pageState?.blocks && pageState.blocks.length > 0 && (
+          <TranslationOverlay blocks={pageState.blocks} targetLang={targetLang} />
+        )}
+        <PageTranslateButton
+          state={pageState}
+          canRequestTranslation={translationEnabled}
+          showIdleButton={!autoTranslate}
+          overlayShown={overlayVisible && pageOverlayShown}
+          onTranslate={handleTranslate}
+          onRetranslate={handleRetranslate}
+          onToggleOverlay={handleToggleOverlay}
+        />
+      </>
+    ) : undefined
+  ), [
+    autoTranslate,
+    handleRetranslate,
+    handleToggleOverlay,
+    handleTranslate,
+    hasTranslationApi,
+    overlayVisible,
+    pageOverlayShown,
+    pageState,
+    showOverlay,
+    targetLang,
+    translationEnabled,
+  ]);
 
   return (
     <div
@@ -79,12 +117,13 @@ const ReaderPage: React.FC<ReaderPageProps> = ({
           overlay={overlayNode}
         />
       </div>
-      <div className="absolute top-2 left-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100 pointer-events-none">
+      <div className="pointer-events-none absolute left-2 top-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
         P{index + 1}
       </div>
     </div>
   );
-};
+});
+ReaderPage.displayName = 'ReaderPage';
 
 const VerticalReader: React.FC<VerticalReaderProps> = ({
   pages,
@@ -95,6 +134,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   trackingEnabled = true,
   translation,
 }) => {
+  const containerRef = useRef<HTMLDivElement | null>(null);
   const lastReportedPage = useRef<number>(initialPage);
   const lastReportedPercent = useRef<number>(-1);
   const [isMobileViewport, setIsMobileViewport] = useState(() => window.innerWidth < 640);
@@ -118,7 +158,10 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
 
     const evaluateScrollPosition = () => {
       rafId = null;
-      const pageNodes = Array.from(document.querySelectorAll<HTMLElement>('[data-page-index]'));
+      const rootEl = containerRef.current;
+      const pageNodes = rootEl
+        ? rootEl.querySelectorAll<HTMLElement>('[data-page-index]')
+        : document.querySelectorAll<HTMLElement>('[data-page-index]');
       if (pageNodes.length === 0) {
         return;
       }
@@ -134,11 +177,12 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
 
       if (scrollY <= 4) {
         const firstPage = 1;
-        if (firstPage !== lastReportedPage.current) {
+        const pageChanged = firstPage !== lastReportedPage.current;
+        if (pageChanged) {
           lastReportedPage.current = firstPage;
           onPageChange(firstPage);
         }
-        if (Math.abs(lastReportedPercent.current - 0) >= 0.05) {
+        if (Math.abs(lastReportedPercent.current - 0) > 0.01 || pageChanged) {
           lastReportedPercent.current = 0;
           onProgressChange?.(1, 0, 0);
         }
@@ -147,11 +191,12 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
 
       if (maxScroll > 0 && scrollY >= maxScroll - 4) {
         const lastPage = totalPages;
-        if (lastPage !== lastReportedPage.current) {
+        const pageChanged = lastPage !== lastReportedPage.current;
+        if (pageChanged) {
           lastReportedPage.current = lastPage;
           onPageChange(lastPage);
         }
-        if (Math.abs(lastReportedPercent.current - 100) >= 0.05) {
+        if (Math.abs(lastReportedPercent.current - 100) > 0.01 || pageChanged) {
           lastReportedPercent.current = 100;
           onProgressChange?.(lastPage, 1, 100);
         }
@@ -198,7 +243,9 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
       }
 
       if (
-        Math.abs(clampedPercent - lastReportedPercent.current) >= 0.05
+        Math.abs(clampedPercent - lastReportedPercent.current) >= 0.4
+        || clampedPercent === 0
+        || clampedPercent >= 99.9
         || pageChanged
       ) {
         lastReportedPercent.current = clampedPercent;
@@ -228,8 +275,15 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
     lastReportedPage.current = initialPage;
   }, [initialPage]);
 
+  const hasTranslationApi = Boolean(translation);
+  const translationEnabled = Boolean(translation?.enabled);
+  const autoTranslate = Boolean(translation?.settings.autoTranslate);
+  const overlayVisible = Boolean(translation?.settings.overlayVisible);
+  const targetLang = translation?.settings.targetLang || 'tr';
+  const translatePage = translation?.translatePage;
+
   return (
-    <div className="flex flex-col items-center gap-0 pb-10 pt-14 sm:pb-14 sm:pt-20">
+    <div ref={containerRef} className="flex flex-col items-center gap-0 pb-10 pt-[5.25rem] sm:pb-14 sm:pt-16">
       {pages.map((page, index) => (
         <ReaderPage
           key={index}
@@ -238,7 +292,13 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
           zoom={effectiveZoom}
           fitWidth={settings.fitWidth}
           priority={index <= initialPage + 1}
-          translation={translation}
+          hasTranslationApi={hasTranslationApi}
+          translationEnabled={translationEnabled}
+          autoTranslate={autoTranslate}
+          overlayVisible={overlayVisible}
+          targetLang={targetLang}
+          pageState={translation?.pageStates[index]}
+          onTranslatePage={translatePage}
         />
       ))}
     </div>

@@ -77,6 +77,9 @@ export interface TranslationSummary {
 
 export interface ReaderTranslationApi {
   enabled: boolean;
+  cacheReady: boolean;
+  wasCancelledManually: boolean;
+  effectiveKeyCount: number;
   hasTranslatedPages: boolean;
   settings: TranslationSettings;
   updateSettings: (patch: Partial<TranslationSettings>) => void;
@@ -107,6 +110,7 @@ export const useChapterTranslation = ({
   const [settings, setSettings] = useState<TranslationSettings>(() => loadTranslationSettings());
   const [pageStates, setPageStates] = useState<Record<number, PageTranslationState>>({});
   const [cacheReady, setCacheReady] = useState(false);
+  const [wasCancelledManually, setWasCancelledManually] = useState(false);
   const [lastErrorMessage, setLastErrorMessage] = useState<string | null>(null);
   const [completedPulseAt, setCompletedPulseAt] = useState<number | null>(null);
   const [lastFinishedPageNumber, setLastFinishedPageNumber] = useState<number | null>(null);
@@ -141,6 +145,10 @@ export const useChapterTranslation = ({
   }, []);
 
   const updateSettings = useCallback((patch: Partial<TranslationSettings>) => {
+    if (patch.autoTranslate === true) {
+      wasCancelledManuallyRef.current = false;
+      setWasCancelledManually(false);
+    }
     setSettings((prev) => {
       const next: TranslationSettings = { ...prev, ...patch };
       if ('apiKeys' in patch && !('apiKey' in patch)) {
@@ -188,6 +196,8 @@ export const useChapterTranslation = ({
 
     abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
+    wasCancelledManuallyRef.current = false;
+    setWasCancelledManually(false);
     queueRef.current = [];
     transQueueRef.current = [];
     runningOcrRef.current = 0;
@@ -512,6 +522,7 @@ export const useChapterTranslation = ({
       if (!activeChapterId || indices.length === 0 || pagesRef.current.length === 0) return;
 
       wasCancelledManuallyRef.current = false;
+      setWasCancelledManually(false);
       const isCurrentlyBusy =
         runningOcrRef.current > 0 ||
         runningTransRef.current > 0 ||
@@ -628,6 +639,7 @@ export const useChapterTranslation = ({
   const cancelTranslation = useCallback(() => {
     chapterEpochRef.current += 1;
     wasCancelledManuallyRef.current = true;
+    setWasCancelledManually(true);
     abortControllerRef.current.abort();
     abortControllerRef.current = new AbortController();
     queueRef.current = [];
@@ -651,11 +663,7 @@ export const useChapterTranslation = ({
       setPageStates(next);
     }
     setBatchTracker({ done: 0, total: 0 });
-
-    if (settingsRef.current.autoTranslate) {
-      updateSettings({ autoTranslate: false });
-    }
-  }, [updateSettings]);
+  }, []);
 
   const dismissStatusFeedback = useCallback(() => {
     setIsPillDismissed(true);
@@ -686,12 +694,15 @@ export const useChapterTranslation = ({
   }, [cancelTranslation]);
 
   const effectiveKeyCount = getEffectiveApiKeys(settings).length;
+  const requiresApiKey = settings.provider === 'gemini';
 
   // Otomatik çeviri: önbellek yüklendikten sonra çevrilmemiş sayfaları KESİNLİKLE 1. sayfadan (0'dan) itibaren baştan sona sırayla kuyruğa alır.
   useEffect(() => {
     if (
       !settings.autoTranslate ||
-      effectiveKeyCount === 0 ||
+      wasCancelledManually ||
+      wasCancelledManuallyRef.current ||
+      (requiresApiKey && effectiveKeyCount === 0) ||
       !networkEnabled ||
       !cacheReady ||
       !chapterId ||
@@ -714,8 +725,10 @@ export const useChapterTranslation = ({
     enqueueIndices(additions);
   }, [
     settings.autoTranslate,
+    requiresApiKey,
     effectiveKeyCount,
     settings.targetLang,
+    wasCancelledManually,
     networkEnabled,
     cacheReady,
     chapterId,
@@ -798,6 +811,9 @@ export const useChapterTranslation = ({
 
   return {
     enabled: networkEnabled,
+    cacheReady,
+    wasCancelledManually,
+    effectiveKeyCount,
     hasTranslatedPages: summary.doneCount > 0,
     settings,
     updateSettings,

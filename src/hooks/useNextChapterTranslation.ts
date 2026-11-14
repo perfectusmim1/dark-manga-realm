@@ -50,6 +50,16 @@ export const useNextChapterTranslation = ({
   const abortControllerRef = useRef<AbortController | null>(null);
   const isCancelledManuallyRef = useRef(false);
 
+  useEffect(() => {
+    isCancelledManuallyRef.current = false;
+  }, [currentChapterId, nextChapter?.id]);
+
+  useEffect(() => {
+    if (!settings.prefetchNextChapterTranslation) {
+      isCancelledManuallyRef.current = false;
+    }
+  }, [settings.prefetchNextChapterTranslation]);
+
   const cancelPretranslation = useCallback(() => {
     isCancelledManuallyRef.current = true;
     abortControllerRef.current?.abort();
@@ -101,8 +111,8 @@ export const useNextChapterTranslation = ({
 
     const runBackgroundPretranslation = async () => {
       try {
-        // Kısa bir bekleme (500ms): sayfa ilk açıldığında UI'ın ve aktif okuyucunun rahatlaması için
-        await new Promise((resolve) => setTimeout(resolve, 500));
+        // Kısa bir bekleme (800ms): sayfa ilk açıldığında UI'ın ve aktif bölümün otomatik çevirisinin önce başlaması için
+        await new Promise((resolve) => setTimeout(resolve, 800));
         if (signal.aborted || isTerminated) return;
 
         // Sonraki bölümün sayfalarını temin et

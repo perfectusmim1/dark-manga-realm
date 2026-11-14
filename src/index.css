@@ -153,12 +153,10 @@
   }
 
   .hover-lift {
-    transform: translateY(0);
-    @apply transition-[transform,box-shadow,border-color,background-color] duration-300 ease-out;
+    @apply transition-[box-shadow,border-color,background-color] duration-200 ease-out;
   }
 
   .hover-lift:hover {
-    transform: translateY(-4px);
     box-shadow: var(--shadow-glow);
   }
 

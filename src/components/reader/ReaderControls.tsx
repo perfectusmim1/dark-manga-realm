@@ -663,13 +663,13 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
         onClick={(e) => e.stopPropagation()}
         onMouseDown={(e) => e.stopPropagation()}
       >
-        <div className="mx-auto flex w-full max-w-7xl items-center justify-between gap-2 px-2 py-2 sm:h-14 sm:gap-4 sm:px-4 sm:py-0">
+        <div className="mx-auto flex w-full max-w-7xl flex-col gap-1 px-2.5 py-1.5 sm:h-14 sm:flex-row sm:items-center sm:justify-between sm:gap-4 sm:px-4 sm:py-0">
           <div className="flex min-w-0 flex-1 items-center gap-1.5 sm:gap-2">
             <Button
               asChild
               variant="ghost"
               size="icon"
-              className="h-8 w-8 sm:h-10 sm:w-10"
+              className="h-8 w-8 shrink-0 sm:h-10 sm:w-10"
               aria-label="Ana sayfaya git"
             >
               <Link to="/">
@@ -680,24 +680,28 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
               asChild
               variant="ghost"
               size="icon"
-              className="h-8 w-8 sm:h-10 sm:w-10"
+              className="h-8 w-8 shrink-0 sm:h-10 sm:w-10"
               aria-label="Seri sayfasına git"
             >
               <Link to={`/manga/${mangaId}`} onClick={handleSeriesPageNavigation}>
                 <BookOpen className="h-4 w-4 sm:h-5 sm:w-5" />
               </Link>
             </Button>
-            <div className="min-w-0 flex-1">
-              <span className="line-clamp-1 block text-sm font-medium sm:text-sm">
+            <Link
+              to={`/manga/${mangaId}`}
+              onClick={handleSeriesPageNavigation}
+              className="min-w-0 flex-1 hover:text-primary transition-colors"
+            >
+              <span className="block truncate text-xs font-semibold leading-tight sm:text-sm">
                 {mangaTitle}
               </span>
-              <span className="block truncate text-[11px] text-muted-foreground sm:text-xs">
+              <span className="block truncate text-[11px] leading-tight text-muted-foreground sm:text-xs">
                 {formatChapterDisplayTitle(currentChapter.number, currentChapter.title)}
               </span>
-            </div>
+            </Link>
           </div>
 
-          <div className="flex shrink-0 items-center gap-1 sm:gap-1.5">
+          <div className="flex w-full shrink-0 items-center justify-around border-t border-border/40 pt-1 sm:w-auto sm:justify-end sm:gap-1.5 sm:border-t-0 sm:pt-0">
             {onToggleChapterLike && (
               <Button
                 variant="ghost"
@@ -962,23 +966,22 @@ const ReaderControls: React.FC<ReaderControlsProps> = ({
                       <Switch checked={isIncognito} onCheckedChange={onIncognitoToggle} />
                     </div>
                   )}
-                  <div className="flex items-center justify-between gap-4">
-                    <div className="space-y-0.5">
-                      <Label className="text-sm">Sayfa Yorumlarını Göster</Label>
-                      <p className="text-[11px] text-muted-foreground">
-                        Mevcut sayfanın yorumlarını kenar boşluklarında gösterir.
-                      </p>
-                      <p className="text-[11px] text-amber-300/80">
-                        Mobil görünüm için uygun değildir.
-                      </p>
+                  {!isMobile && (
+                    <div className="flex items-center justify-between gap-4">
+                      <div className="space-y-0.5">
+                        <Label className="text-sm">Sayfa Yorumlarını Göster</Label>
+                        <p className="text-[11px] text-muted-foreground">
+                          Mevcut sayfanın yorumlarını kenar boşluklarında gösterir.
+                        </p>
+                      </div>
+                      <Switch
+                        checked={settings.showPageComments}
+                        onCheckedChange={(checked) =>
+                          onSettingsChange({ ...settings, showPageComments: checked })
+                        }
+                      />
                     </div>
-                    <Switch
-                      checked={settings.showPageComments}
-                      onCheckedChange={(checked) =>
-                        onSettingsChange({ ...settings, showPageComments: checked })
-                      }
-                    />
-                  </div>
+                  )}
                   <div className="flex items-center justify-between gap-4">
                     <Label className="text-sm">Sonraki Bölümü Önbelleğe Al</Label>
                     <Switch

@@ -137,15 +137,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   useEffect(() => {
     let isActive = true;
 
-    if (topTenWeekIds === null) {
-      setIsTopTenWeek(false);
-      return () => {
-        isActive = false;
-      };
-    }
-
-    if (topTenWeekIds) {
-      setIsTopTenWeek(topTenWeekIds.has(manga.id));
+    if (topTenWeekIds !== undefined) {
       return () => {
         isActive = false;
       };
@@ -172,9 +164,13 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
     };
   }, [manga.id, topTenWeekIds]);
 
+  const effectiveIsTopTenWeek = topTenWeekIds !== undefined
+    ? Boolean(topTenWeekIds?.has(manga.id))
+    : isTopTenWeek;
+
   const cardContent = (
     <div
-      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${disableHeavyEffects ? '' : 'transition-[transform,box-shadow,border-color,background-color] duration-300 hover-lift'} ${disableHeavyEffects || !enableEntryAnimation ? '' : entryAnimationClassName}`}
+      className={`group relative block cursor-pointer overflow-hidden rounded-xl bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${disableHeavyEffects ? '' : 'transition-colors duration-200'} ${disableHeavyEffects || !enableEntryAnimation ? '' : entryAnimationClassName}`}
       style={disableHeavyEffects || !enableEntryAnimation ? undefined : {
         animationDelay: `${index * entryAnimationDelayStepMs}ms`,
         animationDuration: `${entryAnimationDurationMs}ms`,
@@ -241,7 +237,7 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
           )}
         </div>
 
-        {isTopTenWeek && (
+        {effectiveIsTopTenWeek && (
           <div
             className="pointer-events-none absolute right-0 top-0 z-10"
             style={{ width: TOP_TEN_CORNER_SIZE, height: TOP_TEN_CORNER_SIZE }}

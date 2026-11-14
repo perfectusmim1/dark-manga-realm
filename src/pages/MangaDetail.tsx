@@ -317,7 +317,7 @@ const PreviewPageThumbnail = React.memo(({
     >
       <div
         ref={cardRef}
-        className="relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-secondary shadow-sm transition-transform duration-200 group-hover:-translate-y-0.5 isolate"
+        className="relative aspect-[3/4] overflow-hidden rounded-xl border border-border bg-secondary shadow-sm isolate"
         style={{
           contentVisibility: 'auto',
           containIntrinsicSize: cardSize === 'small' ? '120px 160px' : cardSize === 'large' ? '280px 370px' : '180px 240px',
@@ -3562,7 +3562,7 @@ const MangaDetail: React.FC = () => {
                       onClick={openSeriesDownloadDialog}
                       className="group h-11 w-full border-blue-500/30 text-sm hover:border-blue-400/60 hover:bg-blue-500/10 sm:h-12 sm:w-auto sm:text-base"
                     >
-                      <Download className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
+                      <Download className="h-4 w-4" />
                       {primaryOfflineJob?.status === 'running'
                         ? 'Seri İndiriliyor'
                         : primaryOfflineJob && ['paused', 'failed', 'partial', 'queued'].includes(primaryOfflineJob.status)
@@ -3601,7 +3601,7 @@ const MangaDetail: React.FC = () => {
                       aria-label="Seriyi bildir"
                       title="Seriyi bildir"
                     >
-                      <Flag className="h-4 w-4 transition-transform group-hover:-translate-y-0.5" />
+                      <Flag className="h-4 w-4" />
                     </Button>
                   </div>
                 </div>
