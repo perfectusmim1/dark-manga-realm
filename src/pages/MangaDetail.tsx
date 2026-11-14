@@ -26,6 +26,7 @@ import {
   RefreshCcw,
   ArrowDown,
   ArrowUp,
+  X,
 } from 'lucide-react';
 import { cn } from "@/lib/utils";
 import Header from '@/components/layout/Header';
@@ -2972,7 +2973,7 @@ const MangaDetail: React.FC = () => {
     );
   }
 
-  const renderChapterRow = (chapter: Chapter) => {
+  const renderChapterRow = (chapter: Chapter, index: number) => {
     const numKey = typeof chapter.number === 'number' ? chapter.number : parseFloat(String(chapter.number)) || 0;
     const variants = chapterVariantsByNumber.get(numKey) || [chapter];
     const isAnyVariantRead = variants.some((v) => mergedChapterReadMap[v.id]?.isRead);
@@ -2986,14 +2987,14 @@ const MangaDetail: React.FC = () => {
 
     return (
       <div
-        className="flex flex-col gap-3 p-3 transition-colors hover:bg-secondary/50 sm:p-4"
-        style={{ contentVisibility: 'auto', containIntrinsicSize: chapterCardImageUrl ? '132px' : '96px' }}
+        className="flex flex-col gap-2.5 p-2.5 transition-colors hover:bg-secondary/50 sm:p-3.5"
+        style={index >= 8 ? { contentVisibility: 'auto', containIntrinsicSize: chapterCardImageUrl ? 'auto 108px' : 'auto 76px' } : undefined}
       >
         <div className="flex min-w-0 gap-3">
           {chapterCardImageUrl ? (
             <Link
               to={`/manga/${manga.id}/chapter/${chapter.id}`}
-              className="group h-24 w-20 shrink-0 overflow-hidden rounded-xl border border-border/70 bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:h-28 sm:w-24"
+              className="group h-20 w-16 shrink-0 overflow-hidden rounded-lg border border-border/70 bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/70 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:h-[88px] sm:w-[72px]"
             >
               <OptimizedImage
                 src={chapterCardImageUrl}
@@ -3010,13 +3011,13 @@ const MangaDetail: React.FC = () => {
             </Link>
           ) : null}
 
-          <div className="flex min-w-0 flex-1 flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 flex-1 flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
                 <Link
                   to={`/manga/${manga.id}/chapter/${chapter.id}`}
                   className={cn(
-                    "line-clamp-1 text-base font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-base mr-0.5",
+                    "line-clamp-1 text-sm font-semibold leading-tight transition-colors sm:line-clamp-2 sm:text-[15px] mr-0.5",
                     isAnyVariantRead
                       ? "text-emerald-400 hover:text-emerald-300"
                       : "hover:text-primary",
@@ -3110,7 +3111,7 @@ const MangaDetail: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-9 gap-1.5 border-emerald-500/40 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
+                    className="h-8 gap-1.5 border-emerald-500/40 bg-emerald-500/10 px-2.5 text-xs font-semibold text-emerald-400 hover:bg-emerald-500/20 hover:text-emerald-300"
                     onClick={() => void handleDownloadTranslatedChapter(chapter)}
                     disabled={downloadingChapterId === chapter.id}
                     title="Çevrilen sayfaları ZIP olarak indir"
@@ -3125,19 +3126,19 @@ const MangaDetail: React.FC = () => {
                   <Button
                     variant="ghost"
                     size="icon"
-                    className="h-9 w-9 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
+                    className="h-8 w-8 text-muted-foreground hover:bg-destructive/15 hover:text-destructive"
                     onClick={() => void handleClearChapterTranslation(chapter.id, chapter.number)}
                     disabled={clearingTranslationChapterId === chapter.id}
                     title="Bu bölümün çevirisini temizle"
                   >
-                    <Trash2 className="h-4 w-4" />
+                    <Trash2 className="h-3.5 w-3.5" />
                   </Button>
                 </div>
               )}
               {offlineChapterMap[chapter.id]?.downloadStatus === 'completed' ? (
                 <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
                   {pageCountBadge}
-                  <Button asChild size="sm" className="h-9 px-3 text-xs sm:text-sm">
+                  <Button asChild size="sm" className="h-8 px-2.5 text-xs">
                     <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
                       Oku
                     </Link>
@@ -3145,18 +3146,18 @@ const MangaDetail: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-9 w-9 px-0 text-xs sm:w-auto sm:px-3 sm:text-sm"
+                    className="h-8 w-8 px-0 text-xs sm:w-auto sm:px-2.5"
                     onClick={() => void handleDeleteOfflineChapter(chapter.id)}
                   >
-                    <Trash2 className="h-4 w-4 sm:mr-2" />
+                    <Trash2 className="h-3.5 w-3.5 sm:mr-1.5" />
                     <span className="sr-only sm:not-sr-only">Sil</span>
                   </Button>
                 </div>
               ) : offlineChapterMap[chapter.id] && ['running', 'queued'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
                 <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
                   {pageCountBadge}
-                  <Button variant="outline" size="sm" className="h-9 px-3 text-xs sm:text-sm" disabled>
-                    <Download className="mr-2 h-4 w-4" />
+                  <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled>
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
                     İndiriliyor
                   </Button>
                 </div>
@@ -3166,10 +3167,10 @@ const MangaDetail: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-9 px-3 text-xs sm:text-sm"
+                    className="h-8 px-2.5 text-xs"
                     onClick={() => void handleQueueChapterDownload(chapter)}
                   >
-                    <Download className="mr-2 h-4 w-4" />
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
                     Devam Et
                   </Button>
                 </div>
@@ -3179,19 +3180,19 @@ const MangaDetail: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-9 px-3 text-xs sm:text-sm"
+                    className="h-8 px-2.5 text-xs"
                     onClick={() => void handleQueueChapterDownload(chapter)}
                   >
-                    <Download className="mr-2 h-4 w-4" />
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
                     Yeniden Dene
                   </Button>
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-9 w-9 px-0 text-xs sm:w-auto sm:px-3 sm:text-sm"
+                    className="h-8 w-8 px-0 text-xs sm:w-auto sm:px-2.5"
                     onClick={() => void handleDeleteOfflineChapter(chapter.id)}
                   >
-                    <Trash2 className="h-4 w-4 sm:mr-2" />
+                    <Trash2 className="h-3.5 w-3.5 sm:mr-1.5" />
                     <span className="sr-only sm:not-sr-only">Sil</span>
                   </Button>
                 </div>
@@ -3201,10 +3202,10 @@ const MangaDetail: React.FC = () => {
                   <Button
                     variant="outline"
                     size="sm"
-                    className="h-9 px-3 text-xs sm:text-sm"
+                    className="h-8 px-2.5 text-xs"
                     onClick={() => void handleQueueChapterDownload(chapter)}
                   >
-                    <Download className="mr-2 h-4 w-4" />
+                    <Download className="mr-1.5 h-3.5 w-3.5" />
                     İndir
                   </Button>
                 </div>
@@ -3231,7 +3232,7 @@ const MangaDetail: React.FC = () => {
         {/* Hero Section */}
         <div className="relative overflow-hidden">
           {/* Background */}
-          <div className="pointer-events-none absolute inset-x-0 top-0 h-[30rem] overflow-hidden md:h-[34rem]">
+          <div className="pointer-events-none absolute inset-x-0 top-0 h-[23rem] overflow-hidden md:h-[27rem]">
             <OptimizedImage
               src={heroArtwork}
               alt=""
@@ -3258,7 +3259,7 @@ const MangaDetail: React.FC = () => {
           <div className="container relative z-10 py-6 sm:py-8">
             <div className="flex flex-col gap-6 md:flex-row md:gap-8">
               {/* Cover */}
-              <div className="mx-auto w-full max-w-[220px] shrink-0 animate-fade-up md:mx-0 md:w-64 md:max-w-none">
+              <div className="mx-auto w-36 sm:w-44 shrink-0 animate-fade-up md:mx-0 md:w-52 lg:w-56">
                 <OptimizedImage
                   src={manga.cover}
                   alt={manga.title}
@@ -3266,7 +3267,7 @@ const MangaDetail: React.FC = () => {
                   transform={MANGA_DETAIL_COVER_TRANSFORM}
                   containerClassName="mx-auto"
                   className={cn(
-                    'mx-auto h-auto w-full rounded-xl object-cover shadow-2xl shadow-primary/10 md:h-96',
+                    'mx-auto aspect-[2/3] w-full rounded-xl object-cover shadow-xl border border-border/50',
                     shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
                   )}
                 />
@@ -3292,7 +3293,7 @@ const MangaDetail: React.FC = () => {
                   </Badge>
                 </div>
 
-                <h1 className="text-3xl font-bold tracking-tight md:text-4xl">{manga.title}</h1>
+                <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">{manga.title}</h1>
 
                 {alternativeTitlesText && (
                   <div ref={alternativeTitlesContainerRef} className="relative space-y-1">
@@ -3401,25 +3402,25 @@ const MangaDetail: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-5 gap-y-3 text-base sm:text-lg">
+                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs sm:text-sm">
                   {averageRating.count > 0 && (
                     <div className="flex items-center gap-1.5 text-yellow-400">
-                      <Star className="h-5 w-5 fill-yellow-400 text-yellow-400" />
+                      <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
                       <span className="font-semibold tracking-tight">{averageRating.average}/10</span>
-                      <span className="text-sm font-medium text-yellow-100/85 sm:text-base">({averageRating.count})</span>
+                      <span className="text-xs font-medium text-yellow-100/85 sm:text-sm">({averageRating.count})</span>
                     </div>
                   )}
                   <div className="flex items-center gap-1.5 text-white">
-                    <Eye className="h-5 w-5 text-white/90" />
+                    <Eye className="h-4 w-4 text-white/90" />
                     <span className="font-medium tracking-tight">{formatViews(manga.views || 0)} görüntülenme</span>
                   </div>
                   <div className="flex items-center gap-1.5 text-emerald-400">
-                    <BookOpen className="h-5 w-5 text-emerald-400" />
+                    <BookOpen className="h-4 w-4 text-emerald-400" />
                     <span className="font-semibold tracking-tight">{uniqueChapterCount} bölüm</span>
                   </div>
                   {user && (
                     <div className="flex items-center gap-1.5 text-red-400">
-                      <Clock3 className="h-5 w-5" />
+                      <Clock3 className="h-4 w-4" />
                       <span className="font-medium tracking-tight">
                         Bu seride {isSeriesReadingTimeLoading ? 'yükleniyor...' : formatReadingDuration(seriesReadingSeconds)}
                       </span>
@@ -3427,7 +3428,7 @@ const MangaDetail: React.FC = () => {
                   )}
                   {offlineSeriesEntry && offlineSeriesEntry.downloadedChapters > 0 && (
                     <div className="flex items-center gap-1.5 text-blue-400">
-                      <Download className="h-5 w-5" />
+                      <Download className="h-4 w-4" />
                       <span className="font-medium tracking-tight">{offlineSeriesEntry.downloadedChapters} bölüm çevrimdışı hazır</span>
                     </div>
                   )}
@@ -3466,7 +3467,7 @@ const MangaDetail: React.FC = () => {
                     type="button"
                     onClick={() => shouldShowDescriptionToggle && setIsDescriptionExpanded((previous) => !previous)}
                     className={cn(
-                      'w-full text-left text-base leading-relaxed text-foreground/80 transition-colors sm:text-[1.0625rem] whitespace-pre-line',
+                      'w-full text-left text-sm sm:text-[15px] leading-relaxed text-foreground/80 transition-colors whitespace-pre-line',
                       shouldShowDescriptionToggle && 'cursor-pointer hover:text-foreground/90',
                     )}
                     aria-expanded={isDescriptionExpanded}
@@ -3517,9 +3518,9 @@ const MangaDetail: React.FC = () => {
                   ))}
                 </div>
 
-                <div className="pt-4">
+                <div className="pt-3">
                   {continueChapter ? (
-                    <Button asChild variant="glow" size="lg" className="w-full">
+                    <Button asChild variant="glow" className="h-10 w-full text-sm font-semibold sm:h-11">
                       <Link
                         to={`/manga/${manga.id}/chapter/${continueChapter.id}?page=${latestProgress?.page || 1}${latestProgress?.pageOffsetRatio && latestProgress.pageOffsetRatio > 0.005 ? `&offset=${latestProgress.pageOffsetRatio.toFixed(3)}` : ''}`}
                       >
@@ -3529,7 +3530,7 @@ const MangaDetail: React.FC = () => {
                       </Link>
                     </Button>
                   ) : manga.chapters.length > 0 ? (
-                    <Button asChild variant="glow" size="lg" className="w-full">
+                    <Button asChild variant="glow" className="h-10 w-full text-sm font-semibold sm:h-11">
                       <Link to={`/manga/${manga.id}/chapter/${[...manga.chapters].sort((a, b) => a.number - b.number)[0]?.id}`}>
                         <Play className="h-4 w-4" />
                         Okumaya Başla
@@ -3537,12 +3538,11 @@ const MangaDetail: React.FC = () => {
                     </Button>
                   ) : null}
 
-                  <div className="mt-3 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-3">
+                  <div className="mt-2.5 grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:gap-2.5">
                     <Button
                       variant={favorite ? 'default' : 'outline'}
-                      size="lg"
                       onClick={toggleFavorite}
-                      className={cn('h-11 w-full text-sm sm:h-12 sm:w-auto sm:text-base', favorite && 'bg-destructive hover:bg-destructive/90')}
+                      className={cn('h-9 w-full text-xs sm:h-10 sm:w-auto sm:text-sm', favorite && 'bg-destructive hover:bg-destructive/90')}
                     >
                       <Heart className={`h-4 w-4 ${favorite ? 'fill-current' : ''}`} />
                       {favorite ? 'Favorilerde' : 'Favorilere Ekle'}
@@ -3550,9 +3550,8 @@ const MangaDetail: React.FC = () => {
 
                     <Button
                       variant={isFollowing ? 'default' : 'outline'}
-                      size="lg"
                       onClick={toggleFollow}
-                      className={cn('h-11 w-full text-sm sm:h-12 sm:w-auto sm:text-base', isFollowing && 'bg-primary/20 text-primary border-primary/50 hover:bg-primary/30')}
+                      className={cn('h-9 w-full text-xs sm:h-10 sm:w-auto sm:text-sm', isFollowing && 'bg-primary/20 text-primary border-primary/50 hover:bg-primary/30')}
                     >
                       {isFollowing ? (
                         <BellOff className="h-4 w-4" />
@@ -3564,9 +3563,8 @@ const MangaDetail: React.FC = () => {
 
                     <Button
                       variant="outline"
-                      size="lg"
                       onClick={handleAddToList}
-                      className="group h-11 w-full border-primary/30 text-sm transition-all hover:border-primary/60 hover:bg-primary/5 sm:h-12 sm:w-auto sm:text-base"
+                      className="group h-9 w-full border-primary/30 text-xs transition-all hover:border-primary/60 hover:bg-primary/5 sm:h-10 sm:w-auto sm:text-sm"
                     >
                       <List className="h-4 w-4 text-primary transition-transform group-hover:scale-110" />
                       Listeye Ekle
@@ -3574,10 +3572,9 @@ const MangaDetail: React.FC = () => {
 
                     <Button
                       variant="outline"
-                      size="lg"
                       disabled={primaryOfflineJob?.status === 'running'}
                       onClick={openSeriesDownloadDialog}
-                      className="group h-11 w-full border-blue-500/30 text-sm hover:border-blue-400/60 hover:bg-blue-500/10 sm:h-12 sm:w-auto sm:text-base"
+                      className="group h-9 w-full border-blue-500/30 text-xs hover:border-blue-400/60 hover:bg-blue-500/10 sm:h-10 sm:w-auto sm:text-sm"
                     >
                       <Download className="h-4 w-4" />
                       {primaryOfflineJob?.status === 'running'
@@ -3590,7 +3587,7 @@ const MangaDetail: React.FC = () => {
                     {favorite && (
                       <DropdownMenu>
                         <DropdownMenuTrigger asChild>
-                          <Button variant="outline" size="lg" className="col-span-2 h-11 w-full justify-between text-sm sm:h-12 sm:w-auto sm:text-base">
+                          <Button variant="outline" className="col-span-2 h-9 w-full justify-between text-xs sm:h-10 sm:w-auto sm:text-sm">
                             <Library className="h-4 w-4" />
                             {category ? categoryLabels[category] : 'Kategori'}
                             <ChevronDown className="ml-1 h-4 w-4" />
@@ -3612,9 +3609,8 @@ const MangaDetail: React.FC = () => {
 
                     <Button
                       variant="outline"
-                      size="lg"
                       onClick={openReportDialog}
-                      className="group h-11 w-full border-amber-500/30 px-0 text-amber-100 hover:border-amber-400/60 hover:bg-amber-500/10 sm:h-12 sm:w-12"
+                      className="group h-9 w-full border-amber-500/30 px-0 text-xs text-amber-100 hover:border-amber-400/60 hover:bg-amber-500/10 sm:h-10 sm:w-10 sm:text-sm"
                       aria-label="Seriyi bildir"
                       title="Seriyi bildir"
                     >
@@ -3634,19 +3630,19 @@ const MangaDetail: React.FC = () => {
               <TabsList className="h-auto min-w-full w-max justify-start gap-3 rounded-none border-b bg-transparent p-0 sm:gap-8">
                 <TabsTrigger
                   value="overview"
-                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   GENEL BAKIŞ
                 </TabsTrigger>
                 <TabsTrigger
                   value="preview"
-                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                  className="whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   ÖNİZLEME
                 </TabsTrigger>
                 <TabsTrigger
                   value="bookmarks"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   YER İMLERİ
                   {seriesBookmarks.length > 0 && (
@@ -3657,7 +3653,7 @@ const MangaDetail: React.FC = () => {
                 </TabsTrigger>
                 <TabsTrigger
                   value="reviews"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   İNCELEMELER
                   {reviewCount > 0 && (
@@ -3668,7 +3664,7 @@ const MangaDetail: React.FC = () => {
                 </TabsTrigger>
                 <TabsTrigger
                   value="characters"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   KARAKTERLER
                   {characterCount > 0 && (
@@ -3680,7 +3676,7 @@ const MangaDetail: React.FC = () => {
                 {seriesGalleryImages.length > 0 && (
                   <TabsTrigger
                     value="gallery"
-                    className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                    className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
                   >
                     GALERİ
                     <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary hover:bg-primary/20">
@@ -3690,7 +3686,7 @@ const MangaDetail: React.FC = () => {
                 )}
                 <TabsTrigger
                   value="discover"
-                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-3 text-[13px] font-semibold transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent sm:text-lg"
+                  className="flex items-center gap-2 whitespace-nowrap rounded-none border-b-2 border-transparent bg-transparent px-0 pb-2.5 text-xs sm:text-sm font-semibold tracking-wide transition-all data-[state=active]:border-primary data-[state=active]:bg-transparent"
                 >
                   KEŞFET
                 </TabsTrigger>
@@ -3774,13 +3770,23 @@ const MangaDetail: React.FC = () => {
                                 </div>
                               )}
                               <div className="relative flex-1 sm:w-60">
-                                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                                 <Input
                                   placeholder="Bölüm ara (örn: 97)"
-                                  className="pl-9"
+                                  className="pl-9 pr-8"
                                   value={chapterSearch}
                                   onChange={(e) => setChapterSearch(e.target.value)}
                                 />
+                                {chapterSearch && (
+                                  <button
+                                    type="button"
+                                    onClick={() => setChapterSearch('')}
+                                    aria-label="Bölüm aramasını temizle"
+                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                  >
+                                    <X className="h-3.5 w-3.5" />
+                                  </button>
+                                )}
                               </div>
                           </div>
                         </div>
@@ -3788,9 +3794,9 @@ const MangaDetail: React.FC = () => {
                         {manga.chapters.length > 0 ? (
                           <>
                             <div className="divide-y divide-border overflow-hidden">
-                              {visibleOverviewChapters.map((chapter) => (
+                              {visibleOverviewChapters.map((chapter, index) => (
                                 <div key={chapter.id}>
-                                  {renderChapterRow(chapter)}
+                                  {renderChapterRow(chapter, index)}
                                 </div>
                               ))}
                             </div>

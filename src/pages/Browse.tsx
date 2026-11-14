@@ -1,14 +1,13 @@
 import useDocumentTitle from '@/hooks/useDocumentTitle';
 import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Filter, X } from 'lucide-react';
+import { Filter, Grid2x2, Grid3x3, Search, X } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { cn } from '@/lib/utils';
 import MangaCard from '@/components/manga/MangaCard';
 import AppPagination from '@/components/ui/AppPagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
 import { allGenres, normalizeGenreName } from '@/lib/mockData';
 import { getMangaSummaries, getMangasByMultipleTags } from '@/lib/database';
@@ -31,6 +30,25 @@ import { getMangaTypeLabel } from '@/lib/mangaType';
 type BrowseAudienceCacheKey = 'safe' | 'adult';
 type BrowseContentFilter = 'all' | 'safe' | 'adult';
 type BrowseTypeFilter = 'all' | 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'adult';
+type BrowseGridDensity = 'compact' | 'comfortable';
+
+const BROWSE_DENSITY_STORAGE_KEY = 'toonparrot_browse_density_v1';
+const BROWSE_GRID_CLASSES: Record<BrowseGridDensity, string> = {
+  compact: 'grid grid-cols-2 min-[390px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-2.5 sm:gap-3.5',
+  comfortable: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4',
+};
+
+const readInitialBrowseDensity = (): BrowseGridDensity => {
+  if (typeof window === 'undefined') {
+    return 'compact';
+  }
+  try {
+    const saved = window.localStorage.getItem(BROWSE_DENSITY_STORAGE_KEY);
+    return saved === 'comfortable' ? 'comfortable' : 'compact';
+  } catch {
+    return 'compact';
+  }
+};
 
 const browsePageCache: Partial<Record<BrowseAudienceCacheKey, Manga[]>> = {};
 let browsePageCacheUserId: string | null | undefined = undefined;
@@ -75,21 +93,17 @@ const mangaMatchesSelectedGenre = (manga: Manga, genre: string) => {
   return normalizedGenres.includes(genre);
 };
 
-const BrowseGridSkeleton: React.FC = () => (
-  <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
-    {Array.from({ length: 12 }).map((_, index) => (
+const BrowseGridSkeleton: React.FC<{ gridDensity: BrowseGridDensity }> = ({ gridDensity }) => (
+  <div className={BROWSE_GRID_CLASSES[gridDensity]}>
+    {Array.from({ length: 14 }).map((_, index) => (
       <div key={`browse-skeleton-${index}`} className="overflow-hidden rounded-xl border border-border/60 bg-card/40">
         <Skeleton className="aspect-[2/3] w-full rounded-none" />
-        <div className="space-y-2 p-2.5">
+        <div className="space-y-2 p-2">
           <Skeleton className="h-4 w-5/6" />
           <Skeleton className="h-3 w-2/3" />
-          <div className="flex gap-2 pt-1">
-            <Skeleton className="h-5 w-14 rounded-md" />
-            <Skeleton className="h-5 w-16 rounded-md" />
-          </div>
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <Skeleton className="h-8 w-full rounded-lg" />
-            <Skeleton className="h-8 w-full rounded-lg" />
+          <div className="grid grid-cols-2 gap-1.5 pt-1">
+            <Skeleton className="h-7 w-full rounded-md" />
+            <Skeleton className="h-7 w-full rounded-md" />
           </div>
         </div>
       </div>
@@ -107,6 +121,7 @@ const Browse: React.FC = () => {
   const canSeeAdultContent = isAuthenticatedViewer && user?.preferences?.content?.adult_mode === true;
   const browseAudienceKey: BrowseAudienceCacheKey = canSeeAdultContent ? 'adult' : 'safe';
   const [showFilters, setShowFilters] = useState(false);
+  const [gridDensity, setGridDensity] = useState<BrowseGridDensity>(readInitialBrowseDensity);
   const [selectedGenres, setSelectedGenres] = useState<string[]>(
     () => normalizeBrowseGenresFromParams(searchParams.get('genre'))
   );
@@ -413,136 +428,211 @@ const Browse: React.FC = () => {
         ? `${filteredManga.length} sonuç bulundu • Sayfa ${currentPage} / ${totalPages}`
         : `${filteredManga.length} sonuç bulundu`;
 
+  const handleGridDensityChange = (density: BrowseGridDensity) => {
+    setGridDensity(density);
+    if (typeof window !== 'undefined') {
+      try {
+        window.localStorage.setItem(BROWSE_DENSITY_STORAGE_KEY, density);
+      } catch {
+        // ignore storage write errors
+      }
+    }
+  };
+
   return (
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container pb-12 pt-20">
-        <div className="mb-8">
-          <h1 className="text-3xl font-bold tracking-tight">Keşfet</h1>
-          
+      <main className="container pb-12 pt-16">
+        <div className="py-6 sm:py-8">
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Keşfet</h1>
         </div>
 
         {/* Filters Bar */}
-        <div className="mb-6 flex flex-wrap items-center gap-3 sm:gap-4">
-          <div className="w-full md:min-w-[240px] md:flex-1">
-            <Input
-              type="search"
-              placeholder="Ara..."
-              value={searchQuery}
-              onChange={(e) => {
-                setSearchQuery(e.target.value);
-                setCurrentPage(1);
-              }}
-              className="w-full"
-            />
-          </div>
+        <div className="rounded-2xl border border-border/60 bg-card/50 p-3 sm:p-4 mb-5 space-y-2.5 sm:space-y-3">
+          <div className="flex items-center gap-2">
+            <div className="relative flex-1 min-w-0">
+              <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                type="search"
+                placeholder="Ara..."
+                aria-label="Seri ara"
+                value={searchQuery}
+                onChange={(e) => {
+                  setSearchQuery(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="h-9 sm:h-10 w-full pl-9 pr-9 text-sm [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-cancel-button]:appearance-none"
+              />
+              {searchQuery && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSearchQuery('');
+                    setCurrentPage(1);
+                  }}
+                  aria-label="Aramayı temizle"
+                  title="Aramayı temizle"
+                  className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                >
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              )}
+            </div>
 
-          <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-32">
-            <Select
-              value={typeFilter}
-              onValueChange={(value) => {
-                setTypeFilter(normalizeBrowseTypeFilter(value));
-                setCurrentPage(1);
-              }}
+            <div
+              role="group"
+              aria-label="Görünüm yoğunluğu"
+              className="inline-flex h-9 sm:h-10 shrink-0 items-center rounded-lg border border-border/60 bg-background/60 p-0.5"
             >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Tür" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tümü</SelectItem>
-                {typeOptions.map((option) => (
-                  <SelectItem key={option.value} value={option.value}>
-                    {option.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
+              <button
+                type="button"
+                onClick={() => handleGridDensityChange('compact')}
+                aria-pressed={gridDensity === 'compact'}
+                aria-label="Kompakt görünüm"
+                title="Kompakt"
+                className={cn(
+                  'inline-flex h-full items-center gap-1.5 rounded-md px-2 sm:px-2.5 text-xs font-medium transition-colors',
+                  gridDensity === 'compact'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Grid3x3 className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Kompakt</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => handleGridDensityChange('comfortable')}
+                aria-pressed={gridDensity === 'comfortable'}
+                aria-label="Rahat görünüm"
+                title="Rahat"
+                className={cn(
+                  'inline-flex h-full items-center gap-1.5 rounded-md px-2 sm:px-2.5 text-xs font-medium transition-colors',
+                  gridDensity === 'comfortable'
+                    ? 'bg-primary text-primary-foreground shadow-sm'
+                    : 'text-muted-foreground hover:text-foreground',
+                )}
+              >
+                <Grid2x2 className="h-3.5 w-3.5 shrink-0" />
+                <span className="hidden sm:inline">Rahat</span>
+              </button>
+            </div>
           </div>
 
-          <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-36">
-            <Select
-              value={statusFilter}
-              onValueChange={(value) => {
-                setStatusFilter(value);
-                setCurrentPage(1);
-              }}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
+            <div className="w-full sm:w-32">
+              <Select
+                value={typeFilter}
+                onValueChange={(value) => {
+                  setTypeFilter(normalizeBrowseTypeFilter(value));
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 w-full text-xs">
+                  <SelectValue placeholder="Tür" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tümü</SelectItem>
+                  {typeOptions.map((option) => (
+                    <SelectItem key={option.value} value={option.value}>
+                      {option.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-36">
+              <Select
+                value={statusFilter}
+                onValueChange={(value) => {
+                  setStatusFilter(value);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 w-full text-xs">
+                  <SelectValue placeholder="Durum" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tümü</SelectItem>
+                  <SelectItem value="ongoing">Devam Ediyor</SelectItem>
+                  <SelectItem value="completed">Tamamlandı</SelectItem>
+                  <SelectItem value="hiatus">Ara Verildi</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-36">
+              <Select
+                value={contentFilter}
+                onValueChange={(value) => {
+                  setContentFilter(value as BrowseContentFilter);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className={cn('h-9 w-full text-xs', contentFilter === 'adult' && 'border-rose-500/40 bg-rose-500/10 text-rose-500')}>
+                  <SelectValue placeholder="İçerik" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Tümü</SelectItem>
+                  <SelectItem value="safe">Sadece Normal</SelectItem>
+                  {canSeeAdultContent ? (
+                    <SelectItem value="adult">Sadece Yetişkin</SelectItem>
+                  ) : null}
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="w-full sm:w-36">
+              <Select
+                value={sortBy}
+                onValueChange={(value) => {
+                  setSortBy(value);
+                  setCurrentPage(1);
+                }}
+              >
+                <SelectTrigger className="h-9 w-full text-xs">
+                  <SelectValue placeholder="Sırala" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="popular">Popüler</SelectItem>
+                  <SelectItem value="rating">Puan</SelectItem>
+                  <SelectItem value="created">Yeni Eklenen</SelectItem>
+                  <SelectItem value="updated">Son Güncellenen</SelectItem>
+                  <SelectItem value="views">Görüntülenme</SelectItem>
+                  <SelectItem value="chapters">Bölüm Sayısı</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <Button
+              variant={showFilters ? 'default' : 'outline'}
+              size="sm"
+              onClick={() => setShowFilters(!showFilters)}
+              className="h-9 w-full text-xs sm:w-auto"
             >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Durum" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tümü</SelectItem>
-                <SelectItem value="ongoing">Devam Ediyor</SelectItem>
-                <SelectItem value="completed">Tamamlandı</SelectItem>
-                <SelectItem value="hiatus">Ara Verildi</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-40">
-            <Select
-              value={contentFilter}
-              onValueChange={(value) => {
-                setContentFilter(value as BrowseContentFilter);
-                setCurrentPage(1);
-              }}
-            >
-              <SelectTrigger className={`w-full ${contentFilter === 'adult' ? 'border-rose-500/40 bg-rose-500/10 text-rose-500' : ''}`}>
-                <SelectValue placeholder="İçerik" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Tümü</SelectItem>
-                <SelectItem value="safe">Sadece Normal</SelectItem>
-                {canSeeAdultContent ? (
-                  <SelectItem value="adult">Sadece Yetişkin</SelectItem>
-                ) : null}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="w-full sm:w-[calc(50%-0.375rem)] md:w-36">
-            <Select
-              value={sortBy}
-              onValueChange={(value) => {
-                setSortBy(value);
-                setCurrentPage(1);
-              }}
-            >
-              <SelectTrigger className="w-full">
-                <SelectValue placeholder="Sırala" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="popular">Popüler</SelectItem>
-                <SelectItem value="rating">Puan</SelectItem>
-                <SelectItem value="created">Yeni Eklenen</SelectItem>
-                <SelectItem value="updated">Son Güncellenen</SelectItem>
-                <SelectItem value="views">Görüntülenme</SelectItem>
-                <SelectItem value="chapters">Bölüm Sayısı</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-
-          <Button
-            variant={showFilters ? 'default' : 'outline'}
-            onClick={() => setShowFilters(!showFilters)}
-            className="w-full sm:w-[calc(50%-0.375rem)] md:w-auto"
-          >
-            <Filter className="mr-2 h-4 w-4" />
-            Türler
-          </Button>
-
-          {hasActiveFilters && (
-            <Button variant="ghost" onClick={clearFilters} className="w-full sm:w-[calc(50%-0.375rem)] md:w-auto">
-              <X className="mr-2 h-4 w-4" />
-              Temizle
+              <Filter className="mr-1.5 h-3.5 w-3.5" />
+              Türler
             </Button>
-          )}
+
+            {hasActiveFilters && (
+              <Button
+                variant="ghost"
+                size="sm"
+                onClick={clearFilters}
+                className="h-9 w-full text-xs text-muted-foreground hover:text-foreground sm:w-auto"
+              >
+                <X className="mr-1.5 h-3.5 w-3.5" />
+                Temizle
+              </Button>
+            )}
+          </div>
         </div>
 
         {/* Genre Filters */}
         {showFilters && (
-          <div className="mb-6 flex flex-wrap gap-2.5 rounded-xl border border-border bg-card/50 p-4 sm:p-5">
+          <div className="mb-5 flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-card/50 p-3.5 sm:p-4">
             {allGenres.map((genre) => {
               const isSelected = selectedGenres.includes(genre);
               return (
@@ -552,10 +642,10 @@ const Browse: React.FC = () => {
                   onClick={() => toggleGenre(genre)}
                   aria-pressed={isSelected}
                   className={cn(
-                    "cursor-pointer px-3.5 py-1.5 text-xs sm:text-sm font-medium rounded-lg border transition-all duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
+                    "cursor-pointer px-3 py-1.5 text-xs font-medium rounded-lg border transition-colors duration-150 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background",
                     isSelected
-                      ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground hover:border-primary active:bg-primary/90"
-                      : "border-border bg-card/40 text-foreground hover:border-primary/50 hover:bg-secondary/70 hover:text-foreground active:bg-secondary/90"
+                      ? "border-primary bg-primary text-primary-foreground shadow-sm hover:bg-primary/90 hover:text-primary-foreground hover:border-primary"
+                      : "border-border/60 bg-background/50 text-foreground hover:border-primary/50 hover:bg-secondary/70"
                   )}
                 >
                   {genre}
@@ -566,7 +656,7 @@ const Browse: React.FC = () => {
         )}
 
         {/* Tag Filters */}
-        <div className="mb-6">
+        <div className="mb-5">
           <TagFilterPanel
             selectedTags={selectedTagSlugs}
             onSelectedTagsChange={(tags) => {
@@ -576,35 +666,39 @@ const Browse: React.FC = () => {
           />
         </div>
 
-        <p className="mb-4 text-sm text-muted-foreground">
+        <p className="mb-4 text-xs sm:text-sm text-muted-foreground">
           {resultsLabel}
         </p>
 
         {/* Manga Grid */}
         {isInitialResultsPending ? (
-          <BrowseGridSkeleton />
+          <BrowseGridSkeleton gridDensity={gridDensity} />
         ) : filteredManga.length === 0 ? (
           <div className="py-16 text-center">
             <p className="text-base text-muted-foreground">Arama kriterlerinize uygun manga bulunamadı.</p>
             {hasActiveFilters && (
-              <Button variant="outline" onClick={clearFilters} className="mt-4">
+              <Button variant="outline" size="sm" onClick={clearFilters} className="mt-4 h-9 text-xs">
                 Filtreleri Temizle
               </Button>
             )}
           </div>
         ) : (
           <div className="space-y-8">
-            <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
+            <div className={BROWSE_GRID_CLASSES[gridDensity]}>
               {paginatedManga.map((item, idx) => (
-                <MangaCard
+                <div
                   key={item.id}
-                  manga={item}
-                  index={idx}
-                  enableEntryAnimation
-                  entryAnimationClassName="animate-card-reveal-fast"
-                  entryAnimationDelayStepMs={10}
-                  entryAnimationDurationMs={170}
-                />
+                  className={idx >= 14 ? 'cv-auto-card' : undefined}
+                >
+                  <MangaCard
+                    manga={item}
+                    index={idx}
+                    enableEntryAnimation
+                    entryAnimationClassName="animate-card-reveal-fast"
+                    entryAnimationDelayStepMs={10}
+                    entryAnimationDurationMs={170}
+                  />
+                </div>
               ))}
             </div>
 

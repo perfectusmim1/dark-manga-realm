@@ -2,9 +2,11 @@ import React from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { BookOpen, Clock } from 'lucide-react';
+import { ChevronRight, Clock, Search, X } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { LanguageFlag } from '@/components/ui/LanguageFlag';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
@@ -13,7 +15,9 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
 import OptimizedImage from '@/components/media/OptimizedImage';
+import { getMangaTypeLabel } from '@/lib/mangaType';
 import { getLanguageInfoByCode, getSeriesLanguageInfo } from '@/lib/seriesLanguage';
+import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/textMatching';
 import { useAuth } from '@/contexts/AuthContext';
 import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
@@ -35,43 +39,34 @@ const LatestChaptersSkeleton: React.FC = () => (
         <Header />
 
         <main className="container pb-12 pt-20">
-            <div className="mb-8">
-                <div className="flex items-center gap-3">
-                    <Skeleton className="h-12 w-12 rounded-2xl bg-primary/10" />
-                    <div className="space-y-2">
-                        <Skeleton className="h-10 w-56 sm:w-72" />
-                        <Skeleton className="h-5 w-[22rem] max-w-[75vw]" />
+            <div className="mb-5 rounded-2xl border border-border/60 bg-card/55 p-4 sm:p-5">
+                <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="flex items-center gap-3">
+                        <Skeleton className="h-10 w-10 rounded-xl bg-primary/10" />
+                        <div className="space-y-1.5">
+                            <Skeleton className="h-7 w-40 sm:h-8 sm:w-48" />
+                            <Skeleton className="h-3.5 w-44" />
+                        </div>
                     </div>
+                    <Skeleton className="h-9 w-full rounded-lg sm:h-10 sm:w-72 md:w-80" />
                 </div>
-                <Skeleton className="mt-4 h-8 w-48 rounded-full" />
             </div>
 
-            <div className="grid gap-4 xl:grid-cols-3">
-                {Array.from({ length: 9 }).map((_, index) => (
+            <div className="grid gap-2.5 sm:gap-3 md:grid-cols-2 xl:grid-cols-3">
+                {Array.from({ length: 12 }).map((_, index) => (
                     <div
                         key={`latest-chapters-skeleton-${index}`}
-                        className="rounded-[24px] border border-border bg-card/40 p-4 sm:p-5"
+                        className="rounded-xl border border-border/60 bg-card/60 p-2.5 sm:p-3"
                     >
-                        <div className="flex items-center gap-4 sm:gap-5">
-                            <Skeleton className="h-24 w-24 shrink-0 rounded-2xl sm:h-28 sm:w-28 lg:h-32 lg:w-32" />
+                        <div className="flex items-center gap-3">
+                            <Skeleton className="h-20 w-14 shrink-0 rounded-lg sm:h-24 sm:w-16" />
 
-                            <div className="min-w-0 flex-1">
-                                <div className="flex items-start justify-between gap-3">
-                                    <div className="min-w-0 flex-1">
-                                        <div className="mb-2 flex flex-wrap items-center gap-2">
-                                            <Skeleton className="h-6 w-32 rounded-full" />
-                                            <Skeleton className="h-4 w-20" />
-                                        </div>
-                                        <Skeleton className="h-8 w-4/5 max-w-[18rem]" />
-                                        <Skeleton className="mt-2 h-7 w-32" />
-                                    </div>
-
-                                    <Skeleton className="h-7 w-32 shrink-0 rounded-full" />
-                                </div>
-
-                                <div className="mt-4 flex items-center gap-2">
-                                    <Skeleton className="h-4 w-4 rounded-sm" />
-                                    <Skeleton className="h-5 w-44 max-w-[70%]" />
+                            <div className="min-w-0 flex-1 space-y-2">
+                                <Skeleton className="h-4 w-4/5" />
+                                <Skeleton className="h-5 w-32 rounded-md" />
+                                <div className="flex items-center justify-between pt-0.5">
+                                    <Skeleton className="h-3 w-28" />
+                                    <Skeleton className="h-3.5 w-10" />
                                 </div>
                             </div>
                         </div>
@@ -103,6 +98,8 @@ const LatestChapters: React.FC = () => {
     const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>(
         hasUsableInitialCache && initialCached ? initialCached.chapters : [],
     );
+    const [quickFilter, setQuickFilter] = React.useState('');
+    const deferredQuickFilter = React.useDeferredValue(quickFilter);
     const [mangaLangMap, setMangaLangMap] = React.useState<Record<string, ReturnType<typeof getSeriesLanguageInfo>>>({});
     const [isLoading, setIsLoading] = React.useState(!hasUsableInitialCache);
     const [recentChapterCount, setRecentChapterCount] = React.useState(
@@ -253,8 +250,44 @@ const LatestChapters: React.FC = () => {
     }, [currentPage, loadChapters]);
 
     const handlePageChange = (newPage: number) => {
+        setQuickFilter('');
         setSearchParams(newPage > 1 ? { page: String(newPage) } : {});
     };
+
+    const normalizedQuickFilter = normalizeComparableText(deferredQuickFilter);
+    const looseQuickFilter = normalizeLooseComparableText(deferredQuickFilter);
+
+    const visibleChapters = React.useMemo(() => {
+        const seenChapterIds = new Set<string>();
+        const deduped = chapters.filter((item) => {
+            if (!item?.chapterId || seenChapterIds.has(item.chapterId)) {
+                return false;
+            }
+            seenChapterIds.add(item.chapterId);
+            return true;
+        });
+
+        if (!normalizedQuickFilter) {
+            return deduped;
+        }
+
+        return deduped.filter((chapter) => {
+            const chapterNumLabel = formatChapterNumberLabel(chapter.chapterNumber);
+            const sanitizedTitle = sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle) || '';
+            const haystack = [
+                chapter.mangaTitle,
+                chapter.chapterTitle || '',
+                sanitizedTitle,
+                chapterNumLabel,
+                `Bölüm ${chapterNumLabel}`,
+            ].join(' ');
+
+            return (
+                normalizeComparableText(haystack).includes(normalizedQuickFilter)
+                || (looseQuickFilter.length > 0 && normalizeLooseComparableText(haystack).includes(looseQuickFilter))
+            );
+        });
+    }, [chapters, looseQuickFilter, normalizedQuickFilter]);
 
     if (!isOnline) {
         return (
@@ -275,121 +308,161 @@ const LatestChapters: React.FC = () => {
             <Header />
 
             <main className="container pb-12 pt-20">
-                <div className="mb-8 animate-fade-up">
-                    <div className="flex items-center gap-3">
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
-                            <Clock className="h-6 w-6" />
+                <div className="mb-5 rounded-2xl border border-border/60 bg-card/55 p-4 sm:p-5 animate-fade-up">
+                    <div className="flex flex-col gap-3.5 sm:flex-row sm:items-center sm:justify-between">
+                        <div className="flex min-w-0 items-center gap-3">
+                            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+                                <Clock className="h-5 w-5" />
+                            </div>
+                            <div className="min-w-0">
+                                <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Son Bölümler</h1>
+                                <p className="mt-0.5 text-xs text-muted-foreground">
+                                    Son 24 saatte {recentChapterCount} bölüm eklendi
+                                </p>
+                            </div>
                         </div>
-                        <div>
-                            <h1 className="text-3xl font-bold tracking-tight">Son Bölümler</h1>
-                            
+
+                        <div className="relative w-full shrink-0 sm:w-72 md:w-80">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                                type="search"
+                                value={quickFilter}
+                                onChange={(event) => setQuickFilter(event.target.value)}
+                                placeholder="Seri veya bölüm ara..."
+                                aria-label="Seri veya bölüm ara"
+                                className="h-9 w-full pl-9 pr-9 text-sm sm:h-10 [&::-webkit-search-cancel-button]:hidden [&::-webkit-search-cancel-button]:appearance-none"
+                            />
+                            {quickFilter && (
+                                <button
+                                    type="button"
+                                    onClick={() => setQuickFilter('')}
+                                    aria-label="Filtreyi temizle"
+                                    title="Filtreyi temizle"
+                                    className="absolute right-2 top-1/2 -translate-y-1/2 rounded-md p-1 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                                >
+                                    <X className="h-3.5 w-3.5" />
+                                </button>
+                            )}
                         </div>
-                    </div>
-                    <div className="mt-4">
-                        <Badge variant="secondary" className="px-3 py-1 text-xs">
-                            Son 24 saatte {recentChapterCount} bölüm eklendi
-                        </Badge>
                     </div>
                 </div>
 
-                {chapters.length > 0 ? (
-                    <div className="grid gap-4 xl:grid-cols-3">
-                        {chapters.map((chapter) => (
-                            <Link
-                                key={chapter.chapterId}
-                                to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
-                                className="group flex items-center gap-4 rounded-[24px] border border-border bg-card/40 p-4 transition-[border-color,background-color] duration-200 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background animate-card-reveal-fast sm:gap-5"
-                            >
-                                <div className="h-24 w-24 shrink-0 overflow-hidden rounded-2xl bg-secondary/40 shadow-sm sm:h-28 sm:w-28 lg:h-32 lg:w-32">
-                                    <OptimizedImage
-                                        src={chapter.mangaCover}
-                                        alt={chapter.mangaTitle}
-                                        width={128}
-                                        height={128}
-                                        allowProxy
-                                        containerClassName="h-full w-full"
-                                        className="h-full w-full object-cover"
-                                    />
-                                </div>
+                {visibleChapters.length > 0 ? (
+                    <div className="grid gap-2.5 sm:gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {visibleChapters.map((chapter, index) => {
+                            const sanitizedChapterTitle = sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle);
+                            const chapterNumLabel = formatChapterNumberLabel(chapter.chapterNumber);
+                            const chTitleLower = (chapter.chapterTitle || '').toLowerCase();
 
-                                <div className="min-w-0 flex-1">
-                                    <div className="flex items-start justify-between gap-3">
-                                        <div className="min-w-0">
-                                            <div className="mb-1 flex flex-wrap items-center gap-2">
-                                                {chapter.mangaType && (
-                                                    <Badge variant="outline" className="text-[10px] uppercase">
-                                                        {chapter.mangaType}
-                                                    </Badge>
-                                                )}
-                                                {(() => {
-                                                    const chTitle = (chapter.chapterTitle || '').toLowerCase();
-                                                    if (chTitle.includes('[raw]') || chTitle.includes('(raw)')) {
-                                                        return (
-                                                            <Badge variant="outline" className="inline-flex h-5 items-center justify-center text-[10px] font-black uppercase px-1.5 py-0 border-purple-500/40 bg-purple-500/15 text-purple-400">
-                                                                RAW
-                                                            </Badge>
-                                                        );
-                                                    }
-                                                    if (chTitle.includes('[en]') || chTitle.includes('(en)')) {
-                                                        const enLang = getLanguageInfoByCode('en');
-                                                        return (
-                                                            <span title={enLang.label} className="inline-flex shrink-0 items-center">
-                                                                <LanguageFlag code="en" label={enLang.label} className="h-3.5 w-5" />
-                                                            </span>
-                                                        );
-                                                    }
-                                                    const lang = mangaLangMap[chapter.mangaId] || getSeriesLanguageInfo({ title: chapter.mangaTitle });
-                                                    if (lang.language === 'tr') return null;
-                                                    if (lang.language === 'raw') {
-                                                        return (
-                                                            <Badge
-                                                                variant="outline"
-                                                                className={cn('inline-flex h-5 items-center justify-center px-1.5 py-0 text-[10px] font-black uppercase', lang.badgeClassName)}
-                                                            >
-                                                                <LanguageFlag code={lang.language} label={lang.label} />
-                                                            </Badge>
-                                                        );
-                                                    }
-                                                    return (
-                                                        <span title={lang.label} className="inline-flex shrink-0 items-center">
-                                                            <LanguageFlag code={lang.language} label={lang.label} className="h-3.5 w-5" />
-                                                        </span>
-                                                    );
-                                                })()}
-                                                <span className="text-[11px] text-muted-foreground">
-                                                    {new Date(chapter.addedAt).toLocaleDateString('tr-TR', {
-                                                        day: 'numeric',
-                                                        month: 'short',
-                                                        hour: '2-digit',
-                                                        minute: '2-digit',
-                                                    })}
-                                                </span>
-                                            </div>
-                                            <h2 className="line-clamp-1 font-semibold transition-colors group-hover:text-primary group-focus-visible:text-primary">
+                            return (
+                                <Link
+                                    key={chapter.chapterId}
+                                    to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
+                                    className={cn(
+                                        'group flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-2.5 sm:p-3 transition-colors hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background animate-card-reveal-fast',
+                                        index >= 12 && 'cv-auto-row',
+                                    )}
+                                >
+                                    <div className="h-20 w-14 sm:h-24 sm:w-16 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-secondary">
+                                        <OptimizedImage
+                                            src={chapter.mangaCover}
+                                            alt={chapter.mangaTitle}
+                                            width={64}
+                                            height={96}
+                                            allowProxy
+                                            containerClassName="h-full w-full"
+                                            className="h-full w-full object-cover"
+                                        />
+                                    </div>
+
+                                    <div className="min-w-0 flex-1 space-y-1.5">
+                                        <div className="flex min-w-0 items-center justify-between gap-2">
+                                            <h2 className="min-w-0 flex-1 text-sm sm:text-[15px] font-bold leading-snug line-clamp-1 transition-colors group-hover:text-primary group-focus-visible:text-primary">
                                                 {chapter.mangaTitle}
                                             </h2>
-                                            <p className="mt-1 line-clamp-1 text-sm text-primary">
-                                                Bölüm {formatChapterNumberLabel(chapter.chapterNumber)}
-                                                {sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle) ? ` • ${sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle)}` : ''}
-                                            </p>
+                                            {(() => {
+                                                if (chTitleLower.includes('[raw]') || chTitleLower.includes('(raw)')) {
+                                                    return (
+                                                        <Badge variant="outline" className="inline-flex h-[18px] shrink-0 items-center justify-center px-1.5 py-0 text-[9px] font-black uppercase border-purple-500/40 bg-purple-500/15 text-purple-400">
+                                                            RAW
+                                                        </Badge>
+                                                    );
+                                                }
+                                                if (chTitleLower.includes('[en]') || chTitleLower.includes('(en)')) {
+                                                    const enLang = getLanguageInfoByCode('en');
+                                                    return (
+                                                        <span title={enLang.label} className="inline-flex shrink-0 items-center">
+                                                            <LanguageFlag code="en" label={enLang.label} className="h-3.5 w-5" />
+                                                        </span>
+                                                    );
+                                                }
+                                                const lang = mangaLangMap[chapter.mangaId] || getSeriesLanguageInfo({ title: chapter.mangaTitle });
+                                                if (lang.language === 'tr') return null;
+                                                if (lang.language === 'raw') {
+                                                    return (
+                                                        <Badge
+                                                            variant="outline"
+                                                            className={cn('inline-flex h-[18px] shrink-0 items-center justify-center px-1.5 py-0 text-[9px] font-black uppercase', lang.badgeClassName)}
+                                                        >
+                                                            <LanguageFlag code={lang.language} label={lang.label} />
+                                                        </Badge>
+                                                    );
+                                                }
+                                                return (
+                                                    <span title={lang.label} className="inline-flex shrink-0 items-center">
+                                                        <LanguageFlag code={lang.language} label={lang.label} className="h-3.5 w-5" />
+                                                    </span>
+                                                );
+                                            })()}
                                         </div>
 
-                                        <Badge variant="secondary" className="shrink-0 whitespace-nowrap text-[10px]">
-                                            {formatDistanceToNow(new Date(chapter.addedAt), { addSuffix: true, locale: tr })}
-                                        </Badge>
-                                    </div>
+                                        <div className="flex min-w-0 items-center">
+                                            <span className="inline-flex min-w-0 max-w-full items-center rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
+                                                <span className="truncate">
+                                                    Bölüm {chapterNumLabel}
+                                                    {sanitizedChapterTitle ? ` • ${sanitizedChapterTitle}` : ''}
+                                                </span>
+                                            </span>
+                                        </div>
 
-                                    <div className="mt-3 flex items-center gap-2 text-xs text-muted-foreground">
-                                        <BookOpen className="h-3.5 w-3.5" />
-                                        <span className="line-clamp-1">
-                                            {chapter.releaseDate
-                                                ? `Yayın tarihi: ${new Date(chapter.releaseDate).toLocaleDateString('tr-TR')}`
-                                                : 'Yayın tarihi bilgisi yok'}
-                                        </span>
+                                        <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
+                                            <div className="flex min-w-0 items-center gap-1.5 truncate">
+                                                {chapter.mangaType ? (
+                                                    <>
+                                                        <span className="shrink-0 font-medium text-foreground/75">
+                                                            {getMangaTypeLabel(chapter.mangaType)}
+                                                        </span>
+                                                        <span aria-hidden>•</span>
+                                                    </>
+                                                ) : null}
+                                                <span className="truncate">
+                                                    {formatDistanceToNow(new Date(chapter.addedAt), { addSuffix: true, locale: tr })}
+                                                </span>
+                                            </div>
+
+                                            <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-semibold text-primary">
+                                                Oku
+                                                <ChevronRight className="h-3.5 w-3.5 transition-transform duration-150 group-hover:translate-x-0.5" />
+                                            </span>
+                                        </div>
                                     </div>
-                                </div>
-                            </Link>
-                        ))}
+                                </Link>
+                            );
+                        })}
+                    </div>
+                ) : chapters.length > 0 ? (
+                    <div className="flex min-h-[30vh] flex-col items-center justify-center rounded-2xl border border-dashed border-border/60 bg-card/30 p-6 text-center">
+                        <Search className="h-10 w-10 text-muted-foreground/60" />
+                        <h2 className="mt-3 text-lg font-semibold">Eşleşen bölüm bulunamadı</h2>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            onClick={() => setQuickFilter('')}
+                            className="mt-4 h-9 text-xs"
+                        >
+                            Filtreyi Temizle
+                        </Button>
                     </div>
                 ) : (
                     <div className="flex min-h-[40vh] items-center justify-center rounded-2xl border border-dashed border-border bg-card/30">

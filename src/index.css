@@ -6,58 +6,58 @@
 
 @layer base {
   :root {
-    --background: 240 10% 4%;
-    --foreground: 0 0% 98%;
+    --background: 240 10% 5.5%;
+    --foreground: 240 10% 95%;
 
-    --card: 240 10% 7%;
-    --card-foreground: 0 0% 98%;
+    --card: 240 9% 8%;
+    --card-foreground: 240 10% 95%;
 
-    --popover: 240 10% 7%;
-    --popover-foreground: 0 0% 98%;
+    --popover: 240 9% 8%;
+    --popover-foreground: 240 10% 95%;
 
     --primary: 210 100% 58%;
     --primary-foreground: 240 10% 4%;
 
-    --secondary: 240 10% 12%;
-    --secondary-foreground: 0 0% 98%;
+    --secondary: 240 7% 12.5%;
+    --secondary-foreground: 240 10% 95%;
 
     --muted: 240 10% 15%;
-    --muted-foreground: 240 5% 55%;
+    --muted-foreground: 240 5% 64%;
 
     --accent: 240 10% 15%;
-    --accent-foreground: 0 0% 98%;
+    --accent-foreground: 240 10% 95%;
 
     --destructive: 0 84% 60%;
     --destructive-foreground: 0 0% 98%;
 
-    --border: 240 10% 15%;
-    --input: 240 10% 15%;
+    --border: 240 6% 15.5%;
+    --input: 240 6% 15.5%;
     --ring: 210 100% 58%;
 
     --radius: 0.75rem;
 
     /* Custom tokens */
-    --surface-elevated: 240 10% 9%;
-    --surface-overlay: 240 10% 5%;
+    --surface-elevated: 240 9% 10%;
+    --surface-overlay: 240 10% 6%;
     --glow-primary: 210 100% 58%;
     --gradient-manga: linear-gradient(135deg, hsl(210 100% 58%) 0%, hsl(200 100% 50%) 100%);
-    --shadow-glow: 0 0 40px hsl(210 100% 58% / 0.15);
-    --shadow-card: 0 4px 24px hsl(0 0% 0% / 0.4);
+    --shadow-glow: 0 0 24px hsl(210 100% 58% / 0.14);
+    --shadow-card: 0 6px 20px hsl(0 0% 0% / 0.35);
     --mobile-app-bottom-offset: 0px;
 
-    --sidebar-background: 240 10% 6%;
-    --sidebar-foreground: 0 0% 98%;
+    --sidebar-background: 240 10% 6.5%;
+    --sidebar-foreground: 240 10% 95%;
     --sidebar-primary: 210 100% 58%;
     --sidebar-primary-foreground: 240 10% 4%;
-    --sidebar-accent: 240 10% 12%;
-    --sidebar-accent-foreground: 0 0% 98%;
-    --sidebar-border: 240 10% 15%;
+    --sidebar-accent: 240 7% 12.5%;
+    --sidebar-accent-foreground: 240 10% 95%;
+    --sidebar-border: 240 6% 15.5%;
     --sidebar-ring: 210 100% 58%;
   }
 
   .dark {
-    --background: 240 10% 4%;
-    --foreground: 0 0% 98%;
+    --background: 240 10% 5.5%;
+    --foreground: 240 10% 95%;
   }
 }
 
@@ -100,6 +100,14 @@
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
     overflow-y: scroll;
+  }
+
+  h1, h2, h3, h4 {
+    text-wrap: balance;
+  }
+
+  p, li, blockquote {
+    text-wrap: pretty;
   }
 
   html.toonparrot-native-app,
@@ -423,6 +431,23 @@
 
     .reader-scroll-thin::-webkit-scrollbar-track {
       background: var(--scrollbar-track);
+    }
+  }
+
+  .cv-auto-card {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 290px;
+  }
+
+  .cv-auto-row {
+    content-visibility: auto;
+    contain-intrinsic-size: auto 108px;
+  }
+
+  @supports not (content-visibility: auto) {
+    .cv-auto-card,
+    .cv-auto-row {
+      contain: layout style paint;
     }
   }
 }

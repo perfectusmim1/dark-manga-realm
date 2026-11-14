@@ -1,11 +1,12 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { Heart, Search, Trophy } from 'lucide-react';
+import { Heart, Search, Trophy, X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import EntityPlaceholderArt from '@/components/entities/EntityPlaceholderArt';
 import OptimizedImage from '@/components/media/OptimizedImage';
 import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/textMatching';
 import AppPagination from '@/components/ui/AppPagination';
+import { cn } from '@/lib/utils';
 
 interface EntityBrowseGridItem {
   id: string;
@@ -78,34 +79,47 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
 
   return (
     <>
-      <div className="mb-12 flex flex-col justify-between gap-6 md:flex-row md:items-center">
+      <div className="mb-6 flex flex-col justify-between gap-3 md:flex-row md:items-center">
         <div>
-          <h1 className="mb-2 text-4xl font-black">{title}</h1>
-          {description ? <p className="text-muted-foreground">{description}</p> : null}
+          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{title}</h1>
+          {description ? <p className="mt-1 text-sm text-muted-foreground">{description}</p> : null}
         </div>
 
-        <div className="flex w-full items-center gap-4 md:w-auto">
-          <div className="relative flex-1 md:w-80">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+        <div className="flex w-full items-center gap-3 md:w-auto">
+          <div className="relative flex-1 md:w-72">
+            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder={searchPlaceholder}
-              className="rounded-xl pl-10"
+              className="h-9 rounded-xl pl-9 pr-9 text-sm"
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
             />
+            {searchQuery ? (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                aria-label="Aramayı temizle"
+                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-md p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            ) : null}
           </div>
         </div>
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 gap-6 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
-          {[...Array(10)].map((_, index) => (
-            <div key={index} className="aspect-[3/4] rounded-2xl bg-secondary animate-pulse" />
+        <div className="grid grid-cols-2 min-[390px]:grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+          {[...Array(14)].map((_, index) => (
+            <div key={index} className="rounded-xl border border-border/60 bg-card/60 p-2">
+              <div className="mb-2 aspect-[2/3] w-full rounded-lg bg-secondary/60 animate-pulse" />
+              <div className="mx-auto h-4 w-3/4 rounded bg-secondary/60 animate-pulse" />
+            </div>
           ))}
         </div>
       ) : filteredItems.length > 0 ? (
         <>
-          <div className="mb-5 flex items-center justify-between gap-3 text-sm text-muted-foreground">
+          <div className="mb-4 flex items-center justify-between gap-3 text-xs text-muted-foreground sm:text-sm">
             <span>Toplam {filteredItems.length} {countLabel}{totalPages > 1 ? ` • Sayfa ${currentPage} / ${totalPages}` : ''}</span>
             {searchQuery.trim() && (
               <button
@@ -118,7 +132,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
+          <div className="grid grid-cols-2 min-[390px]:grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
             {visibleItems.map((item, index) => {
               const rank = resolveRank ? resolveRank(item, index) : item.rank;
 
@@ -126,14 +140,15 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
                 <Link
                   key={item.id}
                   to={buildHref(item)}
-                  className="group relative flex flex-col items-center pt-2 text-center animate-fade-up"
+                  className={cn(
+                    'group relative flex flex-col rounded-xl border border-border/60 bg-card/85 p-2 text-center transition-colors duration-150 hover:border-primary/40 hover:bg-card animate-fade-up',
+                    index >= 14 && 'cv-auto-card',
+                  )}
                   style={{
-                    animationDelay: `${0.06 + Math.min(index, PAGE_SIZE - 1) * 0.025}s`,
-                    contentVisibility: 'auto',
-                    containIntrinsicSize: '220px 380px',
+                    animationDelay: `${0.04 + Math.min(index, PAGE_SIZE - 1) * 0.02}s`,
                   }}
                 >
-                  <div className="relative aspect-[3/4] w-full overflow-hidden rounded-2xl border border-border bg-card shadow-lg [transform:translateZ(0)] transition-colors duration-200 group-hover:border-primary/40">
+                  <div className="relative mb-2 aspect-[2/3] w-full overflow-hidden rounded-lg bg-secondary/40">
                     {item.imageUrl ? (
                       <OptimizedImage
                         src={item.imageUrl}
@@ -143,32 +158,32 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
                         rootMargin="560px 0px"
                         containerClassName="h-full w-full"
                         placeholderClassName="rounded-[inherit]"
-                        className="h-full w-full rounded-[inherit] object-cover object-cover"
+                        className="h-full w-full rounded-[inherit] object-cover"
                       />
                     ) : (
                       <EntityPlaceholderArt
                         name={item.name}
                         className="rounded-[inherit]"
-                        initialClassName="text-5xl sm:text-6xl"
+                        initialClassName="text-3xl sm:text-4xl"
                       />
                     )}
 
-                    <div className="absolute inset-0 rounded-[inherit] bg-gradient-to-t from-black/80 via-transparent to-transparent opacity-60 transition-opacity group-hover:opacity-90" />
+                    <div className="absolute inset-0 rounded-[inherit] bg-gradient-to-t from-black/70 via-transparent to-transparent opacity-60 transition-opacity group-hover:opacity-85" />
 
                     {typeof rank === 'number' && (
-                      <div className="absolute left-3 top-3 flex items-center gap-1.5 rounded-lg border border-white/10 bg-black/60 px-3 py-1 text-xs font-bold backdrop-blur-md">
-                        <Trophy className={`h-3 w-3 ${rank <= 3 ? 'text-yellow-400' : 'text-gray-400'}`} />
+                      <div className="absolute left-1.5 top-1.5 flex items-center gap-1 rounded-md border border-white/10 bg-black/65 px-1.5 py-0.5 text-[9px] font-bold text-white backdrop-blur-sm">
+                        <Trophy className={cn('h-2.5 w-2.5', rank <= 3 ? 'text-yellow-400' : 'text-gray-300')} />
                         <span>#{rank}</span>
                       </div>
                     )}
 
-                    <div className="absolute bottom-3 right-3 flex items-center gap-1 text-xs font-medium text-white">
-                      <Heart className="h-4 w-4 fill-primary text-primary" />
+                    <div className="absolute bottom-1.5 right-1.5 flex items-center gap-1 rounded-md bg-black/55 px-1.5 py-0.5 text-[9px] font-semibold text-white">
+                      <Heart className="h-3 w-3 fill-primary text-primary" />
                       {item.likesCount || 0}
                     </div>
                   </div>
 
-                  <h3 className="mt-4 line-clamp-1 text-lg font-bold transition-colors group-hover:text-primary">
+                  <h3 className="line-clamp-1 text-xs font-semibold text-foreground transition-colors group-hover:text-primary sm:text-sm">
                     {item.name}
                   </h3>
                 </Link>

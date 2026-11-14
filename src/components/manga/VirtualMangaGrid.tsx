@@ -18,8 +18,9 @@ interface VirtualMangaGridProps {
   entryAnimationDurationMs?: number;
 }
 
-const GRID_GAP_PX = 12;
-const DEFAULT_CARD_HEIGHT = 340;
+const DEFAULT_CARD_HEIGHT = 300;
+
+const getGridGapPx = (viewportWidth: number) => (viewportWidth >= 640 ? 14 : 10);
 
 const getInitialContainerWidth = () => {
   if (typeof window === 'undefined') {
@@ -41,7 +42,7 @@ const getDefaultColumnCount = (viewportWidth: number) => {
   if (viewportWidth >= 1024) return 6;
   if (viewportWidth >= 768) return 5;
   if (viewportWidth >= 640) return 4;
-  if (viewportWidth >= 430) return 3;
+  if (viewportWidth >= 390) return 3;
   return 2;
 };
 
@@ -70,22 +71,26 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
     () => getColumnCount(windowMetrics.width),
     [getColumnCount, windowMetrics.width],
   );
+  const gridGapPx = useMemo(
+    () => getGridGapPx(windowMetrics.width),
+    [windowMetrics.width],
+  );
   const cardWidth = useMemo(() => {
     if (containerWidth <= 0) {
       return 0;
     }
 
-    return Math.max(0, (containerWidth - GRID_GAP_PX * (columns - 1)) / columns);
-  }, [columns, containerWidth]);
+    return Math.max(0, (containerWidth - gridGapPx * (columns - 1)) / columns);
+  }, [columns, containerWidth, gridGapPx]);
   const estimatedCardHeight = useMemo(() => {
     if (cardWidth <= 0) {
       return DEFAULT_CARD_HEIGHT;
     }
 
-    return Math.round(cardWidth * 1.5 + 92);
+    return Math.round(cardWidth * 1.48 + 78);
   }, [cardWidth]);
   const resolvedCardHeight = cardHeight ?? estimatedCardHeight;
-  const rowStride = resolvedCardHeight + GRID_GAP_PX;
+  const rowStride = resolvedCardHeight + gridGapPx;
   const totalRows = Math.ceil(manga.length / columns);
   const shouldVirtualize = manga.length > columns * 6 && containerWidth > 0;
   const topTenWeekIds = useTopTenWeekIds(showTopTenWeekBadges && manga.length > 0);
@@ -287,7 +292,7 @@ const VirtualMangaGrid: React.FC<VirtualMangaGridProps> = ({
         {topSpacerHeight > 0 && <div aria-hidden style={{ height: topSpacerHeight }} />}
 
         <div
-          className="grid gap-3"
+          className="grid gap-2.5 sm:gap-3.5"
           style={{ gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` }}
         >
           {visibleManga.map((item, index) => (

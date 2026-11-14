@@ -94,26 +94,23 @@ const TOP_TEN_AUDIENCE_META: Record<
   {
     title: string;
     frameClassName: string;
-    badgeClassName: string;
     emptyText: string;
   }
 > = {
   safe: {
     title: 'Genel Top 10',
-    frameClassName: 'border-primary/15 bg-[radial-gradient(circle_at_top,rgba(59,130,246,0.12),transparent_48%),linear-gradient(180deg,rgba(9,18,38,0.98),rgba(6,11,22,0.98))]',
-    badgeClassName: 'border-sky-400/30 bg-sky-500/10 text-sky-200',
+    frameClassName: 'bg-card/55',
     emptyText: 'Bu aralıkta genel Top 10 için seri bulunamadı.',
   },
   adult: {
     title: '18+ Top 10',
-    frameClassName: 'border-rose-500/20 bg-[radial-gradient(circle_at_top,rgba(244,63,94,0.16),transparent_48%),linear-gradient(180deg,rgba(33,8,17,0.98),rgba(18,5,10,0.98))]',
-    badgeClassName: 'border-rose-400/35 bg-rose-500/10 text-rose-100',
+    frameClassName: 'border-rose-500/25 bg-card/55',
     emptyText: 'Bu aralıkta yetişkin Top 10 için seri bulunamadı.',
   },
 };
 
 const TOP_TEN_CARD_TRANSFORM = Object.freeze({
-  width: 520,
+  width: 420,
   quality: 70,
   format: 'webp' as const,
   fit: 'cover' as const,
@@ -121,8 +118,8 @@ const TOP_TEN_CARD_TRANSFORM = Object.freeze({
 
 const TOP_TEN_CARD_INTRINSIC_WIDTH = 480;
 const TOP_TEN_CARD_INTRINSIC_HEIGHT = 640;
-const TOP_TEN_CARD_SIZES = '(min-width: 1536px) 18.5rem, (min-width: 1280px) 18rem, (min-width: 1024px) 17rem, (min-width: 640px) 16rem, 46vw';
-const TOP_TEN_CARD_WIDTH_CLASS = 'w-[46vw] max-w-[10.5rem] min-[420px]:w-[42vw] min-[420px]:max-w-[11rem] sm:w-[16rem] sm:max-w-none lg:w-[17rem] xl:w-[18rem] 2xl:w-[18.5rem]';
+const TOP_TEN_CARD_IMAGE_SIZES = '(max-width: 639px) 38vw, (max-width: 1023px) 180px, 204px';
+const TOP_TEN_CARD_WIDTH_CLASS = 'w-[38vw] max-w-[9.25rem] min-[400px]:w-[34vw] min-[400px]:max-w-[9.75rem] sm:w-[11.25rem] sm:max-w-none lg:w-[12rem] xl:w-[12.75rem]';
 
 const readCachedTopTenSections = (): TopTenSections => ({
   safe: {
@@ -149,11 +146,11 @@ const TopTenTimeframeTabs: React.FC<{
   disableHeavyEffects,
 }) => {
   const activePillClassName = audience === 'adult'
-    ? 'bg-rose-500 text-white shadow-[0_16px_34px_rgba(244,63,94,0.24)]'
-    : 'bg-primary text-primary-foreground shadow-[0_16px_34px_rgba(37,99,235,0.24)]';
+    ? 'bg-rose-500 text-white shadow-sm'
+    : 'bg-primary text-primary-foreground shadow-sm';
 
   return (
-    <div className={`flex w-full max-w-full min-w-0 items-stretch justify-start gap-1 overflow-x-auto rounded-[1rem] border border-white/12 bg-black/18 p-1 scrollbar-hide sm:grid sm:w-[21rem] sm:grid-cols-3 sm:gap-0 sm:overflow-visible sm:rounded-full ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`}>
+    <div className="flex w-full max-w-full min-w-0 items-center gap-1 rounded-xl border border-border/60 bg-background/60 p-1 sm:inline-flex sm:w-auto">
       {TOP_TEN_TIMEFRAMES.map((timeframe) => {
         const meta = TOP_TEN_TIMEFRAME_META[timeframe];
         const Icon = meta.icon;
@@ -171,15 +168,19 @@ const TopTenTimeframeTabs: React.FC<{
               onChange(timeframe);
             }}
             className={cn(
-              'relative min-h-[2.1rem] min-w-[5.25rem] shrink-0 overflow-hidden rounded-[0.85rem] px-1.5 py-1 text-center text-[7px] font-black uppercase leading-none tracking-[0.08em] transition-colors duration-200 sm:min-h-[2.9rem] sm:min-w-0 sm:flex-1 sm:rounded-full sm:px-3 sm:py-2 sm:text-[10px] sm:tracking-[0.14em]',
-              isActive ? 'text-white' : 'text-white/48 hover:text-white/86',
+              'relative min-h-8 flex-1 overflow-hidden whitespace-nowrap rounded-lg px-2.5 py-1.5 text-center text-xs font-medium transition-colors duration-150 sm:flex-initial sm:px-3',
+              isActive
+                ? audience === 'adult'
+                  ? 'text-white'
+                  : 'text-primary-foreground'
+                : 'text-muted-foreground hover:text-foreground',
             )}
             aria-pressed={isActive}
           >
             {isActive ? (
               <motion.span
                 layoutId={`top-ten-page-timeframe-pill-${audience}`}
-                className={`absolute inset-0 rounded-full ${activePillClassName}`}
+                className={`absolute inset-0 rounded-lg ${activePillClassName}`}
                 transition={
                   disableHeavyEffects
                     ? { duration: 0.16, ease: 'easeOut' }
@@ -187,8 +188,8 @@ const TopTenTimeframeTabs: React.FC<{
                 }
               />
             ) : null}
-            <span className="relative z-10 flex items-center justify-center gap-1 sm:gap-2">
-              <Icon className="h-3 w-3 shrink-0 sm:h-3.5 sm:w-3.5" />
+            <span className="relative z-10 flex items-center justify-center gap-1.5">
+              <Icon className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{meta.title}</span>
             </span>
           </button>
@@ -207,22 +208,27 @@ const TopTenCard: React.FC<{
   manga,
   index,
   audience,
-  disableHeavyEffects,
 }) => {
   const blurAdultArtwork = useAdultImageBlurPreference();
   const engagementLabel = typeof manga.engagementScore === 'number' && Number.isFinite(manga.engagementScore)
     ? `${Math.round(manga.engagementScore)} puan`
     : 'Skor yok';
   const coverSrcSet = React.useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
-  const rankClassName = audience === 'adult'
-    ? 'bg-gradient-to-b from-rose-50 via-rose-300 to-rose-500 bg-clip-text text-transparent drop-shadow-[0_0_18px_rgba(244,63,94,0.24)]'
-    : 'bg-gradient-to-b from-sky-100 via-sky-300 to-primary bg-clip-text text-transparent drop-shadow-[0_0_18px_rgba(59,130,246,0.24)]';
+  const rankClassName = index === 0
+    ? 'bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 bg-clip-text text-transparent'
+    : index === 1
+      ? 'bg-gradient-to-b from-slate-50 via-slate-300 to-slate-500 bg-clip-text text-transparent'
+      : index === 2
+        ? 'bg-gradient-to-b from-orange-100 via-amber-400 to-orange-700 bg-clip-text text-transparent'
+        : audience === 'adult'
+          ? 'bg-gradient-to-b from-rose-100 via-rose-300 to-rose-500 bg-clip-text text-transparent'
+          : 'bg-gradient-to-b from-sky-100 via-sky-300 to-primary bg-clip-text text-transparent';
   const engagementBadgeClassName = audience === 'adult'
-    ? 'border-rose-400/18 bg-rose-500/8 text-rose-300'
-    : 'border-primary/15 bg-primary/5 text-primary';
+    ? 'border-rose-400/20 bg-rose-500/10 text-rose-300'
+    : 'border-primary/20 bg-primary/10 text-primary';
   const cardFrameClassName = audience === 'adult'
-    ? 'border-rose-500/12 bg-card/75 hover:border-rose-400/28'
-    : 'border-border/70 bg-card/75 hover:border-primary/20';
+    ? 'border-rose-500/15 bg-card/85 hover:border-rose-400/35'
+    : 'border-border/60 bg-card/85 hover:border-primary/40';
   const chapterCountClassName = audience === 'adult' ? 'text-rose-300' : 'text-primary';
   const showAdultLabel = manga.isAdult === true || isAdultMangaType(manga.type);
   const shouldBlurAdultArtwork = blurAdultArtwork && showAdultLabel;
@@ -240,18 +246,24 @@ const TopTenCard: React.FC<{
   return (
     <Link
       to={`/manga/${manga.id}`}
-      className="group block rounded-[17px] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:rounded-[24px]"
+      className="group block rounded-xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
     >
-      <div className="mb-1.5 flex items-end justify-between gap-1.5 overflow-visible sm:mb-3 sm:gap-3">
-        <span className={cn('inline-flex shrink-0 pr-[0.04em] text-[1.6rem] font-black leading-[0.86] tracking-[-0.05em] sm:pr-[0.08em] sm:text-[3.75rem]', rankClassName)}>
+      <div className="mb-1.5 flex h-8 items-end justify-between gap-1.5 overflow-visible sm:mb-2 sm:h-10 sm:gap-2">
+        <span className={cn('inline-flex shrink-0 text-xl font-black leading-none tracking-[-0.04em] sm:text-2xl lg:text-3xl', rankClassName)}>
           {String(index + 1).padStart(2, '0')}
         </span>
-        <Badge variant="outline" className={cn('h-4.5 shrink-0 rounded-full px-1.5 text-[7px] uppercase tracking-[0.08em] sm:h-7 sm:px-2.5 sm:text-[10px] sm:tracking-[0.18em]', engagementBadgeClassName)}>
+        <Badge
+          variant="outline"
+          className={cn(
+            'h-5 shrink-0 rounded-full px-1.5 text-[10px] font-medium tracking-normal sm:h-6 sm:px-2 sm:text-[11px]',
+            engagementBadgeClassName,
+          )}
+        >
           {engagementLabel}
         </Badge>
       </div>
 
-      <div className={cn('overflow-hidden rounded-[17px] border shadow-[0_18px_40px_rgba(15,23,42,0.14)] transition-colors sm:rounded-[24px]', cardFrameClassName)}>
+      <div className={cn('overflow-hidden rounded-xl border transition-colors duration-150', cardFrameClassName)}>
         <div className="relative aspect-[3/4] w-full overflow-hidden bg-black">
           <OptimizedImage
             src={manga.cover}
@@ -259,7 +271,7 @@ const TopTenCard: React.FC<{
             width={TOP_TEN_CARD_INTRINSIC_WIDTH}
             height={TOP_TEN_CARD_INTRINSIC_HEIGHT}
             srcSet={coverSrcSet}
-            sizes={TOP_TEN_CARD_SIZES}
+            sizes={TOP_TEN_CARD_IMAGE_SIZES}
             priority
             rootMargin="620px 0px"
             transform={TOP_TEN_CARD_TRANSFORM}
@@ -270,31 +282,30 @@ const TopTenCard: React.FC<{
               shouldBlurAdultArtwork && 'scale-[1.03] blur-md',
             )}
           />
-          <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black/28 via-transparent to-transparent" />
-          <div className="pointer-events-none absolute -inset-x-px -bottom-px h-[72%] bg-gradient-to-t from-black via-black/94 to-transparent" />
-          <div className="pointer-events-none absolute -inset-x-px -bottom-px h-[36%] bg-black/48" />
+          <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black/25 via-transparent to-transparent" />
+          <div className="pointer-events-none absolute -inset-x-px -bottom-px h-[68%] bg-gradient-to-t from-black via-black/85 to-transparent" />
 
-          <div className="absolute left-2 top-2 flex items-center gap-1 sm:left-3 sm:top-3 sm:gap-2">
+          <div className="absolute left-1.5 top-1.5 flex items-center gap-1 sm:left-2 sm:top-2">
             <Badge
               variant="secondary"
-              className={`border-none px-1.5 py-0.5 text-[7px] font-bold sm:px-2 sm:py-1 sm:text-[10px] ${typeBadgeClassName}`}
+              className={`border-none px-1.5 py-0.5 text-[9px] font-bold shadow-sm ${typeBadgeClassName}`}
             >
               {typeBadgeLabel}
             </Badge>
           </div>
 
-          <div className="absolute inset-x-0 bottom-0 p-2.5 sm:p-4">
-            <h3 className="line-clamp-2 text-[0.82rem] font-black tracking-tight text-white drop-shadow-[0_4px_14px_rgba(0,0,0,0.72)] transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-lg">
+          <div className="absolute inset-x-0 bottom-0 p-2 sm:p-2.5">
+            <h3 className="line-clamp-2 text-xs font-bold leading-snug tracking-tight text-white transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-[13px]">
               {manga.title}
             </h3>
-            <div className="mt-1 flex items-center justify-between gap-1.5 text-[8px] text-white/84 sm:mt-2 sm:gap-3 sm:text-xs">
-              <span className="truncate drop-shadow-[0_2px_10px_rgba(0,0,0,0.6)]">{manga.author}</span>
-              <MangaRatingBadge value={Number(manga.averageRating || 0)} className="text-[10px] sm:text-xs" />
+            <div className="mt-1 flex items-center justify-between gap-1.5 text-[10px] text-white/80 sm:text-[11px]">
+              <span className="min-w-0 truncate">{manga.author}</span>
+              <MangaRatingBadge value={Number(manga.averageRating || 0)} className="shrink-0 text-[10px]" />
             </div>
           </div>
         </div>
 
-        <div className="flex items-center justify-between gap-1.5 border-t border-border/70 px-2.5 py-2 text-[8px] text-muted-foreground sm:gap-3 sm:px-4 sm:py-3 sm:text-xs">
+        <div className="flex items-center justify-between gap-1.5 border-t border-border/60 px-2 py-1.5 text-[10px] text-muted-foreground sm:px-2.5 sm:py-2 sm:text-[11px]">
           <span className="min-w-0 truncate">
             {manga.genres?.[0] || 'Arşiv Seçkisi'}
           </span>
@@ -333,10 +344,10 @@ const TopTenAudienceBlock: React.FC<{
   const [showRightArrow, setShowRightArrow] = useState(false);
 
   const uniqueMangas = useMemo(() => {
-    const seen = new Set<string>();
+    const seenIds = new Set<string>();
     return manga.filter((item) => {
-      if (!item?.id || seen.has(item.id)) return false;
-      seen.add(item.id);
+      if (!item?.id || seenIds.has(item.id)) return false;
+      seenIds.add(item.id);
       return true;
     });
   }, [manga]);
@@ -428,21 +439,23 @@ const TopTenAudienceBlock: React.FC<{
             }
       }
     >
-      <div className={`relative min-w-0 max-w-full overflow-hidden rounded-[18px] border p-3 shadow-[0_28px_70px_rgba(15,23,42,0.22)] sm:rounded-[30px] sm:p-6 lg:p-7 ${isSinglePanel ? 'xl:mx-auto xl:max-w-[76rem]' : ''} ${audienceMeta.frameClassName}`}>
+      <div className={cn(
+        'relative min-w-0 max-w-full overflow-hidden rounded-2xl border border-border/60 p-3.5 sm:p-5',
+        isSinglePanel && 'xl:mx-auto xl:max-w-[76rem]',
+        audienceMeta.frameClassName,
+      )}>
         <div className="relative z-10">
-          <div className="mb-3 flex flex-col gap-3 border-b border-white/10 pb-3 sm:mb-6 sm:pb-6">
-            <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <h2 className="text-[1.25rem] font-black leading-tight tracking-tight text-white sm:text-[2rem]">
-                {audienceMeta.title}
-              </h2>
-              <div className="w-full min-w-0 sm:w-auto">
-                <TopTenTimeframeTabs
-                  audience={audience}
-                  activeTimeframe={timeframe}
-                  onChange={onTimeframeChange}
-                  disableHeavyEffects={disableHeavyEffects}
-                />
-              </div>
+          <div className="mb-3.5 flex flex-col gap-2.5 border-b border-border/50 pb-3.5 sm:mb-4 sm:flex-row sm:items-center sm:justify-between sm:pb-4">
+            <h2 className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
+              {audienceMeta.title}
+            </h2>
+            <div className="w-full min-w-0 sm:w-auto">
+              <TopTenTimeframeTabs
+                audience={audience}
+                activeTimeframe={timeframe}
+                onChange={onTimeframeChange}
+                disableHeavyEffects={disableHeavyEffects}
+              />
             </div>
           </div>
 
@@ -457,10 +470,10 @@ const TopTenAudienceBlock: React.FC<{
                   exit={{ opacity: 0, scale: 0.8 }}
                   transition={{ duration: 0.15 }}
                   onClick={() => scroll('left')}
-                  className="absolute left-1 sm:left-2 top-[55%] -translate-y-1/2 z-30 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/85 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.65)] backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  className="absolute left-1 sm:left-2 top-[54%] -translate-y-1/2 z-30 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-background/90 text-foreground border border-border/70 shadow-lg backdrop-blur-md transition-colors duration-150 hover:bg-primary hover:border-primary/50 hover:text-primary-foreground active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                   aria-label="Sola kaydır"
                 >
-                  <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px]" strokeWidth={2.25} />
+                  <ChevronLeft className="h-4 w-4 -translate-x-[0.5px]" strokeWidth={2.25} />
                 </motion.button>
               )}
             </AnimatePresence>
@@ -475,10 +488,10 @@ const TopTenAudienceBlock: React.FC<{
                   exit={{ opacity: 0, scale: 0.8 }}
                   transition={{ duration: 0.15 }}
                   onClick={() => scroll('right')}
-                  className="absolute right-1 sm:right-2 top-[55%] -translate-y-1/2 z-30 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/85 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.65)] backdrop-blur-md transition-all duration-200 hover:scale-110 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                  className="absolute right-1 sm:right-2 top-[54%] -translate-y-1/2 z-30 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-background/90 text-foreground border border-border/70 shadow-lg backdrop-blur-md transition-colors duration-150 hover:bg-primary hover:border-primary/50 hover:text-primary-foreground active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
                   aria-label="Sağa kaydır"
                 >
-                  <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px]" strokeWidth={2.25} />
+                  <ChevronRight className="h-4 w-4 translate-x-[0.5px]" strokeWidth={2.25} />
                 </motion.button>
               )}
             </AnimatePresence>
@@ -486,16 +499,18 @@ const TopTenAudienceBlock: React.FC<{
             {isLoading ? (
               <div
                 key={`${audience}-${timeframe}-loading`}
-                className="flex w-full max-w-full min-w-0 gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2"
+                className="flex w-full max-w-full min-w-0 gap-2.5 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-3.5 sm:pb-2"
               >
-                {Array.from({ length: 4 }).map((_, index) => (
+                {Array.from({ length: 6 }).map((_, index) => (
                   <div key={`${audience}-${timeframe}-skeleton-${index}`} className={`shrink-0 ${TOP_TEN_CARD_WIDTH_CLASS} animate-pulse`}>
-                    <div className="mb-2 h-10 w-16 rounded-full bg-white/10" />
-                    <div className="overflow-hidden rounded-[20px] border border-white/10 bg-white/5 sm:rounded-[24px]">
+                    <div className="mb-1.5 flex h-8 items-end justify-between sm:mb-2 sm:h-10">
+                      <div className="h-6 w-8 rounded bg-white/10 sm:h-7" />
+                      <div className="h-5 w-14 rounded-full bg-white/10" />
+                    </div>
+                    <div className="overflow-hidden rounded-xl border border-border/50 bg-white/5">
                       <div className="aspect-[3/4] bg-white/10" />
-                      <div className="space-y-2 border-t border-white/10 px-4 py-3">
+                      <div className="space-y-1.5 border-t border-border/50 px-2.5 py-2">
                         <div className="h-3 rounded bg-white/10" />
-                        <div className="h-3 w-2/3 rounded bg-white/10" />
                       </div>
                     </div>
                   </div>
@@ -514,7 +529,7 @@ const TopTenAudienceBlock: React.FC<{
                     <div
                       ref={scrollRef}
                       onScroll={updateArrows}
-                      className="flex w-full max-w-full min-w-0 snap-x snap-proximity gap-2 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-4 sm:pb-2 scroll-smooth"
+                      className="flex w-full max-w-full min-w-0 snap-x snap-proximity gap-2.5 overflow-x-auto pb-1.5 scrollbar-hide sm:gap-3.5 sm:pb-2 scroll-smooth"
                       style={{ scrollbarWidth: 'none', msOverflowStyle: 'none', WebkitOverflowScrolling: 'touch' }}
                     >
                       {uniqueMangas.map((item, index) => (
@@ -539,9 +554,9 @@ const TopTenAudienceBlock: React.FC<{
                     initial={{ opacity: 0, y: disableHeavyEffects ? 0 : 8 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: disableHeavyEffects ? 0.12 : 0.16 }}
-                    className="rounded-[24px] border border-dashed border-white/15 bg-black/18 p-6 text-center sm:rounded-[28px] sm:p-8"
+                    className="rounded-xl border border-dashed border-border/60 bg-background/40 p-6 text-center sm:p-8"
                   >
-                    <p className="text-[13px] text-white/68 sm:text-sm">
+                    <p className="text-xs text-muted-foreground sm:text-sm">
                       {audienceMeta.emptyText}
                     </p>
                   </motion.div>
@@ -655,10 +670,17 @@ const TopTen: React.FC = () => {
     <div className="min-h-screen overflow-x-clip bg-background">
       <Header />
 
-      <main className="container overflow-x-clip pb-8 pt-[4.5rem] sm:pb-12 sm:pt-24">
-        
+      <main className="container overflow-x-clip pb-10 pt-16 sm:pb-12">
+        <div className={cn('py-5 sm:py-6', !adultModeEnabled && 'mx-auto max-w-7xl xl:max-w-[76rem]')}>
+          <div className="flex items-center gap-2.5">
+            <div className="flex h-9 w-9 sm:h-10 sm:w-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
+              <Crown className="h-5 w-5 sm:h-6 sm:w-6" />
+            </div>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Top 10</h1>
+          </div>
+        </div>
 
-        <div className={`mt-4 grid min-w-0 gap-4 sm:mt-10 sm:gap-8 ${adultModeEnabled ? 'xl:grid-cols-2' : 'max-w-7xl mx-auto'}`}>
+        <div className={`grid min-w-0 gap-4 sm:gap-6 ${adultModeEnabled ? 'xl:grid-cols-2' : 'max-w-7xl mx-auto'}`}>
           <TopTenAudienceBlock
             audience="safe"
             timeframe={activeTimeframes.safe}

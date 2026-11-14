@@ -140,12 +140,19 @@ interface HeaderQuickSearchProps {
   isOnline: boolean;
   blurAdultArtworkEnabled: boolean;
   navigationKey: string;
+  className?: string;
+  enableRandom?: boolean;
+  inlineDropdown?: boolean;
+  onNavigate?: () => void;
 }
 
 const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
   isOnline,
   blurAdultArtworkEnabled,
   navigationKey,
+  className,
+  inlineDropdown = false,
+  onNavigate,
 }) => {
   const navigate = useNavigate();
   const [searchQuery, setSearchQuery] = useState('');
@@ -156,6 +163,7 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
   const [quickArtistResults, setQuickArtistResults] = useState<Artist[]>([]);
   const [catalogRevision, setCatalogRevision] = useState(0);
 
+  const inputRef = useRef<HTMLInputElement | null>(null);
   const allMangasRef = useRef<Manga[]>([]);
   const allCharactersRef = useRef<Character[]>([]);
   const allAuthorsRef = useRef<Author[]>([]);
@@ -381,24 +389,41 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
     if (searchQuery.trim()) {
       navigate(`/browse?search=${encodeURIComponent(searchQuery)}`);
       clearQuickSearch();
+      onNavigate?.();
     }
   };
 
   const handleResultClick = (id: string) => {
     navigate(`/manga/${id}`);
     clearQuickSearch();
+    onNavigate?.();
   };
 
   const handleEntityResultClick = (path: string) => {
     navigate(path);
     clearQuickSearch();
+    onNavigate?.();
+  };
+
+  const handleClearQueryOnly = () => {
+    if (debounceTimerRef.current !== null) {
+      window.clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+    setSearchQuery('');
+    setQuickResults((prev) => (prev.length === 0 ? prev : []));
+    setQuickCharacterResults((prev) => (prev.length === 0 ? prev : []));
+    setQuickAuthorResults((prev) => (prev.length === 0 ? prev : []));
+    setQuickArtistResults((prev) => (prev.length === 0 ? prev : []));
+    inputRef.current?.focus();
   };
 
   return (
-    <form onSubmit={handleSearch} className="flex-1">
-      <div className="relative w-full">
-        <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+    <form onSubmit={handleSearch} className={cn('min-w-0 flex-1', className)}>
+      <div className="relative w-full min-w-0">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
+          ref={inputRef}
           type="search"
           placeholder="Manga, karakter, yazar veya çizer ara..."
           value={searchQuery}
@@ -414,8 +439,19 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
           onBlur={() => {
             blurTimeoutRef.current = window.setTimeout(() => setIsSearchFocused(false), 180);
           }}
-          className="w-full pl-10"
+          className="w-full pl-9 pr-9 sm:pl-10 [&::-webkit-search-cancel-button]:hidden"
         />
+        {searchQuery.length > 0 && (
+          <button
+            type="button"
+            onMouseDown={(e) => e.preventDefault()}
+            onClick={handleClearQueryOnly}
+            aria-label="Aramayı temizle"
+            className="absolute right-2.5 top-1/2 flex h-6 w-6 -translate-y-1/2 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+          >
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
         {/* Quick Search Dropdown */}
         {isSearchFocused && (
           quickResults.length > 0
@@ -423,7 +459,15 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
           || quickAuthorResults.length > 0
           || quickArtistResults.length > 0
         ) && (
-          <div className="absolute top-full left-0 right-0 mt-2 overflow-hidden rounded-xl border border-border bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200">
+          <div
+            onMouseDown={(e) => e.preventDefault()}
+            className={cn(
+              'overflow-y-auto rounded-xl border border-border/70 bg-background/95 shadow-2xl backdrop-blur-xl animate-in fade-in zoom-in-95 duration-200',
+              inlineDropdown
+                ? 'mt-2 max-h-[min(22rem,calc(100dvh-13rem))] w-full'
+                : 'absolute top-full left-0 right-0 z-50 mt-2 max-h-[min(26rem,calc(100dvh-6rem))]',
+            )}
+          >
             <div className="p-2">
               {quickResults.length > 0 && (
                 <>
@@ -657,6 +701,7 @@ const HeaderContent: React.FC = () => {
   const mobileCharactersLongPressTimeoutRef = useRef<number | null>(null);
   const mobileCharactersLongPressTriggeredRef = useRef(false);
   const mobileCharactersMenuRef = useRef<HTMLDivElement | null>(null);
+  const mobileCharactersSubmenuRef = useRef<HTMLDivElement | null>(null);
   const randomLoadInFlightRef = useRef(false);
 
   const isActive = (path: string) =>
@@ -798,7 +843,9 @@ const HeaderContent: React.FC = () => {
 
     const handlePointerDown = (event: PointerEvent) => {
       const target = event.target as Node;
-      if (mobileCharactersMenuRef.current && !mobileCharactersMenuRef.current.contains(target)) {
+      const clickedInsideTrigger = mobileCharactersMenuRef.current?.contains(target);
+      const clickedInsideSubmenu = mobileCharactersSubmenuRef.current?.contains(target);
+      if (!clickedInsideTrigger && !clickedInsideSubmenu) {
         setIsCharactersMobileMenuOpen(false);
       }
     };
@@ -1011,16 +1058,16 @@ const HeaderContent: React.FC = () => {
   return (
     <TooltipProvider>
     <header
-      className={`fixed top-0 left-0 right-0 z-50 border-b border-border/50 ${disableHeavyEffects ? 'bg-background/95' : 'bg-background/80 backdrop-blur-xl'}`}
+      className={`fixed top-0 left-0 right-0 z-50 border-b border-border/60 ${disableHeavyEffects ? 'bg-background/95' : 'bg-background/90 backdrop-blur-md'}`}
       style={{ paddingTop: 'env(safe-area-inset-top)' }}
     >
-      <div className="container flex h-16 items-center justify-between gap-4">
+      <div className="container flex h-16 items-center justify-between gap-2 sm:gap-4">
         {/* Logo */}
         <Link
           to="/"
-          className="-ml-2 flex items-center gap-2 md:-ml-3"
+          className="-ml-1 flex shrink-0 items-center gap-2 sm:-ml-2 md:-ml-3"
         >
-                <img src="/logo.webp" alt="Logo" className="h-12 w-auto object-contain" decoding="async" />
+          <img src="/logo.webp" alt="Logo" className="h-10 w-auto object-contain sm:h-12" decoding="async" />
         </Link>
 
         {/* Desktop Navigation */}
@@ -1114,7 +1161,7 @@ const HeaderContent: React.FC = () => {
         </div>
 
         {/* User Actions */}
-        <div className="flex items-center gap-2">
+        <div className="flex shrink-0 items-center gap-1 sm:gap-2">
           {/* Admin Link */}
           {isAdmin && displayUser && (
             <Button asChild variant="ghost" size="sm" className="hidden md:flex">
@@ -1130,7 +1177,7 @@ const HeaderContent: React.FC = () => {
             <Button
               variant="ghost"
               size="icon"
-              className="h-9 w-9 md:hidden"
+              className="h-9 w-9 lg:hidden"
               onClick={() => setIsMenuOpen(!isMenuOpen)}
               aria-expanded={isMenuOpen}
               aria-label="Gezinti menüsü"
@@ -1305,23 +1352,35 @@ const HeaderContent: React.FC = () => {
 
       {/* Mobile Menu */}
       {isMenuOpen && (
-        <div className="animate-fade-in border-t border-border bg-background p-4 lg:hidden">
-          <nav className="flex flex-col gap-2">
+        <div className="max-h-[calc(100dvh-4rem)] overflow-y-auto border-t border-border/60 bg-background/95 p-3.5 backdrop-blur-md animate-fade-in sm:p-4 lg:hidden">
+          <div className="mb-3 md:hidden">
+            <HeaderQuickSearch
+              isOnline={isOnline}
+              blurAdultArtworkEnabled={blurAdultArtworkEnabled}
+              navigationKey={`${location.pathname}${location.search}`}
+              enableRandom={false}
+              className="w-full"
+              inlineDropdown
+              onNavigate={() => setIsMenuOpen(false)}
+            />
+          </div>
+
+          <nav className="grid grid-cols-2 gap-1.5">
             {navLinks.map((link) => {
               const Icon = link.icon;
 
               if (link.path === '/characters') {
                 return (
-                  <div
-                    key={link.path}
-                    ref={mobileCharactersMenuRef}
-                    className={`overflow-hidden rounded-xl border transition-colors ${
-                      isCharactersMobileMenuOpen
-                        ? 'border-primary/30 bg-primary/5'
-                        : 'border-transparent'
-                    }`}
-                  >
-                    <div className="flex items-center gap-2">
+                  <React.Fragment key={link.path}>
+                    <div
+                      ref={mobileCharactersMenuRef}
+                      className={cn(
+                        'flex min-h-11 min-w-0 items-center overflow-hidden rounded-xl border transition-colors',
+                        isCharactersMobileMenuOpen || isCharactersSectionActive
+                          ? 'border-primary/40 bg-primary/12 text-primary'
+                          : 'border-border/40 bg-secondary/25 text-foreground hover:bg-secondary/50',
+                      )}
+                    >
                       <Link
                         to={link.path}
                         onClick={handleMobileCharactersLinkClick}
@@ -1332,45 +1391,70 @@ const HeaderContent: React.FC = () => {
                         onTouchCancel={handleMobileCharactersLongPressCancel}
                         onTouchMove={handleMobileCharactersLongPressCancel}
                         onContextMenu={(event) => event.preventDefault()}
-                        className={`flex-1 rounded-l-xl px-4 py-3 text-sm font-medium transition-colors ${
-                          isCharactersSectionActive
-                            ? 'text-primary'
-                            : 'hover:bg-secondary'
-                        }`}
+                        className="flex min-h-11 min-w-0 flex-1 items-center px-3 py-2 text-xs font-medium"
                       >
-                        Karakterler
+                        <span className="truncate">Karakterler</span>
                       </Link>
 
                       <button
                         type="button"
                         onClick={toggleMobileCharactersMenu}
-                        className={`mr-1 flex h-10 w-10 items-center justify-center rounded-xl transition-colors ${
+                        className={cn(
+                          'mr-1 flex h-9 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
                           isCharactersMobileMenuOpen
-                            ? 'bg-primary/12 text-primary'
-                            : 'text-muted-foreground hover:bg-secondary'
-                        }`}
+                            ? 'bg-primary/15 text-primary'
+                            : 'text-muted-foreground hover:bg-secondary/70 hover:text-foreground',
+                        )}
                         aria-expanded={isCharactersMobileMenuOpen}
                         aria-label="Karakter alt menüsü"
                       >
                         <ChevronDown
-                          className={`h-4 w-4 transition-transform duration-200 ${
-                            isCharactersMobileMenuOpen ? 'rotate-180' : ''
-                          }`}
+                          className={cn(
+                            'h-4 w-4 transition-transform duration-200',
+                            isCharactersMobileMenuOpen && 'rotate-180',
+                          )}
                         />
                       </button>
                     </div>
 
                     {isCharactersMobileMenuOpen && (
-                      <div className="space-y-1 border-t border-border/60 px-2 pb-2 pt-2">
-                        {renderCharacterMenuLinks(() => {
-                          setIsCharactersMobileMenuOpen(false);
-                          setIsMenuOpen(false);
+                      <div
+                        ref={mobileCharactersSubmenuRef}
+                        className="col-span-2 grid grid-cols-3 gap-1.5 rounded-xl border border-border/50 bg-secondary/20 p-1.5"
+                      >
+                        {characterMenuItems.map((item) => {
+                          const isItemActive = item.path === '/characters'
+                            ? location.pathname === '/characters' || location.pathname.startsWith('/character/')
+                            : item.path === '/authors'
+                              ? location.pathname === '/authors' || location.pathname.startsWith('/author/')
+                              : location.pathname === '/artists' || location.pathname.startsWith('/artist/');
+
+                          return (
+                            <Link
+                              key={item.path}
+                              to={item.path}
+                              onClick={() => {
+                                setIsCharactersMobileMenuOpen(false);
+                                setIsMenuOpen(false);
+                              }}
+                              className={cn(
+                                'flex min-h-9 min-w-0 items-center justify-center rounded-lg px-2 py-1.5 text-center text-xs font-medium transition-colors',
+                                isItemActive
+                                  ? 'bg-primary/15 text-primary'
+                                  : 'text-foreground/90 hover:bg-secondary/70',
+                              )}
+                            >
+                              <span className="truncate">{item.label}</span>
+                            </Link>
+                          );
                         })}
                       </div>
                     )}
-                  </div>
+                  </React.Fragment>
                 );
               }
+
+              const active = isActive(link.path);
 
               return (
                 <Link
@@ -1379,16 +1463,19 @@ const HeaderContent: React.FC = () => {
                   onClick={() => setIsMenuOpen(false)}
                   onPointerEnter={() => prefetchRouteForPathname(link.path)}
                   onFocus={() => prefetchRouteForPathname(link.path)}
-                  className={`flex items-center gap-2 rounded-xl px-4 py-3 text-sm font-medium transition-colors ${
+                  className={cn(
+                    'flex min-h-11 min-w-0 items-center gap-2 rounded-xl border px-3 py-2 text-xs font-medium transition-colors',
                     link.featured
-                      ? 'border border-primary/20 bg-primary/10 text-primary hover:bg-primary/15'
-                      : isActive(link.path)
-                        ? 'bg-secondary text-foreground'
-                        : 'hover:bg-secondary'
-                  }`}
+                      ? active
+                        ? 'border-primary/50 bg-primary text-primary-foreground'
+                        : 'border-primary/30 bg-primary/10 text-primary hover:bg-primary/15'
+                      : active
+                        ? 'border-primary/40 bg-primary/12 text-primary'
+                        : 'border-border/40 bg-secondary/25 text-foreground hover:bg-secondary/50',
+                  )}
                 >
-                  {Icon && <Icon className="h-4 w-4" />}
-                  {link.label}
+                  {Icon && <Icon className="h-3.5 w-3.5 shrink-0" />}
+                  <span className="truncate">{link.label}</span>
                 </Link>
               );
             })}
@@ -1398,10 +1485,13 @@ const HeaderContent: React.FC = () => {
                 setIsMenuOpen(false);
                 void handleRandomManga();
               }}
-              className="flex items-center gap-2 rounded-lg px-4 py-2 text-left text-sm font-medium transition-colors hover:bg-secondary"
+              className={cn(
+                'flex min-h-11 min-w-0 items-center gap-2 rounded-xl border border-border/40 bg-secondary/25 px-3 py-2 text-left text-xs font-medium transition-colors hover:bg-secondary/50',
+                navLinks.length % 2 === 0 && 'col-span-2 justify-center',
+              )}
             >
-              <Dices className="h-4 w-4 text-primary" />
-              Zar At
+              <Dices className="h-3.5 w-3.5 shrink-0 text-primary" />
+              <span className="truncate">Zar At</span>
             </button>
           </nav>
         </div>

@@ -36,7 +36,6 @@ import {
 } from '@/lib/continueReadingCache';
 import { ADULT_MODE_CHANGED_EVENT } from '@/lib/adultModeEvents';
 import { readHeaderShellSnapshot } from '@/lib/headerShellCache';
-import { getMangaTypeLabel } from '@/lib/mangaType';
 import { cn } from '@/lib/utils';
 import {
   HOME_SECTIONS_CACHE_TTL_MS,
@@ -72,6 +71,7 @@ interface ContinueReadingEntry {
   chapterId: string;
   chapterNumber: number;
   page: number;
+  progressPercent?: number;
   lastRead: string;
 }
 
@@ -108,26 +108,26 @@ const getEstimatedHomeCarouselItemWidth = (viewportWidth: number, clientWidth: n
   const fallbackWidth = Math.max(clientWidth, viewportWidth);
 
   if (viewportWidth >= 1280) {
-    return Math.max(148, (fallbackWidth - 96) / 6);
+    return Math.max(132, (fallbackWidth - 72) / 7);
   }
 
   if (viewportWidth >= 1024) {
-    return Math.max(148, (fallbackWidth - 80) / 6);
+    return Math.max(132, (fallbackWidth - 60) / 6.5);
   }
 
   if (viewportWidth >= 768) {
-    return Math.max(156, (fallbackWidth - 64) / 5);
+    return Math.max(136, (fallbackWidth - 50) / 5.5);
   }
 
   if (viewportWidth >= 640) {
-    return Math.max(164, (fallbackWidth - 48) / 4);
+    return Math.max(140, (fallbackWidth - 40) / 4.5);
   }
 
-  if (viewportWidth >= 430) {
-    return 168;
+  if (viewportWidth >= 400) {
+    return 140;
   }
 
-  return 156;
+  return 132;
 };
 
 const EMPTY_HOME_PAGE_SECTIONS: HomePageMangaSections = {
@@ -135,8 +135,6 @@ const EMPTY_HOME_PAGE_SECTIONS: HomePageMangaSections = {
   newlyAddedSeries: [],
   recentlyUpdated: [],
 };
-
-const CONTINUE_READING_DESCRIPTION_LIMIT = 280;
 
 type HomeDataModule = {
   getHomePageMangaSections: () => Promise<HomePageMangaSections>;
@@ -196,13 +194,6 @@ const HOME_PAGE_CACHE: {
   continueReadingByUser: {},
 };
 
-const CONTINUE_READING_BANNER_TRANSFORM = Object.freeze({
-  width: 1200,
-  quality: 64,
-  format: 'webp' as const,
-  fit: 'cover' as const,
-});
-
 const CONTINUE_READING_COVER_TRANSFORM = Object.freeze({
   width: 520,
   quality: 70,
@@ -212,8 +203,7 @@ const CONTINUE_READING_COVER_TRANSFORM = Object.freeze({
 
 const CONTINUE_READING_COVER_INTRINSIC_WIDTH = 480;
 const CONTINUE_READING_COVER_INTRINSIC_HEIGHT = 640;
-const CONTINUE_READING_COVER_SIZES = '(min-width: 1024px) 16rem, (min-width: 640px) 14rem, 9.75rem';
-const CONTINUE_READING_BANNER_SIZES = '100vw';
+const CONTINUE_READING_COVER_SIZES = '(min-width: 768px) 7rem, (min-width: 640px) 6rem, 5rem';
 const HOME_SECTION_DEFERRED_ROOT_MARGIN = {
   coarse: '1040px 0px',
   fine: '820px 0px',
@@ -327,15 +317,19 @@ const initialPersistedContinueReadingCache = readPersistedContinueReadingCache(i
 
 const getInitialVisibleHomeSectionCardCount = (viewportWidth: number, isCoarsePointer: boolean) => {
   if (viewportWidth >= 1280) {
-    return 6;
+    return 7;
   }
 
   if (viewportWidth >= 1024) {
-    return 5;
+    return 6;
+  }
+
+  if (viewportWidth >= 768) {
+    return 6;
   }
 
   if (viewportWidth >= 640) {
-    return 4;
+    return 5;
   }
 
   return isCoarsePointer ? 3 : 4;
@@ -361,30 +355,6 @@ const formatContinueReadingLastRead = (lastRead: string) => {
   return `Son okuma ${new Date(timestamp).toLocaleDateString('tr-TR')}`;
 };
 
-const truncateContinueReadingDescription = (value?: string | null) => {
-  const normalized = value?.replace(/\s+/g, ' ').trim() || '';
-  if (!normalized) {
-    return 'Kaldığın bölüme tek dokunuşla geri dön ve okumayı bıraktığın yerden devam et.';
-  }
-
-  if (normalized.length <= CONTINUE_READING_DESCRIPTION_LIMIT) {
-    return normalized;
-  }
-
-  const sliced = normalized.slice(0, CONTINUE_READING_DESCRIPTION_LIMIT);
-  const safeCutIndex = sliced.lastIndexOf(' ');
-  const shortened = safeCutIndex >= CONTINUE_READING_DESCRIPTION_LIMIT - 24
-    ? sliced.slice(0, safeCutIndex)
-    : sliced;
-
-  return `${shortened.trimEnd()}...`;
-};
-
-const continueReadingGlassLabelClass = 'border border-white/10 bg-black/34 shadow-[0_8px_24px_rgba(0,0,0,0.18)] backdrop-blur-md';
-const continueReadingGlassBadgeClass = 'h-8 rounded-full border-white/10 bg-black/32 px-3 text-xs text-white/92 shadow-[inset_0_1px_0_rgba(255,255,255,0.08)] backdrop-blur-sm';
-const continueReadingGlassButtonClass = 'border-white/12 bg-black/42 text-white shadow-[0_10px_24px_rgba(0,0,0,0.18)] backdrop-blur-md hover:bg-black/52 hover:text-white';
-const continueReadingGlassMetaClass = 'inline-flex items-center rounded-full border border-white/10 bg-black/30 px-3 py-1.5 text-xs text-white/80 shadow-[0_8px_20px_rgba(0,0,0,0.16)] backdrop-blur-sm';
-
 interface ContinueReadingSpotlightProps {
   entries: ContinueReadingEntry[];
   disableHeavyEffects: boolean;
@@ -393,55 +363,27 @@ interface ContinueReadingSpotlightProps {
 
 const ContinueReadingSpotlightSkeleton: React.FC = () => (
   <section aria-hidden>
-    <div className="mb-4 flex items-center justify-between gap-3">
+    <div className="mb-3 flex items-center justify-between gap-3 sm:mb-3.5">
       <div className="min-w-0 flex items-center gap-2">
         <Skeleton className="h-5 w-5 rounded-full" />
-        <Skeleton className="h-7 w-56 max-w-[52vw] sm:h-9 sm:w-72 sm:max-w-[70vw]" />
+        <Skeleton className="h-6 w-48 max-w-[56vw] sm:h-7 sm:w-56" />
       </div>
-      <Skeleton className="h-8 w-20 shrink-0 rounded-full sm:h-9 sm:w-24" />
+      <Skeleton className="h-8 w-20 shrink-0 rounded-lg" />
     </div>
 
-    <div className="overflow-hidden rounded-[30px] border border-primary/10 bg-card/70 p-4 shadow-[0_24px_70px_rgba(15,23,42,0.14)] sm:p-8 lg:p-10">
-      <div className="grid gap-4 sm:gap-6 lg:grid-cols-[minmax(0,1.15fr)_240px] lg:items-end lg:gap-10">
-        <div className="order-2 lg:order-1">
-          <Skeleton className="h-7 w-32 rounded-full sm:h-8 sm:w-36" />
-          <Skeleton className="mt-3 h-10 w-full max-w-xl sm:mt-4 sm:h-14 sm:max-w-2xl" />
-          <Skeleton className="mt-4 hidden h-24 w-full max-w-3xl sm:block" />
-
-          <div className="mt-5 flex flex-wrap gap-2">
-            <Skeleton className="h-8 w-24 rounded-full" />
-            <Skeleton className="h-8 w-24 rounded-full" />
-            <Skeleton className="h-8 w-20 rounded-full" />
-            <Skeleton className="h-8 w-24 rounded-full" />
+    <div className="rounded-2xl border border-border/60 bg-card/75 p-3.5 shadow-sm sm:p-5">
+      <div className="flex items-center gap-3.5 sm:gap-5">
+        <Skeleton className="aspect-[2/3] w-20 shrink-0 rounded-xl sm:w-24 md:w-28" />
+        <div className="min-w-0 flex-1 space-y-2.5">
+          <Skeleton className="h-6 w-3/4 max-w-sm sm:h-7" />
+          <Skeleton className="h-5 w-40 rounded-full" />
+          <Skeleton className="h-1.5 w-full rounded-full" />
+          <div className="flex flex-wrap gap-2 pt-0.5">
+            <Skeleton className="h-9 w-28 rounded-lg" />
+            <Skeleton className="h-9 w-28 rounded-lg" />
           </div>
-
-          <div className="mt-5 flex flex-wrap items-center gap-3 sm:mt-6">
-            <Skeleton className="h-12 w-40 rounded-full" />
-            <Skeleton className="h-12 w-36 rounded-full" />
-            <Skeleton className="h-4 w-32" />
-          </div>
-        </div>
-
-        <div className="order-1 flex justify-center lg:order-2 lg:justify-end">
-          <Skeleton className="aspect-[3/4] w-[9.75rem] rounded-[26px] sm:w-[14rem] sm:rounded-[28px] lg:w-full lg:max-w-[16rem]" />
         </div>
       </div>
-    </div>
-
-    <div className="mt-4 grid gap-3 md:grid-cols-3">
-      {Array.from({ length: 3 }).map((_, index) => (
-        <div
-          key={`continue-reading-skeleton-${index}`}
-          className="flex items-center gap-3 rounded-2xl border border-border/70 bg-card/70 p-3"
-        >
-          <Skeleton className="h-20 w-14 shrink-0 rounded-xl" />
-          <div className="min-w-0 flex-1 space-y-2">
-            <Skeleton className="h-5 w-4/5" />
-            <Skeleton className="h-4 w-3/5" />
-            <Skeleton className="h-3 w-2/5" />
-          </div>
-        </div>
-      ))}
     </div>
   </section>
 );
@@ -457,175 +399,162 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
     return null;
   }
 
-  const hasValidBanner = Boolean(featured.manga.banner && !featured.manga.banner.includes('og/comics'));
-  const continueReadingArtwork = hasValidBanner ? featured.manga.banner : featured.manga.cover;
-  const featuredBannerSrcSet = getManagedArtworkSrcSet(continueReadingArtwork);
   const featuredCoverSrcSet = getManagedArtworkSrcSet(featured.manga.cover);
-
-  const secondary = secondaryEntries.slice(0, 3);
+  const secondaryItems = secondaryEntries.slice(0, 3);
   const continueHref = `/manga/${featured.manga.id}/chapter/${featured.chapterId}`;
   const detailsHref = `/manga/${featured.manga.id}`;
-  const featuredDescription = truncateContinueReadingDescription(featured.manga.description);
-  const shouldBlurFeaturedArtwork = (blurAdultArtwork && featured.manga.isAdult === true) || !hasValidBanner;
+  const shouldBlurFeaturedArtwork = blurAdultArtwork && featured.manga.isAdult === true;
+  const featuredProgressPercent = typeof featured.progressPercent === 'number'
+    ? Math.min(100, Math.max(0, Math.round(featured.progressPercent)))
+    : null;
 
   return (
-    <section>
-      <div className="mb-4 flex items-center justify-between gap-3">
+    <section className={disableHeavyEffects ? '' : 'animate-fade-up'}>
+      <div className="mb-3 flex items-center justify-between gap-3 sm:mb-3.5">
         <div className="min-w-0 flex items-center gap-2">
-          <Play className="h-5 w-5 text-primary" />
-          <h2 className="line-clamp-1 text-lg font-bold tracking-tight sm:text-xl md:text-2xl">Kaldığın Yerden Devam Et</h2>
+          <Play className="h-4 w-4 shrink-0 text-primary sm:h-5 sm:w-5" />
+          <h2 className="line-clamp-1 text-lg font-bold tracking-tight sm:text-xl">Kaldığın Yerden Devam Et</h2>
         </div>
-        <Button asChild variant="ghost" size="sm" className="shrink-0 px-2 sm:px-3">
+        <Button asChild variant="ghost" size="sm" className="h-8 shrink-0 px-2.5 text-xs text-muted-foreground hover:text-foreground sm:text-sm">
           <Link to="/history">
             Geçmiş
-            <ArrowRight className="ml-1 h-4 w-4" />
+            <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </Link>
         </Button>
       </div>
 
-      <div className="relative overflow-hidden rounded-[30px] border border-primary/15 bg-card shadow-[0_24px_70px_rgba(15,23,42,0.18)]">
-        {continueReadingArtwork && (
-          <div className="absolute inset-0">
-            <OptimizedImage
-              src={continueReadingArtwork}
-              alt=""
-              priority
-              srcSet={featuredBannerSrcSet}
-              sizes={CONTINUE_READING_BANNER_SIZES}
-              transform={CONTINUE_READING_BANNER_TRANSFORM}
-              containerClassName="h-full w-full"
-              placeholderClassName="rounded-none"
-              className={cn(
-                'h-full w-full object-cover object-top opacity-30',
-                shouldBlurFeaturedArtwork && 'scale-[1.04] blur-md',
-              )}
-            />
-          </div>
-        )}
-
-        <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(59,130,246,0.18),transparent_38%),radial-gradient(circle_at_bottom_right,rgba(244,114,182,0.12),transparent_34%)]" />
-        <div className="absolute inset-0 bg-gradient-to-br from-background via-background/92 to-background/78" />
-        <div className="absolute inset-y-0 left-0 w-[76%] bg-gradient-to-r from-background/94 via-background/76 to-transparent sm:w-[68%] lg:w-[58%]" />
-
-        <div className="relative z-10 grid grid-cols-[minmax(0,1fr)_8.75rem] items-start gap-3 px-3 py-3 min-[430px]:grid-cols-[minmax(0,1fr)_10rem] min-[430px]:gap-4 sm:gap-6 sm:px-8 sm:py-8 lg:grid-cols-[minmax(0,1.15fr)_240px] lg:items-end lg:gap-10 lg:px-10 lg:py-10">
-          <div className="order-1 min-w-0">
-            <div className={`inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-primary ${continueReadingGlassLabelClass}`}>
-              Son kaldığın seri
-            </div>
-
-            <h3 className="mt-3 max-w-3xl pb-[0.08em] pr-1 text-[1.85rem] font-black leading-[1.02] tracking-tight text-white [text-shadow:0_8px_30px_rgba(0,0,0,0.38)] min-[430px]:text-[2.05rem] sm:mt-4 sm:text-4xl sm:leading-[1.06] lg:text-[2.75rem] lg:leading-[1.04]">
-              {featured.manga.title}
-            </h3>
-
-            <p className="mt-3 hidden max-w-2xl text-sm leading-6 text-white/80 [text-shadow:0_2px_18px_rgba(0,0,0,0.32)] sm:line-clamp-2 sm:block sm:text-[15px]">
-              {featuredDescription}
-            </p>
-
-            <div className="mt-4 flex flex-wrap gap-2 sm:mt-5">
-              <Badge variant="secondary" className={continueReadingGlassBadgeClass}>
-                Bölüm {featured.chapterNumber}
-              </Badge>
-              <Badge variant="outline" className={continueReadingGlassBadgeClass}>
-                Sayfa {Math.max(1, featured.page)}
-              </Badge>
-              <Badge variant="outline" className={continueReadingGlassBadgeClass}>
-                {getMangaTypeLabel(featured.manga.type)}
-              </Badge>
-              {featured.manga.genres[0] && (
-                <Badge variant="outline" className={continueReadingGlassBadgeClass}>
-                  {featured.manga.genres[0]}
-                </Badge>
-              )}
-            </div>
-
-            <div className="mt-5 flex flex-col gap-2.5 sm:mt-6 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3">
-              <Button asChild variant="glow" className="w-full rounded-full border border-primary/35 px-5 shadow-[0_18px_36px_rgba(37,99,235,0.38)] sm:w-auto">
-                <Link to={continueHref}>
-                  <Play className="mr-2 h-4 w-4" />
-                  Devam Et
-                </Link>
-              </Button>
-              <Button asChild variant="outline" className={`w-full rounded-full px-5 sm:w-auto ${continueReadingGlassButtonClass}`}>
-                <Link to={detailsHref}>Seri Sayfası</Link>
-              </Button>
-              <p className={`${continueReadingGlassMetaClass} hidden sm:inline-flex sm:ml-1`}>{formatContinueReadingLastRead(featured.lastRead)}</p>
-            </div>
-          </div>
-
-          <div className="order-2 flex justify-end self-start lg:justify-end">
+      <div className="rounded-2xl border border-border/60 bg-card/75 p-3.5 shadow-sm sm:p-5">
+        <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center lg:gap-5">
+          <div className="flex min-w-0 flex-1 items-center gap-3.5 sm:gap-5">
             <Link
               to={continueHref}
-              className="group block w-full max-w-[8.75rem] min-[430px]:max-w-[10rem] sm:w-[14rem] sm:max-w-none lg:w-full lg:max-w-[16rem]"
-            >
-              <div className="relative aspect-[3/4] overflow-hidden rounded-[24px] border border-white/10 bg-black/20 shadow-[0_20px_40px_rgba(0,0,0,0.28)] sm:rounded-[28px]">
-                <OptimizedImage
-                  src={featured.manga.cover}
-                  alt={featured.manga.title}
-                  width={CONTINUE_READING_COVER_INTRINSIC_WIDTH}
-                  height={CONTINUE_READING_COVER_INTRINSIC_HEIGHT}
-                  srcSet={featuredCoverSrcSet}
-                  sizes={CONTINUE_READING_COVER_SIZES}
-                  priority
-                  rootMargin="640px 0px"
-                  transform={CONTINUE_READING_COVER_TRANSFORM}
-                  containerClassName="h-full w-full"
-                  placeholderClassName="rounded-[24px] sm:rounded-[28px]"
-                  className={cn(
-                    'h-full w-full object-cover',
-                    shouldBlurFeaturedArtwork && 'scale-[1.03] blur-md',
-                    ''
-                  )}
-                />
-                <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
-                <div className="absolute inset-x-0 bottom-0 p-3 sm:p-4">
-                  <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/70">Devam Noktan</p>
-                  <p className="mt-1 text-base font-black text-white sm:text-lg">Bölüm {featured.chapterNumber}</p>
-                </div>
-              </div>
-            </Link>
-          </div>
-        </div>
-      </div>
-
-      {secondary.length > 0 && (
-        <div className="mt-4 grid gap-3 md:grid-cols-3">
-          {secondary.map((entry, index) => (
-            <Link
-              key={entry.manga.id}
-              to={`/manga/${entry.manga.id}/chapter/${entry.chapterId}`}
-              className="group flex items-center gap-3 rounded-2xl border border-border/70 bg-card/70 p-3 transition-colors hover:border-primary/20 hover:bg-card"
+              className="aspect-[2/3] w-20 shrink-0 overflow-hidden rounded-xl border border-border/60 bg-secondary/40 sm:w-24 md:w-28"
             >
               <OptimizedImage
-                src={entry.manga.cover}
-                alt={entry.manga.title}
+                src={featured.manga.cover}
+                alt={featured.manga.title}
                 width={CONTINUE_READING_COVER_INTRINSIC_WIDTH}
                 height={CONTINUE_READING_COVER_INTRINSIC_HEIGHT}
-                srcSet={getManagedArtworkSrcSet(entry.manga.cover)}
-                sizes="56px"
-                priority={index === 0}
-                rootMargin="540px 0px"
+                srcSet={featuredCoverSrcSet}
+                sizes={CONTINUE_READING_COVER_SIZES}
+                priority
+                rootMargin="640px 0px"
                 transform={CONTINUE_READING_COVER_TRANSFORM}
-                containerClassName="h-20 w-14 shrink-0 overflow-hidden rounded-xl"
-                placeholderClassName="rounded-xl"
+                containerClassName="h-full w-full"
+                placeholderClassName="rounded-none"
                 className={cn(
                   'h-full w-full object-cover',
-                  blurAdultArtwork && entry.manga.isAdult === true && 'scale-[1.03] blur-sm',
-                  ''
+                  shouldBlurFeaturedArtwork && 'scale-[1.03] blur-md',
                 )}
               />
-              <div className="min-w-0 flex-1">
-                <p className="line-clamp-1 text-sm font-semibold">{entry.manga.title}</p>
-                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>Bölüm {entry.chapterNumber}</span>
-                  <span className="h-1 w-1 rounded-full bg-border" />
-                  <span>Sayfa {Math.max(1, entry.page)}</span>
-                </div>
-                <p className="mt-2 text-[11px] text-muted-foreground">{formatContinueReadingLastRead(entry.lastRead)}</p>
-              </div>
             </Link>
-          ))}
+
+            <div className="min-w-0 flex-1">
+              <Link
+                to={detailsHref}
+                className="block min-w-0 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+              >
+                <h3 className="line-clamp-1 text-[clamp(1.05rem,0.9rem+0.9vw,1.65rem)] font-bold tracking-tight text-foreground transition-colors hover:text-primary">
+                  {featured.manga.title}
+                </h3>
+              </Link>
+
+              <div className="mt-1.5 flex flex-wrap items-center gap-x-2.5 gap-y-1">
+                <span className="inline-flex max-w-full items-center truncate rounded-full border border-border/50 bg-secondary/60 px-2.5 py-0.5 text-xs font-medium text-foreground/90">
+                  Bölüm {featured.chapterNumber} · Sayfa {Math.max(1, featured.page)}
+                  {featuredProgressPercent !== null ? ` · %${featuredProgressPercent}` : ''}
+                </span>
+                <span className="hidden text-xs text-muted-foreground sm:inline">
+                  {formatContinueReadingLastRead(featured.lastRead)}
+                </span>
+              </div>
+
+              <div
+                className="mt-2.5 h-1.5 w-full overflow-hidden rounded-full bg-secondary/80"
+                role="progressbar"
+                aria-valuemin={0}
+                aria-valuemax={100}
+                aria-valuenow={featuredProgressPercent ?? 0}
+                aria-label="Okuma ilerlemesi"
+              >
+                <div
+                  className={cn(
+                    'h-full rounded-full bg-primary',
+                    !disableHeavyEffects && 'transition-[width] duration-300',
+                  )}
+                  style={{
+                    width: `${featuredProgressPercent !== null ? Math.max(4, featuredProgressPercent) : 0}%`,
+                  }}
+                />
+              </div>
+
+              <div className="mt-3 flex flex-wrap items-center gap-2">
+                <Button asChild size="sm" className="h-9 rounded-lg px-3.5 text-xs font-semibold sm:text-sm">
+                  <Link to={continueHref}>
+                    <Play className="mr-1.5 h-3.5 w-3.5 fill-current" />
+                    Devam Et
+                  </Link>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="h-9 rounded-lg border-border/60 bg-background/40 px-3.5 text-xs sm:text-sm">
+                  <Link to={detailsHref}>Seri Sayfası</Link>
+                </Button>
+              </div>
+            </div>
+          </div>
+
+          {secondaryItems.length > 0 && (
+            <div className="grid grid-cols-2 gap-2 border-t border-border/50 pt-3 lg:w-72 lg:shrink-0 lg:grid-cols-1 lg:border-l lg:border-t-0 lg:pl-5 lg:pt-0 xl:w-80">
+              {secondaryItems.map((entry, index) => {
+                const entryProgressPercent = typeof entry.progressPercent === 'number'
+                  ? Math.min(100, Math.max(0, Math.round(entry.progressPercent)))
+                  : null;
+
+                return (
+                  <Link
+                    key={entry.manga.id}
+                    to={`/manga/${entry.manga.id}/chapter/${entry.chapterId}`}
+                    className="group flex min-w-0 items-center gap-2.5 rounded-xl border border-border/40 bg-secondary/25 p-2 transition-colors hover:border-primary/35 hover:bg-secondary/45"
+                  >
+                    <OptimizedImage
+                      src={entry.manga.cover}
+                      alt={entry.manga.title}
+                      width={CONTINUE_READING_COVER_INTRINSIC_WIDTH}
+                      height={CONTINUE_READING_COVER_INTRINSIC_HEIGHT}
+                      srcSet={getManagedArtworkSrcSet(entry.manga.cover)}
+                      sizes="40px"
+                      priority={index === 0}
+                      rootMargin="540px 0px"
+                      transform={CONTINUE_READING_COVER_TRANSFORM}
+                      containerClassName="h-14 w-10 shrink-0 overflow-hidden rounded-lg border border-border/40"
+                      placeholderClassName="rounded-lg"
+                      className={cn(
+                        'h-full w-full object-cover',
+                        blurAdultArtwork && entry.manga.isAdult === true && 'scale-[1.03] blur-sm',
+                      )}
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="line-clamp-1 text-xs font-semibold text-foreground transition-colors group-hover:text-primary">
+                        {entry.manga.title}
+                      </p>
+                      <p className="mt-0.5 truncate text-[11px] text-muted-foreground">
+                        Bölüm {entry.chapterNumber} · Sayfa {Math.max(1, entry.page)}
+                      </p>
+                      <div className="mt-1.5 h-1 w-full overflow-hidden rounded-full bg-secondary/80">
+                        <div
+                          className="h-full rounded-full bg-primary"
+                          style={{
+                            width: `${entryProgressPercent !== null ? Math.max(4, entryProgressPercent) : 0}%`,
+                          }}
+                        />
+                      </div>
+                    </div>
+                  </Link>
+                );
+              })}
+            </div>
+          )}
         </div>
-      )}
+      </div>
     </section>
   );
 };
@@ -769,7 +698,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     return () => observer.disconnect();
   }, [manga.length, requestLayoutMetricsUpdate]);
 
-  const gapPx = scrollMetrics.viewportWidth >= 640 ? 16 : 12;
+  const gapPx = scrollMetrics.viewportWidth >= 640 ? 12 : 10;
   const effectiveItemWidth = itemWidth > 0
     ? itemWidth
     : getEstimatedHomeCarouselItemWidth(scrollMetrics.viewportWidth, scrollMetrics.clientWidth);
@@ -810,16 +739,16 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
   }
 
   return (
-    <section className={`${withTopSpacing ? 'mt-12 ' : ''}${disableHeavyEffects ? '' : 'animate-fade-up'}`} style={sectionStyle}>
-      <div className="mb-6 flex items-center justify-between">
-        <div className="flex items-center gap-2">
+    <section className={`${withTopSpacing ? 'mt-7 sm:mt-9 ' : ''}${disableHeavyEffects ? '' : 'animate-fade-up'}`} style={sectionStyle}>
+      <div className="mb-3.5 flex items-center justify-between gap-3 sm:mb-4">
+        <div className="min-w-0 flex items-center gap-2">
           <Icon className={iconClassName} />
-          <h2 className="text-xl font-bold tracking-tight md:text-2xl">{title}</h2>
+          <h2 className="truncate text-lg font-bold tracking-tight sm:text-xl">{title}</h2>
         </div>
-        <Button asChild variant="ghost" size="sm">
+        <Button asChild variant="ghost" size="sm" className="h-8 shrink-0 px-2.5 text-xs text-muted-foreground hover:text-foreground sm:text-sm">
           <Link to={linkTo}>
             Tümünü Gör
-            <ArrowRight className="ml-1 h-4 w-4" />
+            <ArrowRight className="ml-1 h-3.5 w-3.5" />
           </Link>
         </Button>
       </div>
@@ -861,7 +790,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
           <div aria-hidden className="pointer-events-none absolute left-0 top-0 -z-10 opacity-0">
             <div
               ref={probeRef}
-              className="w-[9.75rem] shrink-0 min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/6)] 2xl:w-[calc((100%-96px)/6)]"
+              className="w-[8.25rem] shrink-0 min-[400px]:w-[8.75rem] sm:w-[calc((100%-40px)/4.5)] md:w-[calc((100%-50px)/5.5)] lg:w-[calc((100%-60px)/6.5)] xl:w-[calc((100%-72px)/7)]"
             />
           </div>
         )}
@@ -869,13 +798,13 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
         <div
           ref={scrollRef}
           onScroll={requestLayoutMetricsUpdate}
-          className="flex snap-x snap-mandatory gap-3 overflow-x-auto overscroll-x-contain px-0 py-1.5 -my-1.5 scrollbar-hide sm:gap-4"
+          className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto overscroll-x-contain px-0 py-1.5 -my-1.5 scrollbar-hide sm:gap-3"
           style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {visibleManga.map((item, index) => (
             <div
               key={item.id}
-              className="w-[9.75rem] shrink-0 snap-start min-[430px]:w-[10.5rem] sm:w-[calc((100%-48px)/4)] md:w-[calc((100%-64px)/5)] lg:w-[calc((100%-80px)/6)] xl:w-[calc((100%-96px)/6)] 2xl:w-[calc((100%-96px)/6)]"
+              className="w-[8.25rem] shrink-0 snap-start min-[400px]:w-[8.75rem] sm:w-[calc((100%-40px)/4.5)] md:w-[calc((100%-50px)/5.5)] lg:w-[calc((100%-60px)/6.5)] xl:w-[calc((100%-72px)/7)]"
             >
               <MangaCard
                 manga={item}
@@ -1407,6 +1336,9 @@ const Index: React.FC = () => {
           chapterId: entry.chapterId,
           chapterNumber: entry.chapterNumber,
           page: entry.page,
+          progressPercent: typeof entry.progressPercent === 'number' && Number.isFinite(entry.progressPercent)
+            ? Math.min(100, Math.max(0, entry.progressPercent))
+            : undefined,
           lastRead: entry.lastRead,
         } satisfies ContinueReadingEntry;
       })
@@ -1432,27 +1364,26 @@ const Index: React.FC = () => {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container pb-12 pt-20">
+      <main className="container pb-10 pt-20">
         <div className={disableHeavyEffects ? '' : 'animate-fade-up'}>
-          <InstallAppBanner className="mb-8" />
+          <InstallAppBanner className="mb-5 sm:mb-6" />
         </div>
 
         {!isOnline && (
-          <section className={`mb-10 rounded-[28px] border border-blue-500/20 bg-blue-500/10 p-6 shadow-[0_20px_50px_rgba(14,165,233,0.08)] ${disableHeavyEffects ? '' : 'animate-fade-up'}`}>
+          <section className={`mb-6 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 shadow-sm sm:p-5 ${disableHeavyEffects ? '' : 'animate-fade-up'}`}>
             <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-              <div className="flex items-start gap-3">
-                <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-blue-500/15 text-blue-300">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-blue-500/15 text-blue-300 sm:h-11 sm:w-11">
                   <WifiOff className="h-5 w-5" />
                 </div>
-                <div>
-                  <p className="text-xs font-semibold uppercase tracking-[0.24em] text-blue-300/80">Çevrimdışı Mod</p>
-                  <h2 className="mt-1 text-2xl font-black tracking-tight">Ana sayfa yerel kütüphane ile açıldı</h2>
-                  <p className="mt-2 max-w-2xl text-sm text-blue-100/75">
+                <div className="min-w-0">
+                  <h2 className="text-lg font-bold tracking-tight sm:text-xl">Ana sayfa yerel kütüphane ile açıldı</h2>
+                  <p className="mt-1 max-w-2xl text-xs text-blue-100/75 sm:text-sm">
                     Bu modda yalnızca indirilen seriler güvenli şekilde açılır. Topluluk, arama ve online içerikler internet isteyebilir.
                   </p>
                 </div>
               </div>
-              <Button asChild variant="glow" className="rounded-full px-5">
+              <Button asChild variant="glow" className="h-9 shrink-0 rounded-lg px-4 text-xs sm:text-sm">
                 <Link to="/downloads">
                   <Download className="mr-2 h-4 w-4" />
                   İndirilenlere Git
@@ -1463,7 +1394,7 @@ const Index: React.FC = () => {
         )}
 
         {shouldRenderContinueReadingSlot && (
-          <div className="mt-10">
+          <div className="mt-4 sm:mt-6">
             {showContinueReadingSkeleton ? (
               <ContinueReadingSpotlightSkeleton />
             ) : (
@@ -1478,7 +1409,7 @@ const Index: React.FC = () => {
 
         {isOnline ? (
           <>
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin} disabled>
+            <DeferredMount className="mt-7 sm:mt-9" placeholderMinHeight={340} rootMargin={sectionDeferredRootMargin} disabled>
               <HorizontalMangaSection
                 title="Yeni Çıkan Seriler"
                 icon={Sparkles}
@@ -1495,7 +1426,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
+            <DeferredMount className="mt-7 sm:mt-9" placeholderMinHeight={340} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Son Güncellenenler"
                 icon={Clock}
@@ -1512,7 +1443,7 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-12" placeholderMinHeight={420} rootMargin={sectionDeferredRootMargin}>
+            <DeferredMount className="mt-7 sm:mt-9" placeholderMinHeight={340} rootMargin={sectionDeferredRootMargin}>
               <HorizontalMangaSection
                 title="Trend Olanlar"
                 icon={TrendingUp}
@@ -1529,31 +1460,31 @@ const Index: React.FC = () => {
               />
             </DeferredMount>
 
-            <DeferredMount className="mt-16" placeholderMinHeight={260} rootMargin={blockDeferredRootMargin}>
+            <DeferredMount className="mt-8 sm:mt-10" placeholderMinHeight={160} rootMargin={blockDeferredRootMargin}>
               <section
                 className={disableHeavyEffects ? '' : 'animate-fade-up'}
                 style={disableHeavyEffects ? undefined : { animationDelay: '0.06s' }}
               >
-                <div className="mb-6 flex items-center gap-2">
+                <div className="mb-3.5 flex items-center gap-2 sm:mb-4">
                   <TrendingUp className="h-5 w-5 text-primary" />
-                  <h2 className="text-2xl font-bold tracking-tight">Trend Etiketler</h2>
-                  <Badge variant="secondary" className="bg-primary/10 text-primary border-none px-2 h-5 text-[10px]">
+                  <h2 className="text-lg font-bold tracking-tight sm:text-xl">Trend Etiketler</h2>
+                  <Badge variant="secondary" className="h-5 border-none bg-primary/10 px-2 text-[10px] text-primary">
                     Bu Hafta
                   </Badge>
                 </div>
-                <div className={`flex flex-wrap gap-2.5 rounded-2xl border border-border bg-card/30 p-8 ${disableHeavyEffects ? '' : 'backdrop-blur-sm'}`}>
+                <div className={`flex flex-wrap gap-2 rounded-2xl border border-border/60 bg-card/50 p-3.5 sm:p-5 ${disableHeavyEffects ? '' : 'backdrop-blur-sm'}`}>
                   {tagsLoading ? (
                     Array.from({ length: 15 }).map((_, i) => (
-                      <div key={i} className="h-8 rounded-full bg-secondary/30 animate-pulse" style={{ width: `${60 + (i % 5) * 20}px` }} />
+                      <div key={i} className="h-7 animate-pulse rounded-full bg-secondary/40" style={{ width: `${56 + (i % 5) * 18}px` }} />
                     ))
                   ) : (
-                    trendingTags.map((tag, index) => (
+                    trendingTags.map((tag) => (
                       <Link
                         key={tag.id}
                         to={`/browse?tags=${tag.slug}`}
-                        className="inline-block rounded-full transition-transform duration-200 hover:scale-105 active:scale-95 focus-visible:scale-105 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+                        className="inline-block max-w-full rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background [&>div]:px-2.5 [&>div]:py-1 [&>div]:text-xs [&>div]:hover:border-primary/45"
                       >
-                        <TagBadge tag={tag} size={index < 5 ? 'md' : 'sm'} />
+                        <TagBadge tag={tag} size="sm" />
                       </Link>
                     ))
                   )}
@@ -1561,19 +1492,19 @@ const Index: React.FC = () => {
               </section>
             </DeferredMount>
 
-            <section ref={catalogSectionRef} className="mt-12 scroll-mt-20">
-              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 sm:mb-5">
-                <div className="flex items-center gap-2.5">
-                  <Layers className="h-5 w-5 text-primary" />
-                  <h2 className="text-lg font-bold tracking-tight sm:text-xl md:text-2xl">Tüm Seriler</h2>
+            <section ref={catalogSectionRef} className="mt-8 scroll-mt-20 sm:mt-10">
+              <div className="mb-3.5 flex flex-wrap items-center justify-between gap-3 sm:mb-4">
+                <div className="min-w-0 flex items-center gap-2">
+                  <Layers className="h-5 w-5 shrink-0 text-primary" />
+                  <h2 className="truncate text-lg font-bold tracking-tight sm:text-xl">Tüm Seriler</h2>
                   {catalogState.totalCount > 0 && (
-                    <span className="rounded-full bg-secondary/80 px-2.5 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
+                    <span className="rounded-full bg-secondary/80 px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                       {catalogState.totalCount}
                     </span>
                   )}
                 </div>
 
-                <Button asChild variant="ghost" size="sm" className="h-8 px-2.5 text-xs sm:text-sm text-muted-foreground hover:text-foreground">
+                <Button asChild variant="ghost" size="sm" className="h-8 shrink-0 px-2.5 text-xs text-muted-foreground hover:text-foreground sm:text-sm">
                   <Link to="/browse">
                     Keşfet
                     <ArrowRight className="ml-1 h-3.5 w-3.5" />
@@ -1582,10 +1513,10 @@ const Index: React.FC = () => {
               </div>
 
               {catalogState.loading && catalogState.items.length === 0 ? (
-                <div className="grid grid-cols-2 gap-3 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 sm:gap-4">
-                  {Array.from({ length: 12 }).map((_, index) => (
+                <div className="grid grid-cols-2 gap-2.5 min-[390px]:grid-cols-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+                  {Array.from({ length: 14 }).map((_, index) => (
                     <div key={index} className="space-y-2">
-                      <Skeleton className="aspect-[5/7] w-full rounded-lg" />
+                      <Skeleton className="aspect-[5/7] w-full rounded-xl" />
                       <Skeleton className="h-4 w-4/5" />
                       <Skeleton className="h-3 w-1/2" />
                     </div>
@@ -1595,20 +1526,21 @@ const Index: React.FC = () => {
                 <>
                   <div
                     className={cn(
-                      'grid grid-cols-2 gap-3 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 sm:gap-4 transition-opacity duration-200',
+                      'grid grid-cols-2 gap-2.5 min-[390px]:grid-cols-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 transition-opacity duration-200',
                       catalogState.loading ? 'opacity-60' : 'opacity-100',
                     )}
                   >
                     {catalogState.items.map((item, index) => (
-                      <MangaCard
-                        key={item.id}
-                        manga={item}
-                        index={index}
-                        topTenWeekIds={topTenWeekIds}
-                        disableHeavyEffects={disableHeavyEffects}
-                        coverPriority={false}
-                        coverRootMargin={homeCardImageRootMargin}
-                      />
+                      <div key={item.id} className={index >= 14 ? 'cv-auto-card min-w-0' : 'min-w-0'}>
+                        <MangaCard
+                          manga={item}
+                          index={index}
+                          topTenWeekIds={topTenWeekIds}
+                          disableHeavyEffects={disableHeavyEffects}
+                          coverPriority={false}
+                          coverRootMargin={homeCardImageRootMargin}
+                        />
+                      </div>
                     ))}
                   </div>
 
@@ -1628,36 +1560,37 @@ const Index: React.FC = () => {
             </section>
           </>
         ) : (
-          <DeferredMount className="mt-10" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin} disabled>
+          <DeferredMount className="mt-7 sm:mt-9" placeholderMinHeight={720} rootMargin={blockDeferredRootMargin} disabled>
             <section
               className={disableHeavyEffects ? '' : 'animate-fade-up'}
               style={disableHeavyEffects ? undefined : { animationDelay: '0.04s' }}
             >
-              <div className="mb-5 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <Download className="h-5 w-5 text-primary" />
-                  <h2 className="text-xl font-bold tracking-tight md:text-2xl">İndirilen Seriler</h2>
+              <div className="mb-4 flex items-center justify-between gap-3">
+                <div className="min-w-0 flex items-center gap-2">
+                  <Download className="h-5 w-5 shrink-0 text-primary" />
+                  <h2 className="truncate text-lg font-bold tracking-tight sm:text-xl">İndirilen Seriler</h2>
                 </div>
-                <Badge variant="outline" className="rounded-full px-3 py-1">
+                <Badge variant="outline" className="shrink-0 rounded-full px-3 py-1">
                   {offlineManga.length} seri
                 </Badge>
               </div>
 
               {offlineManga.length > 0 ? (
-                <div className="grid grid-cols-2 gap-4 min-[430px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6">
+                <div className="grid grid-cols-2 gap-2.5 min-[390px]:grid-cols-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
                   {offlineManga.map((manga, index) => (
-                    <MangaCard
-                      key={manga.id}
-                      manga={manga}
-                      index={index}
-                      topTenWeekIds={null}
-                      disableHeavyEffects={disableHeavyEffects}
-                      coverPriority={index < 4}
-                    />
+                    <div key={manga.id} className={index >= 14 ? 'cv-auto-card min-w-0' : 'min-w-0'}>
+                      <MangaCard
+                        manga={manga}
+                        index={index}
+                        topTenWeekIds={null}
+                        disableHeavyEffects={disableHeavyEffects}
+                        coverPriority={index < 4}
+                      />
+                    </div>
                   ))}
                 </div>
               ) : (
-                <div className="rounded-[28px] border border-dashed border-border bg-card/30 p-10 text-center">
+                <div className="rounded-2xl border border-dashed border-border bg-card/30 p-10 text-center">
                   <Download className="mx-auto h-12 w-12 text-muted-foreground" />
                   <h3 className="mt-4 text-xl font-bold">Henüz indirilen seri yok</h3>
                   <p className="mt-2 text-sm text-muted-foreground">
@@ -1679,13 +1612,13 @@ const Index: React.FC = () => {
           <div className="flex flex-col items-center justify-between gap-4 md:flex-row">
             <div className="text-center md:text-left">
               <h3 className="text-lg font-bold">
-                <img src="/logo.webp" alt="Logo" className="h-12 w-auto object-contain" loading="lazy" decoding="async" />
+                <img src="/logo.webp" alt="Logo" className="mx-auto h-12 w-auto object-contain md:mx-0" loading="lazy" decoding="async" />
               </h3>
-              <p className="text-sm text-muted-foreground mt-1">
+              <p className="mt-1 text-sm text-muted-foreground">
                 En iyi manga, manhwa, manhua ve webtoon okuma deneyimi
               </p>
             </div>
-            <div className="flex items-center gap-6 text-sm text-muted-foreground">
+            <div className="flex flex-wrap items-center justify-center gap-x-5 gap-y-2 text-sm text-muted-foreground">
               <Link to="/browse" className="hover:text-foreground transition-colors">Keşfet</Link>
               <Link to="/browse?type=manhwa" className="hover:text-foreground transition-colors">Manhwa</Link>
               <Link to="/browse?type=manga" className="hover:text-foreground transition-colors">Manga</Link>

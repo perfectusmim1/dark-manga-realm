@@ -2,6 +2,7 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, List } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import Header from '@/components/layout/Header';
 import MangaGrid from '@/components/manga/MangaGrid';
 import ReadingListCover from '@/components/manga/ReadingListCover';
@@ -26,10 +27,11 @@ const FAVORITES_FALLBACK_COVER = `data:image/svg+xml;charset=utf-8,${encodeURICo
 )}`;
 
 const getSixColumnDesktopCount = (width: number) => {
+  if (width >= 1280) return 7;
   if (width >= 1024) return 6;
   if (width >= 768) return 5;
   if (width >= 640) return 4;
-  if (width >= 430) return 3;
+  if (width >= 390) return 3;
   return 2;
 };
 
@@ -257,13 +259,20 @@ const Favorites: React.FC = () => {
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container pb-12 pt-20">
-        <div className="mb-8 animate-fade-up" style={{ animationDelay: '0.04s' }}>
-          <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Favorilerim</h1>
-          <p className="mt-2 text-muted-foreground">
-            {favoriteManga.length} manga
-            {hasLoadedLists ? ` ve ${favoriteLists.length} beğenilen okuma listesi` : ''}
-          </p>
+      <main className="container pb-12 pt-16">
+        <div className="py-6 sm:py-8 animate-fade-up" style={{ animationDelay: '0.04s' }}>
+          <div className="flex items-center gap-3">
+            <div className="rounded-xl bg-primary/10 p-2 text-primary">
+              <Heart className="h-6 w-6" />
+            </div>
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Favorilerim</h1>
+              <p className="mt-0.5 text-sm text-muted-foreground">
+                {favoriteManga.length} manga
+                {hasLoadedLists ? ` ve ${favoriteLists.length} beğenilen okuma listesi` : ''}
+              </p>
+            </div>
+          </div>
         </div>
 
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'manga' | 'lists')} className="space-y-6">
@@ -332,20 +341,23 @@ const Favorites: React.FC = () => {
                 <VirtualCardGrid
                   items={favoriteLists}
                   getItemKey={(list) => list.id}
-                  gridClassName="grid gap-4 sm:grid-cols-2 xl:grid-cols-3"
+                  gridClassName="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3"
                   getColumnCount={(width) => {
                     if (width >= 1280) return 3;
                     if (width >= 640) return 2;
                     return 1;
                   }}
-                  gapPx={16}
+                  gapPx={14}
                   estimatedItemHeight={260}
                   overscanRows={3}
                   minRowsBeforeVirtualize={4}
                   renderItem={(list, index) => (
                     <Link
                       to={`/reading-lists/${list.id}`}
-                      className="group flex flex-col animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 transition-all hover:border-primary/40 hover:bg-card"
+                      className={cn(
+                        'group flex flex-col animate-fade-up overflow-hidden rounded-xl border border-border/60 bg-card/75 transition-colors hover:border-primary/40 hover:bg-card',
+                        index >= 12 && 'cv-auto-card',
+                      )}
                       style={{
                         animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                       }}
