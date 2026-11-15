@@ -411,6 +411,7 @@ const ReadingListDetail: React.FC = () => {
                     <ReadingListCover
                         imageUrl={list.imageUrl}
                         alt={list.name}
+                        priority
                         className="h-48 w-full sm:h-56"
                         iconClassName="h-14 w-14"
                     />

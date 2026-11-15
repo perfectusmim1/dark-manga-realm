@@ -59,7 +59,6 @@ const ReadingListCover: React.FC<ReadingListCoverProps> = ({
                         alt={alt}
                         priority={priority}
                         allowProxy
-                        transform={{ width: 240, quality: 80 }}
                         rootMargin="420px 0px"
                         containerClassName="h-full w-full"
                         placeholderClassName="rounded-none"
@@ -83,7 +82,6 @@ const ReadingListCover: React.FC<ReadingListCoverProps> = ({
                             alt={`${alt} kapak ${index + 1}`}
                             priority={priority}
                             allowProxy
-                            transform={{ width: 160, quality: 75 }}
                             containerClassName="h-full w-full bg-muted"
                             placeholderClassName="rounded-none"
                             className="h-full w-full object-cover"
