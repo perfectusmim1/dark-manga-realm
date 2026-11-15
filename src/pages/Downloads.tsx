@@ -10,6 +10,9 @@ import {
   Trash2,
   WifiOff,
 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import Header from '@/components/layout/Header';
 import InstallAppBanner from '@/components/pwa/InstallAppBanner';
 import { Badge } from '@/components/ui/badge';
@@ -19,9 +22,10 @@ import { Switch } from '@/components/ui/switch';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { useOfflinePreferences } from '@/hooks/useOfflinePreferences';
 import { useAuth } from '@/contexts/AuthContext';
-import { formatChapterDisplayTitle } from '@/lib/chapterTitle';
+import { formatChapterDisplayTitle, formatChapterNumberLabel } from '@/lib/chapterTitle';
 import { OfflineChapter, OfflineDownloadStatus, OfflineMangaGroup } from '@/lib/offline/types';
 import { isDownloadAuthRequiredError, offlineDownloadManager } from '@/lib/offline/downloadManager';
+import { getOfflineDownloadStatusLabel } from '@/lib/offline/statusLabels';
 import { formatBytes, formatSpeed } from '@/lib/offline/utils';
 import { Manga, Chapter } from '@/lib/types';
 import { getMangaTypeLabel } from '@/lib/mangaType';
@@ -85,7 +89,12 @@ const formatDateTime = (value?: string) => {
     return 'Bilinmiyor';
   }
 
-  return new Date(value).toLocaleString('tr-TR', {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return 'Bilinmiyor';
+  }
+
+  return parsed.toLocaleString('tr-TR', {
     day: 'numeric',
     month: 'short',
     hour: '2-digit',
@@ -98,12 +107,14 @@ const buildOfflineReaderHref = (mangaId: string, chapterId: string) => (
 );
 
 const SERIES_PANEL_TRANSITION =
-  'transition-[grid-template-rows,opacity,transform] duration-220 [transition-timing-function:cubic-bezier(0.16,0.84,0.28,1)]';
+  'transition-[grid-template-rows,opacity,transform] duration-200 [transition-timing-function:cubic-bezier(0.16,0.84,0.28,1)]';
 
 const Downloads: React.FC = () => {
+  useDocumentTitle('İndirilenler');
   const { snapshot, isLoading, isOnline } = useOfflineLibrary();
   const { preferences, updatePreferences } = useOfflinePreferences();
   const { user } = useAuth();
+  const { disableHeavyEffects } = useDeviceProfile();
   const [activeFilter, setActiveFilter] = useState<DownloadsFilter>('Tümü');
   const [expandedSeries, setExpandedSeries] = useState<Record<string, boolean>>({});
 
@@ -112,7 +123,13 @@ const Downloads: React.FC = () => {
   }, []);
 
   const filteredSeries = useMemo(() => {
+    const seenMangaIds = new Set<string>();
     return snapshot.series.filter((entry) => {
+      if (!entry.manga.mangaId || seenMangaIds.has(entry.manga.mangaId)) {
+        return false;
+      }
+      seenMangaIds.add(entry.manga.mangaId);
+
       if (activeFilter === 'Tümü') {
         return true;
       }
@@ -187,9 +204,9 @@ const Downloads: React.FC = () => {
         buildMangaFromOffline(entry),
         buildChapterFromOffline(chapter),
       );
-      toast.success(`Bölüm ${chapter.chapterNumber} tekrar kuyruğa alındı.`);
+      toast.success(`Bölüm ${formatChapterNumberLabel(chapter.chapterNumber)} tekrar sıraya alındı.`);
     } catch (error) {
-      toast.error(isDownloadAuthRequiredError(error) ? error.message : 'Bölüm yeniden kuyruğa alınamadı');
+      toast.error(isDownloadAuthRequiredError(error) ? error.message : 'Bölüm yeniden sıraya alınamadı');
     }
   };
 
@@ -200,66 +217,79 @@ const Downloads: React.FC = () => {
     }));
   };
 
-  const availableBytes = snapshot.stats.quotaBytes && snapshot.stats.browserUsageBytes
-    ? Math.max(0, snapshot.stats.quotaBytes - snapshot.stats.browserUsageBytes)
-    : undefined;
+  const availableBytes =
+    typeof snapshot.stats.quotaBytes === 'number' && typeof snapshot.stats.browserUsageBytes === 'number'
+      ? Math.max(0, snapshot.stats.quotaBytes - snapshot.stats.browserUsageBytes)
+      : undefined;
 
   return (
     <div className="min-h-screen bg-background">
       <Header />
 
-      <main className="container pb-12 pt-24">
-        <div className="flex flex-col gap-4 md:flex-row md:items-end md:justify-between">
+      <main className="container pb-12 pt-16">
+        <div
+          className={cn(
+            'flex flex-col gap-3 py-6 sm:py-8 md:flex-row md:items-end md:justify-between',
+            !disableHeavyEffects && 'animate-fade-up',
+          )}
+        >
           <div className="flex items-center gap-3">
-            <HardDriveDownload className="h-8 w-8 shrink-0 text-primary md:h-9 md:w-9" />
-            <h1 className="text-3xl font-black tracking-tight md:text-4xl">İndirilenler</h1>
+            <HardDriveDownload className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" />
+            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">İndirilenler</h1>
           </div>
 
           {!isOnline && (
-            <div className="inline-flex items-center gap-2 rounded-full border border-amber-500/30 bg-amber-500/10 px-4 py-2 text-sm text-amber-200">
-              <WifiOff className="h-4 w-4" />
-              Çevrimdışısın. İndirilen içerikleri okuyabilirsin, yeni indirmeler bağlantı gelince devam eder.
+            <div className="flex items-center gap-2.5 rounded-2xl border border-amber-500/30 bg-amber-500/10 px-3.5 py-2.5 text-xs sm:text-sm text-amber-200">
+              <WifiOff className="h-4 w-4 shrink-0" />
+              <span>Çevrimdışısınız. İndirilen içerikleri okuyabilirsiniz, yeni indirmeler bağlantı gelince devam eder.</span>
             </div>
           )}
         </div>
 
-        <div className="mt-8 grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-5">
+        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-5">
           {[
-            { label: 'Toplam Boyut', value: formatBytes(snapshot.stats.usedBytes) },
-            { label: 'İndirilen Seri', value: `${snapshot.stats.seriesCount}` },
-            { label: 'İndirilen Bölüm', value: `${snapshot.stats.chapterCount}` },
-            { label: 'Aktif İndirme', value: `${snapshot.stats.activeDownloads}` },
-            { label: 'Kullanılabilir Alan', value: availableBytes ? formatBytes(availableBytes) : 'Bilinmiyor' },
+            { label: 'Toplam Boyut', value: formatBytes(snapshot.stats.usedBytes), spanWide: false },
+            { label: 'İndirilen Seri', value: `${snapshot.stats.seriesCount}`, spanWide: false },
+            { label: 'İndirilen Bölüm', value: `${snapshot.stats.chapterCount}`, spanWide: false },
+            { label: 'Aktif İndirme', value: `${snapshot.stats.activeDownloads}`, spanWide: false },
+            {
+              label: 'Kullanılabilir Alan',
+              value: typeof availableBytes === 'number' ? formatBytes(availableBytes) : 'Bilinmiyor',
+              spanWide: true,
+            },
           ].map((item, index) => (
             <div
               key={item.label}
-              className="animate-fade-up aspect-[1/1] min-h-[8.25rem] rounded-2xl border border-border bg-card/40 p-4 backdrop-blur-sm sm:aspect-auto sm:min-h-0 sm:p-5"
-              style={{ animationDelay: `${0.08 + index * 0.03}s` }}
+              className={cn(
+                'rounded-xl border border-border/60 bg-card/75 px-3.5 py-3 sm:px-4 sm:py-3.5',
+                item.spanWide && 'col-span-2 xl:col-span-1',
+                !disableHeavyEffects && 'animate-fade-up',
+              )}
+              style={disableHeavyEffects ? undefined : { animationDelay: `${0.05 + index * 0.025}s` }}
             >
-              <p className="text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground sm:text-xs">{item.label}</p>
-              <p className="mt-3 text-xl font-black tracking-tight sm:text-2xl">{item.value}</p>
+              <p className="text-xs text-muted-foreground">{item.label}</p>
+              <p className="mt-1 text-lg font-bold tracking-tight tabular-nums sm:text-xl">{item.value}</p>
             </div>
           ))}
         </div>
 
         <section
-          className="mt-6 animate-fade-up rounded-2xl border border-border bg-card/35 p-4 backdrop-blur-sm sm:p-5"
-          style={{ animationDelay: '0.22s' }}
+          className={cn(
+            'mt-5 rounded-2xl border border-border/60 bg-card/60 p-4 sm:p-5',
+            !disableHeavyEffects && 'animate-fade-up backdrop-blur-sm',
+          )}
+          style={disableHeavyEffects ? undefined : { animationDelay: '0.16s' }}
         >
           <div className="flex flex-col gap-3 sm:gap-4 md:flex-row md:items-center md:justify-between">
-            <div className="min-w-0">
-              <div className="flex items-center gap-2">
-                <p className="text-sm font-bold">Sıkıştırılmış İndirme</p>
-                <Badge variant="secondary">Önerilen</Badge>
-              </div>
+            <div className="flex min-w-0 items-center gap-2">
+              <p className="text-sm font-semibold">Sıkıştırılmış İndirme</p>
+              <Badge variant="secondary">Önerilen</Badge>
             </div>
 
-            <div className="flex w-full shrink-0 items-center justify-between gap-3 rounded-full border border-border/70 bg-background/50 px-4 py-3 sm:w-auto">
-              <div className="min-w-0 text-left sm:text-right">
-                <p className="text-sm font-semibold">
-                  {preferences.compressedDownloads ? 'Açık' : 'Kapalı'}
-                </p>
-              </div>
+            <div className="flex w-full shrink-0 items-center justify-between gap-3 rounded-xl border border-border/70 bg-background/50 px-3.5 py-2.5 sm:w-auto">
+              <p className="text-sm font-medium">
+                {preferences.compressedDownloads ? 'Açık' : 'Kapalı'}
+              </p>
               <Switch
                 checked={preferences.compressedDownloads}
                 onCheckedChange={(checked) => updatePreferences({ compressedDownloads: checked })}
@@ -269,22 +299,22 @@ const Downloads: React.FC = () => {
           </div>
         </section>
 
-        <InstallAppBanner compact className="mt-6" />
+        <InstallAppBanner compact className="mt-5" />
 
         {!user && (
-          <section className="mt-6 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-100">
+          <section className="mt-5 rounded-2xl border border-blue-500/20 bg-blue-500/10 p-4 text-sm text-blue-100">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
               <p>
-                Yeni indirme başlatmak, duraklayan indirmeyi sürdürmek ve yeniden denemek için giriş yapmalısın.
+                Yeni indirme başlatmak, duraklayan indirmeyi sürdürmek ve yeniden denemek için giriş yapmalısınız.
               </p>
-              <Button asChild variant="outline" className="border-blue-400/30 bg-transparent text-blue-50 hover:bg-blue-500/10 hover:text-white">
+              <Button asChild variant="outline" className="shrink-0 border-blue-400/30 bg-transparent text-blue-50 hover:bg-blue-500/10 hover:text-white">
                 <Link to="/auth">Giriş Yap</Link>
               </Button>
             </div>
           </section>
         )}
 
-        <div className="mt-8 animate-fade-up flex flex-wrap gap-2">
+        <div className={cn('mt-6 flex flex-wrap gap-2', !disableHeavyEffects && 'animate-fade-up')}>
           {FILTERS.map((filter) => (
             <Button
               key={filter}
@@ -298,27 +328,40 @@ const Downloads: React.FC = () => {
         </div>
 
         {isLoading ? (
-          <div className="mt-10 rounded-2xl border border-border bg-card/40 p-8 text-muted-foreground">
+          <div className="mt-8 rounded-2xl border border-border/60 bg-card/40 p-8 text-muted-foreground">
             İndirilenler yükleniyor...
           </div>
         ) : filteredSeries.length === 0 ? (
-          <div className="mt-10 rounded-3xl border border-dashed border-border bg-card/20 px-6 py-16 text-center">
-            <Download className="mx-auto h-12 w-12 text-muted-foreground/40" />
-            <h2 className="mt-4 text-xl font-bold">Henüz indirilen içerik yok</h2>
+          <div className="mt-8 rounded-2xl border border-dashed border-border bg-card/30 px-6 py-14 text-center">
+            <Download className="mx-auto h-12 w-12 text-muted-foreground/50" />
+            <h2 className="mt-4 text-xl font-bold">
+              {snapshot.series.length === 0 ? 'Henüz indirilen içerik yok' : 'Bu filtrede seri bulunamadı'}
+            </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Seri sayfasından bölüm indir veya komple seri indirerek çevrimdışı kütüphaneni oluşturmaya başlayabilirsin.
+              {snapshot.series.length === 0
+                ? 'Seri sayfasından bölüm veya seri indirerek çevrimdışı kütüphanenizi oluşturabilirsiniz.'
+                : 'Farklı bir filtre seçerek diğer indirilen içerikleri görüntüleyebilirsiniz.'}
             </p>
-            <Button asChild variant="glow" className="mt-6">
-              <Link to="/browse">Serilere Göz At</Link>
-            </Button>
+            {snapshot.series.length === 0 ? (
+              <Button asChild variant="glow" className="mt-6">
+                <Link to="/browse">Serilere Göz At</Link>
+              </Button>
+            ) : (
+              <Button type="button" variant="outline" className="mt-6" onClick={() => setActiveFilter('Tümü')}>
+                Tümünü Göster
+              </Button>
+            )}
           </div>
         ) : (
-          <div className="mt-8 space-y-5">
+          <div className="mt-6 space-y-4">
             {filteredSeries.map((entry, index) => {
               const primaryJob = getPrimaryJob(entry);
-              const canRead = entry.chapters.some((chapter) => chapter.downloadStatus === 'completed');
-              const readChapterCount = entry.chapters.filter((chapter) => chapter.isRead).length;
-              const firstReadableChapter = entry.chapters
+              const uniqueChapters = Array.from(
+                new Map(entry.chapters.map((chapter) => [chapter.chapterId, chapter])).values(),
+              );
+              const canRead = uniqueChapters.some((chapter) => chapter.downloadStatus === 'completed');
+              const readChapterCount = uniqueChapters.filter((chapter) => chapter.isRead).length;
+              const firstReadableChapter = uniqueChapters
                 .filter((chapter) => chapter.downloadStatus === 'completed')
                 .sort((a, b) => a.chapterNumber - b.chapterNumber)[0];
               const isExpanded = expandedSeries[entry.manga.mangaId] ?? false;
@@ -326,40 +369,51 @@ const Downloads: React.FC = () => {
               return (
                 <section
                   key={entry.manga.mangaId}
-                  className="animate-fade-up overflow-hidden rounded-3xl border border-border bg-card/35 backdrop-blur-sm"
-                  style={{ animationDelay: `${0.08 + Math.min(index, 10) * 0.035}s` }}
+                  className={cn(
+                    'overflow-hidden rounded-2xl border border-border/60 bg-card/60',
+                    !disableHeavyEffects && 'animate-fade-up backdrop-blur-sm',
+                  )}
+                  style={disableHeavyEffects ? undefined : { animationDelay: `${0.06 + Math.min(index, 8) * 0.03}s` }}
                 >
-                  <div className="p-4 sm:p-6">
+                  <div className="p-4 sm:p-5">
                     <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
                       <div className="flex min-w-0 gap-3 sm:gap-4">
-                        <img
-                          src={entry.manga.cover}
-                          alt={entry.manga.title}
-                          className="h-24 w-[4.5rem] rounded-[1.35rem] object-cover shadow-lg sm:h-28 sm:w-20 sm:rounded-2xl"
-                        />
+                        <Link to={`/manga/${entry.manga.mangaId}`} className="shrink-0">
+                          {entry.manga.cover ? (
+                            <img
+                              src={entry.manga.cover}
+                              alt={entry.manga.title}
+                              loading="lazy"
+                              decoding="async"
+                              className="h-24 w-[4.5rem] rounded-xl object-cover ring-1 ring-border/50 sm:h-28 sm:w-20"
+                            />
+                          ) : (
+                            <div className="flex h-24 w-[4.5rem] items-center justify-center rounded-xl bg-gradient-to-br from-primary/20 via-secondary/50 to-background text-xl font-bold text-muted-foreground ring-1 ring-border/50 sm:h-28 sm:w-20">
+                              {(entry.manga.title || '?').slice(0, 1).toLocaleUpperCase('tr-TR')}
+                            </div>
+                          )}
+                        </Link>
 
-                        <div className="min-w-0">
+                        <div className="min-w-0 flex-1">
                           <div className="flex flex-wrap items-center gap-2">
-                            <Badge variant="secondary" className="uppercase">{getMangaTypeLabel(entry.manga.type)}</Badge>
+                            <Badge variant="secondary">{getMangaTypeLabel(entry.manga.type)}</Badge>
                             {primaryJob && (
                               <Badge variant="outline">
-                                {primaryJob.status === 'running' ? 'İndiriliyor' :
-                                  primaryJob.status === 'paused' ? 'Duraklatıldı' :
-                                    primaryJob.status === 'completed' ? 'Tamamlandı' :
-                                      primaryJob.status === 'partial' ? 'Kısmi' :
-                                        primaryJob.status === 'failed' ? 'Hatalı' : 'Kuyrukta'}
+                                {getOfflineDownloadStatusLabel(primaryJob.status)}
                               </Badge>
                             )}
                           </div>
 
-                          <h2 className="mt-2 text-xl font-black leading-tight tracking-tight sm:mt-3 sm:text-2xl">
-                            <Link to={`/manga/${entry.manga.mangaId}`} className="hover:text-primary transition-colors">
+                          <h2 className="mt-2 line-clamp-2 text-lg font-bold leading-snug tracking-tight sm:text-xl">
+                            <Link to={`/manga/${entry.manga.mangaId}`} className="transition-colors hover:text-primary">
                               {entry.manga.title}
                             </Link>
                           </h2>
-                          <p className="mt-1 line-clamp-1 text-sm text-muted-foreground">{entry.manga.author}</p>
+                          {entry.manga.author && (
+                            <p className="mt-0.5 line-clamp-1 text-xs sm:text-sm text-muted-foreground">{entry.manga.author}</p>
+                          )}
 
-                          <div className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-xs text-muted-foreground sm:mt-4 sm:flex sm:flex-wrap sm:items-center sm:gap-4 sm:text-sm">
+                          <div className="mt-2.5 grid grid-cols-2 gap-x-3 gap-y-1.5 text-xs text-muted-foreground sm:flex sm:flex-wrap sm:items-center sm:gap-x-4 sm:text-sm">
                             <span>{entry.downloadedChapters}/{entry.manga.chapterCount} bölüm indirildi</span>
                             <span>{readChapterCount} okundu</span>
                             <span>{formatBytes(entry.totalBytes)}</span>
@@ -367,11 +421,11 @@ const Downloads: React.FC = () => {
                           </div>
 
                           {primaryJob && (
-                            <div className="mt-3 max-w-xl space-y-2 sm:mt-4">
+                            <div className="mt-3 max-w-xl space-y-1.5">
                               <div className="flex items-center justify-between gap-3 text-[11px] font-medium text-muted-foreground sm:text-xs">
                                 <span>
-                                  {Math.round(primaryJob.progressPercent)}% tamamlandı
-                                  {primaryJob.currentChapterId ? ' • aktif bölüm indiriliyor' : ''}
+                                  %{Math.round(primaryJob.progressPercent)} tamamlandı
+                                  {primaryJob.currentChapterId ? ' · bölüm indiriliyor' : ''}
                                 </span>
                                 <span>{formatSpeed(primaryJob.speedBps)}</span>
                               </div>
@@ -383,42 +437,57 @@ const Downloads: React.FC = () => {
 
                       <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap lg:justify-end">
                         {canRead && firstReadableChapter && (
-                          <Button asChild variant="glow" className="h-10 text-sm sm:h-11">
-                            <Link to={`/manga/${entry.manga.mangaId}/chapter/${firstReadableChapter.chapterId}`}>
+                          <Button asChild variant="glow" className="h-10 text-sm sm:h-10">
+                            <Link
+                              to={
+                                isOnline
+                                  ? `/manga/${entry.manga.mangaId}/chapter/${firstReadableChapter.chapterId}`
+                                  : buildOfflineReaderHref(entry.manga.mangaId, firstReadableChapter.chapterId)
+                              }
+                            >
                               Oku
                             </Link>
                           </Button>
                         )}
 
                         {primaryJob && primaryJob.status === 'running' && (
-                          <Button variant="outline" onClick={() => offlineDownloadManager.pauseJob(primaryJob.id)} className="h-10 text-sm sm:h-11">
+                          <Button variant="outline" onClick={() => offlineDownloadManager.pauseJob(primaryJob.id)} className="h-10 text-sm">
                             <PauseCircle className="mr-2 h-4 w-4" />
                             Duraklat
                           </Button>
                         )}
 
                         {primaryJob && ['paused', 'failed', 'partial', 'queued'].includes(primaryJob.status) && (
-                          <Button variant="outline" onClick={() => void handleRetrySeries(entry)} className="h-10 text-sm sm:h-11">
+                          <Button variant="outline" onClick={() => void handleRetrySeries(entry)} className="h-10 text-sm">
                             <PlayCircle className="mr-2 h-4 w-4" />
                             Devam Et
                           </Button>
                         )}
 
-                        <Button variant="outline" onClick={() => toggleSeries(entry.manga.mangaId)} className="h-10 text-sm sm:h-11">
+                        <Button
+                          variant="outline"
+                          onClick={() => toggleSeries(entry.manga.mangaId)}
+                          aria-expanded={isExpanded}
+                          className="h-10 text-sm"
+                        >
                           <ChevronDown
-                            className={`mr-2 h-4 w-4 transition-transform duration-220 ${isExpanded ? 'rotate-180' : 'rotate-0'}`}
+                            className={cn(
+                              'mr-2 h-4 w-4',
+                              !disableHeavyEffects && 'transition-transform duration-200',
+                              isExpanded ? 'rotate-180' : 'rotate-0',
+                            )}
                           />
                           Bölümler
                         </Button>
 
                         {readChapterCount > 0 && (
-                          <Button variant="outline" onClick={() => void handleDeleteReadChapters(entry)} className="h-10 text-sm sm:h-11">
+                          <Button variant="outline" onClick={() => void handleDeleteReadChapters(entry)} className="h-10 text-sm">
                             <Trash2 className="mr-2 h-4 w-4" />
                             Okunanları Sil
                           </Button>
                         )}
 
-                        <Button variant="outline" onClick={() => void handleDeleteSeries(entry.manga.mangaId)} className="h-10 text-sm sm:h-11">
+                        <Button variant="outline" onClick={() => void handleDeleteSeries(entry.manga.mangaId)} className="h-10 text-sm">
                           <Trash2 className="mr-2 h-4 w-4" />
                           Sil
                         </Button>
@@ -427,15 +496,17 @@ const Downloads: React.FC = () => {
                   </div>
 
                   <div
-                    className={`grid border-t border-border/80 bg-background/20 ${SERIES_PANEL_TRANSITION} ${
+                    className={cn(
+                      'grid border-t border-border/80 bg-background/20',
+                      !disableHeavyEffects && SERIES_PANEL_TRANSITION,
                       isExpanded
                         ? 'grid-rows-[1fr] opacity-100 translate-y-0'
-                        : 'grid-rows-[0fr] opacity-0 -translate-y-1 pointer-events-none'
-                    }`}
+                        : 'grid-rows-[0fr] opacity-0 -translate-y-1 pointer-events-none',
+                    )}
                   >
                     <div className="min-h-0 overflow-hidden">
                       <div className="divide-y divide-border/70">
-                        {entry.chapters.map((chapter) => {
+                        {uniqueChapters.map((chapter) => {
                           const isChapterReady = chapter.downloadStatus === 'completed';
                           const isChapterBusy = isBusyChapterStatus(chapter.downloadStatus);
                           const isChapterRecoverable = ['paused', 'failed', 'partial', 'cancelled'].includes(chapter.downloadStatus);
@@ -453,7 +524,7 @@ const Downloads: React.FC = () => {
                                   {chapter.isRead && (
                                     <Badge variant="secondary">Okundu</Badge>
                                   )}
-                                  <Badge variant="outline">{chapter.downloadStatus}</Badge>
+                                  <Badge variant="outline">{getOfflineDownloadStatusLabel(chapter.downloadStatus)}</Badge>
                                 </div>
                               </div>
 
@@ -481,7 +552,7 @@ const Downloads: React.FC = () => {
                                 {!isChapterReady && isChapterBusy && (
                                   <Button variant="outline" size="sm" className="h-9 text-xs sm:text-sm" disabled>
                                     <Download className="mr-2 h-4 w-4" />
-                                    {chapter.downloadStatus === 'queued' ? 'Kuyrukta' : 'İndiriliyor'}
+                                    {getOfflineDownloadStatusLabel(chapter.downloadStatus)}
                                   </Button>
                                 )}
 

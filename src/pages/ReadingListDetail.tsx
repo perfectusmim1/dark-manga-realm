@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useParams, Link, useNavigate } from 'react-router-dom';
 import {
@@ -12,15 +12,18 @@ import {
     Heart,
     CheckSquare,
     Square,
+    Share2,
     X,
 } from 'lucide-react';
 import { supabase } from '@/lib/supabase';
 import Header from '@/components/layout/Header';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { useAuth } from '@/contexts/AuthContext';
 import { getReadingListById, removeMangaFromReadingList } from '@/lib/database';
-import { ReadingList } from '@/lib/types';
+import { Manga, ReadingList } from '@/lib/types';
 import { toast } from 'sonner';
 import { Skeleton } from '@/components/ui/skeleton';
 import CreateReadingListModal from '@/components/manga/CreateReadingListModal';
@@ -31,22 +34,32 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import VirtualCardGrid from '@/components/performance/VirtualCardGrid';
-import { useBootstrappedAppearancePreferences } from '@/hooks/useBootstrappedAppearancePreferences';
 import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
 
 const getSixColumnDesktopCount = (width: number) => {
+    if (width >= 1280) return 7;
     if (width >= 1024) return 6;
     if (width >= 768) return 5;
     if (width >= 640) return 4;
-    if (width >= 430) return 3;
+    if (width >= 390) return 3;
     return 2;
+};
+
+const dedupeListMangas = (items?: Manga[]): Manga[] => {
+    if (!items?.length) return [];
+    const seen = new Set<string>();
+    return items.filter((item) => {
+        if (!item.id || seen.has(item.id)) return false;
+        seen.add(item.id);
+        return true;
+    });
 };
 
 const ReadingListDetail: React.FC = () => {
     const { listId } = useParams<{ listId: string }>();
     const { user, isLoading: authLoading } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
-    const appearancePreferences = useBootstrappedAppearancePreferences({ user, authLoading });
+    const { disableHeavyEffects } = useDeviceProfile();
     const navigate = useNavigate();
     const queryClient = useQueryClient();
     const [list, setList] = useState<ReadingList | undefined>();
@@ -56,6 +69,8 @@ const ReadingListDetail: React.FC = () => {
     const [selectedMangaIds, setSelectedMangaIds] = useState<string[]>([]);
     const [isRemovingSelected, setIsRemovingSelected] = useState(false);
     const topTenWeekIds = useTopTenWeekIds(Boolean(list?.items?.length));
+
+    useDocumentTitle(list?.name || 'Okuma Listesi');
 
     
     // Likes State
@@ -234,14 +249,16 @@ const ReadingListDetail: React.FC = () => {
         }
     };
 
+    const listItems = useMemo(() => dedupeListMangas(list?.items), [list?.items]);
+
     useEffect(() => {
-        const availableIds = new Set((list?.items || []).map((item) => item.id));
+        const availableIds = new Set(listItems.map((item) => item.id));
         setSelectedMangaIds((current) => current.filter((id) => availableIds.has(id)));
 
-        if ((list?.items?.length || 0) === 0) {
+        if (listItems.length === 0) {
             setIsSelectionMode(false);
         }
-    }, [list?.items]);
+    }, [listItems]);
 
     const toggleSelectionMode = () => {
         setIsSelectionMode((current) => {
@@ -262,7 +279,7 @@ const ReadingListDetail: React.FC = () => {
     };
 
     const handleToggleSelectAll = () => {
-        const itemIds = (list?.items || []).map((item) => item.id);
+        const itemIds = listItems.map((item) => item.id);
 
         setSelectedMangaIds((current) => (
             current.length === itemIds.length ? [] : itemIds
@@ -309,15 +326,32 @@ const ReadingListDetail: React.FC = () => {
         } : undefined);
     };
 
+    const handleShareList = async () => {
+        if (!list) return;
+        const shareUrl = `${window.location.origin}/reading-lists/${list.id}`;
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(shareUrl);
+                toast.success('Liste bağlantısı kopyalandı');
+                return;
+            }
+            toast.error('Bağlantı kopyalanamadı');
+        } catch {
+            toast.error('Bağlantı kopyalanamadı');
+        }
+    };
+
     if (isLoading) {
         return (
             <div className="min-h-screen bg-background">
                 <Header />
-                <main className="container pt-20">
-                    <Skeleton className="h-8 w-48 mb-4" />
-                    <Skeleton className="h-4 w-96 mb-8" />
-                    <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
-                        {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="h-32 w-full" />)}
+                <main className="container pt-16">
+                    <div className="py-6 sm:py-8">
+                        <Skeleton className="mb-3 h-8 w-48" />
+                        <Skeleton className="h-4 w-72 sm:w-96" />
+                    </div>
+                    <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+                        {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} className="aspect-[2/3] w-full rounded-xl" />)}
                     </div>
                 </main>
             </div>
@@ -328,29 +362,36 @@ const ReadingListDetail: React.FC = () => {
         return isOnline ? null : (
             <OfflineRequiredScreen
                 description="Bu okuma listesi çevrimdışı önbellekte bulunamadı veya sadece internetle açılabilir."
-                actionHref="/reading-lists"
-                actionLabel="Okuma Listelerine Dön"
+                actionHref={user ? '/reading-lists' : '/community'}
+                actionLabel={user ? 'Okuma Listelerine Dön' : 'Topluluğa Dön'}
             />
         );
     }
 
     const isOwner = user?.id === list.userId;
-    const listItems = list.items || [];
     const allItemsSelected = listItems.length > 0 && selectedMangaIds.length === listItems.length;
+    const formattedCreatedDate = list.createdAt && !Number.isNaN(new Date(list.createdAt).getTime())
+        ? new Date(list.createdAt).toLocaleDateString('tr-TR')
+        : null;
 
     return (
         <div className="min-h-screen bg-background">
             <Header />
 
-            <main className="container pb-12 pt-20">
-                <Link
-                    to="/reading-lists"
-                    className="mb-6 flex w-fit animate-fade-up items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground"
-                    style={{ animationDelay: '40ms' }}
-                >
-                    <ChevronLeft className="h-4 w-4" />
-                    Listelerime Dön
-                </Link>
+            <main className="container pb-12 pt-16">
+                <div className="pt-6 sm:pt-8">
+                    <Link
+                        to={isOwner ? '/reading-lists' : '/community'}
+                        className={cn(
+                            'mb-5 flex w-fit items-center gap-2 text-sm text-muted-foreground transition-colors hover:text-foreground',
+                            !disableHeavyEffects && 'animate-fade-up',
+                        )}
+                        style={disableHeavyEffects ? undefined : { animationDelay: '40ms' }}
+                    >
+                        <ChevronLeft className="h-4 w-4" />
+                        {isOwner ? 'Listelerime Dön' : 'Topluluğa Dön'}
+                    </Link>
+                </div>
 
                 {!isOnline && (
                     <OfflineNotice
@@ -361,27 +402,33 @@ const ReadingListDetail: React.FC = () => {
                 )}
 
                 <div
-                    className="mb-8 animate-fade-up overflow-hidden rounded-2xl border border-border bg-card/50 backdrop-blur-sm"
-                    style={{ animationDelay: '90ms' }}
+                    className={cn(
+                        'mb-6 overflow-hidden rounded-2xl border border-border/60 bg-card/60',
+                        !disableHeavyEffects && 'animate-fade-up backdrop-blur-sm',
+                    )}
+                    style={disableHeavyEffects ? undefined : { animationDelay: '90ms' }}
                 >
                     <ReadingListCover
                         imageUrl={list.imageUrl}
                         alt={list.name}
-                        className="h-56 w-full"
+                        className="h-48 w-full sm:h-56"
                         iconClassName="h-14 w-14"
                     />
                     <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-6">
-                        <div className="flex-1">
-                            <div className="mb-2 flex flex-wrap items-center gap-3">
-                                <h1 className="text-2xl font-bold sm:text-3xl">{list.name}</h1>
+                        <div className="min-w-0 flex-1">
+                            <div className="flex flex-wrap items-center gap-2.5">
+                                <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">{list.name}</h1>
                                 <Badge variant="secondary" className="gap-1">
                                     {list.isPublic ? <Globe className="h-3 w-3" /> : <Lock className="h-3 w-3" />}
                                     {list.isPublic ? 'Herkese Açık' : 'Özel'}
                                 </Badge>
                                 {isOwner && (
                                     <Button
+                                        type="button"
                                         variant="ghost"
                                         size="icon"
+                                        aria-label="Listeyi düzenle"
+                                        title="Düzenle"
                                         className="h-8 w-8 rounded-full"
                                         onClick={() => setIsEditModalOpen(true)}
                                     >
@@ -389,22 +436,45 @@ const ReadingListDetail: React.FC = () => {
                                     </Button>
                                 )}
                             </div>
-                            <p className="max-w-2xl text-muted-foreground">{list.description || 'Açıklama belirtilmemiş.'}</p>
+                            {list.description?.trim() && (
+                                <p className="mt-2 max-w-2xl text-sm text-muted-foreground sm:text-base">
+                                    {list.description}
+                                </p>
+                            )}
                         </div>
-                        
-                        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-lg bg-secondary/30 px-4 py-3 text-sm text-muted-foreground sm:w-auto sm:flex-nowrap sm:py-2">
-                            <div className="flex cursor-pointer items-center gap-1 transition-colors hover:text-red-500" onClick={handleToggleLike}>
+
+                        <div className="flex w-full flex-wrap items-center gap-x-4 gap-y-2 rounded-xl border border-border/50 bg-secondary/30 px-4 py-2.5 text-sm text-muted-foreground sm:w-auto sm:flex-nowrap">
+                            <button
+                                type="button"
+                                onClick={handleToggleLike}
+                                disabled={isLiking}
+                                aria-pressed={isLiked}
+                                className="flex items-center gap-1.5 rounded transition-colors hover:text-red-500 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 disabled:opacity-60"
+                            >
                                 <Heart className={`h-4 w-4 ${isLiked ? 'fill-red-500 text-red-500' : ''}`} />
-                                <span>{likesCount} Beğeni</span>
-                            </div>
-                            <div className="flex items-center gap-1">
+                                <span className="tabular-nums">{likesCount} Beğeni</span>
+                            </button>
+                            <div className="flex items-center gap-1.5">
                                 <BookOpen className="h-4 w-4" />
-                                <span>{list.items?.length || 0} Seri</span>
+                                <span className="tabular-nums">{listItems.length} Seri</span>
                             </div>
-                            <div className="flex items-center gap-1">
-                                <Clock className="h-4 w-4" />
-                                <span>{new Date(list.createdAt).toLocaleDateString('tr-TR')}</span>
-                            </div>
+                            {formattedCreatedDate && (
+                                <div className="flex items-center gap-1.5">
+                                    <Clock className="h-4 w-4" />
+                                    <span>{formattedCreatedDate}</span>
+                                </div>
+                            )}
+                            {list.isPublic && (
+                                <button
+                                    type="button"
+                                    onClick={() => void handleShareList()}
+                                    aria-label="Liste bağlantısını kopyala"
+                                    title="Bağlantıyı kopyala"
+                                    className="flex items-center gap-1 rounded transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                                >
+                                    <Share2 className="h-4 w-4" />
+                                </button>
+                            )}
                         </div>
                     </div>
                 </div>
@@ -420,7 +490,7 @@ const ReadingListDetail: React.FC = () => {
                 {listItems.length > 0 ? (
                     <>
                         {isOwner && (
-                            <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-border/70 bg-card/40 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
+                            <div className="mb-5 flex flex-col gap-3 rounded-2xl border border-border/60 bg-card/50 p-3 sm:flex-row sm:items-center sm:justify-between sm:p-4">
                                 <div className="flex flex-wrap items-center gap-2">
                                     <Button
                                         variant={isSelectionMode ? 'default' : 'outline'}
@@ -441,7 +511,7 @@ const ReadingListDetail: React.FC = () => {
                                             >
                                                 {allItemsSelected ? 'Seçimi Temizle' : 'Tümünü Seç'}
                                             </Button>
-                                            <Badge variant="secondary">
+                                            <Badge variant="secondary" className="tabular-nums">
                                                 {selectedMangaIds.length} seçili
                                             </Badge>
                                         </>
@@ -467,7 +537,7 @@ const ReadingListDetail: React.FC = () => {
                                             disabled={selectedMangaIds.length === 0 || isRemovingSelected}
                                         >
                                             <Trash2 className="h-4 w-4" />
-                                            {isRemovingSelected ? 'Kaldırılıyor...' : `Seçilenleri Kaldır${selectedMangaIds.length > 0 ? ` (${selectedMangaIds.length})` : ''}`}
+                                            {isRemovingSelected ? 'Kaldırılıyor...' : 'Seçilenleri Kaldır'}
                                         </Button>
                                     </div>
                                 )}
@@ -487,15 +557,14 @@ const ReadingListDetail: React.FC = () => {
                                 const isSelected = selectedMangaIds.includes(manga.id);
 
                                 return (
-                                    <div
-                                        className="relative w-full"
-                                    >
+                                    <div className="relative w-full">
                                         <div className={cn(isSelectionMode && 'pointer-events-none')}>
                                             <MangaCard
                                                 manga={manga}
                                                 index={index}
                                                 topTenWeekIds={topTenWeekIds}
-
+                                                disableHeavyEffects={disableHeavyEffects}
+                                                enableEntryAnimation={!disableHeavyEffects}
                                             />
                                         </div>
 
@@ -504,7 +573,7 @@ const ReadingListDetail: React.FC = () => {
                                                 type="button"
                                                 onClick={() => toggleMangaSelection(manga.id)}
                                                 className={cn(
-                                                    'absolute inset-0 z-20 rounded-xl border-2 transition-all',
+                                                    'absolute inset-0 z-20 rounded-xl border-2 transition-colors',
                                                     isSelected
                                                         ? 'border-primary bg-primary/15 shadow-[0_0_0_1px_rgba(59,130,246,0.4)]'
                                                         : 'border-border/70 bg-background/5 hover:bg-background/10'
@@ -512,7 +581,12 @@ const ReadingListDetail: React.FC = () => {
                                                 aria-pressed={isSelected}
                                                 aria-label={`${manga.title} seç`}
                                             >
-                                                <div className="absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 bg-black/65 text-white backdrop-blur-md">
+                                                <div
+                                                    className={cn(
+                                                        'absolute right-3 top-3 flex h-8 w-8 items-center justify-center rounded-full border border-white/20 text-white',
+                                                        disableHeavyEffects ? 'bg-black/80' : 'bg-black/65 backdrop-blur-md',
+                                                    )}
+                                                >
                                                     {isSelected ? (
                                                         <CheckSquare className="h-4 w-4 text-primary" />
                                                     ) : (
@@ -528,13 +602,16 @@ const ReadingListDetail: React.FC = () => {
                     </>
                 ) : (
                     <div
-                        className="flex animate-fade-up flex-col items-center justify-center py-20 text-center"
-                        style={{ animationDelay: '140ms' }}
+                        className={cn(
+                            'flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/30 px-6 py-16 text-center',
+                            !disableHeavyEffects && 'animate-fade-up',
+                        )}
+                        style={disableHeavyEffects ? undefined : { animationDelay: '140ms' }}
                     >
-                        <BookOpen className="h-12 w-12 text-muted-foreground/30 mb-4" />
+                        <BookOpen className="mb-3 h-12 w-12 text-muted-foreground/40" />
                         <p className="text-muted-foreground">Bu liste henüz boş.</p>
-                        <Button asChild variant="outline" className="mt-4">
-                            <Link to="/browse">Manga Ekle</Link>
+                        <Button asChild variant="outline" size="sm" className="mt-4">
+                            <Link to="/browse">{isOwner ? 'Seri Ekle' : 'Serileri Keşfet'}</Link>
                         </Button>
                     </div>
                 )}

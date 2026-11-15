@@ -3,9 +3,12 @@ import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom'
 import { ArrowLeft, BookOpen, CalendarDays, Clock3, Flame } from 'lucide-react';
 import Header from '@/components/layout/Header';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useAuth } from '@/contexts/AuthContext';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
-import { Badge } from '@/components/ui/badge';
+import { cn } from '@/lib/utils';
+import { formatChapterNumberLabel } from '@/lib/chapterTitle';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -55,6 +58,9 @@ const groupEntriesByDay = (entries: ReadingTimeEntry[]) => {
 
     entries.forEach((entry) => {
         const resolvedDate = new Date(entry.readAt);
+        if (Number.isNaN(resolvedDate.getTime())) {
+            return;
+        }
         const dateKey = `${resolvedDate.getFullYear()}-${`${resolvedDate.getMonth() + 1}`.padStart(2, '0')}-${`${resolvedDate.getDate()}`.padStart(2, '0')}`;
         const existing = dayMap.get(dateKey);
 
@@ -80,41 +86,53 @@ const groupEntriesByDay = (entries: ReadingTimeEntry[]) => {
     return Array.from(dayMap.values()).sort((left, right) => right.date.localeCompare(left.date));
 };
 
-const ReadingTimeSessionCard = ({ entry }: { entry: ReadingTimeEntry }) => (
-    <Link
-        to={entry.chapterId ? `/manga/${entry.mangaId}/chapter/${entry.chapterId}` : `/manga/${entry.mangaId}`}
-        className="group flex items-start gap-3 rounded-2xl border border-border bg-card/45 p-3 transition-[background-color,border-color] duration-200 hover:border-primary/35 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-    >
-        {entry.mangaCover ? (
-            <img
-                src={entry.mangaCover}
-                alt={entry.mangaTitle}
-                className="h-16 w-12 shrink-0 rounded-xl object-cover"
-            />
-        ) : (
-            <div className="flex h-16 w-12 shrink-0 items-center justify-center rounded-xl bg-secondary/60">
-                <BookOpen className="h-4 w-4 text-muted-foreground" />
+const ReadingTimeSessionCard = ({ entry }: { entry: ReadingTimeEntry }) => {
+    const readTime = entry.readAt && !Number.isNaN(new Date(entry.readAt).getTime())
+        ? new Date(entry.readAt).toLocaleTimeString('tr-TR', {
+            hour: '2-digit',
+            minute: '2-digit',
+        })
+        : '';
+
+    return (
+        <Link
+            to={entry.chapterId ? `/manga/${entry.mangaId}/chapter/${entry.chapterId}` : `/manga/${entry.mangaId}`}
+            className="group flex items-start gap-3 rounded-xl border border-border/60 bg-card/75 p-3 transition-colors duration-200 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+            {entry.mangaCover ? (
+                <img
+                    src={entry.mangaCover}
+                    alt={entry.mangaTitle}
+                    loading="lazy"
+                    decoding="async"
+                    className="h-16 w-12 shrink-0 rounded-lg object-cover ring-1 ring-border/50"
+                />
+            ) : (
+                <div className="flex h-16 w-12 shrink-0 items-center justify-center rounded-lg bg-secondary/60">
+                    <BookOpen className="h-4 w-4 text-muted-foreground" />
+                </div>
+            )}
+
+            <div className="min-w-0 flex-1">
+                <p className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-base">
+                    {entry.mangaTitle}
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                    {entry.chapterNumber ? `Bölüm ${formatChapterNumberLabel(entry.chapterNumber)}` : 'Okuma kaydı'}
+                </p>
             </div>
-        )}
 
-        <div className="min-w-0 flex-1">
-            <p className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-base">{entry.mangaTitle}</p>
-            <p className="mt-1 text-xs text-muted-foreground">
-                {entry.chapterNumber ? `Bölüm ${entry.chapterNumber}` : 'Okuma kaydı'}
-            </p>
-        </div>
-
-        <div className="shrink-0 text-right">
-            <p className="text-sm font-semibold text-primary">{formatReadingDuration(entry.secondsSpent)}</p>
-            <p className="mt-1 text-[11px] text-muted-foreground">
-                {new Date(entry.readAt).toLocaleTimeString('tr-TR', {
-                    hour: '2-digit',
-                    minute: '2-digit',
-                })}
-            </p>
-        </div>
-    </Link>
-);
+            <div className="shrink-0 text-right">
+                <p className="text-sm font-semibold text-primary tabular-nums">{formatReadingDuration(entry.secondsSpent)}</p>
+                {readTime && (
+                    <p className="mt-1 text-[11px] text-muted-foreground tabular-nums">
+                        {readTime}
+                    </p>
+                )}
+            </div>
+        </Link>
+    );
+};
 
 const ReadingTimeMangaDetail: React.FC = () => {
     const { mangaId } = useParams<{ mangaId: string }>();
@@ -122,6 +140,7 @@ const ReadingTimeMangaDetail: React.FC = () => {
     const [searchParams] = useSearchParams();
     const { user } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
+    const { disableHeavyEffects } = useDeviceProfile();
     const [entries, setEntries] = React.useState<ReadingTimeEntry[]>([]);
     const [isLoading, setIsLoading] = React.useState(true);
 
@@ -129,8 +148,10 @@ const ReadingTimeMangaDetail: React.FC = () => {
     const endDate = searchParams.get('to');
     const scopeLabel = formatScopeLabel(searchParams.get('scopeLabel'), startDate, endDate);
 
+    useDocumentTitle(entries[0]?.mangaTitle ? `${entries[0].mangaTitle} · Okuma Süresi` : 'Okuma Süresi Detayı');
+
     React.useEffect(() => {
-        if (!user || !mangaId) {
+        if (!user || !mangaId || !isOnline) {
             setEntries([]);
             setIsLoading(false);
             return;
@@ -143,7 +164,15 @@ const ReadingTimeMangaDetail: React.FC = () => {
                     startDate,
                     endDate,
                 });
-                setEntries(data);
+                const seenIds = new Set<string>();
+                const uniqueEntries = data.filter((entry) => {
+                    if (!entry.id || seenIds.has(entry.id)) {
+                        return false;
+                    }
+                    seenIds.add(entry.id);
+                    return true;
+                });
+                setEntries(uniqueEntries);
             } catch (error) {
                 console.error('Reading time manga detail page error:', error);
             } finally {
@@ -152,12 +181,12 @@ const ReadingTimeMangaDetail: React.FC = () => {
         };
 
         void loadEntries();
-    }, [endDate, mangaId, startDate, user]);
+    }, [endDate, isOnline, mangaId, startDate, user]);
 
     if (user && !isOnline) {
         return (
             <OfflineRequiredScreen
-                description="Okuma süresi manga detayları güvenlik nedeniyle sadece internet bağlantısıyla görüntülenebilir."
+                description="Okuma süresi seri detayları güvenlik nedeniyle sadece internet bağlantısıyla görüntülenebilir."
                 actionHref="/reading-time"
                 actionLabel="Okuma Süresine Dön"
             />
@@ -194,14 +223,15 @@ const ReadingTimeMangaDetail: React.FC = () => {
         <div className="min-h-screen bg-background">
             <Header />
 
-            <main className="container pb-12 pt-20">
-                <div className="mb-6 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
-                    <div className="flex items-start gap-4">
+            <main className="container pb-12 pt-16">
+                <div className="flex flex-col gap-4 py-6 sm:py-8 lg:flex-row lg:items-start lg:justify-between">
+                    <div className="flex min-w-0 items-start gap-3 sm:gap-4">
                         <Button
                             type="button"
                             variant="outline"
                             size="icon"
-                            className="mt-1 shrink-0 rounded-2xl"
+                            aria-label="Geri dön"
+                            className="mt-1 shrink-0 rounded-xl"
                             onClick={() => {
                                 if (window.history.length > 1) {
                                     navigate(-1);
@@ -214,66 +244,59 @@ const ReadingTimeMangaDetail: React.FC = () => {
                             <ArrowLeft className="h-4 w-4" />
                         </Button>
 
-                        <div className="flex items-start gap-4">
+                        <div className="flex min-w-0 flex-1 items-start gap-3 sm:gap-4">
                             {mangaCover ? (
                                 <img
                                     src={mangaCover}
                                     alt={mangaTitle}
-                                    className="hidden h-28 w-20 rounded-2xl border border-border/70 object-cover sm:block"
+                                    className="h-20 w-14 shrink-0 rounded-xl border border-border/60 object-cover sm:h-28 sm:w-20 sm:rounded-2xl"
                                 />
                             ) : null}
 
-                            <div>
-                                <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/80">Okuma Süresi Detayı</p>
-                                <h1 className="mt-2 max-w-3xl text-2xl font-bold tracking-tight sm:text-3xl">{mangaTitle}</h1>
-                                <p className="mt-2 text-sm text-muted-foreground">{scopeLabel}</p>
-
-                                <div className="mt-4 flex flex-wrap gap-2">
-                                    <Badge variant="outline">{entries.length} oturum</Badge>
-                                    <Badge variant="outline">{uniqueChapterCount} bölüm</Badge>
-                                    <Badge variant="outline">{groupedDays.length} aktif gün</Badge>
-                                </div>
+                            <div className="min-w-0 flex-1">
+                                <h1 className="max-w-3xl break-words text-xl font-bold tracking-tight sm:text-3xl">{mangaTitle}</h1>
+                                <p className="mt-1 text-sm text-muted-foreground">{scopeLabel}</p>
                             </div>
                         </div>
                     </div>
 
-                    <Button asChild variant="outline" className="rounded-2xl">
+                    <Button asChild variant="outline" className="w-full shrink-0 rounded-xl sm:w-auto">
                         <Link to={`/manga/${mangaId}`}>Seri Sayfasına Git</Link>
                     </Button>
                 </div>
 
-                <div className="grid grid-cols-2 gap-3 sm:gap-4 lg:grid-cols-4">
-                    <div className="rounded-2xl border border-border bg-card/45 p-4">
+                <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-4">
+                    <div className="rounded-2xl border border-border/60 bg-card/75 p-3.5 sm:p-4">
                         <div className="flex items-center gap-2 text-muted-foreground">
-                            <Flame className="h-4 w-4 text-primary" />
-                            <span className="text-sm">Toplam Süre</span>
+                            <Flame className="h-4 w-4 shrink-0 text-primary" />
+                            <span className="text-xs sm:text-sm">Toplam Süre</span>
                         </div>
-                        <p className="mt-3 text-2xl font-bold text-primary">{formatReadingDuration(totalSeconds)}</p>
+                        <p className="mt-2 text-xl font-bold text-primary tabular-nums sm:text-2xl">{formatReadingDuration(totalSeconds)}</p>
                     </div>
-                    <div className="rounded-2xl border border-border bg-card/45 p-4">
+                    <div className="rounded-2xl border border-border/60 bg-card/75 p-3.5 sm:p-4">
                         <div className="flex items-center gap-2 text-muted-foreground">
-                            <Clock3 className="h-4 w-4 text-sky-400" />
-                            <span className="text-sm">Oturum</span>
+                            <Clock3 className="h-4 w-4 shrink-0 text-sky-400" />
+                            <span className="text-xs sm:text-sm">Oturum</span>
                         </div>
-                        <p className="mt-3 text-2xl font-bold">{entries.length}</p>
+                        <p className="mt-2 text-xl font-bold tabular-nums sm:text-2xl">{entries.length}</p>
                     </div>
-                    <div className="rounded-2xl border border-border bg-card/45 p-4">
+                    <div className="rounded-2xl border border-border/60 bg-card/75 p-3.5 sm:p-4">
                         <div className="flex items-center gap-2 text-muted-foreground">
-                            <BookOpen className="h-4 w-4 text-emerald-400" />
-                            <span className="text-sm">Bölüm</span>
+                            <BookOpen className="h-4 w-4 shrink-0 text-emerald-400" />
+                            <span className="text-xs sm:text-sm">Bölüm</span>
                         </div>
-                        <p className="mt-3 text-2xl font-bold">{uniqueChapterCount}</p>
+                        <p className="mt-2 text-xl font-bold tabular-nums sm:text-2xl">{uniqueChapterCount}</p>
                     </div>
-                    <div className="rounded-2xl border border-border bg-card/45 p-4">
+                    <div className="rounded-2xl border border-border/60 bg-card/75 p-3.5 sm:p-4">
                         <div className="flex items-center gap-2 text-muted-foreground">
-                            <CalendarDays className="h-4 w-4 text-amber-400" />
-                            <span className="text-sm">Aktif Gün</span>
+                            <CalendarDays className="h-4 w-4 shrink-0 text-amber-400" />
+                            <span className="text-xs sm:text-sm">Aktif Gün</span>
                         </div>
-                        <p className="mt-3 text-2xl font-bold">{groupedDays.length}</p>
+                        <p className="mt-2 text-xl font-bold tabular-nums sm:text-2xl">{groupedDays.length}</p>
                     </div>
                 </div>
 
-                <div className="mt-6 sm:mt-8">
+                <div className="mt-6">
                     {isLoading ? (
                         <div className="space-y-4">
                             {Array.from({ length: 4 }).map((_, index) => (
@@ -285,22 +308,24 @@ const ReadingTimeMangaDetail: React.FC = () => {
                             {groupedDays.map((day, index) => (
                                 <div
                                     key={day.date}
-                                    className="animate-fade-up rounded-3xl border border-border bg-card/35 p-4 sm:p-5"
-                                    style={{ animationDelay: `${0.06 + Math.min(index, 10) * 0.03}s` }}
+                                    className={cn(
+                                        'rounded-2xl border border-border/60 bg-card/60 p-4 sm:p-5',
+                                        !disableHeavyEffects && 'animate-fade-up',
+                                    )}
+                                    style={disableHeavyEffects ? undefined : { animationDelay: `${0.06 + Math.min(index, 10) * 0.03}s` }}
                                 >
-                                    <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                        <div>
-                                            <p className="text-lg font-semibold capitalize">{day.label}</p>
-                                            <p className="mt-1 text-sm text-muted-foreground">{day.entries.length} oturum</p>
+                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                                        <div className="min-w-0">
+                                            <p className="text-base font-semibold capitalize sm:text-lg">{day.label}</p>
+                                            <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground tabular-nums">{day.entries.length} oturum</p>
                                         </div>
 
-                                        <div className="text-left sm:text-right">
-                                            <p className="text-xl font-bold text-primary">{formatReadingDuration(day.seconds)}</p>
-                                            <p className="text-xs text-muted-foreground">Günlük toplam</p>
-                                        </div>
+                                        <p className="text-lg font-bold text-primary tabular-nums sm:text-xl">
+                                            {formatReadingDuration(day.seconds)}
+                                        </p>
                                     </div>
 
-                                    <div className="mt-4 space-y-3">
+                                    <div className="mt-4 space-y-2.5">
                                         {day.entries.map((entry) => (
                                             <ReadingTimeSessionCard key={entry.id} entry={entry} />
                                         ))}
@@ -309,11 +334,11 @@ const ReadingTimeMangaDetail: React.FC = () => {
                             ))}
                         </div>
                     ) : (
-                        <div className="rounded-2xl border border-dashed border-border bg-background/30 py-16 text-center">
+                        <div className="rounded-2xl border border-dashed border-border bg-background/30 py-14 text-center">
                             <Clock3 className="mx-auto h-12 w-12 text-muted-foreground/60" />
                             <h2 className="mt-4 text-xl font-semibold">Bu aralıkta kayıt yok</h2>
-                            <p className="mt-2 text-muted-foreground">
-                                Farklı bir gün veya hafta seçip tekrar deneyebilirsin.
+                            <p className="mt-2 text-sm text-muted-foreground">
+                                Farklı bir gün veya hafta seçip tekrar deneyebilirsiniz.
                             </p>
                         </div>
                     )}

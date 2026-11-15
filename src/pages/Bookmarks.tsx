@@ -2,6 +2,8 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { BookMarked, Search, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -39,8 +41,10 @@ const BOOKMARK_PAGE_THUMBNAIL_TRANSFORM = Object.freeze({
 });
 
 const Bookmarks: React.FC = () => {
+  useDocumentTitle('Yer İmleri');
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
+  const { disableHeavyEffects } = useDeviceProfile();
   const [bookmarks, setBookmarks] = React.useState<EnrichedBookmark[]>([]);
   const [isLoading, setIsLoading] = React.useState(true);
   const [searchQuery, setSearchQuery] = React.useState('');
@@ -56,7 +60,15 @@ const Bookmarks: React.FC = () => {
 
     try {
       setIsLoading(true);
-      const bks = await getBookmarks(user.id);
+      const rawBookmarks = await getBookmarks(user.id);
+      const seenIds = new Set<string>();
+      const bks = rawBookmarks.filter((bookmark) => {
+        if (!bookmark.id || seenIds.has(bookmark.id)) {
+          return false;
+        }
+        seenIds.add(bookmark.id);
+        return true;
+      });
       const uniqueChapterIds = [...new Set(bks.map((bookmark) => bookmark.chapterId).filter(Boolean))];
       const uniqueMangaIds = [...new Set(bks.map((bookmark) => bookmark.mangaId).filter(Boolean))];
       const [pagesByChapterId, offlineMangas] = await Promise.all([
@@ -154,6 +166,8 @@ const Bookmarks: React.FC = () => {
 
   const handleRemoveBookmark = async (id: string) => {
     if (!user) return;
+    const previousBookmarks = bookmarks;
+    setBookmarks((prev) => prev.filter((item) => item.id !== id));
     try {
       await removeBookmark(user.id, id);
       toast.success(
@@ -161,8 +175,8 @@ const Bookmarks: React.FC = () => {
           ? 'Yer imi silindi'
           : 'Yer imi silindi, tekrar çevrimiçi olduğunda eşitlenecek',
       );
-      await loadBookmarks();
     } catch (err) {
+      setBookmarks(previousBookmarks);
       toast.error('Yer imi silinemedi');
     }
   };
@@ -196,8 +210,11 @@ const Bookmarks: React.FC = () => {
     );
   }
 
-  const formatDate = (dateString: string) => {
-    return new Date(dateString).toLocaleDateString('tr-TR', {
+  const formatDate = (dateString?: string) => {
+    if (!dateString) return '';
+    const parsed = new Date(dateString);
+    if (Number.isNaN(parsed.getTime())) return '';
+    return parsed.toLocaleDateString('tr-TR', {
       day: 'numeric',
       month: 'short',
       year: 'numeric',
@@ -211,13 +228,19 @@ const Bookmarks: React.FC = () => {
       <Header />
 
       <main className="container pb-12 pt-16">
-        <div className="flex flex-col gap-4 py-6 sm:flex-row sm:items-end sm:justify-between sm:py-8 animate-fade-up" style={{ animationDelay: '0.04s' }}>
-          <div>
+        <div
+          className={cn(
+            'flex flex-col gap-4 py-6 sm:flex-row sm:items-end sm:justify-between sm:py-8',
+            !disableHeavyEffects && 'animate-fade-up',
+          )}
+          style={disableHeavyEffects ? undefined : { animationDelay: '0.04s' }}
+        >
+          <div className="min-w-0">
             <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Yer İmleri</h1>
-            <p className="mt-1 text-sm text-muted-foreground">
+            <p className="mt-1 text-sm text-muted-foreground tabular-nums">
               {hasActiveFilter
                 ? `${filteredBookmarks.length} / ${bookmarks.length} yer imi`
-                : `${bookmarks.length} yer imi kaydedildi`}
+                : `${bookmarks.length} yer imi`}
             </p>
           </div>
 
@@ -248,7 +271,7 @@ const Bookmarks: React.FC = () => {
                   <SelectValue placeholder="Tüm seriler" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tüm seriler ({bookmarks.length})</SelectItem>
+                  <SelectItem value="all">Tüm seriler</SelectItem>
                   {seriesOptions.map((series) => (
                     <SelectItem key={series.id} value={series.id}>
                       {series.title}
@@ -270,21 +293,20 @@ const Bookmarks: React.FC = () => {
 
         {filteredBookmarks.length > 0 ? (
           <>
-            <div className="mb-3 flex items-center justify-between gap-3 text-xs sm:text-sm text-muted-foreground">
-              <span>{filteredBookmarks.length} yer imi gösteriliyor</span>
-              {hasActiveFilter && (
+            {hasActiveFilter && (
+              <div className="mb-3 flex justify-end">
                 <button
                   type="button"
                   onClick={() => {
                     setSearchQuery('');
                     setSelectedMangaId('all');
                   }}
-                  className="font-medium text-primary transition-colors hover:text-primary/80"
+                  className="text-xs sm:text-sm font-medium text-primary transition-colors hover:text-primary/80"
                 >
                   Filtreleri temizle
                 </button>
-              )}
-            </div>
+              </div>
+            )}
 
             <VirtualCardGrid
               items={filteredBookmarks}
@@ -307,6 +329,7 @@ const Bookmarks: React.FC = () => {
                 const chapterTitle = sanitizeChapterTitle(chapterLabel, item.chapterTitle);
                 const previewImage = item.pagePreview || item.mangaCover;
                 const hasPagePreview = Boolean(item.pagePreview);
+                const formattedDate = formatDate(item.createdAt);
 
                 const bookmarkHref = buildChapterResumePath({
                   mangaId: item.mangaId,
@@ -319,10 +342,11 @@ const Bookmarks: React.FC = () => {
                 return (
                   <div
                     className={cn(
-                      'group relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/75 transition-colors hover:border-primary/40 hover:bg-card animate-fade-up',
+                      'group relative flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/75 transition-colors hover:border-primary/40 hover:bg-card',
+                      !disableHeavyEffects && 'animate-fade-up',
                       index >= 12 && 'cv-auto-card',
                     )}
-                    style={{
+                    style={disableHeavyEffects ? undefined : {
                       animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                     }}
                   >
@@ -363,7 +387,12 @@ const Bookmarks: React.FC = () => {
                       )}
                       <div className="pointer-events-none absolute -inset-x-px -bottom-px top-0 bg-gradient-to-t from-black/90 via-black/20 to-transparent" />
 
-                      <div className="absolute left-2 top-2 flex items-center gap-1 rounded-md border border-white/10 bg-black/70 px-1.5 py-0.5 text-[10px] font-bold text-white backdrop-blur-md">
+                      <div
+                        className={cn(
+                          'absolute left-2 top-2 flex items-center gap-1 rounded-md border border-white/10 px-1.5 py-0.5 text-[10px] font-bold text-white',
+                          disableHeavyEffects ? 'bg-black/80' : 'bg-black/70 backdrop-blur-md',
+                        )}
+                      >
                         {typeof item.progressPercent === 'number' ? (
                           <>
                             <span className="text-primary">%{item.progressPercent.toFixed(1)}</span>
@@ -374,9 +403,16 @@ const Bookmarks: React.FC = () => {
                         )}
                       </div>
 
-                      <div className="absolute bottom-2 right-2 rounded-md bg-black/65 px-1.5 py-0.5 text-[10px] text-white/80 backdrop-blur-md">
-                        {formatDate(item.createdAt)}
-                      </div>
+                      {formattedDate && (
+                        <div
+                          className={cn(
+                            'absolute bottom-2 right-2 rounded-md px-1.5 py-0.5 text-[10px] text-white/80',
+                            disableHeavyEffects ? 'bg-black/75' : 'bg-black/65 backdrop-blur-md',
+                          )}
+                        >
+                          {formattedDate}
+                        </div>
+                      )}
                     </Link>
 
                     <div className="flex flex-1 flex-col p-2.5 sm:p-3">

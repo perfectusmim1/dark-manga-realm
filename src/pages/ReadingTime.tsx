@@ -9,8 +9,11 @@ import {
     LayoutGrid,
     LineChart as LineChartIcon,
     List,
+    X,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { useAuth } from '@/contexts/AuthContext';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -20,6 +23,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { cn } from '@/lib/utils';
+import { formatChapterNumberLabel } from '@/lib/chapterTitle';
 import {
     ReadingTimeDayBucket,
     ReadingTimeEntry,
@@ -43,15 +47,12 @@ const RANGE_LABELS: Record<ReadingTimeRange, string> = {
 };
 
 const VIEW_TRANSITION = {
-    duration: 0.24,
+    duration: 0.22,
     ease: [0.22, 1, 0.36, 1] as const,
 };
 
-const DAY_PANEL_MOTION = {
-    initial: { opacity: 0, y: 14, scale: 0.985 },
-    animate: { opacity: 1, y: 0, scale: 1 },
-    exit: { opacity: 0, y: -8, scale: 0.992 },
-    transition: VIEW_TRANSITION,
+const INSTANT_TRANSITION = {
+    duration: 0,
 };
 
 type ReadingTimeView = 'line' | 'grid' | 'list';
@@ -60,25 +61,21 @@ const VIEW_OPTIONS: Array<{
     value: ReadingTimeView;
     label: string;
     icon: React.ComponentType<{ className?: string }>;
-    description: string;
 }> = [
         {
             value: 'line',
             label: 'Çizgi',
             icon: LineChartIcon,
-            description: 'Her nokta bir günü temsil eder.',
         },
         {
             value: 'grid',
             label: 'Izgara',
             icon: LayoutGrid,
-            description: 'Her kare bir günü temsil eder.',
         },
         {
             value: 'list',
             label: 'Liste',
             icon: List,
-            description: 'Madde madde günlük döküm görünümü.',
         },
     ];
 
@@ -194,18 +191,23 @@ const OverviewCard = ({
     value,
     accentClassName,
     index,
+    disableHeavyEffects,
 }: {
     label: string;
     value: string;
     accentClassName: string;
     index: number;
+    disableHeavyEffects: boolean;
 }) => (
     <div
-        className="animate-fade-up aspect-[1.05/1] min-h-[8.5rem] rounded-3xl border border-border bg-card/50 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl sm:p-5"
-        style={{ animationDelay: `${0.1 + index * 0.03}s` }}
+        className={cn(
+            'rounded-2xl border border-border/60 bg-card/75 px-4 py-3.5 sm:p-4',
+            !disableHeavyEffects && 'animate-fade-up',
+        )}
+        style={disableHeavyEffects ? undefined : { animationDelay: `${0.06 + index * 0.025}s` }}
     >
-        <p className="line-clamp-2 text-sm leading-snug text-muted-foreground">{label}</p>
-        <p className={`mt-2 break-words text-[clamp(1.55rem,5.4vw,2rem)] font-bold leading-tight ${accentClassName}`}>
+        <p className="line-clamp-1 text-xs sm:text-sm text-muted-foreground">{label}</p>
+        <p className={`mt-1.5 break-words text-xl font-bold leading-tight tabular-nums sm:text-2xl ${accentClassName}`}>
             {value}
         </p>
     </div>
@@ -294,63 +296,75 @@ const ReadingTimeMangaCard = ({
 }: {
     aggregate: ReadingTimeMangaAggregate;
     detailSearch: string;
-}) => (
-    <Link
-        to={`/reading-time/manga/${aggregate.mangaId}${detailSearch}`}
-        className="group flex h-full min-h-[14.5rem] flex-col rounded-2xl border border-border bg-card/45 p-3 transition-[background-color,border-color,box-shadow] duration-200 hover:border-primary/35 hover:bg-card hover:shadow-[0_16px_34px_rgba(0,0,0,0.22)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background lg:min-h-[13.65rem]"
-    >
-        <div className="relative overflow-hidden rounded-xl border border-border/60 bg-black leading-none">
-            <div className="relative aspect-[4/5] lg:aspect-[4/4.45]">
-                <div className="absolute inset-0">
-                    {aggregate.mangaCover ? (
-                        <img
-                            src={aggregate.mangaCover}
-                            alt={aggregate.mangaTitle}
-                            className="block h-full w-full object-cover"
-                        />
-                    ) : (
-                        <div className="flex h-full w-full items-center justify-center bg-secondary/40">
-                            <BookOpen className="h-8 w-8 text-muted-foreground" />
-                        </div>
-                    )}
+}) => {
+    const lastReadTime = aggregate.lastReadAt && !Number.isNaN(new Date(aggregate.lastReadAt).getTime())
+        ? new Date(aggregate.lastReadAt).toLocaleTimeString('tr-TR', {
+            hour: '2-digit',
+            minute: '2-digit',
+        })
+        : '';
 
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 h-24 bg-gradient-to-t from-black/90 via-black/60 to-transparent lg:h-20" />
-                    <div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-background/95 via-background/30 to-transparent px-3 pb-3 pt-10 lg:pb-2.5 lg:pt-8">
-                        <p className="text-sm font-semibold text-primary drop-shadow-[0_2px_10px_rgba(0,0,0,0.75)]">
-                            {formatCompactReadingDuration(aggregate.totalSeconds)}
-                        </p>
-                        <p className="mt-1 text-[11px] text-white/80 drop-shadow-[0_2px_8px_rgba(0,0,0,0.75)]">
-                            {new Date(aggregate.lastReadAt).toLocaleTimeString('tr-TR', {
-                                hour: '2-digit',
-                                minute: '2-digit',
-                            })}
-                        </p>
+    return (
+        <Link
+            to={`/reading-time/manga/${aggregate.mangaId}${detailSearch}`}
+            className="group flex h-full min-h-[14rem] flex-col rounded-xl border border-border/60 bg-card/75 p-2.5 sm:p-3 transition-colors duration-200 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+        >
+            <div className="relative overflow-hidden rounded-lg border border-border/50 bg-black leading-none">
+                <div className="relative aspect-[4/5] lg:aspect-[4/4.45]">
+                    <div className="absolute inset-0">
+                        {aggregate.mangaCover ? (
+                            <img
+                                src={aggregate.mangaCover}
+                                alt={aggregate.mangaTitle}
+                                loading="lazy"
+                                decoding="async"
+                                className="block h-full w-full object-cover"
+                            />
+                        ) : (
+                            <div className="flex h-full w-full items-center justify-center bg-secondary/40">
+                                <BookOpen className="h-8 w-8 text-muted-foreground" />
+                            </div>
+                        )}
+
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent" />
+                        <div className="pointer-events-none absolute inset-x-0 bottom-0 px-2.5 pb-2.5 pt-8">
+                            <p className="text-sm font-semibold text-primary">
+                                {formatCompactReadingDuration(aggregate.totalSeconds)}
+                            </p>
+                            {lastReadTime && (
+                                <p className="mt-0.5 text-[11px] text-white/80">
+                                    {lastReadTime}
+                                </p>
+                            )}
+                        </div>
                     </div>
                 </div>
             </div>
-        </div>
 
-        <div className="mt-3 flex flex-1 flex-col lg:mt-2.5">
-            <h4 className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary group-focus-visible:text-primary sm:text-[15px]">{aggregate.mangaTitle}</h4>
-            {aggregate.latestChapterNumber ? (
-                <p className="mt-1 text-[11px] text-muted-foreground">
-                    Son bölüm {aggregate.latestChapterNumber}
-                </p>
-            ) : null}
+            <div className="mt-2.5 flex flex-1 flex-col">
+                <h4 className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary group-focus-visible:text-primary">
+                    {aggregate.mangaTitle}
+                </h4>
+                {typeof aggregate.latestChapterNumber === 'number' && aggregate.latestChapterNumber > 0 ? (
+                    <p className="mt-1 text-[11px] text-muted-foreground">
+                        Bölüm {formatChapterNumberLabel(aggregate.latestChapterNumber)}
+                    </p>
+                ) : null}
 
-            <div className="mt-auto grid grid-cols-2 gap-2 pt-3 text-[11px] lg:pt-2.5">
-                <div className="rounded-xl border border-border/60 bg-background/45 px-2.5 py-2 lg:py-1.5">
-                    <p className="text-muted-foreground">Oturum</p>
-                    <p className="mt-1 font-semibold">{aggregate.sessionCount}</p>
-                </div>
-                <div className="rounded-xl border border-border/60 bg-background/45 px-2.5 py-2 lg:py-1.5">
-                    <p className="text-muted-foreground">Bölüm</p>
-                    <p className="mt-1 font-semibold">{aggregate.chapterCount}</p>
+                <div className="mt-auto grid grid-cols-2 gap-1.5 pt-2.5 text-[11px]">
+                    <div className="rounded-lg border border-border/50 bg-background/45 px-2 py-1.5">
+                        <p className="text-muted-foreground">Oturum</p>
+                        <p className="mt-0.5 font-semibold tabular-nums">{aggregate.sessionCount}</p>
+                    </div>
+                    <div className="rounded-lg border border-border/50 bg-background/45 px-2 py-1.5">
+                        <p className="text-muted-foreground">Bölüm</p>
+                        <p className="mt-0.5 font-semibold tabular-nums">{aggregate.chapterCount}</p>
+                    </div>
                 </div>
             </div>
-        </div>
-    </Link>
-);
+        </Link>
+    );
+};
 
 const ReadingTimeMangaGrid = ({
     items,
@@ -359,7 +373,7 @@ const ReadingTimeMangaGrid = ({
     items: ReadingTimeMangaAggregate[];
     detailSearch: string;
 }) => (
-    <div className="grid grid-cols-2 gap-3 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4">
         {items.map((aggregate) => (
             <ReadingTimeMangaCard key={aggregate.mangaId} aggregate={aggregate} detailSearch={detailSearch} />
         ))}
@@ -368,10 +382,10 @@ const ReadingTimeMangaGrid = ({
 
 const SelectedDayPanel = ({
     day,
-    title,
+    reduceMotion,
 }: {
     day: ReadingTimeDayBucket;
-    title: string;
+    reduceMotion: boolean;
 }) => {
     const mangaGroups = React.useMemo(() => aggregateEntriesByManga(day.entries), [day.entries]);
     const detailSearch = React.useMemo(
@@ -385,37 +399,35 @@ const SelectedDayPanel = ({
 
     return (
         <motion.div
-            {...DAY_PANEL_MOTION}
-            className="rounded-2xl border border-border bg-background/40 p-4 sm:p-5"
+            initial={reduceMotion ? false : { opacity: 0, y: 10 }}
+            animate={{ opacity: 1, y: 0 }}
+            exit={reduceMotion ? undefined : { opacity: 0, y: -6 }}
+            transition={reduceMotion ? INSTANT_TRANSITION : VIEW_TRANSITION}
+            className="rounded-2xl border border-border/60 bg-background/40 p-4 sm:p-5"
         >
-            <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
-                <div>
-                    <h3 className="text-xl font-bold capitalize tracking-tight">
-                        {new Date(`${day.date}T00:00:00`).toLocaleDateString('tr-TR', {
-                            weekday: 'long',
-                            day: 'numeric',
-                            month: 'long',
-                            year: 'numeric',
-                        })}
-                    </h3>
-                </div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <h3 className="text-lg font-bold capitalize tracking-tight sm:text-xl">
+                    {new Date(`${day.date}T00:00:00`).toLocaleDateString('tr-TR', {
+                        weekday: 'long',
+                        day: 'numeric',
+                        month: 'long',
+                        year: 'numeric',
+                    })}
+                </h3>
 
-                <div className="text-left lg:text-right">
-                    <p className="text-2xl font-bold text-primary">{formatReadingDuration(day.seconds)}</p>
-                </div>
+                <p className="text-xl font-bold text-primary tabular-nums sm:text-2xl">
+                    {formatReadingDuration(day.seconds)}
+                </p>
             </div>
 
-            <div className="mt-4 flex flex-wrap gap-2">
+            <div className="mt-3 flex flex-wrap gap-2">
                 <Badge variant="outline">{day.chapters} bölüm</Badge>
                 <Badge variant="outline">{day.seriesCount} seri</Badge>
                 <Badge variant="outline">{day.entries.length} oturum</Badge>
             </div>
 
-            <div className="mt-5">
-                <div className="mb-3 flex items-center justify-between gap-3">
-                    <p className="text-sm font-semibold">Bu günde okuduğun seriler</p>
-                </div>
-
+            <div className="mt-4">
+                <p className="mb-3 text-sm font-semibold">Bu gün okunan seriler</p>
                 <ReadingTimeMangaGrid items={mangaGroups} detailSearch={detailSearch} />
             </div>
         </motion.div>
@@ -426,23 +438,25 @@ const ReadingTrendChart = ({
     data,
     selectedDate,
     onSelect,
+    reduceMotion,
 }: {
     data: ReadingChartDatum[];
     selectedDate: string | null;
     onSelect: (date: string) => void;
+    reduceMotion: boolean;
 }) => {
     const width = 760;
     const height = 280;
-    const padding = { top: 18, right: 18, bottom: 40, left: 42 };
+    const padding = { top: 18, right: 20, bottom: 44, left: 56 };
     const innerWidth = width - padding.left - padding.right;
     const innerHeight = height - padding.top - padding.bottom;
     const maxMinutes = Math.max(...data.map((item) => item.minutes), 1);
     const guideCount = 4;
     const tickStride = data.length > 72
-        ? Math.ceil(data.length / 12)
+        ? Math.ceil(data.length / 10)
         : data.length > 30
             ? 4
-            : data.length > 16
+            : data.length > 14
                 ? 2
                 : 1;
 
@@ -469,179 +483,148 @@ const ReadingTrendChart = ({
     const selectedPoint = points.find((point) => point.date === selectedDate) ?? points[0] ?? null;
 
     return (
-        <div className="space-y-4">
-            <div className="rounded-2xl border border-border/70 bg-background/35 p-3 sm:p-4">
-                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
-                    <div>
-                        <p className="text-sm font-semibold">Trend</p>
-                    </div>
-                    <AnimatePresence mode="wait" initial={false}>
-                        {selectedPoint && (
-                            <motion.div
-                                key={selectedPoint.date}
-                                initial={{ opacity: 0, y: 8, scale: 0.98 }}
-                                animate={{ opacity: 1, y: 0, scale: 1 }}
-                                exit={{ opacity: 0, y: -6, scale: 0.98 }}
-                                transition={VIEW_TRANSITION}
-                                className="rounded-xl border border-primary/20 bg-primary/10 px-3 py-2 text-right"
-                            >
-                                <p className="text-xs text-muted-foreground">{selectedPoint.label}</p>
-                                <p className="text-sm font-semibold text-primary">{formatReadingDuration(selectedPoint.seconds)}</p>
-                            </motion.div>
-                        )}
-                    </AnimatePresence>
-                </div>
-
-                <div className="mt-4 overflow-hidden">
-                    <svg
-                        viewBox={`0 0 ${width} ${height}`}
-                        className="h-[15rem] w-full sm:h-[18rem]"
-                        role="img"
-                        aria-label="Okuma süresi çizgi grafiği"
-                    >
-                        <defs>
-                            <linearGradient id="reading-trend-fill" x1="0" y1="0" x2="0" y2="1">
-                                <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.26" />
-                                <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.02" />
-                            </linearGradient>
-                        </defs>
-
-                        {Array.from({ length: guideCount + 1 }).map((_, index) => {
-                            const ratio = index / guideCount;
-                            const y = padding.top + ratio * innerHeight;
-                            const minutes = Math.round(maxMinutes * (1 - ratio));
-
-                            return (
-                                <g key={index}>
-                                    <line
-                                        x1={padding.left}
-                                        y1={y}
-                                        x2={width - padding.right}
-                                        y2={y}
-                                        stroke="hsl(var(--border))"
-                                        strokeDasharray="4 6"
-                                        opacity="0.55"
-                                    />
-                                    <text
-                                        x={padding.left - 10}
-                                        y={y + 4}
-                                        textAnchor="end"
-                                        className="fill-muted-foreground text-[11px]"
-                                    >
-                                        {formatChartAxisMinutes(minutes)}
-                                    </text>
-                                </g>
-                            );
-                        })}
-
-                        {areaPath && <path d={areaPath} fill="url(#reading-trend-fill)" />}
-                        {linePath && (
-                            <path
-                                d={linePath}
-                                fill="none"
-                                stroke="hsl(var(--primary))"
-                                strokeWidth="4"
-                                strokeLinecap="round"
-                                strokeLinejoin="round"
-                            />
-                        )}
-
-                        {points.map((point, index) => {
-                            const isSelected = point.date === selectedPoint?.date;
-                            const shouldRenderLabel = isSelected
-                                || index === 0
-                                || index === points.length - 1
-                                || index % tickStride === 0;
-
-                            return (
-                                <g
-                                    key={point.date}
-                                    role="button"
-                                    tabIndex={0}
-                                    onClick={() => onSelect(point.date)}
-                                    onKeyDown={(event) => {
-                                        if (event.key === 'Enter' || event.key === ' ') {
-                                            event.preventDefault();
-                                            onSelect(point.date);
-                                        }
-                                    }}
-                                    className="cursor-pointer outline-none"
-                                >
-                                    <motion.circle
-                                        cx={point.x}
-                                        cy={point.y}
-                                        animate={{
-                                            r: isSelected ? 10 : 8,
-                                            strokeWidth: isSelected ? 4 : 3,
-                                            opacity: isSelected ? 1 : 0.95,
-                                        }}
-                                        transition={VIEW_TRANSITION}
-                                        fill="hsl(var(--background))"
-                                        stroke="hsl(var(--primary))"
-                                    />
-                                    <motion.circle
-                                        cx={point.x}
-                                        cy={point.y}
-                                        animate={{ r: isSelected ? 4.5 : 3.25 }}
-                                        transition={VIEW_TRANSITION}
-                                        fill="hsl(var(--primary))"
-                                    />
-                                    {shouldRenderLabel && (
-                                        <text
-                                            x={point.x}
-                                            y={height - 10}
-                                            textAnchor="middle"
-                                            className={cn(
-                                                'text-[11px] transition-colors duration-200',
-                                                isSelected ? 'fill-primary' : 'fill-muted-foreground',
-                                            )}
-                                        >
-                                            {point.shortLabel}
-                                        </text>
-                                    )}
-                                </g>
-                            );
-                        })}
-                    </svg>
-                </div>
+        <div className="rounded-2xl border border-border/60 bg-background/35 p-3 sm:p-4">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-border/60 pb-3">
+                <h2 className="text-sm font-semibold sm:text-base">Günlük Trend</h2>
+                <AnimatePresence mode="wait" initial={false}>
+                    {selectedPoint && (
+                        <motion.div
+                            key={selectedPoint.date}
+                            initial={reduceMotion ? false : { opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={reduceMotion ? undefined : { opacity: 0, y: -4 }}
+                            transition={reduceMotion ? INSTANT_TRANSITION : VIEW_TRANSITION}
+                            className="flex items-center gap-2 rounded-lg border border-primary/20 bg-primary/10 px-2.5 py-1 text-xs sm:text-sm"
+                        >
+                            <span className="text-muted-foreground">{selectedPoint.label}</span>
+                            <span className="font-semibold text-primary tabular-nums">{formatReadingDuration(selectedPoint.seconds)}</span>
+                        </motion.div>
+                    )}
+                </AnimatePresence>
             </div>
 
-            <AnimatePresence mode="wait" initial={false}>
-                {selectedPoint && (
-                    <motion.div
-                        key={selectedPoint.date}
-                        initial={{ opacity: 0, y: 12 }}
-                        animate={{ opacity: 1, y: 0 }}
-                        exit={{ opacity: 0, y: -8 }}
-                        transition={VIEW_TRANSITION}
-                        className="grid grid-cols-2 gap-3 sm:grid-cols-4"
-                    >
-                        <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
-                            <p className="text-xs text-muted-foreground">Okuma süresi</p>
-                            <p className="mt-1 text-lg font-semibold text-primary">{formatReadingDuration(selectedPoint.seconds)}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
-                            <p className="text-xs text-muted-foreground">Bölüm</p>
-                            <p className="mt-1 text-lg font-semibold">{selectedPoint.chapters}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
-                            <p className="text-xs text-muted-foreground">Seri</p>
-                            <p className="mt-1 text-lg font-semibold">{selectedPoint.seriesCount}</p>
-                        </div>
-                        <div className="rounded-2xl border border-border bg-background/35 px-4 py-3">
-                            <p className="text-xs text-muted-foreground">Tarih</p>
-                            <p className="mt-1 text-sm font-semibold">{new Date(`${selectedPoint.date}T00:00:00`).toLocaleDateString('tr-TR')}</p>
-                        </div>
-                    </motion.div>
-                )}
-            </AnimatePresence>
+            <div className="mt-3 overflow-hidden">
+                <svg
+                    viewBox={`0 0 ${width} ${height}`}
+                    className="h-[14rem] w-full sm:h-[18rem]"
+                    role="img"
+                    aria-label="Okuma süresi çizgi grafiği"
+                >
+                    <defs>
+                        <linearGradient id="reading-trend-fill" x1="0" y1="0" x2="0" y2="1">
+                            <stop offset="0%" stopColor="hsl(var(--primary))" stopOpacity="0.26" />
+                            <stop offset="100%" stopColor="hsl(var(--primary))" stopOpacity="0.02" />
+                        </linearGradient>
+                    </defs>
+
+                    {Array.from({ length: guideCount + 1 }).map((_, index) => {
+                        const ratio = index / guideCount;
+                        const y = padding.top + ratio * innerHeight;
+                        const minutes = Math.round(maxMinutes * (1 - ratio));
+
+                        return (
+                            <g key={index}>
+                                <line
+                                    x1={padding.left}
+                                    y1={y}
+                                    x2={width - padding.right}
+                                    y2={y}
+                                    stroke="hsl(var(--border))"
+                                    strokeDasharray="4 6"
+                                    opacity="0.55"
+                                />
+                                <text
+                                    x={padding.left - 10}
+                                    y={y + 4}
+                                    textAnchor="end"
+                                    className="fill-muted-foreground text-[15px] sm:text-[12px]"
+                                >
+                                    {formatChartAxisMinutes(minutes)}
+                                </text>
+                            </g>
+                        );
+                    })}
+
+                    {areaPath && <path d={areaPath} fill="url(#reading-trend-fill)" />}
+                    {linePath && (
+                        <path
+                            d={linePath}
+                            fill="none"
+                            stroke="hsl(var(--primary))"
+                            strokeWidth="4"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                        />
+                    )}
+
+                    {points.map((point, index) => {
+                        const isSelected = point.date === selectedPoint?.date;
+                        const shouldRenderLabel = isSelected
+                            || index === 0
+                            || index === points.length - 1
+                            || index % tickStride === 0;
+
+                        return (
+                            <g
+                                key={point.date}
+                                role="button"
+                                tabIndex={0}
+                                onClick={() => onSelect(point.date)}
+                                onKeyDown={(event) => {
+                                    if (event.key === 'Enter' || event.key === ' ') {
+                                        event.preventDefault();
+                                        onSelect(point.date);
+                                    }
+                                }}
+                                className="cursor-pointer outline-none"
+                            >
+                                <motion.circle
+                                    cx={point.x}
+                                    cy={point.y}
+                                    animate={{
+                                        r: isSelected ? 10 : 8,
+                                        strokeWidth: isSelected ? 4 : 3,
+                                        opacity: isSelected ? 1 : 0.95,
+                                    }}
+                                    transition={reduceMotion ? INSTANT_TRANSITION : VIEW_TRANSITION}
+                                    fill="hsl(var(--background))"
+                                    stroke="hsl(var(--primary))"
+                                />
+                                <motion.circle
+                                    cx={point.x}
+                                    cy={point.y}
+                                    animate={{ r: isSelected ? 4.5 : 3.25 }}
+                                    transition={reduceMotion ? INSTANT_TRANSITION : VIEW_TRANSITION}
+                                    fill="hsl(var(--primary))"
+                                />
+                                {shouldRenderLabel && (
+                                    <text
+                                        x={point.x}
+                                        y={height - 10}
+                                        textAnchor="middle"
+                                        className={cn(
+                                            'text-[15px] sm:text-[12px] transition-colors duration-200',
+                                            isSelected ? 'fill-primary font-semibold' : 'fill-muted-foreground',
+                                        )}
+                                    >
+                                        {point.shortLabel}
+                                    </text>
+                                )}
+                            </g>
+                        );
+                    })}
+                </svg>
+            </div>
         </div>
     );
 };
 
 const ReadingTime: React.FC = () => {
+    useDocumentTitle('Okuma Süresi');
     const { user } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
+    const { disableHeavyEffects, prefersReducedMotion } = useDeviceProfile();
+    const reduceMotion = disableHeavyEffects || prefersReducedMotion;
     const [range, setRange] = React.useState<ReadingTimeRange>('week');
     const [view, setView] = React.useState<ReadingTimeView>('line');
     const [selectedDayDate, setSelectedDayDate] = React.useState<string | null>(null);
@@ -660,18 +643,8 @@ const ReadingTime: React.FC = () => {
     const [isOverviewLoading, setIsOverviewLoading] = React.useState(true);
     const [isTimelineLoading, setIsTimelineLoading] = React.useState(true);
 
-    if (user && !isOnline) {
-        return (
-            <OfflineRequiredScreen
-                description="Okuma süresi istatistikleri güvenlik nedeniyle sadece internet bağlantısıyla görüntülenebilir."
-                actionHref="/history"
-                actionLabel="Okuma Geçmişine Git"
-            />
-        );
-    }
-
     React.useEffect(() => {
-        if (!user) {
+        if (!user || !isOnline) {
             setIsOverviewLoading(false);
             setIsTimelineLoading(false);
             return;
@@ -690,13 +663,18 @@ const ReadingTime: React.FC = () => {
         };
 
         void loadOverview();
-    }, [user]);
+    }, [isOnline, user]);
 
     React.useEffect(() => {
         if (!user) {
             setHistoryMonths([]);
             setCalendarMonthKey(null);
             setCustomWeek(null);
+            setIsHistoryLoading(false);
+            return;
+        }
+
+        if (!isOnline) {
             setIsHistoryLoading(false);
             return;
         }
@@ -730,10 +708,10 @@ const ReadingTime: React.FC = () => {
         };
 
         void loadHistoryMonths();
-    }, [user]);
+    }, [isOnline, user]);
 
     React.useEffect(() => {
-        if (!user) {
+        if (!user || !isOnline) {
             setIsTimelineLoading(false);
             return;
         }
@@ -760,7 +738,7 @@ const ReadingTime: React.FC = () => {
         };
 
         void loadTimeline();
-    }, [customWeek, range, user]);
+    }, [customWeek, isOnline, range, user]);
 
     React.useEffect(() => {
         if (timeline.length === 0) {
@@ -824,7 +802,6 @@ const ReadingTime: React.FC = () => {
         [customWeek, selectedHistoryMonth],
     );
 
-    const activeRangeLabel = customWeek ? `${customWeek.monthLabel} • ${customWeek.label}` : RANGE_LABELS[range];
     const activeRangeDetail = customWeek ? formatWeekRange(customWeek.startDate, customWeek.endDate) : null;
 
     const applyHistoricalWeek = React.useCallback((week: ReadingTimeHistoryWeek) => {
@@ -842,6 +819,16 @@ const ReadingTime: React.FC = () => {
             applyHistoricalWeek(matchingWeek);
         }
     }, [applyHistoricalWeek, selectedHistoryMonth]);
+
+    if (user && !isOnline) {
+        return (
+            <OfflineRequiredScreen
+                description="Okuma süresi istatistikleri güvenlik nedeniyle sadece internet bağlantısıyla görüntülenebilir."
+                actionHref="/history"
+                actionLabel="Okuma Geçmişine Git"
+            />
+        );
+    }
 
     if (!user) {
         return (
@@ -870,41 +857,43 @@ const ReadingTime: React.FC = () => {
         <div className="min-h-screen bg-background">
             <Header />
 
-            <main className="container pb-12 pt-20">
-                <div className="mb-6 flex flex-col gap-4 lg:mb-8 lg:flex-row lg:items-end lg:justify-between">
+            <main className="container pb-12 pt-16">
+                <div className={cn('py-6 sm:py-8', !disableHeavyEffects && 'animate-fade-up')}>
                     <div className="flex items-center gap-3">
                         <Clock3 className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" />
-                        <h1 className="text-3xl font-bold tracking-tight">Okuma Süresi</h1>
-                    </div>
-
-                    <div className="rounded-2xl border border-border bg-card/40 px-4 py-3 text-sm text-muted-foreground">
-                        <div>
-                            Aktif görünüm: <span className="font-semibold text-foreground">{activeRangeLabel}</span>
+                        <div className="min-w-0">
+                            <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Okuma Süresi</h1>
+                            {customWeek && (
+                                <p className="mt-0.5 text-xs sm:text-sm text-muted-foreground">
+                                    {customWeek.monthLabel} · {customWeek.label}
+                                    {activeRangeDetail ? ` (${activeRangeDetail})` : ''}
+                                </p>
+                            )}
                         </div>
-                        {activeRangeDetail && (
-                            <div className="mt-1 text-xs text-muted-foreground">{activeRangeDetail}</div>
-                        )}
                     </div>
                 </div>
 
                 {isOverviewLoading ? (
-                    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
+                    <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
                         {Array.from({ length: 4 }).map((_, index) => (
-                            <Skeleton key={index} className="aspect-[1.05/1] rounded-3xl sm:h-28 sm:aspect-auto sm:rounded-2xl" />
+                            <Skeleton key={index} className="h-[4.75rem] rounded-2xl sm:h-[5.25rem]" />
                         ))}
                     </div>
                 ) : (
-                    <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-2 xl:grid-cols-4">
-                        <OverviewCard label="Bugün" value={formatReadingDuration(overview.todaySeconds)} accentClassName="text-primary" index={0} />
-                        <OverviewCard label="Bu Hafta" value={formatReadingDuration(overview.weekSeconds)} accentClassName="text-sky-400" index={1} />
-                        <OverviewCard label="Bu Ay" value={formatReadingDuration(overview.monthSeconds)} accentClassName="text-emerald-400" index={2} />
-                        <OverviewCard label="Tüm Zaman" value={formatReadingDuration(overview.allTimeSeconds)} accentClassName="text-amber-400" index={3} />
+                    <div className="grid grid-cols-2 gap-2.5 sm:gap-3 xl:grid-cols-4">
+                        <OverviewCard label="Bugün" value={formatReadingDuration(overview.todaySeconds)} accentClassName="text-primary" index={0} disableHeavyEffects={disableHeavyEffects} />
+                        <OverviewCard label="Bu Hafta" value={formatReadingDuration(overview.weekSeconds)} accentClassName="text-sky-400" index={1} disableHeavyEffects={disableHeavyEffects} />
+                        <OverviewCard label="Bu Ay" value={formatReadingDuration(overview.monthSeconds)} accentClassName="text-emerald-400" index={2} disableHeavyEffects={disableHeavyEffects} />
+                        <OverviewCard label="Tüm Zaman" value={formatReadingDuration(overview.allTimeSeconds)} accentClassName="text-amber-400" index={3} disableHeavyEffects={disableHeavyEffects} />
                     </div>
                 )}
 
                 <div
-                    className="mt-6 animate-fade-up rounded-3xl border border-border bg-card/35 p-4 sm:mt-8 sm:p-5 md:p-6"
-                    style={{ animationDelay: '0.18s' }}
+                    className={cn(
+                        'mt-5 rounded-2xl border border-border/60 bg-card/60 p-3.5 sm:mt-6 sm:p-5',
+                        !disableHeavyEffects && 'animate-fade-up',
+                    )}
+                    style={disableHeavyEffects ? undefined : { animationDelay: '0.14s' }}
                 >
                     <Tabs
                         value={range}
@@ -912,40 +901,38 @@ const ReadingTime: React.FC = () => {
                             setRange(value as ReadingTimeRange);
                             setCustomWeek(null);
                         }}
-                        className="space-y-5 sm:space-y-6"
+                        className="space-y-4 sm:space-y-5"
                     >
-                        <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-secondary/40 p-1 sm:flex sm:flex-wrap">
-                            <TabsTrigger value="today" className="w-full whitespace-normal px-2 py-2 text-center text-xs leading-tight sm:w-auto sm:px-3 sm:text-sm sm:whitespace-nowrap">
-                                Bugün
-                            </TabsTrigger>
-                            <TabsTrigger value="week" className="w-full whitespace-normal px-2 py-2 text-center text-xs leading-tight sm:w-auto sm:px-3 sm:text-sm sm:whitespace-nowrap">
-                                Haftalık
-                            </TabsTrigger>
-                            <TabsTrigger value="month" className="w-full whitespace-normal px-2 py-2 text-center text-xs leading-tight sm:w-auto sm:px-3 sm:text-sm sm:whitespace-nowrap">
-                                Aylık
-                            </TabsTrigger>
-                            <TabsTrigger value="all" className="w-full whitespace-normal px-2 py-2 text-center text-xs leading-tight sm:w-auto sm:px-3 sm:text-sm sm:whitespace-nowrap">
-                                Tüm Zaman
-                            </TabsTrigger>
-                        </TabsList>
+                        <div className="flex flex-col gap-2.5 lg:flex-row lg:items-center lg:justify-between">
+                            <TabsList className="grid h-auto w-full grid-cols-2 gap-1 rounded-xl bg-secondary/40 p-1 sm:inline-flex sm:w-auto">
+                                <TabsTrigger value="today" className="rounded-lg px-2.5 py-2 text-xs sm:px-3.5 sm:text-sm">
+                                    Bugün
+                                </TabsTrigger>
+                                <TabsTrigger value="week" className="rounded-lg px-2.5 py-2 text-xs sm:px-3.5 sm:text-sm">
+                                    Haftalık
+                                </TabsTrigger>
+                                <TabsTrigger value="month" className="rounded-lg px-2.5 py-2 text-xs sm:px-3.5 sm:text-sm">
+                                    Aylık
+                                </TabsTrigger>
+                                <TabsTrigger value="all" className="rounded-lg px-2.5 py-2 text-xs sm:px-3.5 sm:text-sm">
+                                    Tüm Zaman
+                                </TabsTrigger>
+                            </TabsList>
 
-                        <div className="rounded-2xl border border-border bg-background/25 p-3">
-                            <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
-                                <div>
-                                    <p className="text-sm font-semibold">Geçmişten Hafta Bul</p>
-                                </div>
-
-                                <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+                            <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center lg:justify-end">
+                                <div className="flex items-center gap-1.5">
                                     <Dialog open={isWeekPickerOpen} onOpenChange={setIsWeekPickerOpen}>
                                         <DialogTrigger asChild>
                                             <Button
                                                 type="button"
                                                 variant={customWeek ? 'default' : 'outline'}
                                                 size="sm"
-                                                className="w-full justify-center gap-2 sm:w-auto"
+                                                className="h-9 flex-1 justify-center gap-2 rounded-xl sm:flex-initial"
                                             >
                                                 <CalendarDays className="h-4 w-4" />
-                                                Takvimden Hafta Seç
+                                                <span className="truncate">
+                                                    {customWeek ? customWeek.label : 'Takvimden Hafta Seç'}
+                                                </span>
                                             </Button>
                                         </DialogTrigger>
 
@@ -970,8 +957,8 @@ const ReadingTime: React.FC = () => {
                                                     ) : selectedHistoryMonth && selectedHistoryMonthDate ? (
                                                         <div className="grid gap-3 lg:grid-cols-[minmax(0,0.96fr)_minmax(0,1.04fr)] lg:items-start lg:gap-4">
                                                             <div className="space-y-3">
-                                                                <div className="space-y-2">
-                                                                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/75">Kayıtlı Ay</p>
+                                                                <div className="space-y-1.5">
+                                                                    <p className="text-xs font-medium text-muted-foreground">Kayıtlı Ay</p>
                                                                     <Select value={selectedHistoryMonth.monthKey} onValueChange={setCalendarMonthKey}>
                                                                         <SelectTrigger className="h-10 rounded-xl border-border bg-background/70 text-sm">
                                                                             <SelectValue placeholder="Ay seç" />
@@ -1028,7 +1015,7 @@ const ReadingTime: React.FC = () => {
 
                                                             <div className="space-y-2">
                                                                 <div className="flex items-center justify-between">
-                                                                    <p className="text-xs font-semibold uppercase tracking-[0.22em] text-primary/75">
+                                                                    <p className="text-xs font-medium text-muted-foreground">
                                                                         Ayın Haftaları
                                                                     </p>
                                                                     <Badge variant="outline">{selectedHistoryMonth.weeks.length} hafta</Badge>
@@ -1045,9 +1032,9 @@ const ReadingTime: React.FC = () => {
                                                                                     type="button"
                                                                                     onClick={() => applyHistoricalWeek(week)}
                                                                                     className={cn(
-                                                                                        'group w-full rounded-xl border px-3 py-2 text-left transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:border-primary/35 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:py-2.5',
+                                                                                        'group w-full rounded-xl border px-3 py-2 text-left transition-colors duration-200 ease-out hover:border-primary/35 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:py-2.5',
                                                                                         isActive
-                                                                                            ? 'border-primary/40 bg-primary/10 shadow-[0_10px_24px_rgba(59,130,246,0.12)]'
+                                                                                            ? 'border-primary/40 bg-primary/10'
                                                                                             : 'border-border bg-background/40',
                                                                                     )}
                                                                                 >
@@ -1058,7 +1045,7 @@ const ReadingTime: React.FC = () => {
                                                                                                 {formatWeekRange(week.startDate, week.endDate)}
                                                                                             </p>
                                                                                         </div>
-                                                                                        <Badge variant="outline" className="shrink-0 text-[9px] sm:text-[10px]">
+                                                                                        <Badge variant="outline" className="shrink-0 text-[10px]">
                                                                                             {week.activeDayCount} aktif gün
                                                                                         </Badge>
                                                                                     </div>
@@ -1074,7 +1061,7 @@ const ReadingTime: React.FC = () => {
                                                             <CalendarDays className="mx-auto h-9 w-9 text-muted-foreground/60" />
                                                             <p className="mt-3 text-sm font-semibold">Henüz seçim yapılacak geçmiş hafta yok</p>
                                                             <p className="mt-1 text-xs text-muted-foreground">
-                                                                Okuma kaydı oluştukça burada ay ve hafta bazlı geçmişin görünecek.
+                                                                Okuma kaydı oluştukça burada ay ve hafta bazlı geçmişiniz görünecek.
                                                             </p>
                                                         </div>
                                                     )}
@@ -1084,31 +1071,25 @@ const ReadingTime: React.FC = () => {
                                     </Dialog>
 
                                     {customWeek && (
-                                        <>
-                                            <Badge variant="outline" className="max-w-full self-start sm:self-auto">
-                                                {customWeek.monthLabel} • {customWeek.label}
-                                            </Badge>
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="sm"
-                                                className="justify-center sm:justify-start"
-                                                onClick={() => setCustomWeek(null)}
-                                            >
-                                                Özel Haftayı Kapat
-                                            </Button>
-                                        </>
+                                        <Button
+                                            type="button"
+                                            variant="ghost"
+                                            size="icon"
+                                            aria-label="Özel haftayı kapat"
+                                            title="Özel haftayı kapat"
+                                            className="h-9 w-9 shrink-0 rounded-xl"
+                                            onClick={() => setCustomWeek(null)}
+                                        >
+                                            <X className="h-4 w-4" />
+                                        </Button>
                                     )}
                                 </div>
-                            </div>
-                        </div>
 
-                        <div className="rounded-2xl border border-border bg-background/30 p-3">
-                            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                <div>
-                                    <p className="text-sm font-semibold">Görünüm tipi</p>
-                                </div>
-                                <div className="grid w-full grid-cols-3 gap-2 sm:w-auto">
+                                <div
+                                    role="group"
+                                    aria-label="Görünüm tipi"
+                                    className="grid grid-cols-3 gap-1 rounded-xl border border-border/60 bg-background/50 p-1 sm:inline-flex"
+                                >
                                     {VIEW_OPTIONS.map((option) => {
                                         const Icon = option.icon;
 
@@ -1116,12 +1097,13 @@ const ReadingTime: React.FC = () => {
                                             <Button
                                                 key={option.value}
                                                 type="button"
-                                                variant={view === option.value ? 'default' : 'outline'}
+                                                variant={view === option.value ? 'default' : 'ghost'}
                                                 size="sm"
-                                                className="justify-center gap-1.5 px-2 text-xs sm:justify-start sm:gap-2 sm:px-3 sm:text-sm"
+                                                aria-pressed={view === option.value}
+                                                className="h-7 justify-center gap-1.5 rounded-lg px-2.5 text-xs sm:text-sm"
                                                 onClick={() => setView(option.value)}
                                             >
-                                                <Icon className="h-4 w-4" />
+                                                <Icon className="h-3.5 w-3.5" />
                                                 {option.label}
                                             </Button>
                                         );
@@ -1130,27 +1112,31 @@ const ReadingTime: React.FC = () => {
                             </div>
                         </div>
 
-                        <div className="grid grid-cols-2 gap-3 sm:gap-4 md:grid-cols-3">
-                            <div className="animate-fade-up aspect-[1.02/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl">
+                        <div className="grid grid-cols-2 gap-2.5 sm:gap-3 md:grid-cols-3">
+                            <div className={cn('rounded-xl border border-border/60 bg-background/45 px-3.5 py-3', !disableHeavyEffects && 'animate-fade-up')}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
-                                    <Flame className="h-4 w-4 text-primary" />
-                                    <span className="line-clamp-2 text-sm leading-snug">Seçili Süre</span>
+                                    <Flame className="h-4 w-4 shrink-0 text-primary" />
+                                    <span className="line-clamp-1 text-xs sm:text-sm">Seçili Süre</span>
                                 </div>
-                                <p className="mt-3 break-words text-[clamp(1.45rem,5.2vw,2rem)] font-bold leading-tight">{formatReadingDuration(selectedTotalSeconds)}</p>
+                                <p className="mt-1.5 break-words text-lg font-bold leading-tight tabular-nums sm:text-2xl">
+                                    {formatReadingDuration(selectedTotalSeconds)}
+                                </p>
                             </div>
-                            <div className="animate-fade-up aspect-[1.02/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl">
+                            <div className={cn('rounded-xl border border-border/60 bg-background/45 px-3.5 py-3', !disableHeavyEffects && 'animate-fade-up')}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
-                                    <CalendarDays className="h-4 w-4 text-sky-400" />
-                                    <span className="line-clamp-2 text-sm leading-snug">Aktif Gün</span>
+                                    <CalendarDays className="h-4 w-4 shrink-0 text-sky-400" />
+                                    <span className="line-clamp-1 text-xs sm:text-sm">Aktif Gün</span>
                                 </div>
-                                <p className="mt-3 break-words text-[clamp(1.45rem,5.2vw,2rem)] font-bold leading-tight">{timeline.length}</p>
+                                <p className="mt-1.5 break-words text-lg font-bold leading-tight tabular-nums sm:text-2xl">
+                                    {timeline.length}
+                                </p>
                             </div>
-                            <div className="animate-fade-up col-span-2 aspect-[2.08/1] min-h-[8rem] rounded-3xl border border-border bg-background/40 p-4 sm:aspect-auto sm:min-h-0 sm:rounded-2xl md:col-span-1">
+                            <div className={cn('col-span-2 rounded-xl border border-border/60 bg-background/45 px-3.5 py-3 md:col-span-1', !disableHeavyEffects && 'animate-fade-up')}>
                                 <div className="flex items-center gap-2 text-muted-foreground">
-                                    <LineChartIcon className="h-4 w-4 text-emerald-400" />
-                                    <span className="line-clamp-2 text-sm leading-snug">En Yoğun Gün</span>
+                                    <LineChartIcon className="h-4 w-4 shrink-0 text-emerald-400" />
+                                    <span className="line-clamp-1 text-xs sm:text-sm">En Yoğun Gün</span>
                                 </div>
-                                <p className="mt-3 break-words text-[clamp(1.45rem,5.2vw,2rem)] font-bold leading-tight">
+                                <p className="mt-1.5 break-words text-lg font-bold leading-tight tabular-nums sm:text-2xl">
                                     {maxDaySeconds > 0 ? formatReadingDuration(maxDaySeconds) : '0 sn'}
                                 </p>
                             </div>
@@ -1167,23 +1153,17 @@ const ReadingTime: React.FC = () => {
                                 {view === 'line' && (
                                     <motion.div
                                         key="reading-time-line"
-                                        initial={{ opacity: 0, y: 14 }}
+                                        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
                                         animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -10 }}
-                                        transition={VIEW_TRANSITION}
+                                        exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
+                                        transition={reduceMotion ? INSTANT_TRANSITION : VIEW_TRANSITION}
                                         className="space-y-4"
                                     >
-                                        <div className="flex items-center justify-between gap-3">
-                                            <div>
-                                                <h2 className="text-lg font-semibold">Günlük Trend Grafiği</h2>
-                                            </div>
-                                            <Badge variant="outline">{chartData.length} gün</Badge>
-                                        </div>
-
                                         <ReadingTrendChart
                                             data={chartData}
                                             selectedDate={selectedDayDate}
                                             onSelect={setSelectedDayDate}
+                                            reduceMotion={reduceMotion}
                                         />
 
                                         <AnimatePresence mode="wait" initial={false}>
@@ -1191,7 +1171,7 @@ const ReadingTime: React.FC = () => {
                                                 <SelectedDayPanel
                                                     key={selectedDay.date}
                                                     day={selectedDay}
-                                                    title="Grafikten Seçilen Gün"
+                                                    reduceMotion={reduceMotion}
                                                 />
                                             )}
                                         </AnimatePresence>
@@ -1201,19 +1181,17 @@ const ReadingTime: React.FC = () => {
                                 {view === 'grid' && (
                                     <motion.div
                                         key="reading-time-grid"
-                                        initial={{ opacity: 0, y: 14 }}
+                                        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
                                         animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -10 }}
-                                        transition={VIEW_TRANSITION}
+                                        exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
+                                        transition={reduceMotion ? INSTANT_TRANSITION : VIEW_TRANSITION}
                                         className="space-y-4"
                                     >
-
-
                                         <div className={cn(
-                                            'rounded-2xl border border-border bg-background/20 p-3',
+                                            'rounded-2xl border border-border/60 bg-background/20 p-3',
                                             timeline.length > 24 && 'max-h-[48rem] overflow-y-auto',
                                         )}>
-                                            <div className="grid grid-cols-2 gap-3 min-[430px]:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                                            <div className="grid grid-cols-2 gap-2.5 min-[420px]:grid-cols-3 sm:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
                                                 {timeline.map((day, index) => {
                                                     const dateParts = buildSquareDateParts(day.date);
                                                     const isSelected = day.date === selectedDayDate;
@@ -1224,22 +1202,23 @@ const ReadingTime: React.FC = () => {
                                                             type="button"
                                                             onClick={() => setSelectedDayDate(day.date)}
                                                             className={cn(
-                                                                'group animate-fade-up aspect-square rounded-2xl border p-3 text-left transition-[background-color,border-color,box-shadow] duration-200 ease-out hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                                                'group rounded-xl border p-3 text-left transition-colors duration-200 ease-out hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                                                !disableHeavyEffects && 'animate-fade-up',
                                                                 isSelected
-                                                                    ? 'border-primary/50 bg-primary/10 shadow-[0_10px_24px_rgba(59,130,246,0.12),0_0_0_1px_rgba(59,130,246,0.18)]'
-                                                                    : 'border-border bg-background/40',
+                                                                    ? 'border-primary/50 bg-primary/10 shadow-[0_0_0_1px_rgba(59,130,246,0.18)]'
+                                                                    : 'border-border/60 bg-background/40',
                                                             )}
-                                                            style={{
+                                                            style={disableHeavyEffects ? undefined : {
                                                                 animationDelay: `${0.04 + Math.min(index, 12) * 0.015}s`,
                                                             }}
                                                         >
-                                                            <div className="flex h-full flex-col justify-between">
+                                                            <div className="flex flex-col justify-between gap-2.5">
                                                                 <div>
-                                                                    <p className="text-[10px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
+                                                                    <p className="text-xs font-medium text-muted-foreground">
                                                                         {dateParts.weekday}
                                                                     </p>
                                                                     <p className={cn(
-                                                                        'mt-2 text-2xl font-bold leading-none transition-colors group-hover:text-primary group-focus-visible:text-primary',
+                                                                        'mt-1 text-2xl font-bold leading-none tabular-nums transition-colors group-hover:text-primary group-focus-visible:text-primary',
                                                                         isSelected && 'text-primary',
                                                                     )}>
                                                                         {dateParts.day}
@@ -1248,8 +1227,8 @@ const ReadingTime: React.FC = () => {
                                                                 </div>
 
                                                                 <div>
-                                                                    <p className="text-sm font-semibold text-primary">{formatCompactReadingDuration(day.seconds)}</p>
-                                                                    <p className="mt-1 text-[11px] text-muted-foreground">{day.chapters} bölüm</p>
+                                                                    <p className="text-sm font-semibold text-primary tabular-nums">{formatCompactReadingDuration(day.seconds)}</p>
+                                                                    <p className="mt-0.5 text-[11px] text-muted-foreground">{day.chapters} bölüm</p>
                                                                 </div>
                                                             </div>
                                                         </button>
@@ -1263,7 +1242,7 @@ const ReadingTime: React.FC = () => {
                                                 <SelectedDayPanel
                                                     key={selectedDay.date}
                                                     day={selectedDay}
-                                                    title="Seçili Gün"
+                                                    reduceMotion={reduceMotion}
                                                 />
                                             )}
                                         </AnimatePresence>
@@ -1273,10 +1252,10 @@ const ReadingTime: React.FC = () => {
                                 {view === 'list' && (
                                     <motion.div
                                         key="reading-time-list"
-                                        initial={{ opacity: 0, y: 14 }}
+                                        initial={reduceMotion ? false : { opacity: 0, y: 12 }}
                                         animate={{ opacity: 1, y: 0 }}
-                                        exit={{ opacity: 0, y: -10 }}
-                                        transition={VIEW_TRANSITION}
+                                        exit={reduceMotion ? undefined : { opacity: 0, y: -8 }}
+                                        transition={reduceMotion ? INSTANT_TRANSITION : VIEW_TRANSITION}
                                         className="space-y-4"
                                     >
                                         {timeline.map((day, index) => {
@@ -1291,53 +1270,51 @@ const ReadingTime: React.FC = () => {
                                             return (
                                                 <div
                                                     key={day.date}
-                                                    className="animate-fade-up rounded-2xl border border-border bg-background/40 p-3 sm:p-4"
-                                                    style={{
+                                                    className={cn(
+                                                        'rounded-2xl border border-border/60 bg-background/40 p-3.5 sm:p-4',
+                                                        !disableHeavyEffects && 'animate-fade-up',
+                                                    )}
+                                                    style={disableHeavyEffects ? undefined : {
                                                         animationDelay: `${0.04 + Math.min(index, 8) * 0.02}s`,
                                                     }}
                                                 >
-                                                    <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                                                    <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                                                         <div className="min-w-0">
                                                             <p className="text-base font-semibold capitalize leading-tight sm:text-lg">{day.label}</p>
-                                                            <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                                                            <div className="mt-1.5 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                                                                 <Badge variant="outline">{day.chapters} bölüm</Badge>
                                                                 <Badge variant="outline">{day.seriesCount} seri</Badge>
-                                                                <span>{new Date(`${day.date}T00:00:00`).toLocaleDateString('tr-TR')}</span>
                                                             </div>
                                                         </div>
 
-                                                        <div className="min-w-0 text-left md:min-w-[10rem] md:text-right">
-                                                            <p className="break-words text-lg font-bold leading-tight text-primary sm:text-xl">{formatReadingDuration(day.seconds)}</p>
-                                                            <p className="text-xs text-muted-foreground">{activeRangeLabel} görünümünde</p>
-                                                        </div>
+                                                        <p className="break-words text-lg font-bold leading-tight text-primary tabular-nums sm:text-xl">
+                                                            {formatReadingDuration(day.seconds)}
+                                                        </p>
                                                     </div>
 
-                                                    <div className="mt-4 h-2 overflow-hidden rounded-full bg-secondary/50">
+                                                    <div className="mt-3.5 h-2 overflow-hidden rounded-full bg-secondary/50">
                                                         <div
-                                                            className="h-full rounded-full bg-primary/80 transition-all"
+                                                            className={cn('h-full rounded-full bg-primary/80', !disableHeavyEffects && 'transition-[width] duration-300')}
                                                             style={{ width: `${width}%` }}
                                                         />
                                                     </div>
 
-                                                    <div className="mt-5">
-                                                        <div className="mb-3 flex items-center justify-between gap-3">
-                                                            <p className="text-sm font-semibold">Bu günde okuduğun seriler</p>
-                                                        </div>
-
+                                                    <div className="mt-4">
+                                                        <p className="mb-3 text-sm font-semibold">Bu gün okunan seriler</p>
                                                         <ReadingTimeMangaGrid items={mangaGroups} detailSearch={detailSearch} />
                                                     </div>
                                                 </div>
-                                                );
-                                            })}
+                                            );
+                                        })}
                                     </motion.div>
                                 )}
                             </AnimatePresence>
                         ) : (
-                            <div className="rounded-2xl border border-dashed border-border bg-background/30 py-16 text-center">
+                            <div className="rounded-2xl border border-dashed border-border bg-background/30 py-14 text-center">
                                 <Clock3 className="mx-auto h-12 w-12 text-muted-foreground/60" />
                                 <h2 className="mt-4 text-xl font-semibold">Bu aralıkta kayıt yok</h2>
-                                <p className="mt-2 text-muted-foreground">
-                                    Okudukça sürelerin burada gün gün görünmeye başlayacak.
+                                <p className="mt-2 text-sm text-muted-foreground">
+                                    Okudukça süreleriniz burada gün gün görünecek.
                                 </p>
                             </div>
                         )}

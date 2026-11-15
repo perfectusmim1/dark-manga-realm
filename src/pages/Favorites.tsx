@@ -3,6 +3,7 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { Heart, List } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import Header from '@/components/layout/Header';
 import MangaGrid from '@/components/manga/MangaGrid';
 import ReadingListCover from '@/components/manga/ReadingListCover';
@@ -41,11 +42,11 @@ const buildFavoriteFallbackManga = (favorite: Favorite): Manga => ({
   alternativeTitles: [],
   cover: favorite.mangaCover || FAVORITES_FALLBACK_COVER,
   banner: favorite.mangaCover || FAVORITES_FALLBACK_COVER,
-  author: 'Çevrimdışı önbellek',
+  author: '',
   artist: '',
   status: 'ongoing',
   genres: [],
-  description: 'Bu seri çevrimdışı modda önbelleğe alınmış temel bilgilerle gösteriliyor.',
+  description: '',
   ratings: [],
   views: 0,
   chapters: [],
@@ -63,11 +64,22 @@ const resolveFavoriteManga = (
   favorites: Favorite[],
   primaryMap?: Map<string, Manga>,
   secondaryMap?: Map<string, Manga>,
-) => favorites.map((favorite) => (
-  primaryMap?.get(favorite.mangaId)
-  || secondaryMap?.get(favorite.mangaId)
-  || buildFavoriteFallbackManga(favorite)
-));
+) => {
+  const seen = new Set<string>();
+  const uniqueFavorites = favorites.filter((favorite) => {
+    if (!favorite.mangaId || seen.has(favorite.mangaId)) {
+      return false;
+    }
+    seen.add(favorite.mangaId);
+    return true;
+  });
+
+  return uniqueFavorites.map((favorite) => (
+    primaryMap?.get(favorite.mangaId)
+    || secondaryMap?.get(favorite.mangaId)
+    || buildFavoriteFallbackManga(favorite)
+  ));
+};
 
 const hydrateFavoriteMangaFromOffline = async (favorites: Favorite[]) => {
   const offlineEntries = await Promise.all(
@@ -84,6 +96,7 @@ const Favorites: React.FC = () => {
   useDocumentTitle('Favorilerim');
   const { user } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
+  const { disableHeavyEffects } = useDeviceProfile();
   const initialFavoriteCache = user?.id && areFavoritesInitialized(user.id)
     ? getCachedFavoritesState(user.id)
     : [];
@@ -205,8 +218,17 @@ const Favorites: React.FC = () => {
           return;
         }
 
+        const seenListIds = new Set<string>();
+        const uniqueLikedLists = likedLists.filter((list) => {
+          if (!list.id || seenListIds.has(list.id)) {
+            return false;
+          }
+          seenListIds.add(list.id);
+          return true;
+        });
+
         React.startTransition(() => {
-          setFavoriteLists(likedLists);
+          setFavoriteLists(uniqueLikedLists);
         });
         setHasLoadedLists(true);
       } catch (error) {
@@ -260,36 +282,39 @@ const Favorites: React.FC = () => {
       <Header />
 
       <main className="container pb-12 pt-16">
-        <div className="py-6 sm:py-8 animate-fade-up" style={{ animationDelay: '0.04s' }}>
+        <div
+          className={cn('py-6 sm:py-8', !disableHeavyEffects && 'animate-fade-up')}
+          style={disableHeavyEffects ? undefined : { animationDelay: '0.04s' }}
+        >
           <div className="flex items-center gap-3">
             <div className="rounded-xl bg-primary/10 p-2 text-primary">
               <Heart className="h-6 w-6" />
             </div>
-            <div>
+            <div className="min-w-0">
               <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Favorilerim</h1>
-              <p className="mt-0.5 text-sm text-muted-foreground">
-                {favoriteManga.length} manga
-                {hasLoadedLists ? ` ve ${favoriteLists.length} beğenilen okuma listesi` : ''}
+              <p className="mt-0.5 text-sm text-muted-foreground tabular-nums">
+                {favoriteManga.length} seri
+                {hasLoadedLists ? ` · ${favoriteLists.length} beğenilen liste` : ''}
               </p>
             </div>
           </div>
         </div>
 
         <Tabs value={activeTab} onValueChange={(value) => setActiveTab(value as 'manga' | 'lists')} className="space-y-6">
-          <TabsList className="grid h-auto w-full grid-cols-2 gap-2 rounded-2xl bg-secondary/40 p-1 sm:inline-flex sm:w-auto sm:flex-wrap">
-            <TabsTrigger value="manga" className="gap-2 px-3 text-xs sm:text-sm">
+          <TabsList className="grid h-auto w-full grid-cols-2 gap-1.5 rounded-xl bg-secondary/40 p-1 sm:inline-flex sm:w-auto sm:flex-wrap">
+            <TabsTrigger value="manga" className="gap-2 rounded-lg px-3 py-2 text-xs sm:text-sm">
               <Heart className="h-4 w-4" />
-              <span className="sm:hidden">Mangalar</span>
-              <span className="hidden sm:inline">Favori Mangalar</span>
+              <span className="sm:hidden">Seriler</span>
+              <span className="hidden sm:inline">Favori Seriler</span>
             </TabsTrigger>
-            <TabsTrigger value="lists" className="gap-2 px-3 text-xs sm:text-sm">
+            <TabsTrigger value="lists" className="gap-2 rounded-lg px-3 py-2 text-xs sm:text-sm">
               <List className="h-4 w-4" />
               <span className="sm:hidden">Listeler</span>
-              <span className="hidden sm:inline">Beğenilen Okuma Listeleri</span>
+              <span className="hidden sm:inline">Beğenilen Listeler</span>
             </TabsTrigger>
           </TabsList>
 
-          <TabsContent value="manga" className="mt-0">
+          <TabsContent value="manga" className={cn('mt-0', !disableHeavyEffects && 'animate-route-fade')}>
             {activeTab === 'manga' ? (
               favoriteManga.length > 0 ? (
                 <MangaGrid
@@ -297,14 +322,14 @@ const Favorites: React.FC = () => {
                   getColumnCount={getSixColumnDesktopCount}
                 />
               ) : (
-                <div className="flex min-h-[40vh] items-center justify-center">
+                <div className="flex min-h-[40vh] items-center justify-center rounded-2xl border border-dashed border-border bg-card/30 px-4">
                   <div className="text-center">
-                    <Heart className="mx-auto h-16 w-16 text-muted-foreground" />
-                    <h2 className="mt-4 text-xl font-semibold">Henüz favori mangan yok</h2>
-                    <p className="mt-2 text-muted-foreground">
-                      Beğendiğin mangaları favorilerine ekleyebilirsin.
+                    <Heart className="mx-auto h-14 w-14 text-muted-foreground/60" />
+                    <h2 className="mt-4 text-xl font-semibold">Henüz favori seriniz yok</h2>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Beğendiğiniz serileri favorilerinize ekleyebilirsiniz.
                     </p>
-                    <Button asChild className="mt-4">
+                    <Button asChild className="mt-4" size="sm">
                       <Link to="/browse">Keşfet</Link>
                     </Button>
                   </div>
@@ -313,7 +338,7 @@ const Favorites: React.FC = () => {
             ) : null}
           </TabsContent>
 
-          <TabsContent value="lists" className="mt-0">
+          <TabsContent value="lists" className={cn('mt-0', !disableHeavyEffects && 'animate-route-fade')}>
             {activeTab === 'lists' ? (
               !isOnline ? (
                 <OfflineNotice
@@ -321,9 +346,9 @@ const Favorites: React.FC = () => {
                   description="Beğendiğiniz okuma listelerini görmek için internete bağlanın."
                 />
               ) : isListsLoading ? (
-                <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
+                <div className="grid gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
                   {Array.from({ length: 6 }).map((_, index) => (
-                    <div key={index} className="overflow-hidden rounded-2xl border border-border bg-card/40">
+                    <div key={index} className="overflow-hidden rounded-xl border border-border/60 bg-card/60">
                       <Skeleton className="h-40 w-full" />
                       <div className="space-y-3 p-4">
                         <Skeleton className="h-5 w-2/3" />
@@ -355,10 +380,11 @@ const Favorites: React.FC = () => {
                     <Link
                       to={`/reading-lists/${list.id}`}
                       className={cn(
-                        'group flex flex-col animate-fade-up overflow-hidden rounded-xl border border-border/60 bg-card/75 transition-colors hover:border-primary/40 hover:bg-card',
+                        'group flex flex-col overflow-hidden rounded-xl border border-border/60 bg-card/75 transition-colors hover:border-primary/40 hover:bg-card',
+                        !disableHeavyEffects && 'animate-fade-up',
                         index >= 12 && 'cv-auto-card',
                       )}
-                      style={{
+                      style={disableHeavyEffects ? undefined : {
                         animationDelay: `${0.08 + Math.min(index, 11) * 0.03}s`,
                       }}
                     >
@@ -368,40 +394,46 @@ const Favorites: React.FC = () => {
                         className="h-40 w-full"
                         iconClassName="h-10 w-10"
                       />
-                      <div className="space-y-3 p-4">
-                        <div>
+                      <div className="flex flex-1 flex-col justify-between gap-3 p-4">
+                        <div className="min-w-0">
                           <h2 className="line-clamp-1 font-semibold transition-colors group-hover:text-primary">
                             {list.name}
                           </h2>
-                          <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
-                            {list.description || 'Açıklama yok.'}
-                          </p>
-                        </div>
-
-                        <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                          <Badge variant="outline">{list.itemsCount} seri</Badge>
-                          <Badge variant="outline">{list.likesCount} beğeni</Badge>
-                          {list.ownerUsername && (
-                            <span className="truncate">liste sahibi: {list.ownerUsername}</span>
+                          {list.description && (
+                            <p className="mt-1 line-clamp-2 text-sm text-muted-foreground">
+                              {list.description}
+                            </p>
                           )}
                         </div>
 
-                        <p className="text-xs text-muted-foreground">
-                          {new Date(list.likedAt).toLocaleDateString('tr-TR')} tarihinde beğenildi
-                        </p>
+                        <div className="space-y-2">
+                          <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                            <Badge variant="outline">{list.itemsCount} seri</Badge>
+                            <Badge variant="outline">{list.likesCount} beğeni</Badge>
+                            {list.ownerUsername && (
+                              <span className="truncate">Hazırlayan: {list.ownerUsername}</span>
+                            )}
+                          </div>
+
+                          {list.likedAt && !Number.isNaN(new Date(list.likedAt).getTime()) && (
+                            <p className="text-xs text-muted-foreground">
+                              {new Date(list.likedAt).toLocaleDateString('tr-TR')} tarihinde beğenildi
+                            </p>
+                          )}
+                        </div>
                       </div>
                     </Link>
                   )}
                 />
               ) : (
-                <div className="flex min-h-[40vh] items-center justify-center">
+                <div className="flex min-h-[40vh] items-center justify-center rounded-2xl border border-dashed border-border bg-card/30 px-4">
                   <div className="text-center">
-                    <List className="mx-auto h-16 w-16 text-muted-foreground" />
-                    <h2 className="mt-4 text-xl font-semibold">Henüz beğenilmiş listen yok</h2>
-                    <p className="mt-2 text-muted-foreground">
-                      Beğendiğin okuma listeleri burada ayrı bir sekmede görünecek.
+                    <List className="mx-auto h-14 w-14 text-muted-foreground/60" />
+                    <h2 className="mt-4 text-xl font-semibold">Henüz beğenilmiş listeniz yok</h2>
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Beğendiğiniz okuma listeleri burada görünür.
                     </p>
-                    <Button asChild className="mt-4" variant="outline">
+                    <Button asChild className="mt-4" size="sm" variant="outline">
                       <Link to="/community">Topluluğa Git</Link>
                     </Button>
                   </div>

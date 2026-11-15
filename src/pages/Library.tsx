@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useDeferredValue, useMemo } from 'react';
+import React, { useState, useEffect, useDeferredValue, useMemo, useCallback } from 'react';
 import { Link } from 'react-router-dom';
 import {
     Library as LibraryIcon,
@@ -13,6 +13,9 @@ import {
     X,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
+import OfflineNotice from '@/components/offline/OfflineNotice';
+import useDocumentTitle from '@/hooks/useDocumentTitle';
+import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { cn } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -33,6 +36,7 @@ import {
     getLatestProgress,
 } from '../lib/storage';
 import { Manga, LibraryCategory, Favorite, ReadingProgress } from '@/lib/types';
+import { formatChapterNumberLabel } from '@/lib/chapterTitle';
 import { toast } from 'sonner';
 import LibrarySkeleton from '@/components/skeletons/LibrarySkeleton';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
@@ -53,37 +57,36 @@ const categoryConfig: { key: LibraryCategory; label: string; icon: React.Element
 ];
 
 const Library: React.FC = () => {
+    useDocumentTitle('Kütüphanem');
     const { user } = useAuth();
     const { isOnline } = useEffectiveOnlineStatus();
+    const { disableHeavyEffects } = useDeviceProfile();
     const [activeTab, setActiveTab] = useState<LibraryCategory | 'all'>('all');
-    const [libraryItems, setLibraryItems] = useState<LibraryItem[]>([]);
+    const [allItems, setAllItems] = useState<LibraryItem[]>([]);
     const [searchQuery, setSearchQuery] = useState('');
     const deferredSearchQuery = useDeferredValue(searchQuery.trim().toLocaleLowerCase('tr-TR'));
     const [isInitialLoading, setIsInitialLoading] = useState(true);
-    const [isRefreshing, setIsRefreshing] = useState(false);
-    const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
 
-    useEffect(() => {
-        fetchLibrary();
-    }, [activeTab, user?.id]);
-
-    const fetchLibrary = async () => {
-        if (!user) return;
+    const fetchLibrary = useCallback(async () => {
+        if (!user) {
+            setAllItems([]);
+            setIsInitialLoading(false);
+            return;
+        }
 
         try {
-            if (hasLoadedOnce) {
-                setIsRefreshing(true);
-            } else {
-                setIsInitialLoading(true);
-            }
-            const favorites = await getFavorites(user.id);
+            setIsInitialLoading(true);
+            const rawFavorites = await getFavorites(user.id);
+            const seenMangaIds = new Set<string>();
+            const favorites = rawFavorites.filter((fav) => {
+                if (!fav.mangaId || seenMangaIds.has(fav.mangaId)) {
+                    return false;
+                }
+                seenMangaIds.add(fav.mangaId);
+                return true;
+            });
 
-            let filtered = favorites;
-            if (activeTab !== 'all') {
-                filtered = favorites.filter(f => f.category === activeTab);
-            }
-
-            const items: LibraryItem[] = await Promise.all(filtered.map(async fav => {
+            const items: LibraryItem[] = await Promise.all(favorites.map(async (fav) => {
                 const progress = await getLatestProgress(user.id, fav.mangaId);
                 return {
                     favorite: fav,
@@ -98,25 +101,34 @@ const Library: React.FC = () => {
                 };
             }));
 
-            setLibraryItems(items);
+            setAllItems(items);
         } catch (err) {
             console.error('Library fetch error:', err);
         } finally {
             setIsInitialLoading(false);
-            setIsRefreshing(false);
-            setHasLoadedOnce(true);
         }
-    };
+    }, [user]);
+
+    useEffect(() => {
+        void fetchLibrary();
+    }, [fetchLibrary]);
+
+    const categoryItems = useMemo(() => {
+        if (activeTab === 'all') {
+            return allItems;
+        }
+        return allItems.filter((item) => item.favorite.category === activeTab);
+    }, [activeTab, allItems]);
 
     const filteredItems = useMemo(() => {
         if (!deferredSearchQuery) {
-            return libraryItems;
+            return categoryItems;
         }
 
-        return libraryItems.filter((item) =>
+        return categoryItems.filter((item) =>
             (item.manga.title || '').toLocaleLowerCase('tr-TR').includes(deferredSearchQuery),
         );
-    }, [deferredSearchQuery, libraryItems]);
+    }, [categoryItems, deferredSearchQuery]);
 
     const triggerExternalSync = async (
         mangaId: string,
@@ -138,6 +150,12 @@ const Library: React.FC = () => {
 
     const handleCategoryChange = async (mangaId: string, category: LibraryCategory) => {
         if (!user) return;
+        const previousItems = allItems;
+        setAllItems((prev) => prev.map((item) => (
+            item.favorite.mangaId === mangaId
+                ? { ...item, favorite: { ...item.favorite, category } }
+                : item
+        )));
         try {
             await updateFavoriteCategory(user.id, mangaId, category);
             void triggerExternalSync(mangaId, 'category');
@@ -146,8 +164,8 @@ const Library: React.FC = () => {
                     ? 'Kategori güncellendi'
                     : 'Kategori güncellendi, tekrar çevrimiçi olduğunda eşitlenecek'
             );
-            await fetchLibrary();
         } catch (err) {
+            setAllItems(previousItems);
             console.error('Category update failed:', err);
             toast.error('Kategori güncellenemedi');
         }
@@ -155,16 +173,18 @@ const Library: React.FC = () => {
 
     const handleRemove = async (mangaId: string) => {
         if (!user) return;
+        const previousItems = allItems;
+        setAllItems((prev) => prev.filter((item) => item.favorite.mangaId !== mangaId));
         try {
             await removeFavorite(user.id, mangaId);
             void triggerExternalSync(mangaId, 'favorite');
-            await fetchLibrary();
             toast.success(
                 isOnline
                     ? 'Kütüphaneden kaldırıldı'
                     : 'Kütüphaneden kaldırıldı, tekrar çevrimiçi olduğunda eşitlenecek'
             );
         } catch (err) {
+            setAllItems(previousItems);
             console.error('Favorite removal failed:', err);
             toast.error('Seri kütüphaneden kaldırılamadı');
         }
@@ -199,13 +219,27 @@ const Library: React.FC = () => {
         );
     }
 
+    const hasSearchQuery = Boolean(searchQuery.trim());
+
     return (
         <div className="min-h-screen bg-background">
             <Header />
 
             <main className="container pb-12 pt-16">
-                <div className="flex flex-col gap-3 py-6 sm:flex-row sm:items-center sm:justify-between sm:py-8">
-                    <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Kütüphanem</h1>
+                <div
+                    className={cn(
+                        'flex flex-col gap-3 py-6 sm:flex-row sm:items-end sm:justify-between sm:py-8',
+                        !disableHeavyEffects && 'animate-fade-up',
+                    )}
+                >
+                    <div className="min-w-0">
+                        <h1 className="text-2xl font-bold tracking-tight sm:text-3xl">Kütüphanem</h1>
+                        <p className="mt-1 text-sm text-muted-foreground tabular-nums">
+                            {hasSearchQuery
+                                ? `${filteredItems.length} / ${categoryItems.length} seri`
+                                : `${categoryItems.length} seri`}
+                        </p>
+                    </div>
                     <div className="relative w-full sm:w-72">
                         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                         <Input
@@ -227,6 +261,14 @@ const Library: React.FC = () => {
                     </div>
                 </div>
 
+                {!isOnline && (
+                    <OfflineNotice
+                        compact
+                        className="mb-5 text-left"
+                        description="Çevrimdışıyken kütüphane yerel önbellekten yüklenir; değişiklikler bağlantı geri geldiğinde eşitlenir."
+                    />
+                )}
+
                 <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as LibraryCategory | 'all')}>
                     <TabsList className="mb-5 flex h-auto w-full justify-start gap-1.5 overflow-x-auto rounded-xl bg-secondary/40 p-1">
                         <TabsTrigger value="all" className="shrink-0 gap-1.5 rounded-lg px-3 py-2 text-xs sm:text-sm">
@@ -241,24 +283,28 @@ const Library: React.FC = () => {
                         ))}
                     </TabsList>
 
-                    <TabsContent value={activeTab} className={`mt-0 transition-opacity duration-200 ${isRefreshing ? 'opacity-75' : 'opacity-100'}`}>
+                    <TabsContent
+                        key={activeTab}
+                        value={activeTab}
+                        className={cn('mt-0', !disableHeavyEffects && 'animate-route-fade')}
+                    >
                         {filteredItems.length === 0 ? (
-                            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/30 py-14 text-center">
+                            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-border bg-card/30 px-4 py-14 text-center">
                                 <LibraryIcon className="h-14 w-14 text-muted-foreground/50" />
                                 <p className="mt-4 text-sm text-muted-foreground">
-                                    {searchQuery.trim()
+                                    {hasSearchQuery
                                         ? 'Aramanızla eşleşen seri bulunamadı.'
                                         : activeTab === 'all'
-                                            ? 'Kütüphaneniz boş. Manga detay sayfasından favorilere ekleyin.'
-                                            : 'Bu kategoride manga bulunmuyor.'}
+                                            ? 'Kütüphaneniz henüz boş. Seri detay sayfasından kütüphanenize ekleyebilirsiniz.'
+                                            : 'Bu kategoride seri bulunmuyor.'}
                                 </p>
-                                {searchQuery.trim() ? (
+                                {hasSearchQuery ? (
                                     <Button className="mt-4" size="sm" onClick={() => setSearchQuery('')}>
                                         Aramayı Temizle
                                     </Button>
                                 ) : (
                                     <Button asChild className="mt-4" size="sm">
-                                        <Link to="/browse">Manga Keşfet</Link>
+                                        <Link to="/browse">Serileri Keşfet</Link>
                                     </Button>
                                 )}
                             </div>
@@ -268,10 +314,11 @@ const Library: React.FC = () => {
                                     <div
                                         key={favorite.mangaId}
                                         className={cn(
-                                            'animate-fade-up flex items-center gap-3 rounded-xl border border-border/60 bg-card/75 p-2.5 sm:p-3.5 transition-colors hover:border-primary/40 hover:bg-card',
+                                            'flex items-center gap-3 rounded-xl border border-border/60 bg-card/75 p-2.5 sm:p-3.5 transition-colors hover:border-primary/40 hover:bg-card',
+                                            !disableHeavyEffects && 'animate-fade-up',
                                             index >= 10 && 'cv-auto-row',
                                         )}
-                                        style={{ animationDelay: `${0.04 + Math.min(index, 10) * 0.025}s` }}
+                                        style={disableHeavyEffects ? undefined : { animationDelay: `${0.04 + Math.min(index, 10) * 0.025}s` }}
                                     >
                                         <Link
                                             to={`/manga/${manga.id}`}
@@ -307,7 +354,7 @@ const Library: React.FC = () => {
 
                                             <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">
                                                 {progress
-                                                    ? `Son okunan: Bölüm ${progress.chapterNumber}`
+                                                    ? `Son okunan: Bölüm ${formatChapterNumberLabel(progress.chapterNumber)}`
                                                     : 'Henüz okuma kaydı yok'}
                                             </p>
 
@@ -317,7 +364,7 @@ const Library: React.FC = () => {
                                                     onValueChange={(value) => handleCategoryChange(manga.id, value as LibraryCategory)}
                                                 >
                                                     <SelectTrigger
-                                                        className="h-8 w-auto min-w-[118px] max-w-[144px] rounded-lg bg-background/60 px-2.5 text-xs"
+                                                        className="h-8 w-auto min-w-[108px] max-w-[140px] rounded-lg bg-background/60 px-2.5 text-xs"
                                                         aria-label="Okuma durumu"
                                                     >
                                                         <SelectValue />
