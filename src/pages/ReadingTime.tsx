@@ -307,59 +307,55 @@ const ReadingTimeMangaCard = ({
     return (
         <Link
             to={`/reading-time/manga/${aggregate.mangaId}${detailSearch}`}
-            className="group flex h-full min-h-[14rem] flex-col rounded-xl border border-border/60 bg-card/75 p-2.5 sm:p-3 transition-colors duration-200 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+            className="group flex min-w-0 items-center gap-3.5 rounded-2xl border border-border/60 bg-card/75 p-2.5 sm:p-3 transition-colors duration-200 hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-            <div className="relative overflow-hidden rounded-lg border border-border/50 bg-black leading-none">
-                <div className="relative aspect-[4/5] lg:aspect-[4/4.45]">
-                    <div className="absolute inset-0">
-                        {aggregate.mangaCover ? (
-                            <img
-                                src={aggregate.mangaCover}
-                                alt={aggregate.mangaTitle}
-                                loading="lazy"
-                                decoding="async"
-                                className="block h-full w-full object-cover"
-                            />
-                        ) : (
-                            <div className="flex h-full w-full items-center justify-center bg-secondary/40">
-                                <BookOpen className="h-8 w-8 text-muted-foreground" />
-                            </div>
-                        )}
-
-                        <div className="pointer-events-none absolute inset-x-0 bottom-0 h-20 bg-gradient-to-t from-black/90 via-black/55 to-transparent" />
-                        <div className="pointer-events-none absolute inset-x-0 bottom-0 px-2.5 pb-2.5 pt-8">
-                            <p className="text-sm font-semibold text-primary">
-                                {formatCompactReadingDuration(aggregate.totalSeconds)}
-                            </p>
-                            {lastReadTime && (
-                                <p className="mt-0.5 text-[11px] text-white/80">
-                                    {lastReadTime}
-                                </p>
-                            )}
-                        </div>
+            <div className="relative h-24 w-[4.25rem] shrink-0 overflow-hidden rounded-xl border border-border/50 bg-black leading-none">
+                {aggregate.mangaCover ? (
+                    <img
+                        src={aggregate.mangaCover}
+                        alt={aggregate.mangaTitle}
+                        loading="lazy"
+                        decoding="async"
+                        className="image-downscale-quality block h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                    />
+                ) : (
+                    <div className="flex h-full w-full items-center justify-center bg-secondary/40">
+                        <BookOpen className="h-6 w-6 text-muted-foreground" />
                     </div>
-                </div>
+                )}
             </div>
 
-            <div className="mt-2.5 flex flex-1 flex-col">
-                <h4 className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary group-focus-visible:text-primary">
-                    {aggregate.mangaTitle}
-                </h4>
-                {typeof aggregate.latestChapterNumber === 'number' && aggregate.latestChapterNumber > 0 ? (
-                    <p className="mt-1 text-[11px] text-muted-foreground">
-                        Bölüm {formatChapterNumberLabel(aggregate.latestChapterNumber)}
-                    </p>
-                ) : null}
+            <div className="flex min-w-0 flex-1 flex-col justify-between self-stretch py-0.5">
+                <div className="min-w-0">
+                    <div className="flex items-start justify-between gap-2">
+                        <h4 className="line-clamp-2 text-sm font-semibold leading-snug transition-colors group-hover:text-primary group-focus-visible:text-primary">
+                            {aggregate.mangaTitle}
+                        </h4>
+                        <span className="shrink-0 rounded-lg border border-primary/25 bg-primary/10 px-2 py-0.5 text-xs font-bold tabular-nums text-primary">
+                            {formatCompactReadingDuration(aggregate.totalSeconds)}
+                        </span>
+                    </div>
 
-                <div className="mt-auto grid grid-cols-2 gap-1.5 pt-2.5 text-[11px]">
-                    <div className="rounded-lg border border-border/50 bg-background/45 px-2 py-1.5">
-                        <p className="text-muted-foreground">Oturum</p>
-                        <p className="mt-0.5 font-semibold tabular-nums">{aggregate.sessionCount}</p>
+                    <div className="mt-1 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                        {typeof aggregate.latestChapterNumber === 'number' && aggregate.latestChapterNumber > 0 && (
+                            <span>Bölüm {formatChapterNumberLabel(aggregate.latestChapterNumber)}</span>
+                        )}
+                        {typeof aggregate.latestChapterNumber === 'number' && aggregate.latestChapterNumber > 0 && lastReadTime && (
+                            <span className="text-muted-foreground/50">·</span>
+                        )}
+                        {lastReadTime && (
+                            <span className="tabular-nums">{lastReadTime}</span>
+                        )}
                     </div>
-                    <div className="rounded-lg border border-border/50 bg-background/45 px-2 py-1.5">
-                        <p className="text-muted-foreground">Bölüm</p>
-                        <p className="mt-0.5 font-semibold tabular-nums">{aggregate.chapterCount}</p>
-                    </div>
+                </div>
+
+                <div className="mt-2 flex flex-wrap items-center gap-1.5 text-[11px] text-muted-foreground">
+                    <span className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background/50 px-2 py-0.5 tabular-nums">
+                        <strong className="font-semibold text-foreground">{aggregate.sessionCount}</strong> oturum
+                    </span>
+                    <span className="inline-flex items-center gap-1 rounded-md border border-border/50 bg-background/50 px-2 py-0.5 tabular-nums">
+                        <strong className="font-semibold text-foreground">{aggregate.chapterCount}</strong> bölüm
+                    </span>
                 </div>
             </div>
         </Link>
@@ -373,7 +369,7 @@ const ReadingTimeMangaGrid = ({
     items: ReadingTimeMangaAggregate[];
     detailSearch: string;
 }) => (
-    <div className="grid grid-cols-2 gap-2.5 sm:gap-3 lg:grid-cols-3 xl:grid-cols-4">
+    <div className="grid grid-cols-1 gap-2.5 sm:grid-cols-2 lg:grid-cols-3 sm:gap-3">
         {items.map((aggregate) => (
             <ReadingTimeMangaCard key={aggregate.mangaId} aggregate={aggregate} detailSearch={detailSearch} />
         ))}
@@ -854,10 +850,10 @@ const ReadingTime: React.FC = () => {
     const selectedTotalSeconds = timeline.reduce((sum, day) => sum + day.seconds, 0);
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen overflow-x-clip bg-background">
             <Header />
 
-            <main className="container pb-12 pt-16">
+            <main className="container overflow-x-clip pb-12 pt-16">
                 <div className={cn('py-6 sm:py-8', !disableHeavyEffects && 'animate-fade-up')}>
                     <div className="flex items-center gap-3">
                         <Clock3 className="h-7 w-7 shrink-0 text-primary sm:h-8 sm:w-8" />

@@ -36,7 +36,7 @@ type BrowseGridDensity = 'compact' | 'comfortable';
 
 const BROWSE_DENSITY_STORAGE_KEY = 'toonparrot_browse_density_v1';
 const BROWSE_GRID_CLASSES: Record<BrowseGridDensity, string> = {
-  compact: 'grid grid-cols-2 min-[390px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-2.5 sm:gap-3.5',
+  compact: 'grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3 sm:gap-3.5',
   comfortable: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4',
 };
 
@@ -527,7 +527,7 @@ const Browse: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-            <div className="w-full sm:w-32">
+            <div className="w-full sm:w-36">
               <Select
                 value={typeFilter}
                 onValueChange={(value) => {
@@ -536,10 +536,10 @@ const Browse: React.FC = () => {
                 }}
               >
                 <SelectTrigger className="h-9 w-full text-xs">
-                  <SelectValue placeholder="Tür" />
+                  <SelectValue placeholder="Format" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tümü</SelectItem>
+                  <SelectItem value="all">Format: Tümü</SelectItem>
                   {typeOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
                       {option.label}
@@ -549,7 +549,7 @@ const Browse: React.FC = () => {
               </Select>
             </div>
 
-            <div className="w-full sm:w-36">
+            <div className="w-full sm:w-40">
               <Select
                 value={statusFilter}
                 onValueChange={(value) => {
@@ -561,7 +561,7 @@ const Browse: React.FC = () => {
                   <SelectValue placeholder="Durum" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tümü</SelectItem>
+                  <SelectItem value="all">Durum: Tümü</SelectItem>
                   <SelectItem value="ongoing">Devam Ediyor</SelectItem>
                   <SelectItem value="completed">Tamamlandı</SelectItem>
                   <SelectItem value="hiatus">Ara Verildi</SelectItem>
@@ -569,7 +569,7 @@ const Browse: React.FC = () => {
               </Select>
             </div>
 
-            <div className="w-full sm:w-36">
+            <div className="w-full sm:w-40">
               <Select
                 value={contentFilter}
                 onValueChange={(value) => {
@@ -581,7 +581,7 @@ const Browse: React.FC = () => {
                   <SelectValue placeholder="İçerik" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tümü</SelectItem>
+                  <SelectItem value="all">İçerik: Tümü</SelectItem>
                   <SelectItem value="safe">Sadece Normal</SelectItem>
                   {canSeeAdultContent ? (
                     <SelectItem value="adult">Sadece Yetişkin</SelectItem>
@@ -590,7 +590,7 @@ const Browse: React.FC = () => {
               </Select>
             </div>
 
-            <div className="w-full sm:w-36">
+            <div className="w-full sm:w-44">
               <Select
                 value={sortBy}
                 onValueChange={(value) => {
@@ -602,12 +602,12 @@ const Browse: React.FC = () => {
                   <SelectValue placeholder="Sırala" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="popular">Popüler</SelectItem>
-                  <SelectItem value="rating">Puan</SelectItem>
-                  <SelectItem value="created">Yeni Eklenen</SelectItem>
-                  <SelectItem value="updated">Son Güncellenen</SelectItem>
-                  <SelectItem value="views">Görüntülenme</SelectItem>
-                  <SelectItem value="chapters">Bölüm Sayısı</SelectItem>
+                  <SelectItem value="popular">Sırala: Popüler</SelectItem>
+                  <SelectItem value="rating">Sırala: Puan</SelectItem>
+                  <SelectItem value="created">Sırala: Yeni Eklenen</SelectItem>
+                  <SelectItem value="updated">Sırala: Son Güncellenen</SelectItem>
+                  <SelectItem value="views">Sırala: Görüntülenme</SelectItem>
+                  <SelectItem value="chapters">Sırala: Bölüm Sayısı</SelectItem>
                 </SelectContent>
               </Select>
             </div>

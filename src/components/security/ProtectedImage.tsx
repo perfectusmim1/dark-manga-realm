@@ -166,14 +166,15 @@ const ProtectedImageComponent: React.FC<ProtectedImageProps> = ({
     return (
         <div
             ref={containerRef}
-            className={`relative select-none ${className || ''}`}
+            className={`relative block select-none m-0 p-0 ${className || ''}`}
             style={{
                 ...style,
                 width: `${zoom}%`,
                 maxWidth: '100%',
-                aspectRatio: effectiveDims ? `${effectiveDims[0]} / ${effectiveDims[1]}` : style?.aspectRatio,
+                aspectRatio: !isMediaReady && effectiveDims ? `${effectiveDims[0]} / ${effectiveDims[1]}` : style?.aspectRatio,
                 minHeight: !effectiveDims && !isMediaReady && reserveHeightWhenLoading ? '75vh' : style?.minHeight,
                 lineHeight: 0,
+                fontSize: 0,
                 marginLeft: 'auto',
                 marginRight: 'auto',
             }}
@@ -184,7 +185,7 @@ const ProtectedImageComponent: React.FC<ProtectedImageProps> = ({
                 alt={alt}
                 decoding="async"
                 loading={priority ? 'eager' : 'lazy'}
-                className="w-full h-auto block select-none pointer-events-none"
+                className="m-0 block h-auto w-full border-0 p-0 align-top select-none pointer-events-none"
                 draggable={false}
                 referrerPolicy="no-referrer"
                 onContextMenu={(e) => e.preventDefault()}

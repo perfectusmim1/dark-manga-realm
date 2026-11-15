@@ -36,6 +36,8 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   allowProxy = false,
   onError,
   fetchPriority: _fetchPriority,
+  srcSet,
+  sizes,
   ...rest
 }) => {
   const { ref, isNearViewport } = useNearViewport<HTMLDivElement>({
@@ -46,6 +48,7 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   const transformKey = React.useMemo(() => getTransformKey(transform), [transform]);
   const [shouldBypassProxy, setShouldBypassProxy] = React.useState(false);
   const [useProxyFallback, setUseProxyFallback] = React.useState(false);
+  const [hasFinalError, setHasFinalError] = React.useState(false);
   const avoidRawFallback = React.useMemo(() => shouldAvoidRawImageFallback(src), [src]);
   const isExternalUrl = React.useMemo(
     () => typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://')),
@@ -76,7 +79,8 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
   React.useEffect(() => {
     setShouldBypassProxy(false);
     setUseProxyFallback(false);
-  }, [src, transformKey]);
+    setHasFinalError(false);
+  }, [src, transformKey, srcSet]);
 
   const handleError = React.useCallback<React.ReactEventHandler<HTMLImageElement>>(
     (event) => {
@@ -93,16 +97,34 @@ const OptimizedImage: React.FC<OptimizedImageProps> = ({
         }
       }
 
+      setHasFinalError(true);
       onError?.(event);
     },
     [avoidRawFallback, effectiveAllowProxy, isExternalUrl, onError, resolvedSrc, shouldBypassProxy, src, useProxyFallback],
   );
 
+  const showFallbackPlaceholder = !resolvedSrc || hasFinalError;
+  const activeSrcSet = shouldBypassProxy || useProxyFallback ? undefined : srcSet;
+  const activeSizes = shouldBypassProxy || useProxyFallback ? undefined : sizes;
+
   return (
     <div ref={ref} className={cn('h-full w-full', containerClassName)}>
-      {shouldLoad ? (
+      {showFallbackPlaceholder ? (
+        <div
+          role="img"
+          aria-label={alt || 'Görsel yüklenemedi'}
+          className={cn(
+            'flex h-full w-full items-center justify-center bg-gradient-to-br from-muted/65 via-card to-background/95 p-2.5 text-center text-[10px] font-medium leading-snug text-muted-foreground/85 sm:p-3 sm:text-[11px]',
+            placeholderClassName,
+          )}
+        >
+          <span className="line-clamp-3 break-words">{alt || 'Görsel yüklenemedi'}</span>
+        </div>
+      ) : shouldLoad ? (
         <img
           src={resolvedSrc}
+          srcSet={activeSrcSet}
+          sizes={activeSizes}
           alt={alt}
           className={cn('image-downscale-quality', className)}
           loading={priority ? 'eager' : 'lazy'}

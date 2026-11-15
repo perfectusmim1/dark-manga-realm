@@ -99,14 +99,14 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
   return (
     <div
       data-page-index={index}
-      className="group relative mx-auto flex w-full max-w-full justify-center overflow-x-clip"
+      className="group relative m-0 block w-full max-w-full overflow-x-clip p-0 leading-[0] text-[0px] mx-auto"
       style={{
         maxWidth: fitWidth ? `${896 * (zoom / 100)}px` : 'none',
       }}
     >
       <div
         data-reader-page-number={index + 1}
-        className="mx-auto flex w-full justify-center"
+        className="m-0 block w-full p-0 leading-[0] text-[0px]"
       >
         <ProtectedImage
           src={page.src}
@@ -117,7 +117,7 @@ const ReaderPage: React.FC<ReaderPageProps> = React.memo(({
           overlay={overlayNode}
         />
       </div>
-      <div className="pointer-events-none absolute left-2 top-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] text-white opacity-0 transition-opacity group-hover:opacity-100">
+      <div className="pointer-events-none absolute left-2 top-2 z-20 rounded bg-black/50 px-2 py-1 text-[10px] leading-normal text-white opacity-0 transition-opacity group-hover:opacity-100">
         P{index + 1}
       </div>
     </div>
@@ -283,7 +283,7 @@ const VerticalReader: React.FC<VerticalReaderProps> = ({
   const translatePage = translation?.translatePage;
 
   return (
-    <div ref={containerRef} className="flex w-full max-w-full flex-col items-center gap-0 overflow-x-clip pb-10 pt-14 sm:pb-14 sm:pt-16">
+    <div ref={containerRef} className="block w-full max-w-full overflow-x-clip pb-10 pt-14 leading-[0] sm:pb-14 sm:pt-16">
       {pages.map((page, index) => (
         <ReaderPage
           key={index}

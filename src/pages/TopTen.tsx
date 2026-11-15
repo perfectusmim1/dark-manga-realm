@@ -111,16 +111,16 @@ const TOP_TEN_AUDIENCE_META: Record<
 };
 
 const TOP_TEN_CARD_TRANSFORM = Object.freeze({
-  width: 420,
-  quality: 70,
+  width: 480,
+  quality: 84,
   format: 'webp' as const,
   fit: 'cover' as const,
 });
 
 const TOP_TEN_CARD_INTRINSIC_WIDTH = 480;
 const TOP_TEN_CARD_INTRINSIC_HEIGHT = 640;
-const TOP_TEN_CARD_IMAGE_SIZES = '(max-width: 639px) 38vw, (max-width: 1023px) 180px, 204px';
-const TOP_TEN_CARD_WIDTH_CLASS = 'w-[38vw] max-w-[9.25rem] min-[400px]:w-[34vw] min-[400px]:max-w-[9.75rem] sm:w-[11.25rem] sm:max-w-none lg:w-[12rem] xl:w-[12.75rem]';
+const TOP_TEN_CARD_IMAGE_SIZES = '(max-width: 639px) 152px, (max-width: 1023px) 180px, 200px';
+const TOP_TEN_CARD_WIDTH_CLASS = 'w-[8.5rem] min-[390px]:w-[9.25rem] sm:w-[10.5rem] md:w-[11.25rem] lg:w-[12rem] xl:w-[12.5rem]';
 
 const readCachedTopTenSections = (): TopTenSections => ({
   safe: {
@@ -153,7 +153,7 @@ const TopTenTimeframeTabs: React.FC<{
     : 'bg-primary text-primary-foreground shadow-sm';
 
   return (
-    <div className="flex w-full max-w-full min-w-0 items-center gap-1 rounded-xl border border-border/60 bg-background/60 p-1 sm:inline-flex sm:w-auto">
+    <div className="flex w-full max-w-full min-w-0 items-center gap-1 overflow-x-auto scrollbar-hide rounded-xl border border-border/60 bg-background/60 p-1 sm:inline-flex sm:w-auto">
       {TOP_TEN_TIMEFRAMES.map((timeframe) => {
         const meta = TOP_TEN_TIMEFRAME_META[timeframe];
         const Icon = meta.icon;
@@ -171,7 +171,7 @@ const TopTenTimeframeTabs: React.FC<{
               onChange(timeframe);
             }}
             className={cn(
-              'relative min-h-8 flex-1 overflow-hidden whitespace-nowrap rounded-lg px-2.5 py-1.5 text-center text-xs font-medium sm:flex-initial sm:px-3',
+              'relative min-h-8 shrink-0 overflow-hidden whitespace-nowrap rounded-lg px-2.5 py-1.5 text-center text-xs font-medium sm:px-3',
               !prefersReducedMotion && 'transition-colors duration-150',
               isActive
                 ? audience === 'adult'
@@ -196,7 +196,7 @@ const TopTenTimeframeTabs: React.FC<{
             ) : null}
             <span className="relative z-10 flex items-center justify-center gap-1.5">
               <Icon className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{meta.title}</span>
+              <span>{meta.title}</span>
             </span>
           </button>
         );
@@ -216,9 +216,11 @@ const TopTenCard: React.FC<{
   audience,
 }) => {
   const blurAdultArtwork = useAdultImageBlurPreference();
-  const engagementLabel = typeof manga.engagementScore === 'number' && Number.isFinite(manga.engagementScore)
-    ? `${Math.round(manga.engagementScore)} puan`
-    : 'Skor yok';
+  const roundedScore = typeof manga.engagementScore === 'number' && Number.isFinite(manga.engagementScore)
+    ? Math.round(manga.engagementScore)
+    : 0;
+  const engagementLabel = roundedScore > 0 ? `${roundedScore} puan` : null;
+  const ratingValue = Number(manga.averageRating || 0);
   const coverSrcSet = React.useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
   const rankClassName = index === 0
     ? 'bg-gradient-to-b from-amber-100 via-amber-300 to-amber-500 bg-clip-text text-transparent'
@@ -258,15 +260,17 @@ const TopTenCard: React.FC<{
         <span className={cn('inline-flex shrink-0 text-xl font-black leading-none tracking-[-0.04em] sm:text-2xl lg:text-3xl', rankClassName)}>
           {String(index + 1).padStart(2, '0')}
         </span>
-        <Badge
-          variant="outline"
-          className={cn(
-            'h-5 shrink-0 rounded-full px-1.5 text-[10px] font-medium tracking-normal sm:h-6 sm:px-2 sm:text-[11px]',
-            engagementBadgeClassName,
-          )}
-        >
-          {engagementLabel}
-        </Badge>
+        {engagementLabel ? (
+          <Badge
+            variant="outline"
+            className={cn(
+              'h-5 shrink-0 rounded-full px-1.5 text-[10px] font-medium tracking-normal sm:h-6 sm:px-2 sm:text-[11px]',
+              engagementBadgeClassName,
+            )}
+          >
+            {engagementLabel}
+          </Badge>
+        ) : null}
       </div>
 
       <div className={cn('overflow-hidden rounded-xl border transition-colors duration-150', cardFrameClassName)}>
@@ -306,7 +310,9 @@ const TopTenCard: React.FC<{
             </h3>
             <div className="mt-1 flex items-center justify-between gap-1.5 text-[10px] text-white/80 sm:text-[11px]">
               <span className="min-w-0 truncate">{manga.author}</span>
-              <MangaRatingBadge value={Number(manga.averageRating || 0)} className="shrink-0 text-[10px]" />
+              {ratingValue > 0 ? (
+                <MangaRatingBadge value={ratingValue} className="shrink-0 text-[10px]" />
+              ) : null}
             </div>
           </div>
         </div>
@@ -389,11 +395,14 @@ const TopTenAudienceBlock: React.FC<{
   const scroll = (direction: 'left' | 'right') => {
     const scroller = scrollRef.current;
     if (scroller) {
-      const scrollAmount = Math.max(260, scroller.clientWidth * 0.75);
+      const scrollAmount = Math.max(260, scroller.clientWidth * 0.78);
       const maxScrollLeft = Math.max(0, scroller.scrollWidth - scroller.clientWidth);
+      const rawTarget = direction === 'left'
+        ? scroller.scrollLeft - scrollAmount
+        : scroller.scrollLeft + scrollAmount;
       const target = direction === 'left'
-        ? Math.max(0, scroller.scrollLeft - scrollAmount)
-        : Math.min(maxScrollLeft, scroller.scrollLeft + scrollAmount);
+        ? (rawTarget <= 56 ? 0 : rawTarget)
+        : (maxScrollLeft - rawTarget <= 56 ? maxScrollLeft : Math.min(maxScrollLeft, rawTarget));
 
       scroller.scrollTo({
         left: target,
@@ -428,7 +437,7 @@ const TopTenAudienceBlock: React.FC<{
       observer?.disconnect();
       window.clearTimeout(timer);
     };
-  }, [timeframe, audience, uniqueMangas.length, requestArrowUpdate]);
+  }, [timeframe, audience, isLoading, uniqueMangas.length, requestArrowUpdate]);
 
   useEffect(() => () => {
     if (rafRef.current !== null) {
@@ -452,12 +461,13 @@ const TopTenAudienceBlock: React.FC<{
         isSinglePanel && 'xl:mx-auto xl:max-w-[76rem]',
         audienceMeta.frameClassName,
       )}>
-        <div className="relative z-10">
-          <div className="mb-3.5 flex flex-col gap-2.5 border-b border-border/50 pb-3.5 sm:mb-4 sm:flex-row sm:items-center sm:justify-between sm:pb-4">
-            <h2 className="text-lg font-bold tracking-tight text-foreground sm:text-xl">
+        <div className="relative z-10 min-w-0">
+          <div className="mb-3.5 flex flex-wrap items-center justify-between gap-2.5 border-b border-border/50 pb-3.5 sm:mb-4 sm:flex-nowrap sm:pb-4">
+            <h2 className="order-1 text-lg font-bold tracking-tight text-foreground sm:text-xl">
               {audienceMeta.title}
             </h2>
-            <div className="w-full min-w-0 sm:w-auto">
+
+            <div className="order-3 w-full min-w-0 sm:order-2 sm:ml-auto sm:w-auto">
               <TopTenTimeframeTabs
                 audience={audience}
                 activeTimeframe={timeframe}
@@ -466,52 +476,44 @@ const TopTenAudienceBlock: React.FC<{
                 prefersReducedMotion={prefersReducedMotion}
               />
             </div>
+
+            <div className="order-2 flex shrink-0 items-center gap-1 sm:order-3">
+              <button
+                type="button"
+                onClick={() => scroll('left')}
+                disabled={!showLeftArrow}
+                aria-label={`${audienceMeta.title} sola kaydır`}
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-background/70 text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                  showLeftArrow
+                    ? audience === 'adult'
+                      ? 'hover:border-rose-400/50 hover:bg-rose-500 hover:text-white active:scale-95'
+                      : 'hover:border-primary/45 hover:bg-primary hover:text-primary-foreground active:scale-95'
+                    : 'cursor-not-allowed opacity-35',
+                )}
+              >
+                <ChevronLeft className="h-4 w-4" strokeWidth={2.25} />
+              </button>
+              <button
+                type="button"
+                onClick={() => scroll('right')}
+                disabled={!showRightArrow}
+                aria-label={`${audienceMeta.title} sağa kaydır`}
+                className={cn(
+                  'flex h-8 w-8 items-center justify-center rounded-lg border border-border/60 bg-background/70 text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
+                  showRightArrow
+                    ? audience === 'adult'
+                      ? 'hover:border-rose-400/50 hover:bg-rose-500 hover:text-white active:scale-95'
+                      : 'hover:border-primary/45 hover:bg-primary hover:text-primary-foreground active:scale-95'
+                    : 'cursor-not-allowed opacity-35',
+                )}
+              >
+                <ChevronRight className="h-4 w-4" strokeWidth={2.25} />
+              </button>
+            </div>
           </div>
 
           <div className="relative min-w-0 overflow-visible group/carousel">
-            {/* Sola Kaydır Butonu */}
-            <AnimatePresence initial={false}>
-              {showLeftArrow && (
-                <motion.button
-                  type="button"
-                  initial={prefersReducedMotion ? false : { opacity: 0, scale: disableHeavyEffects ? 1 : 0.88 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={prefersReducedMotion ? undefined : { opacity: 0, scale: disableHeavyEffects ? 1 : 0.88 }}
-                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.15 }}
-                  onClick={() => scroll('left')}
-                  className={cn(
-                    'absolute left-1 sm:left-2 top-[54%] -translate-y-1/2 z-30 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-background/90 text-foreground border border-border/70 shadow-lg transition-colors duration-150 hover:bg-primary hover:border-primary/50 hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-                    !disableHeavyEffects && 'backdrop-blur-md',
-                    !prefersReducedMotion && 'active:scale-95',
-                  )}
-                  aria-label="Sola kaydır"
-                >
-                  <ChevronLeft className="h-4 w-4 -translate-x-[0.5px]" strokeWidth={2.25} />
-                </motion.button>
-              )}
-            </AnimatePresence>
-
-            {/* Sağa Kaydır Butonu */}
-            <AnimatePresence initial={false}>
-              {showRightArrow && (
-                <motion.button
-                  type="button"
-                  initial={prefersReducedMotion ? false : { opacity: 0, scale: disableHeavyEffects ? 1 : 0.88 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  exit={prefersReducedMotion ? undefined : { opacity: 0, scale: disableHeavyEffects ? 1 : 0.88 }}
-                  transition={prefersReducedMotion ? { duration: 0 } : { duration: 0.15 }}
-                  onClick={() => scroll('right')}
-                  className={cn(
-                    'absolute right-1 sm:right-2 top-[54%] -translate-y-1/2 z-30 flex h-8 w-8 sm:h-9 sm:w-9 items-center justify-center rounded-full bg-background/90 text-foreground border border-border/70 shadow-lg transition-colors duration-150 hover:bg-primary hover:border-primary/50 hover:text-primary-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50',
-                    !disableHeavyEffects && 'backdrop-blur-md',
-                    !prefersReducedMotion && 'active:scale-95',
-                  )}
-                  aria-label="Sağa kaydır"
-                >
-                  <ChevronRight className="h-4 w-4 translate-x-[0.5px]" strokeWidth={2.25} />
-                </motion.button>
-              )}
-            </AnimatePresence>
 
             {isLoading ? (
               <div
@@ -700,7 +702,7 @@ const TopTen: React.FC = () => {
           </div>
         </div>
 
-        <div className={`grid min-w-0 gap-4 sm:gap-6 ${adultModeEnabled ? 'xl:grid-cols-2' : 'max-w-7xl mx-auto'}`}>
+        <div className={`grid grid-cols-1 min-w-0 gap-4 sm:gap-6 ${adultModeEnabled ? 'xl:grid-cols-2' : 'max-w-7xl mx-auto'}`}>
           <TopTenAudienceBlock
             audience="safe"
             timeframe={activeTimeframes.safe}

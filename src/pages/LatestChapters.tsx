@@ -15,6 +15,7 @@ import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
 import OptimizedImage from '@/components/media/OptimizedImage';
+import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { getCompactMangaTypeLabel } from '@/lib/mangaType';
 import { getLanguageInfoByCode, getSeriesLanguageInfo } from '@/lib/seriesLanguage';
 import { normalizeComparableText, normalizeLooseComparableText } from '@/lib/textMatching';
@@ -23,7 +24,23 @@ import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 
-const PAGE_SIZE = 30;
+const PAGE_SIZE = 90;
+const LATEST_COVER_TRANSFORM = Object.freeze({
+    width: 192,
+    quality: 82,
+    format: 'webp' as const,
+    fit: 'cover' as const,
+});
+
+interface LatestChapterSeriesGroup {
+    mangaId: string;
+    mangaTitle: string;
+    mangaCover: string;
+    mangaType?: string;
+    latestAddedAt: string;
+    latestChapter: LatestChapterFeedItem;
+    chapters: LatestChapterFeedItem[];
+}
 const LATEST_CHAPTERS_PAGE_CACHE_TTL_MS = 3 * 60_000;
 const LATEST_CHAPTERS_PAGE_STALE_TTL_MS = 15 * 60_000;
 const latestChaptersPageCache = new Map<string, { fetchedAt: number; chapters: LatestChapterFeedItem[] }>();
@@ -260,7 +277,7 @@ const LatestChapters: React.FC = () => {
     const normalizedQuickFilter = normalizeComparableText(deferredQuickFilter);
     const looseQuickFilter = normalizeLooseComparableText(deferredQuickFilter);
 
-    const visibleChapters = React.useMemo(() => {
+    const visibleChapterGroups = React.useMemo<LatestChapterSeriesGroup[]>(() => {
         const seenChapterIds = new Set<string>();
         const deduped = chapters.filter((item) => {
             if (!item?.chapterId || seenChapterIds.has(item.chapterId)) {
@@ -270,26 +287,54 @@ const LatestChapters: React.FC = () => {
             return true;
         });
 
-        if (!normalizedQuickFilter) {
-            return deduped;
+        const filtered = !normalizedQuickFilter
+            ? deduped
+            : deduped.filter((chapter) => {
+                const chapterNumLabel = formatChapterNumberLabel(chapter.chapterNumber);
+                const sanitizedTitle = sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle) || '';
+                const haystack = [
+                    chapter.mangaTitle,
+                    chapter.chapterTitle || '',
+                    sanitizedTitle,
+                    chapterNumLabel,
+                    `Bölüm ${chapterNumLabel}`,
+                ].join(' ');
+
+                return (
+                    normalizeComparableText(haystack).includes(normalizedQuickFilter)
+                    || (looseQuickFilter.length > 0 && normalizeLooseComparableText(haystack).includes(looseQuickFilter))
+                );
+            });
+
+        const groupsByMangaId = new Map<string, LatestChapterSeriesGroup>();
+        for (const item of filtered) {
+            const existing = groupsByMangaId.get(item.mangaId);
+            if (!existing) {
+                groupsByMangaId.set(item.mangaId, {
+                    mangaId: item.mangaId,
+                    mangaTitle: item.mangaTitle,
+                    mangaCover: item.mangaCover,
+                    mangaType: item.mangaType,
+                    latestAddedAt: item.addedAt,
+                    latestChapter: item,
+                    chapters: [item],
+                });
+                continue;
+            }
+
+            existing.chapters.push(item);
+            if (new Date(item.addedAt).getTime() > new Date(existing.latestAddedAt).getTime()) {
+                existing.latestAddedAt = item.addedAt;
+                existing.latestChapter = item;
+            }
         }
 
-        return deduped.filter((chapter) => {
-            const chapterNumLabel = formatChapterNumberLabel(chapter.chapterNumber);
-            const sanitizedTitle = sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle) || '';
-            const haystack = [
-                chapter.mangaTitle,
-                chapter.chapterTitle || '',
-                sanitizedTitle,
-                chapterNumLabel,
-                `Bölüm ${chapterNumLabel}`,
-            ].join(' ');
-
-            return (
-                normalizeComparableText(haystack).includes(normalizedQuickFilter)
-                || (looseQuickFilter.length > 0 && normalizeLooseComparableText(haystack).includes(looseQuickFilter))
-            );
-        });
+        return Array.from(groupsByMangaId.values()).map((group) => ({
+            ...group,
+            chapters: [...group.chapters]
+                .sort((a, b) => Number(b.chapterNumber) - Number(a.chapterNumber))
+                .slice(0, 3),
+        }));
     }, [chapters, looseQuickFilter, normalizedQuickFilter]);
 
     if (!isOnline) {
@@ -325,7 +370,11 @@ const LatestChapters: React.FC = () => {
                             <div className="min-w-0">
                                 <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">Son Bölümler</h1>
                                 <p className="mt-0.5 text-xs text-muted-foreground">
-                                    Son 24 saatte {recentChapterCount} bölüm eklendi
+                                    {recentChapterCount > 0
+                                        ? `Son 24 saatte ${recentChapterCount} bölüm eklendi`
+                                        : totalChaptersCount > 0
+                                            ? `${totalChaptersCount} güncel bölüm · En yeni güncellemeler`
+                                            : 'En yeni bölüm güncellemeleri'}
                                 </p>
                             </div>
                         </div>
@@ -355,40 +404,53 @@ const LatestChapters: React.FC = () => {
                     </div>
                 </div>
 
-                {visibleChapters.length > 0 ? (
+                {visibleChapterGroups.length > 0 ? (
                     <div className="grid gap-2.5 sm:gap-3 md:grid-cols-2 xl:grid-cols-3">
-                        {visibleChapters.map((chapter, index) => {
-                            const sanitizedChapterTitle = sanitizeChapterTitle(chapter.chapterNumber, chapter.chapterTitle);
-                            const chapterNumLabel = formatChapterNumberLabel(chapter.chapterNumber);
-                            const chTitleLower = (chapter.chapterTitle || '').toLowerCase();
+                        {visibleChapterGroups.map((group, index) => {
+                            const latestChapter = group.latestChapter;
+                            const chTitleLower = (latestChapter.chapterTitle || '').toLowerCase();
+                            const seriesHref = `/manga/${group.mangaId}`;
+                            const latestChapterHref = `/manga/${group.mangaId}/chapter/${latestChapter.chapterId}`;
+                            const coverSrcSet = getManagedArtworkSrcSet(group.mangaCover);
 
                             return (
-                                <Link
-                                    key={chapter.chapterId}
-                                    to={`/manga/${chapter.mangaId}/chapter/${chapter.chapterId}`}
+                                <div
+                                    key={group.mangaId}
                                     className={cn(
-                                        'group flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-2.5 sm:p-3 transition-colors hover:border-primary/40 hover:bg-card focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40 focus-visible:ring-offset-2 focus-visible:ring-offset-background',
+                                        'group flex items-center gap-3 rounded-xl border border-border/60 bg-card/80 p-2.5 sm:p-3 transition-colors hover:border-primary/40 hover:bg-card',
                                         !reduceMotion && 'animate-card-reveal-fast',
-                                        index >= 12 && 'cv-auto-row',
                                     )}
                                 >
-                                    <div className="h-20 w-14 sm:h-24 sm:w-16 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-secondary">
+                                    <Link
+                                        to={seriesHref}
+                                        className="h-20 w-14 sm:h-24 sm:w-16 shrink-0 overflow-hidden rounded-lg border border-border/50 bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50"
+                                    >
                                         <OptimizedImage
-                                            src={chapter.mangaCover}
-                                            alt={chapter.mangaTitle}
+                                            src={group.mangaCover}
+                                            alt={group.mangaTitle}
                                             width={64}
                                             height={96}
+                                            srcSet={coverSrcSet}
+                                            sizes="(min-width: 640px) 64px, 56px"
+                                            priority={index < 6}
+                                            rootMargin="640px 0px"
+                                            transform={LATEST_COVER_TRANSFORM}
                                             allowProxy
                                             containerClassName="h-full w-full"
                                             className="h-full w-full object-cover"
                                         />
-                                    </div>
+                                    </Link>
 
                                     <div className="min-w-0 flex-1 space-y-1.5">
                                         <div className="flex min-w-0 items-center justify-between gap-2">
-                                            <h2 className="min-w-0 flex-1 text-sm sm:text-[15px] font-bold leading-snug line-clamp-1 transition-colors group-hover:text-primary group-focus-visible:text-primary">
-                                                {chapter.mangaTitle}
-                                            </h2>
+                                            <Link
+                                                to={seriesHref}
+                                                className="min-w-0 flex-1 rounded focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/40"
+                                            >
+                                                <h2 className="text-sm sm:text-[15px] font-bold leading-snug line-clamp-1 transition-colors group-hover:text-primary">
+                                                    {group.mangaTitle}
+                                                </h2>
+                                            </Link>
                                             {(() => {
                                                 if (chTitleLower.includes('[raw]') || chTitleLower.includes('(raw)')) {
                                                     return (
@@ -405,7 +467,7 @@ const LatestChapters: React.FC = () => {
                                                         </span>
                                                     );
                                                 }
-                                                const lang = mangaLangMap[chapter.mangaId] || getSeriesLanguageInfo({ title: chapter.mangaTitle });
+                                                const lang = mangaLangMap[group.mangaId] || getSeriesLanguageInfo({ title: group.mangaTitle });
                                                 if (lang.language === 'tr') return null;
                                                 if (lang.language === 'raw') {
                                                     return (
@@ -425,31 +487,53 @@ const LatestChapters: React.FC = () => {
                                             })()}
                                         </div>
 
-                                        <div className="flex min-w-0 items-center">
-                                            <span className="inline-flex min-w-0 max-w-full items-center rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary">
-                                                <span className="truncate">
-                                                    Bölüm {chapterNumLabel}
-                                                    {sanitizedChapterTitle ? ` • ${sanitizedChapterTitle}` : ''}
-                                                </span>
-                                            </span>
-                                        </div>
+                                        {group.chapters.length === 1 ? (
+                                            <div className="flex min-w-0 items-center">
+                                                <Link
+                                                    to={latestChapterHref}
+                                                    className="inline-flex min-w-0 max-w-full items-center rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary transition-colors hover:border-primary/45 hover:bg-primary/15"
+                                                >
+                                                    <span className="truncate">
+                                                        Bölüm {formatChapterNumberLabel(latestChapter.chapterNumber)}
+                                                        {sanitizeChapterTitle(latestChapter.chapterNumber, latestChapter.chapterTitle)
+                                                            ? ` • ${sanitizeChapterTitle(latestChapter.chapterNumber, latestChapter.chapterTitle)}`
+                                                            : ''}
+                                                    </span>
+                                                </Link>
+                                            </div>
+                                        ) : (
+                                            <div className="flex flex-wrap items-center gap-1.5">
+                                                {group.chapters.map((chapter) => (
+                                                    <Link
+                                                        key={chapter.chapterId}
+                                                        to={`/manga/${group.mangaId}/chapter/${chapter.chapterId}`}
+                                                        className="inline-flex items-center rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 text-[11px] font-semibold text-primary transition-colors hover:border-primary/45 hover:bg-primary/15"
+                                                    >
+                                                        Bölüm {formatChapterNumberLabel(chapter.chapterNumber)}
+                                                    </Link>
+                                                ))}
+                                            </div>
+                                        )}
 
                                         <div className="flex min-w-0 items-center justify-between gap-2 text-[11px] text-muted-foreground">
                                             <div className="flex min-w-0 items-center gap-1.5 truncate">
-                                                {chapter.mangaType ? (
+                                                {group.mangaType ? (
                                                     <>
                                                         <span className="shrink-0 font-medium text-foreground/75">
-                                                            {getCompactMangaTypeLabel(chapter.mangaType)}
+                                                            {getCompactMangaTypeLabel(group.mangaType)}
                                                         </span>
                                                         <span aria-hidden>•</span>
                                                     </>
                                                 ) : null}
                                                 <span className="truncate">
-                                                    {formatDistanceToNow(new Date(chapter.addedAt), { addSuffix: true, locale: tr })}
+                                                    {formatDistanceToNow(new Date(group.latestAddedAt), { addSuffix: true, locale: tr })}
                                                 </span>
                                             </div>
 
-                                            <span className="inline-flex shrink-0 items-center gap-0.5 text-xs font-semibold text-primary">
+                                            <Link
+                                                to={latestChapterHref}
+                                                className="inline-flex shrink-0 items-center gap-0.5 text-xs font-semibold text-primary hover:underline"
+                                            >
                                                 Oku
                                                 <ChevronRight
                                                     className={cn(
@@ -457,10 +541,10 @@ const LatestChapters: React.FC = () => {
                                                         !reduceMotion && 'transition-transform duration-150 group-hover:translate-x-0.5',
                                                     )}
                                                 />
-                                            </span>
+                                            </Link>
                                         </div>
                                     </div>
-                                </Link>
+                                </div>
                             );
                         })}
                     </div>

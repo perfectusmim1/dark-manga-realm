@@ -20,6 +20,7 @@ import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import OfflineNotice from '@/components/offline/OfflineNotice';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { getTagDisplayName } from '@/lib/tagTranslations';
 
 const categoryLabels: Record<TagCategory, string> = {
   theme: 'Tema',
@@ -264,7 +265,7 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
   };
 
   const visibleTags = useMemo(() => {
-    return [...tags]
+    const sorted = [...tags]
       .sort((left, right) => {
         const leftState = getTagModerationState(left, votes[left.id]);
         const rightState = getTagModerationState(right, votes[right.id]);
@@ -283,6 +284,17 @@ const TagSection: React.FC<TagSectionProps> = ({ entityType, entityId, editable 
 
         return left.name.localeCompare(right.name, 'tr');
       });
+
+    const seenKeys = new Set<string>();
+    return sorted.filter((tag) => {
+      const displayName = getTagDisplayName(tag.slug, tag.name).trim().toLocaleLowerCase('tr-TR');
+      const dedupeKey = `${tag.category}:${displayName || tag.id}`;
+      if (seenKeys.has(dedupeKey)) {
+        return false;
+      }
+      seenKeys.add(dedupeKey);
+      return true;
+    });
   }, [tags, votes]);
 
   const groupedTags = useMemo(() => {

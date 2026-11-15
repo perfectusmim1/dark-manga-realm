@@ -105,7 +105,7 @@ const ReadingTimeSessionCard = ({ entry }: { entry: ReadingTimeEntry }) => {
                     alt={entry.mangaTitle}
                     loading="lazy"
                     decoding="async"
-                    className="h-16 w-12 shrink-0 rounded-lg object-cover ring-1 ring-border/50"
+                    className="image-downscale-quality h-16 w-12 shrink-0 rounded-lg object-cover ring-1 ring-border/50"
                 />
             ) : (
                 <div className="flex h-16 w-12 shrink-0 items-center justify-center rounded-lg bg-secondary/60">
@@ -220,10 +220,10 @@ const ReadingTimeMangaDetail: React.FC = () => {
     const uniqueChapterCount = new Set(entries.map((entry) => entry.chapterId || (entry.chapterNumber ? `chapter-${entry.chapterNumber}` : `entry-${entry.id}`))).size;
 
     return (
-        <div className="min-h-screen bg-background">
+        <div className="min-h-screen overflow-x-clip bg-background">
             <Header />
 
-            <main className="container pb-12 pt-16">
+            <main className="container overflow-x-clip pb-12 pt-16">
                 <div className="flex flex-col gap-4 py-6 sm:py-8 lg:flex-row lg:items-start lg:justify-between">
                     <div className="flex min-w-0 items-start gap-3 sm:gap-4">
                         <Button

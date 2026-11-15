@@ -309,7 +309,10 @@ export const PageTranslateButton: React.FC<PageTranslateButtonProps> = ({
   return (
     <button
       type="button"
-      className={baseButtonClasses}
+      className={cn(
+        baseButtonClasses,
+        'transition-opacity duration-150 sm:opacity-0 sm:group-hover:opacity-100 sm:focus-visible:opacity-100',
+      )}
       onClick={(e) => {
         e.stopPropagation();
         onTranslate();

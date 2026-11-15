@@ -14,7 +14,7 @@ import type { ReadingHistoryEntry } from '@/lib/storage';
 import { supabaseUrl } from '@/lib/supabase';
 import { useAuth } from '@/contexts/AuthContext';
 import { Manga, Tag } from '@/lib/types';
-import { AnimatePresence, motion } from 'framer-motion';
+import { getTagDisplayName } from '@/lib/tagTranslations';
 import { useOfflineLibrary } from '@/hooks/useOfflineLibrary';
 import { OfflineMangaGroup } from '@/lib/offline/types';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
@@ -196,7 +196,7 @@ const HOME_PAGE_CACHE: {
 
 const CONTINUE_READING_COVER_TRANSFORM = Object.freeze({
   width: 520,
-  quality: 70,
+  quality: 84,
   format: 'webp' as const,
   fit: 'cover' as const,
 });
@@ -423,7 +423,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
         </Button>
       </div>
 
-      <div className="rounded-2xl border border-border/60 bg-card/75 p-3.5 shadow-sm sm:p-5">
+      <div className="relative overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-br from-primary/[0.06] via-card/85 to-card/75 p-3.5 shadow-sm sm:p-5">
         <div className="flex flex-col gap-3.5 lg:flex-row lg:items-center lg:gap-5">
           <div className="flex min-w-0 flex-1 items-center gap-3.5 sm:gap-5">
             <Link
@@ -586,7 +586,6 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     clientWidth: typeof window === 'undefined' ? 0 : window.innerWidth,
     viewportWidth: typeof window === 'undefined' ? 1024 : window.innerWidth,
   }));
-  const showArrowControls = !isCoarsePointer && !disableHeavyEffects;
   const visibleManga = useMemo(() => {
     const seen = new Set<string>();
     return manga.filter((item) => {
@@ -623,18 +622,12 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
           }
     ));
 
-    if (!showArrowControls) {
-      setShowLeftArrow(false);
-      setShowRightArrow(false);
-      return;
-    }
-
     setShowLeftArrow(scrollLeft > HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX);
     setShowRightArrow(
       scrollWidth > clientWidth + HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX
         && scrollLeft < scrollWidth - clientWidth - HOME_CAROUSEL_ARROW_VISIBILITY_THRESHOLD_PX,
     );
-  }, [showArrowControls]);
+  }, []);
 
   const requestLayoutMetricsUpdate = useCallback(() => {
     if (typeof window === 'undefined') {
@@ -660,7 +653,7 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     window.addEventListener('resize', requestLayoutMetricsUpdate, { passive: true });
 
     return () => window.removeEventListener('resize', requestLayoutMetricsUpdate);
-  }, [manga.length, requestLayoutMetricsUpdate, showArrowControls]);
+  }, [manga.length, requestLayoutMetricsUpdate]);
 
   useEffect(() => {
     requestLayoutMetricsUpdate();
@@ -710,7 +703,6 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
     ? itemWidth
     : getEstimatedHomeCarouselItemWidth(scrollMetrics.viewportWidth, scrollMetrics.clientWidth);
   const itemStride = effectiveItemWidth > 0 ? effectiveItemWidth + gapPx : 0;
-  const posterCenterY = effectiveItemWidth > 0 ? Math.round(effectiveItemWidth * 0.75) : undefined;
 
   const scroll = useCallback((direction: 'left' | 'right') => {
     const scroller = scrollRef.current;
@@ -747,57 +739,63 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
 
   return (
     <section className={`${withTopSpacing ? 'mt-7 sm:mt-9 ' : ''}${disableHeavyEffects ? '' : 'animate-fade-up'}`} style={sectionStyle}>
-      <div className="mb-3.5 flex items-center justify-between gap-3 sm:mb-4">
+      <div className="mb-3.5 flex items-center justify-between gap-2 sm:mb-4 sm:gap-3">
         <div className="min-w-0 flex items-center gap-2">
           <Icon className={iconClassName} />
-          <h2 className="truncate text-lg font-bold tracking-tight sm:text-xl">{title}</h2>
+          <h2 className="truncate text-base font-bold tracking-tight sm:text-xl">{title}</h2>
         </div>
-        <Button asChild variant="ghost" size="sm" className="h-8 shrink-0 px-2.5 text-xs text-muted-foreground hover:text-foreground sm:text-sm">
-          <Link to={linkTo}>
-            Tümünü Gör
-            <ArrowRight className="ml-1 h-3.5 w-3.5" />
-          </Link>
-        </Button>
+
+        <div className="flex shrink-0 items-center gap-1.5">
+          {visibleManga.length > 0 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={() => scroll('left')}
+                disabled={!showLeftArrow}
+                aria-label={`${title} sola kaydır`}
+                className={cn(
+                  'flex h-7 w-7 items-center justify-center rounded-lg border border-border/60 bg-card/70 text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:h-8 sm:w-8',
+                  showLeftArrow
+                    ? 'hover:border-primary/45 hover:bg-primary hover:text-primary-foreground active:scale-95'
+                    : 'cursor-not-allowed opacity-35',
+                )}
+              >
+                <ChevronLeft className="h-4 w-4" strokeWidth={2.25} />
+              </button>
+              <button
+                type="button"
+                onClick={() => scroll('right')}
+                disabled={!showRightArrow}
+                aria-label={`${title} sağa kaydır`}
+                className={cn(
+                  'flex h-7 w-7 items-center justify-center rounded-lg border border-border/60 bg-card/70 text-foreground transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 sm:h-8 sm:w-8',
+                  showRightArrow
+                    ? 'hover:border-primary/45 hover:bg-primary hover:text-primary-foreground active:scale-95'
+                    : 'cursor-not-allowed opacity-35',
+                )}
+              >
+                <ChevronRight className="h-4 w-4" strokeWidth={2.25} />
+              </button>
+            </div>
+          )}
+
+          <Button asChild variant="ghost" size="sm" className="h-8 shrink-0 px-2 text-xs text-muted-foreground hover:text-foreground sm:px-2.5 sm:text-sm">
+            <Link to={linkTo}>
+              <span className="sm:hidden">Tümü</span>
+              <span className="hidden sm:inline">Tümünü Gör</span>
+              <ArrowRight className="ml-1 h-3.5 w-3.5" />
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <div className="relative group/carousel">
-        {showArrowControls && <AnimatePresence>
-          {showLeftArrow && (
-            <motion.button
-              key={`${title}-arrow-left`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => scroll('left')}
-              style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
-              className="group/arrow absolute left-2 sm:left-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-[transform,opacity,background-color,border-color,box-shadow] duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              aria-label={`${title} sola kaydır`}
-            >
-              <ChevronLeft className="h-4 w-4 sm:h-5 sm:w-5 -translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:-translate-x-0.5" strokeWidth={2.25} />
-            </motion.button>
-          )}
-
-          {showRightArrow && (
-            <motion.button
-              key={`${title}-arrow-right`}
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => scroll('right')}
-              style={posterCenterY ? { top: `${posterCenterY}px` } : undefined}
-              className="group/arrow absolute right-2 sm:right-3 top-[calc((100%-7.25rem)/2)] z-40 -mt-[18px] sm:-mt-5 flex h-9 w-9 sm:h-10 sm:w-10 items-center justify-center rounded-full bg-slate-950/80 text-white/90 border border-white/15 shadow-[0_8px_24px_rgba(0,0,0,0.55)] backdrop-blur-md transition-[transform,opacity,background-color,border-color,box-shadow] duration-200 hover:scale-105 hover:bg-primary hover:border-primary/50 hover:text-white hover:shadow-[0_10px_28px_rgba(37,99,235,0.4)] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-              aria-label={`${title} sağa kaydır`}
-            >
-              <ChevronRight className="h-4 w-4 sm:h-5 sm:w-5 translate-x-[0.5px] transition-transform duration-200 group-hover/arrow:translate-x-0.5" strokeWidth={2.25} />
-            </motion.button>
-          )}
-        </AnimatePresence>}
 
         {manga[0] && (
           <div aria-hidden className="pointer-events-none absolute left-0 top-0 -z-10 opacity-0">
             <div
               ref={probeRef}
-              className="w-[8.25rem] shrink-0 min-[400px]:w-[8.75rem] sm:w-[calc((100%-40px)/4.5)] md:w-[calc((100%-50px)/5.5)] lg:w-[calc((100%-60px)/6.5)] xl:w-[calc((100%-72px)/7)]"
+              className="w-[9.5rem] shrink-0 sm:w-[calc((100%-40px)/4.5)] md:w-[calc((100%-50px)/5.5)] lg:w-[calc((100%-60px)/6.5)] xl:w-[calc((100%-72px)/7)]"
             />
           </div>
         )}
@@ -806,12 +804,11 @@ const HorizontalMangaSection: React.FC<HorizontalMangaSectionProps> = ({
           ref={scrollRef}
           onScroll={requestLayoutMetricsUpdate}
           className="flex snap-x snap-mandatory gap-2.5 overflow-x-auto overscroll-x-contain px-0 py-1.5 -my-1.5 scrollbar-hide sm:gap-3"
-          style={{ scrollbarWidth: 'none', msOverflowStyle: 'none' }}
         >
           {visibleManga.map((item, index) => (
             <div
               key={item.id}
-              className="w-[8.25rem] shrink-0 snap-start min-[400px]:w-[8.75rem] sm:w-[calc((100%-40px)/4.5)] md:w-[calc((100%-50px)/5.5)] lg:w-[calc((100%-60px)/6.5)] xl:w-[calc((100%-72px)/7)]"
+              className="w-[9.5rem] shrink-0 snap-start sm:w-[calc((100%-40px)/4.5)] md:w-[calc((100%-50px)/5.5)] lg:w-[calc((100%-60px)/6.5)] xl:w-[calc((100%-72px)/7)]"
             >
               <MangaCard
                 manga={item}
@@ -1209,7 +1206,7 @@ const Index: React.FC = () => {
 
       try {
         const { getContinueReadingEntries } = await readingHistoryPromise;
-        const uniqueEntries = await getContinueReadingEntries(user.id, 1);
+        const uniqueEntries = await getContinueReadingEntries(user.id, 4);
 
         if (!active) {
           return;
@@ -1362,9 +1359,13 @@ const Index: React.FC = () => {
 
   const uniqueTrendingTags = useMemo(() => {
     const seenIds = new Set<string>();
+    const seenNames = new Set<string>();
     return trendingTags.filter((tag) => {
       if (!tag?.id || seenIds.has(tag.id)) return false;
+      const normalizedName = getTagDisplayName(tag.slug, tag.name).trim().toLocaleLowerCase('tr-TR');
+      if (normalizedName && seenNames.has(normalizedName)) return false;
       seenIds.add(tag.id);
+      if (normalizedName) seenNames.add(normalizedName);
       return true;
     });
   }, [trendingTags]);
@@ -1388,7 +1389,7 @@ const Index: React.FC = () => {
     <div className="min-h-screen overflow-x-clip bg-background">
       <Header />
 
-      <main className="container pb-10 pt-20">
+      <main className="container overflow-x-clip pb-10 pt-20">
         <div className={disableHeavyEffects ? '' : 'animate-fade-up'}>
           <InstallAppBanner className="mb-5 sm:mb-6" />
         </div>
@@ -1418,7 +1419,7 @@ const Index: React.FC = () => {
         )}
 
         {shouldRenderContinueReadingSlot && (
-          <div className="mt-4 sm:mt-6">
+          <div className="mb-6 sm:mb-7">
             {showContinueReadingSkeleton ? (
               <ContinueReadingSpotlightSkeleton />
             ) : (
@@ -1541,7 +1542,7 @@ const Index: React.FC = () => {
               </div>
 
               {catalogState.loading && catalogState.items.length === 0 ? (
-                <div className="grid grid-cols-2 gap-2.5 min-[390px]:grid-cols-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
                   {Array.from({ length: 14 }).map((_, index) => (
                     <div key={index} className="space-y-2">
                       <Skeleton className="aspect-[5/7] w-full rounded-xl" />
@@ -1554,7 +1555,7 @@ const Index: React.FC = () => {
                 <>
                   <div
                     className={cn(
-                      'grid grid-cols-2 gap-2.5 min-[390px]:grid-cols-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7',
+                      'grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7',
                       !prefersReducedMotion && 'transition-opacity duration-200',
                       catalogState.loading ? 'opacity-60' : 'opacity-100',
                     )}
@@ -1605,7 +1606,7 @@ const Index: React.FC = () => {
               </div>
 
               {offlineManga.length > 0 ? (
-                <div className="grid grid-cols-2 gap-2.5 min-[390px]:grid-cols-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
                   {offlineManga.map((manga, index) => (
                     <div key={manga.id} className={index >= 14 ? 'cv-auto-card min-w-0' : 'min-w-0'}>
                       <MangaCard

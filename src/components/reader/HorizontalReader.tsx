@@ -103,7 +103,7 @@ const HorizontalReader: React.FC<HorizontalReaderProps> = ({
       </button>
 
       {/* Page Display */}
-      <div className={`relative flex h-full items-center justify-center px-0 sm:px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
+      <div className={`group relative flex h-full items-center justify-center px-0 sm:px-4 ${settings.fitWidth ? 'w-full' : ''}`}>
         <div data-reader-page-number={currentPage} className="flex w-full justify-center">
           <ProtectedImage
             src={pages[currentPage - 1]?.src || ''}

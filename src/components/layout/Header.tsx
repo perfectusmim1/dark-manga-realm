@@ -419,7 +419,10 @@ const HeaderQuickSearch: React.FC<HeaderQuickSearchProps> = React.memo(({
   };
 
   return (
-    <form onSubmit={handleSearch} className={cn('min-w-0 flex-1', className)}>
+    <form
+      onSubmit={handleSearch}
+      className={cn(inlineDropdown ? 'min-w-0 flex-1' : 'min-w-[8rem] flex-1', className)}
+    >
       <div className="relative w-full min-w-0">
         <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
         <Input
@@ -1072,7 +1075,7 @@ const HeaderContent: React.FC = () => {
         </Link>
 
         {/* Desktop Navigation */}
-        <nav className="hidden items-center gap-6 lg:flex">
+        <nav className="hidden shrink-0 items-center gap-4 lg:flex xl:gap-6">
           {navLinks.map((link) => {
             const Icon = link.icon;
             const isActiveLink = link.path === '/characters'
@@ -1083,7 +1086,7 @@ const HeaderContent: React.FC = () => {
               return (
                 <div
                   key={link.path}
-                  className="relative -my-3 px-2 py-3"
+                  className="relative -my-3 shrink-0 px-2 py-3"
                   onMouseEnter={openDesktopCharactersMenu}
                   onMouseLeave={scheduleDesktopCharactersMenuClose}
                 >
@@ -1092,7 +1095,7 @@ const HeaderContent: React.FC = () => {
                     onPointerEnter={() => prefetchRouteForPathname(link.path)}
                     onFocus={() => prefetchRouteForPathname(link.path)}
                     aria-expanded={isCharactersDesktopMenuOpen}
-                    className={`flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                    className={`flex items-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors ${
                       isCharactersSectionActive
                         ? 'text-primary'
                         : 'text-muted-foreground hover:text-foreground'
@@ -1107,8 +1110,12 @@ const HeaderContent: React.FC = () => {
                   </Link>
 
                   <div
+                    ref={(node) => {
+                      if (node) {
+                        node.inert = !isCharactersDesktopMenuOpen;
+                      }
+                    }}
                     aria-hidden={!isCharactersDesktopMenuOpen}
-                    inert={isCharactersDesktopMenuOpen ? undefined : true}
                     className={`absolute left-1/2 top-full z-50 w-[14rem] -translate-x-1/2 pt-2 transition-[opacity,transform,visibility] duration-200 ease-out-smooth motion-reduce:transition-none ${
                       isCharactersDesktopMenuOpen
                         ? 'visible pointer-events-auto translate-y-0 opacity-100'
@@ -1133,12 +1140,12 @@ const HeaderContent: React.FC = () => {
                 onFocus={() => prefetchRouteForPathname(link.path)}
                 className={
                   link.featured
-                    ? `inline-flex h-9 items-center gap-1.5 rounded-full border px-3.5 text-sm font-semibold transition-colors ${
+                    ? `inline-flex h-9 shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-3.5 text-sm font-semibold transition-colors ${
                         isActiveLink
                           ? 'border-primary/40 bg-primary text-primary-foreground shadow-lg shadow-primary/20'
                           : 'border-primary/20 bg-primary/10 text-primary hover:border-primary/40 hover:bg-primary/15'
                       }`
-                    : `flex items-center gap-1.5 text-sm font-medium transition-colors ${
+                    : `flex shrink-0 items-center gap-1.5 whitespace-nowrap text-sm font-medium transition-colors ${
                         isActiveLink
                           ? 'text-primary'
                           : 'text-muted-foreground hover:text-foreground'
@@ -1153,7 +1160,7 @@ const HeaderContent: React.FC = () => {
         </nav>
 
         {/* Search Bar & Dice Button */}
-        <div className="hidden max-w-md flex-1 items-center gap-2 md:flex">
+        <div className="hidden min-w-[13rem] max-w-md flex-1 items-center gap-2 md:flex xl:min-w-[16rem]">
           {renderRandomMangaButton()}
           {showHeaderOfflineToggle && renderOfflineToggleButton()}
 

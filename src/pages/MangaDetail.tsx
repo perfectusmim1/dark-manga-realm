@@ -513,12 +513,12 @@ const BookmarkPagePreview = React.memo(({
           alt={alt}
           loading="lazy"
           decoding="async"
-          width={256}
-          height={320}
+          width={360}
+          height={450}
           sizes="(min-width: 1024px) 128px, (min-width: 640px) 112px, 96px"
           draggable={false}
           referrerPolicy="no-referrer"
-          className="h-full w-full object-cover"
+          className="image-downscale-quality h-full w-full object-cover object-top"
         />
       ) : (
         <div className="flex h-full w-full items-center justify-center bg-secondary/40">
@@ -1155,8 +1155,27 @@ const MangaDetail: React.FC = () => {
       .replace(/<[^>]+>/g, '')
       .replace(/&nbsp;/gi, ' ')
       .replace(/&quot;/gi, '"')
-      .replace(/&apos;/gi, "'")
+      .replace(/&apos;|&#0?39;/gi, "'")
+      .replace(/&ldquo;/gi, '“')
+      .replace(/&rdquo;/gi, '”')
+      .replace(/&lsquo;/gi, '‘')
+      .replace(/&rsquo;/gi, '’')
+      .replace(/&ndash;/gi, '–')
+      .replace(/&mdash;/gi, '—')
+      .replace(/&hellip;/gi, '…')
       .replace(/&amp;/gi, '&')
+      .replace(/&#(\d+);/g, (match, dec: string) => {
+        const codePoint = Number(dec);
+        return Number.isInteger(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
+          ? String.fromCodePoint(codePoint)
+          : match;
+      })
+      .replace(/&#x([0-9a-f]+);/gi, (match, hex: string) => {
+        const codePoint = parseInt(hex, 16);
+        return Number.isInteger(codePoint) && codePoint > 0 && codePoint <= 0x10ffff
+          ? String.fromCodePoint(codePoint)
+          : match;
+      })
       .replace(/\n{3,}/g, '\n\n')
       .trim();
   };
@@ -3368,12 +3387,12 @@ const MangaDetail: React.FC = () => {
                           {authorItems.length > 0 ? (
                             <div className="flex flex-wrap items-center gap-1">
                               {authorItems.map((author, index) => (
-                                <React.Fragment key={author.id}>
-                                  {index > 0 ? <span>,</span> : null}
+                                <span key={author.id} className="inline-flex items-baseline">
                                   <Link to={`/author/${author.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
                                     {author.name}
                                   </Link>
-                                </React.Fragment>
+                                  {index < authorItems.length - 1 ? <span>,</span> : null}
+                                </span>
                               ))}
                             </div>
                           ) : displayAuthor ? (
@@ -3387,12 +3406,12 @@ const MangaDetail: React.FC = () => {
                           {artistItems.length > 0 ? (
                             <div className="flex flex-wrap items-center gap-1">
                               {artistItems.map((artist, index) => (
-                                <React.Fragment key={artist.id}>
-                                  {index > 0 ? <span>,</span> : null}
+                                <span key={artist.id} className="inline-flex items-baseline">
                                   <Link to={`/artist/${artist.id}`} className="hover:text-primary transition-colors underline-offset-4 hover:underline">
                                     {artist.name}
                                   </Link>
-                                </React.Fragment>
+                                  {index < artistItems.length - 1 ? <span>,</span> : null}
+                                </span>
                               ))}
                             </div>
                           ) : displayArtist ? (
@@ -3717,7 +3736,7 @@ const MangaDetail: React.FC = () => {
                 <>
                   <div className="grid grid-cols-1 gap-4 sm:gap-6 lg:grid-cols-3 lg:gap-8">
                     {/* Chapters List */}
-                    <div className="space-y-4 sm:space-y-6 lg:col-span-2 lg:space-y-8">
+                    <div className="min-w-0 space-y-4 sm:space-y-6 lg:col-span-2 lg:space-y-8">
                       <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
                         <div className="flex flex-col justify-between gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4">
                           <h2 className="text-xl font-bold">Bölümler</h2>
@@ -3908,7 +3927,7 @@ const MangaDetail: React.FC = () => {
                     </div>
 
                     {/* Sidebar Info */}
-                    <div className="space-y-4 sm:space-y-6">
+                    <div className="min-w-0 space-y-4 sm:space-y-6">
                       <div 
                         className="group hidden cursor-pointer rounded-xl border border-border bg-card/50 p-3 transition-colors hover:bg-card/70 sm:block sm:p-6"
                         onClick={() => setActiveTab('reviews')}

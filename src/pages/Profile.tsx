@@ -162,10 +162,20 @@ const Profile: React.FC = () => {
   ];
   const requestedTab = searchParams.get('tab') || 'overview';
   const activeTab = visibleTabs.includes(requestedTab) ? requestedTab : visibleTabs[0];
-  const statCardBaseClass = 'rounded-2xl border border-border/60 bg-card/65 p-4 sm:p-5 flex items-center gap-3.5 transition-colors';
+  const heroBackdropImage =
+    profileData.recentReads?.[0]?.mangas?.banner
+    || profileData.recentReads?.[0]?.mangas?.cover
+    || profileData.followedManga?.[0]?.cover
+    || profileData.avatar
+    || null;
+  const listTotalCount = (canViewReadingLists ? readingLists.length : 0) + (canViewTierLists ? tierLists.length : 0);
+  const reviewsCount = (profileData.recentReviews || []).length;
+  const followedMangaCount = (profileData.followedManga || []).length;
+  const totalCommentsAndReviews = (profileData.stats.totalComments || 0) + reviewsCount;
+  const statCardBaseClass = 'min-w-0 rounded-2xl border border-border/60 bg-gradient-to-br from-card/95 via-card/85 to-background/95 p-4 sm:p-5 transition-colors hover:border-border';
   const readingTimeStatCardClassName = cn(
     statCardBaseClass,
-    isOwnProfile && 'hover:border-primary/40 hover:bg-card',
+    isOwnProfile && 'block hover:border-primary/45',
   );
   
   const joinDate = new Date(profileData.created_at).toLocaleDateString('tr-TR', {
@@ -261,70 +271,107 @@ const Profile: React.FC = () => {
   }
 
   return (
-    <div className="min-h-screen bg-background">
+    <div className="min-h-screen overflow-x-clip bg-background">
       <Header />
       
-      <main className="container pt-24 pb-12">
+      <main className="container overflow-x-clip pt-20 sm:pt-24 pb-12">
         {/* Profile Header */}
-        <section className="rounded-2xl border border-border/60 bg-card/65 p-5 sm:p-7">
-          <div className="flex flex-col md:flex-row items-center md:items-start gap-6 sm:gap-7">
-            <Avatar className="w-24 h-24 sm:w-32 sm:h-32 shrink-0 border-2 border-primary/25 shadow-lg">
-              <AvatarImage src={profileData.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${profileData.username}`} />
-              <AvatarFallback>{profileData.username?.substring(0, 2).toUpperCase()}</AvatarFallback>
-            </Avatar>
+        <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-card/85 shadow-xl">
+          {heroBackdropImage ? (
+            <>
+              <img
+                src={heroBackdropImage}
+                alt=""
+                aria-hidden
+                className="pointer-events-none absolute inset-0 h-full w-full scale-105 object-cover object-center opacity-25 blur-[2px] brightness-75 select-none"
+              />
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background/95 via-background/80 to-background/55"
+              />
+              <div
+                aria-hidden
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background via-background/45 to-transparent"
+              />
+            </>
+          ) : null}
 
-            <div className="flex-1 min-w-0 text-center md:text-left">
-              <div className="flex flex-col lg:flex-row lg:items-start justify-between gap-4">
-                <div className="min-w-0 space-y-2.5">
-                  <div className="flex flex-wrap items-center justify-center gap-2.5 md:justify-start">
-                    <h1
-                      className={cn(
-                        'text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight truncate',
-                        profileData.role ? getStaffTextClassName(profileData.role, false) : ''
+          <div className="relative z-10 p-5 sm:p-7 md:p-8">
+            <div className="flex flex-col items-center gap-5 md:flex-row md:items-center md:gap-7">
+              <Avatar className="h-24 w-24 shrink-0 rounded-2xl border-2 border-white/15 bg-secondary shadow-2xl sm:h-28 sm:w-28">
+                <AvatarImage
+                  src={profileData.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${profileData.username}`}
+                  className="image-downscale-quality object-cover"
+                />
+                <AvatarFallback className="rounded-2xl text-xl font-bold">
+                  {profileData.username?.substring(0, 2).toUpperCase()}
+                </AvatarFallback>
+              </Avatar>
+
+              <div className="min-w-0 flex-1 text-center md:text-left">
+                <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
+                  <div className="min-w-0 space-y-2.5">
+                    <div className="flex flex-wrap items-center justify-center gap-2.5 md:justify-start">
+                      <h1
+                        className={cn(
+                          'truncate text-2xl font-extrabold tracking-tight sm:text-3xl md:text-4xl',
+                          profileData.role ? getStaffTextClassName(profileData.role, false) : ''
+                        )}
+                      >
+                        {profileData.username}
+                      </h1>
+                      <StaffBadge role={profileData.role} />
+                      {!canView && (
+                        <Badge variant="outline" className="gap-1 border-amber-500/35 bg-amber-500/10 px-2.5 py-0.5 text-xs font-semibold text-amber-300">
+                          <Lock className="h-3 w-3" />
+                          Gizli Hesap
+                        </Badge>
                       )}
-                    >
-                      {profileData.username}
-                    </h1>
-                    <StaffBadge role={profileData.role} />
+                      {profileData.relationship.isBlocked && (
+                        <Badge variant="destructive" className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold">
+                          <ShieldAlert className="h-3.5 w-3.5" />
+                          Engellendi
+                        </Badge>
+                      )}
+                    </div>
+
+                    <div className="flex flex-wrap items-center justify-center gap-2 md:justify-start">
+                      <span className="inline-flex items-center rounded-md border border-white/10 bg-white/[0.06] px-2 py-0.5 font-mono text-xs text-muted-foreground">
+                        @{profileData.username}
+                      </span>
+                      <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/50 px-3 py-0.5 text-xs font-medium text-muted-foreground backdrop-blur-sm">
+                        <Calendar className="h-3.5 w-3.5 text-primary/80" />
+                        {joinDate} tarihinde katıldı
+                      </span>
+                    </div>
+
                     {profileData.relationship.isBlocked && (
-                      <Badge variant="destructive" className="flex items-center gap-1.5 px-2.5 py-0.5 text-xs font-semibold">
-                        <ShieldAlert className="w-3.5 h-3.5" />
-                        Engellendi
-                      </Badge>
+                      <p className="text-xs font-medium text-red-400">
+                        Bu kullanıcıyı engellediniz. Paylaşımları otomatik olarak gizlenir.
+                      </p>
                     )}
+
+                    <div className="flex flex-wrap items-center justify-center gap-2 pt-0.5 text-xs sm:text-sm md:justify-start">
+                      <button
+                        type="button"
+                        onClick={() => setListModalType('followers')}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/55 px-3 py-1 backdrop-blur-sm transition-colors hover:border-primary/40 hover:text-primary"
+                      >
+                        <span className="font-bold text-foreground tabular-nums">{profileData.stats.followersCount}</span>
+                        <span className="text-muted-foreground">Takipçi</span>
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setListModalType('following')}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/55 px-3 py-1 backdrop-blur-sm transition-colors hover:border-primary/40 hover:text-primary"
+                      >
+                        <span className="font-bold text-foreground tabular-nums">{profileData.stats.followingCount}</span>
+                        <span className="text-muted-foreground">Takip Edilen</span>
+                      </button>
+                    </div>
                   </div>
 
-                  {profileData.relationship.isBlocked && (
-                    <p className="text-red-400 text-xs font-medium">
-                      Bu kullanıcıyı engellediniz. Paylaşımları otomatik olarak gizlenir.
-                    </p>
-                  )}
-
-                  <div className="flex flex-wrap items-center justify-center md:justify-start gap-2 pt-0.5 text-xs sm:text-sm">
-                    <button
-                      type="button"
-                      onClick={() => setListModalType('followers')}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/45 px-3 py-1 transition-colors hover:border-primary/40 hover:text-primary"
-                    >
-                      <span className="font-bold text-foreground tabular-nums">{profileData.stats.followersCount}</span>
-                      <span className="text-muted-foreground">Takipçi</span>
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => setListModalType('following')}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/45 px-3 py-1 transition-colors hover:border-primary/40 hover:text-primary"
-                    >
-                      <span className="font-bold text-foreground tabular-nums">{profileData.stats.followingCount}</span>
-                      <span className="text-muted-foreground">Takip Edilen</span>
-                    </button>
-                    <span className="inline-flex items-center gap-1.5 rounded-full border border-border/60 bg-background/40 px-3 py-1 text-xs font-medium text-muted-foreground">
-                      <Calendar className="h-3.5 w-3.5 text-primary/80" />
-                      {joinDate} tarihinde katıldı
-                    </span>
-                  </div>
-                </div>
-
-                <div className="flex flex-wrap items-center justify-center md:justify-end gap-2.5 shrink-0">
+                  <div className="flex shrink-0 flex-wrap items-center justify-center gap-2.5 md:justify-end">
                   {isOwnProfile ? (
                     <Button asChild variant="outline" size="sm" className="gap-2 rounded-xl">
                       <Link to="/settings">
@@ -443,6 +490,7 @@ const Profile: React.FC = () => {
               </div>
             </div>
           </div>
+          </div>
         </section>
 
         {/* Content Tabs */}
@@ -456,117 +504,132 @@ const Profile: React.FC = () => {
           <Tabs 
             value={activeTab}
             onValueChange={(value) => setSearchParams({ tab: value })}
-            className="mt-6 sm:mt-8"
+            className="mt-6 min-w-0 sm:mt-8"
           >
-            <TabsList className="mb-6 sm:mb-8 flex h-auto w-full justify-start gap-1.5 overflow-x-auto scrollbar-hide rounded-xl border border-border/60 bg-card/70 p-1.5">
+            <TabsList className="mb-6 flex h-auto w-full max-w-full justify-start gap-2 overflow-x-auto scrollbar-hide rounded-2xl border border-border/60 bg-card/70 p-1.5 sm:mb-8">
               <TabsTrigger 
                 value="overview" 
-                className="shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
               >
-                Genel Bakış
+                <BookOpen className="h-3.5 w-3.5 shrink-0" />
+                <span>Genel Bakış</span>
               </TabsTrigger>
               {canViewAnyLists && (
                 <TabsTrigger 
                   value="tierlists" 
-                  className="shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm flex items-center gap-2"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
                 >
-                  Listelerim
+                  <List className="h-3.5 w-3.5 shrink-0" />
+                  <span>Listelerim ({listTotalCount})</span>
                 </TabsTrigger>
               )}
               {canViewComments && (
                 <TabsTrigger 
                   value="comments" 
-                  className="shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
                 >
-                  Yorumlar
+                  <MessageSquare className="h-3.5 w-3.5 shrink-0" />
+                  <span>Yorumlar ({profileData.stats.totalComments || 0})</span>
                 </TabsTrigger>
               )}
               {canViewReviews && (
                 <TabsTrigger 
                   value="reviews" 
-                  className="shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
                 >
-                  İncelemeler
+                  <Star className="h-3.5 w-3.5 shrink-0" />
+                  <span>İncelemeler ({reviewsCount})</span>
                 </TabsTrigger>
               )}
               {canViewFollowedManga && (
                 <TabsTrigger 
                   value="following-manga" 
-                  className="shrink-0 whitespace-nowrap rounded-lg px-4 py-2 text-xs sm:text-sm font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-sm"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
                 >
-                  Takip Edilenler
+                  <Book className="h-3.5 w-3.5 shrink-0" />
+                  <span>Takip Edilenler ({followedMangaCount})</span>
                 </TabsTrigger>
               )}
             </TabsList>
             
-            <TabsContent value="overview" className="mt-0 space-y-6 sm:space-y-8 animate-route-enter">
+            <TabsContent value="overview" className="mt-0 min-w-0 space-y-6 sm:space-y-8 animate-route-enter">
               {/* Detailed Stats Grid */}
-              <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-                {canViewReadingDetails && (
+              <div className="grid grid-cols-1 gap-3 min-[420px]:grid-cols-2 lg:grid-cols-4 sm:gap-4">
+                {canViewReadingHistory && (
                   <div className={statCardBaseClass}>
-                    <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <BookOpen className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none">{profileData.stats.totalChapters}</p>
-                      <p className="mt-1.5 text-xs font-medium text-muted-foreground">Bölüm Okundu</p>
-                    </div>
-                  </div>
-                )}
-
-                {canViewReadingDetails && (
-                  <div className={statCardBaseClass}>
-                    <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <Book className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none">{profileData.stats.totalSeries}</p>
-                      <p className="mt-1.5 text-xs font-medium text-muted-foreground">Okunan Seri</p>
-                    </div>
-                  </div>
-                )}
-
-                {canViewComments && (
-                  <div className={statCardBaseClass}>
-                    <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                      <MessageSquare className="h-5 w-5" />
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none">{profileData.stats.totalComments || 0}</p>
-                      <p className="mt-1.5 text-xs font-medium text-muted-foreground">Yorum Yapıldı</p>
-                    </div>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-sky-400">
+                      Toplam Okunan Bölüm
+                    </p>
+                    <p className="mt-2 text-2xl font-extrabold tracking-tight text-sky-400 tabular-nums sm:text-3xl">
+                      {profileData.stats.totalChapters} Bölüm
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Manga &amp; Webtoon arşivi
+                    </p>
                   </div>
                 )}
 
                 {canViewReadingHistory && (
                   isOwnProfile ? (
                     <Link to="/reading-time" className={readingTimeStatCardClassName}>
-                      <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                        <Clock3 className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none">{formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}</p>
-                        <p className="mt-1.5 text-xs font-medium text-muted-foreground">Okuma Süresi</p>
-                      </div>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
+                        Toplam Okuma Süresi
+                      </p>
+                      <p className="mt-2 text-2xl font-extrabold tracking-tight text-blue-400 tabular-nums sm:text-3xl">
+                        {formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Gerçek okuma geçmişi
+                      </p>
                     </Link>
                   ) : (
                     <div className={readingTimeStatCardClassName}>
-                      <div className="flex h-10 w-10 sm:h-11 sm:w-11 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                        <Clock3 className="h-5 w-5" />
-                      </div>
-                      <div className="min-w-0">
-                        <p className="text-xl sm:text-2xl font-bold tracking-tight tabular-nums leading-none">{formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}</p>
-                        <p className="mt-1.5 text-xs font-medium text-muted-foreground">Okuma Süresi</p>
-                      </div>
+                      <p className="text-[11px] font-bold uppercase tracking-wider text-blue-400">
+                        Toplam Okuma Süresi
+                      </p>
+                      <p className="mt-2 text-2xl font-extrabold tracking-tight text-blue-400 tabular-nums sm:text-3xl">
+                        {formatReadingDuration(profileData.stats.totalReadingSeconds || 0)}
+                      </p>
+                      <p className="mt-1 text-xs text-muted-foreground">
+                        Gerçek okuma geçmişi
+                      </p>
                     </div>
                   )
+                )}
+
+                {canViewReadingHistory && (
+                  <div className={statCardBaseClass}>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-violet-400">
+                      Okunan Seri
+                    </p>
+                    <p className="mt-2 text-2xl font-extrabold tracking-tight text-violet-400 tabular-nums sm:text-3xl">
+                      {profileData.stats.totalSeries} Seri
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Kütüphane &amp; okuma kaydı
+                    </p>
+                  </div>
+                )}
+
+                {(canViewComments || canViewReviews) && (
+                  <div className={statCardBaseClass}>
+                    <p className="text-[11px] font-bold uppercase tracking-wider text-rose-400">
+                      Yorum &amp; İnceleme
+                    </p>
+                    <p className="mt-2 text-2xl font-extrabold tracking-tight text-rose-400 tabular-nums sm:text-3xl">
+                      {totalCommentsAndReviews} Katkı
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">
+                      Topluluk etkileşimi
+                    </p>
+                  </div>
                 )}
               </div>
 
               {canViewReadingDetails && (
                 <>
                   {/* Heat Map Section */}
-                  <div className="rounded-2xl border border-border/60 bg-card/65 p-5 md:p-7">
+                  <div className="min-w-0 rounded-2xl border border-border/60 bg-card/65 p-5 md:p-7">
                     <div className="flex items-center gap-2 mb-5">
                       <Calendar className="w-5 h-5 text-primary" />
                       <h3 className="text-lg sm:text-xl font-semibold">Okuma Geçmişi (Son 1 Yıl)</h3>
@@ -736,7 +799,7 @@ const Profile: React.FC = () => {
                                    alt={comment.targetName}
                                    loading="lazy"
                                    decoding="async"
-                                   className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                                   className="image-downscale-quality h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                                  />
                                ) : (
                                  <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-muted-foreground/70">
@@ -859,7 +922,7 @@ const Profile: React.FC = () => {
                                    alt={review.mangaTitle}
                                    loading="lazy"
                                    decoding="async"
-                                   className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                                   className="image-downscale-quality h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                                  />
                                ) : (
                                  <div className="flex h-full w-full items-center justify-center bg-secondary/40 text-center text-xs text-muted-foreground">
@@ -980,7 +1043,7 @@ const Profile: React.FC = () => {
                                 alt={manga.title}
                                 loading="lazy"
                                 decoding="async"
-                                className="h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
+                                className="image-downscale-quality h-full w-full object-cover transition-transform duration-200 group-hover:scale-[1.03]"
                               />
                              <Badge className="absolute left-2 top-2 rounded-md border-none bg-black/75 px-1.5 py-0.5 text-[10px] font-semibold text-white hover:bg-black/75">
                               {getCompactMangaTypeLabel(manga.type)}

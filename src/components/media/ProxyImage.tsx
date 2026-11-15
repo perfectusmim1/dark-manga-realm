@@ -5,6 +5,7 @@ import {
   type ImageProxyTransformOptions,
 } from '@/lib/imageProxy';
 import { buildProxiedImageUrl } from '@/lib/mediaStorage';
+import { cn } from '@/lib/utils';
 
 interface ProxyImageProps extends Omit<React.ImgHTMLAttributes<HTMLImageElement>, 'src' | 'alt'> {
   src: string;
@@ -21,25 +22,31 @@ const getTransformKey = (transform?: ImageProxyTransformOptions) =>
 const ProxyImage: React.FC<ProxyImageProps> = ({
   src,
   alt,
+  className,
   transform,
   allowProxy = false,
   onError,
   fetchPriority: _fetchPriority,
   loading = 'lazy',
   decoding = 'async',
+  srcSet,
+  sizes,
   ...rest
 }) => {
   const transformKey = React.useMemo(() => getTransformKey(transform), [transform]);
   const [shouldBypassProxy, setShouldBypassProxy] = React.useState(false);
   const [useProxyFallback, setUseProxyFallback] = React.useState(false);
+  const [hasFinalError, setHasFinalError] = React.useState(false);
   const avoidRawFallback = React.useMemo(() => shouldAvoidRawImageFallback(src), [src]);
-  const effectiveAllowProxy = allowProxy || avoidRawFallback;
+  const hasTransform = Boolean(transform && (transform.width || transform.quality));
+  const effectiveAllowProxy = allowProxy || avoidRawFallback || hasTransform;
   const isExternalUrl = typeof src === 'string' && (src.startsWith('http://') || src.startsWith('https://'));
 
   React.useEffect(() => {
     setShouldBypassProxy(false);
     setUseProxyFallback(false);
-  }, [src, transformKey]);
+    setHasFinalError(false);
+  }, [src, transformKey, srcSet]);
 
   const proxiedSrc = React.useMemo(() => {
     if (useProxyFallback && isExternalUrl) {
@@ -71,10 +78,29 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
         }
       }
 
+      setHasFinalError(true);
       onError?.(event);
     },
     [avoidRawFallback, effectiveAllowProxy, isExternalUrl, onError, proxiedSrc, shouldBypassProxy, src, useProxyFallback],
   );
+
+  if (!proxiedSrc || hasFinalError) {
+    return (
+      <div
+        role="img"
+        aria-label={alt || 'Görsel yüklenemedi'}
+        className={cn(
+          'flex items-center justify-center bg-gradient-to-br from-muted/65 via-card to-background/95 p-2 text-center text-[10px] font-medium leading-snug text-muted-foreground/85',
+          className,
+        )}
+      >
+        <span className="line-clamp-3 break-words">{alt || 'Görsel yüklenemedi'}</span>
+      </div>
+    );
+  }
+
+  const activeSrcSet = shouldBypassProxy || useProxyFallback ? undefined : srcSet;
+  const activeSizes = shouldBypassProxy || useProxyFallback ? undefined : sizes;
 
   return (
     <img
@@ -82,7 +108,10 @@ const ProxyImage: React.FC<ProxyImageProps> = ({
       loading={loading}
       decoding={decoding}
       {...rest}
+      className={cn('image-downscale-quality', className)}
       src={proxiedSrc}
+      srcSet={activeSrcSet}
+      sizes={activeSizes}
       alt={alt}
       onError={handleError}
     />

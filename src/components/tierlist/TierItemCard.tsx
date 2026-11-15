@@ -1,5 +1,6 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import OptimizedImage from '@/components/media/OptimizedImage';
+import { getManagedArtworkSrcSet } from '@/lib/managedArtwork';
 import { cn } from '@/lib/utils';
 
 export interface TierItemCardProps {
@@ -35,6 +36,7 @@ export const TierItemCard: React.FC<TierItemCardProps> = React.memo(({
   const itemId = item.id?.toString() || '';
   const itemLabel = item.name || item.title || 'İsimsiz';
   const itemImage = item.cover || item.imageUrl || item.image_url;
+  const itemSrcSet = useMemo(() => getManagedArtworkSrcSet(itemImage), [itemImage]);
 
   const tooltipText = seriesTitle
     ? `${itemLabel} • ${seriesTitle}`
@@ -73,7 +75,9 @@ export const TierItemCard: React.FC<TierItemCardProps> = React.memo(({
           src={itemImage}
           alt={itemLabel}
           allowProxy
-          transform={{ width: 320, quality: 75, fit: 'cover' }}
+          srcSet={itemSrcSet}
+          sizes="(max-width: 640px) 84px, 96px"
+          transform={{ width: 360, quality: 84, fit: 'cover' }}
           className="h-full w-full object-cover pointer-events-none"
           containerClassName="h-full w-full"
           rootMargin="400px 0px"

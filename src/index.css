@@ -83,14 +83,16 @@
 
   html {
     overflow-y: scroll;
-    scrollbar-gutter: stable both-edges;
+    overflow-x: clip;
+    max-width: 100%;
+    scrollbar-gutter: stable;
   }
 
   html.reader-active {
     scrollbar-gutter: auto;
     overflow-y: auto;
-    overflow-x: hidden;
     overflow-x: clip;
+    max-width: 100%;
     overscroll-behavior-x: none;
   }
 
@@ -98,6 +100,14 @@
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
     overflow-y: scroll;
+    overflow-x: clip;
+    max-width: 100%;
+  }
+
+  #root {
+    overflow-x: clip;
+    max-width: 100%;
+    width: 100%;
   }
 
   h1, h2, h3, h4 {
@@ -183,8 +193,8 @@
   .image-downscale-quality {
     display: block;
     image-rendering: auto;
-    image-rendering: smooth;
-    image-rendering: -webkit-optimize-contrast;
+    -webkit-backface-visibility: hidden;
+    backface-visibility: hidden;
   }
 
   .tp-progress {
@@ -454,5 +464,16 @@
     .cv-auto-row {
       contain: layout style paint;
     }
+  }
+
+  .scrollbar-hide,
+  .no-scrollbar {
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .scrollbar-hide::-webkit-scrollbar,
+  .no-scrollbar::-webkit-scrollbar {
+    display: none;
   }
 }

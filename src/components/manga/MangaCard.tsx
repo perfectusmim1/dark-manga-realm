@@ -32,8 +32,8 @@ const MANGA_CARD_INTRINSIC_WIDTH = 280;
 const MANGA_CARD_INTRINSIC_HEIGHT = 420;
 
 const MANGA_CARD_COVER_TRANSFORM = Object.freeze({
-  width: 420,
-  quality: 68,
+  width: 480,
+  quality: 84,
   format: 'webp' as const,
   fit: 'cover' as const,
 });
@@ -44,23 +44,21 @@ const TOP_TEN_CORNER_CLIP_PATH = 'polygon(100% 0, 100% 100%, 0 0)';
 const TOP_TEN_CORNER_SIZE = 'clamp(2.35rem, 24%, 3.35rem)';
 
 const getLatestChapterLinks = (chapters: Manga['chapters']) => {
+  if (!chapters.length) return [];
+
+  const sorted = [...chapters].sort((a, b) => Number(b.number) - Number(a.number));
+  const seenIds = new Set<string>();
+  const seenNumbers = new Set<string>();
   const latest: Manga['chapters'] = [];
 
-  for (const chapter of chapters) {
-    if (latest.length === 0 || chapter.number >= latest[0].number) {
-      latest.unshift(chapter);
-      if (latest.length > 2) {
-        latest.length = 2;
-      }
-      continue;
-    }
-
-    if (latest.length === 1 || chapter.number > latest[1].number) {
-      latest.splice(1, 0, chapter);
-      if (latest.length > 2) {
-        latest.length = 2;
-      }
-    }
+  for (const chapter of sorted) {
+    if (!chapter?.id || seenIds.has(chapter.id)) continue;
+    const numberKey = formatChapterNumberLabel(chapter.number);
+    if (seenNumbers.has(numberKey)) continue;
+    seenIds.add(chapter.id);
+    seenNumbers.add(numberKey);
+    latest.push(chapter);
+    if (latest.length >= 2) break;
   }
 
   return latest;
@@ -90,13 +88,11 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
   const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : chapters.length;
   const coverSrcSet = useMemo(() => getManagedArtworkSrcSet(manga.cover), [manga.cover]);
   const latestChapterLinks = useMemo(() => getLatestChapterLinks(chapters), [chapters]);
-  const cardMetaLine = useMemo(() => {
-    const primaryPerson = [manga.author, manga.artist]
-      .map((value) => value?.trim())
-      .find(Boolean);
-
-    return primaryPerson || '\u00A0';
-  }, [manga.artist, manga.author]);
+  const primaryGenre = useMemo(
+    () => genres.map((genre) => formatGenreDisplayName(genre).trim()).find(Boolean) || '',
+    [genres],
+  );
+  const showCoverStatusBadge = manga.status === 'completed' || manga.status === 'hiatus';
 
   const formatViews = (views: number) => {
     if (views >= 1000000) return `${(views / 1000000).toFixed(1)}M`;
@@ -264,19 +260,23 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         )}
 
         <div className="pointer-events-none absolute inset-x-1.5 bottom-1.5 z-10 flex items-end justify-between gap-1">
-          <Badge
-            variant={manga.status === 'completed' ? 'default' : 'outline'}
-            className={cn(
-              `max-w-[58%] px-1.5 py-0.5 text-[9px] font-bold shadow-sm ${disableHeavyEffects ? '' : 'transition-opacity duration-200 group-hover:opacity-0'}`,
-              manga.status === 'completed'
-                ? 'border-none bg-primary/90 text-primary-foreground'
-                : `border-white/20 bg-black/60 text-white ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`
-            )}
-          >
-            <span className="truncate">
-              {formatMangaStatusLabel(manga.status)}
-            </span>
-          </Badge>
+          {showCoverStatusBadge ? (
+            <Badge
+              variant={manga.status === 'completed' ? 'default' : 'outline'}
+              className={cn(
+                `max-w-[58%] px-1.5 py-0.5 text-[9px] font-bold shadow-sm ${disableHeavyEffects ? '' : 'transition-opacity duration-200 group-hover:opacity-0'}`,
+                manga.status === 'completed'
+                  ? 'border-none bg-primary/90 text-primary-foreground'
+                  : `border-white/20 bg-black/60 text-white ${disableHeavyEffects ? '' : 'backdrop-blur-md'}`
+              )}
+            >
+              <span className="truncate">
+                {formatMangaStatusLabel(manga.status)}
+              </span>
+            </Badge>
+          ) : (
+            <span />
+          )}
 
           {hasVisibleRating ? (
             <MangaRatingBadge
@@ -310,29 +310,19 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
       </div>
 
       <div className="pointer-events-none p-2 sm:p-2.5 peer-focus-visible:[&_h3]:text-primary">
-        <h3 className="min-h-[1.15rem] line-clamp-1 text-xs font-semibold leading-snug text-foreground transition-colors group-hover:text-primary sm:text-[13px]">
+        <h3 className="min-h-[2.25rem] line-clamp-2 text-xs font-semibold leading-snug text-foreground transition-colors group-hover:text-primary sm:min-h-[2.4rem] sm:text-[13px]">
           {manga.title}
         </h3>
-        <p className="mt-0.5 min-h-[14px] line-clamp-1 text-[10px] text-muted-foreground sm:text-[11px]">
-          {cardMetaLine}
-        </p>
-
-        {genres.length > 0 && (
-          <div className="mt-1 flex flex-wrap gap-1">
-            {genres.slice(0, 1).map((genre) => {
-              const formattedGenre = formatGenreDisplayName(genre).trim();
-              if (!formattedGenre) return null;
-              return (
-                <span
-                  key={genre}
-                  className="max-w-full truncate rounded bg-secondary/50 px-1.5 py-0.5 text-[9px] font-medium text-muted-foreground"
-                >
-                  {formattedGenre}
-                </span>
-              );
-            })}
-          </div>
-        )}
+        <div className="mt-1 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground sm:text-[11px]">
+          <span className="min-w-0 truncate">
+            {primaryGenre || getMangaTypeLabel(manga.type)}
+          </span>
+          {chapterCount > 0 ? (
+            <span className="shrink-0 font-medium tabular-nums text-muted-foreground/85">
+              {chapterCount} blm
+            </span>
+          ) : null}
+        </div>
 
         <div className="mt-1.5 space-y-1">
           {latestChapterLinks.length > 0 ? (
