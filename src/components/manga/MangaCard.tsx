@@ -315,15 +315,10 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         <h3 className="min-h-[2.25rem] line-clamp-2 text-xs font-semibold leading-snug text-foreground transition-colors group-hover:text-primary sm:min-h-[2.4rem] sm:text-[13px]">
           {manga.title}
         </h3>
-        <div className="mt-1 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground sm:text-[11px]">
+        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground sm:text-[11px]">
           <span className="min-w-0 truncate">
             {primaryGenre || getMangaTypeLabel(manga.type)}
           </span>
-          {chapterCount > 0 ? (
-            <span className="shrink-0 font-medium tabular-nums text-muted-foreground/85">
-              {chapterCount} blm
-            </span>
-          ) : null}
         </div>
 
         <div className="mt-1.5 space-y-1">

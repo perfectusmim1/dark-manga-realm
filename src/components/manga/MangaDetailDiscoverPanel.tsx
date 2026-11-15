@@ -61,7 +61,7 @@ const MangaDetailDiscoverPanel = ({
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 min-[390px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
+        <div className="grid grid-cols-2 min-[390px]:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
           {[1, 2, 3, 4, 5, 6].map((item) => (
             <div key={item} className={cn(!prefersReducedMotion && 'animate-pulse')}>
               <div className="aspect-[2/3] rounded-xl bg-muted" />
@@ -70,7 +70,7 @@ const MangaDetailDiscoverPanel = ({
           ))}
         </div>
       ) : uniqueSimilarMangas.length > 0 ? (
-        <div className="grid grid-cols-2 min-[390px]:grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
+        <div className="grid grid-cols-2 min-[390px]:grid-cols-3 lg:grid-cols-6 gap-2.5 sm:gap-3.5">
           {uniqueSimilarMangas.map((manga, index) => (
             <MangaCard
               key={manga.id}

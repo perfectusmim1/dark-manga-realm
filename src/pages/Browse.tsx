@@ -1,7 +1,28 @@
 import useDocumentTitle from '@/hooks/useDocumentTitle';
-import React, { useDeferredValue, useEffect, useMemo, useState } from 'react';
+import React, { startTransition, useDeferredValue, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Filter, Grid2x2, Grid3x3, Search, X } from 'lucide-react';
+import {
+  Activity,
+  BookOpen,
+  CheckCircle2,
+  Clock,
+  Compass,
+  Eye,
+  Filter,
+  Flame,
+  Grid2x2,
+  Grid3x3,
+  Layers,
+  PauseCircle,
+  Search,
+  Shield,
+  ShieldAlert,
+  ShieldCheck,
+  Smartphone,
+  Sparkles,
+  Star,
+  X,
+} from 'lucide-react';
 import Header from '@/components/layout/Header';
 import { cn } from '@/lib/utils';
 import MangaCard from '@/components/manga/MangaCard';
@@ -28,6 +49,7 @@ import { useAuth } from '@/contexts/AuthContext';
 import { ADULT_MODE_CHANGED_EVENT } from '@/lib/adultModeEvents';
 import { getMangaTypeLabel } from '@/lib/mangaType';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
+import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
 
 type BrowseAudienceCacheKey = 'safe' | 'adult';
 type BrowseContentFilter = 'all' | 'safe' | 'adult';
@@ -36,8 +58,8 @@ type BrowseGridDensity = 'compact' | 'comfortable';
 
 const BROWSE_DENSITY_STORAGE_KEY = 'toonparrot_browse_density_v1';
 const BROWSE_GRID_CLASSES: Record<BrowseGridDensity, string> = {
-  compact: 'grid grid-cols-2 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7 gap-3 sm:gap-3.5',
-  comfortable: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4',
+  compact: 'grid grid-cols-2 sm:grid-cols-4 lg:grid-cols-7 gap-3 sm:gap-3.5',
+  comfortable: 'grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-6 gap-3 sm:gap-4',
 };
 
 const readInitialBrowseDensity = (): BrowseGridDensity => {
@@ -85,14 +107,33 @@ const normalizeBrowseGenresFromParams = (value: string | null): string[] => {
   ));
 };
 
-const mangaMatchesSelectedGenre = (manga: Manga, genre: string) => {
-  const normalizedGenres = (manga.genres || []).map((item) => normalizeGenreName(item));
+interface IndexedBrowseManga {
+  manga: Manga;
+  normalizedGenres: Set<string>;
+  lowerGenres: Set<string>;
+  hasAdultGenreEquivalent: boolean;
+  rating: number;
+  updatedAtMs: number;
+  createdAtMs: number;
+  chapterCount: number;
+  views: number;
+}
 
-  if (genre === 'Yetişkin') {
-    return manga.isAdult === true || normalizedGenres.some((item) => ADULT_GENRE_EQUIVALENTS.has(item));
+const getFormatIcon = (typeValue: string) => {
+  switch (typeValue) {
+    case 'manga':
+      return <BookOpen className="h-3.5 w-3.5 shrink-0 text-sky-400" />;
+    case 'manhwa':
+      return <Sparkles className="h-3.5 w-3.5 shrink-0 text-orange-400" />;
+    case 'manhua':
+      return <Compass className="h-3.5 w-3.5 shrink-0 text-emerald-400" />;
+    case 'webtoon':
+      return <Smartphone className="h-3.5 w-3.5 shrink-0 text-cyan-400" />;
+    case 'adult':
+      return <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-rose-400" />;
+    default:
+      return <Layers className="h-3.5 w-3.5 shrink-0 text-primary" />;
   }
-
-  return normalizedGenres.includes(genre);
 };
 
 const BrowseGridSkeleton: React.FC<{ gridDensity: BrowseGridDensity }> = ({ gridDensity }) => (
@@ -147,7 +188,13 @@ const Browse: React.FC = () => {
   const [tagFilteredMangaIds, setTagFilteredMangaIds] = useState<Set<string> | null>(null);
   const [isLoading, setIsLoading] = useState(() => !browsePageCache[browseAudienceKey]);
   const [isHydratingFullCollection, setIsHydratingFullCollection] = useState(() => !browsePageCache[browseAudienceKey]);
+  const topTenWeekIds = useTopTenWeekIds(mangas.length > 0);
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const deferredSelectedGenres = useDeferredValue(selectedGenres);
+  const deferredTypeFilter = useDeferredValue(typeFilter);
+  const deferredStatusFilter = useDeferredValue(statusFilter);
+  const deferredContentFilter = useDeferredValue(contentFilter);
+  const deferredSortBy = useDeferredValue(sortBy);
 
   useEffect(() => {
     if (!canSeeAdultContent && contentFilter === 'adult') {
@@ -246,114 +293,149 @@ const Browse: React.FC = () => {
   }, [selectedTagSlugs]);
 
   useEffect(() => {
-    const params: Record<string, string> = {};
-    if (searchQuery) params.search = searchQuery;
-    if (sortBy !== 'popular') params.sort = sortBy;
-    if (typeFilter !== 'all') params.type = typeFilter;
-    if (contentFilter !== 'all') params.content = contentFilter;
-    if (selectedGenres.length > 0) params.genre = selectedGenres.join(',');
-    if (selectedTagSlugs.length > 0) params.tags = selectedTagSlugs.join(',');
-    if (currentPage > 1) params.page = String(currentPage);
+    const nextParams = new URLSearchParams();
+    if (searchQuery) nextParams.set('search', searchQuery);
+    if (sortBy !== 'popular') nextParams.set('sort', sortBy);
+    if (typeFilter !== 'all') nextParams.set('type', typeFilter);
+    if (contentFilter !== 'all') nextParams.set('content', contentFilter);
+    if (selectedGenres.length > 0) nextParams.set('genre', selectedGenres.join(','));
+    if (selectedTagSlugs.length > 0) nextParams.set('tags', selectedTagSlugs.join(','));
+    if (currentPage > 1) nextParams.set('page', String(currentPage));
 
-    setSearchParams(params);
-  }, [contentFilter, searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, currentPage, setSearchParams]);
+    if (nextParams.toString() !== searchParams.toString()) {
+      setSearchParams(nextParams, { replace: true });
+    }
+  }, [contentFilter, searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, currentPage, searchParams, setSearchParams]);
 
-  const filteredManga = useMemo(() => {
+  const indexedCatalog = useMemo<IndexedBrowseManga[]>(() => {
     const seenMangaIds = new Set<string>();
-    let result = mangas.filter((manga) => {
+    const entries: IndexedBrowseManga[] = [];
+
+    for (const manga of mangas) {
       if (!manga?.id || seenMangaIds.has(manga.id)) {
-        return false;
+        continue;
       }
       seenMangaIds.add(manga.id);
-      return true;
-    });
 
-    // Search filter
-    if (deferredSearchQuery) {
-      result = result.filter(
-        (manga) => matchesMangaSearch(manga, deferredSearchQuery)
-      );
-    }
+      const normalizedGenres = new Set<string>();
+      const lowerGenres = new Set<string>();
+      let hasAdultGenreEquivalent = false;
 
-    // Type filter
-    if (typeFilter !== 'all') {
-      result = result.filter((manga) => {
-        if (typeFilter === 'adult') {
-          return manga.isAdult === true || manga.type === 'hentai' || manga.type === 'webtoon_hentai';
+      for (const rawGenre of manga.genres || []) {
+        const lower = rawGenre.toLowerCase();
+        lowerGenres.add(lower);
+        const normalized = normalizeGenreName(rawGenre);
+        if (normalized) {
+          normalizedGenres.add(normalized);
+          if (ADULT_GENRE_EQUIVALENTS.has(normalized)) {
+            hasAdultGenreEquivalent = true;
+          }
         }
-        if (manga.type === typeFilter) {
-          return true;
-        }
-        const lowerGenres = (manga.genres || []).map((g) => g.toLowerCase());
-        if (typeFilter === 'manga') return lowerGenres.includes('manga');
-        if (typeFilter === 'manhwa') return lowerGenres.includes('manhwa');
-        if (typeFilter === 'manhua') return lowerGenres.includes('manhua');
-        if (typeFilter === 'webtoon') return lowerGenres.includes('webtoon');
-        return false;
+      }
+
+      const rating = typeof manga.averageRating === 'number'
+        ? manga.averageRating
+        : manga.ratings && manga.ratings.length > 0
+          ? manga.ratings.reduce((sum, r) => sum + r.rating, 0) / manga.ratings.length
+          : 0;
+
+      const updatedAtMs = manga.lastUpdated ? new Date(manga.lastUpdated).getTime() || 0 : 0;
+      const createdAtMs = manga.createdAt ? new Date(manga.createdAt).getTime() || 0 : 0;
+      const chapterCount = typeof manga.chapterCount === 'number' ? manga.chapterCount : manga.chapters.length;
+      const views = typeof manga.views === 'number' ? manga.views : 0;
+
+      entries.push({
+        manga,
+        normalizedGenres,
+        lowerGenres,
+        hasAdultGenreEquivalent,
+        rating,
+        updatedAtMs,
+        createdAtMs,
+        chapterCount,
+        views,
       });
     }
 
-    // Status filter
-    if (statusFilter !== 'all') {
-      result = result.filter(manga => manga.status === statusFilter);
+    return entries;
+  }, [mangas]);
+
+  const filteredManga = useMemo(() => {
+    let entries = indexedCatalog;
+
+    if (deferredSearchQuery) {
+      entries = entries.filter((entry) => matchesMangaSearch(entry.manga, deferredSearchQuery));
     }
 
-    if (contentFilter === 'safe') {
-      result = result.filter(manga => manga.isAdult !== true);
-    } else if (contentFilter === 'adult') {
-      result = result.filter(manga => manga.isAdult === true);
+    if (deferredTypeFilter !== 'all') {
+      entries = entries.filter((entry) => {
+        if (deferredTypeFilter === 'adult') {
+          return entry.manga.isAdult === true || entry.manga.type === 'hentai' || entry.manga.type === 'webtoon_hentai';
+        }
+        if (entry.manga.type === deferredTypeFilter) {
+          return true;
+        }
+        return entry.lowerGenres.has(deferredTypeFilter);
+      });
     }
 
-    if (selectedGenres.length > 0) {
-      result = result.filter((manga) => (
-        selectedGenres.every((genre) => mangaMatchesSelectedGenre(manga, genre))
+    if (deferredStatusFilter !== 'all') {
+      entries = entries.filter((entry) => entry.manga.status === deferredStatusFilter);
+    }
+
+    if (deferredContentFilter === 'safe') {
+      entries = entries.filter((entry) => entry.manga.isAdult !== true);
+    } else if (deferredContentFilter === 'adult') {
+      entries = entries.filter((entry) => entry.manga.isAdult === true);
+    }
+
+    if (deferredSelectedGenres.length > 0) {
+      entries = entries.filter((entry) => (
+        deferredSelectedGenres.every((genre) => (
+          genre === 'Yetişkin'
+            ? entry.manga.isAdult === true || entry.hasAdultGenreEquivalent
+            : entry.normalizedGenres.has(genre)
+        ))
       ));
     }
 
     if (tagFilteredMangaIds) {
-      result = result.filter(manga => tagFilteredMangaIds.has(manga.id));
+      entries = entries.filter((entry) => tagFilteredMangaIds.has(entry.manga.id));
     }
 
-    // Sort
-    switch (sortBy) {
+    const sortedEntries = entries === indexedCatalog ? [...entries] : entries;
+
+    switch (deferredSortBy) {
       case 'rating':
-        result.sort((a, b) => {
-          const ratingA = typeof a.averageRating === 'number'
-            ? a.averageRating
-            : a.ratings && a.ratings.length > 0
-              ? a.ratings.reduce((sum, r) => sum + r.rating, 0) / a.ratings.length
-              : 0;
-          const ratingB = typeof b.averageRating === 'number'
-            ? b.averageRating
-            : b.ratings && b.ratings.length > 0
-              ? b.ratings.reduce((sum, r) => sum + r.rating, 0) / b.ratings.length
-              : 0;
-          return ratingB - ratingA;
-        });
+        sortedEntries.sort((a, b) => b.rating - a.rating);
         break;
       case 'updated':
-        result.sort((a, b) => new Date(b.lastUpdated).getTime() - new Date(a.lastUpdated).getTime());
+        sortedEntries.sort((a, b) => b.updatedAtMs - a.updatedAtMs);
         break;
       case 'created':
-        result.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        sortedEntries.sort((a, b) => b.createdAtMs - a.createdAtMs);
         break;
       case 'views':
-        result.sort((a, b) => b.views - a.views);
+        sortedEntries.sort((a, b) => b.views - a.views);
         break;
       case 'chapters':
-        result.sort(
-          (a, b) => (
-            (typeof b.chapterCount === 'number' ? b.chapterCount : b.chapters.length)
-            - (typeof a.chapterCount === 'number' ? a.chapterCount : a.chapters.length)
-          )
-        );
+        sortedEntries.sort((a, b) => b.chapterCount - a.chapterCount);
         break;
       default:
-        result.sort((a, b) => b.views - a.views);
+        sortedEntries.sort((a, b) => b.views - a.views);
     }
 
-    return result;
-  }, [contentFilter, deferredSearchQuery, typeFilter, statusFilter, selectedGenres, selectedTagSlugs, tagFilteredMangaIds, sortBy, mangas]);
+    return sortedEntries.map((entry) => entry.manga);
+  }, [
+    indexedCatalog,
+    deferredContentFilter,
+    deferredSearchQuery,
+    deferredTypeFilter,
+    deferredStatusFilter,
+    deferredSelectedGenres,
+    tagFilteredMangaIds,
+    deferredSortBy,
+  ]);
 
   const typeOptions = useMemo(() => {
     const nextOptions = [
@@ -381,7 +463,9 @@ const Browse: React.FC = () => {
         ? prev.filter(g => g !== genre)
         : [...prev, genre]
     );
-    setCurrentPage(1);
+    startTransition(() => {
+      setCurrentPage(1);
+    });
   };
 
   const clearFilters = () => {
@@ -393,13 +477,13 @@ const Browse: React.FC = () => {
     setContentFilter('all');
     setSortBy('popular');
     setCurrentPage(1);
-    setSearchParams({});
+    setSearchParams({}, { replace: true });
   };
 
   const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all' || contentFilter !== 'all';
   const isInitialResultsPending = isLoading && mangas.length === 0;
 
-  const browsePageSize = gridDensity === 'compact' ? 35 : 36;
+  const browsePageSize = gridDensity === 'compact' ? 28 : 36;
   const totalPages = Math.max(1, Math.ceil(filteredManga.length / browsePageSize));
 
   useEffect(() => {
@@ -489,7 +573,7 @@ const Browse: React.FC = () => {
             <div
               role="group"
               aria-label="Görünüm yoğunluğu"
-              className="inline-flex h-9 sm:h-10 shrink-0 items-center rounded-lg border border-border/60 bg-background/60 p-0.5"
+              className="hidden h-9 shrink-0 items-center rounded-lg border border-border/60 bg-background/60 p-0.5 sm:inline-flex sm:h-10"
             >
               <button
                 type="button"
@@ -527,112 +611,169 @@ const Browse: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap sm:items-center">
-            <div className="w-full sm:w-36">
+            <div className="relative w-full sm:w-40">
               <Select
                 value={typeFilter}
                 onValueChange={(value) => {
                   setTypeFilter(normalizeBrowseTypeFilter(value));
-                  setCurrentPage(1);
+                  startTransition(() => setCurrentPage(1));
                 }}
               >
-                <SelectTrigger className="h-9 w-full text-xs">
+                <SelectTrigger className={cn('h-9 w-full text-xs', typeFilter !== 'all' && 'border-primary/45 bg-primary/10 text-foreground')}>
                   <SelectValue placeholder="Format" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Format: Tümü</SelectItem>
+                  <SelectItem value="all">
+                    {getFormatIcon('all')}
+                    <span>Tüm Formatlar</span>
+                  </SelectItem>
                   {typeOptions.map((option) => (
                     <SelectItem key={option.value} value={option.value}>
-                      {option.label}
+                      {getFormatIcon(option.value)}
+                      <span>{option.label}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="w-full sm:w-40">
+            <div className="relative w-full sm:w-40">
               <Select
                 value={statusFilter}
                 onValueChange={(value) => {
                   setStatusFilter(value);
-                  setCurrentPage(1);
+                  startTransition(() => setCurrentPage(1));
                 }}
               >
-                <SelectTrigger className="h-9 w-full text-xs">
+                <SelectTrigger className={cn('h-9 w-full text-xs', statusFilter !== 'all' && 'border-emerald-500/40 bg-emerald-500/10 text-foreground')}>
                   <SelectValue placeholder="Durum" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Durum: Tümü</SelectItem>
-                  <SelectItem value="ongoing">Devam Ediyor</SelectItem>
-                  <SelectItem value="completed">Tamamlandı</SelectItem>
-                  <SelectItem value="hiatus">Ara Verildi</SelectItem>
+                  <SelectItem value="all">
+                    <Activity className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span>Tüm Durumlar</span>
+                  </SelectItem>
+                  <SelectItem value="ongoing">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                    <span>Devam Ediyor</span>
+                  </SelectItem>
+                  <SelectItem value="completed">
+                    <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                    <span>Tamamlandı</span>
+                  </SelectItem>
+                  <SelectItem value="hiatus">
+                    <PauseCircle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                    <span>Ara Verildi</span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="w-full sm:w-40">
+            <div className="relative w-full sm:w-40">
               <Select
                 value={contentFilter}
                 onValueChange={(value) => {
                   setContentFilter(value as BrowseContentFilter);
-                  setCurrentPage(1);
+                  startTransition(() => setCurrentPage(1));
                 }}
               >
-                <SelectTrigger className={cn('h-9 w-full text-xs', contentFilter === 'adult' && 'border-rose-500/40 bg-rose-500/10 text-rose-500')}>
+                <SelectTrigger className={cn(
+                  'h-9 w-full text-xs',
+                  contentFilter === 'adult' && 'border-rose-500/40 bg-rose-500/10 text-rose-400',
+                  contentFilter === 'safe' && 'border-emerald-500/40 bg-emerald-500/10 text-foreground',
+                )}>
                   <SelectValue placeholder="İçerik" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">İçerik: Tümü</SelectItem>
-                  <SelectItem value="safe">Sadece Normal</SelectItem>
+                  <SelectItem value="all">
+                    <Shield className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span>Tüm İçerikler</span>
+                  </SelectItem>
+                  <SelectItem value="safe">
+                    <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                    <span>Sadece Normal</span>
+                  </SelectItem>
                   {canSeeAdultContent ? (
-                    <SelectItem value="adult">Sadece Yetişkin</SelectItem>
+                    <SelectItem value="adult">
+                      <ShieldAlert className="h-3.5 w-3.5 shrink-0 text-rose-400" />
+                      <span>Sadece Yetişkin</span>
+                    </SelectItem>
                   ) : null}
                 </SelectContent>
               </Select>
             </div>
 
-            <div className="w-full sm:w-44">
+            <div className="relative w-full sm:w-44">
               <Select
                 value={sortBy}
                 onValueChange={(value) => {
                   setSortBy(value);
-                  setCurrentPage(1);
+                  startTransition(() => setCurrentPage(1));
                 }}
               >
                 <SelectTrigger className="h-9 w-full text-xs">
                   <SelectValue placeholder="Sırala" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="popular">Sırala: Popüler</SelectItem>
-                  <SelectItem value="rating">Sırala: Puan</SelectItem>
-                  <SelectItem value="created">Sırala: Yeni Eklenen</SelectItem>
-                  <SelectItem value="updated">Sırala: Son Güncellenen</SelectItem>
-                  <SelectItem value="views">Sırala: Görüntülenme</SelectItem>
-                  <SelectItem value="chapters">Sırala: Bölüm Sayısı</SelectItem>
+                  <SelectItem value="popular">
+                    <Flame className="h-3.5 w-3.5 shrink-0 text-orange-400" />
+                    <span>Popüler</span>
+                  </SelectItem>
+                  <SelectItem value="rating">
+                    <Star className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                    <span>Puan</span>
+                  </SelectItem>
+                  <SelectItem value="created">
+                    <Sparkles className="h-3.5 w-3.5 shrink-0 text-violet-400" />
+                    <span>Yeni Eklenen</span>
+                  </SelectItem>
+                  <SelectItem value="updated">
+                    <Clock className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                    <span>Son Güncellenen</span>
+                  </SelectItem>
+                  <SelectItem value="views">
+                    <Eye className="h-3.5 w-3.5 shrink-0 text-cyan-400" />
+                    <span>Görüntülenme</span>
+                  </SelectItem>
+                  <SelectItem value="chapters">
+                    <BookOpen className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                    <span>Bölüm Sayısı</span>
+                  </SelectItem>
                 </SelectContent>
               </Select>
             </div>
 
-            <Button
-              variant={showFilters ? 'default' : 'outline'}
-              size="sm"
-              onClick={() => setShowFilters(!showFilters)}
-              className="h-9 w-full text-xs sm:w-auto"
-            >
-              <Filter className="mr-1.5 h-3.5 w-3.5" />
-              Türler
-            </Button>
-
-            {hasActiveFilters && (
+            <div className="col-span-2 flex items-center gap-2 sm:contents">
               <Button
-                variant="ghost"
+                variant={showFilters ? 'default' : 'outline'}
                 size="sm"
-                onClick={clearFilters}
-                className="h-9 w-full text-xs text-muted-foreground hover:text-foreground sm:w-auto"
+                onClick={() => setShowFilters(!showFilters)}
+                className="h-9 flex-1 text-xs sm:w-auto sm:flex-initial"
               >
-                <X className="mr-1.5 h-3.5 w-3.5" />
-                Temizle
+                <Filter className="mr-1.5 h-3.5 w-3.5" />
+                Türler
+                {selectedGenres.length > 0 && (
+                  <span className={cn(
+                    'ml-1.5 rounded-full px-1.5 py-0 text-[10px] font-bold tabular-nums',
+                    showFilters ? 'bg-primary-foreground/20 text-primary-foreground' : 'bg-primary/15 text-primary',
+                  )}>
+                    {selectedGenres.length}
+                  </span>
+                )}
               </Button>
-            )}
+
+              {hasActiveFilters && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={clearFilters}
+                  className="h-9 shrink-0 text-xs text-muted-foreground hover:text-foreground sm:w-auto"
+                >
+                  <X className="mr-1.5 h-3.5 w-3.5" />
+                  Temizle
+                </Button>
+              )}
+            </div>
           </div>
         </div>
 
@@ -704,6 +845,7 @@ const Browse: React.FC = () => {
                   <MangaCard
                     manga={item}
                     index={idx}
+                    topTenWeekIds={topTenWeekIds}
                     disableHeavyEffects={disableHeavyEffects || prefersReducedMotion}
                     enableEntryAnimation={!prefersReducedMotion}
                     entryAnimationClassName="animate-route-fade"

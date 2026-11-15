@@ -6,6 +6,7 @@
 
 @layer base {
   :root {
+    color-scheme: dark;
     --background: 240 10% 5.5%;
     --foreground: 240 10% 95%;
 
@@ -81,15 +82,28 @@
     outline-offset: 2px;
   }
 
+  input:focus,
+  input:focus-visible,
+  textarea:focus,
+  textarea:focus-visible {
+    outline: none;
+    outline-offset: 0;
+  }
+
+  html:not([data-focus-modality="keyboard"]) [data-slot="select-trigger"]:focus,
+  html:not([data-focus-modality="keyboard"]) [data-slot="select-trigger"]:focus-visible {
+    outline: none !important;
+    outline-offset: 0 !important;
+    box-shadow: none !important;
+  }
+
   html {
     overflow-y: scroll;
     overflow-x: clip;
     max-width: 100%;
-    scrollbar-gutter: stable;
   }
 
   html.reader-active {
-    scrollbar-gutter: stable;
     overflow-y: scroll;
     overflow-x: clip;
     max-width: 100%;
@@ -98,13 +112,11 @@
 
   html:has(body[data-scroll-locked]) {
     overflow-y: scroll !important;
-    scrollbar-gutter: stable !important;
   }
 
   body {
     @apply bg-background text-foreground antialiased;
     font-family: 'Inter', system-ui, sans-serif;
-    overflow-x: clip;
     max-width: 100%;
   }
 
@@ -144,10 +156,15 @@
     overscroll-behavior-x: none;
   }
 
-  body[data-scroll-locked] {
+  html body[data-scroll-locked][data-scroll-locked] {
     --removed-body-scroll-bar-size: 0px !important;
     padding-right: 0 !important;
+    padding-left: 0 !important;
     margin-right: 0 !important;
+    margin-left: 0 !important;
+    overflow-y: visible !important;
+    overflow-x: clip !important;
+    position: static !important;
   }
 
   /* Custom scrollbar */

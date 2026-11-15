@@ -3048,7 +3048,7 @@ const MangaDetail: React.FC = () => {
             </Link>
           ) : null}
 
-          <div className="flex min-w-0 flex-1 flex-col gap-2.5 md:flex-row md:items-center md:justify-between">
+          <div className="flex min-w-0 flex-1 flex-wrap items-center justify-between gap-x-3 gap-y-2">
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-1.5">
                 <Link
@@ -3142,7 +3142,7 @@ const MangaDetail: React.FC = () => {
               </div>
             </div>
 
-            <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:shrink-0 md:justify-end">
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-[359px]:w-full max-[359px]:justify-start">
               {chapterTranslationMap.has(chapter.id) && (chapterTranslationMap.get(chapter.id) || 0) > 0 && (
                 <div className="flex items-center gap-1.5">
                   <Button
@@ -3173,7 +3173,7 @@ const MangaDetail: React.FC = () => {
                 </div>
               )}
               {offlineChapterMap[chapter.id]?.downloadStatus === 'completed' ? (
-                <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-[359px]:w-full max-[359px]:justify-start">
                   {pageCountBadge}
                   <Button asChild size="sm" className="h-8 px-2.5 text-xs">
                     <Link to={`/manga/${manga.id}/chapter/${chapter.id}`}>
@@ -3191,7 +3191,7 @@ const MangaDetail: React.FC = () => {
                   </Button>
                 </div>
               ) : offlineChapterMap[chapter.id] && ['running', 'queued'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
-                <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-[359px]:w-full max-[359px]:justify-start">
                   {pageCountBadge}
                   <Button variant="outline" size="sm" className="h-8 px-2.5 text-xs" disabled>
                     <Download className="mr-1.5 h-3.5 w-3.5" />
@@ -3199,7 +3199,7 @@ const MangaDetail: React.FC = () => {
                   </Button>
                 </div>
               ) : offlineChapterMap[chapter.id]?.downloadStatus === 'paused' ? (
-                <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-[359px]:w-full max-[359px]:justify-start">
                   {pageCountBadge}
                   <Button
                     variant="outline"
@@ -3212,7 +3212,7 @@ const MangaDetail: React.FC = () => {
                   </Button>
                 </div>
               ) : offlineChapterMap[chapter.id] && ['failed', 'partial'].includes(offlineChapterMap[chapter.id].downloadStatus) ? (
-                <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-[359px]:w-full max-[359px]:justify-start">
                   {pageCountBadge}
                   <Button
                     variant="outline"
@@ -3234,7 +3234,7 @@ const MangaDetail: React.FC = () => {
                   </Button>
                 </div>
               ) : (
-                <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:justify-end">
+                <div className="flex shrink-0 flex-wrap items-center justify-end gap-2 max-[359px]:w-full max-[359px]:justify-start">
                   {pageCountBadge}
                   <Button
                     variant="outline"
@@ -3312,7 +3312,7 @@ const MangaDetail: React.FC = () => {
 
               {/* Info */}
               <div className={cn('min-w-0 flex flex-1 flex-col gap-4', !reduceMotion && 'animate-fade-up')}>
-                <div className="flex flex-wrap items-center gap-2">
+                <div className="flex flex-wrap items-center justify-center gap-2 md:justify-start">
                   <Badge
                     variant="default"
                     className={`border-none font-bold ${manga.type === 'manhwa' ? 'bg-orange-600 text-white shadow-lg shadow-orange-500/20' :
@@ -3330,7 +3330,7 @@ const MangaDetail: React.FC = () => {
                   </Badge>
                 </div>
 
-                <h1 className="text-2xl sm:text-3xl md:text-4xl font-bold tracking-tight">{manga.title}</h1>
+                <h1 className="text-center text-2xl sm:text-3xl md:text-left md:text-4xl font-bold tracking-tight">{manga.title}</h1>
 
                 {alternativeTitlesText && (
                   <div ref={alternativeTitlesContainerRef} className="relative space-y-1">
@@ -3345,7 +3345,7 @@ const MangaDetail: React.FC = () => {
                       type="button"
                       onClick={() => shouldShowAlternativeTitlesToggle && setIsAlternativeTitlesExpanded((previous) => !previous)}
                       className={cn(
-                        'w-full text-left text-sm text-muted-foreground italic',
+                        'w-full text-center text-sm text-muted-foreground italic md:text-left',
                         shouldShowAlternativeTitlesToggle && 'cursor-pointer transition-colors hover:text-foreground/85',
                         !isAlternativeTitlesExpanded && 'truncate',
                       )}
@@ -3355,25 +3355,27 @@ const MangaDetail: React.FC = () => {
                       {alternativeTitlesText}
                     </button>
                     {shouldShowAlternativeTitlesToggle && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => setIsAlternativeTitlesExpanded((previous) => !previous)}
-                        className="h-8 px-0 text-sm font-medium text-primary hover:bg-transparent hover:text-primary"
-                      >
-                        {isAlternativeTitlesExpanded ? 'Daha Az Göster' : 'Tümünü Gör'}
-                        {isAlternativeTitlesExpanded ? (
-                          <ChevronUp className="ml-2 h-4 w-4" />
-                        ) : (
-                          <ChevronDown className="ml-2 h-4 w-4" />
-                        )}
-                      </Button>
+                      <div className="flex justify-center md:justify-start">
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          onClick={() => setIsAlternativeTitlesExpanded((previous) => !previous)}
+                          className="h-8 px-0 text-sm font-medium text-primary hover:bg-transparent hover:text-primary"
+                        >
+                          {isAlternativeTitlesExpanded ? 'Daha Az Göster' : 'Tümünü Gör'}
+                          {isAlternativeTitlesExpanded ? (
+                            <ChevronUp className="ml-2 h-4 w-4" />
+                          ) : (
+                            <ChevronDown className="ml-2 h-4 w-4" />
+                          )}
+                        </Button>
+                      </div>
                     )}
                   </div>
                 )}
 
-                <div className="flex flex-wrap items-center gap-2 text-muted-foreground">
+                <div className="flex flex-wrap items-center justify-center gap-2 text-muted-foreground md:justify-start">
                   <div className="flex flex-wrap items-center gap-2">
                     {(() => {
                       const authorItems = (manga.authorsDetails?.length
@@ -3439,7 +3441,7 @@ const MangaDetail: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex flex-wrap items-center gap-x-4 gap-y-1.5 text-xs sm:text-sm">
+                <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-xs sm:text-sm md:justify-start">
                   {averageRating.count > 0 && (
                     <div className="flex items-center gap-1.5 text-yellow-400">
                       <Star className="h-4 w-4 fill-yellow-400 text-yellow-400" />
@@ -3542,7 +3544,7 @@ const MangaDetail: React.FC = () => {
                   </div>
                 )}
 
-                <div className="flex flex-wrap gap-2">
+                <div className="flex flex-wrap justify-center gap-2 md:justify-start">
                   {(() => {
                     const seenGenres = new Set<string>();
                     return manga.genres.flatMap((genre) => {
@@ -3657,11 +3659,12 @@ const MangaDetail: React.FC = () => {
                     <Button
                       variant="outline"
                       onClick={openReportDialog}
-                      className="group h-9 w-full border-amber-500/30 px-0 text-xs text-amber-100 hover:border-amber-400/60 hover:bg-amber-500/10 sm:h-10 sm:w-10 sm:text-sm"
+                      className="group col-span-2 h-9 w-full border-amber-500/30 px-3 text-xs text-amber-100 hover:border-amber-400/60 hover:bg-amber-500/10 sm:col-span-1 sm:h-10 sm:w-10 sm:px-0 sm:text-sm"
                       aria-label="Seriyi bildir"
                       title="Seriyi bildir"
                     >
-                      <Flag className="h-4 w-4" />
+                      <Flag className="h-4 w-4 text-amber-400" />
+                      <span className="font-medium sm:hidden">Seriyi Bildir</span>
                     </Button>
                   </div>
                 </div>
@@ -3747,91 +3750,89 @@ const MangaDetail: React.FC = () => {
                     {/* Chapters List */}
                     <div className="min-w-0 space-y-4 sm:space-y-6 lg:col-span-2 lg:space-y-8">
                       <div className="rounded-xl border border-border bg-card/50 overflow-hidden">
-                        <div className="flex flex-col justify-between gap-3 border-b border-border p-3 sm:flex-row sm:items-center sm:gap-4 sm:p-4">
-                          <h2 className="text-xl font-bold">Bölümler</h2>
-                          <div className="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                            <div className="flex items-center rounded-lg border border-border/70 bg-secondary/40 p-0.5 text-xs">
-                              <button
-                                type="button"
-                                onClick={() => setChapterSortOrder('desc')}
-                                className={cn(
-                                  'flex items-center gap-1 rounded-md px-2.5 py-1.5 font-medium transition-colors',
-                                  chapterSortOrder === 'desc'
-                                    ? 'bg-primary text-primary-foreground shadow-sm'
-                                    : 'text-muted-foreground hover:text-foreground',
-                                )}
-                              >
-                                <ArrowDown className="h-3.5 w-3.5" />
-                                Son Eklenen
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setChapterSortOrder('asc')}
-                                className={cn(
-                                  'flex items-center gap-1 rounded-md px-2.5 py-1.5 font-medium transition-colors',
-                                  chapterSortOrder === 'asc'
-                                    ? 'bg-primary text-primary-foreground shadow-sm'
-                                    : 'text-muted-foreground hover:text-foreground',
-                                )}
-                              >
-                                <ArrowUp className="h-3.5 w-3.5" />
-                                İlk Eklenen
-                              </button>
-                            </div>
-                            {availableLanguages.entries.length > 1 && (
-                                <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1 text-xs">
-                                  <button
-                                    type="button"
-                                    onClick={() => setSelectedLanguage('all')}
-                                    className={cn(
-                                      'rounded-md px-2.5 py-1 font-medium transition-colors',
-                                      selectedLanguage === 'all'
-                                        ? 'bg-primary text-primary-foreground shadow-sm'
-                                        : 'text-muted-foreground hover:text-foreground',
-                                    )}
-                                  >
-                                    Tümü ({uniqueChapterCount})
-                                  </button>
-                                  {availableLanguages.entries.map((entry) => (
-                                    <button
-                                      key={entry.code}
-                                      type="button"
-                                      onClick={() => setSelectedLanguage(entry.code)}
-                                      className={cn(
-                                        'rounded-md px-2.5 py-1 font-medium transition-colors',
-                                        selectedLanguage === entry.code
-                                          ? entry.code === 'tr'
-                                            ? 'bg-emerald-600 text-white shadow-sm'
-                                            : entry.code === 'en'
-                                            ? 'bg-sky-600 text-white shadow-sm'
-                                            : 'bg-primary text-primary-foreground shadow-sm'
-                                          : 'text-muted-foreground hover:text-foreground',
-                                      )}
-                                    >
-                                      {entry.info.label} ({entry.count})
-                                    </button>
-                                  ))}
-                                </div>
+                        <div className="flex flex-wrap items-center justify-between gap-2.5 border-b border-border p-3 sm:gap-3 sm:p-4">
+                          <h2 className="mr-auto text-xl font-bold">Bölümler</h2>
+                          <div className="flex shrink-0 items-center rounded-lg border border-border/70 bg-secondary/40 p-0.5 text-xs">
+                            <button
+                              type="button"
+                              onClick={() => setChapterSortOrder('desc')}
+                              className={cn(
+                                'flex items-center gap-1 rounded-md px-2.5 py-1.5 font-medium transition-colors',
+                                chapterSortOrder === 'desc'
+                                  ? 'bg-primary text-primary-foreground shadow-sm'
+                                  : 'text-muted-foreground hover:text-foreground',
                               )}
-                              <div className="relative w-full sm:w-60 sm:flex-initial">
-                                <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-                                <Input
-                                  placeholder="Bölüm ara (örn: 97)"
-                                  className="pl-9 pr-8"
-                                  value={chapterSearch}
-                                  onChange={(e) => setChapterSearch(e.target.value)}
-                                />
-                                {chapterSearch && (
-                                  <button
-                                    type="button"
-                                    onClick={() => setChapterSearch('')}
-                                    aria-label="Bölüm aramasını temizle"
-                                    className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
-                                  >
-                                    <X className="h-3.5 w-3.5" />
-                                  </button>
+                            >
+                              <ArrowDown className="h-3.5 w-3.5" />
+                              Son Eklenen
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setChapterSortOrder('asc')}
+                              className={cn(
+                                'flex items-center gap-1 rounded-md px-2.5 py-1.5 font-medium transition-colors',
+                                chapterSortOrder === 'asc'
+                                  ? 'bg-primary text-primary-foreground shadow-sm'
+                                  : 'text-muted-foreground hover:text-foreground',
+                              )}
+                            >
+                              <ArrowUp className="h-3.5 w-3.5" />
+                              İlk Eklenen
+                            </button>
+                          </div>
+                          {availableLanguages.entries.length > 1 && (
+                            <div className="flex flex-wrap items-center gap-1 rounded-lg border border-border bg-secondary/40 p-1 text-xs">
+                              <button
+                                type="button"
+                                onClick={() => setSelectedLanguage('all')}
+                                className={cn(
+                                  'rounded-md px-2.5 py-1 font-medium transition-colors',
+                                  selectedLanguage === 'all'
+                                    ? 'bg-primary text-primary-foreground shadow-sm'
+                                    : 'text-muted-foreground hover:text-foreground',
                                 )}
-                              </div>
+                              >
+                                Tümü ({uniqueChapterCount})
+                              </button>
+                              {availableLanguages.entries.map((entry) => (
+                                <button
+                                  key={entry.code}
+                                  type="button"
+                                  onClick={() => setSelectedLanguage(entry.code)}
+                                  className={cn(
+                                    'rounded-md px-2.5 py-1 font-medium transition-colors',
+                                    selectedLanguage === entry.code
+                                      ? entry.code === 'tr'
+                                        ? 'bg-emerald-600 text-white shadow-sm'
+                                        : entry.code === 'en'
+                                        ? 'bg-sky-600 text-white shadow-sm'
+                                        : 'bg-primary text-primary-foreground shadow-sm'
+                                      : 'text-muted-foreground hover:text-foreground',
+                                  )}
+                                >
+                                  {entry.info.label} ({entry.count})
+                                </button>
+                              ))}
+                            </div>
+                          )}
+                          <div className="relative w-full sm:w-60 sm:flex-initial">
+                            <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                            <Input
+                              placeholder="Bölüm ara (örn: 97)"
+                              className="pl-9 pr-8"
+                              value={chapterSearch}
+                              onChange={(e) => setChapterSearch(e.target.value)}
+                            />
+                            {chapterSearch && (
+                              <button
+                                type="button"
+                                onClick={() => setChapterSearch('')}
+                                aria-label="Bölüm aramasını temizle"
+                                className="absolute right-2.5 top-1/2 -translate-y-1/2 rounded-full p-0.5 text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+                              >
+                                <X className="h-3.5 w-3.5" />
+                              </button>
+                            )}
                           </div>
                         </div>
 

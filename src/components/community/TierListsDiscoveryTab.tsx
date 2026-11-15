@@ -3,7 +3,7 @@ import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-quer
 import { Link } from 'react-router-dom';
 import { formatDistanceToNow } from 'date-fns';
 import { tr } from 'date-fns/locale';
-import { Heart, Layers, ListOrdered, Loader2, Search, X } from 'lucide-react';
+import { Clock, Flame, Heart, Layers, ListOrdered, Loader2, Search, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '@/contexts/AuthContext';
 import {
@@ -79,10 +79,15 @@ const TYPE_FILTERS: Array<{ value: TierListTypeFilter; label: string }> = [
   { value: 'character', label: 'Karakter' },
 ];
 
-const SORT_OPTIONS: Array<{ value: TierListDiscoverySort; label: string }> = [
-  { value: 'popular', label: 'En Popüler' },
-  { value: 'newest', label: 'En Yeni' },
-  { value: 'most_items', label: 'En Çok Öğeli' },
+const SORT_OPTIONS: Array<{
+  value: TierListDiscoverySort;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  iconClass: string;
+}> = [
+  { value: 'popular', label: 'En Popüler', icon: Flame, iconClass: 'text-orange-400' },
+  { value: 'newest', label: 'En Yeni', icon: Clock, iconClass: 'text-sky-400' },
+  { value: 'most_items', label: 'En Çok Öğeli', icon: Layers, iconClass: 'text-emerald-400' },
 ];
 
 const TIER_BADGE_CLASSES: Record<'S' | 'A' | 'B' | 'C' | 'D' | 'F', string> = {
@@ -367,7 +372,8 @@ const TierListsDiscoveryTab: React.FC = () => {
             <SelectContent>
               {SORT_OPTIONS.map((option) => (
                 <SelectItem key={option.value} value={option.value}>
-                  {option.label}
+                  <option.icon className={cn('h-3.5 w-3.5 shrink-0', option.iconClass)} />
+                  <span>{option.label}</span>
                 </SelectItem>
               ))}
             </SelectContent>

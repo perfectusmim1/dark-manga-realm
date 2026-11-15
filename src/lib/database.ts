@@ -74,6 +74,13 @@ import {
 import { warmPersistentImageUrls } from '@/lib/offline/persistentImageWarmup';
 import { clearHomeFeedCache } from '@/lib/homeFeedCache';
 import {
+    clearHomeCatalogCache,
+    readHomeCatalogMemoryPage,
+    updateHomeCatalogCachedTotals,
+    writeHomeCatalogCache,
+    writeHomeCatalogMemoryPage,
+} from '@/lib/homeCatalogCache';
+import {
     getCharacterListingRolePriority,
     normalizeCharacterListingRole,
     type CharacterListingRole,
@@ -969,6 +976,25 @@ let topTenPageDataCache: { fetchedAt: number; value: Record<'safe' | 'adult', Re
 let topTenPageDataPromise: Promise<Record<'safe' | 'adult', Record<TopTenTimeframe, Manga[]>>> | null = null;
 const latestChaptersFirstPageCache: Partial<Record<MangaAudienceCacheKey, { fetchedAt: number; value: LatestChapterFeedItem[] }>> = {};
 const latestChaptersFirstPagePromise: Partial<Record<MangaAudienceCacheKey, Promise<LatestChapterFeedItem[]>>> = {};
+const homeCatalogInFlightPromises = new Map<string, Promise<HomeCatalogPageResult>>();
+let latestChaptersSeriesRpcAvailable: boolean | null = null;
+const LATEST_CHAPTERS_SERIES_CACHE_TTL_MS = 2 * 60_000;
+const PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX = 'latest-chapters-series-v1:';
+
+interface LatestSeriesRollingBuffer {
+    key: string;
+    rawOffset: number;
+    exhausted: boolean;
+    groupsByMangaId: Map<string, LatestChaptersSeriesGroup>;
+    seenChapterIds: Set<string>;
+    orderedMangaIds: string[];
+    totalSeriesCount: number | null;
+    fetchedAt: number;
+}
+
+const latestChaptersSeriesRollingBuffers = new Map<string, LatestSeriesRollingBuffer>();
+const latestChaptersSeriesPageCache = new Map<string, { fetchedAt: number; result: LatestChaptersSeriesPageResult }>();
+const latestChaptersSeriesInFlightPromises = new Map<string, Promise<LatestChaptersSeriesPageResult>>();
 const tagsListCache = new Map<string, { fetchedAt: number; value: Tag[] }>();
 const tagsListPromises = new Map<string, Promise<Tag[]>>();
 const trendingTagsCache = new Map<string, { fetchedAt: number; value: Tag[] }>();
@@ -990,6 +1016,10 @@ const clearPersistedCatalogCache = () => {
         PERSISTED_TOP_TEN_PAGE_KEY,
         `${PERSISTED_LATEST_CHAPTERS_KEY_PREFIX}safe`,
         `${PERSISTED_LATEST_CHAPTERS_KEY_PREFIX}adult`,
+        `${PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX}pub:safe`,
+        `${PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX}pub:adult`,
+        `${PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX}staff:safe`,
+        `${PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX}staff:adult`,
         'named-entities-v1:characters:public',
         'named-entities-v1:authors:public',
         'named-entities-v1:artists:public',
@@ -1065,6 +1095,11 @@ const invalidateAllMangasCache = () => {
     }
     invalidateTagCaches();
     clearHomeFeedCache();
+    clearHomeCatalogCache();
+    homeCatalogInFlightPromises.clear();
+    latestChaptersSeriesRollingBuffers.clear();
+    latestChaptersSeriesPageCache.clear();
+    latestChaptersSeriesInFlightPromises.clear();
 };
 
 const VIEWER_ACCESS_SESSION_KEY = 'toonparrot_viewer_access_v1';
@@ -8805,4 +8840,564 @@ export const toggleChapterLike = async (
         liked: Boolean(payload.liked),
         likeCount: Number(payload.likeCount ?? 0) || 0,
     };
+};
+
+export interface LatestChaptersSeriesGroup {
+    mangaId: string;
+    mangaTitle: string;
+    mangaCover: string;
+    mangaType?: Manga['type'];
+    langCode?: string;
+    latestAddedAt: string;
+    latestChapter: LatestChapterFeedItem;
+    chapters: LatestChapterFeedItem[];
+}
+
+export interface LatestChaptersSeriesPageResult {
+    groups: LatestChaptersSeriesGroup[];
+    totalSeriesCount: number;
+    page: number;
+    pageSize: number;
+    totalPages: number;
+    hasMore: boolean;
+}
+
+const deduplicateHomeCatalogItems = (items: Manga[]): Manga[] => {
+    const seen = new Set<string>();
+    const unique: Manga[] = [];
+    for (const item of items) {
+        const id = typeof item?.id === 'string' ? item.id : '';
+        if (!id || seen.has(id)) continue;
+        seen.add(id);
+        unique.push(item);
+    }
+    return unique;
+};
+
+const scheduleIdleWork = (callback: () => void, delayMs: number = 220) => {
+    if (typeof window === 'undefined') return;
+    const navConnection = (navigator as any)?.connection;
+    if (navConnection?.saveData === true) return;
+
+    const win = window as Window & {
+        requestIdleCallback?: (cb: () => void, opts?: { timeout: number }) => number;
+    };
+    if (typeof win.requestIdleCallback === 'function') {
+        win.requestIdleCallback(() => callback(), { timeout: Math.max(800, delayMs * 4) });
+        return;
+    }
+    window.setTimeout(callback, delayMs);
+};
+
+export const prefetchFastHomeCatalogPage = (options: {
+    page: number;
+    pageSize?: number;
+    sort?: HomeCatalogSort;
+    includeAdult?: boolean;
+}) => {
+    const normalizedPage = Math.max(1, Math.floor(options.page || 1));
+    const normalizedPageSize = Math.min(Math.max(6, Math.floor(options.pageSize || 28)), 48);
+    const sort: HomeCatalogSort = options.sort ?? 'updated';
+    const includeAdult = Boolean(options.includeAdult);
+
+    if (readHomeCatalogMemoryPage(includeAdult, normalizedPage, normalizedPageSize, sort)) {
+        return;
+    }
+
+    scheduleIdleWork(() => {
+        void getFastHomeCatalogPage({
+            page: normalizedPage,
+            pageSize: normalizedPageSize,
+            sort,
+            includeAdult,
+            skipPrefetch: true,
+        }).catch(() => undefined);
+    });
+};
+
+export const getFastHomeCatalogPage = async (options: {
+    page?: number;
+    pageSize?: number;
+    sort?: HomeCatalogSort;
+    includeAdult?: boolean;
+    forceRefresh?: boolean;
+    skipPrefetch?: boolean;
+} = {}): Promise<HomeCatalogPageResult> => {
+    const normalizedPage = Math.max(1, Math.floor(options.page ?? 1));
+    const normalizedPageSize = Math.min(Math.max(6, Math.floor(options.pageSize ?? 28)), 48);
+    const sort: HomeCatalogSort = options.sort ?? 'updated';
+    const includeAdult = Boolean(options.includeAdult);
+    const forceRefresh = options.forceRefresh === true;
+
+    const triggerUpcomingPrefetch = (totalPages: number) => {
+        if (options.skipPrefetch) return;
+        if (normalizedPage < totalPages) {
+            prefetchFastHomeCatalogPage({
+                page: normalizedPage + 1,
+                pageSize: normalizedPageSize,
+                sort,
+                includeAdult,
+            });
+        }
+        if (normalizedPage === 1 && totalPages >= 3) {
+            prefetchFastHomeCatalogPage({
+                page: 3,
+                pageSize: normalizedPageSize,
+                sort,
+                includeAdult,
+            });
+        }
+    };
+
+    if (!forceRefresh) {
+        const cached = readHomeCatalogMemoryPage(includeAdult, normalizedPage, normalizedPageSize, sort);
+        if (cached) {
+            triggerUpcomingPrefetch(cached.totalPages);
+            return {
+                items: cached.items,
+                totalCount: cached.totalCount,
+                page: normalizedPage,
+                pageSize: normalizedPageSize,
+                totalPages: cached.totalPages,
+            };
+        }
+    }
+
+    const requestKey = `${includeAdult ? 'adult' : 'safe'}:${sort}:${normalizedPageSize}:${normalizedPage}`;
+    const existingPromise = !forceRefresh ? homeCatalogInFlightPromises.get(requestKey) : undefined;
+    if (existingPromise) {
+        return existingPromise;
+    }
+
+    const fetchPromise = (async (): Promise<HomeCatalogPageResult> => {
+        const offset = (normalizedPage - 1) * normalizedPageSize;
+        let result: HomeCatalogPageResult | null = null;
+
+        if (sort === 'updated' || sort === 'newest') {
+            try {
+                const [visibilityColumnAvailable, adultColumnAvailable, accessProfile] = await Promise.all([
+                    getMangaVisibilityColumnAvailability(),
+                    getMangaAdultColumnAvailability(),
+                    getCurrentViewerAccessProfile(),
+                ]);
+                const isStaff = accessProfile.role === 'admin' || accessProfile.role === 'moderator';
+                const effectiveIncludeAdult = Boolean(includeAdult && (isStaff || accessProfile.adultModeEnabled));
+                const orderColumn = sort === 'newest' ? 'created_at' : 'last_updated';
+
+                const rowsPromise = applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select(`${MANGA_SUMMARY_BASE_SELECT_COLUMNS}, is_public, is_adult`)
+                        .gt('chapter_count', 0),
+                    {
+                        includePrivate: isStaff,
+                        includeAdult: effectiveIncludeAdult,
+                        visibilityColumnAvailable,
+                        adultColumnAvailable,
+                    },
+                )
+                    .order(orderColumn, { ascending: false })
+                    .range(offset, offset + normalizedPageSize - 1);
+
+                const countPromise = applyPublicMangaFilter(
+                    supabase
+                        .from('mangas')
+                        .select('id', { count: 'exact', head: true })
+                        .gt('chapter_count', 0),
+                    {
+                        includePrivate: isStaff,
+                        includeAdult: effectiveIncludeAdult,
+                        visibilityColumnAvailable,
+                        adultColumnAvailable,
+                    },
+                );
+
+                const [rowsRes, countRes] = await Promise.all([rowsPromise, countPromise]);
+                if (!rowsRes.error && Array.isArray(rowsRes.data)) {
+                    const dedupedRows: any[] = [];
+                    const seenIds = new Set<string>();
+                    for (const row of rowsRes.data as any[]) {
+                        const id = typeof row?.id === 'string' ? row.id : '';
+                        if (!id || seenIds.has(id)) continue;
+                        seenIds.add(id);
+                        dedupedRows.push(row);
+                    }
+
+                    const reviewStatsByMangaId = new Map<string, { average: number; reviewCount: number }>();
+                    if (dedupedRows.length > 0) {
+                        try {
+                            const { data: reviewRows } = await supabase
+                                .from('reviews')
+                                .select('manga_id, rating_story, rating_characters, rating_art, rating_progression, rating_engagement')
+                                .in('manga_id', dedupedRows.map((row) => row.id));
+                            if (Array.isArray(reviewRows) && reviewRows.length > 0) {
+                                buildReviewStatsByMangaId(reviewRows).forEach((value, id) => {
+                                    reviewStatsByMangaId.set(id, value);
+                                });
+                            }
+                        } catch {
+                            // Review istatistikleri opsiyonel; ana katalog render'ını bloklamaz.
+                        }
+                    }
+
+                    const items: Manga[] = dedupedRows.map((row) => {
+                        const precomputedChapters = Array.isArray(row.latest_chapters)
+                            ? row.latest_chapters
+                                .map((ch: any) => ({ id: String(ch?.id || ''), number: Number(ch?.number) || 1 }))
+                                .filter((ch: any) => ch.id)
+                            : [];
+                        const reviewStats = reviewStatsByMangaId.get(row.id);
+
+                        return {
+                            ...row,
+                            author: cleanPlaceholderNamedEntityString(row.author) || row.author,
+                            artist: cleanPlaceholderNamedEntityString(row.artist) || row.artist,
+                            ...mapMangaBaseFields(row),
+                            chapters: precomputedChapters,
+                            ratings: [],
+                            chapterCount: Number(row.chapter_count ?? 0) || precomputedChapters.length || 0,
+                            averageRating: reviewStats?.average ?? 0,
+                            reviewCount: reviewStats?.reviewCount ?? 0,
+                            authorsDetails: [],
+                            artistsDetails: [],
+                        } as Manga;
+                    });
+
+                    const totalCount = !countRes.error && typeof countRes.count === 'number'
+                        ? Math.max(items.length, countRes.count)
+                        : Math.max(items.length, offset + items.length);
+                    const totalPages = Math.max(1, Math.ceil(totalCount / normalizedPageSize));
+
+                    result = {
+                        items,
+                        totalCount,
+                        page: normalizedPage,
+                        pageSize: normalizedPageSize,
+                        totalPages,
+                    };
+                }
+            } catch {
+                // Doğrudan sorgu hatasında mevcut RPC yoluna geri dön.
+            }
+        }
+
+        if (!result) {
+            const rpcResult = await getMangaCatalogPage({
+                page: normalizedPage,
+                pageSize: normalizedPageSize,
+                sort,
+                includeAdult,
+            });
+            const uniqueItems = deduplicateHomeCatalogItems(rpcResult.items || []);
+            const totalCount = Math.max(uniqueItems.length, rpcResult.totalCount || 0);
+            result = {
+                items: uniqueItems,
+                totalCount,
+                page: normalizedPage,
+                pageSize: normalizedPageSize,
+                totalPages: Math.max(1, rpcResult.totalPages || Math.ceil(totalCount / normalizedPageSize)),
+            };
+        }
+
+        writeHomeCatalogMemoryPage(includeAdult, normalizedPage, result, sort);
+        if (normalizedPage === 1 && result.items.length > 0) {
+            writeHomeCatalogCache(includeAdult, {
+                items: result.items,
+                totalCount: result.totalCount,
+                totalPages: result.totalPages,
+                pageSize: normalizedPageSize,
+            });
+        } else if (result.totalCount > 0) {
+            updateHomeCatalogCachedTotals(includeAdult, result.totalCount, normalizedPageSize);
+        }
+
+        triggerUpcomingPrefetch(result.totalPages);
+        return result;
+    })().finally(() => {
+        homeCatalogInFlightPromises.delete(requestKey);
+    });
+
+    homeCatalogInFlightPromises.set(requestKey, fetchPromise);
+    return fetchPromise;
+};
+
+const isMissingRpcFunctionError = (error: any): boolean => {
+    const code = String(error?.code || '').toUpperCase();
+    const msg = String(error?.message || '').toLowerCase();
+    return (
+        code === 'PGRST202'
+        || code === '42883'
+        || code === '404'
+        || msg.includes('could not find the function')
+        || (msg.includes('function') && msg.includes('does not exist'))
+    );
+};
+
+export const peekLatestChaptersSeriesPersistedSeed = async (
+    viewerScopeKey: string,
+): Promise<LatestChaptersSeriesPageResult | null> => {
+    const cached = await readPersistedQueryCache<LatestChaptersSeriesPageResult>(
+        `${PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX}${viewerScopeKey}`,
+    );
+    if (!cached || Date.now() - cached.fetchedAt > PERSISTED_CATALOG_CACHE_TTL_MS) {
+        return null;
+    }
+    return cached.value;
+};
+
+export const getLatestChaptersSeriesPage = async (options: {
+    page?: number;
+    pageSize?: number;
+    forceRefresh?: boolean;
+} = {}): Promise<LatestChaptersSeriesPageResult> => {
+    const normalizedPage = Math.max(1, Math.floor(options.page ?? 1));
+    const normalizedPageSize = Math.min(Math.max(6, Math.floor(options.pageSize ?? 24)), 48);
+    const forceRefresh = options.forceRefresh === true;
+
+    const accessProfile = await getCurrentViewerAccessProfile();
+    const isStaff = accessProfile.role === 'admin' || accessProfile.role === 'moderator';
+    const includeAdult = isStaff || accessProfile.adultModeEnabled;
+    const viewerScopeKey = `${isStaff ? 'staff' : 'pub'}:${includeAdult ? 'adult' : 'safe'}`;
+    const cacheKey = `${viewerScopeKey}:${normalizedPageSize}:${normalizedPage}`;
+
+    if (!forceRefresh) {
+        const memCached = latestChaptersSeriesPageCache.get(cacheKey);
+        if (memCached && Date.now() - memCached.fetchedAt < LATEST_CHAPTERS_SERIES_CACHE_TTL_MS) {
+            return memCached.result;
+        }
+    }
+
+    const inFlight = !forceRefresh ? latestChaptersSeriesInFlightPromises.get(cacheKey) : undefined;
+    if (inFlight) {
+        return inFlight;
+    }
+
+    const requestPromise = (async (): Promise<LatestChaptersSeriesPageResult> => {
+        let resolved: LatestChaptersSeriesPageResult | null = null;
+
+        if (latestChaptersSeriesRpcAvailable !== false) {
+            try {
+                const { data, error } = await supabase.rpc('get_latest_chapters_series_page', {
+                    p_page: normalizedPage,
+                    p_page_size: normalizedPageSize,
+                    p_include_adult: includeAdult,
+                });
+
+                if (error) {
+                    if (isMissingRpcFunctionError(error)) {
+                        latestChaptersSeriesRpcAvailable = false;
+                    }
+                } else if (data && typeof data === 'object' && Array.isArray((data as any).items)) {
+                    latestChaptersSeriesRpcAvailable = true;
+                    const payload = data as Record<string, any>;
+                    const seenSeries = new Set<string>();
+                    const groups: LatestChaptersSeriesGroup[] = [];
+
+                    for (const rawGroup of payload.items as any[]) {
+                        const mangaId = typeof rawGroup?.mangaId === 'string' ? rawGroup.mangaId : '';
+                        if (!mangaId || seenSeries.has(mangaId)) continue;
+                        seenSeries.add(mangaId);
+
+                        const seenChapters = new Set<string>();
+                        const chapters: LatestChapterFeedItem[] = [];
+                        const rawChapters = Array.isArray(rawGroup.chapters) ? rawGroup.chapters : [];
+                        for (const ch of rawChapters) {
+                            const chapterId = typeof ch?.chapterId === 'string' ? ch.chapterId : '';
+                            if (!chapterId || seenChapters.has(chapterId)) continue;
+                            seenChapters.add(chapterId);
+                            chapters.push({
+                                chapterId,
+                                mangaId,
+                                mangaTitle: String(ch?.mangaTitle || rawGroup.mangaTitle || ''),
+                                mangaCover: String(ch?.mangaCover || rawGroup.mangaCover || ''),
+                                mangaType: (ch?.mangaType || rawGroup.mangaType) as Manga['type'],
+                                chapterNumber: Number(ch?.chapterNumber) || 1,
+                                chapterTitle: ch?.chapterTitle ? String(ch.chapterTitle) : undefined,
+                                addedAt: String(ch?.addedAt || rawGroup.latestAddedAt || ''),
+                                releaseDate: ch?.releaseDate ? String(ch.releaseDate) : undefined,
+                                langCode: ch?.langCode || rawGroup.langCode || undefined,
+                            });
+                        }
+
+                        if (chapters.length === 0) continue;
+                        const latestChapter = chapters[0];
+                        groups.push({
+                            mangaId,
+                            mangaTitle: String(rawGroup.mangaTitle || latestChapter.mangaTitle || ''),
+                            mangaCover: String(rawGroup.mangaCover || latestChapter.mangaCover || ''),
+                            mangaType: (rawGroup.mangaType || latestChapter.mangaType) as Manga['type'],
+                            langCode: rawGroup.langCode || latestChapter.langCode || undefined,
+                            latestAddedAt: String(rawGroup.latestAddedAt || latestChapter.addedAt || ''),
+                            latestChapter,
+                            chapters: chapters.slice(0, 3),
+                        });
+                    }
+
+                    const totalSeriesCount = Math.max(groups.length, Number(payload.totalSeriesCount) || 0);
+                    const totalPages = Math.max(
+                        normalizedPage,
+                        Number(payload.totalPages) || Math.ceil(totalSeriesCount / normalizedPageSize),
+                        1,
+                    );
+                    resolved = {
+                        groups,
+                        totalSeriesCount,
+                        page: normalizedPage,
+                        pageSize: normalizedPageSize,
+                        totalPages,
+                        hasMore: normalizedPage < totalPages,
+                    };
+                }
+            } catch {
+                // Rolling canlı sorgu yoluna geri dön.
+            }
+        }
+
+        if (!resolved) {
+            let buffer = latestChaptersSeriesRollingBuffers.get(viewerScopeKey);
+            if (forceRefresh || !buffer || Date.now() - buffer.fetchedAt > LATEST_CHAPTERS_SERIES_CACHE_TTL_MS) {
+                buffer = {
+                    key: viewerScopeKey,
+                    rawOffset: 0,
+                    exhausted: false,
+                    groupsByMangaId: new Map<string, LatestChaptersSeriesGroup>(),
+                    seenChapterIds: new Set<string>(),
+                    orderedMangaIds: [],
+                    totalSeriesCount: null,
+                    fetchedAt: Date.now(),
+                };
+                latestChaptersSeriesRollingBuffers.set(viewerScopeKey, buffer);
+            }
+
+            const targetNeededSeriesCount = normalizedPage * normalizedPageSize;
+            const CHUNK_LIMIT = 100;
+            const PARALLEL_CHUNKS = 3;
+            const MAX_WAVES = 12;
+
+            const totalCountPromise = buffer.totalSeriesCount === null
+                ? (async () => {
+                    try {
+                        const [visibilityColumnAvailable, adultColumnAvailable] = await Promise.all([
+                            getMangaVisibilityColumnAvailability(),
+                            getMangaAdultColumnAvailability(),
+                        ]);
+                        const countRes = await applyPublicMangaFilter(
+                            supabase
+                                .from('mangas')
+                                .select('id', { count: 'exact', head: true })
+                                .gt('chapter_count', 0),
+                            {
+                                includePrivate: isStaff,
+                                includeAdult,
+                                visibilityColumnAvailable,
+                                adultColumnAvailable,
+                            },
+                        );
+                        if (!countRes.error && typeof countRes.count === 'number') {
+                            buffer!.totalSeriesCount = countRes.count;
+                        }
+                    } catch {
+                        // Başarısız olursa taranan seri sayısından alt sınır türetilir.
+                    }
+                })()
+                : Promise.resolve();
+
+            let wave = 0;
+            while (buffer.orderedMangaIds.length < targetNeededSeriesCount && !buffer.exhausted && wave < MAX_WAVES) {
+                wave += 1;
+                const baseOffset = buffer.rawOffset;
+                const chunkOffsets = Array.from({ length: PARALLEL_CHUNKS }, (_, idx) => baseOffset + idx * CHUNK_LIMIT);
+                const chunkResults = await Promise.all(
+                    chunkOffsets.map((offset) => getLatestChapters(CHUNK_LIMIT, offset, { forceRefresh: forceRefresh && offset === 0 })),
+                );
+
+                for (let idx = 0; idx < chunkResults.length; idx += 1) {
+                    const chunk = chunkResults[idx];
+                    buffer.rawOffset = chunkOffsets[idx] + chunk.length;
+
+                    for (const item of chunk) {
+                        if (!item?.mangaId || !item?.chapterId || buffer.seenChapterIds.has(item.chapterId)) {
+                            continue;
+                        }
+                        buffer.seenChapterIds.add(item.chapterId);
+
+                        const existingGroup = buffer.groupsByMangaId.get(item.mangaId);
+                        if (existingGroup) {
+                            if (existingGroup.chapters.length < 3) {
+                                existingGroup.chapters.push(item);
+                            }
+                            if (!existingGroup.langCode && item.langCode) {
+                                existingGroup.langCode = item.langCode;
+                            }
+                        } else {
+                            buffer.orderedMangaIds.push(item.mangaId);
+                            buffer.groupsByMangaId.set(item.mangaId, {
+                                mangaId: item.mangaId,
+                                mangaTitle: item.mangaTitle,
+                                mangaCover: item.mangaCover,
+                                mangaType: item.mangaType,
+                                langCode: item.langCode,
+                                latestAddedAt: item.addedAt,
+                                latestChapter: item,
+                                chapters: [item],
+                            });
+                        }
+                    }
+
+                    if (chunk.length < CHUNK_LIMIT) {
+                        buffer.exhausted = true;
+                        break;
+                    }
+                }
+            }
+
+            await totalCountPromise;
+
+            const startIdx = (normalizedPage - 1) * normalizedPageSize;
+            const endIdx = startIdx + normalizedPageSize;
+            const groups = buffer.orderedMangaIds
+                .slice(startIdx, endIdx)
+                .map((mangaId) => buffer!.groupsByMangaId.get(mangaId))
+                .filter((group): group is LatestChaptersSeriesGroup => Boolean(group));
+
+            const totalSeriesCount = Math.max(buffer.totalSeriesCount ?? 0, buffer.orderedMangaIds.length);
+            const hasMore = !buffer.exhausted && (
+                buffer.orderedMangaIds.length > endIdx
+                || totalSeriesCount > endIdx
+            );
+            const totalPages = Math.max(
+                normalizedPage + (hasMore ? 1 : 0),
+                Math.ceil(totalSeriesCount / normalizedPageSize),
+                1,
+            );
+
+            resolved = {
+                groups,
+                totalSeriesCount,
+                page: normalizedPage,
+                pageSize: normalizedPageSize,
+                totalPages,
+                hasMore,
+            };
+        }
+
+        latestChaptersSeriesPageCache.set(cacheKey, {
+            fetchedAt: Date.now(),
+            result: resolved,
+        });
+
+        if (normalizedPage === 1 && resolved.groups.length > 0) {
+            void writePersistedQueryCache(
+                `${PERSISTED_LATEST_CHAPTERS_SERIES_KEY_PREFIX}${viewerScopeKey}`,
+                resolved,
+            );
+        }
+
+        return resolved;
+    })().finally(() => {
+        latestChaptersSeriesInFlightPromises.delete(cacheKey);
+    });
+
+    latestChaptersSeriesInFlightPromises.set(cacheKey, requestPromise);
+    return requestPromise;
 };

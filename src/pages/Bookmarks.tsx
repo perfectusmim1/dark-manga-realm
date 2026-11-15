@@ -1,6 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
-import { BookMarked, Search, Trash2, X } from 'lucide-react';
+import { BookMarked, BookOpen, Layers, Search, Trash2, X } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import useDocumentTitle from '@/hooks/useDocumentTitle';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
@@ -274,14 +274,18 @@ const Bookmarks: React.FC = () => {
 
             {seriesOptions.length > 0 && (
               <Select value={effectiveSelectedMangaId} onValueChange={setSelectedMangaId}>
-                <SelectTrigger className="h-10 w-full rounded-xl bg-card/60 sm:w-56" aria-label="Seriye göre filtrele">
+                <SelectTrigger className="h-10 w-full rounded-xl bg-card/70 sm:w-56" aria-label="Seriye göre filtrele">
                   <SelectValue placeholder="Tüm seriler" />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="all">Tüm seriler</SelectItem>
+                  <SelectItem value="all">
+                    <Layers className="h-3.5 w-3.5 shrink-0 text-primary" />
+                    <span>Tüm seriler</span>
+                  </SelectItem>
                   {seriesOptions.map((series) => (
                     <SelectItem key={series.id} value={series.id}>
-                      {series.title}
+                      <BookOpen className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                      <span className="truncate">{series.title}</span>
                     </SelectItem>
                   ))}
                 </SelectContent>

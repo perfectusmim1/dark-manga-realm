@@ -8,7 +8,9 @@ import {
   ChevronDown,
   ChevronRight,
   ChevronUp,
+  Clock,
   EyeOff,
+  Flame,
   Hash,
   Heart,
   Image as ImageIcon,
@@ -110,11 +112,16 @@ const patchForumFeedTopicLike = (
   };
 };
 
-const SORT_OPTIONS: Array<{ value: ForumSortOption; label: string }> = [
-  { value: 'latest', label: 'Son Aktivite' },
-  { value: 'newest', label: 'En Yeni' },
-  { value: 'most_liked', label: 'En Çok Beğenilen' },
-  { value: 'most_replied', label: 'En Çok Yanıtlanan' },
+const SORT_OPTIONS: Array<{
+  value: ForumSortOption;
+  label: string;
+  icon: React.ComponentType<{ className?: string }>;
+  iconClass: string;
+}> = [
+  { value: 'latest', label: 'Son Aktivite', icon: Flame, iconClass: 'text-amber-400' },
+  { value: 'newest', label: 'En Yeni', icon: Clock, iconClass: 'text-sky-400' },
+  { value: 'most_liked', label: 'En Çok Beğenilen', icon: Heart, iconClass: 'text-rose-400' },
+  { value: 'most_replied', label: 'En Çok Yanıtlanan', icon: MessageSquare, iconClass: 'text-emerald-400' },
 ];
 
 const isValidCategoryId = (value: string | null): value is ForumCategoryId =>
@@ -580,7 +587,8 @@ const ForumTab: React.FC = () => {
               <SelectContent>
                 {SORT_OPTIONS.map((option) => (
                   <SelectItem key={option.value} value={option.value}>
-                    {option.label}
+                    <option.icon className={cn('h-3.5 w-3.5 shrink-0', option.iconClass)} />
+                    <span>{option.label}</span>
                   </SelectItem>
                 ))}
               </SelectContent>

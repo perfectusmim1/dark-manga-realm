@@ -47,6 +47,10 @@ import {
   writeTopTenWeekIdsCache,
   writeTrendingTagsCache,
 } from '@/lib/homeFeedCache';
+import {
+  readHomeCatalogMemoryPage,
+  readHomeCatalogSeed,
+} from '@/lib/homeCatalogCache';
 
 interface HorizontalMangaSectionProps {
   title: string;
@@ -138,7 +142,7 @@ const EMPTY_HOME_PAGE_SECTIONS: HomePageMangaSections = {
 
 type HomeDataModule = {
   getHomePageMangaSections: () => Promise<HomePageMangaSections>;
-  getMangaCatalogPage: typeof import('@/lib/database').getMangaCatalogPage;
+  getFastHomeCatalogPage: typeof import('@/lib/database').getFastHomeCatalogPage;
   getMangaSummariesByIds: (mangaIds: string[], options?: { includePrivate?: boolean }) => Promise<Manga[]>;
   getTopTenMangaIds: (timeframe?: 'today' | 'week' | 'all') => Promise<Set<string>>;
   getTrendingTags: (limit?: number, options?: { includePending?: boolean }) => Promise<Tag[]>;
@@ -155,7 +159,7 @@ const loadHomeDataModule = () => {
   if (!homeDataModulePromise) {
     homeDataModulePromise = import('@/lib/database').then((module) => ({
       getHomePageMangaSections: module.getHomePageMangaSections,
-      getMangaCatalogPage: module.getMangaCatalogPage,
+      getFastHomeCatalogPage: module.getFastHomeCatalogPage,
       getMangaSummariesByIds: module.getMangaSummariesByIds,
       getTopTenMangaIds: module.getTopTenMangaIds,
       getTrendingTags: module.getTrendingTags,
@@ -407,7 +411,7 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
   }
 
   const featuredCoverSrcSet = getManagedArtworkSrcSet(featured.manga.cover);
-  const secondaryItems = secondaryEntries.slice(0, 3);
+  const secondaryItems = secondaryEntries.slice(0, 4);
   const continueHref = `/manga/${featured.manga.id}/chapter/${featured.chapterId}`;
   const detailsHref = `/manga/${featured.manga.id}`;
   const shouldBlurFeaturedArtwork = blurAdultArtwork && featured.manga.isAdult === true;
@@ -520,7 +524,10 @@ const ContinueReadingSpotlight: React.FC<ContinueReadingSpotlightProps> = ({
                   <Link
                     key={entry.manga.id}
                     to={`/manga/${entry.manga.id}/chapter/${entry.chapterId}`}
-                    className="group flex min-w-0 items-center gap-2.5 rounded-xl border border-border/40 bg-secondary/25 p-2 transition-colors hover:border-primary/35 hover:bg-secondary/45"
+                    className={cn(
+                      'group flex min-w-0 items-center gap-2.5 rounded-xl border border-border/40 bg-secondary/25 p-2 transition-colors hover:border-primary/35 hover:bg-secondary/45',
+                      index >= 3 && 'lg:hidden',
+                    )}
                   >
                     <OptimizedImage
                       src={entry.manga.cover}
@@ -869,11 +876,22 @@ const Index: React.FC = () => {
     totalCount: number;
     totalPages: number;
     loading: boolean;
-  }>({
-    items: [],
-    totalCount: 0,
-    totalPages: 1,
-    loading: true,
+  }>(() => {
+    const seed = readHomeCatalogSeed(canSeeAdultContent);
+    if (seed) {
+      return {
+        items: seed.items,
+        totalCount: seed.totalCount,
+        totalPages: seed.totalPages,
+        loading: false,
+      };
+    }
+    return {
+      items: [],
+      totalCount: 0,
+      totalPages: 1,
+      loading: true,
+    };
   });
   const catalogSectionRef = useRef<HTMLElement | null>(null);
   const blurAdultArtwork = appearancePreferences.adult_cover_blur && user?.preferences?.content?.adult_mode === true;
@@ -1118,15 +1136,35 @@ const Index: React.FC = () => {
     }
 
     let active = true;
-    setCatalogState((prev) => ({ ...prev, loading: true }));
+    const cachedMemoryPage = readHomeCatalogMemoryPage(canSeeAdultContent, catalogPage, 28, 'updated');
+    const cachedSeed = catalogPage === 1 ? readHomeCatalogSeed(canSeeAdultContent) : null;
+
+    if (cachedMemoryPage) {
+      setCatalogState({
+        items: cachedMemoryPage.items,
+        totalCount: cachedMemoryPage.totalCount,
+        totalPages: cachedMemoryPage.totalPages,
+        loading: false,
+      });
+    } else if (cachedSeed) {
+      setCatalogState({
+        items: cachedSeed.items,
+        totalCount: cachedSeed.totalCount,
+        totalPages: cachedSeed.totalPages,
+        loading: false,
+      });
+    } else {
+      setCatalogState((prev) => ({ ...prev, loading: true }));
+    }
 
     void loadHomeDataModule()
-      .then(({ getMangaCatalogPage }) => (
-        getMangaCatalogPage({
+      .then(({ getFastHomeCatalogPage }) => (
+        getFastHomeCatalogPage({
           page: catalogPage,
           pageSize: 28,
           sort: 'updated',
           includeAdult: canSeeAdultContent,
+          forceRefresh: catalogPage === 1 && !cachedMemoryPage,
         })
       ))
       .then((result) => {
@@ -1213,7 +1251,7 @@ const Index: React.FC = () => {
 
       try {
         const { getContinueReadingEntries } = await readingHistoryPromise;
-        const uniqueEntries = await getContinueReadingEntries(user.id, 4);
+        const uniqueEntries = await getContinueReadingEntries(user.id, 5);
 
         if (!active) {
           return;
@@ -1549,7 +1587,7 @@ const Index: React.FC = () => {
               </div>
 
               {catalogState.loading && catalogState.items.length === 0 ? (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 lg:grid-cols-7">
                   {Array.from({ length: 14 }).map((_, index) => (
                     <div key={index} className="space-y-2">
                       <Skeleton className="aspect-[5/7] w-full rounded-xl" />
@@ -1562,7 +1600,7 @@ const Index: React.FC = () => {
                 <>
                   <div
                     className={cn(
-                      'grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7',
+                      'grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 lg:grid-cols-7',
                       !prefersReducedMotion && 'transition-opacity duration-200',
                       catalogState.loading ? 'opacity-60' : 'opacity-100',
                     )}
@@ -1613,7 +1651,7 @@ const Index: React.FC = () => {
               </div>
 
               {offlineManga.length > 0 ? (
-                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+                <div className="grid grid-cols-2 gap-3 sm:grid-cols-4 sm:gap-3.5 lg:grid-cols-7">
                   {offlineManga.map((manga, index) => (
                     <div key={manga.id} className={index >= 14 ? 'cv-auto-card min-w-0' : 'min-w-0'}>
                       <MangaCard

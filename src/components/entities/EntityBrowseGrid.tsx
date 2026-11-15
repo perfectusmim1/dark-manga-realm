@@ -28,7 +28,7 @@ interface EntityBrowseGridProps {
   resolveRank?: (item: EntityBrowseGridItem, index: number) => number | undefined;
 }
 
-const PAGE_SIZE = 24;
+const PAGE_SIZE = 28;
 
 const normalizeSearchValue = (value: string) => normalizeComparableText(value);
 
@@ -109,7 +109,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
       </div>
 
       {loading ? (
-        <div className="grid grid-cols-2 min-[390px]:grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3.5 lg:grid-cols-7">
           {[...Array(14)].map((_, index) => (
             <div key={index} className="rounded-xl border border-border/60 bg-card/60 p-2">
               <div className="mb-2 aspect-[2/3] w-full rounded-lg bg-secondary/60 animate-pulse motion-reduce:animate-none" />
@@ -132,7 +132,7 @@ const EntityBrowseGrid: React.FC<EntityBrowseGridProps> = ({
             )}
           </div>
 
-          <div className="grid grid-cols-2 min-[390px]:grid-cols-3 gap-2.5 sm:grid-cols-4 sm:gap-3.5 md:grid-cols-5 lg:grid-cols-6 xl:grid-cols-7">
+          <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-4 sm:gap-3.5 lg:grid-cols-7">
             {visibleItems.map((item, index) => {
               const rank = resolveRank ? resolveRank(item, index) : item.rank;
 

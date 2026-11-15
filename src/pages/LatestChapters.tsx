@@ -10,7 +10,12 @@ import { Input } from '@/components/ui/input';
 import { LanguageFlag } from '@/components/ui/LanguageFlag';
 import { Skeleton } from '@/components/ui/skeleton';
 import { formatChapterNumberLabel, sanitizeChapterTitle } from '@/lib/chapterTitle';
-import { getLatestChapters, getLatestChaptersFeedStats, LatestChapterFeedItem } from '@/lib/database';
+import {
+    getLatestChaptersFeedStats,
+    getLatestChaptersSeriesPage,
+    LatestChapterFeedItem,
+    peekLatestChaptersSeriesPersistedSeed,
+} from '@/lib/database';
 import OfflineRequiredScreen from '@/components/offline/OfflineRequiredScreen';
 import { useEffectiveOnlineStatus } from '@/hooks/useEffectiveOnlineStatus';
 import AppPagination from '@/components/ui/AppPagination';
@@ -24,7 +29,7 @@ import { supabase } from '@/lib/supabase';
 import { cn } from '@/lib/utils';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 
-const PAGE_SIZE = 90;
+const PAGE_SIZE = 24;
 const LATEST_COVER_TRANSFORM = Object.freeze({
     width: 144,
     quality: 85,
@@ -43,7 +48,12 @@ interface LatestChapterSeriesGroup {
 }
 const LATEST_CHAPTERS_PAGE_CACHE_TTL_MS = 3 * 60_000;
 const LATEST_CHAPTERS_PAGE_STALE_TTL_MS = 15 * 60_000;
-const latestChaptersPageCache = new Map<string, { fetchedAt: number; chapters: LatestChapterFeedItem[] }>();
+const latestChaptersPageCache = new Map<string, {
+    fetchedAt: number;
+    chapters: LatestChapterFeedItem[];
+    totalSeriesCount: number;
+    totalPages: number;
+}>();
 let latestChaptersPageCacheUserId: string | null | undefined = undefined;
 let latestChaptersStatsCache: {
     audienceKey: string;
@@ -118,6 +128,12 @@ const LatestChapters: React.FC = () => {
     const [chapters, setChapters] = React.useState<LatestChapterFeedItem[]>(
         hasUsableInitialCache && initialCached ? initialCached.chapters : [],
     );
+    const [totalSeriesCount, setTotalSeriesCount] = React.useState(
+        hasUsableInitialCache && initialCached ? initialCached.totalSeriesCount : 0,
+    );
+    const [totalSeriesPages, setTotalSeriesPages] = React.useState(
+        hasUsableInitialCache && initialCached ? initialCached.totalPages : 1,
+    );
     const [quickFilter, setQuickFilter] = React.useState('');
     const deferredQuickFilter = React.useDeferredValue(quickFilter);
     const [mangaLangMap, setMangaLangMap] = React.useState<Record<string, ReturnType<typeof getSeriesLanguageInfo>>>({});
@@ -141,7 +157,11 @@ const LatestChapters: React.FC = () => {
     );
     const requestGenerationRef = React.useRef(0);
 
-    const totalPages = Math.max(1, Math.ceil(totalChaptersCount / PAGE_SIZE));
+    const totalPages = Math.max(
+        totalSeriesPages,
+        Math.ceil(totalSeriesCount / PAGE_SIZE),
+        1,
+    );
 
     const resolveChapterLanguages = React.useCallback((data: LatestChapterFeedItem[]) => {
         const preResolvedLangMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
@@ -169,7 +189,7 @@ const LatestChapters: React.FC = () => {
                     if (mangasData) {
                         const langMap: Record<string, ReturnType<typeof getSeriesLanguageInfo>> = {};
                         for (const m of mangasData) {
-                            langMap[m.id] = getSeriesLanguageInfo(m as any);
+                            langMap[m.id] = getSeriesLanguageInfo(m as Parameters<typeof getSeriesLanguageInfo>[0]);
                         }
                         setMangaLangMap((prev) => ({ ...prev, ...langMap }));
                     }
@@ -228,13 +248,20 @@ const LatestChapters: React.FC = () => {
                 .catch(() => {});
         }
 
+        const requestGeneration = ++requestGenerationRef.current;
+
         const cacheKey = `${audienceKey}:${page}`;
         const cached = latestChaptersPageCache.get(cacheKey);
         const cacheAge = cached ? Date.now() - cached.fetchedAt : Infinity;
         if (cached && cacheAge < LATEST_CHAPTERS_PAGE_CACHE_TTL_MS) {
             setChapters(cached.chapters);
+            setTotalSeriesCount(cached.totalSeriesCount);
+            setTotalSeriesPages(cached.totalPages);
             setIsLoading(false);
             resolveChapterLanguages(cached.chapters);
+            if (page < cached.totalPages) {
+                void getLatestChaptersSeriesPage({ page: page + 1, pageSize: PAGE_SIZE }).catch(() => undefined);
+            }
             return;
         }
 
@@ -243,27 +270,63 @@ const LatestChapters: React.FC = () => {
         );
         if (hasStaleCachedData && cached) {
             setChapters(cached.chapters);
+            setTotalSeriesCount(cached.totalSeriesCount);
+            setTotalSeriesPages(cached.totalPages);
             setIsLoading(false);
             resolveChapterLanguages(cached.chapters);
         } else {
             setIsLoading(true);
+            if (page === 1) {
+                const isStaffRole = user?.role === 'admin' || user?.role === 'moderator';
+                const scopeKey = `${isStaffRole ? 'staff' : 'pub'}:${isStaffRole || audienceKey === 'adult' ? 'adult' : 'safe'}`;
+                void peekLatestChaptersSeriesPersistedSeed(scopeKey).then((seed) => {
+                    if (requestGeneration !== requestGenerationRef.current || !seed || seed.groups.length === 0) return;
+                    const seedChapters = seed.groups.flatMap((group) => group.chapters);
+                    setChapters((prev) => (prev.length === 0 ? seedChapters : prev));
+                    setTotalSeriesCount((prev) => (prev === 0 ? seed.totalSeriesCount : prev));
+                    setTotalSeriesPages((prev) => (prev <= 1 ? seed.totalPages : prev));
+                    setIsLoading(false);
+                    resolveChapterLanguages(seedChapters);
+                }).catch(() => undefined);
+            }
         }
 
-        const requestGeneration = ++requestGenerationRef.current;
         try {
-            const offset = (page - 1) * PAGE_SIZE;
-
-            const data = await getLatestChapters(PAGE_SIZE, offset);
+            const pageResult = await getLatestChaptersSeriesPage({
+                page,
+                pageSize: PAGE_SIZE,
+            });
             if (requestGeneration !== requestGenerationRef.current) {
                 return;
             }
 
+            const data = pageResult.groups.flatMap((group) => group.chapters);
             latestChaptersPageCache.set(cacheKey, {
                 fetchedAt: Date.now(),
                 chapters: data,
+                totalSeriesCount: pageResult.totalSeriesCount,
+                totalPages: pageResult.totalPages,
             });
             setChapters(data);
+            setTotalSeriesCount(pageResult.totalSeriesCount);
+            setTotalSeriesPages(pageResult.totalPages);
             resolveChapterLanguages(data);
+
+            if (page < pageResult.totalPages) {
+                const nextKey = `${audienceKey}:${page + 1}`;
+                if (!latestChaptersPageCache.has(nextKey)) {
+                    void getLatestChaptersSeriesPage({ page: page + 1, pageSize: PAGE_SIZE })
+                        .then((nextResult) => {
+                            latestChaptersPageCache.set(nextKey, {
+                                fetchedAt: Date.now(),
+                                chapters: nextResult.groups.flatMap((group) => group.chapters),
+                                totalSeriesCount: nextResult.totalSeriesCount,
+                                totalPages: nextResult.totalPages,
+                            });
+                        })
+                        .catch(() => undefined);
+                }
+            }
         } catch (error) {
             if (requestGeneration === requestGenerationRef.current) {
                 console.error('Latest chapters page error:', error);
@@ -273,7 +336,7 @@ const LatestChapters: React.FC = () => {
                 setIsLoading(false);
             }
         }
-    }, [audienceKey, isOnline, resolveChapterLanguages, user?.id]);
+    }, [audienceKey, isOnline, resolveChapterLanguages, user?.id, user?.role]);
 
     React.useEffect(() => {
         void loadChapters(currentPage);
@@ -392,9 +455,11 @@ const LatestChapters: React.FC = () => {
                                 <p className="mt-0.5 text-xs text-muted-foreground">
                                     {effectiveRecentChapterCount > 0
                                         ? `Son 24 saatte ${effectiveRecentChapterCount} bölüm eklendi`
-                                        : totalChaptersCount > 0
-                                            ? `${totalChaptersCount} güncel bölüm listeleniyor`
-                                            : 'En yeni bölüm güncellemeleri'}
+                                        : totalSeriesCount > 0
+                                            ? `${totalSeriesCount} güncel seri listeleniyor`
+                                            : totalChaptersCount > 0
+                                                ? `${totalChaptersCount} güncel bölüm listeleniyor`
+                                                : 'En yeni bölüm güncellemeleri'}
                                 </p>
                             </div>
                         </div>
