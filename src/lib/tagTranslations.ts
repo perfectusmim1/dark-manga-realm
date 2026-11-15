@@ -357,6 +357,117 @@ const EN_TO_TR: Record<string, string> = {
   'wrestling': 'Güreş',
   'writing': 'Yazma',
   'wuxia': 'Wuxia',
+  'action': 'Aksiyon',
+  'academy': 'Akademi',
+  'adult': 'Yetişkin',
+  'adventure': 'Macera',
+  'amputation': 'Ampüte',
+  'anal-sex': 'Anal Seks',
+  'armpits': 'Koltuk Altı',
+  'asphyxiation': 'Boğulma',
+  'bbw': 'Balık Etli',
+  'bl': 'Boys Love',
+  'bondage': 'Bağlama',
+  'boobjob': 'Göğüs Arası',
+  'cheat': 'Aldatma',
+  'cheating': 'Aldatma',
+  'comedy': 'Komedi',
+  'creampie': 'İçine Boşalma',
+  'cunnilingus': 'Kadına Oral Seks',
+  'deepthroat': 'Derin Oral Seks',
+  'defloration': 'Kızlık Bozma',
+  'demon': 'İblis',
+  'demon-king': 'İblis Kral',
+  'dilf': 'Olgun Erkek',
+  'double-penetration': 'Çifte Penetrasyon',
+  'drama': 'Dram',
+  'ecchi': 'Ecchi',
+  'exhibitionism': 'Teşhircilik',
+  'facial': 'Yüze Boşalma',
+  'fantasy': 'Fantastik',
+  'feet': 'Ayak',
+  'fellatio': 'Oral Seks',
+  'femdom': 'Kadın Egemenliği',
+  'fingering': 'Parmaklama',
+  'game': 'Oyun',
+  'gangbang': 'Grup Seks',
+  'gender-bender': 'Cinsiyet Değişimi',
+  'girl-love': 'Girls Love',
+  'girls-love': 'Girls Love',
+  'gl': 'Girls Love',
+  'group-sex': 'Grup Seks',
+  'hair-pulling': 'Saç Çekme',
+  'handjob': 'El İşi',
+  'harem': 'Harem',
+  'hentai': 'Yetişkin',
+  'horror': 'Korku',
+  'human-pet': 'Evcil İnsan',
+  'hypersexuality': 'Hiperseksüalite',
+  'ice-sports': 'Buz Sporları',
+  'incest': 'Akraba İlişkisi',
+  'irrumatio': 'Zorla Oral',
+  'lactation': 'Emzirme',
+  'large-breasts': 'Büyük Göğüsler',
+  'male-pregnancy': 'Erkek Hamileliği',
+  'manhua': 'Manhua',
+  'manhwa': 'Manhwa',
+  'masturbation': 'Mastürbasyon',
+  'mating-press': 'Çiftleşme Pozisyonu',
+  'mature': 'Olgun',
+  'milf': 'Olgun Kadın',
+  'mind-break': 'Akıl Kırma',
+  'mind-control': 'Zihin Kontrolü',
+  'monster': 'Canavar',
+  'monsters': 'Canavarlar',
+  'music': 'Müzik',
+  'mystery': 'Gizem',
+  'nakadashi': 'İçine Boşalma',
+  'netorare': 'Aldatma (NTR)',
+  'netorase': 'Netorase',
+  'netori': 'Netori',
+  'nobility': 'Asalet',
+  'omegaverse': 'Omegaverse',
+  'one-shot': 'Tek Bölüm',
+  'oneshot': 'Tek Bölüm',
+  'overpowered': 'Aşırı Güçlü',
+  'paizuri': 'Göğüs Arası',
+  'phimosis': 'Fimozis',
+  'pregnant': 'Hamile',
+  'prostitution': 'Fahişelik',
+  'psychological': 'Psikolojik',
+  'public-sex': 'Halka Açık Alan',
+  'rape': 'Rızasız İlişki',
+  'reankarnasyon': 'Reenkarnasyon',
+  'reverse-harem': 'Ters Harem',
+  'rimjob': 'Anal Yalama',
+  'romance': 'Romantik',
+  'scat': 'Scat',
+  'sci-fi': 'Bilim Kurgu',
+  'sex-toys': 'Seks Oyuncakları',
+  'shoujo-ai': 'Shoujo Ai',
+  'shounen-ai': 'Shounen Ai',
+  'sixty-nine': '69 Pozisyonu',
+  'slice-of-life': 'Gündelik Yaşam',
+  'smut': 'Smut',
+  'sports': 'Spor',
+  'squirting': 'Boşalma Fışkırma',
+  'stockings': 'Çorap',
+  'supernatural': 'Doğaüstü',
+  'sweat': 'Terleme',
+  'swimsuit': 'Mayo',
+  'system': 'Sistem',
+  'tentacles': 'Tentakül',
+  'threesome': 'Üçlü Seks',
+  'thriller': 'Gerilim',
+  'tower': 'Kule',
+  'uncensored': 'Sansürsüz',
+  'violence': 'Şiddet',
+  'virginity': 'İlk Kez',
+  'vore': 'Yutma Fetişi',
+  'voyeur': 'Gizlice İzleme',
+  'watersports': 'İdrar Fetişi',
+  'webtoon': 'Webtoon',
+  'x-ray': 'Röntgen',
   'yakuza': 'Yakuza',
   'yandere': 'Yandere',
   'youkai': 'Youkai',
@@ -364,12 +475,22 @@ const EN_TO_TR: Record<string, string> = {
   'zombie': 'Zombi',
 };
 
+const decodeBasicHtmlEntities = (value: string): string =>
+  value
+    .replace(/&#0*39;|&#x0*27;|&apos;/gi, "'")
+    .replace(/&quot;|&#0*34;|&#x0*22;/gi, '"')
+    .replace(/&amp;|&#0*38;|&#x0*26;/gi, '&')
+    .replace(/&lt;|&#0*60;|&#x0*3c;/gi, '<')
+    .replace(/&gt;|&#0*62;|&#x0*3e;/gi, '>');
+
 /**
  * Translate an English tag slug to Turkish display name.
  * Falls back to the original slug if no translation exists.
  */
 export const getTagDisplayName = (slug?: string | null, fallbackName?: string | null): string => {
-  const rawInput = `${slug || fallbackName || ''}`.trim();
+  const cleanFallback = fallbackName ? decodeBasicHtmlEntities(fallbackName).trim() : '';
+  const cleanSlug = slug ? decodeBasicHtmlEntities(slug).trim() : '';
+  const rawInput = `${cleanSlug || cleanFallback}`.trim();
   if (!rawInput) {
     return '';
   }
@@ -390,6 +511,6 @@ export const getTagDisplayName = (slug?: string | null, fallbackName?: string | 
     return translated;
   }
 
-  // Fall back to original name if no translation found
-  return fallbackName || slug || rawInput;
+  // Fall back to decoded original name if no translation found
+  return cleanFallback || cleanSlug || rawInput;
 };
