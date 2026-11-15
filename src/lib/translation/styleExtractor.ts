@@ -630,8 +630,9 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     edgeLum >= 225 && fillLum >= 130 && rgbSaturation(edgeR, edgeG, edgeB) < 0.22;
   const effectiveWhiteFillLum = hasThinWhiteFill ? edgeLum : fillLum;
 
+  const fillChroma = Math.max(fillR, fillG, fillB) - Math.min(fillR, fillG, fillB);
   const hasOuterHaloStroke =
-    fillLum <= 125 &&
+    (fillLum <= 125 || (fillChroma >= 60 && fillLum <= 195)) &&
     haloLum >= 218 &&
     whiteHaloRatio >= 0.34 &&
     haloToFillDist >= 85 &&
@@ -899,17 +900,23 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
       (enclosedCount < rawTotalStrokes * rawStep * 0.5 ||
         (haloLum >= 218 && whiteHaloRatio >= 0.34));
 
+    const bgBlueBias = ringMedB - ringMedR;
+    const hasBlueEdgeStroke =
+      edgeB > Math.max(edgeR + 36, edgeR + bgBlueBias + 22) &&
+      edgeB >= 135 &&
+      rgbSaturation(edgeR, edgeG, edgeB) >= 0.34;
+
     if (
       !isThinDarkCursiveWithWhiteHalo &&
       fillLum >= 185 &&
       (edgeLum <= fillLum - 25 ||
-        edgeB > edgeR + 20 ||
+        hasBlueEdgeStroke ||
         (fillLum >= 205 && haloLum <= 55 && haloToFillDist >= 135))
     ) {
       // İçi beyaz, dışı mavi/koyu konturlu başlık ("SYSTEM PROMPT" veya siyah konturlu beyaz yazı)
       finalTextColor = '#ffffff';
       hasOutline = true;
-      const isBlueOutline = edgeB > edgeR + 14;
+      const isBlueOutline = hasBlueEdgeStroke;
       const isDarkHalo = !isBlueOutline && haloLum <= 55 && haloToFillDist >= 135;
       finalStrokeColor = isBlueOutline ? '#3b78d4' : isDarkHalo ? '#0a0a0c' : rgbToHex(edgeR, edgeG, edgeB);
       strokeWidthEm = isDarkHalo ? 0.14 : 0.11;
@@ -980,6 +987,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     ? Math.max(10, medGlyphH * 0.42)
     : Math.max(6.5, medGlyphH * 0.28);
 
+  let lastSingleFit: ReturnType<typeof fitSlopeOnPoints> = null;
   if (lineBoxesLocal && lineBoxesLocal.length >= 1 && lineBoxesLocal.length <= 8) {
     const lineDegs: number[] = [];
     for (const lb of lineBoxesLocal) {
@@ -1004,6 +1012,7 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         }
       }
       const fit = pts.length >= 8 ? fitSlopeOnPoints(pts) : null;
+      if (lineBoxesLocal.length === 1) lastSingleFit = fit;
       const absFitDeg = fit ? Math.abs(fit.deg) : 0;
       const longBannerRelax =
         !hasClosedBubbleWalls &&
@@ -1012,12 +1021,18 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         fit.spanX >= medGlyphH * 4.5 &&
         fit.rSquared >= 0.92 &&
         fit.driftPx >= 11;
+      const uiSingleLineRelax =
+        lineBoxesLocal.length === 1 &&
+        medGlyphH <= 26 &&
+        fit &&
+        absFitDeg >= 5.5 &&
+        fit.rSquared >= 0.84 &&
+        fit.driftPx >= 6.0;
       if (
         fit &&
-        fit.rSquared >= minReqR2 &&
-        fit.driftPx >= minReqDrift &&
+        ((fit.rSquared >= minReqR2 && fit.driftPx >= minReqDrift) || uiSingleLineRelax) &&
         absFitDeg <= maxAllowedDeg &&
-        (absFitDeg >= minReqDeg || longBannerRelax)
+        (absFitDeg >= minReqDeg || longBannerRelax || uiSingleLineRelax)
       ) {
         lineDegs.push(fit.deg);
       } else if (
@@ -1049,13 +1064,101 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
         rotationDeg = Number(medianOf(lineDegs).toFixed(1));
       }
     } else if (
+      !hasClosedBubbleWalls &&
+      lineBoxesLocal.length === 2 &&
+      ocrDegs.length === 1 &&
+      Math.abs(ocrDegs[0]) >= 5.5 &&
+      lineBoxesLocal[0].x1 - lineBoxesLocal[0].x0 >= ww * 0.42
+    ) {
+      if (
+        lineDegs.length === 1 &&
+        Math.sign(lineDegs[0]) === Math.sign(ocrDegs[0]) &&
+        Math.abs(lineDegs[0] - ocrDegs[0]) <= 3.5 &&
+        Math.abs(lineDegs[0]) >= 5.5
+      ) {
+        rotationDeg = Number(lineDegs[0].toFixed(1));
+      } else {
+        // İki satırın eksen-hizalı kutuları dikeyde çakışsa bile üst satırın üst piksel zarfından eğimi doğrula
+        const lb0 = lineBoxesLocal[0];
+        const lb1 = lineBoxesLocal[1];
+        const topRowCutY = lb1.y0 > lb0.y0 + 18 ? Math.min(wh - 1, lb0.y1, lb1.y0 - 4) : Math.min(wh - 1, lb0.y1);
+        const bandLimH = Math.max(16, Math.round(medGlyphH * 1.45));
+        const colPts: Array<{ x: number; y: number }> = [];
+        for (let px = Math.max(0, lb0.x0); px <= Math.min(ww - 1, lb0.x1); px += 2) {
+          let firstY = -1;
+          for (let py = Math.max(0, lb0.y0); py <= topRowCutY; py += 1) {
+            if (rawGlyphMask[py * ww + px]) {
+              firstY = py;
+              break;
+            }
+          }
+          if (firstY < 0) continue;
+          let sumY = 0;
+          let cntY = 0;
+          const capY = Math.min(wh - 1, lb0.y1, firstY + bandLimH);
+          for (let py = firstY; py <= capY; py += 1) {
+            if (rawGlyphMask[py * ww + px]) {
+              sumY += py;
+              cntY += 1;
+            }
+          }
+          if (cntY >= 2) colPts.push({ x: px, y: sumY / cntY });
+        }
+        const fitColSlope = (pts: Array<{ x: number; y: number }>) => {
+          let sx = 0;
+          let sy = 0;
+          for (let i = 0; i < pts.length; i += 1) {
+            sx += pts[i].x;
+            sy += pts[i].y;
+          }
+          const mx = sx / pts.length;
+          const my = sy / pts.length;
+          let num = 0;
+          let den = 0;
+          for (let i = 0; i < pts.length; i += 1) {
+            const dx = pts[i].x - mx;
+            num += dx * (pts[i].y - my);
+            den += dx * dx;
+          }
+          return den > 1 ? { mx, my, slope: num / den } : null;
+        };
+        if (
+          colPts.length >= 10 &&
+          colPts[colPts.length - 1].x - colPts[0].x >= (lb0.x1 - lb0.x0) * 0.4
+        ) {
+          const pass1 = fitColSlope(colPts);
+          if (pass1) {
+            const maxRes = Math.max(14, medGlyphH * 0.42);
+            const inliers = colPts.filter(
+              (p) => Math.abs(p.y - (pass1.my + pass1.slope * (p.x - pass1.mx))) <= maxRes,
+            );
+            const pass2 =
+              inliers.length >= 8 && inliers[inliers.length - 1].x - inliers[0].x >= (lb0.x1 - lb0.x0) * 0.35
+                ? fitColSlope(inliers) ?? pass1
+                : pass1;
+            const topDeg = (Math.atan(pass2.slope) * 180) / Math.PI;
+            if (
+              Math.sign(topDeg) === Math.sign(ocrDegs[0]) &&
+              Math.abs(topDeg - ocrDegs[0]) <= 4.5
+            ) {
+              rotationDeg = Number(((topDeg + ocrDegs[0]) * 0.5).toFixed(1));
+            }
+          }
+        }
+      }
+    } else if (
       ocrDegs.length >= Math.max(2, Math.ceil(lineBoxesLocal.length * 0.75)) ||
-      (!hasClosedBubbleWalls && lineBoxesLocal.length === 1 && ocrDegs.length === 1)
+      (lineBoxesLocal.length === 1 && ocrDegs.length === 1)
     ) {
       const sameSign = ocrDegs.every((d) => Math.sign(d) === Math.sign(ocrDegs[0]));
       const spread = Math.max(...ocrDegs) - Math.min(...ocrDegs);
       const medOcr = medianOf(ocrDegs);
-      if (sameSign && spread <= 3.5 && Math.abs(medOcr) >= 5.5) {
+      const singleLineOpposingFit =
+        lineBoxesLocal.length === 1 &&
+        lastSingleFit !== null &&
+        lastSingleFit.rSquared >= 0.72 &&
+        Math.sign(lastSingleFit.deg) !== Math.sign(medOcr);
+      if (sameSign && spread <= 3.5 && Math.abs(medOcr) >= 5.5 && !singleLineOpposingFit) {
         rotationDeg = Number(medOcr.toFixed(1));
       }
     }
@@ -1082,6 +1185,20 @@ export const extractStyleFingerprint = (input: StyleExtractionInput): ExtractedS
     ) {
       rotationDeg = Number(fit.deg.toFixed(1));
     }
+  }
+
+  if (
+    !hasOutline &&
+    !isDarkBg &&
+    medGlyphH <= 24 &&
+    Math.abs(rotationDeg) >= 4.5 &&
+    fillLum >= 50 &&
+    fillLum <= 178 &&
+    fillLum <= bgLum - 28 &&
+    bgLum >= 170
+  ) {
+    const lumScale = fillLum > 100 ? 100 / fillLum : 1;
+    finalTextColor = rgbToHex(fillR * lumScale, fillG * lumScale, fillB * lumScale);
   }
 
   // 6. Tutarlı Font Ailesi: Balonlar ve kutular arasında rastgele font değişimi yapılmaz;

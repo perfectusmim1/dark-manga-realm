@@ -43,8 +43,8 @@ export interface OcrRunners {
 
 const DET_MEAN = [0.485, 0.456, 0.406];
 const DET_STD = [0.229, 0.224, 0.225];
-const DET_MAX_WIDTH = 960;
-const DET_SLICE_H = 1536;
+const DET_MAX_WIDTH = 800;
+const DET_SLICE_H = 1920;
 const DET_SLICE_OVERLAP = 192;
 const DET_BIN_THRESH = 0.3;
 const DET_BOX_THRESH = 0.50;
@@ -59,8 +59,22 @@ const checkAbort = (signal?: AbortSignal) => {
   if (signal?.aborted) throw new DOMException('İptal edildi', 'AbortError');
 };
 
+const DET_LUT_R = new Float32Array(256);
+const DET_LUT_G = new Float32Array(256);
+const DET_LUT_B = new Float32Array(256);
+for (let i = 0; i < 256; i += 1) {
+  const v = i / 255;
+  DET_LUT_R[i] = (v - DET_MEAN[2]) / DET_STD[2];
+  DET_LUT_G[i] = (v - DET_MEAN[1]) / DET_STD[1];
+  DET_LUT_B[i] = (v - DET_MEAN[0]) / DET_STD[0];
+}
+
+let cachedDetInput = new Float32Array(0);
+let cachedDetLabels = new Int32Array(0);
+let cachedDetQueue = new Int32Array(0);
+
 /**
- * Kaynak görüntünün [sx0, sy0, sw, sh] dikdörtgenini çift doğrusal örnekleme ile
+ * Kaynak görüntünün [sx0, sy0, sw, sh] dikdörtgenini (1:1 hızlı kopyalama veya çift doğrusal örnekleme ile)
  * [1, 3, th, outW] NCHW BGR float32 tensörüne yazar (sağ taraf sıfır dolgulu).
  */
 const sampleToTensor = (
@@ -121,12 +135,18 @@ interface DetBox {
 
 /** DBNet olasılık haritasından bağlı bileşen analizi ile metin kutularını çıkarır. */
 const extractDetBoxes = (prob: Float32Array, w: number, h: number): DetBox[] => {
-  const labels = new Int32Array(w * h);
-  const queue = new Int32Array(w * h);
+  const numCells = w * h;
+  if (cachedDetLabels.length < numCells) {
+    cachedDetLabels = new Int32Array(numCells);
+    cachedDetQueue = new Int32Array(numCells);
+  }
+  const labels = cachedDetLabels.subarray(0, numCells);
+  labels.fill(0);
+  const queue = cachedDetQueue;
   const boxes: DetBox[] = [];
   let label = 0;
 
-  for (let i = 0; i < w * h; i += 1) {
+  for (let i = 0; i < numCells; i += 1) {
     if (prob[i] <= DET_BIN_THRESH || labels[i] !== 0) continue;
     label += 1;
     let head = 0;
@@ -375,32 +395,35 @@ const recognizeBox = async (
     }
   }
 
-  const cw = cwRaw;
-  const ch = Math.max(4, sy1 - sy0);
-  const tw = clamp(Math.round((REC_H * cw) / ch), 16, REC_MAX_W);
-  const outW = Math.ceil(tw / 8) * 8;
-  const input = new Float32Array(3 * REC_H * outW);
-  sampleToTensor(img, box.x0, sy0, cw, ch, tw, REC_H, outW, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], input);
-  const out = await runners.rec(input, [1, 3, REC_H, outW]);
-  const axisRes = ctcDecode(out.data, out.dims[1], out.dims[2], runners.dictionary);
-
-  if (
+  const hasRotMeta =
     box.angleDeg !== undefined &&
     box.rotCenterX !== undefined &&
     box.rotCenterY !== undefined &&
-    box.rotMajorSpan &&
-    box.rotMinorSpan
-  ) {
-    const rTw = clamp(Math.round((REC_H * box.rotMajorSpan) / box.rotMinorSpan), 16, REC_MAX_W);
+    Boolean(box.rotMajorSpan) &&
+    Boolean(box.rotMinorSpan);
+
+  const runAxisRec = async () => {
+    const cw = cwRaw;
+    const ch = Math.max(4, sy1 - sy0);
+    const tw = clamp(Math.round((REC_H * cw) / ch), 16, REC_MAX_W);
+    const outW = Math.ceil(tw / 8) * 8;
+    const input = new Float32Array(3 * REC_H * outW);
+    sampleToTensor(img, box.x0, sy0, cw, ch, tw, REC_H, outW, [0.5, 0.5, 0.5], [0.5, 0.5, 0.5], input);
+    const out = await runners.rec(input, [1, 3, REC_H, outW]);
+    return ctcDecode(out.data, out.dims[1], out.dims[2], runners.dictionary);
+  };
+
+  const runRotRec = async () => {
+    const rTw = clamp(Math.round((REC_H * box.rotMajorSpan!) / box.rotMinorSpan!), 16, REC_MAX_W);
     const rOutW = Math.ceil(rTw / 8) * 8;
     const rInput = new Float32Array(3 * REC_H * rOutW);
     sampleRotatedToTensor(
       img,
-      box.rotCenterX,
-      box.rotCenterY,
-      box.rotMajorSpan,
-      box.rotMinorSpan,
-      (box.angleDeg * Math.PI) / 180,
+      box.rotCenterX!,
+      box.rotCenterY!,
+      box.rotMajorSpan!,
+      box.rotMinorSpan!,
+      (box.angleDeg! * Math.PI) / 180,
       rTw,
       REC_H,
       rOutW,
@@ -409,7 +432,26 @@ const recognizeBox = async (
       rInput,
     );
     const rOut = await runners.rec(rInput, [1, 3, REC_H, rOutW]);
-    const rotRes = ctcDecode(rOut.data, rOut.dims[1], rOut.dims[2], runners.dictionary);
+    return ctcDecode(rOut.data, rOut.dims[1], rOut.dims[2], runners.dictionary);
+  };
+
+  if (hasRotMeta && Math.abs(box.angleDeg!) >= 5.5) {
+    const rotRes = await runRotRec();
+    if (rotRes.text.trim().length >= 2 && rotRes.confidence >= 84) {
+      return rotRes;
+    }
+    const axisRes = await runAxisRec();
+    const rotScore = rotRes.confidence + rotRes.text.trim().length * 1.5;
+    const axisScore = axisRes.confidence + axisRes.text.trim().length * 1.5;
+    if (rotRes.text.trim().length > 0 && rotScore >= axisScore - 2) {
+      return rotRes;
+    }
+    return axisRes;
+  }
+
+  const axisRes = await runAxisRec();
+  if (hasRotMeta && !(axisRes.text.trim().length >= 2 && axisRes.confidence >= 86)) {
+    const rotRes = await runRotRec();
     const rotScore = rotRes.confidence + rotRes.text.trim().length * 1.5;
     const axisScore = axisRes.confidence + axisRes.text.trim().length * 1.5;
     if (rotRes.text.trim().length > 0 && rotScore >= axisScore - 2) {
@@ -430,7 +472,7 @@ const iou = (a: OcrLine['bbox'], b: OcrLine['bbox']) => {
   return inter / Math.max(1, areaA + areaB - inter);
 };
 
-const isDuplicateOrNestedSubBox = (a: OcrLine['bbox'], b: OcrLine['bbox']): boolean => {
+export const isDuplicateOrNestedSubBox = (a: OcrLine['bbox'], b: OcrLine['bbox']): boolean => {
   if (iou(a, b) > 0.45) return true;
   const ix = Math.min(a.x1, b.x1) - Math.max(a.x0, b.x0);
   const iy = Math.min(a.y1, b.y1) - Math.max(a.y0, b.y0);
@@ -439,6 +481,69 @@ const isDuplicateOrNestedSubBox = (a: OcrLine['bbox'], b: OcrLine['bbox']): bool
   const areaA = Math.max(1, (a.x1 - a.x0) * (a.y1 - a.y0));
   const areaB = Math.max(1, (b.x1 - b.x0) * (b.y1 - b.y0));
   return inter / Math.min(areaA, areaB) >= 0.78;
+};
+
+const findActiveTextVerticalBand = (
+  img: OcrImageBuffer,
+  sy: number,
+  srcH: number,
+): { y0: number; y1: number } | null => {
+  const { width, data } = img;
+  if (width < 12 || srcH < 8) return { y0: 0, y1: srcH };
+
+  let firstActive = -1;
+  let lastActive = -1;
+  const maxY = sy + srcH;
+  const xEnd = width - 4;
+
+  // Her 3. satırı ve 2 piksellik yatay adımı tarayarak yüksek kontrastlı harf/kenar geçişlerini saptar.
+  // Boş beyaz/siyah webtoon şeritlerinde DBNet taramasını 0ms'de atlar veya dikey olarak daraltır.
+  for (let y = sy; y < maxY; y += 3) {
+    const rowOff = y * width * 4;
+    let prevR = data[rowOff + 8];
+    let prevG = data[rowOff + 9];
+    let prevB = data[rowOff + 10];
+    let prevLum = 0.299 * prevR + 0.587 * prevG + 0.114 * prevB;
+    let edges = 0;
+
+    for (let x = 4; x < xEnd; x += 2) {
+      const idx = rowOff + x * 4;
+      const r = data[idx];
+      const g = data[idx + 1];
+      const b = data[idx + 2];
+      const lum = 0.299 * r + 0.587 * g + 0.114 * b;
+      const maxChDiff = Math.max(
+        Math.abs(r - prevR),
+        Math.abs(g - prevG),
+        Math.abs(b - prevB),
+      );
+      if (Math.abs(lum - prevLum) >= 20 || maxChDiff >= 26) {
+        edges += 1;
+        if (edges >= 4) {
+          const relY = y - sy;
+          if (firstActive === -1) firstActive = relY;
+          lastActive = relY;
+          break;
+        }
+      }
+      prevR = r;
+      prevG = g;
+      prevB = b;
+      prevLum = lum;
+    }
+  }
+
+  if (firstActive === -1) return null;
+
+  let y0 = Math.max(0, firstActive - 72);
+  let y1 = Math.min(srcH, lastActive + 75);
+  const minBand = Math.min(srcH, 160);
+  if (y1 - y0 < minBand) {
+    const mid = (y0 + y1) * 0.5;
+    y0 = clamp(Math.floor(mid - minBand * 0.5), 0, Math.max(0, srcH - minBand));
+    y1 = Math.min(srcH, y0 + minBand);
+  }
+  return { y0, y1 };
 };
 
 /**
@@ -452,7 +557,8 @@ export const runPaddleOcr = async (
   const { width, height } = img;
   if (width <= 0 || height <= 0) return [];
   const scale = width > DET_MAX_WIDTH ? DET_MAX_WIDTH / width : 1;
-  const detW = Math.max(32, Math.round((width * scale) / 32) * 32);
+  const tw = Math.max(8, Math.round(width * scale));
+  const detW = Math.max(32, Math.ceil(tw / 32) * 32);
   const sliceSrcH = Math.round(DET_SLICE_H / scale);
   const stepSrc = Math.round((DET_SLICE_H - DET_SLICE_OVERLAP) / scale);
   const lines: OcrLine[] = [];
@@ -462,30 +568,91 @@ export const runPaddleOcr = async (
     const srcH = Math.min(sliceSrcH, height - sy);
     const isFirst = sy === 0;
     const isLast = sy + srcH >= height;
-    const detH = Math.max(32, Math.round((srcH * scale) / 32) * 32);
-    const input = new Float32Array(3 * detW * detH);
-    sampleToTensor(img, 0, sy, width, srcH, detW, detH, detW, DET_MEAN, DET_STD, input);
+    const band = findActiveTextVerticalBand(img, sy, srcH);
+    if (!band) {
+      if (isLast) break;
+      continue;
+    }
+
+    const bandSy = sy + band.y0;
+    const bandH = band.y1 - band.y0;
+    const bandTouchesSliceTop = band.y0 === 0;
+    const bandTouchesSliceBottom = band.y1 === srcH;
+    const th = scale === 1 ? bandH : Math.max(8, Math.round(bandH * scale));
+    const detH = Math.max(32, Math.ceil(th / 32) * 32);
+    const totalInputLen = 3 * detW * detH;
+    if (cachedDetInput.length < totalInputLen) {
+      cachedDetInput = new Float32Array(totalInputLen);
+    }
+    const input = cachedDetInput.subarray(0, totalInputLen);
+    input.fill(0);
+    // PaddleOCR BGR ortalaması 0 çevresinde sıfır dolgulu tensör: sadece [0..th, 0..tw] bölgesine yaz
+    // sampleToTensor sağ/alt fazlalık (detH > th) olması durumunda düzeltilmiş düzlem adımı gerekir!
+    // Güvenli yol: detH === th olduğunda [0..detW*detH] düzleminde direkt kopyala; pad varsa yalnızca düzlem boyu detH kullan
+    const plane = detW * detH;
+    if (scale === 1 && bandSy + bandH <= height && tw <= width) {
+      const plane2 = plane * 2;
+      const { data } = img;
+      for (let y = 0; y < th; y += 1) {
+        let srcOff = (bandSy + y) * width * 4;
+        let dstOff = y * detW;
+        const dstEnd = dstOff + tw;
+        for (; dstOff < dstEnd; dstOff += 1, srcOff += 4) {
+          input[dstOff] = DET_LUT_B[data[srcOff + 2]];
+          input[plane + dstOff] = DET_LUT_G[data[srcOff + 1]];
+          input[plane2 + dstOff] = DET_LUT_R[data[srcOff]];
+        }
+      }
+    } else {
+      const scaleX = width / tw;
+      const scaleY = bandH / th;
+      const { data } = img;
+      for (let y = 0; y < th; y += 1) {
+        const fy = clamp(bandSy + (y + 0.5) * scaleY - 0.5, 0, height - 1);
+        const y0 = Math.floor(fy);
+        const y1 = Math.min(height - 1, y0 + 1);
+        const wy = fy - y0;
+        for (let x = 0; x < tw; x += 1) {
+          const fx = clamp((x + 0.5) * scaleX - 0.5, 0, width - 1);
+          const x0 = Math.floor(fx);
+          const x1 = Math.min(width - 1, x0 + 1);
+          const wx = fx - x0;
+          const i00 = (y0 * width + x0) * 4;
+          const i01 = (y0 * width + x1) * 4;
+          const i10 = (y1 * width + x0) * 4;
+          const i11 = (y1 * width + x1) * 4;
+          const o = y * detW + x;
+          for (let c = 0; c < 3; c += 1) {
+            const top = data[i00 + c] * (1 - wx) + data[i01 + c] * wx;
+            const bot = data[i10 + c] * (1 - wx) + data[i11 + c] * wx;
+            const v = (top * (1 - wy) + bot * wy) / 255;
+            const ch = 2 - c;
+            input[ch * plane + o] = (v - DET_MEAN[ch]) / DET_STD[ch];
+          }
+        }
+      }
+    }
     const out = await runners.det(input, [1, 3, detH, detW]);
     checkAbort(signal);
     const mapH = out.dims[2];
     const mapW = out.dims[3];
-    const fx = width / mapW;
-    const fy = srcH / mapH;
+    const fx = (width * detW) / (tw * mapW);
+    const fy = (bandH * detH) / (th * mapH);
 
     for (const b of extractDetBoxes(out.data, mapW, mapH)) {
       // Dilim sınırında yarım kesilen kutuları komşu dilime bırak
-      if (!isFirst && b.y0 <= 2) continue;
-      if (!isLast && b.y1 >= mapH - 2) continue;
+      if (!isFirst && bandTouchesSliceTop && b.y0 <= 2) continue;
+      if (!isLast && bandTouchesSliceBottom && b.y1 >= mapH * (th / detH) - 2) continue;
       const box: DetBox = {
         x0: clamp(b.x0 * fx, 0, width),
-        y0: clamp(b.y0 * fy + sy, 0, height),
+        y0: clamp(b.y0 * fy + bandSy, 0, height),
         x1: clamp(b.x1 * fx, 0, width),
-        y1: clamp(b.y1 * fy + sy, 0, height),
+        y1: clamp(b.y1 * fy + bandSy, 0, height),
         ...(b.angleDeg !== undefined
           ? {
               angleDeg: b.angleDeg,
               rotCenterX: b.rotCenterX! * fx,
-              rotCenterY: b.rotCenterY! * fy + sy,
+              rotCenterY: b.rotCenterY! * fy + bandSy,
               rotMajorSpan: b.rotMajorSpan! * Math.hypot(fx * Math.cos((b.angleDeg * Math.PI) / 180), fy * Math.sin((b.angleDeg * Math.PI) / 180)),
               rotMinorSpan: b.rotMinorSpan! * Math.hypot(fx * Math.sin((b.angleDeg * Math.PI) / 180), fy * Math.cos((b.angleDeg * Math.PI) / 180)),
             }
@@ -519,7 +686,13 @@ export const runPaddleOcr = async (
   const sorted = [...lines].sort((a, b) => b.confidence - a.confidence);
   const kept: OcrLine[] = [];
   for (const line of sorted) {
-    if (kept.some((k) => isDuplicateOrNestedSubBox(k.bbox, line.bbox))) continue;
+    const lineArea = Math.max(1, (line.bbox.x1 - line.bbox.x0) * (line.bbox.y1 - line.bbox.y0));
+    const isDup = kept.some((k) => {
+      if (!isDuplicateOrNestedSubBox(k.bbox, line.bbox)) return false;
+      const kArea = Math.max(1, (k.bbox.x1 - k.bbox.x0) * (k.bbox.y1 - k.bbox.y0));
+      return Math.max(kArea, lineArea) / Math.min(kArea, lineArea) <= 3.5;
+    });
+    if (isDup) continue;
     kept.push(line);
   }
   return kept;
@@ -564,6 +737,11 @@ export const isUsableOcrLine = (line: OcrLine, minConfidence = MIN_LINE_CONFIDEN
   if (letters < 2 && !/^(?:I|A|O)[!?.…,]*$/i.test(text)) return false;
   // Sembol oranı yüksek satırlar (ör. "| 7 A - _ =", "| 2 7 27") çizim gürültüsüdür
   if (junk / Math.max(1, letters + digits + junk) > 0.25) return false;
+  // Sansürlü/gizlenmiş tablo dolgu metinleri ("XXXXXX", "XXXX-XXXI", "XXXX-XX", "XX:XXXX")
+  if (/[xX]{3,}/.test(text) && /^[xXI0-9\s:.\-–—/,|]+$/.test(text)) return false;
+  if (/^[xX]{2,}:[xX]{2,}$/.test(text)) return false;
+  // Bulanık balonda oluşan düşük güvenli ünlüsüz sessiz harf gürültüsü ("JCHNT")
+  if (line.confidence < 72 && /^[A-Za-z]{4,}$/.test(text) && !/[aeiouyAEIOUY]/.test(text)) return false;
   // Tek harf dizileri ("A | J 7") gerçek cümle değildir
   const words = text.split(/\s+/).filter((w) => /\p{L}/u.test(w));
   if (words.length >= 3 && words.every((w) => w.replace(/[^\p{L}]/gu, '').length <= 1)) return false;
@@ -596,6 +774,18 @@ export const cleanOcrText = (text: string): string => {
     .replace(/\b[qQ][lL][eE]\b/g, 'QUE')
     .replace(/\b[qQ][lL][iI][eE][nN]\b/g, 'QUIEN')
     .replace(/\b[mM][lL][cC][hH]([aA][sS]?|[oO][sS]?)\b/g, 'Much$1')
+    .replace(
+      /\bT\s+(?=CAN\b|CAN'T\b|DON'T\b|DIDN'T\b|WON'T\b|WILL\b|WOULD\b|COULD\b|SHOULD\b|AM\b|WAS\b|HAVE\b|HAD\b|KNOW\b|THINK\b|NEED\b|WANT\b|MIGHT\b|MAY\b|MUST\b)/g,
+      'I ',
+    )
+    .replace(/\bIFI\b/g, 'IF I')
+    .replace(/^C\s+(?=LEE\s+DAEHO\b|LEE\s*DAEHO\b|LEEDAEH[DO]\b)/i, '')
+    .replace(/\bLEEDAEHD\b/gi, 'LEE DAEHO')
+    .replace(/\bLEEDAEHO\b/gi, 'LEE DAEHO')
+    .replace(/\bPRODUCTIONTEAM\b/gi, 'PRODUCTION TEAM')
+    .replace(/\bPARKOO\b/gi, 'PARK OO')
+    .replace(/\bHONGOO\b/gi, 'HONG OO')
+    .replace(/\bcongratu[\s-]+(?:(?:l)?i)?tion\b([!?.]*)/gi, 'congratulation$1')
     .trim();
 };
 
@@ -633,6 +823,11 @@ const PURE_SFX_STEMS = new Set([
   'çat', 'pat', 'küt', 'güm', 'şak', 'tak', 'tık', 'çatır', 'çatırt', 'çatırtı',
   'şırrak', 'şangır', 'gıcırt', 'gıcırtı', 'hışırt', 'hışırtı', 'vın', 'vınn',
   'vız', 'vızz', 'hart', 'kırt', 'fış', 'fışş', 'cız', 'cızz', 'şlap', 'irülür', 'irkilir',
+  // Yetişkin/webtoon çizgi roman ses efektleri ve sık OCR varyantları
+  'kuhk', 'kuhie', 'squelcn', 'squelcy', 'souelch', 'squelc', 'louelcy',
+  'presst', 'splurt', 'splukt', 'smach', 'emack', 'smacki', 'qeam',
+  'twich', 'towitch', 'twitchy', 'twica',
+  'huft', 'har', 'saveeze', 'shlick', 'schlick', 'splork', 'fap', 'throb', 'glomp',
 ]);
 
 /** Tek başına anlamlı kelime olabilecek ama 2-3 kez arka arkaya tekrarlandığında ses efekti olan kelimeler ("TAP TAP TAP", "STEP STEP", "DRIP DRIP", "CLAP CLAP") */
@@ -641,12 +836,18 @@ export const REPEATED_ONLY_SFX_STEMS = new Set([
   'pop', 'snap', 'ring', 'beep', 'honk', 'cough', 'pant', 'sob', 'gasp', 'gulp',
   'chew', 'chop', 'slash', 'slice', 'poke', 'prod', 'shake', 'tremble', 'shiver',
   'shudder', 'flinch', 'twitch', 'sparkle', 'glint', 'gleam', 'flash', 'glow',
+  'glare', 'smirk', 'flick', 'clench', 'grin', 'grab', 'press', 'pull', 'turn',
+  'rub', 'slide', 'trip', 'inch', 'flop', 'spring', 'seam', 'squeeze', 'huff', 'lick', 'slurp',
 ]);
 
 const collapseRepeatedChars = (word: string): string =>
   word.toLowerCase().replace(/([a-z])\1{2,}/g, '$1$1').replace(/([a-z])\1+/g, '$1');
 
-export const isPureSoundEffect = (text: string): boolean => {
+export const isPureSoundEffect = (
+  text: string,
+  box?: [number, number, number, number],
+  lines?: ReadonlyArray<{ angleDeg?: number }>,
+): boolean => {
   const cleaned = text
     .trim()
     .replace(/^[¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•\s]+|[¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•\s]+$/g, '');
@@ -658,6 +859,22 @@ export const isPureSoundEffect = (text: string): boolean => {
     .filter(Boolean);
 
   if (rawTokens.length === 0 || rawTokens.length > 4) return false;
+
+  // Eğik veya büyük boy tek kelimelik eylem ses efektleri ("PRESS", "POP.", "GRAB", "FLICK")
+  if (rawTokens.length === 1 && !/\?\s*$/.test(text.trim())) {
+    const exactSingle = rawTokens[0].replace(/[^a-z]/g, '');
+    const collapsedSingle = exactSingle ? collapseRepeatedChars(exactSingle) : '';
+    const isActionSfxStem =
+      (exactSingle && REPEATED_ONLY_SFX_STEMS.has(exactSingle)) ||
+      (collapsedSingle && REPEATED_ONLY_SFX_STEMS.has(collapsedSingle));
+    if (isActionSfxStem) {
+      const boxHNorm = box ? Math.max(0, box[2] - box[0]) : 0;
+      const isRotatedSfx = Boolean(lines?.some((l) => Math.abs(l.angleDeg ?? 0) >= 5));
+      if (isRotatedSfx || boxHNorm >= 18) {
+        return true;
+      }
+    }
+  }
 
   const joinedAlpha = rawTokens.join('').replace(/[^a-z]/g, '');
   if (
@@ -933,12 +1150,17 @@ const hasVerticalBubbleBarrier = (
   const vividChromaBoxBoundary =
     (rgbJump >= 90 && (vGapPx >= 4 || Math.max(colT.r - colT.g, colB.r - colB.g) >= 55)) ||
     (vGapPx >= 6 && (flankJump >= 105 || flankHueJump >= 115 || (flankJump >= 85 && topBoxVivid !== botBoxVivid)));
-  if ((Math.abs(bgT - bgB) >= 75 || vividChromaBoxBoundary) && !fakeOutlineCollar) return true;
+  const angleTop = top.angleDeg ?? 0;
+  const angleBot = bot.angleDeg ?? 0;
+  const minLineH = Math.min(top.bbox.y1 - top.bbox.y0, bot.bbox.y1 - bot.bbox.y0);
+  // Sola/sağa eğik konuşma satırları balon sınırında koyu panele taşsa bile dikeyde çakışır
+  const overlappingSameTilt =
+    vGapPx <= -minLineH * 0.2 &&
+    Math.max(Math.abs(angleTop), Math.abs(angleBot)) >= 5 &&
+    Math.abs(angleTop - angleBot) <= 2.5;
+  if ((Math.abs(bgT - bgB) >= 75 || vividChromaBoxBoundary) && !fakeOutlineCollar && !overlappingSameTilt) return true;
 
-  if (vGapPx <= 1.5) return false;
-  const gapY0 = Math.max(0, Math.floor(top.bbox.y1) + 1);
-  const gapY1 = Math.min(height - 1, Math.ceil(bot.bbox.y0) - 1);
-  if (gapY1 < gapY0) return false;
+  if (vGapPx <= 1.5 && Math.max(Math.abs(top.angleDeg ?? 0), Math.abs(bot.angleDeg ?? 0)) < 2.2) return false;
 
   const ovX0 = Math.max(0, Math.floor(Math.max(top.bbox.x0, bot.bbox.x0)));
   const ovX1 = Math.min(width - 1, Math.ceil(Math.min(top.bbox.x1, bot.bbox.x1)));
@@ -947,31 +1169,123 @@ const hasVerticalBubbleBarrier = (
 
   const bothLight = bgT >= 165 && bgB >= 165;
   const bothDark = bgT <= 105 && bgB <= 105;
+  const absAngleMax = Math.max(Math.abs(top.angleDeg ?? 0), Math.abs(bot.angleDeg ?? 0));
+
+  // Eğik telefon listesi / UI satırlarında ("CALLS" + "LEEDAEHO" -8°) AABB dikey boşluk eksi çıkabilir;
+  // iki satır arasındaki eğik orta koridor boyunca ince 1..4px ayıraç çizgisini tara
+  if ((bothLight || bothDark) && (absAngleMax >= 3 || (vGapPx <= 1.5 && absAngleMax >= 2.2))) {
+    const deg =
+      Math.abs(top.angleDeg ?? 0) >= Math.abs(bot.angleDeg ?? 0)
+        ? (top.angleDeg ?? 0)
+        : (bot.angleDeg ?? 0);
+    const rad = (deg * Math.PI) / 180;
+    const slope = Math.tan(rad);
+    const rawHTop = top.bbox.y1 - top.bbox.y0;
+    const rawHBot = bot.bbox.y1 - bot.bbox.y0;
+    const effHTop = Math.max(
+      6,
+      rawHTop - (top.bbox.x1 - top.bbox.x0) * Math.abs(Math.sin(rad)) * 0.85,
+    );
+    const effHBot = Math.max(
+      6,
+      rawHBot - (bot.bbox.x1 - bot.bbox.x0) * Math.abs(Math.sin(rad)) * 0.85,
+    );
+    const topCx = (top.bbox.x0 + top.bbox.x1) * 0.5;
+    const topCy = (top.bbox.y0 + top.bbox.y1) * 0.5;
+    const botCx = (bot.bbox.x0 + bot.bbox.x1) * 0.5;
+    const botCy = (bot.bbox.y0 + bot.bbox.y1) * 0.5;
+    const ovMidX = (ovX0 + ovX1) * 0.5;
+    const perpDy = Math.abs((botCy + (ovMidX - botCx) * slope) - (topCy + (ovMidX - topCx) * slope));
+    if (perpDy > (effHTop + effHBot) * 0.42) {
+      const scanHalf = clamp(Math.round((perpDy - (effHTop + effHBot) * 0.34) * 0.65), 3, 12);
+      let hairlineCols = 0;
+      const hitDys: number[] = [];
+      let wildContrastCols = 0;
+      for (let x = ovX0; x <= ovX1; x += 1) {
+        const yMid = Math.round(
+          (topCy + (x - topCx) * slope + (botCy + (x - botCx) * slope)) * 0.5,
+        );
+        const yA = clamp(yMid - scanHalf, 0, height - 1);
+        const yB = clamp(yMid + scanHalf, 0, height - 1);
+        let runLen = 0;
+        let hitCenterDy = 0;
+        let hasThinHairline = false;
+        let colMinLum = 255;
+        let colMaxLum = 0;
+        for (let y = yA; y <= yB; y += 1) {
+          const idx = (y * width + x) * 4;
+          const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
+          if (lum < colMinLum) colMinLum = lum;
+          if (lum > colMaxLum) colMaxLum = lum;
+          const isStep = Math.abs(lum - bgT) >= 11 && Math.abs(lum - bgB) >= 11;
+          if (isStep) {
+            runLen += 1;
+          } else {
+            if (!hasThinHairline && runLen >= 1 && runLen <= 4) {
+              hasThinHairline = true;
+              hitCenterDy = y - runLen * 0.5 - yMid;
+            }
+            runLen = 0;
+          }
+        }
+        if (colMaxLum - colMinLum > 165) wildContrastCols += 1;
+        if (hasThinHairline) {
+          hairlineCols += 1;
+          hitDys.push(hitCenterDy);
+        } else if (runLen >= 1 && runLen <= 4) {
+          hairlineCols += 1;
+          hitDys.push(yB + 1 - runLen * 0.5 - yMid);
+        }
+      }
+      if (hairlineCols / spanX >= 0.6 && wildContrastCols / spanX < 0.35 && hitDys.length >= 4) {
+        hitDys.sort((a, b) => a - b);
+        const p15 = hitDys[Math.floor(hitDys.length * 0.15)];
+        const p85 = hitDys[Math.floor(hitDys.length * 0.85)];
+        if (p85 - p15 <= 5) return true;
+      }
+    }
+  }
+
+  if (vGapPx <= 1.5) return false;
+  const gapY0 = Math.max(0, Math.floor(top.bbox.y1) + 1);
+  const gapY1 = Math.min(height - 1, Math.ceil(bot.bbox.y0) - 1);
+  if (gapY1 < gapY0) return false;
+
   const colBlocked = new Uint8Array(spanX);
+  const colThinStep = new Uint8Array(spanX);
   for (let y = gapY0; y <= gapY1; y += 1) {
     let darkCount = 0;
     let brightCount = 0;
+    let uiStepCount = 0;
     const rowOff = y * width * 4;
     for (let x = ovX0; x <= ovX1; x += 1) {
       const idx = rowOff + x * 4;
       const lum = 0.299 * data[idx] + 0.587 * data[idx + 1] + 0.114 * data[idx + 2];
       if (lum <= 145) darkCount += 1;
       if (lum >= 180) brightCount += 1;
+      if (Math.abs(lum - bgT) >= 18 && Math.abs(lum - bgB) >= 18) uiStepCount += 1;
       if (bothLight && lum <= 115) colBlocked[x - ovX0] = 1;
       if (bothDark && lum >= 185) colBlocked[x - ovX0] = 1;
+      if (vGapPx >= 2 && Math.abs(lum - bgT) >= 11 && Math.abs(lum - bgB) >= 11) {
+        colThinStep[x - ovX0] += 1;
+      }
     }
     if (bothLight && darkCount / spanX >= 0.45) return true;
     if (vGapPx >= 4.5 && bothDark && brightCount / spanX >= 0.45) return true;
+    if (vGapPx >= 4 && uiStepCount / spanX >= 0.65) return true;
   }
 
   // Eğrisel/dikenli oval balon sınırları yatay bir satırda %45 doluluğa ulaşmasa da
   // sütunların çoğunluğunu dikeyde keser
   if (bothLight || bothDark) {
     let blockedCols = 0;
+    let stepCols = 0;
     for (let i = 0; i < spanX; i += 1) {
       if (colBlocked[i]) blockedCols += 1;
+      if (colThinStep[i] >= 1 && colThinStep[i] <= 4) stepCols += 1;
     }
     if (blockedCols / spanX >= 0.62) return true;
+    if (vGapPx >= 2.5 && stepCols / spanX >= 0.62) return true;
   }
   return false;
 };
@@ -1209,6 +1523,10 @@ export const groupOcrLinesIntoBubbles = (
         /^(?:SYSTEM(?:\s+PROMPT|\s+NOTICE|\s+MESSAGE|\s+ALERT|\s+WINDOW)?|QUEST(?:\s+INFO|\s+ALERT|\s+NOTICE|\s+UPDATED?)?|NOTICE|WARNING|ALERT|INFO|INFORMATION|NOTIFICATION|TIP|STATUS|PROFILE|STATS|SKILLS?|SKILLS?\s+LIST|INVENTORY|EVOLUTION|ANNOUNCEMENT|CONGRATULATIONS|HINT|OBJECTIVE)\b[:!]?$/i.test(
           txt,
         );
+      const isPhoneUiBannerOrHeader = (txt: string) =>
+        /^(?:CALLS|RECENT\s+CALLS|CONTACTS|MESSAGES|INBOX|DAY\s*XX.*|MONTH\s*XX.*|YEAR\s*XX.*|\d{1,2}:\d{2}(?:\s*[AP]M)?)$/i.test(
+          txt,
+        );
       if (
         ha >= hb * 1.16 &&
         wordsA <= 3 &&
@@ -1220,14 +1538,48 @@ export const groupOcrLinesIntoBubbles = (
 
       const vGap = Math.max(a.y0, b.y0) - Math.min(a.y1, b.y1);
       const centerYDist = Math.abs(centerYb - centerYa);
-      if (vGap > maxH * 1.5 || vGap < -minH * 0.62 || centerYDist < minH * 0.45) continue;
+      const absAngleA = Math.abs(lines[i].angleDeg ?? 0);
+      const absAngleB = Math.abs(lines[j].angleDeg ?? 0);
+      const maxAbsAngle = Math.max(absAngleA, absAngleB);
+      const deTiltH = (l: OcrLine) => {
+        const lh = l.bbox.y1 - l.bbox.y0;
+        const lw = l.bbox.x1 - l.bbox.x0;
+        const deg = Math.abs(l.angleDeg ?? 0);
+        if (deg < 3.5) return lh;
+        return Math.max(8, lh - lw * Math.sin((deg * Math.PI) / 180) * 0.85);
+      };
+      const effHa = deTiltH(lines[i]);
+      const effHb = deTiltH(lines[j]);
+      const effMinH = Math.min(effHa, effHb);
+      const effMaxH = Math.max(effHa, effHb);
+      if (effMaxH <= 36 && (isPhoneUiBannerOrHeader(textA) || isPhoneUiBannerOrHeader(textB))) {
+        continue;
+      }
+      let effVGap = vGap;
+      let effCenterYDist = centerYDist;
+      if (maxAbsAngle >= 4.5) {
+        const domDeg = absAngleA >= absAngleB ? (lines[i].angleDeg ?? 0) : (lines[j].angleDeg ?? 0);
+        const slope = Math.tan((domDeg * Math.PI) / 180);
+        const ovMidX = (Math.max(a.x0, b.x0) + Math.min(a.x1, b.x1)) * 0.5;
+        const projYa = centerYa + (ovMidX - centerXa) * slope;
+        const projYb = centerYb + (ovMidX - centerXb) * slope;
+        effCenterYDist = Math.abs(projYb - projYa);
+        effVGap = effCenterYDist - (effHa + effHb) * 0.5;
+      }
+      if (
+        effVGap > effMaxH * 1.5 ||
+        effVGap < -effMinH * 0.62 ||
+        effCenterYDist < effMinH * 0.45
+      ) {
+        continue;
+      }
 
       // İki satır arasında dikeyde başka bir ara satır varsa (ör. 1. satır 2. satırı atlayıp 3. satırla birleşmeye çalışıyorsa) engelle
       let hasIntermediateRow = false;
       for (let m = i + 1; m < j; m += 1) {
         const mb = lines[m].bbox;
         const mCenterY = (mb.y0 + mb.y1) * 0.5;
-        if (mCenterY > a.y1 - minH * 0.2 && mCenterY < b.y0 + minH * 0.2) {
+        if (mCenterY > a.y1 - effMinH * 0.2 && mCenterY < b.y0 + effMinH * 0.2) {
           const ovA = Math.min(a.x1, mb.x1) - Math.max(a.x0, mb.x0);
           const ovB = Math.min(b.x1, mb.x1) - Math.max(b.x0, mb.x0);
           if (ovA > 0 || ovB > 0) {
@@ -1244,19 +1596,33 @@ export const groupOcrLinesIntoBubbles = (
 
       // Eğer satırlardan biri iki ayrı yan yana sütunun üstünü kapatan geniş bir başlıksa ("KIM JEONGHYUK"), sütunlarla birleştirme
       const angleDiff = Math.abs((lines[i].angleDeg ?? 0) - (lines[j].angleDeg ?? 0));
+      const textTop = a.y0 <= b.y0 ? textA : textB;
+      const textBot = textTop === textA ? textB : textA;
+      const tiltedSplitContinuation =
+        angleDiff < 12 &&
+        overlap > narrow * 0.4 &&
+        vGap <= Math.min(ha, hb) * 0.35 &&
+        (/^[a-z]{2,10}[!?.…]*$/.test(textBot.trim()) ||
+          /(?:congratu|-\s*)$/i.test(textTop.trim())) &&
+        (!img || Math.abs(sampleLineCollarLum(img, a) - sampleLineCollarLum(img, b)) < 50);
       const sameHandwrittenNoteStack =
-        angleDiff < 11 &&
-        maxH <= 95 &&
-        maxH / Math.max(1, minH) <= 1.75 &&
-        overlap > narrow * 0.52 &&
-        vGap <= minH * 0.65 &&
-        (!img || Math.abs(sampleLineCollarLum(img, a) - sampleLineCollarLum(img, b)) < 35);
+        angleDiff < 12 &&
+        !(angleDiff >= 4.2 && effMaxH <= 34) &&
+        effMaxH <= 170 &&
+        effMaxH / Math.max(1, effMinH) <= 1.75 &&
+        overlap > narrow * 0.45 &&
+        effVGap <= effMinH * 0.72 &&
+        (!img || Math.abs(sampleLineCollarLum(img, a) - sampleLineCollarLum(img, b)) < 40);
       if (
-        (angleDiff >= 3.8 && !sameHandwrittenNoteStack) ||
-        spansSeparateSideBySideColumns(i, j) ||
-        spansSeparateSideBySideColumns(j, i) ||
-        (img && vGap >= -2 && hasVerticalBubbleBarrier(img, lines[i], lines[j]))
+        (angleDiff >= 3.8 && !sameHandwrittenNoteStack && !tiltedSplitContinuation) ||
+        (!tiltedSplitContinuation &&
+          (spansSeparateSideBySideColumns(i, j) || spansSeparateSideBySideColumns(j, i))) ||
+        (img && (effVGap >= -2 || maxAbsAngle >= 3) && hasVerticalBubbleBarrier(img, lines[i], lines[j]))
       ) {
+        continue;
+      }
+      if (tiltedSplitContinuation) {
+        parent[find(j)] = find(i);
         continue;
       }
 
@@ -1279,12 +1645,12 @@ export const groupOcrLinesIntoBubbles = (
       }
 
       // 2. Durum: Standart benzer boyutlu balon satırları
-      const heightRatio = maxH / Math.max(1, minH);
+      const heightRatio = effMaxH / Math.max(1, effMinH);
       if (heightRatio <= 1.65) {
         const aligned =
-          (overlap > narrow * 0.35 && centerDist < Math.max(maxH * 2.2, Math.max(wa, wb) * 0.32)) ||
-          (overlap > 0 && centerDist < maxH * 1.8);
-        if (aligned && vGap <= minH * 1.35) {
+          (overlap > narrow * 0.35 && centerDist < Math.max(effMaxH * 2.2, Math.max(wa, wb) * 0.32)) ||
+          (overlap > 0 && centerDist < effMaxH * 1.8);
+        if (aligned && effVGap <= effMinH * 1.35) {
           parent[find(j)] = find(i);
           continue;
         }
@@ -1294,9 +1660,9 @@ export const groupOcrLinesIntoBubbles = (
       // Yatay merkezleri hizalıysa ve dikey boşluk balon içi satır aralığı kadarsa 2.85x boyuta kadar birleştir
       if (heightRatio <= 2.85) {
         const stronglyAligned =
-          (overlap > narrow * 0.36 && centerDist < maxH * 1.55) ||
+          (overlap > narrow * 0.36 && centerDist < effMaxH * 1.55) ||
           (overlap > narrow * 0.6 && centerDist < Math.max(wa, wb) * 0.45);
-        if (stronglyAligned && vGap >= -minH * 0.55 && vGap <= maxH * 1.45) {
+        if (stronglyAligned && effVGap >= -effMinH * 0.55 && effVGap <= effMaxH * 1.45) {
           parent[find(j)] = find(i);
         }
       }
@@ -1390,6 +1756,7 @@ export const groupOcrLinesIntoBubbles = (
       .map((l) => l.text)
       .join(' ')
       .replace(/(\p{L})-[""''`]?\s+(\p{L})/gu, '$1$2')
+      .replace(/\bcongratu[\s-]+(?:(?:l)?i)?tion\b([!?.]*)/gi, 'congratulation$1')
       .replace(/\s+/g, ' ')
       .trim();
 
@@ -1455,7 +1822,7 @@ export const groupOcrLinesIntoBubbles = (
     const lhList = (b.lines ?? []).map(deTiltedLinePx);
     const maxLinePx =
       lhList.length > 0 ? Math.max(...lhList) : ((b.box[2] - b.box[0]) * imgHeight) / 1000;
-    return maxLinePx <= Math.max(25, imgHeight * 0.02);
+    return maxLinePx <= Math.min(24, Math.max(18, imgWidth * 0.026));
   };
   const visitedMicro = new Uint8Array(bubbles.length);
   for (let i = 0; i < bubbles.length; i += 1) {
@@ -1503,27 +1870,97 @@ export const groupOcrLinesIntoBubbles = (
       for (let bIdx = a + 1; bIdx < comp.length; bIdx += 1) {
         const ba = bubbles[comp[a]].box;
         const bb = bubbles[comp[bIdx]].box;
-        const iv = Math.min(ba[2], bb[2]) - Math.max(ba[0], bb[0]);
         const ih = Math.min(ba[3], bb[3]) - Math.max(ba[1], bb[1]);
-        if (iv > 0 && ih > 0) overlapPairCount += 1;
+        if (ih <= 0) continue;
+        const iv = Math.min(ba[2], bb[2]) - Math.max(ba[0], bb[0]);
+        if (iv <= 0) continue;
+        const linesA = bubbles[comp[a]].lines ?? [];
+        const linesB = bubbles[comp[bIdx]].lines ?? [];
+        const avgAngA =
+          linesA.length > 0
+            ? linesA.reduce((s, l) => s + (l.angleDeg ?? 0), 0) / linesA.length
+            : 0;
+        const avgAngB =
+          linesB.length > 0
+            ? linesB.reduce((s, l) => s + (l.angleDeg ?? 0), 0) / linesB.length
+            : 0;
+        const domAng = Math.abs(avgAngA) >= Math.abs(avgAngB) ? avgAngA : avgAngB;
+        if (Math.abs(domAng) >= 4.5 && linesA.length === 1 && linesB.length === 1) {
+          const slope = Math.tan((domAng * Math.PI) / 180);
+          const ovMidX = (Math.max(ba[1], bb[1]) + Math.min(ba[3], bb[3])) * 0.5;
+          const midXa = (ba[1] + ba[3]) * 0.5;
+          const midXb = (bb[1] + bb[3]) * 0.5;
+          const yaPx = (((ba[0] + ba[2]) * 0.5) / 1000) * imgHeight + ((ovMidX - midXa) / 1000) * imgWidth * slope;
+          const ybPx = (((bb[0] + bb[2]) * 0.5) / 1000) * imgHeight + ((ovMidX - midXb) / 1000) * imgWidth * slope;
+          const haPx = deTiltedLinePx(linesA[0]);
+          const hbPx = deTiltedLinePx(linesB[0]);
+          if (Math.abs(ybPx - yaPx) >= (haPx + hbPx) * 0.48) {
+            continue;
+          }
+        }
+        overlapPairCount += 1;
       }
     }
     lineHeights.sort((a, b) => a - b);
     const medMicroH = lineHeights.length > 0 ? lineHeights[lineHeights.length >> 1] : 99;
     const spanW = cx1 - cx0;
-    const spanH = cy1 - cy0;
+    const spanHPx = ((cy1 - cy0) / 1000) * imgHeight;
     if (
       spanW <= 300 &&
-      spanH <= 260 &&
-      medMicroH <= Math.max(22, imgHeight * 0.018) &&
-      (tiltedCount >= 2 || overlapPairCount >= 2)
+      spanHPx <= Math.max(260, imgWidth * 0.55) &&
+      medMicroH <= Math.min(21, Math.max(16, imgWidth * 0.022)) &&
+      tiltedCount >= 2 &&
+      overlapPairCount >= 2
     ) {
       for (const idx of comp) microUiSkipIndices.add(idx);
     }
   }
 
-  return bubbles
-    .filter((_, idx) => !microUiSkipIndices.has(idx))
+  const keptBubbles = bubbles.filter((_, idx) => !microUiSkipIndices.has(idx));
+  const uiAngleCandidates = keptBubbles.map((b) => {
+    const ls = b.lines ?? [];
+    const maxH =
+      ls.length > 0
+        ? Math.max(...ls.map(deTiltedLinePx))
+        : ((b.box[2] - b.box[0]) * imgHeight) / 1000;
+    const angs = ls
+      .map((l) => l.angleDeg)
+      .filter((a): a is number => a !== undefined && Math.abs(a) >= 2.5);
+    const avgAng =
+      angs.length > 0 ? angs.reduce((s, v) => s + v, 0) / angs.length : undefined;
+    return { b, maxH, avgAng };
+  });
+  for (let i = 0; i < uiAngleCandidates.length; i += 1) {
+    const cur = uiAngleCandidates[i];
+    if (cur.maxH > 32) continue;
+    const curLines = cur.b.lines ?? [];
+    if (curLines.length !== 1 || curLines[0].angleDeg !== undefined) continue;
+    const cb = cur.b.box;
+    const neighborAngs: number[] = [];
+    for (let j = 0; j < uiAngleCandidates.length; j += 1) {
+      if (i === j) continue;
+      const nbItem = uiAngleCandidates[j];
+      if (nbItem.maxH > 32 || nbItem.avgAng === undefined) continue;
+      const nb = nbItem.b.box;
+      const hOv = Math.min(cb[3], nb[3]) - Math.max(cb[1], nb[1]);
+      const minW = Math.max(1, Math.min(cb[3] - cb[1], nb[3] - nb[1]));
+      const vDistPx = (Math.max(0, nb[0] - cb[2], cb[0] - nb[2]) / 1000) * imgHeight;
+      if (hOv > minW * 0.25 && vDistPx <= 160) {
+        neighborAngs.push(nbItem.avgAng);
+      }
+    }
+    if (neighborAngs.length >= 3) {
+      neighborAngs.sort((a, b) => a - b);
+      const medAng = neighborAngs[neighborAngs.length >> 1];
+      const spread = neighborAngs[neighborAngs.length - 1] - neighborAngs[0];
+      const sameSign = neighborAngs.every((a) => Math.sign(a) === Math.sign(medAng));
+      if (sameSign && Math.abs(medAng) >= 5 && spread <= 2.5) {
+        curLines[0].angleDeg = Number(medAng.toFixed(1));
+      }
+    }
+  }
+
+  return keptBubbles
     .sort((a, b) => a.y - b.y)
     .map(({ box, text, lines: lineBoxes, emphasisLastLineScale }) => ({
       box,
@@ -1534,7 +1971,7 @@ export const groupOcrLinesIntoBubbles = (
 };
 
 const CREDIT_LINE_REGEX =
-  /(?<![\p{L}\p{N}_])(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|flame[\s-]*chan|reaper[\s-]*chan|asura[\s-]*chan|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|rizz\s*fables|cosmic\s*scans|night\s*scans|void\s*scans|disaster\s*scans|surya\s*scans|templescan|thunderscans|philiascans|arven\s*comics|nex[o0c]*mic|[gc]radex[\s.\-]*(?:tan|tay)trums?|taytrums?|webtoon\s*xyz|kunmanga|manganato|mangakakalot|zinmanga|1stkissmanga|manhwaclub|manhwafreak|tappytoon|toomics|tapas|lezhin|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|do\s+not\s+mirror|do\s+not\s+reupload|manga\s*stream|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)(?![\p{L}\p{N}_])|\.com\s*mirror\b|^mirror$|^dsns$|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$/iu;
+  /(?<![\p{L}\p{N}_])(?:translator|translation|proofreader|proofreading|cleaner|cleaning|redrawer|redraw|typesetter|typesetting|quality\s*checker|coloring|background\s*art|script\s*editing|editor|raw\s*provider|scanlation|fansub|fansube|kurohana|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|flame\s*scans|flame[\s-]*chan|reaper[\s-]*chan|asura[\s-]*chan|luminousscans|vortexscans|drakescans|manhuaplus|manhuaus|hivetoons|realmscans|leviathanscans|reset\s*scans|rizz\s*comic|rizz\s*fables|cosmic\s*scans|night\s*scans|void\s*scans|disaster\s*scans|surya\s*scans|templescan|thunderscans|philiascans|arven\s*comics|nex[o0c]*mic|[gc]radex[\s.\-]*(?:tan|tay)trums?|taytrums?|webtoon\s*xyz|kunmanga|manganato|mangakakalot|zinmanga|1stkissmanga|manhwaclub|manhwafreak|tappytoon|toomics|tapas|lezhin|recruiting|discord|patreon|paypal|ko-?fi|join\s+(?:our|us)|support\s+us|read\s+(?:it\s+)?(?:at|on|first)|manga\s*&\s*manhwa|in\s+english\s+free\s+at|do\s+not\s+mirror|do\s+not\s+reupload|manga\s*stream|chapter\s*\d+|çevirmen|çeviri|editör|dizgi|temizleme)(?![\p{L}\p{N}_])|\.com\s*mirror\b|^mirror$|^dsns$|(?:^|\s)(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$/iu;
 const URL_LINE_REGEX =
   /(?:https?:\/\/|www\.|discord\.gg|\b[a-z0-9-]+\.(?:com|net|org|gg|io|me|to|xyz|club|online|site)\b)/i;
 const STRONG_PROMO_REGEX =
@@ -1559,7 +1996,7 @@ export const isCreditOrPromoText = (text: string): boolean => {
 };
 
 const hasEnclosedComicSpeechBubble = (
-  img: ImageData | undefined,
+  img: OcrImageBuffer | undefined,
   bubbles: OcrBubble[],
 ): boolean => {
   if (!img || bubbles.length === 0) return false;
@@ -1629,7 +2066,7 @@ export const isCreditsOrPromoPage = (
   rawLines?: OcrLine[],
   imgWidth?: number,
   imgHeight?: number,
-  ocrImg?: ImageData,
+  ocrImg?: OcrImageBuffer,
 ): boolean => {
   // Bağımsız Manga / Cilt Kapak İllüstrasyonu Kontrolü (örn. şömiz/cilt kapağı, konuşma balonu olmayan poster kapağı):
   // Kapak künyesi / telif / "presented by" / yazar imzası taşıyan ve kapalı konuşma balonu içermeyen kapaklar atlanır.

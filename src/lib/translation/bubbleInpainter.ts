@@ -127,6 +127,7 @@ const findDominantBackgroundRgb = (
   let totalFlatCount = 0;
   let collarFlatTotal = 0;
   let collarFlatDarkCount = 0;
+  let collarFlatMidDarkCount = 0;
   let collarFlatVividCount = 0;
   const vividRedBannerBins = new Uint32Array(4096);
   let vividRedBannerCount = 0;
@@ -136,9 +137,10 @@ const findDominantBackgroundRgb = (
   let lineBandCollarTotal = 0;
   let outerFlatTotal = 0;
   let outerFlatDarkCount = 0;
+  let outerFlatMidDarkCount = 0;
 
-  // Dış pencere halkası siyah/çok koyu ve düzse ("IT'S MY FAULT..." siyah üstü beyaz parıltılı yazı)
-  // harf çevresindeki beyaz parıltının baskın zemin sanılmasını engelle
+  // Dış pencere halkası siyah/çok koyu/kahverengi ve düzse ("IT'S MY FAULT...", koyu oval balonlar)
+  // harf çevresindeki beyaz parıltı/dış çizginin baskın zemin sanılmasını engelle
   const outerPad = 8;
   for (let y = 0; y < wh; y += 2) {
     const yNext = y + 1 < wh ? y + 1 : y;
@@ -164,11 +166,14 @@ const findDominantBackgroundRgb = (
         outerFlatTotal += 1;
         const lum = 0.299 * r + 0.587 * g + 0.114 * b;
         if (lum < 52) outerFlatDarkCount += 1;
+        if (lum < 138) outerFlatMidDarkCount += 1;
       }
     }
   }
   const hasFlatDarkOuterSurround =
     outerFlatTotal >= 28 && outerFlatDarkCount / outerFlatTotal >= 0.55;
+  const hasMidDarkOuterSurround =
+    outerFlatTotal >= 28 && outerFlatMidDarkCount / outerFlatTotal >= 0.62;
 
   for (let y = sy0; y < sy1; y += 1) {
     const yNext = y + 1 < wh ? y + 1 : y;
@@ -218,6 +223,7 @@ const findDominantBackgroundRgb = (
           const minChPix = Math.min(r, g, b);
           collarFlatTotal += weight;
           if (lum < 65) collarFlatDarkCount += weight;
+          if (lum < 138) collarFlatMidDarkCount += weight;
           if (maxChPix >= 120 && maxChPix - minChPix >= 65) collarFlatVividCount += weight;
           if (y >= cy0 - 2 && y < cy1 + 2) {
             lineBandCollarBins[bin] += weight;
@@ -229,11 +235,12 @@ const findDominantBackgroundRgb = (
   }
 
   // Konuşma balonlarının ve düz açık zeminlerin kalın siyah harflerde yanlışlıkla siyaha düşmesini önle;
-  // ancak harf dışı yaka (!inLineCore) siyah veya canlı renkli şerit ise ("CHAINSAWMAN", "NEWLY", "CHAIN")
-  // koyu zemini koruyup devasa beyaz harflerin zemin sanılmasını engelle!
+  // ancak harf dışı yaka (!inLineCore) siyah/koyu kahverengi veya canlı renkli şerit ise ("CHAINSAWMAN", koyu balon)
+  // koyu zemini koruyup devasa beyaz dış halelerin zemin sanılmasını engelle!
   const brightFlatRatio = totalFlatCount > 0 ? brightFlatCount / totalFlatCount : 0;
   const collarDarkOrVividRatio =
     collarFlatTotal > 0 ? (collarFlatDarkCount + collarFlatVividCount) / collarFlatTotal : 0;
+  const collarMidDarkRatio = collarFlatTotal > 0 ? collarFlatMidDarkCount / collarFlatTotal : 0;
   const hasDarkOrVividBannerCollar = collarFlatTotal >= 16 && collarDarkOrVividRatio >= 0.36;
   const suppressDarkInk =
     !hasFlatDarkOuterSurround &&
@@ -242,6 +249,10 @@ const findDominantBackgroundRgb = (
     brightFlatRatio >= 0.24;
   const suppressWhiteHalo =
     hasFlatDarkOuterSurround ||
+    (hasMidDarkOuterSurround &&
+      collarFlatTotal >= 16 &&
+      collarMidDarkRatio >= 0.35 &&
+      brightFlatRatio >= 0.14) ||
     (hasDarkOrVividBannerCollar && brightFlatRatio >= 0.22) ||
     (midToneInBoxCount >= 120 && midToneInBoxCount > whiteInBoxCount * 1.35);
   const useFlatBins = totalFlatCount >= 24;
@@ -426,19 +437,40 @@ export const inpaintAndRefineBlock = (
       const sibArea = Math.max(1, (s.x1 - s.x0) * (s.y1 - s.y0));
       return (ox * oy) / sibArea < 0.5;
     });
-  const overlapsAnySiblingAbs = (ax0: number, ay0: number, ax1: number, ay1: number): boolean => {
+  const lineAbsCenterYs = (block.lines && block.lines.length > 0 ? block.lines : [{ box: block.box }]).map(
+    (l) => (((l.box[0] + l.box[2]) * 0.5) / 1000) * fullHeight,
+  );
+  const overlapsAnySiblingAbs = (
+    ax0: number,
+    ay0: number,
+    ax1: number,
+    ay1: number,
+    requireDeepOwnership = false,
+  ): boolean => {
     if (absSiblings.length === 0) return false;
     const cx = (ax0 + ax1) * 0.5;
     const cy = (ay0 + ay1) * 0.5;
+    const compArea = Math.max(1, (ax1 - ax0) * (ay1 - ay0));
+    let minOurDy = Infinity;
+    for (let li = 0; li < lineAbsCenterYs.length; li += 1) {
+      const dy = Math.abs(cy - lineAbsCenterYs[li]);
+      if (dy < minOurDy) minOurDy = dy;
+    }
     for (let i = 0; i < absSiblings.length; i += 1) {
       const s = absSiblings[i];
-      if (cx >= s.x0 - 2 && cx <= s.x1 + 2 && cy >= s.y0 - 2 && cy <= s.y1 + 2) return true;
       const ox = Math.min(ax1, s.x1) - Math.max(ax0, s.x0);
       const oy = Math.min(ay1, s.y1) - Math.max(ay0, s.y0);
-      if (ox > 0 && oy > 0) {
-        const compArea = Math.max(1, (ax1 - ax0) * (ay1 - ay0));
-        if ((ox * oy) / compArea >= 0.32) return true;
+      const overlapRatio = ox > 0 && oy > 0 ? (ox * oy) / compArea : 0;
+      if (requireDeepOwnership) {
+        const sibCy = (s.y0 + s.y1) * 0.5;
+        const strictlyInsideSib = cx >= s.x0 + 1 && cx <= s.x1 - 1 && cy >= s.y0 + 1 && cy <= s.y1 - 1;
+        if (strictlyInsideSib && overlapRatio >= 0.72 && Math.abs(cy - sibCy) + 2 < minOurDy) {
+          return true;
+        }
+        continue;
       }
+      if (cx >= s.x0 - 2 && cx <= s.x1 + 2 && cy >= s.y0 - 2 && cy <= s.y1 + 2) return true;
+      if (overlapRatio >= 0.32) return true;
     }
     return false;
   };
@@ -452,14 +484,16 @@ export const inpaintAndRefineBlock = (
       ? Math.max(...block.lines.map((l) => Math.max(12, Math.ceil(((l.box[2] - l.box[0]) / 1000) * fullHeight))))
       : bh;
   const padWinX = Math.max(
-    nearTopSeam || nearBottomSeam ? 130 : bh < 55 ? 64 : 48,
-    bw >= 350 && maxLineSpanEstimate <= 110 ? Math.min(bw * 0.48, Math.max(140, bh * 1.4)) : bw * 0.48,
+    nearTopSeam || nearBottomSeam ? 140 : 124,
+    Math.round(fullWidth * 0.175),
+    bw >= 350 && maxLineSpanEstimate <= 110 ? Math.min(bw * 0.48, Math.max(140, bh * 1.4)) : bw * 0.85,
     bh * 0.95,
   );
   const padWinY = Math.max(
-    bh < 55 ? 56 : 48,
+    96,
+    Math.round(fullWidth * 0.13),
     bh * 1.15,
-    bw >= 320 && maxLineSpanEstimate <= 110 ? Math.min(bw * 0.42, bh * 1.25 + 24) : bw * 0.42,
+    bw >= 320 && maxLineSpanEstimate <= 110 ? Math.min(bw * 0.42, bh * 1.25 + 24) : bw * 0.55,
   );
 
   let wx0 = Math.max(0, Math.floor(boxX0 - padWinX));
@@ -585,6 +619,7 @@ export const inpaintAndRefineBlock = (
     // ve kimin dış kabuk ("siyah dış kontur" vs "beyaz dış hale") olduğunu topolojik olarak ölç
     let coreSamples = 0;
     let jetBlackCoreCount = 0;
+    let satCoreCount = 0;
     let whiteCoreCount = 0;
     let blackTouchesMid = 0;
     let whiteTouchesMid = 0;
@@ -602,7 +637,16 @@ export const inpaintAndRefineBlock = (
         for (let x = lc.x0; x < lc.x1; x += 2) {
           const cIdx = (rowOff + x) * 3;
           coreSamples += 1;
-          const lum = 0.299 * winRgb[cIdx] + 0.587 * winRgb[cIdx + 1] + 0.114 * winRgb[cIdx + 2];
+          const cr = winRgb[cIdx];
+          const cg = winRgb[cIdx + 1];
+          const cb = winRgb[cIdx + 2];
+          const maxC = Math.max(cr, cg, cb);
+          const minC = Math.min(cr, cg, cb);
+          const coreDBg = Math.max(Math.abs(cr - bgR), Math.abs(cg - bgG), Math.abs(cb - bgB));
+          if (maxC >= 135 && maxC - minC >= 68 && coreDBg >= 48) {
+            satCoreCount += 1;
+          }
+          const lum = 0.299 * cr + 0.587 * cg + 0.114 * cb;
           if (lum <= 42) {
             jetBlackCoreCount += 1;
             if (
@@ -628,7 +672,13 @@ export const inpaintAndRefineBlock = (
         }
       }
     }
+    const hasVividColorCoreInk =
+      bgLumInit >= 145 &&
+      satCoreCount >= Math.max(18, Math.round(jetBlackCoreCount * 0.45)) &&
+      satCoreCount / Math.max(1, coreSamples) >= 0.015;
+    const isTiltedUiLine = lineCores.some((l) => Math.abs(l.angleDeg ?? 0) >= 3);
     const hasJetBlackCoreInk =
+      !hasVividColorCoreInk &&
       bgLumInit >= 145 &&
       bgLumInit < 226 &&
       whiteCoreCount >= 18 &&
@@ -683,7 +733,12 @@ export const inpaintAndRefineBlock = (
 
           // Zemin rengine çok yakın pikselleri kesinlikle dışla (mavi RPG kutusu veya kahverengi parşömendeki renkli zemin pikselleri koyu harf sanılmasın)
           const dBg = Math.max(Math.abs(pr - bgR), Math.abs(pg - bgG), Math.abs(pb - bgB));
-          if (dBg < 26 && Math.abs(pixLum - bgLumInit) < 20) continue;
+          const minBgColorDiff = isTiltedUiLine && (inCore || nearCore3) ? 20 : 26;
+          const minBgLumDiff = isTiltedUiLine && (inCore || nearCore3) ? 16 : 20;
+          if (dBg < minBgColorDiff && Math.abs(pixLum - bgLumInit) < minBgLumDiff) continue;
+          if (hasVividColorCoreInk && whiteCoreCount >= 18 && pixLum <= 95 && maxCh - minCh < 32) {
+            continue;
+          }
 
           const x0s = Math.max(0, x - R);
           const x1s = Math.min(ww, x + R + 1);
@@ -738,11 +793,28 @@ export const inpaintAndRefineBlock = (
             isVividColoredBanner &&
             pixLum <= 122 &&
             (bgMaxCh - maxCh >= 52 || bgLumInit - pixLum >= 24);
+          const vividWordArtOnNeutralBg =
+            hasVividColorCoreInk &&
+            (inCore || nearCore3) &&
+            maxCh >= 135 &&
+            maxCh - minCh >= 52 &&
+            dBg >= 42;
+          const mutedGrayTiltedUiInk =
+            bgLumInit >= 210 &&
+            isTiltedUiLine &&
+            (inCore || nearCore3) &&
+            pixLum <= bgLumInit - 24 &&
+            dBg >= 22 &&
+            ((dLumMedDark >= 14 && dMedDark >= 14) ||
+              (pixLum <= bgLumInit - 28 && dBg >= 30));
+
           if (
             (meanLum >= 160 && dLumMedDark > effLocal * 0.82 && dMedDark > effLocal) ||
             nearDarkRingWhite ||
             midToneDarkInk ||
             vividBannerDarkInk ||
+            vividWordArtOnNeutralBg ||
+            mutedGrayTiltedUiInk ||
             (pixLum < 115 &&
               tMeanLum >= 135 &&
               tMeanLum > bgLumInit + 32 &&
@@ -768,7 +840,8 @@ export const inpaintAndRefineBlock = (
     ): Uint8Array => {
       const fg = new Uint8Array(numPixels);
       const bgMaxChL = Math.max(bgR, bgG, bgB);
-      const isVividBgL = bgMaxChL >= 120 && bgMaxChL - Math.min(bgR, bgG, bgB) >= 45;
+      const bgChromaInit = bgMaxChL - Math.min(bgR, bgG, bgB);
+      const isVividBgL = bgMaxChL >= 120 && bgChromaInit >= 45;
       const clampToTiltedCore = lineCores.some((l) => Math.abs(l.angleDeg ?? 0) >= 5);
 
       for (let y = 0; y < wh; y += 1) {
@@ -838,6 +911,20 @@ export const inpaintAndRefineBlock = (
           if (
             (dLumLocal > effLocal * 0.65 || (bgLumInit < 45 && dLocalLight > effLocal)) &&
             (dLocalLight > effLocal || (dLocalLight > effLocal * 0.5 && dGlobalLight > globalThresh * 1.25))
+          ) {
+            fg[pIdx] = 1;
+            continue;
+          }
+
+          const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
+          if (
+            nearCoreYellow &&
+            bgLumInit < 95 &&
+            !isVividBgL &&
+            pChroma - bgChromaInit >= 42 &&
+            dLocalLight >= 18 &&
+            dGlobalLight >= 30 &&
+            pixLum >= bgLumInit - 8
           ) {
             fg[pIdx] = 1;
             continue;
@@ -1075,6 +1162,32 @@ export const inpaintAndRefineBlock = (
       bgG = Math.round(medianOf(flankNonYellowG));
       bgB = Math.round(medianOf(flankNonYellowB));
       bgLumInit = 0.299 * bgR + 0.587 * bgG + 0.114 * bgB;
+    } else if (bgR >= 130 && bgR - Math.max(bgG, bgB) >= 60 && flankRs.length >= 10) {
+      // Koyu bordo/siyah zeminli parlak kırmızı ("DOGS BARK.") yazılarda çekirdek baskın kırmızı haleyi arka plan sanma
+      const flankNonGlowR: number[] = [];
+      const flankNonGlowG: number[] = [];
+      const flankNonGlowB: number[] = [];
+      for (let fi = 0; fi < flankRs.length; fi += 1) {
+        const fr = flankRs[fi];
+        const fg = flankGs[fi];
+        const fb = flankBs[fi];
+        if (fr >= 130 && fr - Math.max(fg, fb) >= 60) continue;
+        flankNonGlowR.push(fr);
+        flankNonGlowG.push(fg);
+        flankNonGlowB.push(fb);
+      }
+      if (flankNonGlowR.length >= 10 && flankNonGlowR.length >= flankRs.length * 0.6) {
+        const fMedR = Math.round(medianOf(flankNonGlowR));
+        const fMedG = Math.round(medianOf(flankNonGlowG));
+        const fMedB = Math.round(medianOf(flankNonGlowB));
+        const fMedLum = 0.299 * fMedR + 0.587 * fMedG + 0.114 * fMedB;
+        if (fMedLum <= bgLumInit - 20) {
+          bgR = fMedR;
+          bgG = fMedG;
+          bgB = fMedB;
+          bgLumInit = fMedLum;
+        }
+      }
     }
 
     const bgMaxChPol = Math.max(bgR, bgG, bgB);
@@ -1176,7 +1289,15 @@ export const inpaintAndRefineBlock = (
     const isValidGlyphComponent = (c: ComponentInfo): boolean => {
       if (c.area < 2) return false;
       if (isStructuralFrameOrDivider(c)) return false;
-      if (overlapsAnySiblingAbs(curWx0 + c.minx, curWy0 + c.miny, curWx0 + c.maxx + 1, curWy0 + c.maxy + 1)) {
+      if (
+        overlapsAnySiblingAbs(
+          curWx0 + c.minx,
+          curWy0 + c.miny,
+          curWx0 + c.maxx + 1,
+          curWy0 + c.maxy + 1,
+          c.overlapsCore,
+        )
+      ) {
         return false;
       }
       const coreRatio = c.corePixels / Math.max(1, c.area);
@@ -1281,7 +1402,80 @@ export const inpaintAndRefineBlock = (
     };
 
     const runMaskPass = (fgMask: Uint8Array) => {
-      let res = extractComponents(fgMask);
+      let activeMask = fgMask;
+      if (!preferLightFirst && hasVividColorCoreInk && bgLumInit >= 180) {
+        let vividFgCore = 0;
+        let neutralFgCore = 0;
+        for (let py = Math.max(0, cy0); py < Math.min(wh, cy1); py += 1) {
+          const rOff = py * ww;
+          for (let px = Math.max(0, cx0); px < Math.min(ww, cx1); px += 1) {
+            const idx = rOff + px;
+            if (activeMask[idx] === 0) continue;
+            const c3 = idx * 3;
+            const chr =
+              Math.max(winRgb[c3], winRgb[c3 + 1], winRgb[c3 + 2]) -
+              Math.min(winRgb[c3], winRgb[c3 + 1], winRgb[c3 + 2]);
+            if (chr >= 45) vividFgCore += 1;
+            else if (chr < 28) neutralFgCore += 1;
+          }
+        }
+        if (vividFgCore >= 180 && vividFgCore >= neutralFgCore * 0.75) {
+          const vividOnlyMask = new Uint8Array(activeMask);
+          let warmCorePixels = 0;
+          for (let py = Math.max(0, cy0); py < Math.min(wh, cy1); py += 1) {
+            const rOff = py * ww;
+            for (let px = Math.max(0, cx0); px < Math.min(ww, cx1); px += 1) {
+              const idx = rOff + px;
+              if (activeMask[idx] === 0) continue;
+              const c3 = idx * 3;
+              const r = winRgb[c3];
+              const g = winRgb[c3 + 1];
+              const b = winRgb[c3 + 2];
+              if (r >= 185 && g >= 65 && r - b >= 70) warmCorePixels += 1;
+            }
+          }
+          let strippedNeutral = 0;
+          for (let i = 0; i < numPixels; i += 1) {
+            if (vividOnlyMask[i] === 0) continue;
+            const c3 = i * 3;
+            const chr =
+              Math.max(winRgb[c3], winRgb[c3 + 1], winRgb[c3 + 2]) -
+              Math.min(winRgb[c3], winRgb[c3 + 1], winRgb[c3 + 2]);
+            if (chr < 26) {
+              vividOnlyMask[i] = 0;
+              strippedNeutral += 1;
+            }
+          }
+          // Turuncu->parlak sarı gradyanlı ("congratulation!" / "lation!") harflerin yüksek parlaklıklı sarı kısımlarını da ekle
+          let addedBrightGradient = 0;
+          if (warmCorePixels >= 120) {
+            const gy0 = Math.max(2, cy0 - 6);
+            const gy1 = Math.min(wh - 3, cy1 + 8);
+            const gx0 = Math.max(2, cx0 - 6);
+            const gx1 = Math.min(ww - 3, cx1 + 6);
+            for (let py = gy0; py <= gy1; py += 1) {
+              const rOff = py * ww;
+              for (let px = gx0; px <= gx1; px += 1) {
+                const idx = rOff + px;
+                if (vividOnlyMask[idx]) continue;
+                const c3 = idx * 3;
+                const r = winRgb[c3];
+                const g = winRgb[c3 + 1];
+                const b = winRgb[c3 + 2];
+                const chr = Math.max(r, g, b) - Math.min(r, g, b);
+                if (r >= 205 && g >= 125 && r - b >= 75 && chr >= 65) {
+                  vividOnlyMask[idx] = 1;
+                  addedBrightGradient += 1;
+                }
+              }
+            }
+          }
+          if (strippedNeutral > 0 || addedBrightGradient > 0) {
+            activeMask = vividOnlyMask;
+          }
+        }
+      }
+      let res = extractComponents(activeMask);
       if (!preferLightFirst && jetBlackCoreCount >= 14 && whiteCoreCount >= 14) {
         const mergedBorderIds = new Set<number>();
         for (const c of res.comps) {
@@ -1290,7 +1484,7 @@ export const inpaintAndRefineBlock = (
           }
         }
         if (mergedBorderIds.size > 0) {
-          const splitMask = new Uint8Array(fgMask);
+          const splitMask = new Uint8Array(activeMask);
           let stripped = 0;
           for (let i = 0; i < numPixels; i += 1) {
             if (!mergedBorderIds.has(res.labels[i])) continue;
@@ -1632,6 +1826,7 @@ export const inpaintAndRefineBlock = (
       expandBottom,
       lineCores,
       isVividExternalSidebarArt,
+      hasVividColorCoreInk,
     };
   };
 
@@ -1681,6 +1876,7 @@ export const inpaintAndRefineBlock = (
     whiteCoreCount,
     lineCores,
     isVividExternalSidebarArt,
+    hasVividColorCoreInk,
   } = winResult;
 
   if (accepted.size === 0) {
@@ -1696,6 +1892,11 @@ export const inpaintAndRefineBlock = (
       .filter((c) => {
         if (accepted.has(c.id) || !isStructuralFrameOrDivider(c)) return false;
         if (!preferLightFirst) return true;
+        const nearTextCore =
+          c.maxx >= cx0 - 8 && c.minx <= cx1 + 8 && c.maxy >= cy0 - 8 && c.miny <= cy1 + 8;
+        if (nearTextCore && c.area <= 900 && Math.max(c.w, c.h) <= 72) {
+          return false;
+        }
         const fillRatio = c.area / Math.max(1, c.w * c.h);
         return c.w <= 16 || c.h <= 16 || fillRatio < 0.22;
       })
@@ -1709,9 +1910,8 @@ export const inpaintAndRefineBlock = (
     if (lbl !== 0) {
       if (accepted.has(lbl)) rawGlyphMask[i] = 1;
       else if (borderIds.has(lbl)) borderMask[i] = 1;
-    } else if (bgLumInit >= 195) {
-      // Kalın siyah konuşma balonu/dikenli daire duvarlarının iç dolgusunu (~30-50px kalınlık),
-      // integral penceresi ortalaması (<160) yüzünden `fg` dışında kalmış olsa bile koruma maskesine al.
+    } else if (!preferLightFirst && bgLumInit >= 165) {
+      // Kalın siyah, renkli (kırmızı/mor) veya koyu konturlu konuşma balonları ve telefon/UI çerçeveleri
       const ly = (i / ww) | 0;
       const lx = i - ly * ww;
       if (lx < cx0 - 2 || lx > cx1 + 2 || ly < cy0 - 2 || ly > cy1 + 2) {
@@ -1721,7 +1921,11 @@ export const inpaintAndRefineBlock = (
         const pb = winRgb[cIdx + 2];
         const pixLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
         const dBg = Math.max(Math.abs(pr - bgR), Math.abs(pg - bgG), Math.abs(pb - bgB));
-        if (pixLum < 105 && dBg >= 85) {
+        const chroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
+        if (
+          (pixLum < 128 && dBg >= 68) ||
+          (dBg >= 84 && chroma >= 64 && pixLum < Math.max(165, bgLumInit - 55))
+        ) {
           borderMask[i] = 1;
         }
       }
@@ -1758,6 +1962,57 @@ export const inpaintAndRefineBlock = (
   const bandY1 = clamp(midLocalYInit + bandHalfY, 0, wh - 1);
 
   const isStructuralWallAt = (lx: number, ly: number): boolean => borderMask[ly * ww + lx] === 1;
+  const bgChromaInit = Math.max(bgR, bgG, bgB) - Math.min(bgR, bgG, bgB);
+  const isContrastBoundaryPixel = (lx: number, ly: number): boolean => {
+    if (lx >= cx0 - 2 && lx <= cx1 + 2 && ly >= cy0 - 2 && ly <= cy1 + 2) return false;
+    const idx = ly * ww + lx;
+    if (rawGlyphMask[idx]) return false;
+    const c3 = idx * 3;
+    const pr = winRgb[c3];
+    const pg = winRgb[c3 + 1];
+    const pb = winRgb[c3 + 2];
+    const pixLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+    if (preferLightFirst) {
+      const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
+      if (bgLumInit >= 42 && pixLum <= 22 && pChroma <= 18 && bgLumInit - pixLum >= 32) {
+        return true;
+      }
+      if (pChroma >= 42 && pixLum < 185) {
+        return false;
+      }
+      return Math.abs(pixLum - bgLumInit) >= 88 && (pixLum >= 185 || pChroma <= 36);
+    }
+    if (bgChromaInit >= 22 && bgLumInit >= 130) {
+      const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
+      const dBg = Math.max(Math.abs(pr - bgR), Math.abs(pg - bgG), Math.abs(pb - bgB));
+      return dBg >= 72 && Math.abs(pixLum - bgLumInit) >= 42 && (pixLum < 145 || pChroma >= 60);
+    }
+    return false;
+  };
+  const hasWallBandX = (lx: number, by0: number, by1: number): boolean => {
+    let total = 0;
+    let contrastHits = 0;
+    for (let y = by0; y <= by1; y += 2) {
+      if (isStructuralWallAt(lx, y)) return true;
+      if (preferLightFirst || bgChromaInit >= 22) {
+        total += 1;
+        if (isContrastBoundaryPixel(lx, y)) contrastHits += 1;
+      }
+    }
+    return total >= 3 && contrastHits / total >= 0.55;
+  };
+  const hasWallBandY = (ly: number, bx0: number, bx1: number): boolean => {
+    let total = 0;
+    let contrastHits = 0;
+    for (let x = bx0; x <= bx1; x += 3) {
+      if (isStructuralWallAt(x, ly)) return true;
+      if (preferLightFirst || bgChromaInit >= 22) {
+        total += 1;
+        if (isContrastBoundaryPixel(x, ly)) contrastHits += 1;
+      }
+    }
+    return total >= 3 && contrastHits / total >= 0.55;
+  };
   const isNeutralBrightBg =
     bgLumInit >= 215 && Math.max(bgR, bgG, bgB) - Math.min(bgR, bgG, bgB) <= 25;
   const chromaScanY0 = clamp(Math.min(cy0, gMinY), 0, wh - 1);
@@ -1787,13 +2042,7 @@ export const inpaintAndRefineBlock = (
   let safeLocalLeft = 0;
   let hitLeftWall = false;
   for (let x = gMinX; x >= 0; x -= 1) {
-    let hit = false;
-    for (let y = bandY0; y <= bandY1; y += 2) {
-      if (isStructuralWallAt(x, y)) {
-        hit = true;
-        break;
-      }
-    }
+    let hit = hasWallBandX(x, bandY0, bandY1);
     if (!hit && x < gMinX - 4 && hasChromaticSidebarAt(x)) {
       hit = true;
     }
@@ -1807,13 +2056,7 @@ export const inpaintAndRefineBlock = (
   let safeLocalRight = ww;
   let hitRightWall = false;
   for (let x = gMaxX; x < ww; x += 1) {
-    let hit = false;
-    for (let y = bandY0; y <= bandY1; y += 2) {
-      if (isStructuralWallAt(x, y)) {
-        hit = true;
-        break;
-      }
-    }
+    let hit = hasWallBandX(x, bandY0, bandY1);
     if (!hit && x > gMaxX + 4 && hasChromaticSidebarAt(x)) {
       hit = true;
     }
@@ -1831,14 +2074,7 @@ export const inpaintAndRefineBlock = (
   let safeLocalTop = 0;
   let hitTopWall = false;
   for (let y = gMinY; y >= 0; y -= 1) {
-    let hit = false;
-    for (let x = bandX0; x <= bandX1; x += 3) {
-      if (isStructuralWallAt(x, y)) {
-        hit = true;
-        break;
-      }
-    }
-    if (hit) {
+    if (hasWallBandY(y, bandX0, bandX1)) {
       safeLocalTop = y + wallPadY;
       hitTopWall = true;
       break;
@@ -1848,14 +2084,7 @@ export const inpaintAndRefineBlock = (
   let safeLocalBottom = wh;
   let hitBottomWall = false;
   for (let y = gMaxY; y < wh; y += 1) {
-    let hit = false;
-    for (let x = bandX0; x <= bandX1; x += 3) {
-      if (isStructuralWallAt(x, y)) {
-        hit = true;
-        break;
-      }
-    }
-    if (hit) {
+    if (hasWallBandY(y, bandX0, bandX1)) {
       safeLocalBottom = y - wallPadY;
       hitBottomWall = true;
       break;
@@ -1881,28 +2110,14 @@ export const inpaintAndRefineBlock = (
       const midX = clamp(Math.round((safeLocalLeft + safeLocalRight) * 0.5), 0, ww - 1);
       let lWall = safeLocalLeft;
       for (let x = midX; x >= 0; x -= 1) {
-        let hit = false;
-        for (let y = by0; y <= by1; y += 2) {
-          if (isStructuralWallAt(x, y)) {
-            hit = true;
-            break;
-          }
-        }
-        if (hit) {
+        if (hasWallBandX(x, by0, by1)) {
           lWall = x + wallPadX;
           break;
         }
       }
       let rWall = safeLocalRight;
       for (let x = midX; x < ww; x += 1) {
-        let hit = false;
-        for (let y = by0; y <= by1; y += 2) {
-          if (isStructuralWallAt(x, y)) {
-            hit = true;
-            break;
-          }
-        }
-        if (hit) {
+        if (hasWallBandX(x, by0, by1)) {
           rWall = x - wallPadX;
           break;
         }
@@ -2150,11 +2365,18 @@ export const inpaintAndRefineBlock = (
     !preferLightFirst &&
     (bgLumInit < 236 || (wallHitsEarly < 3 && bgLumInit < 248 && whiteCoreCount >= 12))
   ) {
-    const haloSteps = isSingleOrDarkSfx || bgLumInit < 190 ? 3 : 2;
+    const haloSteps =
+      hasVividColorCoreInk && bgLumInit >= 185
+        ? 1
+        : bgLumInit < 175 && whiteCoreCount >= 12
+          ? 5
+          : isSingleOrDarkSfx || bgLumInit < 190
+            ? 3
+            : 2;
     for (let step = 0; step < haloSteps; step += 1) {
       let haloAdded = 0;
       const nextMask = new Uint8Array(preDilateMask);
-      for (let y = Math.max(1, gMinY - 5); y <= Math.min(wh - 2, gMaxY + 5); y += 1) {
+      for (let y = Math.max(1, gMinY - 6); y <= Math.min(wh - 2, gMaxY + 6); y += 1) {
         const rOff = y * ww;
         for (let x = Math.max(1, gMinX - 6); x <= Math.min(ww - 2, gMaxX + 6); x += 1) {
           const idx = rOff + x;
@@ -2170,11 +2392,13 @@ export const inpaintAndRefineBlock = (
             const pg = winRgb[cIdx + 1];
             const pb = winRgb[cIdx + 2];
             const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+            const pChroma = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
             const dGlowBg = Math.max(pr - bgR, pg - bgG, pb - bgB);
             if (
               (bgLumInit >= 205
                 ? pLum >= 232 && pLum > bgLumInit + 16
                 : pLum >= 216 && pLum > bgLumInit + 22) ||
+              (bgLumInit < 175 && pLum >= 198 && pLum > bgLumInit + 32 && pChroma <= 32) ||
               (bgLumInit < 140 && (pLum > bgLumInit + 22 || dGlowBg > 28))
             ) {
               nextMask[idx] = 1;
@@ -2190,6 +2414,7 @@ export const inpaintAndRefineBlock = (
     // Dış halka arkaplan parlaklığını satır bazlı ve genel olarak ölç ("lineCores" siyah dış kontur yüzünden yanılmış olsa bile!)
     const outerBgLums: number[] = [];
     const outerBgRs: number[] = [];
+    const outerBgGs: number[] = [];
     const outerBgBs: number[] = [];
     for (let y = Math.max(0, gMinY - 16); y <= Math.min(wh - 1, gMaxY + 16); y += 2) {
       const inVertBand = y < gMinY - 5 || y > gMaxY + 5;
@@ -2204,23 +2429,29 @@ export const inpaintAndRefineBlock = (
         const ob = winRgb[cIdx + 2];
         outerBgLums.push(0.299 * or + 0.587 * og + 0.114 * ob);
         outerBgRs.push(or);
+        outerBgGs.push(og);
         outerBgBs.push(ob);
       }
     }
     const outerBgLum = outerBgLums.length >= 10 ? medianOf(outerBgLums) : bgLumInit;
     const outerBgR = outerBgRs.length >= 10 ? medianOf(outerBgRs) : bgR;
+    const outerBgG = outerBgGs.length >= 10 ? medianOf(outerBgGs) : bgG;
     const outerBgB = outerBgBs.length >= 10 ? medianOf(outerBgBs) : bgB;
     const effOuterBg = Math.max(bgLumInit, outerBgLum);
 
-    if (effOuterBg < 45 && wallHitsEarly < 3) {
-      // Saf siyah/çok koyu zemin üzerindeki yumuşak beyaz parıltıyı (glow) tamamen yut ki
-      // halka örneklemesi parıltıya takılıp siyah zemini beyaza boyamasın
-      for (let step = 0; step < 6; step += 1) {
+    if (effOuterBg < 92) {
+      // Koyu/kırmızı oval veya karanlık sahne üzerindeki parıltıyı (glow) tamamen yut ki
+      // halka örneklemesi parıltıya takılmasın ve koyu zeminde kırmızı/beyaz leke kalmasın
+      const outerBgChroma =
+        Math.max(outerBgR, outerBgG, outerBgB) - Math.min(outerBgR, outerBgG, outerBgB);
+      const glowMaxSteps = 8;
+      const glowPad = 10;
+      for (let step = 0; step < glowMaxSteps; step += 1) {
         let lightGlowAdded = 0;
         const nextMask = new Uint8Array(preDilateMask);
-        for (let y = Math.max(1, gMinY - 8); y <= Math.min(wh - 2, gMaxY + 8); y += 1) {
+        for (let y = Math.max(1, gMinY - glowPad); y <= Math.min(wh - 2, gMaxY + glowPad); y += 1) {
           const rOff = y * ww;
-          for (let x = Math.max(1, gMinX - 8); x <= Math.min(ww - 2, gMaxX + 8); x += 1) {
+          for (let x = Math.max(1, gMinX - glowPad); x <= Math.min(ww - 2, gMaxX + glowPad); x += 1) {
             const idx = rOff + x;
             if (preDilateMask[idx] || borderMask[idx]) continue;
             if (
@@ -2230,9 +2461,20 @@ export const inpaintAndRefineBlock = (
               preDilateMask[idx + ww]
             ) {
               const cIdx = idx * 3;
-              const pLum =
-                0.299 * winRgb[cIdx] + 0.587 * winRgb[cIdx + 1] + 0.114 * winRgb[cIdx + 2];
-              if (pLum > Math.max(effOuterBg + 14, bgLumInit + 14, 18)) {
+              const pr = winRgb[cIdx];
+              const pg = winRgb[cIdx + 1];
+              const pb = winRgb[cIdx + 2];
+              const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+              const pMax = Math.max(pr, pg, pb);
+              const pChroma = pMax - Math.min(pr, pg, pb);
+              const pSat = pChroma >= 12 ? pChroma / Math.max(pMax, 48) : 0;
+              const dGlow = Math.max(pr - outerBgR, pg - outerBgG, pb - outerBgB);
+              const nearDarkBgFringe = pLum <= effOuterBg - 2 && pSat >= 0.48 && dGlow > 12;
+              if (
+                pLum > Math.max(effOuterBg + 14, bgLumInit + 14, 18) ||
+                ((dGlow > 16 || (pChroma > outerBgChroma + 20 && dGlow > 16)) && pLum >= 16) ||
+                nearDarkBgFringe
+              ) {
                 nextMask[idx] = 1;
                 lightGlowAdded += 1;
               }
@@ -2317,7 +2559,10 @@ export const inpaintAndRefineBlock = (
                 (isBlueBg && pb - pr < 12 && pLum <= rowBgLum + 8 && sat < 0.34) ||
                 (sat < 0.38 &&
                   ((pLum <= Math.min(Math.max(122, rowBgLum - 22), rowBgLum - 4) && rowBgLum >= 26) ||
-                    (pLum <= 26 && sat < 0.28 && rowBgLum >= 22 && pLum <= rowBgLum - 3)))
+                    (pLum <= 26 && sat < 0.28 && rowBgLum >= 22 && pLum <= rowBgLum - 3))) ||
+                (pLum <= Math.min(38, rowBgLum - 10) &&
+                  rowBgLum >= 28 &&
+                  (sat < 0.48 || (pr > pb + 20 && pLum <= 36)))
               ) {
                 nextMask[idx] = 1;
                 darkHaloAdded += 1;
@@ -2335,13 +2580,16 @@ export const inpaintAndRefineBlock = (
   const isOpenCleanDarkInk =
     !preferLightFirst && (wallHitsEarly < 3 || bgLumInit >= 140 || whiteCoreCount >= 12);
   const isOpenLightOutlineScene = preferLightFirst && wallHitsEarly < 3 && bgLumInit < 232;
-  const dilateSteps = isOpenCleanDarkInk
-    ? medGlyphH >= 36
-      ? 2
-      : 1
-    : isOpenLightOutlineScene
-      ? clamp(Math.round(medGlyphH * 0.09) + (enclosedCount > 20 ? 2 : 1), 3, 5)
-      : clamp(Math.round(medGlyphH * 0.08) + (enclosedCount > 20 ? 2 : 1), 2, 4);
+  const dilateSteps =
+    hasVividColorCoreInk && bgLumInit >= 185
+      ? 1
+      : isOpenCleanDarkInk
+        ? medGlyphH >= 36
+          ? 2
+          : 1
+        : isOpenLightOutlineScene
+          ? clamp(Math.round(medGlyphH * 0.09) + (enclosedCount > 20 ? 2 : 1), 3, 5)
+          : clamp(Math.round(medGlyphH * 0.08) + (enclosedCount > 20 ? 2 : 1), 2, 4);
   let mask: Uint8Array = preDilateMask;
   for (let d = 0; d < dilateSteps; d += 1) {
     mask = dilate3x3(mask, ww, wh);
@@ -2399,11 +2647,11 @@ export const inpaintAndRefineBlock = (
         const pChromaRing = Math.max(pr, pg, pb) - Math.min(pr, pg, pb);
         const isLightBubbleWhiteGlow =
           !preferLightFirst &&
-          bgLumInit >= 140 &&
+          bgLumInit >= 45 &&
           bgLumInit <= 242 &&
-          bgChroma <= 16 &&
-          pLum >= Math.max(220, bgLumInit + 14) &&
-          pChromaRing <= 14;
+          pLum >= Math.max(218, bgLumInit + (bgLumInit < 140 ? 28 : 14)) &&
+          pChromaRing <= (bgLumInit < 140 ? 22 : 14) &&
+          (bgLumInit < 140 || bgChroma <= 16);
         if (dBg <= 60 && !(bgLumInit < 45 && pLum > bgLumInit + 32) && !isLightBubbleWhiteGlow) {
           ringRs.push(pr);
           ringGs.push(pg);
@@ -2437,7 +2685,7 @@ export const inpaintAndRefineBlock = (
 
   // Kalın beyaz parlamalı ("#EFEAEF" veya pastel pembe balonda koyu harf + 5px saf beyaz halo) balonlarda
   // 2px iç halka saf beyazı (#FFFFFF) ölçebileceğinden 7..18px dışındaki gerçek temiz zemin halkasını doğrula.
-  if (!preferLightFirst && (ringMedLum >= 228 || bgLumInit >= 228)) {
+  if (!preferLightFirst && !hasVividColorCoreInk && (ringMedLum >= 228 || bgLumInit >= 228)) {
     const outRs: number[] = [];
     const outGs: number[] = [];
     const outBs: number[] = [];
@@ -2618,11 +2866,22 @@ export const inpaintAndRefineBlock = (
   const cleanedAlphaOnly = origOrTranslatedText
     .replace(/[^a-zA-ZçğıöşüÇĞİÖŞÜ]/g, '')
     .toLowerCase();
+  const isSingleStandaloneSfx =
+    origLineCount === 1 &&
+    !hasClosedBubbleWalls &&
+    wallHits < 3 &&
+    !/[?]/.test(trimmedOrig);
+  const hasRealEnclosedSpeechBubble =
+    hasActualPhysicalWalls &&
+    wallHits >= 3 &&
+    !style.hasTextStroke &&
+    !hasTexturedSceneInterior &&
+    ringStd <= 12;
   const isSingleUppercaseStandaloneSfx =
     origLineCount === 1 &&
     trimmedOrig === trimmedOrig.toUpperCase() &&
-    !/[?!/\\]/.test(trimmedOrig) &&
-    wallHits < 4;
+    !/[?\/\\]/.test(trimmedOrig) &&
+    !hasRealEnclosedSpeechBubble;
   if (
     (!hasClosedBubbleWalls &&
       cleanedAlphaOnly.length <= 1 &&
@@ -2630,8 +2889,14 @@ export const inpaintAndRefineBlock = (
       bgLumInit < 235) ||
     (REPEATED_ONLY_SFX_STEMS.has(cleanedAlphaOnly) &&
       !isSingleLineStat &&
-      !(hitLeftWall && hitRightWall && hitTopWall && hitBottomWall) &&
-      (!hasActualPhysicalWalls || style.kind === 'sfx' || isSingleUppercaseStandaloneSfx) &&
+      !hasRealEnclosedSpeechBubble &&
+      (!hasActualPhysicalWalls ||
+        style.kind === 'sfx' ||
+        style.hasTextStroke ||
+        hasTexturedSceneInterior ||
+        ringStd > 12 ||
+        isSingleUppercaseStandaloneSfx ||
+        isSingleStandaloneSfx) &&
       !/[?]/.test(origOrTranslatedText))
   ) {
     return null;
@@ -2697,7 +2962,13 @@ export const inpaintAndRefineBlock = (
         : ringMedLum < 228 && ringMedChroma <= 12
           ? Math.max(212, ringMedLum + 9)
           : 226;
-    const maxHaloSteps = hasWhiteStrokeHalo ? 5 : 7;
+    const maxHaloSteps = hasVividColorCoreInk
+      ? ringMedLum >= 195
+        ? 0
+        : 3
+      : hasWhiteStrokeHalo
+        ? 5
+        : 7;
     const haloBoundX0 = hasWhiteStrokeHalo ? Math.max(1, gMinX - 4) : Math.max(1, egMinX - 4);
     const haloBoundX1 = hasWhiteStrokeHalo ? Math.min(ww - 2, gMaxX + 4) : Math.min(ww - 2, egMaxX + 4);
     const haloBoundY0 = hasWhiteStrokeHalo ? Math.max(1, gMinY - 4) : Math.max(1, egMinY - 4);
@@ -2760,13 +3031,20 @@ export const inpaintAndRefineBlock = (
     ringMedLum <= 34 &&
     ringStd < 10 &&
     ringCloseRatio >= 0.72;
+  const isSmoothDarkOval =
+    !hasTexturedSceneInterior &&
+    !isFlatDarkBanner &&
+    preferLightFirst &&
+    ringMedLum <= 72 &&
+    ringStd < 9.5 &&
+    ringCloseRatio >= 0.65;
 
-  if (isFlatLightBubble || isFlatDarkBanner) {
+  if (isFlatLightBubble || isFlatDarkBanner || isSmoothDarkOval) {
     // Düz konuşma balonlarında veya düz siyah şeritlerde ("CHAINSAWMAN") dış gökyüzü/doku sızmasını engelle;
     // yalnızca mevcut silme maskesinin komşuluğundaki anti-aliasing/parlama kalıntılarını temizle!
-    const flatExpandSteps = isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 1;
-    const flatDiffThresh = isFlatDarkBanner ? 16 : ringMedLum <= 240 ? 9 : 14;
-    const flatPad = isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 2;
+    const flatExpandSteps = isSmoothDarkOval ? 6 : isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 1;
+    const flatDiffThresh = isSmoothDarkOval ? 10 : isFlatDarkBanner ? 16 : ringMedLum <= 240 ? 9 : 14;
+    const flatPad = isSmoothDarkOval ? 6 : isFlatDarkBanner ? 2 : ringMedLum <= 240 ? 4 : 2;
     for (let fStep = 0; fStep < flatExpandSteps; fStep += 1) {
       let flatAdded = 0;
       const baseErase = new Uint8Array(eraseMask);
@@ -2802,12 +3080,81 @@ export const inpaintAndRefineBlock = (
       if (flatAdded === 0) break;
     }
 
-    for (let i = 0; i < numPixels; i += 1) {
-      if (!eraseMask[i]) continue;
-      const cIdx = i * 3;
-      cleaned[cIdx] = ringMedR;
-      cleaned[cIdx + 1] = ringMedG;
-      cleaned[cIdx + 2] = ringMedB;
+    if (isSmoothDarkOval) {
+      const rowR = new Int16Array(wh).fill(ringMedR);
+      const rowG = new Int16Array(wh).fill(ringMedG);
+      const rowB = new Int16Array(wh).fill(ringMedB);
+      for (let y = egMinY; y <= egMaxY; y += 1) {
+        const rOff = y * ww;
+        const rs: number[] = [];
+        const gs: number[] = [];
+        const bs: number[] = [];
+        const l0 = Math.max(0, egMinX - 16);
+        const l1 = Math.max(-1, egMinX - 2);
+        const r0 = Math.min(ww, egMaxX + 2);
+        const r1 = Math.min(ww - 1, egMaxX + 16);
+        for (let x = l0; x <= l1; x += 1) {
+          const idx = rOff + x;
+          if (eraseMask[idx] || borderMask[idx]) continue;
+          const cIdx = idx * 3;
+          const pr = winRgb[cIdx];
+          const pg = winRgb[cIdx + 1];
+          const pb = winRgb[cIdx + 2];
+          const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+          if (
+            Math.max(Math.abs(pr - ringMedR), Math.abs(pg - ringMedG), Math.abs(pb - ringMedB)) <= 42 &&
+            Math.abs(pLum - ringMedLum) <= 32
+          ) {
+            rs.push(pr);
+            gs.push(pg);
+            bs.push(pb);
+          }
+        }
+        for (let x = r0; x <= r1; x += 1) {
+          const idx = rOff + x;
+          if (eraseMask[idx] || borderMask[idx]) continue;
+          const cIdx = idx * 3;
+          const pr = winRgb[cIdx];
+          const pg = winRgb[cIdx + 1];
+          const pb = winRgb[cIdx + 2];
+          const pLum = 0.299 * pr + 0.587 * pg + 0.114 * pb;
+          if (
+            Math.max(Math.abs(pr - ringMedR), Math.abs(pg - ringMedG), Math.abs(pb - ringMedB)) <= 42 &&
+            Math.abs(pLum - ringMedLum) <= 32
+          ) {
+            rs.push(pr);
+            gs.push(pg);
+            bs.push(pb);
+          }
+        }
+        if (rs.length >= 4) {
+          rowR[y] = Math.round(medianOf(rs));
+          rowG[y] = Math.round(medianOf(gs));
+          rowB[y] = Math.round(medianOf(bs));
+        }
+      }
+      for (let y = egMinY; y <= egMaxY; y += 1) {
+        const rOff = y * ww;
+        const fr = rowR[y];
+        const fg = rowG[y];
+        const fb = rowB[y];
+        for (let x = egMinX; x <= egMaxX; x += 1) {
+          const idx = rOff + x;
+          if (!eraseMask[idx]) continue;
+          const cIdx = idx * 3;
+          cleaned[cIdx] = fr;
+          cleaned[cIdx + 1] = fg;
+          cleaned[cIdx + 2] = fb;
+        }
+      }
+    } else {
+      for (let i = 0; i < numPixels; i += 1) {
+        if (!eraseMask[i]) continue;
+        const cIdx = i * 3;
+        cleaned[cIdx] = ringMedR;
+        cleaned[cIdx + 1] = ringMedG;
+        cleaned[cIdx + 2] = ringMedB;
+      }
     }
   } else {
     inpaintTexturedRegion(
@@ -2881,22 +3228,25 @@ export const inpaintAndRefineBlock = (
         const ringMedChroma =
           Math.max(ringMedR, ringMedG, ringMedB) - Math.min(ringMedR, ringMedG, ringMedB);
         const isPureWhiteInkHalo =
-          ringMedLum >= 150 &&
+          ringMedLum >= 60 &&
           ringMedLum <= 242 &&
           ringMedChroma <= 45 &&
-          pLumCur >= Math.max(242, ringMedLum + 10) &&
-          pChromaCur <= Math.min(12, Math.max(8, ringMedChroma * 0.55));
+          pLumCur >= Math.max(ringMedLum < 140 ? 205 : 242, ringMedLum + (ringMedLum < 140 ? 48 : 10)) &&
+          pChromaCur <= Math.min(ringMedLum < 140 ? 18 : 12, Math.max(8, ringMedChroma * 0.55));
         const isPureWhiteFaintInkResidual =
           ringMedLum >= 245 && ringStd <= 4.5 && pLumCur <= 172;
         const isLightSceneResidual =
-          !preferLightFirst && ringMedLum >= 120
+          !preferLightFirst && ringMedLum >= 60
             ? isPureWhiteFaintInkResidual ||
-              (pLumCur <= Math.min(62, Math.round(ringMedLum * 0.42)) && pLumCur < hLocLum - 35) ||
+              (!hasVividColorCoreInk &&
+                pLumCur <= Math.min(62, Math.round(ringMedLum * 0.42)) &&
+                pLumCur < hLocLum - 35) ||
               isPureWhiteInkHalo ||
-              (ringMedLum <= 240 &&
-                pLumCur >= Math.max(230, ringMedLum + 12) &&
+              (!hasVividColorCoreInk &&
+                ringMedLum <= 240 &&
+                pLumCur >= Math.max(ringMedLum < 140 ? 205 : 230, ringMedLum + 12) &&
                 pLumCur > hLocLum + 12 &&
-                pChromaCur <= 12)
+                pChromaCur <= 16)
             : dev > residualThresh || hUniformDrop;
         if (isLightSceneResidual) {
           resMask[idx] = 1;
@@ -3121,7 +3471,7 @@ export const inpaintAndRefineBlock = (
     hitRightWall &&
     safeLocalRight > safeLocalLeft + 24 &&
     Math.abs(midLocalX - (safeLocalLeft + safeLocalRight) * 0.5) <=
-      (safeLocalRight - safeLocalLeft) * (isFlatLightBubble ? 0.34 : 0.18)
+      (safeLocalRight - safeLocalLeft) * (isFlatLightBubble || hasClosedBubbleWalls ? 0.34 : 0.18)
       ? Math.round((safeLocalLeft + safeLocalRight) * 0.5)
       : midLocalX;
   const layoutCenterY =
@@ -3135,7 +3485,7 @@ export const inpaintAndRefineBlock = (
   const spanLocalW = safeLocalRight > safeLocalLeft + 24 ? safeLocalRight - safeLocalLeft : glyphW;
   const maxHalfW = Math.max(
     glyphW * 0.5,
-    hitLeftWall && hitRightWall && isFlatLightBubble
+    hitLeftWall && hitRightWall && (isFlatLightBubble || hasClosedBubbleWalls)
       ? spanLocalW * 0.5
       : Math.min(layoutCenterX - safeLocalLeft, safeLocalRight - layoutCenterX),
   );
@@ -3145,7 +3495,11 @@ export const inpaintAndRefineBlock = (
   );
   let safeW = Math.max(glyphW, maxHalfW * 2);
   if (!(hitLeftWall && hitRightWall)) {
-    safeW = Math.min(safeW, Math.max(glyphW * 1.32, medGlyphH * 10));
+    const flatCleanCap =
+      ringStd < 6.5 && bgLumInit >= 210
+        ? Math.max(glyphW * 1.65, medGlyphH * 12.5)
+        : Math.max(glyphW * 1.32, medGlyphH * 10);
+    safeW = Math.min(safeW, flatCleanCap);
   }
   const safeH = Math.max(glyphH * 1.1, maxHalfH * 2);
 
@@ -3191,17 +3545,91 @@ export const inpaintAndRefineBlock = (
   let finalBoxH: number;
   let finalLineWidthsPct: number[] | undefined;
   let emphasisLastLineScale = block.emphasisLastLineScale;
+  const ribbonBgMax = Math.max(bgR, bgG, bgB);
+  const isVividBannerNow = ribbonBgMax >= 135 && ribbonBgMax - Math.min(bgR, bgG, bgB) >= 65;
   const isWideSingleLineRibbon =
     style.kind !== 'sfx' &&
     !isSingleLineStat &&
     origLineCount === 1 &&
     !hasClosedBubbleWalls &&
-    bw / Math.max(1, bh) >= 4.5 &&
-    bh <= 64;
-  const ribbonBgMax = Math.max(bgR, bgG, bgB);
-  const isVividBannerNow = ribbonBgMax >= 135 && ribbonBgMax - Math.min(bgR, bgG, bgB) >= 65;
+    (isVividBannerNow
+      ? bw / Math.max(1, bh) >= 4.5 && bh <= 64
+      : bw / Math.max(1, bh) >= 6.8 && bh <= 40 && ringStd < 6);
   let ribbonLeftLocalX = safeLocalLeft;
   let ribbonRightLocalX = safeLocalRight;
+  const absStyleRotDeg = Math.abs(style.rotationDeg ?? 0);
+  const isSmallTiltedUiRow =
+    !isSingleLineStat &&
+    origLineCount === 1 &&
+    absStyleRotDeg >= 4.5 &&
+    medGlyphH <= 24 &&
+    bw / Math.max(1, bh) >= 2.2;
+  const isDarkOvalCaption =
+    isSmoothDarkOval &&
+    origLineCount <= 2 &&
+    displayText.length <= 32 &&
+    !isSmallTiltedUiRow &&
+    !isWideSingleLineRibbon &&
+    !isSingleLineStat;
+  let uiMinBoundX = Math.max(4, Math.min(wx0 + gMinX, wx0 + safeLocalLeft));
+  let uiMaxBoundX = Math.min(fullWidth - 4, Math.max(wx0 + gMaxX, wx0 + safeLocalRight));
+  if (isSmallTiltedUiRow) {
+    const rotRad = ((style.rotationDeg ?? 0) * Math.PI) / 180;
+    const slope = Math.tan(rotRad);
+    const refCenterX = (cx0 + cx1) * 0.5;
+    const refCenterY = (cy0 + cy1) * 0.5;
+    let bezelRightAbsX = fullWidth - 4;
+    let consecRight = 0;
+    const scanRightEnd = Math.min(ww - 1, Math.max(gMaxX, safeLocalRight) + 28);
+    for (let x = Math.max(0, gMaxX + 2); x <= scanRightEnd; x += 1) {
+      const yMid = Math.round(refCenterY + (x - refCenterX) * slope);
+      let darkHits = 0;
+      for (let dy = -2; dy <= 2; dy += 1) {
+        const sy = clamp(yMid + dy, 0, wh - 1);
+        const cIdx = (sy * ww + x) * 3;
+        const pLum = 0.299 * winRgb[cIdx] + 0.587 * winRgb[cIdx + 1] + 0.114 * winRgb[cIdx + 2];
+        if (pLum <= 115 && pLum < bgLumInit - 55) darkHits += 1;
+      }
+      if (darkHits >= 3) {
+        consecRight += 1;
+        if (consecRight >= 2) {
+          bezelRightAbsX = wx0 + x - 4;
+          break;
+        }
+      } else {
+        consecRight = 0;
+      }
+    }
+    let bezelLeftAbsX = 4;
+    let consecLeft = 0;
+    const scanLeftEnd = Math.max(0, Math.min(gMinX, safeLocalLeft) - 28);
+    for (let x = Math.min(ww - 1, gMinX - 2); x >= scanLeftEnd; x -= 1) {
+      const yMid = Math.round(refCenterY + (x - refCenterX) * slope);
+      let darkHits = 0;
+      for (let dy = -2; dy <= 2; dy += 1) {
+        const sy = clamp(yMid + dy, 0, wh - 1);
+        const cIdx = (sy * ww + x) * 3;
+        const pLum = 0.299 * winRgb[cIdx] + 0.587 * winRgb[cIdx + 1] + 0.114 * winRgb[cIdx + 2];
+        if (pLum <= 115 && pLum < bgLumInit - 55) darkHits += 1;
+      }
+      if (darkHits >= 3) {
+        consecLeft += 1;
+        if (consecLeft >= 2) {
+          bezelLeftAbsX = wx0 + x + 4;
+          break;
+        }
+      } else {
+        consecLeft = 0;
+      }
+    }
+    const padUiX = Math.max(14, Math.round(medGlyphH * 0.65));
+    uiMinBoundX = Math.max(4, bezelLeftAbsX, wx0 + Math.max(0, gMinX - padUiX));
+    uiMaxBoundX = Math.min(
+      fullWidth - 4,
+      bezelRightAbsX,
+      wx0 + Math.min(ww - 4, gMaxX + padUiX),
+    );
+  }
 
   if (isSingleLineStat) {
     // Tek satırlık RPG istatistik satırı ("SAĞLIK: 100", "BÜYÜ: 0", "SALDIRI: 2 (KEMİK KILIÇ +3)", "AD: JIANG CHENG" vb.)
@@ -3277,22 +3705,26 @@ export const inpaintAndRefineBlock = (
   } else {
     // Konuşma Balonu & Anlatım Kutusu:
     const refFloorW = Math.min(fullWidth, 1100);
-    const maxDialogFontPx = Math.min(
-      fullWidth * 0.135,
-      Math.max(fullWidth * (emphasisLastLineScale ? 0.068 : 0.072), targetEmPx * 1.02),
-    );
-    const softDialogFloorPx = Math.min(refFloorW * 0.019, Math.max(10.5, targetEmPx * 1.15));
+    const maxDialogFontPx = isSmallTiltedUiRow
+      ? Math.max(15, targetEmPx * 1.25)
+      : Math.min(
+          fullWidth * 0.135,
+          Math.max(fullWidth * (emphasisLastLineScale ? 0.068 : 0.072), targetEmPx * 1.02),
+        );
+    const softDialogFloorPx = isSmallTiltedUiRow
+      ? Math.min(13.5, Math.max(10.5, targetEmPx * 1.12))
+      : Math.min(refFloorW * 0.027, Math.max(12, targetEmPx * 1.4));
     fontPx = clamp(targetEmPx, softDialogFloorPx, maxDialogFontPx);
     const minFontPx = Math.max(9.5, refFloorW * 0.011);
 
     const charLen = displayText.length;
-    const absStyleRotDeg = Math.abs(style.rotationDeg ?? 0);
     const preserveSingleLineOpen =
       origLineCount === 1 &&
       ((!hitLeftWall &&
         !hitRightWall &&
         (absStyleRotDeg < 1 ? charLen <= 32 || hitTopWall || hitBottomWall : charLen <= 20)) ||
-        (isWideSingleLineRibbon && absStyleRotDeg < 1));
+        (isWideSingleLineRibbon && absStyleRotDeg < 1) ||
+        (isSmallTiltedUiRow && charLen <= 44));
     const desiredCharsPerLine = preserveSingleLineOpen
       ? charLen + 2
       : charLen <= 10
@@ -3318,7 +3750,8 @@ export const inpaintAndRefineBlock = (
     const maxDrawableW = Math.max(glyphW, rawWallSpan - 2 * targetWallClear);
     const interiorSpan =
       safeLocalRight > safeLocalLeft + 24 ? safeLocalRight - safeLocalLeft : safeW;
-    const isDarkTexturedScene = preferLightFirst && bgLumInit < 150 && ringStd >= 3.5;
+    const isDarkTexturedScene =
+      preferLightFirst && bgLumInit < 150 && ringStd >= (wallHits >= 3 ? 13 : 4.5);
     const isOpenMultilineScene =
       !isFlatLightBubble &&
       origLineCount >= 3 &&
@@ -3407,10 +3840,23 @@ export const inpaintAndRefineBlock = (
         : isWideSingleLineRibbon
           ? Math.min(openHorizW, hitRightWall ? maxDrawableW / 0.88 : openHorizW, ribbonSpanW)
           : openHorizW;
-    const effMinFontPx = isWideSingleLineRibbon && isVividBannerNow ? Math.min(minFontPx, 7.5) : minFontPx;
-    const usableSafeW = isOpenMultilineScene
+    const effMinFontPx =
+      isWideSingleLineRibbon && isVividBannerNow
+        ? Math.min(minFontPx, 7.5)
+        : isSmallTiltedUiRow
+          ? Math.min(minFontPx, 8.5)
+          : minFontPx;
+    let usableSafeW = isOpenMultilineScene
       ? Math.min(rawUsableSafeW, Math.max(glyphW * 1.18, medGlyphH * 10.5))
       : rawUsableSafeW;
+    if (isSmallTiltedUiRow && uiMaxBoundX > uiMinBoundX + 24) {
+      usableSafeW = Math.min(usableSafeW, uiMaxBoundX - uiMinBoundX);
+    } else if (isDarkOvalCaption) {
+      usableSafeW = Math.max(
+        usableSafeW,
+        Math.min(ww - 4, Math.max(glyphW * 1.45, Math.round(medGlyphH * 10))),
+      );
+    }
     const horizSlack = 0.89;
 
     finalBoxW = isOpenMultilineScene
@@ -3435,12 +3881,57 @@ export const inpaintAndRefineBlock = (
         ? (hitBottomWall ? Math.max(gMaxY + 1, safeLocalBottom) : Math.max(gMaxY + 1, layoutCenterY + safeH * 0.65)) -
           (hitTopWall ? Math.min(gMinY, safeLocalTop) : Math.min(gMinY, layoutCenterY - safeH * 0.65))
         : safeH;
-    const wallVertCapH =
+    const rawWallVertCapH =
       hitTopWall && hitBottomWall
-        ? Math.max(glyphH * 1.08, Math.min(topWallDist + botWallDist, wallSpanV) * 0.985)
-        : Math.min(topWallDist * 2, botWallDist * 2);
-    const maxAvailBoxH = hitTopWall && hitBottomWall ? Math.max(safeH, wallVertCapH) : Math.max(safeH, glyphH * 1.4);
+        ? Math.max(glyphH * 1.08, Math.min(topWallDist + botWallDist, wallSpanV) * 0.95)
+        : Math.max(glyphH * 1.15, Math.min(topWallDist * 2, botWallDist * 2));
+    const wallVertCapH = isDarkOvalCaption
+      ? Math.max(rawWallVertCapH, glyphH * 2.2, medGlyphH * 3.0, 56)
+      : rawWallVertCapH;
+    const maxAvailBoxH = isDarkOvalCaption
+      ? Math.max(safeH, wallVertCapH, fontPx * 3.1)
+      : hitTopWall && hitBottomWall
+        ? Math.max(safeH, wallVertCapH)
+        : Math.max(safeH, glyphH * 1.4);
     finalBoxH = Math.min(Math.max(glyphH * 1.15, safeH), wallVertCapH);
+
+    // Geniş iç boşluğa sahip kapalı konuşma balonlarında (küçük orijinal İngilizce punto nedeniyle)
+    // çevrilen metnin mikroskobik kalmaması için iç alan kapasitesine oranlı okunaklı boyut seç.
+    if (
+      ((hitLeftWall && hitRightWall) || hasClosedBubbleWalls || isDarkOvalCaption) &&
+      !isWideSingleLineRibbon &&
+      !isSmallTiltedUiRow &&
+      !isOpenMultilineScene &&
+      usableSafeW >= (isDarkOvalCaption ? 110 : 115) &&
+      (wallVertCapH >= 60 || isDarkOvalCaption)
+    ) {
+      const effAreaW = Math.min(usableSafeW, ww * 0.88);
+      const effAreaH = Math.min(wallVertCapH, effAreaW * 1.35);
+      const cavityArea = effAreaW * effAreaH;
+      const areaEmPx = Math.sqrt((cavityArea * 0.25) / Math.max(5, charLen * 0.62));
+      const isSpaciousClosedBubble =
+        wallVertCapH >= 90 && usableSafeW >= 150 && charLen <= 38;
+      const comfortMaxPx = isDarkOvalCaption
+        ? Math.min(refFloorW * 0.038, Math.max(refFloorW * 0.026, targetEmPx * 1.55))
+        : isSpaciousClosedBubble
+          ? Math.min(refFloorW * 0.044, Math.max(refFloorW * 0.030, targetEmPx * 2.15))
+          : Math.min(refFloorW * 0.0325, Math.max(refFloorW * 0.0265, targetEmPx * 1.75));
+      const comfortTargetEmPx = clamp(
+        isDarkOvalCaption ? Math.max(areaEmPx, targetEmPx * 1.45) : areaEmPx,
+        isDarkOvalCaption ? refFloorW * 0.026 : refFloorW * 0.0245,
+        comfortMaxPx,
+      );
+      if (comfortTargetEmPx > fontPx) {
+        const boostedFontPx = Math.min(maxDialogFontPx, comfortTargetEmPx);
+        const boostRatio = boostedFontPx / Math.max(1, fontPx);
+        fontPx = boostedFontPx;
+        finalBoxW = clamp(
+          Math.max(finalBoxW, desiredW * boostRatio),
+          Math.min(glyphW * 0.85, usableSafeW),
+          usableSafeW,
+        );
+      }
+    }
 
     const canMeasureContour =
       hasActualPhysicalWalls &&
@@ -3465,10 +3956,12 @@ export const inpaintAndRefineBlock = (
       ];
       const halfSpans: number[] = [];
       for (const sy of sampleYs) {
+        const sBy0 = clamp(sy - 3, 0, wh - 1);
+        const sBy1 = clamp(sy + 3, 0, wh - 1);
         let halfL = contourScanX - rawLeftWall - contourPadX;
         let hitL = false;
         for (let x = contourScanX; x >= 0; x -= 1) {
-          if (isStructuralWallAt(x, sy)) {
+          if (hasWallBandX(x, sBy0, sBy1)) {
             halfL = contourScanX - x - contourPadX;
             hitL = true;
             break;
@@ -3477,7 +3970,7 @@ export const inpaintAndRefineBlock = (
         let halfR = rawRightWall - contourScanX - contourPadX;
         let hitR = false;
         for (let x = contourScanX; x < ww; x += 1) {
-          if (isStructuralWallAt(x, sy)) {
+          if (hasWallBandX(x, sBy0, sBy1)) {
             halfR = x - contourScanX - contourPadX;
             hitR = true;
             break;
@@ -3562,7 +4055,7 @@ export const inpaintAndRefineBlock = (
         for (let li = 0; li < wrapped.lines.length; li += 1) {
           const line = wrapped.lines[li];
           const drawnW = line.widthPx * (line.scale ?? 1);
-          if (drawnW > rowSpans[li] * 0.94 && fontPx > minFontPx * 1.05) {
+          if (drawnW > rowSpans[li] * 0.91 && fontPx > effMinFontPx * 1.04) {
             linesClearWalls = false;
             break;
           }
@@ -3573,11 +4066,17 @@ export const inpaintAndRefineBlock = (
       const vertFillRatio = hitTopWall && hitBottomWall ? 0.98 : 1.0;
       const ribbonFitsSingleLine =
         !isWideSingleLineRibbon || wrapped.lines.length <= 1 || fontPx <= effMinFontPx * 1.05;
+      const uiRowFitsSingleLine =
+        !isSmallTiltedUiRow ||
+        origLineCount > 1 ||
+        wrapped.lines.length <= 1 ||
+        fontPx <= effMinFontPx * 1.05;
       if (
         wrapped.totalHeightPx <= finalBoxH * vertFillRatio &&
         wrapped.maxWordWidth <= finalBoxW * horizSlack &&
         linesClearWalls &&
         ribbonFitsSingleLine &&
+        uiRowFitsSingleLine &&
         uniformLineScales
       ) {
         if (rowPcts.length === wrapped.lines.length && rowPcts.some((p) => p < 0.98)) {
@@ -3619,28 +4118,34 @@ export const inpaintAndRefineBlock = (
     const absCenterX = wx0 + layoutCenterX;
     const rawMinBoundX = Math.max(4, Math.min(wx0 + gMinX, wx0 + safeLocalLeft));
     const rawMaxBoundX = Math.min(fullWidth - 4, Math.max(wx0 + gMaxX, wx0 + safeLocalRight));
-    const minBoundX =
-      isWideSingleLineRibbon && isVividBannerNow && ribbonRightLocalX > ribbonLeftLocalX + 36
+    const minBoundX = isSmallTiltedUiRow
+      ? uiMinBoundX
+      : isWideSingleLineRibbon && isVividBannerNow && ribbonRightLocalX > ribbonLeftLocalX + 36
         ? Math.max(4, wx0 + ribbonLeftLocalX + 2)
-        : !hasClosedBubbleWalls && !isFlatLightBubble
-          ? Math.max(
-              rawMinBoundX,
-              wx0 + Math.max(0, Math.min(gMinX - Math.round(glyphW * 0.18), gMinX - 8)),
-            )
-          : !hitLeftWall
-            ? Math.max(rawMinBoundX, wx0 + Math.max(0, Math.min(gMinX, cx0) - Math.max(12, Math.round(medGlyphH * 0.48))))
-            : rawMinBoundX;
-    const maxBoundX =
-      isWideSingleLineRibbon && isVividBannerNow && ribbonRightLocalX > ribbonLeftLocalX + 36
+        : isDarkOvalCaption
+          ? Math.max(4, wx0 + Math.max(0, Math.min(gMinX - Math.round(glyphW * 0.35), gMinX - 24)))
+          : !hasClosedBubbleWalls && !isFlatLightBubble
+            ? Math.max(
+                rawMinBoundX,
+                wx0 + Math.max(0, Math.min(gMinX - Math.round(glyphW * 0.18), gMinX - 8)),
+              )
+            : !hitLeftWall
+              ? Math.max(rawMinBoundX, wx0 + Math.max(0, Math.min(gMinX, cx0) - Math.max(12, Math.round(medGlyphH * 0.48))))
+              : rawMinBoundX;
+    const maxBoundX = isSmallTiltedUiRow
+      ? uiMaxBoundX
+      : isWideSingleLineRibbon && isVividBannerNow && ribbonRightLocalX > ribbonLeftLocalX + 36
         ? Math.min(fullWidth - 4, wx0 + ribbonRightLocalX - 2)
-        : !hasClosedBubbleWalls && !isFlatLightBubble
-          ? Math.min(
-              rawMaxBoundX,
-              wx0 + Math.min(ww, Math.max(gMaxX + Math.round(glyphW * 0.18), gMaxX + 8)),
-            )
-          : !hitRightWall
-            ? Math.min(rawMaxBoundX, wx0 + Math.min(ww - 4, Math.max(gMaxX, cx1) + Math.max(12, Math.round(medGlyphH * 0.48))))
-            : rawMaxBoundX;
+        : isDarkOvalCaption
+          ? Math.min(fullWidth - 4, wx0 + Math.min(ww, Math.max(gMaxX + Math.round(glyphW * 0.35), gMaxX + 24)))
+          : !hasClosedBubbleWalls && !isFlatLightBubble
+            ? Math.min(
+                rawMaxBoundX,
+                wx0 + Math.min(ww, Math.max(gMaxX + Math.round(glyphW * 0.18), gMaxX + 8)),
+              )
+            : !hitRightWall
+              ? Math.min(rawMaxBoundX, wx0 + Math.min(ww - 4, Math.max(gMaxX, cx1) + Math.max(12, Math.round(medGlyphH * 0.48))))
+              : rawMaxBoundX;
     if (finalBoxW > maxBoundX - minBoundX && maxBoundX - minBoundX >= 28) {
       finalBoxW = maxBoundX - minBoundX;
     }

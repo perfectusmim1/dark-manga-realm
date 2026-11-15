@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Chapter } from '@/lib/types';
+import { normalizeLanguageCode } from '@/lib/seriesLanguage';
 import {
   TranslationSettings,
   getEffectiveApiKeys,
@@ -30,6 +31,7 @@ export interface NextChapterTranslationApi {
 interface UseNextChapterTranslationOptions {
   currentChapterId?: string | null;
   nextChapter?: Chapter | null;
+  nextChapterSourceLang?: string;
   isCurrentChapterBusy: boolean;
   networkEnabled: boolean;
   settings: TranslationSettings;
@@ -39,6 +41,7 @@ interface UseNextChapterTranslationOptions {
 export const useNextChapterTranslation = ({
   currentChapterId,
   nextChapter,
+  nextChapterSourceLang,
   isCurrentChapterBusy,
   networkEnabled,
   settings,
@@ -68,13 +71,23 @@ export const useNextChapterTranslation = ({
   }, []);
 
   useEffect(() => {
-    // 1. Ön koşul kontrolleri
+    const normalizedSource =
+      nextChapterSourceLang && nextChapterSourceLang !== 'pending' && nextChapterSourceLang !== 'raw'
+        ? normalizeLanguageCode(nextChapterSourceLang)
+        : null;
+    const isNextChapterSameLang = Boolean(
+      normalizedSource && normalizedSource === normalizeLanguageCode(settings.targetLang),
+    );
+
+    // 1. Ön koşul kontrolleri (sonraki bölüm zaten hedef dilde ise arka plan çevirisi çalıştırılmaz)
     if (
       !settings.prefetchNextChapterTranslation ||
       !networkEnabled ||
       !nextChapter ||
       !nextChapter.id ||
       nextChapter.id === currentChapterId ||
+      nextChapterSourceLang === 'pending' ||
+      isNextChapterSameLang ||
       isCancelledManuallyRef.current
     ) {
       if (abortControllerRef.current) {
@@ -234,6 +247,7 @@ export const useNextChapterTranslation = ({
     isCurrentChapterBusy,
     networkEnabled,
     nextChapter,
+    nextChapterSourceLang,
     settings,
   ]);
 

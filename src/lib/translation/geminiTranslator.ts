@@ -343,18 +343,36 @@ const VOCAL_TOKEN_REGEX =
 const SFX_WRAP_REGEX = /^[*({\[][^\n*)}\]]+[*)}\]][!?.~*^_\-\s]*$/;
 const PURE_PUNCT_REGEX = /^[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>◁▷◀▶★☆•]+$/;
 const CREDITS_START_REGEX =
-  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on)|(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$)(?![\p{L}\p{N}_])/iu;
+  /^(?:çizer|çizim|yazar|hikaye|öykü|senaryo|editör|editor|çeviri|çevirmen|dizgi|temizleme|artist|author|story|art|coloring|background\s*art|script\s*editing|typesetter|cleaner|redrawer|proofreader|scanlation|fansub|asurascans|asura\s*scans|reaperscans|reaper\s*scans|flamescans|raw|webtoon|bölüm\s*\d+|chapter\s*\d+|cap[íi]tulo\s*\d+|ep(?:isode)?\.?\s*\d+|vol(?:ume)?\.?\s*\d+|lee\s+antes\s+en|leia\s+antes\s+em|read\s+(?:first\s+)?(?:at|on)|manga\s*&\s*manhwa|(?:tl|pr|cl|rd|ts|qc|ktl|tlc)(?:\s*[:\-]\s*|\s+)[a-z0-9_]{2,14}$)(?![\p{L}\p{N}_])/iu;
 const CREDITS_INLINE_REGEX =
-  /(?:^|[\/|•<\[])\s*(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|written\s+by|art\s+by|story\s+by|original\s+work|traducción|traduccion|edición|edicion|limpieza|typeset|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))\s*[:\-]/i;
+  /(?:^|[\/|•<\[])\s*(?:(?:hikaye|öykü|senaryo|yazar|çizer|çizim|sanat|editör|editor|çeviri|çevirmen|dizgi|temizleme|story|art|artist|author|coloring|traducción|traduccion|edición|edicion|limpieza|typeset)(?![\p{L}\p{N}_])(?:\s*[:\-]|[\]|/>])|(?:background\s*art|script\s*editing|written\s+by|art\s+by|story\s+by|original\s+work|scanlation|fansub|lee\s+antes\s+en|read\s+(?:first\s+)?(?:at|on))(?![\p{L}\p{N}_])\s*[:\-]?)/iu;
 const WATERMARK_DOMAIN_REGEX =
   /(?:https?:\/\/|discord\.gg\/|\b[a-z0-9-]+\.(?:com|net|org|club|me|online|io|gg|xyz|to|site)\b)/i;
 
+const isPlaceholderMaskText = (t: string): boolean => {
+  const alpha = t.replace(/[^\p{L}]/gu, '');
+  if (alpha.length < 3) return false;
+  const xCount = (alpha.match(/[xX]/g) || []).length;
+  const xLikeCount = (alpha.match(/[xXiIl]/g) || []).length;
+  return xCount >= 3 && xCount / alpha.length >= 0.72 && xLikeCount === alpha.length;
+};
+
 // Ses efektlerini (SFX), inlemeleri ve çizer/yazar/editör jeneriklerini filtreler
-export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
+export const shouldSkipBlock = (
+  text: string,
+  targetLang = 'tr',
+  box?: [number, number, number, number],
+  lines?: OcrBubble['lines'],
+): boolean => {
   const t = text.trim();
   if (t.length <= 1) return true;
   if (t.toUpperCase() === '[SFX]' || t === '[SFX]') return true;
-  if (/^(?:NON|MANGA\s*STREAM(?:\.COM)?|DO\s+NOT\s+MIRROR|MIRROR|SUCK|SLURP|LICK|ITUT|SLRP|goae|EHITS\s+ANNIVERS|VEDDING\s+KUNS|ONDERERSAR|CAN'T\s+TDOAT|HERE\.R\s+STHING|SUAL|to|of|in|on|at|by|an|as|the|and|or)$/i.test(t)) {
+  if (isPlaceholderMaskText(t)) return true;
+  if (/^(?:NON|MANGA\s*STREAM(?:\.COM)?|MANGADASS(?:\.COM)?|TOOMICS(?:\.COM)?|STUPIDEMIC|JPIDEMIC|STUE|DO\s+NOT\s+MIRROR|MIRROR|SUCK|SLURP|LICK|ITUT|SLRP|goae|EHITS\s+ANNIVERS|VEDDING\s+KUNS|ONDERERSAR|CAN'T\s+TDOAT|HERE\.R\s+STHING|SUAL|0C|1C|OC|IC|II|OO|OHAIZ|H\s*OHH|ition[!.,]*|to|of|in|on|at|by|an|as|the|and|or)$/i.test(t)) {
+    return true;
+  }
+  if (/^\s*(?:story|art)\s*[:;.|/\\]\s*[\p{L}\p{N}_.-]+/iu.test(t)) return true;
+  if (/\bmanga\s*&\s*manhwa\b|\bin\s+english\s+free\s+at\b|\bcoloring\s*:\s*\S+.*\bbackground\s*art\s*:/i.test(t)) {
     return true;
   }
   if (/^Mooo+W!?$/i.test(t) || /^\([A-Z]{6,}$/.test(t)) return true;
@@ -371,7 +389,7 @@ export const shouldSkipBlock = (text: string, targetLang = 'tr'): boolean => {
   if (!stripped || stripped.length <= 1) return true;
   if (CREDITS_START_REGEX.test(stripped) || CREDITS_INLINE_REGEX.test(t)) return true;
   if (/^[◁▷◀▶].*[◁▷◀▶]$/.test(t)) return true;
-  if (isPureSoundEffect(stripped)) return true;
+  if (isPureSoundEffect(stripped, box, lines)) return true;
 
   const wordTokens = stripped
     .split(/[\s¡¿.,!?:;…\-_~*^'"/\\()[\]{}<>]+/)
@@ -403,20 +421,149 @@ const getTranslateProxyEndpoint = (): string => {
 const STRICT_TURKISH_CHAR_REGEX = /[çğıİşÇĞŞ]/;
 const STRICT_TURKISH_CHAR_GLOBAL = /[çğıİşÇĞŞ]/g;
 const STRICT_TURKISH_WORD_REGEX =
-  /\b(?:için|fakat|ancak|değil|kadar|sonra|önce|nasıl|neden|niye|nerede|benim|senin|onun|bizim|sizin|evet|hayır|tamam|lütfen|teşekkür|merhaba|olacak|olduğu|olarak|böyle|şöyle|keşke|acaba|belki|çünkü|rağmen|doğru|yanlış|güzel|büyük|küçük)\b/i;
+  /\b(?:için|fakat|ancak|değil|kadar|sonra|önce|nasıl|neden|niye|nerede|benim|senin|onun|bizim|sizin|evet|hayır|tamam|lütfen|teşekkür|merhaba|olacak|olduğu|olarak|böyle|şöyle|keşke|acaba|belki|çünkü|rağmen|doğru|yanlış|güzel|büyük|küçük|şimdi|burada|oraya|bunu|şunu|öyle|peki|ama|yani|zaten|aslında|gerçekten|biraz|hemen|bir\s+şey|ne\s+oldu|sadece|kimse|hiçbir|herkes|olmaz|bekle|gidelim)\b/i;
+const TURKISH_ASCII_WORD_REGEX =
+  /\b(?:icin|degil|nasil|neden|nerede|burada|oraya|simdi|sonra|once|boyle|soyle|gercekten|cunku|ragmen|dogru|yanlis|guzel|buyuk|kucuk|herkes|kimse|hicbir|bir\s+sey|ne\s+zaman|ne\s+kadar|evet|hayir|tamam|lutfen|merhaba|tesekkur|yoksa|fakat|ancak|zaten|aslinda|belki|acaba|keske|oyle|peki|gibi|kadar|sadece|ayrica|olmaz|yeter|durun|gidelim|bekle|baksana|efendim|lanet)\b/i;
+const ENGLISH_STOPWORD_REGEX =
+  /\b(?:the|and|you|your|are|was|were|have|has|had|with|this|that|what|when|where|why|how|from|they|them|their|there|here|would|could|should|will|can't|don't|doesn't|didn't|isn't|aren't|wasn't|won't|i'm|you're|he's|she's|it's|we're|they're|i've|you've|we've|they've|i'll|i'd|that's|what's|there's|here's|let's|about|because|before|after|again|never|always|really|something|nothing|everything|someone|anyone|wait|stop|please|sorry|thanks|thank|hello|okay|maybe|already|actually|between|through)\b/i;
+const SPANISH_STOPWORD_REGEX =
+  /\b(?:que|los|las|del|por|para|con|una|unos|unas|pero|como|más|este|esta|todo|estoy|eres|tiene|hacer|cuando|donde|ahora|aquí|quién|qué|solo|muy|porque|entonces|bueno|gracias|hola)\b/i;
+const PORTUGUESE_STOPWORD_REGEX =
+  /\b(?:não|nao|você|voce|para|com|uma|mais|como|mas|por|seu|sua|isso|está|esta|estou|então|entao|quando|muito|também|tambem|aqui|agora|quem|tudo|obrigado|obrigada)\b/i;
+const PORTUGUESE_EXCLUSIVE_REGEX = /[ãõ]|\b(?:não|você|vocês|estão|então|também|obrigado|obrigada|tudo\s+bem|meu\s+deus)\b/i;
+const FRENCH_STOPWORD_REGEX =
+  /\b(?:les|des|est|que|pour|dans|une|pas|plus|avec|sur|vous|nous|mais|tout|c'est|j'ai|qu'il|être|avoir|je\s+suis|tu\s+es|quoi|comment|pourquoi|merci|bonjour|salut)\b/i;
+const GERMAN_STOPWORD_REGEX =
+  /\b(?:ich|nicht|die|der|das|und|ein|eine|ist|mit|auf|für|sie|wir|mir|mich|dich|aber|wenn|noch|was|wie|warum|hier|jetzt|danke|hallo|bitte|schon)\b/i;
+const ITALIAN_STOPWORD_REGEX =
+  /\b(?:che|non|per|con|una|sono|del|della|questo|questa|più|come|anche|tutto|fare|quando|dove|perché|cosa|adesso|grazie|ciao|allora|davvero)\b/i;
+const POLISH_STOPWORD_REGEX =
+  /\b(?:nie|tak|jest|jak|co|to|się|dla|ale|już|tylko|może|bardzo|dobrze|proszę|dziękuję|gdzie|kiedy|dlaczego|który)\b/i;
+const INDONESIAN_STOPWORD_REGEX =
+  /\b(?:tidak|bukan|yang|ini|itu|untuk|dengan|dari|saya|aku|kamu|kau|dia|kita|kami|mereka|sudah|belum|bisa|harus|akan|jangan|tolong|terima\s+kasih|kenapa|bagaimana|dimana|sekarang|sangat|sekali)\b/i;
 const FOREIGN_STOPWORD_REGEX =
-  /\b(?:the|and|you|your|are|was|were|have|has|had|with|this|that|what|when|where|why|how|from|they|them|their|there|here|would|could|should|will|can't|don't|didn't|isn't|aren't|wasn't|I'm|you're|he's|she's|it's|we're|they're|el|la|los|las|un|una|unos|unas|del|al|por|para|con|sin|pero|como|cuando|donde|quien|que|mas|muy|este|esta|estos|estas|ese|esa|esos|esas|todo|toda|todos|todas|hacer|hace|hizo|haber|ha|han|habia|soy|eres|somos|son|estoy|estan|estaba|tengo|tienes|tiene|tienen|tenia|voy|vas|van|puedo|puede|pueden|quiero|quiere|quieren|debi|debia|despues|antes|ahora|aqui|solo|maldita|maldito|mierda|carajo|anos|ano)\b/i;
+  /\b(?:the|and|you|your|are|was|were|have|has|had|with|this|that|what|when|where|why|how|from|they|them|their|there|here|would|could|should|will|can't|don't|didn't|isn't|aren't|wasn't|I'm|you're|he's|she's|it's|we're|they're|los|las|unos|unas|del|por|para|con|sin|pero|como|cuando|donde|quien|mas|muy|este|esta|estos|estas|ese|esa|esos|esas|todo|toda|todos|todas|hacer|hace|hizo|haber|han|habia|soy|eres|somos|estoy|estan|estaba|tengo|tienes|tiene|tienen|tenia|voy|vas|puedo|puede|pueden|quiero|quiere|quieren|debi|debia|despues|antes|ahora|aqui|solo|maldita|maldito|mierda|carajo)\b/i;
+
+const normalizeLangKey = (rawLang?: string): string => {
+  const c = (rawLang || 'tr').toLowerCase().trim();
+  if (c === 'pt' || c === 'pt_br' || c === 'pt-br') return 'pt-br';
+  if (c === 'es-la' || c === 'es-419') return 'es';
+  if (c === 'jp') return 'ja';
+  if (c === 'kr') return 'ko';
+  if (c === 'cn' || c.startsWith('zh-')) return 'zh';
+  return c;
+};
 
 export const isLikelyAlreadyTranslated = (text: string, targetLang: string): boolean => {
   const t = text.trim();
   if (!t) return true;
-  if (targetLang === 'tr') {
-    if (FOREIGN_STOPWORD_REGEX.test(t)) return false;
+  const lang = normalizeLangKey(targetLang);
+  const words = t.split(/\s+/).filter(Boolean);
+
+  if (lang === 'tr') {
     const trChars = t.match(STRICT_TURKISH_CHAR_GLOBAL)?.length ?? 0;
+    const hasForeignScript = /[\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(t);
+    if (hasForeignScript) return false;
+    if (FOREIGN_STOPWORD_REGEX.test(t) && trChars < 2) return false;
     if (trChars >= 2) return true;
-    if (STRICT_TURKISH_CHAR_REGEX.test(t) && STRICT_TURKISH_WORD_REGEX.test(t)) return true;
+    if (STRICT_TURKISH_CHAR_REGEX.test(t) && (STRICT_TURKISH_WORD_REGEX.test(t) || TURKISH_ASCII_WORD_REGEX.test(t))) return true;
+    if (words.length >= 2 && (STRICT_TURKISH_WORD_REGEX.test(t) || TURKISH_ASCII_WORD_REGEX.test(t))) return true;
+    return false;
   }
+
+  if (lang === 'en') {
+    if (/[\u0400-\u04FF\u0600-\u06FF\u0E00-\u0E7F\u3040-\u30FF\u4E00-\u9FFF\uAC00-\uD7AF]/.test(t)) return false;
+    if (/[çğıİşçöüäößãõñ¿¡]/i.test(t)) return false;
+    if (STRICT_TURKISH_WORD_REGEX.test(t) || PORTUGUESE_EXCLUSIVE_REGEX.test(t)) return false;
+    return words.length >= 2 && ENGLISH_STOPWORD_REGEX.test(t);
+  }
+
+  if (lang === 'es') {
+    if (STRICT_TURKISH_CHAR_REGEX.test(t) || PORTUGUESE_EXCLUSIVE_REGEX.test(t)) return false;
+    return /[¿¡ñ]/i.test(t) || (words.length >= 2 && (/[áéíóú]/i.test(t) || SPANISH_STOPWORD_REGEX.test(t)));
+  }
+
+  if (lang === 'pt-br') {
+    if (STRICT_TURKISH_CHAR_REGEX.test(t) || /[¿¡]/i.test(t)) return false;
+    return /[ãõ]/i.test(t) || ((/[çáéíóúâêô]/i.test(t) || PORTUGUESE_STOPWORD_REGEX.test(t)) && words.length >= 2 && PORTUGUESE_STOPWORD_REGEX.test(t));
+  }
+
+  if (lang === 'fr') {
+    if (STRICT_TURKISH_CHAR_REGEX.test(t) || /[¿¡ñãõß]/i.test(t)) return false;
+    return (/[àâæçéèêëîïôœùûü]/i.test(t) && words.length >= 2) || (words.length >= 2 && FRENCH_STOPWORD_REGEX.test(t));
+  }
+
+  if (lang === 'de') {
+    if (STRICT_TURKISH_CHAR_REGEX.test(t)) return false;
+    return (/[äöüß]/i.test(t) && words.length >= 2) || (words.length >= 2 && GERMAN_STOPWORD_REGEX.test(t));
+  }
+
+  if (lang === 'it') {
+    if (STRICT_TURKISH_CHAR_REGEX.test(t) || /[¿¡ñãõßç]/i.test(t)) return false;
+    return words.length >= 2 && ITALIAN_STOPWORD_REGEX.test(t);
+  }
+
+  if (lang === 'pl') {
+    if (STRICT_TURKISH_CHAR_REGEX.test(t)) return false;
+    return (/[ąćęłńóśźż]/i.test(t) && words.length >= 2) || (words.length >= 2 && POLISH_STOPWORD_REGEX.test(t));
+  }
+
+  if (lang === 'vi') {
+    return /[ăâđêôơưàáảãạằắẳẵặầấẩẫậèéẻẽẹềếểễệìíỉĩịòóỏõọồốổỗộờớởỡợùúủũụừứửữựỳýỷỹỵ]/iu.test(t);
+  }
+
+  if (lang === 'id') {
+    if (STRICT_TURKISH_CHAR_REGEX.test(t) || FOREIGN_STOPWORD_REGEX.test(t)) return false;
+    return words.length >= 2 && INDONESIAN_STOPWORD_REGEX.test(t);
+  }
+
+  if (lang === 'th') return /[\u0E00-\u0E7F]{2,}/.test(t);
+  if (lang === 'ru') return /[\u0400-\u04FF]{3,}/.test(t);
+  if (lang === 'ar') return /[\u0600-\u06FF]{3,}/.test(t);
+  if (lang === 'ko') return /[\uAC00-\uD7AF]{2,}/.test(t);
+  if (lang === 'ja') return /[\u3040-\u309F\u30A0-\u30FF]{2,}/.test(t);
+  if (lang === 'zh') {
+    return /[\u4E00-\u9FFF]{2,}/.test(t) && !/[\u3040-\u309F\u30A0-\u30FF]/.test(t);
+  }
+
   return false;
+};
+
+export const isPageAlreadyInTargetLanguage = (
+  texts: readonly string[],
+  targetLang: string,
+): boolean => {
+  const lang = normalizeLangKey(targetLang);
+  const dialogueTexts = texts
+    .map((t) => (t || '').trim())
+    .filter((t) => {
+      if (t.length < 4) return false;
+      if (lang === 'ja' || lang === 'ko' || lang === 'zh' || lang === 'th' || lang === 'ar') {
+        return /[\p{L}]/u.test(t);
+      }
+      const words = t.split(/\s+/).filter((w) => /[\p{L}]/u.test(w));
+      return words.length >= 2;
+    });
+
+  if (dialogueTexts.length === 0) return false;
+  if (dialogueTexts.length === 1) {
+    const first = dialogueTexts[0];
+    if (lang === 'ja' || lang === 'ko' || lang === 'zh' || lang === 'th' || lang === 'ar') {
+      return first.length >= 4 && isLikelyAlreadyTranslated(first, lang);
+    }
+    const words = first.split(/\s+/).filter(Boolean);
+    const hasUniqueMarker =
+      (lang === 'tr' && (first.match(STRICT_TURKISH_CHAR_GLOBAL)?.length ?? 0) >= 2) ||
+      (lang === 'es' && /[¿¡ñ]/i.test(first)) ||
+      (lang === 'pt-br' && /[ãõ]/i.test(first)) ||
+      (lang === 'pl' && /[ąćęłńóśźż]/i.test(first)) ||
+      (lang === 'vi' && /[ăâđêôơư]/i.test(first)) ||
+      (lang === 'ru' && /[\u0400-\u04FF]{3,}/.test(first));
+    return (words.length >= 4 || (words.length >= 2 && hasUniqueMarker)) && isLikelyAlreadyTranslated(first, lang);
+  }
+
+  const matched = dialogueTexts.filter((t) => isLikelyAlreadyTranslated(t, lang)).length;
+  return matched / dialogueTexts.length >= 0.65;
 };
 
 const INTACT_ENGLISH_WORDS = new Set([
@@ -583,7 +730,26 @@ const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): str
     .replace(/\b04(?=\s+[A-Za-z]{2,})/g, 'OH')
     .replace(/\b(pitiful|poor|lost|gentle)\s+[so]?oul\b/gi, '$1 soul')
     .replace(/(?<=,\s*)BLT(?=$|[,.!?]|\s)/gi, 'but')
-    .replace(/\bYOL(?='(?:VE|RE|LL|D)\b|\s+(?:know|mean|are|were|have|can|want|need|think)\b)/gi, 'YOU')
+    .replace(/\bYOUILL\b/gi, "you'll")
+    .replace(/\bYOL['’`]?(RE|LL|VE|D)\b/gi, (_m, suf: string) => `you'${suf.toLowerCase()}`)
+    .replace(/\b(?:YOLI|YOLU|YOL)\b/gi, (m: string) => (m[0] === m[0].toUpperCase() && m.slice(1) !== m.slice(1).toUpperCase() ? 'You' : 'you'))
+    .replace(/\bYOUCAN'T\b/gi, "you can't")
+    .replace(/\bDOIT\b/gi, 'do it')
+    .replace(/\bISAID\b/gi, 'I said')
+    .replace(/\bFEELGOOD\b/gi, 'feel good')
+    .replace(/\bBECAUSEOF([A-Za-z]+)\b/gi, 'because of $1')
+    .replace(/\bCOLLD\b/gi, 'could')
+    .replace(/\bMLICH\b/gi, 'much')
+    .replace(/\bQLITE\b/gi, 'quite')
+    .replace(/\bBEOOINO\b/gi, 'begging')
+    .replace(/\bPLEASEM\b/gi, "Please, I'm")
+    .replace(/\bLIGH(?=[!.?,\s]|$)/gi, 'Ugh')
+    .replace(/\bC(?:UIM|ULM|LM)(MING|S)?\b/gi, (_m, suf = '') => `cum${suf.toLowerCase()}`)
+    .replace(/\b(?:FLCK|FUICK|FCK)(ING|ER|ERS|ED|S)?\b/gi, (_m, suf = '') => `fuck${suf.toLowerCase()}`)
+    .replace(/\bF-FLICK\b/gi, 'F-fuck')
+    .replace(/\b(what|who|how|why|where)\s+the\s+flick\b/gi, '$1 the fuck')
+    .replace(/\b(?:agh|ugh)[!.\s]+flick\b/gi, (m: string) => m.replace(/flick/i, 'fuck'))
+    .replace(/\bstart\s+flicking\s+(him|her|me|you|them)\b/gi, 'start fucking $1')
     .replace(/\b(?:itfumm|itumm|humm+)\b/gi, 'Hmm')
     .replace(/\borever\b/gi, 'forever')
     .replace(/\bwans\b/gi, 'wants')
@@ -623,6 +789,41 @@ const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): str
     .replace(/happy\s*wedding\s*lif[l1]/gi, 'Happy Wedding Life')
     .replace(/\bandif\b/gi, 'and if')
     .replace(/\bthat's([a-z]{2,})/gi, "that's $1")
+    .replace(/\bwherethehell\b/gi, (m) => (m[0] === 'W' ? 'Where the hell' : 'where the hell'))
+    .replace(/\bwhatthehell\b/gi, (m) => (m[0] === 'W' ? 'What the hell' : 'what the hell'))
+    .replace(/\bwhothehell\b/gi, 'who the hell')
+    .replace(/\bhowthehell\b/gi, 'how the hell')
+    .replace(/\bwherethe\b/gi, 'where the')
+    .replace(/\bwhatthe\b/gi, 'what the')
+    .replace(/\b(?:productionteam)\b/gi, 'Production Team')
+    .replace(/\bLOGISTICS\s+TEAM\s+PARK\s+OO\b/gi, 'Logistics Team, Park OO')
+    .replace(/\bPRODUCTION\s+TEAM\s+HONG\s+OO\b/gi, 'Production Team, Hong OO')
+    .replace(/\b(DAY|MONTH|YEAR)(XX+)\b/gi, '$1 $2')
+    .replace(/\bleedaeh[do]\b/gi, 'Lee Daeho')
+    .replace(/\bparkoo\b/gi, 'Park OO')
+    .replace(/\bhongoo\b/gi, 'Hong OO')
+    .replace(/\bcongratu[\s-]+(?:(?:l)?i)?tion\b([!?.]*)/gi, 'congratulation$1')
+    .replace(/\bBECAUISEOFYOUR\b/gi, 'BECAUSE OF YOUR')
+    .replace(/\bYOUCANT\b/gi, "YOU CAN'T")
+    .replace(/\bYOUILL\b/gi, "YOU'LL")
+    .replace(/\bGETTO\b/gi, 'GET TO')
+    .replace(/\b(YOL|YOLI|YOUI)'(RE|LL|VE|D)\b/g, "YOU'$2")
+    .replace(/\b(?:YOLI|YOUI)\b/g, 'YOU')
+    .replace(/\bYOL\b/g, (m, _off, str) =>
+      /\b[A-Z]{2,}\b/.test(str.replace(/\bYOL\b/g, '')) ? 'YOU' : m,
+    )
+    .replace(/\bCUIM(MING)?\b/gi, 'CUM$1')
+    .replace(/\b(TO|CAN|GET\s+TO)\s+CLIM\b/gi, '$1 CUM')
+    .replace(/\bMUICH\b/gi, 'MUCH')
+    .replace(/\bYOUING\b/gi, 'YOUNG')
+    .replace(/\bDIDN['’]?I\b/gi, "DIDN'T")
+    .replace(/\bPLEASEM\b/gi, "PLEASE I'M")
+    .replace(/\b(?:BEOOINO|BEGGINO)\b/gi, 'BEGGING')
+    .replace(/\b(F-?)(?:FUICK|FLCK)(ING|ER|ED|S)?\b/gi, '$1FUCK$2')
+    .replace(/\b(WHAT|WHO|HOW|WHERE|WHY)\s+THE\s+FLICK\b/gi, '$1 THE FUCK')
+    .replace(/^\s*flick([!.]*)\s*$/i, 'Fuck$1')
+    .replace(/([!?])([A-Za-z])/g, '$1 $2')
+    .replace(/\bsadari\s+game\b/gi, 'Ladder Game')
     .replace(/\bj[lu]icy\s*,?\s*cherry[\s-]*like\s*lips\b/gi, 'juicy, cherry-like lips')
     .replace(/\bcherry\s+like\s+lips\b/gi, 'cherry-like lips')
     .replace(/\bwomanly,?\s*yet\s+slim\s+body,?\s*(?:but|blt)\b/gi, 'feminine and slender body, though')
@@ -645,27 +846,38 @@ const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): str
     .replace(/\b[A-Za-z]{6,48}\b/g, (tok) => segmentGluedEnglishToken(tok))
     .replace(/\bconstitution\s+built\s+for\b/gi, 'physique built for');
 
-  // Baskın BÜYÜK HARF OCR metnini Google Çeviri'nin özel isim/kısaltma sanmaması için cümle düzenine indir
+  // Baskın BÜYÜK HARF OCR metnini (veya kısmen büyük harf bağırma kelimelerini: "DAMN, HE WON'T STOP cumming.")
+  // Google Çeviri'nin özel isim ("DAMN" -> "KAHRAMAN", "LET ME" -> "BIRAKIN") sanmaması için cümle düzenine indir
   const upperCount = (s.match(/[A-Z]/g) || []).length;
   const lowerCount = (s.match(/[a-z]/g) || []).length;
   const hasInteriorMixedCase = /[a-z][A-Z]/.test(s);
+  const allCapsShoutTokens = s.match(/\b[A-Z]{2,}(?:'[A-Z]{1,2})?\b/g) || [];
+  const KEEP_ACRONYMS = new Set([
+    'OK', 'TV', 'PC', 'UI', 'HP', 'MP', 'XP', 'LV', 'LVL', 'ID', 'VIP', 'RPG', 'NPC',
+    'DM', 'SMS', 'URL', 'CEO', 'FBI', 'CIA', 'DJ', 'AI', 'AM', 'PM', 'US', 'UK',
+    'TR', 'EN', 'OO', 'XX', 'XXX', 'II', 'III', 'IV', 'VI', 'VII', 'VIII', 'IX',
+  ]);
+  const hasAllCapsShoutWord = allCapsShoutTokens.some((tok) => !KEEP_ACRONYMS.has(tok.replace(/'[A-Z]+$/, '')));
   if (
-    upperCount >= 2 &&
-    (lowerCount <= Math.max(1, upperCount * 0.18) ||
-      ((hasInteriorMixedCase || upperCount >= 6) && lowerCount <= upperCount * 0.45))
+    hasAllCapsShoutWord ||
+    (upperCount >= 2 &&
+      (lowerCount <= Math.max(1, upperCount * 0.18) ||
+        ((hasInteriorMixedCase || upperCount >= 6) && lowerCount <= upperCount * 0.45)))
   ) {
-    s = s.toLocaleLowerCase('en-US');
-    s = s.replace(/(^|[.!?]\s+)([a-z])/g, (_, pre: string, ch: string) => `${pre}${ch.toUpperCase()}`);
+    s = s.replace(/\b([A-Z]{2,}(?:'[A-Z]{1,2})?)\b/g, (tok) =>
+      KEEP_ACRONYMS.has(tok.replace(/'[A-Z]+$/, '')) ? tok : tok.toLocaleLowerCase('en-US'),
+    );
+    s = s.replace(/(^|[.!?…]\s+|[-–—]\s*)([a-z])/g, (_, pre: string, ch: string) => `${pre}${ch.toUpperCase()}`);
     s = s.replace(/\bi\b/g, 'I').replace(/\bi(?='(?:m|ll|ve|d)\b)/g, 'I');
   }
 
   // Özel isim ve Korece/Japonca hitapları Google Çeviri'nin yanlış çevirmesini önlemek için büyük harfle koru
   s = s.replace(
-    /\b(haram|jung|hyemin|denji|pochita|koharu|seol|reim|noona|oppa|hyung|unnie|sunbae|penelope)\b/gi,
+    /\b(haram|jung|hyemin|denji|pochita|koharu|seol|reim|noona|oppa|hyung|unnie|sunbae|penelope|daeho)\b/gi,
     (w) => w[0].toUpperCase() + w.slice(1).toLowerCase(),
   );
 
-  // Kısa emir/ünlem kalıplarında sözlük mastarı ("BAKMAK.", "KUYU", "İTMEK") yerine gerçek konuşma karşılığını seç
+  // Kısa emir/ünlem kalıplarında sözlük mastarı ("BAKMAK.", "KUYU", "İTMEK", "Durmak") yerine gerçek konuşma karşılığını seç
   if (targetLang === 'tr') {
     s = s
       .replace(/^([.…]*)my\.\s+(?=\p{L})/iu, '$1Oh my, ')
@@ -673,6 +885,7 @@ const normalizeEnglishForGoogleTranslate = (raw: string, targetLang = 'tr'): str
       .replace(/^look\s*([.,!…]*)$/i, 'Look here$1')
       .replace(/^well([.!?…]*)$/i, 'Well then$1')
       .replace(/^push([.!]*)$/i, 'Push it$1')
+      .replace(/^stop([.!…]*)$/i, 'Stop it$1')
       .replace(/^confined\?$/i, 'Imprisoned?')
       .replace(/\bno one will miss (?:one|a) pair\b/gi, 'no one will notice a missing pair')
       .replace(/(?<='\p{L})["“”]/gu, '')
@@ -751,6 +964,13 @@ export const translateBatchWithGoogleFree = async (
             if (/^\s*push\s*[.!]?\s*$/i.test(origSrc)) {
               cand = 'İT';
             }
+            const sStopMatch = origSrc.match(/^\s*s-+\s*stop([.!?\s…]*)$/i);
+            if (sStopMatch) {
+              const tailPunct = (sStopMatch[1] || '').replace(/\s+/g, '');
+              cand = `D-dur${tailPunct}`;
+            } else if (/^\s*stop([.!?\s…]*)$/i.test(origSrc) && /^\s*durmak\b/i.test(cand)) {
+              cand = cand.replace(/^\s*durmak\b/i, 'Dur');
+            }
             if (/\bkendini\b/i.test(cand) && /\boldu[ğg]unuz\b/i.test(cand)) {
               cand = cand
                 .replace(/\bolduğunuz\b/gu, 'olduğun')
@@ -760,6 +980,11 @@ export const translateBatchWithGoogleFree = async (
             if (/[)\]]\s*$/.test(cand) && !cand.includes('(') && !cand.includes('[')) {
               cand = cand.replace(/[)\]]+\s*$/, '').trim();
             }
+            cand = cand.replace(
+              /\b(lojistik|üretim)\s+(?:ekip|ekibi|takımı)\s+park[ıi]\b/giu,
+              (_, dept: string) =>
+                `${dept.charAt(0).toLocaleUpperCase('tr-TR')}${dept.slice(1).toLocaleLowerCase('tr-TR')} Ekibi, Park`,
+            );
           }
           if (cand) out[origIdx] = cand;
         });
@@ -1282,12 +1507,19 @@ export const extractPageOcr = async ({
 
     ocrMs = Math.round(performance.now() - tOcrStart);
 
-    // Jenerik / ekip listesi / reklam / duyuru sayfaları hiç çevrilmez
-    const rawBubbles = ocr.isPromoPage
+    // Jenerik / ekip listesi / reklam / duyuru sayfaları ve zaten hedef dilde olan sayfalar hiç çevrilmez
+    const filteredBubbles = ocr.isPromoPage
       ? []
       : workingBubbles.filter(
-          (bubble) => bubble.seamEraseOnly || !shouldSkipBlock(bubble.text, targetLang),
+          (bubble) => bubble.seamEraseOnly || !shouldSkipBlock(bubble.text, targetLang, bubble.box, bubble.lines),
         );
+
+    const rawBubbles = isPageAlreadyInTargetLanguage(
+      filteredBubbles.filter((b) => !b.seamEraseOnly).map((b) => b.text),
+      targetLang,
+    )
+      ? []
+      : filteredBubbles;
 
     return {
       fullCanvas,
@@ -1342,6 +1574,18 @@ export const translateAndInpaintPage = async ({
       }
     });
 
+    if (
+      isPageAlreadyInTargetLanguage(
+        translatableIndices.map((idx) => rawBubbles[idx].text),
+        targetLang,
+      )
+    ) {
+      return {
+        blocks: [],
+        timings: { ocrMs, transMs: 0, totalMs: Math.round(performance.now() - tStart) },
+      };
+    }
+
     const effectiveKeys = normalizeApiKeysList(apiKeys, apiKey);
     if (translatableIndices.length > 0 && provider === 'gemini' && effectiveKeys.length === 0) {
       throw new Error('API_KEY_INVALID: Gemini API anahtarı bulunamadı.');
@@ -1391,68 +1635,77 @@ export const translateAndInpaintPage = async ({
     }
 
     const allBubbleBoxes = rawBubbles.map((b) => b.box);
+    const blocks: TranslationBlock[] = [];
 
-    const blocks = rawBubbles
-      .map((bubble, idx) => {
-        const siblingBoxes = allBubbleBoxes.filter((_, sIdx) => sIdx !== idx);
-        if (bubble.seamEraseOnly) {
-          return inpaintAndRefineBlock(
-            fullCtx,
-            fullWidth,
-            fullHeight,
-            {
-              box: bubble.box,
-              text: '',
-              originalText: bubble.text,
-              lines: bubble.lines,
-            },
-            targetLang,
-            { siblingBoxes },
-          );
-        }
-
-        let translated = (translatedByIndex.get(idx) || bubble.text)
-          .replace(/<[^>]{1,32}>/g, ' ')
-          .replace(/[<>]+/g, ' ')
-          .replace(/\s+/g, ' ')
-          .trim();
-        if (targetLang === 'tr') {
-          translated = translated
-            .replace(/\bAH KAHRAMAN\b/gi, 'AH LANET')
-            .replace(/\bxiulian\b/gi, 'gelişim');
-          if (
-            /\bconstitution\b/i.test(bubble.text) &&
-            /\b(?:body|martial|unique|special|amplif|talent|spirit|qi|innate|divine|devil)\b/i.test(bubble.text)
-          ) {
-            translated = translated.replace(/\banayasa(?:ya|sı|sını|sında|yı|mız|nın)?\b/gi, (m) =>
-              m === m.toUpperCase() ? 'BÜNYE' : 'Bünye',
-            );
-          }
-        }
-        if (
-          translated === '[SFX]' ||
-          translated.toUpperCase() === '[SFX]' ||
-          shouldSkipBlock(translated, targetLang)
-        ) {
-          return null;
-        }
-        if (normalizeForCompare(translated) === normalizeForCompare(bubble.text)) return null;
-        return inpaintAndRefineBlock(
+    for (let idx = 0; idx < rawBubbles.length; idx += 1) {
+      if (signal?.aborted) {
+        throw new DOMException('İptal edildi', 'AbortError');
+      }
+      if (idx > 0 && idx % 3 === 0) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+      const bubble = rawBubbles[idx];
+      const siblingBoxes = allBubbleBoxes.filter((_, sIdx) => sIdx !== idx);
+      if (bubble.seamEraseOnly) {
+        const refined = inpaintAndRefineBlock(
           fullCtx,
           fullWidth,
           fullHeight,
           {
             box: bubble.box,
-            text: translated,
+            text: '',
             originalText: bubble.text,
             lines: bubble.lines,
-            emphasisLastLineScale: bubble.emphasisLastLineScale,
           },
           targetLang,
           { siblingBoxes },
         );
-      })
-      .filter((block): block is TranslationBlock => block !== null);
+        if (refined) blocks.push(refined);
+        continue;
+      }
+
+      let translated = (translatedByIndex.get(idx) || bubble.text)
+        .replace(/<[^>]{1,32}>/g, ' ')
+        .replace(/[<>]+/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+      if (targetLang === 'tr') {
+        translated = translated
+          .replace(/\bAH KAHRAMAN\b/gi, 'AH LANET')
+          .replace(/\bxiulian\b/gi, 'gelişim');
+        if (
+          /\bconstitution\b/i.test(bubble.text) &&
+          /\b(?:body|martial|unique|special|amplif|talent|spirit|qi|innate|divine|devil)\b/i.test(bubble.text)
+        ) {
+          translated = translated.replace(/\banayasa(?:ya|sı|sını|sında|yı|mız|nın)?\b/gi, (m) =>
+            m === m.toUpperCase() ? 'BÜNYE' : 'Bünye',
+          );
+        }
+      }
+      if (
+        translated === '[SFX]' ||
+        translated.toUpperCase() === '[SFX]' ||
+        shouldSkipBlock(translated, targetLang)
+      ) {
+        continue;
+      }
+      if (normalizeForCompare(translated) === normalizeForCompare(bubble.text)) continue;
+      const refined = inpaintAndRefineBlock(
+        fullCtx,
+        fullWidth,
+        fullHeight,
+        {
+          box: bubble.box,
+          text: translated,
+          originalText: bubble.text,
+          lines: bubble.lines,
+          emphasisLastLineScale: bubble.emphasisLastLineScale,
+        },
+        targetLang,
+        { siblingBoxes },
+      );
+      if (refined) blocks.push(refined);
+    }
 
     return {
       blocks,

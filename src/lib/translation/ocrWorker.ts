@@ -30,6 +30,7 @@ export interface OcrWorkerResponse {
   id: number;
   ok: boolean;
   lines?: OcrLine[];
+  buffer?: ArrayBuffer;
   error?: string;
   aborted?: boolean;
 }
@@ -57,6 +58,7 @@ const loadRunners = (): Promise<OcrRunners> => {
     runnersPromise = (async () => {
       const origin = self.location.origin;
       ort.env.wasm.wasmPaths = `${origin}/ort/`;
+      ort.env.wasm.simd = true;
       ort.env.wasm.numThreads = self.crossOriginIsolated
         ? Math.max(1, Math.min(4, (self.navigator.hardwareConcurrency || 2) - 1))
         : 1;
@@ -85,7 +87,14 @@ const loadRunners = (): Promise<OcrRunners> => {
   return runnersPromise;
 };
 
-const post = (msg: OcrWorkerResponse) => (self as unknown as DedicatedWorkerGlobalScope).postMessage(msg);
+const post = (msg: OcrWorkerResponse, transfer?: Transferable[]) => {
+  const scope = self as unknown as DedicatedWorkerGlobalScope;
+  if (transfer && transfer.length > 0) {
+    scope.postMessage(msg, transfer);
+  } else {
+    scope.postMessage(msg);
+  }
+};
 
 self.onmessage = (event: MessageEvent<IncomingMessage>) => {
   const msg = event.data;
@@ -115,7 +124,7 @@ self.onmessage = (event: MessageEvent<IncomingMessage>) => {
           runners,
           controller.signal,
         );
-        post({ id: msg.id, ok: true, lines });
+        post({ id: msg.id, ok: true, lines, buffer: msg.buffer }, [msg.buffer]);
       } finally {
         clearInterval(watcher);
         cancelled.delete(msg.id);

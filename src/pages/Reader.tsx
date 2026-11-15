@@ -66,7 +66,7 @@ import { syncMangaToExternalProviders } from '@/lib/externalSync';
 import { useDeviceProfile } from '@/hooks/use-device-profile';
 import { shouldAvoidRawImageFallback } from '@/lib/imageProxy';
 import { buildProxiedImageUrl } from '@/lib/mediaStorage';
-import { resolveChapterLanguageCode } from '@/lib/seriesLanguage';
+import { getSeriesLanguage, resolveChapterLanguageCode } from '@/lib/seriesLanguage';
 
 let persistedAutoScrollIntent = false;
 const MIN_READING_SESSION_SECONDS = 1;
@@ -270,12 +270,18 @@ const Reader: React.FC = () => {
     () => (isCurrentChapterLoaded ? resolvedPages : []),
     [isCurrentChapterLoaded, resolvedPages],
   );
+  const activeChapterLanguageCode = useMemo(() => {
+    if (!isCurrentChapterLoaded || !chapter) return undefined;
+    if (!manga) return 'pending';
+    return resolveChapterLanguageCode(chapter, getSeriesLanguage(manga));
+  }, [chapter, isCurrentChapterLoaded, manga]);
 
   const translation = useChapterTranslation({
     chapterId: chapterId || '',
     pages: activeChapterPages,
     currentPage,
     networkEnabled: canUseNetworkReaderFeatures,
+    sourceLang: activeChapterLanguageCode,
   });
   const [pageCommentModalPage, setPageCommentModalPage] = useState<number | null>(null);
   const readingSessionStartedAt = useRef<number | null>(null);
@@ -1475,9 +1481,10 @@ const Reader: React.FC = () => {
       return undefined;
     }
 
-    const currentLang = resolveChapterLanguageCode(chapter);
+    const seriesLang = getSeriesLanguage(manga);
+    const currentLang = resolveChapterLanguageCode(chapter, seriesLang);
     const sameLangChapters = manga.chapters.filter(
-      (chapterItem: any) => resolveChapterLanguageCode(chapterItem) === currentLang
+      (chapterItem: any) => resolveChapterLanguageCode(chapterItem, seriesLang) === currentLang
     );
     const candidateList = sameLangChapters.length > 0 ? sameLangChapters : manga.chapters;
     const currentIndex = candidateList.findIndex((chapterItem: any) => chapterItem.id === chapter.id);
@@ -1487,6 +1494,11 @@ const Reader: React.FC = () => {
 
     return candidateList[currentIndex - 1];
   }, [chapter, manga]);
+
+  const nextChapterLanguageCode = useMemo(() => {
+    if (!nextChapter || !manga) return undefined;
+    return resolveChapterLanguageCode(nextChapter, getSeriesLanguage(manga));
+  }, [manga, nextChapter]);
 
   const hasValidTranslationProvider =
     translation.settings.provider !== 'gemini' || translation.effectiveKeyCount > 0;
@@ -1498,6 +1510,7 @@ const Reader: React.FC = () => {
     || (
       translation.enabled
       && translation.settings.autoTranslate
+      && !translation.isSameLanguageAsTarget
       && !translation.wasCancelledManually
       && hasValidTranslationProvider
       && translation.summary.doneCount + translation.summary.errorCount < activeChapterPages.length
@@ -1507,6 +1520,7 @@ const Reader: React.FC = () => {
   const nextChapterTranslation = useNextChapterTranslation({
     currentChapterId: chapterId,
     nextChapter,
+    nextChapterSourceLang: nextChapterLanguageCode,
     isCurrentChapterBusy: isCurrentChapterTranslationPending,
     networkEnabled: canUseNetworkReaderFeatures && !isOfflineChapter,
     settings: translation.settings,

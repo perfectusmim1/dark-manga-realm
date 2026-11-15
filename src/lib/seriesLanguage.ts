@@ -166,13 +166,22 @@ export const LANGUAGE_CONFIG: Record<string, SeriesLanguageInfo> = Object.fromEn
 export function normalizeLanguageCode(rawCode?: string | null): string {
   const code = String(rawCode || '').trim().toLowerCase();
   if (!code) return 'tr';
-  if (code === 'tr' || code === 'turkish' || code === 'türkçe') return 'tr';
-  if (code === 'en' || code === 'eng' || code === 'english' || code === 'ingilizce') return 'en';
-  if (code === 'es' || code === 'es-la' || code === 'es-419' || code === 'spa') return 'es';
-  if (code === 'pt' || code === 'pt-br' || code === 'por') return 'pt-br';
-  if (code === 'zh' || code === 'zh-hk' || code === 'zh-cn' || code === 'zh-tw') return 'zh';
-  if (code === 'jp' || code === 'ja') return 'ja';
-  if (code === 'kr' || code === 'ko') return 'ko';
+  if (code === 'tr' || code === 'tr-tr' || code === 'tur' || code === 'turkish' || code === 'türkçe' || code === 'turkce') return 'tr';
+  if (code === 'en' || code === 'en-us' || code === 'en-gb' || code === 'eng' || code === 'english' || code === 'ingilizce') return 'en';
+  if (code === 'es' || code === 'es-la' || code === 'es-es' || code === 'es-419' || code === 'spa' || code === 'esp' || code === 'spanish' || code === 'español' || code === 'espanol' || code === 'ispanyolca') return 'es';
+  if (code === 'pt' || code === 'pt-br' || code === 'pt_br' || code === 'por' || code === 'portuguese' || code === 'português' || code === 'portugues' || code === 'portekizce') return 'pt-br';
+  if (code === 'fr' || code === 'fr-fr' || code === 'fre' || code === 'fra' || code === 'french' || code === 'français' || code === 'francais' || code === 'fransızca') return 'fr';
+  if (code === 'de' || code === 'de-de' || code === 'ger' || code === 'deu' || code === 'german' || code === 'deutsch' || code === 'almanca') return 'de';
+  if (code === 'it' || code === 'it-it' || code === 'ita' || code === 'italian' || code === 'italiano' || code === 'italyanca') return 'it';
+  if (code === 'pl' || code === 'pl-pl' || code === 'pol' || code === 'polish' || code === 'polski' || code === 'lehçe') return 'pl';
+  if (code === 'ru' || code === 'ru-ru' || code === 'rus' || code === 'russian' || code === 'русский' || code === 'rusça') return 'ru';
+  if (code === 'vi' || code === 'vi-vn' || code === 'vie' || code === 'vietnamese' || code === 'tiếng việt' || code === 'tieng viet' || code === 'vietnamca') return 'vi';
+  if (code === 'id' || code === 'id-id' || code === 'ind' || code === 'indo' || code === 'indonesian' || code === 'bahasa' || code === 'bahasa indonesia' || code === 'endonezce') return 'id';
+  if (code === 'th' || code === 'th-th' || code === 'tha' || code === 'thai' || code === 'tayca') return 'th';
+  if (code === 'ar' || code === 'ar-sa' || code === 'ara' || code === 'arabic' || code === 'arapça' || code === 'العربية') return 'ar';
+  if (code === 'zh' || code === 'cn' || code === 'chi' || code === 'zho' || code === 'zh-hk' || code === 'zh-cn' || code === 'zh-tw' || code === 'chinese' || code === 'çince') return 'zh';
+  if (code === 'jp' || code === 'ja' || code === 'ja-jp' || code === 'jpn' || code === 'japanese' || code === 'japonca') return 'ja';
+  if (code === 'kr' || code === 'ko' || code === 'ko-kr' || code === 'kor' || code === 'korean' || code === 'korece') return 'ko';
   return code;
 }
 
@@ -195,27 +204,80 @@ export function getLanguageInfoByCode(rawCode?: string | null): SeriesLanguageIn
   };
 }
 
+const TITLE_TAG_TO_LANG: ReadonlyArray<readonly [RegExp, string]> = [
+  [/^(?:raw|raw\s+scan|original|orijinal)$/iu, 'raw'],
+  [/^(?:tr|türkçe(?:\s+çeviri)?|turkce(?:\s+ceviri)?|turkish)$/iu, 'tr'],
+  [/^(?:en|eng|english|ingilizce(?:\s+çeviri)?|ingilizce\s+ceviri)$/iu, 'en'],
+  [/^(?:es|esp|es-la|es-419|spa|español|espanol|spanish|ispanyolca)$/iu, 'es'],
+  [/^(?:pt|pt-br|pt_br|por|português|portugues|portuguese|portekizce)$/iu, 'pt-br'],
+  [/^(?:fr|fra|fre|français|francais|french|fransızca)$/iu, 'fr'],
+  [/^(?:de|ger|deu|deutsch|german|almanca)$/iu, 'de'],
+  [/^(?:it|ita|italiano|italian|italyanca)$/iu, 'it'],
+  [/^(?:pl|pol|polski|polish|lehçe)$/iu, 'pl'],
+  [/^(?:ru|rus|русский|russian|rusça)$/iu, 'ru'],
+  [/^(?:vi|vie|tiếng\s*việt|tieng\s*viet|vietnamese|vietnamca)$/iu, 'vi'],
+  [/^(?:id|ind|indo|indonesian|bahasa(?:\s+indonesia)?|endonezce)$/iu, 'id'],
+  [/^(?:th|tha|thai|tayca|ไทย)$/iu, 'th'],
+  [/^(?:ar|ara|arabic|arapça|العربية)$/iu, 'ar'],
+  [/^(?:ja|jp|jpn|japanese|japonca|日本語)$/iu, 'ja'],
+  [/^(?:ko|kr|kor|korean|korece|한국어)$/iu, 'ko'],
+  [/^(?:zh|cn|chi|zho|zh-cn|zh-tw|zh-hk|chinese|çince|中文)$/iu, 'zh'],
+];
+
+function detectExplicitLanguageInTitle(rawTitle?: string | null): string | null {
+  const title = String(rawTitle || '').trim();
+  if (!title) return null;
+
+  // 1. Parantez/köşeli parantez içindeki etiketler: [TR], (Türkçe), [EN], [RAW], (PT-BR) vb.
+  const bracketMatches = title.matchAll(/[\[({]\s*([^\]\)}]{1,40})\s*[\])}]/gu);
+  for (const m of bracketMatches) {
+    const inner = (m[1] || '').trim();
+    for (const [pattern, code] of TITLE_TAG_TO_LANG) {
+      if (pattern.test(inner)) return code;
+    }
+  }
+
+  // 2. Satır sonu ayıraçlı kısa kod/isim: "Bölüm 12 - TR", "Chapter 5 | EN", "Ch 3 - RAW", "Bölüm 8 Türkçe"
+  const sepCodeMatch = title.match(/(?:^|\s|[-–—|/])[-–—|/]\s*([a-zA-Z]{2,5}(?:-[a-zA-Z]{2,4})?)\s*$/u);
+  if (sepCodeMatch) {
+    const tok = sepCodeMatch[1].trim();
+    for (const [pattern, code] of TITLE_TAG_TO_LANG) {
+      if (pattern.test(tok)) return code;
+    }
+  }
+
+  const trailingWordMatch = title.match(
+    /(?:^|[\s\-–—|/])(raw|türkçe(?:\s+çeviri)?|turkish|ingilizce(?:\s+çeviri)?|english|español|spanish|português|portuguese|français|french|deutsch|german|italiano|italian|polski|polish|русский|russian|tiếng\s*việt|vietnamese|indonesian|arabic|japanese|japonca|korean|korece|chinese|çince)\s*$/iu,
+  );
+  if (trailingWordMatch) {
+    const tok = trailingWordMatch[1].trim();
+    for (const [pattern, code] of TITLE_TAG_TO_LANG) {
+      if (pattern.test(tok)) return code;
+    }
+  }
+
+  return null;
+}
+
 export function resolveChapterLanguageCode(
-  chapter?: Partial<Chapter> | { title?: string | null; pages?: string[]; language?: string | null } | null,
+  chapter?: string | Partial<Chapter> | { title?: string | null; pages?: string[]; language?: string | null } | null,
   fallbackSeriesLang?: string | null,
 ): string {
   if (!chapter) return normalizeLanguageCode(fallbackSeriesLang || 'tr');
-  const explicitLang = (chapter as any).language;
+  const title = typeof chapter === 'string' ? chapter : String(chapter.title || '');
+  const titleTagLang = detectExplicitLanguageInTitle(title);
+  if (titleTagLang) {
+    return titleTagLang;
+  }
+  const explicitLang = typeof chapter === 'object' && chapter !== null ? (chapter as any).language : undefined;
   if (typeof explicitLang === 'string' && explicitLang.trim()) {
     return normalizeLanguageCode(explicitLang);
-  }
-  const titleLower = String(chapter.title || '').toLowerCase();
-  if (titleLower.includes('[raw]') || titleLower.includes('(raw)')) {
-    return 'raw';
-  }
-  if (titleLower.includes('[en]') || titleLower.includes('(en)') || titleLower.includes('[english]')) {
-    return 'en';
   }
   return normalizeLanguageCode(fallbackSeriesLang || 'tr');
 }
 
 export function getChapterLanguageInfo(
-  chapter?: Partial<Chapter> | { title?: string | null; pages?: string[]; language?: string | null } | null,
+  chapter?: string | Partial<Chapter> | { title?: string | null; pages?: string[]; language?: string | null } | null,
   fallbackSeriesLang?: string | null,
 ): SeriesLanguageInfo {
   return getLanguageInfoByCode(resolveChapterLanguageCode(chapter, fallbackSeriesLang));
@@ -229,16 +291,21 @@ export function getSeriesLanguage(manga?: Partial<Manga> | null): SeriesLanguage
 
   const titleLower = (manga.title || '').toLowerCase();
   const slugLower = ((manga as any)?.slug || '').toLowerCase();
+  const titleTagLang = detectExplicitLanguageInTitle(manga.title);
 
-  // 1. RAW check by title or slug
+  // 1. RAW / explicit language check by title or slug
   if (
+    titleTagLang === 'raw' ||
     titleLower.includes('(raw)') ||
+    titleLower.includes('[raw]') ||
     titleLower.includes(' raw') ||
     titleLower.endsWith('-raw') ||
     slugLower.endsWith('-raw')
   ) {
     return 'raw';
   }
+  if (titleTagLang === 'en') return 'en';
+  if (titleTagLang === 'tr') return 'tr';
 
   // 2. Explicit metadata details.language or availableLanguages
   const detailsObj = (manga.details as any) || {};

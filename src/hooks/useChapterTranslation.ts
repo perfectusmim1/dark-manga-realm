@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import { ResolvedReaderPage } from '@/lib/types';
+import { normalizeLanguageCode } from '@/lib/seriesLanguage';
 import { PageTranslationState, TranslationBlock } from '@/lib/translation/types';
 import {
   TranslationSettings,
@@ -79,6 +80,7 @@ export interface TranslationSummary {
 export interface ReaderTranslationApi {
   enabled: boolean;
   cacheReady: boolean;
+  isSameLanguageAsTarget: boolean;
   wasCancelledManually: boolean;
   effectiveKeyCount: number;
   hasTranslatedPages: boolean;
@@ -100,6 +102,7 @@ interface UseChapterTranslationOptions {
   pages: ResolvedReaderPage[];
   currentPage: number;
   networkEnabled: boolean;
+  sourceLang?: string;
 }
 
 export const useChapterTranslation = ({
@@ -107,6 +110,7 @@ export const useChapterTranslation = ({
   pages,
   currentPage,
   networkEnabled,
+  sourceLang,
 }: UseChapterTranslationOptions): ReaderTranslationApi => {
   const [settings, setSettings] = useState<TranslationSettings>(() => loadTranslationSettings());
   const [pageStates, setPageStates] = useState<Record<number, PageTranslationState>>({});
@@ -704,11 +708,23 @@ export const useChapterTranslation = ({
 
   const effectiveKeyCount = getEffectiveApiKeys(settings).length;
   const requiresApiKey = settings.provider === 'gemini';
+  const isSourceLangPending = sourceLang === 'pending';
+  const normalizedSourceLang =
+    sourceLang && sourceLang !== 'pending' && sourceLang !== 'raw'
+      ? normalizeLanguageCode(sourceLang)
+      : null;
+  const normalizedTargetLang = normalizeLanguageCode(settings.targetLang);
+  const isSameLanguageAsTarget = Boolean(
+    normalizedSourceLang && normalizedSourceLang === normalizedTargetLang,
+  );
 
   // Otomatik çeviri: önbellek yüklendikten sonra çevrilmemiş sayfaları KESİNLİKLE 1. sayfadan (0'dan) itibaren baştan sona sırayla kuyruğa alır.
+  // Kaynak dil hedef dille aynıysa (ör. Türkçe bölüm + hedef dil Türkçe) otomatik çeviriyi hiç başlatmaz.
   useEffect(() => {
     if (
       !settings.autoTranslate ||
+      isSourceLangPending ||
+      isSameLanguageAsTarget ||
       wasCancelledManually ||
       wasCancelledManuallyRef.current ||
       (requiresApiKey && effectiveKeyCount === 0) ||
@@ -734,6 +750,8 @@ export const useChapterTranslation = ({
     enqueueIndices(additions);
   }, [
     settings.autoTranslate,
+    isSourceLangPending,
+    isSameLanguageAsTarget,
     requiresApiKey,
     effectiveKeyCount,
     settings.targetLang,
@@ -821,6 +839,7 @@ export const useChapterTranslation = ({
   return {
     enabled: networkEnabled,
     cacheReady,
+    isSameLanguageAsTarget,
     wasCancelledManually,
     effectiveKeyCount,
     hasTranslatedPages: summary.doneCount > 0,
