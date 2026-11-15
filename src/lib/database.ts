@@ -8795,6 +8795,170 @@ export const getMangaReadersList = async (
     };
 };
 
+export interface MangaDetailMeta extends MangaReadersSummary {
+    allTimeRank: number | null;
+    totalRanked: number;
+}
+
+export interface AllTimeMangaRanksResult {
+    orderedIds: string[];
+    rankById: Map<string, number>;
+    total: number;
+}
+
+const MANGA_DETAIL_META_TTL_MS = 2 * 60 * 1000;
+const mangaDetailMetaCache = new Map<string, { fetchedAt: number; value: MangaDetailMeta }>();
+const mangaDetailMetaInFlight = new Map<string, Promise<MangaDetailMeta>>();
+
+const ALL_TIME_RANKS_TTL_MS = 5 * 60 * 1000;
+const allTimeRanksCache = new Map<'all' | 'safe', { fetchedAt: number; value: AllTimeMangaRanksResult }>();
+const allTimeRanksInFlight = new Map<'all' | 'safe', Promise<AllTimeMangaRanksResult>>();
+
+const mapReaderAvatars = (raw: unknown): MangaReaderAvatar[] =>
+    Array.isArray(raw)
+        ? raw
+            .filter((item): item is Record<string, unknown> => Boolean(item && typeof item === 'object' && 'id' in item && item.id))
+            .map((item) => ({
+                id: String(item.id),
+                username: String(item.username || 'Okur'),
+                avatar: item.avatar ? String(item.avatar) : null,
+            }))
+        : [];
+
+const callUntypedRpc = <T = unknown>(
+    fn: string,
+    params: Record<string, unknown>,
+) => (supabase.rpc as unknown as (name: string, args: Record<string, unknown>) => Promise<{ data: T | null; error: unknown }>)(fn, params);
+
+export const invalidateMangaDetailMetaCache = (mangaId?: string) => {
+    if (!mangaId) {
+        mangaDetailMetaCache.clear();
+        return;
+    }
+    for (const key of mangaDetailMetaCache.keys()) {
+        if (key.startsWith(`${mangaId}:`)) {
+            mangaDetailMetaCache.delete(key);
+        }
+    }
+};
+
+export const getMangaDetailMeta = async (
+    mangaId: string,
+    includeAdult: boolean = false,
+): Promise<MangaDetailMeta> => {
+    const cleanId = mangaId?.trim();
+    if (!cleanId) {
+        return {
+            allTimeRank: null,
+            totalRanked: 0,
+            activeCount: 0,
+            libraryCount: 0,
+            activeAvatars: [],
+            libraryAvatars: [],
+        };
+    }
+
+    const cacheKey = `${cleanId}:${includeAdult ? 'all' : 'safe'}`;
+    const cached = mangaDetailMetaCache.get(cacheKey);
+    if (cached && Date.now() - cached.fetchedAt < MANGA_DETAIL_META_TTL_MS) {
+        return cached.value;
+    }
+
+    const existingPromise = mangaDetailMetaInFlight.get(cacheKey);
+    if (existingPromise) {
+        return existingPromise;
+    }
+
+    const requestPromise = (async (): Promise<MangaDetailMeta> => {
+        const { data, error } = await callUntypedRpc<Record<string, unknown>>('get_manga_detail_meta', {
+            p_manga_id: cleanId,
+            p_include_adult: Boolean(includeAdult),
+        });
+
+        if (error || !data || typeof data !== 'object') {
+            return {
+                allTimeRank: null,
+                totalRanked: 0,
+                activeCount: 0,
+                libraryCount: 0,
+                activeAvatars: [],
+                libraryAvatars: [],
+            };
+        }
+
+        const payload = data;
+        const rawRank = Number(payload.allTimeRank);
+        const value: MangaDetailMeta = {
+            allTimeRank: Number.isFinite(rawRank) && rawRank > 0 ? Math.floor(rawRank) : null,
+            totalRanked: Number(payload.totalRanked ?? 0) || 0,
+            activeCount: Number(payload.activeCount ?? 0) || 0,
+            libraryCount: Number(payload.libraryCount ?? 0) || 0,
+            activeAvatars: mapReaderAvatars(payload.activeAvatars),
+            libraryAvatars: mapReaderAvatars(payload.libraryAvatars),
+        };
+
+        mangaDetailMetaCache.set(cacheKey, { fetchedAt: Date.now(), value });
+        return value;
+    })().finally(() => {
+        mangaDetailMetaInFlight.delete(cacheKey);
+    });
+
+    mangaDetailMetaInFlight.set(cacheKey, requestPromise);
+    return requestPromise;
+};
+
+export const getAllTimeMangaRanks = async (
+    includeAdult: boolean = false,
+): Promise<AllTimeMangaRanksResult> => {
+    const scopeKey = includeAdult ? 'all' : 'safe';
+    const cached = allTimeRanksCache.get(scopeKey);
+    if (cached && Date.now() - cached.fetchedAt < ALL_TIME_RANKS_TTL_MS) {
+        return cached.value;
+    }
+
+    const existingPromise = allTimeRanksInFlight.get(scopeKey);
+    if (existingPromise) {
+        return existingPromise;
+    }
+
+    const requestPromise = (async (): Promise<AllTimeMangaRanksResult> => {
+        const { data, error } = await callUntypedRpc<Record<string, unknown>>('get_all_time_manga_ranks', {
+            p_include_adult: Boolean(includeAdult),
+        });
+
+        if (error || !data || typeof data !== 'object') {
+            return { orderedIds: [], rankById: new Map(), total: 0 };
+        }
+
+        const payload = data;
+        const rawIds = Array.isArray(payload.orderedIds) ? payload.orderedIds : [];
+        const orderedIds: string[] = [];
+        const rankById = new Map<string, number>();
+
+        for (const item of rawIds) {
+            const id = typeof item === 'string' ? item : '';
+            if (!id || rankById.has(id)) continue;
+            const rank = orderedIds.length + 1;
+            orderedIds.push(id);
+            rankById.set(id, rank);
+        }
+
+        const value: AllTimeMangaRanksResult = {
+            orderedIds,
+            rankById,
+            total: Number(payload.total ?? orderedIds.length) || orderedIds.length,
+        };
+
+        allTimeRanksCache.set(scopeKey, { fetchedAt: Date.now(), value });
+        return value;
+    })().finally(() => {
+        allTimeRanksInFlight.delete(scopeKey);
+    });
+
+    allTimeRanksInFlight.set(scopeKey, requestPromise);
+    return requestPromise;
+};
+
 export const getChapterLikesSummary = async (
     mangaId: string,
 ): Promise<Record<string, ChapterLikeInfo>> => {

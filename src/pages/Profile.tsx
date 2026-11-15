@@ -10,10 +10,13 @@ import { Shield, Settings, Calendar, BookOpen, Book, MessageSquare, History, Glo
 import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Textarea } from '@/components/ui/textarea';
+import { renderRichContent } from '@/lib/richTextRender';
 import { formatReadingDuration, getUserProfile, followUser, unfollowUser, blockUser, unblockUser, type ProfileRecentComment, type ProfileRecentReview } from '@/lib/profile';
 import { createProfileReport } from '@/lib/database';
 import { useToast } from "@/components/ui/use-toast";
@@ -32,7 +35,7 @@ import useDocumentTitle from '@/hooks/useDocumentTitle';
 const Profile: React.FC = () => {
   const { userId } = useParams<{ userId: string }>();
   const [searchParams, setSearchParams] = useSearchParams();
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, updatePreferences } = useAuth();
   const { isOnline } = useEffectiveOnlineStatus();
   const navigate = useNavigate();
   
@@ -49,11 +52,78 @@ const Profile: React.FC = () => {
   const [profileReportDetails, setProfileReportDetails] = useState('');
   const [isSubmittingProfileReport, setIsSubmittingProfileReport] = useState(false);
   const [listModalType, setListModalType] = useState<'followers' | 'following' | null>(null);
+  const [revealedCommentSpoilers, setRevealedCommentSpoilers] = useState<Record<string, boolean>>({});
+  const [heroBannerLoadFailed, setHeroBannerLoadFailed] = useState(false);
+  const [isQuickEditOpen, setIsQuickEditOpen] = useState(false);
+  const [quickBannerUrl, setQuickBannerUrl] = useState('');
+  const [quickBio, setQuickBio] = useState('');
+  const [quickBannerPreviewFailed, setQuickBannerPreviewFailed] = useState(false);
+  const [isSavingQuickEdit, setIsSavingQuickEdit] = useState(false);
   const { toast } = useToast();
 
   useDocumentTitle(profileData?.username ? `${profileData.username} - Profil` : 'Profil');
   
   const isOwnProfile = currentUser?.id === userId;
+
+  const isValidOptionalBannerUrl = (value: string) => {
+    const trimmed = value.trim();
+    if (!trimmed) return true;
+    return trimmed.length <= 1000 && /^https?:\/\/[^\s<>"'`]+$/i.test(trimmed);
+  };
+
+  const openQuickEditDialog = () => {
+    setQuickBannerUrl(profileData?.bannerUrl || currentUser?.preferences?.profile?.banner_url || '');
+    setQuickBio(profileData?.bio || currentUser?.preferences?.profile?.bio || '');
+    setQuickBannerPreviewFailed(false);
+    setIsQuickEditOpen(true);
+  };
+
+  const handleSaveQuickProfile = async () => {
+    if (!currentUser || !isOwnProfile) return;
+    if (!isValidOptionalBannerUrl(quickBannerUrl)) {
+      toast({
+        title: 'Geçersiz bağlantı',
+        description: 'Banner URL geçerli bir http:// veya https:// bağlantısı olmalıdır.',
+        variant: 'destructive',
+      });
+      return;
+    }
+
+    const nextBio = quickBio.trim().slice(0, 280);
+    const nextBannerUrl = quickBannerUrl.trim().slice(0, 1000);
+
+    try {
+      setIsSavingQuickEdit(true);
+      const result = await updatePreferences({
+        ...(currentUser.preferences || {}),
+        profile: {
+          bio: nextBio,
+          banner_url: nextBannerUrl,
+        },
+      });
+      if (!result.success) {
+        toast({
+          title: 'Hata',
+          description: result.error || 'Profil güncellenemedi.',
+          variant: 'destructive',
+        });
+        return;
+      }
+
+      setHeroBannerLoadFailed(false);
+      setProfileData((prev: Record<string, unknown> | null) => (prev ? { ...prev, bio: nextBio, bannerUrl: nextBannerUrl } : prev));
+      setIsQuickEditOpen(false);
+      toast({ title: 'Profil güncellendi' });
+    } catch {
+      toast({
+        title: 'Hata',
+        description: 'Profil güncellenemedi.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsSavingQuickEdit(false);
+    }
+  };
   const profileReportReasons = [
     'Sahte veya yanıltıcı profil',
     'Taciz veya tehdit',
@@ -76,6 +146,8 @@ const Profile: React.FC = () => {
         }
         
         setLoading(true);
+        setHeroBannerLoadFailed(false);
+        setRevealedCommentSpoilers({});
         const profile = await getUserProfile(userId, currentUser?.id);
         const profileVisible = profile.sectionAccess?.profile ?? true;
 
@@ -163,12 +235,15 @@ const Profile: React.FC = () => {
   ];
   const requestedTab = searchParams.get('tab') || 'overview';
   const activeTab = visibleTabs.includes(requestedTab) ? requestedTab : visibleTabs[0];
-  const heroBackdropImage =
+  const customBannerUrl = !heroBannerLoadFailed && profileData.bannerUrl ? profileData.bannerUrl : null;
+  const fallbackBackdropImage =
     profileData.recentReads?.[0]?.mangas?.banner
     || profileData.recentReads?.[0]?.mangas?.cover
     || profileData.followedManga?.[0]?.cover
     || profileData.avatar
     || null;
+  const heroBackdropImage = customBannerUrl || fallbackBackdropImage;
+  const hasCustomBanner = Boolean(customBannerUrl);
   const listTotalCount = (canViewReadingLists ? readingLists.length : 0) + (canViewTierLists ? tierLists.length : 0);
   const reviewsCount = (profileData.recentReviews || []).length;
   const followedMangaCount = (profileData.followedManga || []).length;
@@ -275,30 +350,45 @@ const Profile: React.FC = () => {
     <div className="min-h-screen overflow-x-clip bg-background">
       <Header />
       
-      <main className="container overflow-x-clip pt-20 sm:pt-24 pb-12">
-        {/* Profile Header */}
-        <section className="relative overflow-hidden rounded-3xl border border-border/70 bg-card/85 shadow-xl">
+      <main className="overflow-x-clip pb-12">
+        {/* KoUp TV+-Style Full-Width Fading Hero */}
+        <section className="relative w-full overflow-hidden bg-background pt-16 sm:pt-20">
           {heroBackdropImage ? (
             <>
               <img
                 src={heroBackdropImage}
-                alt=""
-                aria-hidden
-                className="pointer-events-none absolute inset-0 h-full w-full scale-105 object-cover object-center opacity-25 blur-[2px] brightness-75 select-none"
+                alt={`${profileData.username} profil bannerı`}
+                fetchPriority="high"
+                onError={() => {
+                  if (hasCustomBanner) {
+                    setHeroBannerLoadFailed(true);
+                  }
+                }}
+                className={cn(
+                  'pointer-events-none absolute inset-0 h-full w-full object-cover object-center select-none transition-opacity duration-300',
+                  hasCustomBanner
+                    ? 'opacity-80 brightness-[0.82]'
+                    : 'scale-105 opacity-25 blur-[2px] brightness-75'
+                )}
               />
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background/95 via-background/80 to-background/55"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-r from-background/95 via-background/60 to-background/20"
               />
               <div
                 aria-hidden
-                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background via-background/45 to-transparent"
+                className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background via-background/65 to-background/25"
               />
             </>
-          ) : null}
+          ) : (
+            <div
+              aria-hidden
+              className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_top_left,hsl(var(--primary)/0.14),transparent_60%),linear-gradient(to_bottom,hsl(var(--card)/0.7),hsl(var(--background)))]"
+            />
+          )}
 
-          <div className="relative z-10 p-5 sm:p-7 md:p-8">
-            <div className="flex flex-col items-center gap-5 md:flex-row md:items-center md:gap-7">
+          <div className="container relative z-10 flex min-h-[210px] flex-col justify-end pt-8 pb-5 sm:min-h-[250px] sm:pt-12 sm:pb-6">
+            <div className="flex flex-col items-center gap-5 md:flex-row md:items-end md:gap-7">
               <Avatar className="h-24 w-24 shrink-0 rounded-2xl border-2 border-white/15 bg-secondary shadow-2xl sm:h-28 sm:w-28">
                 <AvatarImage
                   src={profileData.avatar || `https://api.dicebear.com/7.x/initials/svg?seed=${profileData.username}`}
@@ -310,8 +400,8 @@ const Profile: React.FC = () => {
               </Avatar>
 
               <div className="min-w-0 flex-1 text-center md:text-left">
-                <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-start">
-                  <div className="min-w-0 space-y-2.5">
+                <div className="flex flex-col justify-between gap-4 lg:flex-row lg:items-end">
+                  <div className="min-w-0 space-y-2">
                     <div className="flex flex-wrap items-center justify-center gap-2.5 md:justify-start">
                       <h1
                         className={cn(
@@ -346,6 +436,12 @@ const Profile: React.FC = () => {
                       </span>
                     </div>
 
+                    {profileData.bio && (
+                      <p className="max-w-2xl text-sm leading-relaxed text-foreground/85">
+                        {profileData.bio}
+                      </p>
+                    )}
+
                     {profileData.relationship.isBlocked && (
                       <p className="text-xs font-medium text-red-400">
                         Bu kullanıcıyı engellediniz. Paylaşımları otomatik olarak gizlenir.
@@ -374,11 +470,15 @@ const Profile: React.FC = () => {
 
                   <div className="flex shrink-0 flex-wrap items-center justify-center gap-2.5 md:justify-end">
                   {isOwnProfile ? (
-                    <Button asChild variant="outline" size="sm" className="gap-2 rounded-xl">
-                      <Link to="/settings">
-                        <Settings className="w-4 h-4" />
-                        Profili Düzenle
-                      </Link>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={openQuickEditDialog}
+                      className="gap-2 rounded-xl border-white/15 bg-background/60 backdrop-blur-sm hover:bg-background/80"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Profili Düzenle
                     </Button>
                   ) : currentUser && (
                     <>
@@ -494,6 +594,7 @@ const Profile: React.FC = () => {
           </div>
         </section>
 
+        <div className="container overflow-x-clip">
         {/* Content Tabs */}
         {!canView ? (
           <div className="py-24 text-center">
@@ -505,12 +606,12 @@ const Profile: React.FC = () => {
           <Tabs 
             value={activeTab}
             onValueChange={(value) => setSearchParams({ tab: value })}
-            className="mt-6 min-w-0 sm:mt-8"
+            className="mt-2 min-w-0 sm:mt-4"
           >
-            <TabsList className="mb-6 flex h-auto w-full max-w-full justify-start gap-2 overflow-x-auto scrollbar-hide rounded-2xl border border-border/60 bg-card/70 p-1.5 sm:mb-8">
+            <TabsList className="mb-6 flex h-auto w-full max-w-full justify-start gap-1 overflow-x-auto scrollbar-hide rounded-none border-b border-border/60 bg-transparent p-0 sm:mb-8">
               <TabsTrigger 
                 value="overview" 
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
               >
                 <BookOpen className="h-3.5 w-3.5 shrink-0" />
                 <span>Genel Bakış</span>
@@ -518,7 +619,7 @@ const Profile: React.FC = () => {
               {canViewAnyLists && (
                 <TabsTrigger 
                   value="tierlists" 
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
                 >
                   <List className="h-3.5 w-3.5 shrink-0" />
                   <span>Listelerim ({listTotalCount})</span>
@@ -527,7 +628,7 @@ const Profile: React.FC = () => {
               {canViewComments && (
                 <TabsTrigger 
                   value="comments" 
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
                 >
                   <MessageSquare className="h-3.5 w-3.5 shrink-0" />
                   <span>Yorumlar ({profileData.stats.totalComments || 0})</span>
@@ -536,7 +637,7 @@ const Profile: React.FC = () => {
               {canViewReviews && (
                 <TabsTrigger 
                   value="reviews" 
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
                 >
                   <Star className="h-3.5 w-3.5 shrink-0" />
                   <span>İncelemeler ({reviewsCount})</span>
@@ -545,7 +646,7 @@ const Profile: React.FC = () => {
               {canViewFollowedManga && (
                 <TabsTrigger 
                   value="following-manga" 
-                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-xl px-3.5 py-2 text-xs font-medium text-muted-foreground transition-all data-[state=active]:bg-primary data-[state=active]:text-primary-foreground data-[state=active]:shadow-md sm:px-4 sm:text-sm"
+                  className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-none border-b-2 border-transparent px-3.5 py-2.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground data-[state=active]:border-primary data-[state=active]:bg-transparent data-[state=active]:text-foreground data-[state=active]:shadow-none sm:px-4 sm:text-sm"
                 >
                   <Book className="h-3.5 w-3.5 shrink-0" />
                   <span>Takip Edilenler ({followedMangaCount})</span>
@@ -859,22 +960,53 @@ const Profile: React.FC = () => {
                                  </div>
                                </div>
 
-                               <p className="mt-2.5 line-clamp-2 rounded-lg bg-secondary/25 px-3 py-2 text-xs sm:text-sm leading-relaxed text-foreground/90 sm:line-clamp-3">
-                                 {comment.preview || (comment.hasGif ? 'GIF yorumu' : comment.hasMedia ? 'Görsel yorumu' : '')}
-                               </p>
+                               {(() => {
+                                 const previewText = comment.richPreview || comment.preview || (comment.hasGif ? 'GIF yorumu' : comment.hasMedia ? 'Görsel yorumu' : '');
+                                 const isBlurred = Boolean(comment.isSpoiler && !revealedCommentSpoilers[comment.id]);
+                                 const toggleCommentSpoiler = (event: React.MouseEvent | React.KeyboardEvent) => {
+                                   if (!comment.isSpoiler) return;
+                                   const target = event.target as HTMLElement | null;
+                                   if (!isBlurred && target?.closest('a, button')) {
+                                     return;
+                                   }
+                                   event.preventDefault();
+                                   event.stopPropagation();
+                                   setRevealedCommentSpoilers((prev) => ({
+                                     ...prev,
+                                     [comment.id]: !prev[comment.id],
+                                   }));
+                                 };
 
-                               {(comment.parentId || comment.isSpoiler || comment.hasMedia || comment.hasGif) && (
+                                 return (
+                                   <div
+                                     role={comment.isSpoiler ? 'button' : undefined}
+                                     tabIndex={comment.isSpoiler ? 0 : undefined}
+                                     aria-expanded={comment.isSpoiler ? !isBlurred : undefined}
+                                     aria-label={isBlurred ? 'Spoiler içeren yorumu göster' : undefined}
+                                     onClick={toggleCommentSpoiler}
+                                     onKeyDown={(event) => {
+                                       if (!comment.isSpoiler) return;
+                                       if (event.key === 'Enter' || event.key === ' ') {
+                                         toggleCommentSpoiler(event);
+                                       }
+                                     }}
+                                     className={cn(
+                                       'mt-2.5 line-clamp-2 rounded-lg bg-secondary/25 px-3 py-2 text-xs sm:text-sm leading-relaxed text-foreground/90 sm:line-clamp-3 transition-[filter,opacity] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                       comment.isSpoiler && 'cursor-pointer',
+                                       isBlurred && 'blur-[5px] opacity-80 select-none [&_*]:pointer-events-none',
+                                     )}
+                                   >
+                                     {renderRichContent(previewText)}
+                                   </div>
+                                 );
+                               })()}
+
+                               {(comment.parentId || comment.hasMedia || comment.hasGif) && (
                                  <div className="mt-2 flex flex-wrap items-center gap-1.5">
                                    {comment.parentId && (
                                      <Badge variant="outline" className="rounded-md text-[10px]">
                                        <Reply className="mr-1 h-3 w-3" />
                                        Yanıt
-                                     </Badge>
-                                   )}
-                                   {comment.isSpoiler && (
-                                     <Badge variant="outline" className="rounded-md border-amber-500/40 text-[10px] text-amber-300">
-                                       <Sparkles className="mr-1 h-3 w-3" />
-                                       Spoiler
                                      </Badge>
                                    )}
                                    {comment.hasMedia && (
@@ -998,9 +1130,9 @@ const Profile: React.FC = () => {
                                  </div>
                                </div>
 
-                               <p className="mt-2.5 line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
-                                 {review.content}
-                               </p>
+                               <div className="mt-2.5 line-clamp-3 whitespace-pre-wrap text-sm leading-relaxed text-foreground/90">
+                                 {renderRichContent(review.content)}
+                               </div>
 
                                <div className="mt-3 flex flex-wrap items-center gap-1.5">
                                  <span className="rounded-md border border-border/60 bg-secondary/50 px-2 py-0.5 text-[11px] font-medium text-foreground/85">
@@ -1164,6 +1296,88 @@ const Profile: React.FC = () => {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        <Dialog open={isQuickEditOpen} onOpenChange={setIsQuickEditOpen}>
+          <DialogContent className="max-h-[calc(100vh-1.5rem)] w-[calc(100vw-1.5rem)] max-w-[520px] overflow-y-auto rounded-2xl border border-border/70 p-4 sm:p-6">
+            <DialogHeader className="space-y-1.5 pr-6 text-left">
+              <DialogTitle className="text-lg font-bold sm:text-xl">Profili Düzenle</DialogTitle>
+              <DialogDescription>
+                Banner görseli URL&apos;si ve biyografinizi buradan hızlıca güncelleyebilirsiniz.
+              </DialogDescription>
+            </DialogHeader>
+
+            <div className="space-y-4 py-1">
+              <div className="space-y-2">
+                <Label htmlFor="quick-profile-banner-url">Banner Görsel URL</Label>
+                <Input
+                  id="quick-profile-banner-url"
+                  placeholder="https://example.com/banner.jpg"
+                  value={quickBannerUrl}
+                  onChange={(event) => {
+                    setQuickBannerUrl(event.target.value);
+                    setQuickBannerPreviewFailed(false);
+                  }}
+                  maxLength={1000}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Boş bırakırsanız son okuduğunuz seriden otomatik arka plan kullanılır.
+                </p>
+                {quickBannerUrl.trim() && isValidOptionalBannerUrl(quickBannerUrl) && (
+                  <div className="relative mt-2 aspect-[4/1] max-h-32 w-full overflow-hidden rounded-xl border border-border/60 bg-secondary/30">
+                    {!quickBannerPreviewFailed ? (
+                      <>
+                        <img
+                          src={quickBannerUrl.trim()}
+                          alt="Banner önizleme"
+                          className="h-full w-full object-cover object-center"
+                          onError={() => setQuickBannerPreviewFailed(true)}
+                        />
+                        <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/85 via-transparent to-transparent" />
+                      </>
+                    ) : (
+                      <div className="flex h-full w-full items-center justify-center gap-2 text-xs text-muted-foreground">
+                        <ImageIcon className="h-4 w-4" />
+                        Görsel önizlemesi yüklenemedi.
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+
+              <div className="space-y-2">
+                <div className="flex items-center justify-between gap-2">
+                  <Label htmlFor="quick-profile-bio">Biyografi</Label>
+                  <span className="text-xs text-muted-foreground tabular-nums">{quickBio.length}/280</span>
+                </div>
+                <Textarea
+                  id="quick-profile-bio"
+                  placeholder="Kendiniz hakkında kısa bir not..."
+                  value={quickBio}
+                  onChange={(event) => setQuickBio(event.target.value.slice(0, 280))}
+                  maxLength={280}
+                  className="min-h-[92px] resize-none"
+                />
+              </div>
+            </div>
+
+            <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:items-center sm:justify-between">
+              <Button asChild variant="ghost" size="sm" className="w-full sm:w-auto">
+                <Link to="/settings?tab=profile" onClick={() => setIsQuickEditOpen(false)}>
+                  Tüm Profil Ayarları
+                </Link>
+              </Button>
+              <div className="flex flex-col-reverse gap-2 sm:flex-row">
+                <Button type="button" variant="outline" onClick={() => setIsQuickEditOpen(false)} disabled={isSavingQuickEdit}>
+                  İptal
+                </Button>
+                <Button type="button" onClick={() => void handleSaveQuickProfile()} disabled={isSavingQuickEdit}>
+                  {isSavingQuickEdit ? 'Kaydediliyor...' : 'Kaydet'}
+                </Button>
+              </div>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+        </div>
       </main>
     </div>
   );

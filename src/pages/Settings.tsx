@@ -3,6 +3,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import Header from '@/components/layout/Header';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Textarea } from '@/components/ui/textarea';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAuth } from '@/contexts/AuthContext';
@@ -34,6 +35,7 @@ import {
     Link2,
     RefreshCcw,
     ArrowDownToLine,
+    Image as ImageIcon,
 } from 'lucide-react';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
@@ -255,6 +257,9 @@ const Settings: React.FC = () => {
     // Profile state
     const [username, setUsername] = useState(user?.username || '');
     const [avatar, setAvatar] = useState(user?.avatar || '');
+    const [bio, setBio] = useState(user?.preferences?.profile?.bio || '');
+    const [bannerUrl, setBannerUrl] = useState(user?.preferences?.profile?.banner_url || '');
+    const [bannerPreviewFailed, setBannerPreviewFailed] = useState(false);
     const [isUpdatingProfile, setIsUpdatingProfile] = useState(false);
 
     // Password state
@@ -332,7 +337,10 @@ const Settings: React.FC = () => {
     useEffect(() => {
         setUsername(user?.username || '');
         setAvatar(user?.avatar || '');
-    }, [user?.username, user?.avatar]);
+        setBio(user?.preferences?.profile?.bio || '');
+        setBannerUrl(user?.preferences?.profile?.banner_url || '');
+        setBannerPreviewFailed(false);
+    }, [user?.username, user?.avatar, user?.preferences?.profile?.bio, user?.preferences?.profile?.banner_url]);
 
     useEffect(() => {
         setPrefs(buildPreferenceState(user?.preferences));
@@ -413,9 +421,19 @@ const Settings: React.FC = () => {
         setActiveSettingsTab(requestedTabFromQuery);
     }, [requestedTabFromQuery]);
 
+    const isValidOptionalBannerUrl = (value: string) => {
+        const trimmed = value.trim();
+        if (!trimmed) return true;
+        return trimmed.length <= 1000 && /^https?:\/\/[^\s<>"'`]+$/i.test(trimmed);
+    };
+
     const handleUpdateProfile = async () => {
         if (!username.trim()) {
             toast.error('Kullanıcı adı boş olamaz');
+            return;
+        }
+        if (!isValidOptionalBannerUrl(bannerUrl)) {
+            toast.error('Banner URL geçerli bir http:// veya https:// bağlantısı olmalıdır');
             return;
         }
         if (!isOnline) {
@@ -426,11 +444,31 @@ const Settings: React.FC = () => {
         try {
             setIsUpdatingProfile(true);
             const { success, error } = await updateProfile({ username, avatar });
-            if (success) {
-                toast.success('Profil güncellendi');
-            } else {
+            if (!success) {
                 toast.error(error || 'Profil güncellenemedi');
+                return;
             }
+
+            const trimmedBio = bio.trim().slice(0, 280);
+            const trimmedBannerUrl = bannerUrl.trim().slice(0, 1000);
+            const prevBio = user?.preferences?.profile?.bio || '';
+            const prevBannerUrl = user?.preferences?.profile?.banner_url || '';
+
+            if (trimmedBio !== prevBio || trimmedBannerUrl !== prevBannerUrl) {
+                const prefResult = await updatePreferences({
+                    ...(user?.preferences || {}),
+                    profile: {
+                        bio: trimmedBio,
+                        banner_url: trimmedBannerUrl,
+                    },
+                });
+                if (!prefResult.success) {
+                    toast.error(prefResult.error || 'Banner ve biyografi kaydedilemedi');
+                    return;
+                }
+            }
+
+            toast.success('Profil güncellendi');
         } catch (err) {
             toast.error('İşlem başarısız oldu');
         } finally {
@@ -1256,19 +1294,71 @@ const Settings: React.FC = () => {
 
                                 <div className="space-y-2">
                                     <Label htmlFor="username">Kullanıcı Adı</Label>
-                                        <Input
-                                            id="username"
-                                            value={username}
-                                            onChange={(e) => setUsername(e.target.value)}
-                                            disabled={isUpdatingProfile || isUsernameCooldownActive}
-                                            className={isUsernameCooldownActive ? 'bg-secondary/30' : undefined}
-                                        />
-                                        <p className="text-xs text-muted-foreground">
-                                            {isUsernameCooldownActive && nextUsernameChangeAt
-                                                ? `Kullanıcı adınızı haftada bir değiştirebilirsiniz. Sonraki değişiklik: ${nextUsernameChangeAt.toLocaleString('tr-TR')}`
-                                                : 'Kullanıcı adınızı 7 günde bir değiştirebilirsiniz.'}
-                                        </p>
+                                    <Input
+                                        id="username"
+                                        value={username}
+                                        onChange={(e) => setUsername(e.target.value)}
+                                        disabled={isUpdatingProfile || isUsernameCooldownActive}
+                                        className={isUsernameCooldownActive ? 'bg-secondary/30' : undefined}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        {isUsernameCooldownActive && nextUsernameChangeAt
+                                            ? `Kullanıcı adınızı haftada bir değiştirebilirsiniz. Sonraki değişiklik: ${nextUsernameChangeAt.toLocaleString('tr-TR')}`
+                                            : 'Kullanıcı adınızı 7 günde bir değiştirebilirsiniz.'}
+                                    </p>
+                                </div>
+
+                                <div className="space-y-2">
+                                    <Label htmlFor="banner-url">Profil Banner URL</Label>
+                                    <Input
+                                        id="banner-url"
+                                        placeholder="https://example.com/banner.jpg"
+                                        value={bannerUrl}
+                                        onChange={(e) => {
+                                            setBannerUrl(e.target.value);
+                                            setBannerPreviewFailed(false);
+                                        }}
+                                        maxLength={1000}
+                                    />
+                                    <p className="text-xs text-muted-foreground">
+                                        Profilinizin üst arka planını kaplayacak yatay görsel URL&apos;si (boş bırakırsanız son okuduğunuz seriden otomatik seçilir).
+                                    </p>
+                                    {bannerUrl.trim() && isValidOptionalBannerUrl(bannerUrl) && (
+                                        <div className="relative mt-2 aspect-[4/1] max-h-36 w-full overflow-hidden rounded-xl border border-border/60 bg-secondary/30">
+                                            {!bannerPreviewFailed ? (
+                                                <>
+                                                    <img
+                                                        src={bannerUrl.trim()}
+                                                        alt="Banner önizleme"
+                                                        className="h-full w-full object-cover object-center"
+                                                        onError={() => setBannerPreviewFailed(true)}
+                                                    />
+                                                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-background/85 via-transparent to-transparent" />
+                                                </>
+                                            ) : (
+                                                <div className="flex h-full w-full items-center justify-center gap-2 text-xs text-muted-foreground">
+                                                    <ImageIcon className="h-4 w-4" />
+                                                    Görsel önizlemesi yüklenemedi, URL&apos;yi kontrol edin.
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+
+                                <div className="space-y-2">
+                                    <div className="flex items-center justify-between gap-2">
+                                        <Label htmlFor="profile-bio">Biyografi</Label>
+                                        <span className="text-xs text-muted-foreground tabular-nums">{bio.length}/280</span>
                                     </div>
+                                    <Textarea
+                                        id="profile-bio"
+                                        placeholder="Kendiniz veya favori serileriniz hakkında kısa bir not..."
+                                        value={bio}
+                                        onChange={(e) => setBio(e.target.value.slice(0, 280))}
+                                        maxLength={280}
+                                        className="min-h-[88px] resize-none"
+                                    />
+                                </div>
                             </CardContent>
                             <CardFooter className="flex-col gap-3 border-t border-border/50 pt-6 sm:flex-row">
                                 <Button onClick={handleUpdateProfile} disabled={isUpdatingProfile} className="w-full gap-2 sm:ml-auto sm:w-auto">

@@ -16,6 +16,7 @@ import { clearHeaderShellSnapshot, writeHeaderShellUser } from '@/lib/headerShel
 import { PASSWORD_MIN_LENGTH, translatePasswordPolicyError } from '@/lib/auth/passwordPolicy';
 import { dispatchAdultModeChanged } from '@/lib/adultModeEvents';
 import { isDocumentVisible } from '@/lib/documentVisibility';
+import { getActivePresenceMangaId } from '@/lib/presence';
 import { acknowledgeCurrentUserWarning, getCurrentUserAccessSnapshot, type CurrentUserAccessSnapshot } from '@/lib/userAccess';
 import { toast } from 'sonner';
 
@@ -144,6 +145,10 @@ const DEFAULT_USER_PREFERENCES: NonNullable<User['preferences']> = {
     show_chapter_card_images: false,
     adult_cover_blur: false,
   },
+  profile: {
+    bio: '',
+    banner_url: '',
+  },
   privacy: {
     visibility: 'public',
     reading_history_visibility: 'public',
@@ -200,6 +205,14 @@ const normalizeUserPreferences = (preferences?: User['preferences']): NonNullabl
   appearance: {
     ...DEFAULT_USER_PREFERENCES.appearance,
     ...preferences?.appearance,
+  },
+  profile: {
+    bio: typeof preferences?.profile?.bio === 'string'
+      ? preferences.profile.bio.trim().slice(0, 280)
+      : '',
+    banner_url: typeof preferences?.profile?.banner_url === 'string' && /^https?:\/\/[^\s<>"'`]+$/i.test(preferences.profile.banner_url.trim())
+      ? preferences.profile.banner_url.trim().slice(0, 1000)
+      : '',
   },
   privacy: {
     ...DEFAULT_USER_PREFERENCES.privacy,
@@ -848,7 +861,20 @@ export const AuthProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
       }
 
       try {
-        await supabase.rpc('update_user_presence', { p_user_id: activeSession.user.id });
+        const activeMangaId = getActivePresenceMangaId();
+        const callPresenceRpc = supabase.rpc as unknown as (
+          fn: string,
+          params: Record<string, string>,
+        ) => Promise<{ error: unknown }>;
+        const { error: presenceError } = await callPresenceRpc(
+          'update_user_presence',
+          activeMangaId
+            ? { p_user_id: activeSession.user.id, p_manga_id: activeMangaId }
+            : { p_user_id: activeSession.user.id }
+        );
+        if (presenceError && !isExpectedAccessControlError(presenceError)) {
+          console.error('Presence heartbeat failed:', presenceError);
+        }
       } catch (error) {
         if (!isExpectedAccessControlError(error)) {
           console.error('Presence heartbeat failed:', error);

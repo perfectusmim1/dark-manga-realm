@@ -2792,50 +2792,47 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                     </div>
                                                 ) : (
                                                     <div className="mt-2 space-y-2">
-                                                        {comment.isSpoiler && !revealedSpoilers[comment.id] ? (
-                                                            <button
-                                                                type="button"
-                                                                onClick={() => toggleSpoiler(comment.id)}
-                                                                aria-label="Spoiler içeren yorumu göster"
-                                                                aria-expanded={false}
-                                                                className="group w-full rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-left text-sm text-amber-100 transition-[background-color,border-color,box-shadow,transform] duration-200 hover:border-amber-400/50 hover:bg-amber-500/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-300/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background active:scale-[0.995] motion-reduce:transform-none motion-reduce:transition-none"
-                                                            >
-                                                                <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                                                                    <div className="min-w-0">
-                                                                        <span className="flex items-center gap-2 font-medium">
-                                                                            <AlertTriangle className="h-4 w-4 shrink-0" />
-                                                                            Bu yorum spoiler olarak işaretlendi.
-                                                                        </span>
-                                                                        <span className="mt-1 block pl-6 text-xs text-amber-100/80">
-                                                                            Dokunarak veya tıklayarak açılır.
-                                                                        </span>
+                                                        {(() => {
+                                                            const isBlurredSpoiler = Boolean(comment.isSpoiler && !revealedSpoilers[comment.id]);
+                                                            return (
+                                                                <div
+                                                                    role={comment.isSpoiler ? 'button' : undefined}
+                                                                    tabIndex={comment.isSpoiler ? 0 : undefined}
+                                                                    aria-expanded={comment.isSpoiler ? !isBlurredSpoiler : undefined}
+                                                                    aria-label={isBlurredSpoiler ? 'Spoiler içeren yorumu göster' : undefined}
+                                                                    onClick={(event) => {
+                                                                        if (!comment.isSpoiler) return;
+                                                                        const target = event.target as HTMLElement | null;
+                                                                        if (!isBlurredSpoiler && target?.closest('a, button')) {
+                                                                            return;
+                                                                        }
+                                                                        if (isBlurredSpoiler) {
+                                                                            event.preventDefault();
+                                                                        }
+                                                                        toggleSpoiler(comment.id);
+                                                                    }}
+                                                                    onKeyDown={(event) => {
+                                                                        if (!comment.isSpoiler) return;
+                                                                        if (event.key === 'Enter' || event.key === ' ') {
+                                                                            event.preventDefault();
+                                                                            toggleSpoiler(comment.id);
+                                                                        }
+                                                                    }}
+                                                                    className={cn(
+                                                                        'space-y-2 rounded-lg transition-[filter,opacity] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                                                                        comment.isSpoiler && 'cursor-pointer',
+                                                                        isBlurredSpoiler && 'blur-[6px] opacity-75 select-none [&_*]:pointer-events-none',
+                                                                    )}
+                                                                >
+                                                                    {comment.title && <h4 className="font-bold text-foreground">{comment.title}</h4>}
+                                                                    <div className="break-words [overflow-wrap:anywhere] text-foreground/90 leading-relaxed font-sans">
+                                                                        {renderFormattedText(comment.content, mentionUserIdByUsername)}
                                                                     </div>
-                                                                    <span className="inline-flex shrink-0 items-center gap-2 self-start text-xs font-semibold text-amber-50/90 sm:self-center">
-                                                                        <Eye className="h-4 w-4 transition-transform duration-200 group-hover:scale-110 group-focus-visible:scale-110 motion-reduce:transition-none" />
-                                                                        Basınca açılır
-                                                                    </span>
                                                                 </div>
-                                                            </button>
-                                                        ) : (
-                                                            <div className={cn('space-y-2', comment.isSpoiler && 'animate-card-reveal-fast motion-reduce:animate-none')}>
-                                                                {comment.title && <h4 className="font-bold text-foreground">{comment.title}</h4>}
-                                                                <div className="break-words [overflow-wrap:anywhere] text-foreground/90 leading-relaxed font-sans">
-                                                                    {renderFormattedText(comment.content, mentionUserIdByUsername)}
-                                                                </div>
+                                                            );
+                                                        })()}
 
-                                                                {comment.isSpoiler && (
-                                                                    <Button
-                                                                        variant="ghost"
-                                                                        size="sm"
-                                                                        className="h-9 rounded-lg px-3 text-amber-200 hover:bg-secondary/80 hover:text-amber-100"
-                                                                        onClick={() => toggleSpoiler(comment.id)}
-                                                                    >
-                                                                        <EyeOff className="mr-2 h-4 w-4" />
-                                                                        Spoileri Gizle
-                                                                    </Button>
-                                                                )}
-
-                                                                {hasCommentMedia(comment) && (
+                                                        {hasCommentMedia(comment) && (
                                                                     <CommentRevealPanel
                                                                         expanded={Boolean(expandedMedia[comment.id])}
                                                                         onToggle={() => toggleMedia(comment.id)}
@@ -2881,8 +2878,6 @@ const CommentSection: React.FC<CommentSectionProps> = ({
                                                                         )}
                                                                     </CommentRevealPanel>
                                                                 )}
-                                                            </div>
-                                                        )}
                                                     </div>
                                                 )}
 

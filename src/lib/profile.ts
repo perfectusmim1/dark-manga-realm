@@ -1,6 +1,6 @@
 import { supabase } from './supabase';
 import { User, type Manga } from './types';
-import { parseCommentContent, stripCommentFormatting } from './commentContent';
+import { parseCommentContent, SERIES_LEGACY_REGEX, SERIES_MARKDOWN_REGEX, stripCommentFormatting } from './commentContent';
 import { createFollowNotification, hasPersistedChapterRecord } from './storage';
 
 export type PrivacyVisibility = NonNullable<NonNullable<User['preferences']>['privacy']>['visibility'];
@@ -77,6 +77,7 @@ export interface ProfileRecentComment {
     pageNumber?: number | null;
     targetHref: string;
     preview: string;
+    richPreview?: string;
     createdAt: string;
     likes: number;
     isSpoiler: boolean;
@@ -136,6 +137,8 @@ interface ProfileAccessContextRow {
 }
 
 interface ProfileRouteBundle {
+    bio?: string;
+    bannerUrl?: string;
     stats?: {
         totalSeries?: number;
         totalChapters?: number;
@@ -283,23 +286,53 @@ const getRangeStartDate = (range: ReadingTimeRange) => {
     return start;
 };
 
+const sanitizeProfileBannerUrl = (value: unknown): string => {
+    if (typeof value !== 'string') {
+        return '';
+    }
+    const trimmed = value.trim();
+    if (!trimmed || trimmed.length > 1000) {
+        return '';
+    }
+    return /^https?:\/\/[^\s<>"'`]+$/i.test(trimmed) ? trimmed : '';
+};
+
+const sanitizeProfileBio = (value: unknown): string =>
+    typeof value === 'string' ? value.trim().slice(0, 280) : '';
+
+const buildCommentRichPreview = (rawContent: string) => {
+    const parsed = parseCommentContent(rawContent);
+    const body = (parsed.body || '')
+        .replace(SERIES_MARKDOWN_REGEX, '#$1')
+        .replace(SERIES_LEGACY_REGEX, '#$2')
+        .replace(/<br\s*\/?>/gi, '\n')
+        .replace(/\s+/g, ' ')
+        .trim();
+
+    if (body) {
+        return body;
+    }
+
+    if (parsed.mediaUrls?.length) {
+        return 'Görsel eklenmiş yorum';
+    }
+
+    return 'Yorum bırakıldı';
+};
+
 const buildCommentPreview = (rawContent: string) => {
     const parsed = parseCommentContent(rawContent);
     const text = stripCommentFormatting(parsed.body).replace(/\s+/g, ' ').trim();
-
-    if (parsed.isSpoiler) {
-        return 'Spoiler olarak isaretlenmis yorum';
-    }
 
     if (text) {
         return text;
     }
 
     if (parsed.mediaUrls?.length) {
-        return 'Gorsel eklenmis yorum';
+        return 'Görsel eklenmiş yorum';
     }
 
-    return 'Yorum birakildi';
+    return 'Yorum bırakıldı';
 };
 
 export const getUserRecentComments = async (userId: string, limit: number = 100): Promise<ProfileRecentComment[]> => {
@@ -354,6 +387,7 @@ export const getUserRecentComments = async (userId: string, limit: number = 100)
             pageNumber: typeof comment.page_number === 'number' ? comment.page_number : null,
             targetHref,
             preview: buildCommentPreview(comment.content || ''),
+            richPreview: buildCommentRichPreview(comment.content || ''),
             createdAt: comment.created_at,
             likes: comment.likes || 0,
             isSpoiler: Boolean(parsed.isSpoiler),
@@ -382,6 +416,7 @@ export const getUserRecentComments = async (userId: string, limit: number = 100)
                 targetImage: comment[relationKey]?.image_url || null,
                 targetHref: `${hrefPrefix}/${comment[entityKey]}?commentId=${encodeURIComponent(comment.id)}#comment-${encodeURIComponent(comment.id)}`,
                 preview: buildCommentPreview(comment.content || ''),
+                richPreview: buildCommentRichPreview(comment.content || ''),
                 createdAt: comment.created_at,
                 likes: comment.likes || 0,
                 isSpoiler: Boolean(parsed.isSpoiler),
@@ -604,6 +639,8 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
 
         return {
             ...user,
+            bio: '',
+            bannerUrl: '',
             stats: {
                 totalSeries: 0,
                 totalChapters: 0,
@@ -632,6 +669,8 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
 
     return {
         ...user,
+        bio: sanitizeProfileBio(bundle.bio),
+        bannerUrl: sanitizeProfileBannerUrl(bundle.bannerUrl),
         stats: {
             totalSeries: bundle.stats?.totalSeries || 0,
             totalChapters: bundle.stats?.totalChapters || 0,
@@ -670,6 +709,9 @@ export const getUserProfile = async (userId: string, currentUserId?: string) => 
                 preview: typeof comment.preview === 'string'
                     ? comment.preview
                     : buildCommentPreview(comment.content || ''),
+                richPreview: typeof comment.richPreview === 'string'
+                    ? comment.richPreview
+                    : buildCommentRichPreview(comment.content || ''),
                 createdAt: comment.createdAt,
                 likes: comment.likes || 0,
                 isSpoiler: typeof comment.isSpoiler === 'boolean'

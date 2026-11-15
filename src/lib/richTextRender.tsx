@@ -24,36 +24,33 @@ const MAX_INLINE_RICH_TEXT_DEPTH = 6;
 const InlineSpoilerChip: React.FC<{ children: React.ReactNode }> = ({ children }) => {
   const [revealed, setRevealed] = useState(false);
 
+  const toggleReveal = (event: React.MouseEvent | React.KeyboardEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setRevealed((prev) => !prev);
+  };
+
   return (
-    <button
-      type="button"
-      onClick={(event) => {
-        event.stopPropagation();
-        setRevealed((prev) => !prev);
+    <span
+      role="button"
+      tabIndex={0}
+      aria-expanded={revealed}
+      aria-label={revealed ? 'Spoilerı gizle' : 'Spoilerı göster'}
+      onClick={toggleReveal}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          toggleReveal(event);
+        }
       }}
-      title={revealed ? 'Gizle' : 'Spoilerı görmek için tıkla'}
       className={cn(
-        'inline-flex items-center gap-1 rounded px-1.5 py-0.5 align-baseline text-[0.94em] transition-all cursor-pointer select-none',
+        'inline rounded px-1 py-0.5 align-baseline text-[0.96em] transition-[filter,opacity,background-color] duration-200 cursor-pointer focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring',
         revealed
-          ? 'bg-secondary/70 text-foreground'
-          : 'bg-muted text-transparent hover:bg-muted/80 border border-border/60 [&>*]:opacity-0',
+          ? 'bg-secondary/60 text-foreground blur-0 opacity-100 select-text'
+          : 'bg-secondary/35 text-foreground/95 blur-[5px] opacity-85 hover:opacity-100 select-none',
       )}
     >
-      {revealed ? (
-        <>
-          <span>{children}</span>
-          <EyeOff className="h-3 w-3 shrink-0 text-muted-foreground" />
-        </>
-      ) : (
-        <span className="relative inline-flex items-center gap-1">
-          <span className="blur-[5px] text-foreground select-none">{children}</span>
-          <span className="absolute inset-0 flex items-center justify-center text-[11px] font-medium text-muted-foreground opacity-100">
-            <Eye className="mr-1 h-3 w-3" />
-            Spoiler
-          </span>
-        </span>
-      )}
-    </button>
+      {children}
+    </span>
   );
 };
 

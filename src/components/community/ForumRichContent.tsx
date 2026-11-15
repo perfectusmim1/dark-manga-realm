@@ -1,12 +1,10 @@
 import React, { useState } from 'react';
 import { Link } from 'react-router-dom';
-import { AlertTriangle, Eye, EyeOff } from 'lucide-react';
 import {
   isForumImageUrl,
   splitTrailingUrlPunctuation,
   toSafeHttpUrl,
 } from '@/lib/forumMedia';
-import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 interface ForumRichContentProps {
@@ -246,45 +244,33 @@ const ForumRichContent: React.FC<ForumRichContentProps> = ({
   }
 
   return (
-    <div className={cn('space-y-2.5', className)}>
-      <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2">
-        <span className="flex items-center gap-2 text-xs font-medium text-amber-200">
-          <AlertTriangle className="h-3.5 w-3.5 shrink-0 text-amber-400" />
-          Spoiler içerir
-        </span>
-        <Button
-          type="button"
-          variant="outline"
-          size="sm"
-          onClick={(event) => {
-            event.stopPropagation();
-            setIsSpoilerVisible((prev) => !prev);
-          }}
-          className="h-7 gap-1.5 border-amber-500/30 bg-background/60 px-2.5 text-xs text-amber-100 hover:bg-amber-500/20 hover:text-amber-50"
-        >
-          {isSpoilerVisible ? (
-            <>
-              <EyeOff className="h-3.5 w-3.5" />
-              Gizle
-            </>
-          ) : (
-            <>
-              <Eye className="h-3.5 w-3.5" />
-              Göster
-            </>
-          )}
-        </Button>
-      </div>
-
-      <div
-        aria-hidden={!isSpoilerVisible}
-        className={cn(
-          'whitespace-pre-wrap break-words text-sm leading-relaxed text-foreground/90 transition-all duration-200 [overflow-wrap:anywhere]',
-          !isSpoilerVisible && 'pointer-events-none select-none opacity-55 blur-sm',
-        )}
-      >
-        {renderedNodes}
-      </div>
+    <div
+      role="button"
+      tabIndex={0}
+      aria-expanded={isSpoilerVisible}
+      aria-label={isSpoilerVisible ? 'Spoiler içeriği gizle' : 'Spoiler içeriği göster'}
+      onClick={(event) => {
+        const target = event.target as HTMLElement | null;
+        if (isSpoilerVisible && target?.closest('a, button')) {
+          return;
+        }
+        event.stopPropagation();
+        setIsSpoilerVisible((prev) => !prev);
+      }}
+      onKeyDown={(event) => {
+        if (event.key === 'Enter' || event.key === ' ') {
+          event.preventDefault();
+          event.stopPropagation();
+          setIsSpoilerVisible((prev) => !prev);
+        }
+      }}
+      className={cn(
+        'cursor-pointer whitespace-pre-wrap break-words rounded-lg text-sm leading-relaxed text-foreground/90 transition-[filter,opacity] duration-200 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring [overflow-wrap:anywhere]',
+        !isSpoilerVisible && 'blur-[6px] opacity-75 select-none [&_*]:pointer-events-none',
+        className,
+      )}
+    >
+      {renderedNodes}
     </div>
   );
 };

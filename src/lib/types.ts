@@ -306,6 +306,10 @@ export interface User {
       show_chapter_card_images?: boolean;
       adult_cover_blur?: boolean;
     };
+    profile?: {
+      bio?: string;
+      banner_url?: string;
+    };
     privacy?: {
       visibility: 'public' | 'members' | 'mutuals' | 'private';
       reading_history_visibility?: 'public' | 'members' | 'mutuals' | 'private';

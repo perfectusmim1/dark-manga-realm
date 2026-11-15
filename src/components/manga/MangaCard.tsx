@@ -1,6 +1,6 @@
 import React, { memo, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { Star, Eye, BookOpen } from 'lucide-react';
+import { Star, Eye, BookOpen, Trophy } from 'lucide-react';
 import { Manga } from '@/lib/types';
 import { Badge } from '@/components/ui/badge';
 import { getTopTenMangaIds } from '@/lib/database';
@@ -18,6 +18,7 @@ import { formatGenreDisplayName, formatMangaStatusLabel } from '@/lib/mockData';
 export interface MangaCardProps {
   manga: Manga;
   index?: number;
+  allTimeRank?: number;
   topTenWeekIds?: ReadonlySet<string> | null;
   disableHeavyEffects?: boolean;
   coverPriority?: boolean;
@@ -71,6 +72,7 @@ const getTopTenWeekIds = async () => {
 const MangaCardComponent: React.FC<MangaCardProps> = ({
   manga,
   index = 0,
+  allTimeRank,
   topTenWeekIds,
   disableHeavyEffects = false,
   coverPriority,
@@ -315,10 +317,16 @@ const MangaCardComponent: React.FC<MangaCardProps> = ({
         <h3 className="min-h-[2.25rem] line-clamp-2 text-xs font-semibold leading-snug text-foreground transition-colors group-hover:text-primary sm:min-h-[2.4rem] sm:text-[13px]">
           {manga.title}
         </h3>
-        <div className="mt-1 flex items-center gap-1.5 text-[10px] text-muted-foreground sm:text-[11px]">
+        <div className="mt-1 flex items-center justify-between gap-1.5 text-[10px] text-muted-foreground sm:text-[11px]">
           <span className="min-w-0 truncate">
             {primaryGenre || getMangaTypeLabel(manga.type)}
           </span>
+          {typeof allTimeRank === 'number' && allTimeRank > 0 && (
+            <span className="inline-flex shrink-0 items-center gap-0.5 font-semibold text-amber-400 tabular-nums">
+              <Trophy className="h-2.5 w-2.5" />
+              #{allTimeRank}
+            </span>
+          )}
         </div>
 
         <div className="mt-1.5 space-y-1">

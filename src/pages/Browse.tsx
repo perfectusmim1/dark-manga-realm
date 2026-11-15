@@ -21,6 +21,7 @@ import {
   Smartphone,
   Sparkles,
   Star,
+  Trophy,
   X,
 } from 'lucide-react';
 import Header from '@/components/layout/Header';
@@ -32,7 +33,7 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AnimatePresence, motion } from 'framer-motion';
 import { allGenres, formatGenreDisplayName, normalizeGenreName } from '@/lib/mockData';
-import { getMangaSummaries, getMangasByMultipleTags } from '@/lib/database';
+import { getAllTimeMangaRanks, getMangaSummaries, getMangasByMultipleTags } from '@/lib/database';
 import { Manga } from '@/lib/types';
 import {
   Select,
@@ -54,7 +55,27 @@ import { useTopTenWeekIds } from '@/hooks/useTopTenWeekIds';
 type BrowseAudienceCacheKey = 'safe' | 'adult';
 type BrowseContentFilter = 'all' | 'safe' | 'adult';
 type BrowseTypeFilter = 'all' | 'manga' | 'manhwa' | 'manhua' | 'webtoon' | 'adult';
+type BrowseRankFilter = 'all' | 'top10' | 'top50' | 'top100' | 'top500';
 type BrowseGridDensity = 'compact' | 'comfortable';
+
+const RANK_FILTER_LIMITS: Record<Exclude<BrowseRankFilter, 'all'>, number> = {
+  top10: 10,
+  top50: 50,
+  top100: 100,
+  top500: 500,
+};
+
+const normalizeBrowseRankFilter = (value: string | null): BrowseRankFilter => {
+  switch (value) {
+    case 'top10':
+    case 'top50':
+    case 'top100':
+    case 'top500':
+      return value;
+    default:
+      return 'all';
+  }
+};
 
 const BROWSE_DENSITY_STORAGE_KEY = 'toonparrot_browse_density_v1';
 const BROWSE_GRID_CLASSES: Record<BrowseGridDensity, string> = {
@@ -171,6 +192,8 @@ const Browse: React.FC = () => {
   );
   const [searchQuery, setSearchQuery] = useState(searchParams.get('search') || '');
   const [sortBy, setSortBy] = useState(searchParams.get('sort') || 'popular');
+  const [rankFilter, setRankFilter] = useState<BrowseRankFilter>(() => normalizeBrowseRankFilter(searchParams.get('rank')));
+  const [allTimeRankMap, setAllTimeRankMap] = useState<Map<string, number>>(new Map());
   const [typeFilter, setTypeFilter] = useState<BrowseTypeFilter>(() => normalizeBrowseTypeFilter(searchParams.get('type')));
   const [statusFilter, setStatusFilter] = useState('all');
   const [contentFilter, setContentFilter] = useState<BrowseContentFilter>(() => {
@@ -195,6 +218,7 @@ const Browse: React.FC = () => {
   const deferredStatusFilter = useDeferredValue(statusFilter);
   const deferredContentFilter = useDeferredValue(contentFilter);
   const deferredSortBy = useDeferredValue(sortBy);
+  const deferredRankFilter = useDeferredValue(rankFilter);
 
   useEffect(() => {
     if (!canSeeAdultContent && contentFilter === 'adult') {
@@ -293,9 +317,31 @@ const Browse: React.FC = () => {
   }, [selectedTagSlugs]);
 
   useEffect(() => {
+    if (!isOnline || (sortBy !== 'all_time_rank' && rankFilter === 'all')) {
+      return;
+    }
+
+    let cancelled = false;
+    void getAllTimeMangaRanks(canSeeAdultContent)
+      .then((res) => {
+        if (!cancelled) {
+          setAllTimeRankMap(res.rankById);
+        }
+      })
+      .catch(() => {
+        // ignore transient rank lookup errors
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [canSeeAdultContent, isOnline, rankFilter, sortBy]);
+
+  useEffect(() => {
     const nextParams = new URLSearchParams();
     if (searchQuery) nextParams.set('search', searchQuery);
     if (sortBy !== 'popular') nextParams.set('sort', sortBy);
+    if (rankFilter !== 'all') nextParams.set('rank', rankFilter);
     if (typeFilter !== 'all') nextParams.set('type', typeFilter);
     if (contentFilter !== 'all') nextParams.set('content', contentFilter);
     if (selectedGenres.length > 0) nextParams.set('genre', selectedGenres.join(','));
@@ -305,7 +351,7 @@ const Browse: React.FC = () => {
     if (nextParams.toString() !== searchParams.toString()) {
       setSearchParams(nextParams, { replace: true });
     }
-  }, [contentFilter, searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, currentPage, searchParams, setSearchParams]);
+  }, [contentFilter, rankFilter, searchQuery, sortBy, typeFilter, selectedGenres, selectedTagSlugs, currentPage, searchParams, setSearchParams]);
 
   const indexedCatalog = useMemo<IndexedBrowseManga[]>(() => {
     const seenMangaIds = new Set<string>();
@@ -403,9 +449,23 @@ const Browse: React.FC = () => {
       entries = entries.filter((entry) => tagFilteredMangaIds.has(entry.manga.id));
     }
 
+    if (deferredRankFilter !== 'all' && allTimeRankMap.size > 0) {
+      const rankLimit = RANK_FILTER_LIMITS[deferredRankFilter];
+      entries = entries.filter((entry) => {
+        const rank = allTimeRankMap.get(entry.manga.id);
+        return typeof rank === 'number' && rank <= rankLimit;
+      });
+    }
+
     const sortedEntries = entries === indexedCatalog ? [...entries] : entries;
 
     switch (deferredSortBy) {
+      case 'all_time_rank':
+        sortedEntries.sort((a, b) => (
+          (allTimeRankMap.get(a.manga.id) ?? Number.MAX_SAFE_INTEGER)
+          - (allTimeRankMap.get(b.manga.id) ?? Number.MAX_SAFE_INTEGER)
+        ));
+        break;
       case 'rating':
         sortedEntries.sort((a, b) => b.rating - a.rating);
         break;
@@ -434,6 +494,8 @@ const Browse: React.FC = () => {
     deferredStatusFilter,
     deferredSelectedGenres,
     tagFilteredMangaIds,
+    deferredRankFilter,
+    allTimeRankMap,
     deferredSortBy,
   ]);
 
@@ -475,12 +537,13 @@ const Browse: React.FC = () => {
     setTypeFilter('all');
     setStatusFilter('all');
     setContentFilter('all');
+    setRankFilter('all');
     setSortBy('popular');
     setCurrentPage(1);
     setSearchParams({}, { replace: true });
   };
 
-  const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all' || contentFilter !== 'all';
+  const hasActiveFilters = searchQuery || selectedGenres.length > 0 || selectedTagSlugs.length > 0 || typeFilter !== 'all' || statusFilter !== 'all' || contentFilter !== 'all' || rankFilter !== 'all' || sortBy === 'all_time_rank';
   const isInitialResultsPending = isLoading && mangas.length === 0;
 
   const browsePageSize = gridDensity === 'compact' ? 28 : 36;
@@ -703,7 +766,47 @@ const Browse: React.FC = () => {
               </Select>
             </div>
 
-            <div className="relative w-full sm:w-44">
+            <div className="relative w-full sm:w-40">
+              <Select
+                value={rankFilter}
+                onValueChange={(value) => {
+                  const nextRank = normalizeBrowseRankFilter(value);
+                  setRankFilter(nextRank);
+                  if (nextRank !== 'all' && sortBy !== 'all_time_rank') {
+                    setSortBy('all_time_rank');
+                  }
+                  startTransition(() => setCurrentPage(1));
+                }}
+              >
+                <SelectTrigger className={cn('h-9 w-full text-xs', rankFilter !== 'all' && 'border-amber-500/45 bg-amber-500/10 text-foreground')}>
+                  <SelectValue placeholder="Sıralama" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">
+                    <Trophy className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
+                    <span>Tüm Sıralar</span>
+                  </SelectItem>
+                  <SelectItem value="top10">
+                    <Trophy className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                    <span>İlk 10</span>
+                  </SelectItem>
+                  <SelectItem value="top50">
+                    <Trophy className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+                    <span>İlk 50</span>
+                  </SelectItem>
+                  <SelectItem value="top100">
+                    <Trophy className="h-3.5 w-3.5 shrink-0 text-sky-400" />
+                    <span>İlk 100</span>
+                  </SelectItem>
+                  <SelectItem value="top500">
+                    <Trophy className="h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                    <span>İlk 500</span>
+                  </SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+
+            <div className="relative w-full sm:w-52">
               <Select
                 value={sortBy}
                 onValueChange={(value) => {
@@ -711,13 +814,17 @@ const Browse: React.FC = () => {
                   startTransition(() => setCurrentPage(1));
                 }}
               >
-                <SelectTrigger className="h-9 w-full text-xs">
+                <SelectTrigger className={cn('h-9 w-full text-xs', sortBy === 'all_time_rank' && 'border-amber-500/45 bg-amber-500/10 text-foreground')}>
                   <SelectValue placeholder="Sırala" />
                 </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="popular">
                     <Flame className="h-3.5 w-3.5 shrink-0 text-orange-400" />
                     <span>Popüler</span>
+                  </SelectItem>
+                  <SelectItem value="all_time_rank">
+                    <Trophy className="h-3.5 w-3.5 shrink-0 text-amber-400" />
+                    <span>Tüm Zamanlar Sıralaması</span>
                   </SelectItem>
                   <SelectItem value="rating">
                     <Star className="h-3.5 w-3.5 shrink-0 text-amber-400" />
@@ -845,6 +952,7 @@ const Browse: React.FC = () => {
                   <MangaCard
                     manga={item}
                     index={idx}
+                    allTimeRank={deferredSortBy === 'all_time_rank' || deferredRankFilter !== 'all' ? allTimeRankMap.get(item.id) : undefined}
                     topTenWeekIds={topTenWeekIds}
                     disableHeavyEffects={disableHeavyEffects || prefersReducedMotion}
                     enableEntryAnimation={!prefersReducedMotion}
